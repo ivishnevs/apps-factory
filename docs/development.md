@@ -16,6 +16,8 @@ credentials bind the company into their HMAC, so a token for another company's r
 Back up a stopped Core data directory before upgrading; downgrade requires restoring its compatible backup.
 
 `make build`, `make check`, `make up`, `make down`, `make schema`.
+`make hooks` (once per clone) enables `.githooks/pre-commit`, which refuses a commit whose staged Go files are not
+gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
 FACTORY_ROOT selects config root; FACTORY_DB selects SQLite file; FACTORY_LISTEN selects HTTP bind.
 FACTORY_URL is the native CLI/Worker endpoint. NATS_URL is the authenticated broker URL.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required.

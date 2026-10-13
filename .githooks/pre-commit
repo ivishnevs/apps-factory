@@ -1,0 +1,17 @@
+#!/bin/sh
+# Refuses a commit whose staged Go files are not gofmt-formatted. Enable with: make hooks
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')
+[ -z "$files" ] && exit 0
+bad=""
+for f in $files; do
+	# Check the staged content, not the working tree.
+	if [ -n "$(git show ":$f" | gofmt -l 2>&1)" ]; then
+		bad="$bad $f"
+	fi
+done
+if [ -n "$bad" ]; then
+	echo "gofmt: these staged files are not formatted:" >&2
+	for f in $bad; do echo "  $f" >&2; done
+	echo "run: gofmt -w$bad && git add$bad" >&2
+	exit 1
+fi

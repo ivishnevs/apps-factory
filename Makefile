@@ -1,4 +1,4 @@
-.PHONY: build test check up down worker node claude-worker schema
+.PHONY: build test check fmt hooks up down worker node claude-worker schema
 build:
 	mkdir -p bin
 	go build -o bin/factory ./cmd/factory
@@ -10,9 +10,13 @@ build:
 	cd workers/claude && npm ci --ignore-scripts && npm run build
 test:
 	go test -race ./...
-check: test
+check: fmt test
 	go vet ./...
 	cd workers/claude && npm run check && npm test
+fmt:
+	@out=$$(gofmt -l cmd internal); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
+hooks:
+	git config core.hooksPath .githooks
 up:
 	docker compose up -d --build
 down:
