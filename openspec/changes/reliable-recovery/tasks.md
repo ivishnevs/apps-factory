@@ -4,7 +4,7 @@
 - [ ] 1.3 Backoff steps, progress and reset rules. Verify: sequence tests (failed, failed, succeeded with progress, failed) produce 1 min, 5 min, reset, 1 min.
 - [ ] 1.4 Escalations `retries_exhausted`, `budget_exhausted` as parks + inbox items; answers retry/reassign/cancel; `cancel` with open children → `needs_cascade`; routing to role `manager`, else owner. Verify: three failed attempts park the task and a `retry` makes it runnable with counters reset; a company without a manager routes to the owner.
 - [ ] 1.5 `budget_exhausted` not opened with authority input above `handled_seq` (treated as retry); company `time_zone` for the budget day. Verify: test with a directive arriving during the budget-exhausting run; day boundary test in a non-UTC zone.
-- [ ] 1.6 Stall detection: `stalled` escalation for waits on BACKLOG/unassigned tasks (self-clearing), idle and no-progress alerts once per episode. Verify: fake-clock tests for each case, including automatic clearing.
+- [ ] 1.6 Stall detection: `stalled` escalation for waits on BACKLOG/unassigned tasks (self-clearing), idle and no-progress alerts once per episode. Verify: fake-clock tests for each case, including automatic clearing. Partial: stall alerts as attention feed events, raised once per episode and self-clearing, for waits on BACKLOG, unassigned or cancelled dependencies and for tasks idle 24 h (ecaccc1; fake-clock test). Escalation parks, the manager as target and no-progress alerts wait for escalations and the progress definition.
 
 ## 2. Side-effect inspection
 - [ ] 2.1 Policy rule `type: recovery, mode: inspect` in `internal/policies` + task `side_effects` field; snapshot on the run. Verify: config validation tests; `factory agents authorize` shows the effective mode.

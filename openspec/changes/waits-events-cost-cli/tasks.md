@@ -18,6 +18,6 @@
 - [ ] 4.2 Cost queries by task, agent, day, model; closed-task totals. Verify: API tests.
 
 ## 5. Owner CLI
-- [ ] 5.1 `watch`, `status`, `log`, `show` with `--json`. Verify: golden-output tests on a seeded database. Partial: `status [PROJECT]`, `watch [PROJECT] [--attention]` and `log TASK` (05a94de), tested against an in-process Core; `show`, `--json` and golden-output tests pending.
+- [ ] 5.1 `watch`, `status`, `log`, `show` with `--json`. Verify: golden-output tests on a seeded database. Partial: `status`, `watch`, `log` (05a94de), `show` and `--json` on all four (8e2a367), tested against an in-process Core; golden-output tests on a seeded database pending.
 - [ ] 5.2 `answer`, `comment [--urgent]`, task actions, pause scopes (project, agent, quota key, node), `stop`/`start`, `costs`, `pending` (`GET /pending/count`). Verify: CLI tests against the owner API; kill switch revokes all live runs and pauses claims; a node pause stops claims on that node only.
 - [ ] 5.3 Update README, `docs/reports-decisions.md`, `docs/messaging.md`. Verify: docs list the commands and Telegram behaviour.
