@@ -41,6 +41,13 @@ type RunSpec struct {
 	TimeoutSeconds int             `json:"timeout_seconds"`
 	SessionID      string          `json:"session_id,omitempty"`
 	RuntimeOptions map[string]any  `json:"runtime_options,omitempty"`
+
+	// Task worktrees (task-worktrees): set by Core from the project and the agent's
+	// spec.workspace.mode. Empty WorkspaceMode or "shared" keeps today's project workspace;
+	// "worktree" asks the worker for a worktree of RepoURL per task.
+	RepoURL       string `json:"repo_url,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	WorkspaceMode string `json:"workspace_mode,omitempty"`
 }
 
 type Envelope struct {
@@ -60,6 +67,33 @@ type Event struct {
 	Result    string          `json:"result,omitempty"`
 	Method    string          `json:"method,omitempty"`
 	Data      json.RawMessage `json:"data,omitempty"`
+	// Usage is the run's cumulative token use so far, one entry per model; Core keeps the last
+	// usage it receives, so the terminal event of a stopped or timed-out run should carry it.
+	Usage []Usage `json:"usage,omitempty"`
+	// Quota reports that the runtime hit its subscription limit; Core pauses the agent's quota key
+	// until ResetsAt.
+	Quota *Quota `json:"quota,omitempty"`
+}
+
+// Usage is cumulative token use of one model in a run (runtime-drivers 2.5).
+type Usage struct {
+	Model      string `json:"model"`
+	Input      int64  `json:"input"`
+	Output     int64  `json:"output"`
+	CacheRead  int64  `json:"cache_read,omitempty"`
+	CacheWrite int64  `json:"cache_write,omitempty"`
+	// CostUSD is set only when the runtime reports a price (Claude: total_cost_usd);
+	// CostSource names it, e.g. "claude_estimate". Without it Core prices usage later.
+	CostUSD    float64 `json:"cost_usd,omitempty"`
+	CostSource string  `json:"cost_source,omitempty"`
+}
+
+// Quota is a subscription limit hit (runtime-drivers 3.2).
+type Quota struct {
+	// ResetsAt is when the limit lifts; zero means unknown (Core then pauses for a default period).
+	ResetsAt time.Time `json:"resets_at,omitempty"`
+	// Type is the runtime's limit name, e.g. "five_hour".
+	Type string `json:"type,omitempty"`
 }
 
 func ID() string {

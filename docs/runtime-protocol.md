@@ -55,3 +55,18 @@ only active run credentials, not the shared owner token.
 Messaging communication runs carry message_id without task_id, reusing the same app-server RPC.
 An owner conversation may supply session_id to resume; separate agent question runs start a fresh
 thread. Blocking task continuations reuse their original task thread after explicit answers.
+
+## Core ↔ worker: additive fields (agreed 2026-10-14)
+
+Optional fields; workers and Cores that do not know them ignore them.
+
+- `RunSpec.repo_url`, `RunSpec.default_branch`, `RunSpec.workspace_mode` (`""`/`shared` = today's project
+  workspace, `worktree` = a worktree of `repo_url` per task). Core fills them from the project (`repo_url`,
+  `default_branch`) and the agent's `spec.workspace.mode`.
+- `Event.usage`: array of `{model, input, output, cache_read, cache_write, cost_usd, cost_source}`, cumulative for
+  the run, one entry per model. Core keeps the last usage it receives on the run (`runs.usage`), so a stopped or
+  timed-out run reports usage on its terminal event. `cost_usd`/`cost_source` only when the runtime prices it
+  (Claude: `claude_estimate`).
+- `Event.quota`: `{resets_at, type}` when the runtime hits its subscription limit. Core pauses the agent's
+  quota key (`spec.runtime.quota_key`, default the agent name) until `resets_at` (unknown: a default period);
+  the run's own outcome is reported as usual.
