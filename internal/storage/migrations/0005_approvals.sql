@@ -5,4 +5,3 @@ CREATE TABLE approvals (
  UNIQUE(project_id,agent,task_id,fingerprint)
 );
 ALTER TABLE tool_calls ADD COLUMN approval_id TEXT REFERENCES approvals(id);
-PRAGMA user_version=5;

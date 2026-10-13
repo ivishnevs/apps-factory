@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,26 +13,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed schema.sql
-var schema string
-
-//go:embed migration2.sql
-var migration2 string
-
-//go:embed migration3.sql
-var migration3 string
-
-//go:embed migration4.sql
-var migration4 string
-
-//go:embed migration5.sql
-var migration5 string
-
-//go:embed migration6.sql
-var migration6 string
-
-//go:embed migration7.sql
-var migration7 string
 var ErrInput = errors.New("invalid input")
 var ErrInvalid = errors.New("invalid event")
 var ErrConflict = errors.New("state or version conflict")
@@ -62,53 +41,13 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	var version int
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if version > 7 {
-		db.Close()
-		return nil, fmt.Errorf("unsupported database schema %d", version)
-	}
 	for _, q := range []string{"PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000", "PRAGMA journal_mode=WAL"} {
 		if _, err = db.Exec(q); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	if version == 0 {
-		_, err = tx.Exec(schema)
-	}
-	if err == nil && version < 2 {
-		_, err = tx.Exec(migration2)
-	}
-	if err == nil && version < 3 {
-		_, err = tx.Exec(migration3)
-	}
-	if err == nil && version < 4 {
-		_, err = tx.Exec(migration4)
-	}
-	if err == nil && version < 5 {
-		_, err = tx.Exec(migration5)
-	}
-	if err == nil && version < 6 {
-		_, err = tx.Exec(migration6)
-	}
-	if err == nil && version < 7 {
-		_, err = tx.Exec(migration7)
-	}
-	if err != nil {
-		tx.Rollback()
-		db.Close()
-		return nil, err
-	}
-	if err = tx.Commit(); err != nil {
+	if err = migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}

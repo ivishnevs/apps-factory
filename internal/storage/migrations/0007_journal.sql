@@ -9,4 +9,3 @@ CREATE TABLE decisions (
 );
 CREATE UNIQUE INDEX approved_decision_topic ON decisions(project_id,topic) WHERE status='approved';
 CREATE INDEX decisions_project ON decisions(project_id,status,topic);
-PRAGMA user_version=7;

@@ -16,4 +16,3 @@ CREATE UNIQUE INDEX unique_task_question ON messages(task_id,fingerprint) WHERE 
 CREATE TABLE message_runs (
  run_id TEXT PRIMARY KEY REFERENCES runs(id), message_id TEXT NOT NULL REFERENCES messages(id)
 );
-PRAGMA user_version=4;

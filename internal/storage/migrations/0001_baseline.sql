@@ -1,22 +1,21 @@
-CREATE TABLE IF NOT EXISTS runs (
+CREATE TABLE runs (
  id TEXT PRIMARY KEY, project TEXT NOT NULL, agent TEXT NOT NULL, workspace TEXT NOT NULL,
  spec BLOB NOT NULL, status TEXT NOT NULL, lease TEXT NOT NULL DEFAULT '',
  lease_until INTEGER NOT NULL DEFAULT 0, session_id TEXT NOT NULL DEFAULT '',
  result TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS project_writer ON runs(project)
+CREATE UNIQUE INDEX project_writer ON runs(project)
  WHERE status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN');
-CREATE UNIQUE INDEX IF NOT EXISTS workspace_writer ON runs(workspace)
+CREATE UNIQUE INDEX workspace_writer ON runs(workspace)
  WHERE workspace != '' AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN');
-CREATE UNIQUE INDEX IF NOT EXISTS session_turn ON runs(session_id)
+CREATE UNIQUE INDEX session_turn ON runs(session_id)
  WHERE session_id != '' AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN');
-CREATE UNIQUE INDEX IF NOT EXISTS agent_slot ON runs(agent)
+CREATE UNIQUE INDEX agent_slot ON runs(agent)
  WHERE status IN ('RUNNING','CANCELLING');
-CREATE TABLE IF NOT EXISTS outbox (
+CREATE TABLE outbox (
  id TEXT PRIMARY KEY, subject TEXT NOT NULL, body BLOB NOT NULL, sent INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE IF NOT EXISTS events (
+CREATE TABLE events (
  seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  run_id TEXT NOT NULL REFERENCES runs(id), body BLOB NOT NULL
 );
-PRAGMA user_version = 1;

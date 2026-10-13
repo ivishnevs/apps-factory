@@ -2,9 +2,12 @@
 
 Go 1.24.1; nats.go 1.41.2 (compatible with this Go baseline), modernc SQLite 1.36.3,
 yaml.v3 3.0.1. SQLite is pure Go; no CGO toolchain is needed in the Core container.
-Embedded migrations are internal/storage/schema.sql (version 1) migration2.sql (Task Engine) and migration3.sql (MCP audit), and migration4.sql (messaging).
-Subsequent migrations add action approvals (5), artifact approvals (6), and reports/decisions (7).
-Startup migrates transactionally to PRAGMA user_version = 7 without rewriting old run specs.
+Migrations are embedded from `internal/storage/migrations/NNNN_name.sql` and applied in order, one
+transaction each, recorded in `schema_migrations(version, name, applied_at)`. `0001`–`0007` are the former
+`schema.sql`/`migrationN.sql` chain; a database left by that chain (`PRAGMA user_version` ≤ 7, no
+`schema_migrations`) is adopted without re-running anything. `user_version` mirrors the highest applied
+version, so older Cores still refuse a newer schema; Core refuses to start when the database has a version it
+does not know. A new migration is a new file with the next number; never edit an applied one.
 Back up a stopped Core data directory before upgrading; downgrade requires restoring its compatible backup.
 
 `make build`, `make check`, `make up`, `make down`, `make schema`.

@@ -8,4 +8,3 @@ ALTER TABLE approvals ADD COLUMN artifact_version TEXT;
 CREATE UNIQUE INDEX active_artifact_approval ON approvals(project_id,artifact_id,artifact_version)
  WHERE kind='artifact' AND status IN ('PENDING','APPROVED');
 CREATE INDEX artifact_approval_history ON approvals(project_id,artifact_id,artifact_version);
-PRAGMA user_version=6;

@@ -37,4 +37,3 @@ CREATE TABLE mutation_results (
  scope TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, response BLOB NOT NULL,
  PRIMARY KEY(scope,request_id)
 );
-PRAGMA user_version = 2;

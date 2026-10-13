@@ -70,9 +70,7 @@ func TestMigrationPreservesFoundation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(schema); err != nil {
-		t.Fatal(err)
-	}
+	legacySchema(t, db, 1)
 	spec := protocol.RunSpec{ID: "legacy", Project: "legacy", Agent: "demo"}
 	b, _ := json.Marshal(spec)
 	if _, err = db.Exec("INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,result) VALUES('legacy','legacy','demo','/tmp/legacy',?,'COMPLETED',1,'old result')", b); err != nil {
@@ -88,9 +86,13 @@ func TestMigrationPreservesFoundation(t *testing.T) {
 	if err != nil || r.Result != "old result" {
 		t.Fatal(r, err)
 	}
-	var version int
-	if err = s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 7 {
+	ms, _ := migrations()
+	var version, recorded int
+	if err = s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(ms) {
 		t.Fatal(version, err)
+	}
+	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&recorded); err != nil || recorded != len(ms) {
+		t.Fatal(recorded, err)
 	}
 }
 func TestDependenciesReviewAndRework(t *testing.T) {
