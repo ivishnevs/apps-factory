@@ -63,6 +63,14 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Actor != "" {
 			p.CreatedBy = p.Actor
 		}
+		// Only Factory MCP calls carry an origin; agent-created tasks are deduplicated by it.
+		if run, ok := r.Context().Value(runKey{}).(protocol.RunSpec); ok {
+			p.OriginRun, p.OriginTask = run.ID, run.TaskID
+			p.Roles = map[string]string{}
+			for name, a := range c.Agents {
+				p.Roles[name] = a.Spec.Role
+			}
+		}
 		v, err := c.Store.CreateTask(r.Context(), c.companyFrom(r), p)
 		reply(w, v, err)
 	})

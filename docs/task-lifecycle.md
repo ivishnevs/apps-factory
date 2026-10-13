@@ -25,6 +25,13 @@ Dependencies/assignment/metadata can change before execution, after rejection or
 They cannot change during active execution, review, final state, or an unresolved UNKNOWN run.
 Parent tasks must exist in the same project; parent assignment is immutable and does not imply an
 execution dependency. OpenSpec change is a stored reference, not an implemented OpenSpec adapter.
+Cycles are checked on "waits for" edges — a task waits for its dependencies and a parent for its children —
+so a dependency that is the task's parent or reaches it is refused with 409 `cycle`, like any DAG cycle.
+
+Tasks created through Factory MCP record `origin_task` and `origin_run` (from the run credential, never from
+tool arguments). Creation is deduplicated: when an open task with the same origin task, the same title
+(case-folded, whitespace collapsed) and an assignee of the same role exists, Core returns it with
+`deduplicated: true` instead of creating another. Owner-created tasks are never deduplicated.
 
 Scheduler selects by descending priority, then creation time/ID. It atomically verifies the task
 version, dependencies and slots, inserts the run and attempt, marks IN_PROGRESS and enqueues a

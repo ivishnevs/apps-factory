@@ -51,6 +51,11 @@ type Task struct {
 	ReviewFeedback    string      `json:"review_feedback,omitempty"`
 	BlockReason       string      `json:"block_reason,omitempty"`
 	CancelRequested   bool        `json:"cancel_requested"`
+	// OriginTask and OriginRun record the run that created this task through Factory MCP.
+	OriginTask string `json:"origin_task,omitempty"`
+	OriginRun  string `json:"origin_run,omitempty"`
+	// Deduplicated is set only on a create response that returned an existing open task.
+	Deduplicated bool `json:"deduplicated,omitempty"`
 }
 type ProjectCreate struct {
 	ID          string `json:"id"`
@@ -79,6 +84,10 @@ type Create struct {
 	Dependencies      []string   `json:"dependencies"`
 	RequestID         string     `json:"request_id,omitempty"`
 	Actor             string     `json:"actor,omitempty"`
+	// Trusted metadata set by Core, never decoded from a request body.
+	OriginTask string            `json:"-"`
+	OriginRun  string            `json:"-"`
+	Roles      map[string]string `json:"-"` // agent name → role, from the Core catalog
 }
 type Update struct {
 	RequiredArtifacts *[]Artifact `json:"required_artifacts,omitempty"`

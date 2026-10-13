@@ -71,6 +71,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		reply(w, nil, err)
 		return
 	}
+	r = r.WithContext(context.WithValue(r.Context(), runKey{}, run.Spec))
 	current, ok := c.Agents[run.Spec.Agent]
 	if !ok {
 		http.Error(w, "agent unavailable", 403)

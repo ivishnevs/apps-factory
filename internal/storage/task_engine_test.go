@@ -164,7 +164,7 @@ func TestDAGAndOptimisticIdempotency(t *testing.T) {
 	a := createEngineTask(t, s, "a")
 	b := createEngineTask(t, s, "b", "a")
 	deps := []string{b.ID}
-	if _, err := s.UpdateTask(ctx, DefaultCompany, a.ID, tasks.Update{Version: a.Version, Dependencies: &deps}); !errors.Is(err, ErrInput) {
+	if _, err := s.UpdateTask(ctx, DefaultCompany, a.ID, tasks.Update{Version: a.Version, Dependencies: &deps}); !errors.Is(err, ErrCycle) {
 		t.Fatal("cycle accepted", err)
 	}
 	title := "updated"

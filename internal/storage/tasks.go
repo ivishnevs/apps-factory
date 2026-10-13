@@ -203,7 +203,7 @@ func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]t
 }
 func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.create", in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
-		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, OriginTask: in.OriginTask, OriginRun: in.OriginRun, Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
 		if t.ID == "" {
 			t.ID = protocol.ID()
 		}
@@ -217,6 +217,13 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			return t, inputError("valid task id/title and priority -1000..1000 required")
 		}
 		if _, err := projectTx(ctx, tx, t.ProjectID); err != nil {
+			return t, err
+		}
+		if dup, err := duplicateTask(ctx, tx, t, in.Roles); err != nil || dup != nil {
+			if dup != nil {
+				dup.Deduplicated = true
+				return *dup, nil
+			}
 			return t, err
 		}
 		if err := s.checkTaskChange(ctx, tx, t); err != nil {
@@ -244,6 +251,50 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		return t, entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t)
 	})
 }
+// ErrCycle refuses a parent/dependency combination in which a task would wait on itself.
+var ErrCycle = fmt.Errorf("%w: cycle", ErrConflict)
+
+func normalTitle(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
+
+// duplicateTask finds an open task created by the same origin task with the same normalized
+// title and an assignee of the same role, so a retried or repeated agent run reuses it.
+func duplicateTask(ctx context.Context, tx *Tx, t tasks.Task, roles map[string]string) (*tasks.Task, error) {
+	if t.OriginTask == "" {
+		return nil, nil
+	}
+	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND json_extract(body,'$.origin_task')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id", tx.company, t.ProjectID, t.OriginTask)
+	if err != nil {
+		return nil, err
+	}
+	role := func(agent string) string {
+		if agent == "" {
+			return ""
+		}
+		if r, ok := roles[agent]; ok {
+			return "role:" + r
+		}
+		return "agent:" + agent
+	}
+	for i := range open {
+		if normalTitle(open[i].Title) == normalTitle(t.Title) && role(open[i].Assignee) == role(t.Assignee) {
+			return &open[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// waitsFor reports whether target is reachable from start along "waits for" edges:
+// a task waits for its dependencies and a parent waits for its children.
+func waitsFor(ctx context.Context, tx *Tx, start, target string) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `WITH RECURSIVE reachable(id) AS (
+ SELECT ?
+ UNION SELECT d.depends_on FROM task_dependencies d JOIN reachable r ON d.task_id=r.id
+ UNION SELECT c.id FROM tasks c JOIN reachable r ON json_extract(c.body,'$.parent_task_id')=r.id WHERE c.company_id=?
+) SELECT count(*) FROM reachable WHERE id=?`, start, tx.company, target).Scan(&n)
+	return n > 0, err
+}
+
 func dependencies(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM task_dependencies WHERE task_id=?", t.ID); err != nil {
 		return err
@@ -264,13 +315,13 @@ func dependencies(ctx context.Context, tx *Tx, t tasks.Task) error {
 		if d.ProjectID != t.ProjectID {
 			return inputError("dependencies must belong to same project")
 		}
-		var cycle int
-		err = tx.QueryRowContext(ctx, `WITH RECURSIVE reachable(id) AS (SELECT ? UNION SELECT d.depends_on FROM task_dependencies d JOIN reachable r ON d.task_id=r.id) SELECT count(*) FROM reachable WHERE id=?`, dep, t.ID).Scan(&cycle)
+		// The task row (with its parent) already exists, so reaching the parent reaches the task.
+		cycle, err := waitsFor(ctx, tx, dep, t.ID)
 		if err != nil {
 			return err
 		}
-		if cycle > 0 {
-			return inputError("dependency cycle")
+		if cycle {
+			return ErrCycle
 		}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO task_dependencies VALUES(?,?,?)", t.ID, dep, tx.company); err != nil {
 			return err

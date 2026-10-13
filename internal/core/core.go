@@ -39,6 +39,9 @@ type Core struct {
 
 type companyKey struct{}
 
+// runKey carries the authenticated run's spec from agentGateway to the routes it forwards to.
+type runKey struct{}
+
 func (c *Core) company() string {
 	if c.Company == "" {
 		return storage.DefaultCompany
