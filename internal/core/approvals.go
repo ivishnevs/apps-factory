@@ -24,11 +24,11 @@ func approvalMeta(name string) bool {
 }
 func (c *Core) approvalRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /approvals", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Approvals(r.Context(), r.URL.Query().Get("project"))
+		v, err := c.Store.Approvals(r.Context(), c.companyFrom(r), r.URL.Query().Get("project"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /approvals/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Approval(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Approval(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /approvals/{id}/decision", func(w http.ResponseWriter, r *http.Request) {
@@ -38,13 +38,13 @@ func (c *Core) approvalRoutes(m *http.ServeMux) {
 		}
 		c.approvalMu.Lock()
 		defer c.approvalMu.Unlock()
-		v, err := c.Store.DecideApproval(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.DecideApproval(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 }
 func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run, snapshot, current config.Agent, allowed func(factorytools.Tool) bool) {
 	if p.Name == "factory_approval_get" {
-		a, err := c.Store.Approval(r.Context(), p.Arguments["approval_id"].(string))
+		a, err := c.Store.Approval(r.Context(), c.companyFrom(r), p.Arguments["approval_id"].(string))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -104,7 +104,7 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		}
 	}
 	if id, _ := call.Arguments["id"].(string); id != "" {
-		t, err := c.Store.Task(r.Context(), id)
+		t, err := c.Store.Task(r.Context(), c.companyFrom(r), id)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -116,7 +116,7 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 	}
 
 	if id, _ := call.Arguments["decision_id"].(string); id != "" {
-		d, err := c.Store.Decision(r.Context(), id)
+		d, err := c.Store.Decision(r.Context(), c.companyFrom(r), id)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -144,6 +144,6 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 	in.TaskID = run.Spec.TaskID
 	in.RunID = run.Spec.ID
 	in.Call = call
-	v, err := c.Store.RequestApproval(r.Context(), in)
+	v, err := c.Store.RequestApproval(r.Context(), c.companyFrom(r), in)
 	reply(w, v, err)
 }

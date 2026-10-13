@@ -22,15 +22,15 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.CreateProject(r.Context(), p)
+		v, err := c.Store.CreateProject(r.Context(), c.companyFrom(r), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Projects(r.Context())
+		v, err := c.Store.Projects(r.Context(), c.companyFrom(r))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Project(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Project(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("PATCH /projects/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -38,11 +38,11 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.UpdateProject(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.UpdateProject(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{id}/events", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.EntityEvents(r.Context(), r.PathValue("id"), "")
+		v, err := c.Store.EntityEvents(r.Context(), c.companyFrom(r), r.PathValue("id"), "")
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -63,42 +63,42 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Actor != "" {
 			p.CreatedBy = p.Actor
 		}
-		v, err := c.Store.CreateTask(r.Context(), p)
+		v, err := c.Store.CreateTask(r.Context(), c.companyFrom(r), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.list", false, false) {
 			return
 		}
-		v, err := c.Store.Tasks(r.Context(), r.URL.Query().Get("project"), r.URL.Query().Get("status"))
+		v, err := c.Store.Tasks(r.Context(), c.companyFrom(r), r.URL.Query().Get("project"), r.URL.Query().Get("status"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		v, err := c.Store.Task(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /tasks/{id}/attempts", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		v, err := c.Store.Attempts(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Attempts(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /tasks/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		v, err := c.Store.EntityEvents(r.Context(), "", r.PathValue("id"))
+		v, err := c.Store.EntityEvents(r.Context(), c.companyFrom(r), "", r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /tasks/{id}/comments", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		v, err := c.Store.Comments(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Comments(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +121,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 		}
-		v, err := c.Store.UpdateTask(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.UpdateTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks/{id}/actions", func(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +133,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		if p.Action == "ready" {
-			t, err := c.Store.Task(r.Context(), r.PathValue("id"))
+			t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
 			if err != nil {
 				reply(w, nil, err)
 				return
@@ -142,7 +142,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 		}
-		v, err := c.Store.TaskAction(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.TaskAction(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks/{id}/submit", func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +157,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		if p.Actor != "" {
-			t, err := c.Store.Task(r.Context(), r.PathValue("id"))
+			t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
 			if err != nil {
 				reply(w, nil, err)
 				return
@@ -167,7 +167,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 		}
-		v, err := c.Store.SubmitTask(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.SubmitTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks/{id}/review", func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +179,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		if p.Actor != "" {
-			t, err := c.Store.Task(r.Context(), r.PathValue("id"))
+			t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
 			if err != nil {
 				reply(w, nil, err)
 				return
@@ -189,7 +189,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 		}
-		v, err := c.Store.ReviewTask(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.ReviewTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 }
@@ -227,10 +227,11 @@ func (c *Core) taskPermit(w http.ResponseWriter, r *http.Request, actor, operati
 	return true
 }
 func (c *Core) Schedule(ctx context.Context) error {
-	if err := c.Store.ReconcileArtifactTasks(ctx); err != nil {
+	company := c.company()
+	if err := c.Store.ReconcileArtifactTasks(ctx, company); err != nil {
 		return err
 	}
-	failed, err := c.Store.Tasks(ctx, "", "FAILED")
+	failed, err := c.Store.Tasks(ctx, company, "", "FAILED")
 	if err != nil {
 		return err
 	}
@@ -238,7 +239,7 @@ func (c *Core) Schedule(ctx context.Context) error {
 		if !t.RetryEligible {
 			continue
 		}
-		run, err := c.Store.Get(ctx, t.CurrentRunID)
+		run, err := c.Store.Get(ctx, company, t.CurrentRunID)
 		if err != nil {
 			return err
 		}
@@ -249,9 +250,9 @@ func (c *Core) Schedule(ctx context.Context) error {
 		if t.Attempt > snapshot.Spec.Execution.MaxRetries {
 			continue
 		}
-		if _, err = c.Store.TaskAction(ctx, t.ID, tasks.Action{Version: t.Version, Action: "ready", Reason: "Bounded retry after known failed turn; inspect previous attempt and workspace", Actor: "system", RequestID: "retry-" + t.CurrentRunID}); err != nil && !errors.Is(err, storage.ErrConflict) {
+		if _, err = c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "ready", Reason: "Bounded retry after known failed turn; inspect previous attempt and workspace", Actor: "system", RequestID: "retry-" + t.CurrentRunID}); err != nil && !errors.Is(err, storage.ErrConflict) {
 			if errors.Is(err, storage.ErrInput) {
-				if _, e := c.Store.TaskAction(ctx, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"}); e != nil && !errors.Is(e, storage.ErrConflict) {
+				if _, e := c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"}); e != nil && !errors.Is(e, storage.ErrConflict) {
 					return e
 				}
 				continue
@@ -259,7 +260,7 @@ func (c *Core) Schedule(ctx context.Context) error {
 			return err
 		}
 	}
-	ready, err := c.Store.Tasks(ctx, "", "READY")
+	ready, err := c.Store.Tasks(ctx, company, "", "READY")
 	if err != nil {
 		return err
 	}
@@ -268,7 +269,7 @@ func (c *Core) Schedule(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		p, err := c.Store.Project(ctx, t.ProjectID)
+		p, err := c.Store.Project(ctx, company, t.ProjectID)
 		if err != nil {
 			return err
 		}
@@ -286,7 +287,7 @@ func (c *Core) Schedule(ctx context.Context) error {
 			fmt.Fprintf(&prompt, "Previous attempt result: %s\nInspect the workspace and previous changes before continuing. Do not repeat completed side effects.\n", contextExcerpt(t.Result, 16*1024))
 		}
 		if t.WaitMessageID != "" {
-			answer, err := c.Store.AnswerFor(ctx, t.WaitMessageID)
+			answer, err := c.Store.AnswerFor(ctx, company, t.WaitMessageID)
 			if err != nil {
 				return err
 			}
@@ -300,7 +301,7 @@ func (c *Core) Schedule(ctx context.Context) error {
 			fmt.Fprintf(&prompt, "Previous review feedback: %s\n", t.ReviewFeedback)
 		}
 		for _, dep := range t.Dependencies {
-			d, err := c.Store.Task(ctx, dep)
+			d, err := c.Store.Task(ctx, company, dep)
 			if err != nil {
 				return err
 			}
@@ -308,12 +309,12 @@ func (c *Core) Schedule(ctx context.Context) error {
 		}
 		prompt.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")
 		spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: p.Workspace, Prompt: prompt.String(), Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigHash: hex.EncodeToString(hash[:]), ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
-		if _, err = c.Store.Dispatch(ctx, t.ID, t.Version, spec); err != nil {
+		if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err != nil {
 			if errors.Is(err, storage.ErrConflict) {
 				continue
 			}
 			if errors.Is(err, storage.ErrInput) {
-				_, blockErr := c.Store.TaskAction(ctx, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"})
+				_, blockErr := c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"})
 				if blockErr != nil && !errors.Is(blockErr, storage.ErrConflict) {
 					return blockErr
 				}

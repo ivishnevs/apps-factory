@@ -44,11 +44,11 @@ func (c *Core) openSpecRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, e := c.Store.InitOpenSpec(r.Context(), r.PathValue("project"), "owner", "", p.RequestID)
+		v, e := c.Store.InitOpenSpec(r.Context(), c.companyFrom(r), r.PathValue("project"), "owner", "", p.RequestID)
 		openSpecReply(w, v, e)
 	})
 	m.HandleFunc("GET /projects/{project}/openspec/list", func(w http.ResponseWriter, r *http.Request) {
-		p, e := c.Store.Project(r.Context(), r.PathValue("project"))
+		p, e := c.Store.Project(r.Context(), c.companyFrom(r), r.PathValue("project"))
 		if e != nil {
 			openSpecReply(w, nil, e)
 			return
@@ -62,7 +62,7 @@ func (c *Core) openSpecRoutes(m *http.ServeMux) {
 		openSpecReply(w, v, e)
 	})
 	m.HandleFunc("GET /projects/{project}/openspec/read", func(w http.ResponseWriter, r *http.Request) {
-		p, e := c.Store.Project(r.Context(), r.PathValue("project"))
+		p, e := c.Store.Project(r.Context(), c.companyFrom(r), r.PathValue("project"))
 		if e != nil {
 			openSpecReply(w, nil, e)
 			return
@@ -81,7 +81,7 @@ func (c *Core) openSpecRoutes(m *http.ServeMux) {
 		openSpecReply(w, v, e)
 	})
 	m.HandleFunc("GET /projects/{project}/openspec/check/{change}", func(w http.ResponseWriter, r *http.Request) {
-		p, e := c.Store.Project(r.Context(), r.PathValue("project"))
+		p, e := c.Store.Project(r.Context(), c.companyFrom(r), r.PathValue("project"))
 		if e != nil {
 			openSpecReply(w, nil, e)
 			return
@@ -93,7 +93,7 @@ func (c *Core) openSpecRoutes(m *http.ServeMux) {
 func (c *Core) openSpecTool(w http.ResponseWriter, r *http.Request, call factorytools.Call, run storage.Run) {
 	args := call.Arguments
 	if call.Name == "factory_openspec_init" {
-		v, e := c.Store.InitOpenSpec(r.Context(), run.Spec.Project, run.Spec.Agent, run.Spec.ID, stringArg(args, "request_id"))
+		v, e := c.Store.InitOpenSpec(r.Context(), c.companyFrom(r), run.Spec.Project, run.Spec.Agent, run.Spec.ID, stringArg(args, "request_id"))
 		openSpecReply(w, v, e)
 		return
 	}

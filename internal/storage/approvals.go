@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"strings"
@@ -20,14 +19,14 @@ func callFingerprint(call factorytools.Call) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
-func (s *Store) Approval(ctx context.Context, id string) (approvals.Approval, error) {
-	return getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE id=?", id)
+func (s *Store) Approval(ctx context.Context, company, id string) (approvals.Approval, error) {
+	return getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
 }
-func (s *Store) Approvals(ctx context.Context, project string) ([]approvals.Approval, error) {
-	return listDocs[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE (?='' OR project_id=?) ORDER BY rowid", project, project)
+func (s *Store) Approvals(ctx context.Context, company, project string) ([]approvals.Approval, error) {
+	return listDocs[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND (?='' OR project_id=?) ORDER BY rowid", company, project, project)
 }
-func (s *Store) RequestApproval(ctx context.Context, in approvals.Request) (approvals.Approval, error) {
-	return mutate(ctx, s, "approval.request:"+in.ProjectID+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *sql.Tx) (approvals.Approval, error) {
+func (s *Store) RequestApproval(ctx context.Context, company string, in approvals.Request) (approvals.Approval, error) {
+	return mutate(ctx, s, company, "approval.request:"+in.ProjectID+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
 		a := approvals.Approval{ID: protocol.ID(), ProjectID: in.ProjectID, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Call: in.Call, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: time.Now().Unix()}
 		b, err := json.Marshal(in.Call)
 		if err != nil || len(b) > 12*1024 || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.RequestID == "" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
@@ -49,13 +48,13 @@ func (s *Store) RequestApproval(ctx context.Context, in approvals.Request) (appr
 			return a, err
 		}
 		data, _ := json.Marshal(a)
-		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body) VALUES(?,?,?,?,?,?,?,?)", a.ID, a.ProjectID, a.Agent, a.TaskID, callFingerprint(a.Call), a.MessageID, a.Status, data); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,company_id) VALUES(?,?,?,?,?,?,?,?,?)", a.ID, a.ProjectID, a.Agent, a.TaskID, callFingerprint(a.Call), a.MessageID, a.Status, data, tx.company); err != nil {
 			return a, err
 		}
 		return a, entityEvent(ctx, tx, "approval.requested", a.ProjectID, a.ID, a)
 	})
 }
-func saveApproval(ctx context.Context, tx *sql.Tx, a *approvals.Approval, kind string) error {
+func saveApproval(ctx context.Context, tx *Tx, a *approvals.Approval, kind string) error {
 	a.Version++
 	b, _ := json.Marshal(a)
 	if _, err := tx.ExecContext(ctx, "UPDATE approvals SET status=?,body=? WHERE id=?", a.Status, b, a.ID); err != nil {
@@ -63,9 +62,9 @@ func saveApproval(ctx context.Context, tx *sql.Tx, a *approvals.Approval, kind s
 	}
 	return entityEvent(ctx, tx, kind, a.ProjectID, a.ID, a)
 }
-func (s *Store) DecideApproval(ctx context.Context, id string, in approvals.Decision) (approvals.Approval, error) {
-	return mutate(ctx, s, "approval.decision:"+id, in.RequestID, in, func(tx *sql.Tx) (approvals.Approval, error) {
-		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE id=?", id)
+func (s *Store) DecideApproval(ctx context.Context, company, id string, in approvals.Decision) (approvals.Approval, error) {
+	return mutate(ctx, s, company, "approval.decision:"+id, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
+		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
 		if err != nil {
 			return a, err
 		}
@@ -95,7 +94,7 @@ func (s *Store) DecideApproval(ctx context.Context, id string, in approvals.Deci
 			default:
 				return a, inputError("action must be approve, reject or revoke")
 			}
-			m, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", a.MessageID)
+			m, err := messageTx(ctx, tx, a.MessageID)
 			if err != nil {
 				return a, err
 			}
@@ -114,16 +113,16 @@ func (s *Store) DecideApproval(ctx context.Context, id string, in approvals.Deci
 }
 
 // CallApproval looks up an exact logical intent, including its mutation request ID.
-func (s *Store) CallApproval(ctx context.Context, project, agent, task string, call factorytools.Call) (approvals.Approval, error) {
-	return getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE kind='action' AND project_id=? AND agent=? AND task_id=? AND fingerprint=?", project, agent, task, callFingerprint(call))
+func (s *Store) CallApproval(ctx context.Context, company, project, agent, task string, call factorytools.Call) (approvals.Approval, error) {
+	return getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND kind='action' AND project_id=? AND agent=? AND task_id=? AND fingerprint=?", company, project, agent, task, callFingerprint(call))
 }
-func (s *Store) ExpireApprovals(ctx context.Context) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) ExpireApprovals(ctx context.Context, company string) error {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE status IN ('PENDING','APPROVED') AND (kind='action' OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", time.Now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind='action' OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", company, time.Now().Unix())
 	if err != nil {
 		return err
 	}
@@ -148,7 +147,7 @@ func (s *Store) ExpireApprovals(ctx context.Context) error {
 	}
 	for _, a := range items {
 		if a.Status == "PENDING" {
-			m, e := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", a.MessageID)
+			m, e := messageTx(ctx, tx, a.MessageID)
 			if e != nil {
 				return e
 			}

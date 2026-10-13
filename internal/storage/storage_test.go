@@ -18,40 +18,40 @@ func TestDurableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := protocol.RunSpec{ID: "one", Project: "p", Agent: "demo", Provider: protocol.RuntimeCodex, Workspace: "/tmp/p"}
-	if err = s.Create(ctx, spec); err != nil {
+	if err = s.Create(ctx, DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
 	other := spec
 	other.ID = "two"
-	if err = s.Create(ctx, other); err == nil {
+	if err = s.Create(ctx, DefaultCompany, other); err == nil {
 		t.Fatal("duplicate writer accepted")
 	}
 	out, err := s.Pending(ctx)
 	if err != nil || len(out) != 1 {
 		t.Fatalf("outbox not atomic: %v %v", out, err)
 	}
-	token, err := s.Claim(ctx, "one")
+	token, err := s.Claim(ctx, DefaultCompany, "one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, "one"); err == nil {
+	if _, err = s.Claim(ctx, DefaultCompany, "one"); err == nil {
 		t.Fatal("duplicate claim accepted")
 	}
 	bad := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: "wrong", Status: "COMPLETED"})
-	if err = s.Apply(ctx, bad); err == nil {
+	if err = s.Apply(ctx, DefaultCompany, bad); err == nil {
 		t.Fatal("bad lease accepted")
 	}
 	event := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: token, SessionID: "thread-1", Status: "COMPLETED", Result: "ok"})
 	for i := 0; i < 2; i++ {
-		if err = s.Apply(ctx, event); err != nil {
+		if err = s.Apply(ctx, DefaultCompany, event); err != nil {
 			t.Fatal(err)
 		}
 	}
-	events, err := s.Events(ctx, "one")
+	events, err := s.Events(ctx, DefaultCompany, "one")
 	if err != nil || len(events) != 1 {
 		t.Fatal("duplicate event persisted", err)
 	}
-	if err = s.Apply(ctx, protocol.Wrap("progress", "one", "", protocol.Event{RunID: "one", Lease: token})); err != nil {
+	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("progress", "one", "", protocol.Event{RunID: "one", Lease: token})); err != nil {
 		t.Fatal(err)
 	}
 	s.DB.Close()
@@ -60,11 +60,11 @@ func TestDurableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.DB.Close()
-	run, err := s.Get(ctx, "one")
+	run, err := s.Get(ctx, DefaultCompany, "one")
 	if err != nil || run.Status != "COMPLETED" || run.Result != "ok" || run.SessionID != "thread-1" {
 		t.Fatalf("restart persistence: %+v %v", run, err)
 	}
-	if err = s.Create(ctx, other); err != nil {
+	if err = s.Create(ctx, DefaultCompany, other); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -76,30 +76,30 @@ func TestLeaseLossRequiresReconciliation(t *testing.T) {
 	}
 	defer s.DB.Close()
 	spec := protocol.RunSpec{ID: "r", Project: "p", Agent: "demo"}
-	if err = s.Create(ctx, spec); err != nil {
+	if err = s.Create(ctx, DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	token, err := s.Claim(ctx, "r")
+	token, err := s.Claim(ctx, DefaultCompany, "r")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.DB.Exec("UPDATE runs SET lease_until=?", time.Now().Add(-time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Expire(ctx); err != nil {
+	if err = s.Expire(ctx, DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Heartbeat(ctx, "r", token); err == nil {
+	if _, err = s.Heartbeat(ctx, DefaultCompany, "r", token); err == nil {
 		t.Fatal("revived lost lease")
 	}
-	if _, err = s.Claim(ctx, "r"); err == nil {
+	if _, err = s.Claim(ctx, DefaultCompany, "r"); err == nil {
 		t.Fatal("blind retry allowed")
 	}
-	run, _ := s.Get(ctx, "r")
+	run, _ := s.Get(ctx, DefaultCompany, "r")
 	if run.Status != "UNKNOWN" {
 		t.Fatal(run.Status)
 	}
-	if err = s.Resolve(ctx, "r", "FAILED", "Inspected workspace; safe to start a new run"); err != nil {
+	if err = s.Resolve(ctx, DefaultCompany, "r", "FAILED", "Inspected workspace; safe to start a new run"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -110,11 +110,11 @@ func TestCancelQueued(t *testing.T) {
 	}
 	defer s.DB.Close()
 	ctx := context.Background()
-	_ = s.Create(ctx, protocol.RunSpec{ID: "r", Project: "p", Agent: "a"})
-	if err = s.Cancel(ctx, "r"); err != nil {
+	_ = s.Create(ctx, DefaultCompany, protocol.RunSpec{ID: "r", Project: "p", Agent: "a"})
+	if err = s.Cancel(ctx, DefaultCompany, "r"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, "r"); err == nil {
+	if _, err = s.Claim(ctx, DefaultCompany, "r"); err == nil {
 		t.Fatal("cancelled run claimed")
 	}
 }
@@ -137,26 +137,26 @@ func TestSessionBelongsToProvider(t *testing.T) {
 	}
 	defer s.DB.Close()
 	spec := protocol.RunSpec{ID: "codex", Project: "p", Agent: "a", Provider: protocol.RuntimeCodex, Workspace: "/tmp/p"}
-	if err = s.Create(ctx, spec); err != nil {
+	if err = s.Create(ctx, DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	token, err := s.Claim(ctx, "codex")
+	token, err := s.Claim(ctx, DefaultCompany, "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Apply(ctx, protocol.Wrap("completed", "codex", "", protocol.Event{RunID: "codex", Lease: token, SessionID: "thread-1", Status: "COMPLETED"})); err != nil {
+	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("completed", "codex", "", protocol.Event{RunID: "codex", Lease: token, SessionID: "thread-1", Status: "COMPLETED"})); err != nil {
 		t.Fatal(err)
 	}
 	direct := protocol.RunSpec{ID: "direct", Project: "p", Agent: "a", Provider: protocol.RuntimeClaude, Workspace: "/tmp/p", SessionID: "thread-1"}
-	if err = s.Create(ctx, direct); !errors.Is(err, ErrInput) {
+	if err = s.Create(ctx, DefaultCompany, direct); !errors.Is(err, ErrInput) {
 		t.Fatal("cross-provider resume accepted", err)
 	}
 	continuation := direct
 	continuation.ID, continuation.MessageID = "message", "m1"
-	if err = s.Create(ctx, continuation); err != nil {
+	if err = s.Create(ctx, DefaultCompany, continuation); err != nil {
 		t.Fatal(err)
 	}
-	if run, err := s.Get(ctx, "message"); err != nil || run.SessionID != "" || run.Spec.SessionID != "" {
+	if run, err := s.Get(ctx, DefaultCompany, "message"); err != nil || run.SessionID != "" || run.Spec.SessionID != "" {
 		t.Fatalf("continuation kept foreign session: %+v %v", run, err)
 	}
 }

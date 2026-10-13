@@ -44,12 +44,12 @@ func getDoc[T any](ctx context.Context, q interface {
 	err = json.Unmarshal(b, &v)
 	return v, err
 }
-func mutate[T any](ctx context.Context, s *Store, scope, key string, input any, fn func(*sql.Tx) (T, error)) (T, error) {
+func mutate[T any](ctx context.Context, s *Store, company, scope, key string, input any, fn func(*Tx) (T, error)) (T, error) {
 	var zero T
 	if len(key) > 128 {
 		return zero, inputError("request_id exceeds 128 characters")
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return zero, err
 	}
@@ -63,7 +63,7 @@ func mutate[T any](ctx context.Context, s *Store, scope, key string, input any, 
 	if key != "" {
 		var old string
 		var response []byte
-		err = tx.QueryRowContext(ctx, "SELECT fingerprint,response FROM mutation_results WHERE scope=? AND request_id=?", scope, key).Scan(&old, &response)
+		err = tx.QueryRowContext(ctx, "SELECT fingerprint,response FROM mutation_results WHERE company_id=? AND scope=? AND request_id=?", company, scope, key).Scan(&old, &response)
 		if err == nil {
 			if old != fingerprint {
 				return zero, ErrConflict
@@ -84,7 +84,7 @@ func mutate[T any](ctx context.Context, s *Store, scope, key string, input any, 
 		if err != nil {
 			return zero, err
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO mutation_results VALUES(?,?,?,?)", scope, key, fingerprint, response); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO mutation_results VALUES(?,?,?,?,?)", company, scope, key, fingerprint, response); err != nil {
 			return zero, err
 		}
 	}
@@ -93,7 +93,7 @@ func mutate[T any](ctx context.Context, s *Store, scope, key string, input any, 
 	}
 	return v, nil
 }
-func entityEvent(ctx context.Context, tx *sql.Tx, kind, project, id string, v any) error {
+func entityEvent(ctx context.Context, tx *Tx, kind, project, id string, v any) error {
 	e := protocol.Wrap(kind, id, "", v)
 	var state map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &state); err != nil {
@@ -110,7 +110,7 @@ func entityEvent(ctx context.Context, tx *sql.Tx, kind, project, id string, v an
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO entity_events(id,project_id,entity_id,body) VALUES(?,?,?,?)", e.ID, project, id, b); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO entity_events(id,project_id,entity_id,body,company_id) VALUES(?,?,?,?,?)", e.ID, project, id, b, tx.company); err != nil {
 		return err
 	}
 	// Persist full audit snapshots in SQLite; broker notifications carry a bounded pointer.
@@ -122,31 +122,34 @@ func entityEvent(ctx context.Context, tx *sql.Tx, kind, project, id string, v an
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body) VALUES(?,?,?)", e.ID, "factory.events."+kind, notification)
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, "factory.events."+kind, notification, tx.company)
 	return err
 }
-func (s *Store) Project(ctx context.Context, id string) (tasks.Project, error) {
-	return getDoc[tasks.Project](ctx, s.DB, "SELECT body FROM projects WHERE id=?", id)
+func (s *Store) Project(ctx context.Context, company, id string) (tasks.Project, error) {
+	return getDoc[tasks.Project](ctx, s.DB, "SELECT body FROM projects WHERE company_id=? AND id=?", company, id)
 }
-func (s *Store) Projects(ctx context.Context) ([]tasks.Project, error) {
-	return listDocs[tasks.Project](ctx, s.DB, "SELECT body FROM projects ORDER BY id")
+func projectTx(ctx context.Context, tx *Tx, id string) (tasks.Project, error) {
+	return getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE company_id=? AND id=?", tx.company, id)
 }
-func (s *Store) CreateProject(ctx context.Context, in tasks.ProjectCreate) (tasks.Project, error) {
-	return mutate(ctx, s, "project.create", in.RequestID, in, func(tx *sql.Tx) (tasks.Project, error) {
+func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, error) {
+	return listDocs[tasks.Project](ctx, s.DB, "SELECT body FROM projects WHERE company_id=? ORDER BY id", company)
+}
+func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
+	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
 		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), Version: 1, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
 		if !entityName.MatchString(p.ID) || strings.TrimSpace(p.Name) == "" || !filepath.IsAbs(in.Workspace) {
 			return p, inputError("project requires valid id, name and absolute host workspace")
 		}
 		b, _ := json.Marshal(p)
-		if _, err := tx.ExecContext(ctx, "INSERT INTO projects(id,workspace,version,body) VALUES(?,?,?,?)", p.ID, p.Workspace, p.Version, b); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO projects(id,workspace,version,body,company_id) VALUES(?,?,?,?,?)", p.ID, p.Workspace, p.Version, b, tx.company); err != nil {
 			return p, err
 		}
 		return p, entityEvent(ctx, tx, "project.created", p.ID, p.ID, p)
 	})
 }
-func (s *Store) UpdateProject(ctx context.Context, id string, in tasks.ProjectUpdate) (tasks.Project, error) {
-	return mutate(ctx, s, "project.update:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Project, error) {
-		p, err := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", id)
+func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.ProjectUpdate) (tasks.Project, error) {
+	return mutate(ctx, s, company, "project.update:"+id, in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
+		p, err := projectTx(ctx, tx, id)
 		if err != nil {
 			return p, err
 		}
@@ -167,13 +170,11 @@ func (s *Store) UpdateProject(ctx context.Context, id string, in tasks.ProjectUp
 		return p, entityEvent(ctx, tx, "project.updated", id, id, p)
 	})
 }
-func (s *Store) Task(ctx context.Context, id string) (tasks.Task, error) {
-	return taskTx(ctx, s.DB, id)
+func (s *Store) Task(ctx context.Context, company, id string) (tasks.Task, error) {
+	return getDoc[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND id=?", company, id)
 }
-func taskTx(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id string) (tasks.Task, error) {
-	return getDoc[tasks.Task](ctx, q, "SELECT body FROM tasks WHERE id=?", id)
+func taskTx(ctx context.Context, tx *Tx, id string) (tasks.Task, error) {
+	return getDoc[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND id=?", tx.company, id)
 }
 func listDocs[T any](ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -197,11 +198,11 @@ func listDocs[T any](ctx context.Context, q interface {
 	}
 	return vs, rows.Err()
 }
-func (s *Store) Tasks(ctx context.Context, project, status string) ([]tasks.Task, error) {
-	return listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE (?='' OR project_id=?) AND (?='' OR status=?) ORDER BY priority DESC,created_at,id", project, project, status, status)
+func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]tasks.Task, error) {
+	return listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR status=?) ORDER BY priority DESC,created_at,id", company, project, project, status, status)
 }
-func (s *Store) CreateTask(ctx context.Context, in tasks.Create) (tasks.Task, error) {
-	return mutate(ctx, s, "task.create", in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create) (tasks.Task, error) {
+	return mutate(ctx, s, company, "task.create", in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, Status: "BACKLOG", Version: 1, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
 		if t.ID == "" {
 			t.ID = protocol.ID()
@@ -215,7 +216,7 @@ func (s *Store) CreateTask(ctx context.Context, in tasks.Create) (tasks.Task, er
 		if !entityName.MatchString(t.ID) || strings.TrimSpace(t.Title) == "" || len(t.Title) > 1024 || len(t.Description) > 64*1024 || t.Priority < -1000 || t.Priority > 1000 {
 			return t, inputError("valid task id/title and priority -1000..1000 required")
 		}
-		if _, err := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", t.ProjectID); err != nil {
+		if _, err := projectTx(ctx, tx, t.ProjectID); err != nil {
 			return t, err
 		}
 		if err := s.checkTaskChange(ctx, tx, t); err != nil {
@@ -234,7 +235,7 @@ func (s *Store) CreateTask(ctx context.Context, in tasks.Create) (tasks.Task, er
 			return t, err
 		}
 		b, _ := json.Marshal(t)
-		if _, err := tx.ExecContext(ctx, "INSERT INTO tasks(id,project_id,status,assignee,priority,version,body,created_at) VALUES(?,?,?,?,?,?,?,?)", t.ID, t.ProjectID, t.Status, t.Assignee, t.Priority, t.Version, b, t.CreatedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO tasks(id,project_id,status,assignee,priority,version,body,created_at,company_id) VALUES(?,?,?,?,?,?,?,?,?)", t.ID, t.ProjectID, t.Status, t.Assignee, t.Priority, t.Version, b, t.CreatedAt, tx.company); err != nil {
 			return t, err
 		}
 		if err := dependencies(ctx, tx, t); err != nil {
@@ -243,7 +244,7 @@ func (s *Store) CreateTask(ctx context.Context, in tasks.Create) (tasks.Task, er
 		return t, entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t)
 	})
 }
-func dependencies(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
+func dependencies(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM task_dependencies WHERE task_id=?", t.ID); err != nil {
 		return err
 	}
@@ -271,13 +272,13 @@ func dependencies(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
 		if cycle > 0 {
 			return inputError("dependency cycle")
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO task_dependencies VALUES(?,?)", t.ID, dep); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO task_dependencies VALUES(?,?,?)", t.ID, dep, tx.company); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-func saveTask(ctx context.Context, tx *sql.Tx, t *tasks.Task, kind string) error {
+func saveTask(ctx context.Context, tx *Tx, t *tasks.Task, kind string) error {
 	old := t.Version
 	t.Version++
 	t.UpdatedAt = time.Now().Unix()
@@ -295,8 +296,8 @@ func saveTask(ctx context.Context, tx *sql.Tx, t *tasks.Task, kind string) error
 	}
 	return entityEvent(ctx, tx, kind, t.ProjectID, t.ID, t)
 }
-func (s *Store) UpdateTask(ctx context.Context, id string, in tasks.Update) (tasks.Task, error) {
-	return mutate(ctx, s, "task.update:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Update) (tasks.Task, error) {
+	return mutate(ctx, s, company, "task.update:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
@@ -355,7 +356,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, in tasks.Update) (tas
 		return t, err
 	})
 }
-func editableRun(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
+func editableRun(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if t.CurrentRunID == "" {
 		return nil
 	}
@@ -368,8 +369,8 @@ func editableRun(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
 	}
 	return nil
 }
-func (s *Store) TaskAction(ctx context.Context, id string, in tasks.Action) (tasks.Task, error) {
-	return mutate(ctx, s, "task.action:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Action) (tasks.Task, error) {
+	return mutate(ctx, s, company, "task.action:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
@@ -461,8 +462,8 @@ func (s *Store) TaskAction(ctx context.Context, id string, in tasks.Action) (tas
 		return t, err
 	})
 }
-func (s *Store) SubmitTask(ctx context.Context, id string, in tasks.Submit) (tasks.Task, error) {
-	return mutate(ctx, s, "task.submit:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+func (s *Store) SubmitTask(ctx context.Context, company, id string, in tasks.Submit) (tasks.Task, error) {
+	return mutate(ctx, s, company, "task.submit:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
@@ -477,7 +478,7 @@ func (s *Store) SubmitTask(ctx context.Context, id string, in tasks.Submit) (tas
 			if _, err = registerArtifactTx(ctx, tx, t.ProjectID, artifacts.Register{Artifact: a, TaskID: t.ID, RunID: in.RunID, Actor: in.Actor}); err != nil {
 				return t, err
 			}
-			if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO task_artifacts VALUES(?,?,?,?,?)", t.ID, in.RunID, a.ID, a.Version, a.URI); err != nil {
+			if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO task_artifacts VALUES(?,?,?,?,?,?)", t.ID, in.RunID, a.ID, a.Version, a.URI, tx.company); err != nil {
 				return t, err
 			}
 		}
@@ -486,8 +487,8 @@ func (s *Store) SubmitTask(ctx context.Context, id string, in tasks.Submit) (tas
 		return t, err
 	})
 }
-func (s *Store) ReviewTask(ctx context.Context, id string, in tasks.Review) (tasks.Task, error) {
-	return mutate(ctx, s, "task.review:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Review) (tasks.Task, error) {
+	return mutate(ctx, s, company, "task.review:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
@@ -511,16 +512,16 @@ func (s *Store) ReviewTask(ctx context.Context, id string, in tasks.Review) (tas
 		return t, err
 	})
 }
-func comment(ctx context.Context, tx *sql.Tx, id, author, text string) error {
+func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if text == "" {
 		return nil
 	}
 	if author == "" {
 		author = "owner"
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments VALUES(?,?,?,?,?)", protocol.ID(), id, author, text, time.Now().Unix())
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments VALUES(?,?,?,?,?,?)", protocol.ID(), id, author, text, time.Now().Unix(), tx.company)
 	return err
 }
-func (s *Store) EntityEvents(ctx context.Context, project, id string) ([]protocol.Envelope, error) {
-	return listDocs[protocol.Envelope](ctx, s.DB, "SELECT body FROM entity_events WHERE (?='' OR project_id=?) AND (?='' OR entity_id=?) ORDER BY seq", project, project, id, id)
+func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {
+	return listDocs[protocol.Envelope](ctx, s.DB, "SELECT body FROM entity_events WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR entity_id=?) ORDER BY seq", company, project, project, id, id)
 }

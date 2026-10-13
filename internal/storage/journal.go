@@ -58,7 +58,7 @@ func pageDocs[T any](ctx context.Context, q interface {
 	}
 	return out, rows.Err()
 }
-func journalLinks(ctx context.Context, tx *sql.Tx, project, task, run string, refs []tasks.Artifact) error {
+func journalLinks(ctx context.Context, tx *Tx, project, task, run string, refs []tasks.Artifact) error {
 	if task != "" {
 		t, err := taskTx(ctx, tx, task)
 		if err != nil {
@@ -69,7 +69,7 @@ func journalLinks(ctx context.Context, tx *sql.Tx, project, task, run string, re
 		}
 	}
 	if run != "" {
-		r, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=?", run)
+		r, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", tx.company, run)
 		if err != nil {
 			return err
 		}
@@ -85,7 +85,7 @@ func journalLinks(ctx context.Context, tx *sql.Tx, project, task, run string, re
 			return err
 		}
 		var uri string
-		err := tx.QueryRowContext(ctx, "SELECT uri FROM artifact_versions WHERE project_id=? AND id=? AND version=?", project, ref.ID, ref.Version).Scan(&uri)
+		err := tx.QueryRowContext(ctx, "SELECT uri FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? AND version=?", tx.company, project, ref.ID, ref.Version).Scan(&uri)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -98,7 +98,7 @@ func journalLinks(ctx context.Context, tx *sql.Tx, project, task, run string, re
 	}
 	return nil
 }
-func journalNotice(ctx context.Context, tx *sql.Tx, project, task, run, actor, body, reportID, decisionID string) (string, error) {
+func journalNotice(ctx context.Context, tx *Tx, project, task, run, actor, body, reportID, decisionID string) (string, error) {
 	if actor == "owner" || actor == "" {
 		actor = "system"
 	}
@@ -108,11 +108,11 @@ func journalNotice(ctx context.Context, tx *sql.Tx, project, task, run, actor, b
 	}
 	return m.ID, nil
 }
-func closeJournalNotice(ctx context.Context, tx *sql.Tx, id string) error {
+func closeJournalNotice(ctx context.Context, tx *Tx, id string) error {
 	if id == "" {
 		return nil
 	}
-	m, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", id)
+	m, err := messageTx(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -122,18 +122,18 @@ func closeJournalNotice(ctx context.Context, tx *sql.Tx, id string) error {
 	m.Status = "READ"
 	return saveMessage(ctx, tx, &m, "message.read")
 }
-func (s *Store) Report(ctx context.Context, id string) (reports.Report, error) {
-	return getDoc[reports.Report](ctx, s.DB, "SELECT body FROM reports WHERE id=?", id)
+func (s *Store) Report(ctx context.Context, company, id string) (reports.Report, error) {
+	return getDoc[reports.Report](ctx, s.DB, "SELECT body FROM reports WHERE company_id=? AND id=?", company, id)
 }
-func (s *Store) Reports(ctx context.Context, project, kind, task, run string, after int64, limit int) (Page[reports.Report], error) {
-	return pageDocs[reports.Report](ctx, s.DB, after, limit, "SELECT rowid,body FROM reports WHERE project_id=? AND (?='' OR kind=?) AND (?='' OR task_id=?) AND (?='' OR run_id=?) AND rowid>? ORDER BY rowid LIMIT ?", project, kind, kind, task, task, run, run)
+func (s *Store) Reports(ctx context.Context, company, project, kind, task, run string, after int64, limit int) (Page[reports.Report], error) {
+	return pageDocs[reports.Report](ctx, s.DB, after, limit, "SELECT rowid,body FROM reports WHERE company_id=? AND project_id=? AND (?='' OR kind=?) AND (?='' OR task_id=?) AND (?='' OR run_id=?) AND rowid>? ORDER BY rowid LIMIT ?", company, project, kind, kind, task, task, run, run)
 }
-func (s *Store) CreateReport(ctx context.Context, project string, in reports.Create) (reports.Report, error) {
-	return mutate(ctx, s, "report.create:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *sql.Tx) (reports.Report, error) {
+func (s *Store) CreateReport(ctx context.Context, company, project string, in reports.Create) (reports.Report, error) {
+	return mutate(ctx, s, company, "report.create:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (reports.Report, error) {
 		if in.RequestID == "" {
 			return reports.Report{}, inputError("request_id required")
 		}
-		if _, err := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", project); err != nil {
+		if _, err := projectTx(ctx, tx, project); err != nil {
 			if !errors.Is(err, ErrNotFound) || in.RunID == "" {
 				return reports.Report{}, err
 			}
@@ -148,7 +148,7 @@ func (s *Store) CreateReport(ctx context.Context, project string, in reports.Cre
 		return createReportTx(ctx, tx, project, in, source, "")
 	})
 }
-func createReportTx(ctx context.Context, tx *sql.Tx, project string, in reports.Create, source, key string) (reports.Report, error) {
+func createReportTx(ctx context.Context, tx *Tx, project string, in reports.Create, source, key string) (reports.Report, error) {
 	r := reports.Report{ID: protocol.ID(), ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, CreatedBy: in.Actor, Source: source, Kind: in.Kind, Summary: in.Summary, Purpose: in.Purpose, Changes: in.Changes, Result: in.Result, Artifacts: in.Artifacts, NeedsOwnerAction: in.NeedsOwnerAction, OwnerAction: in.OwnerAction, CreatedAt: time.Now().Unix()}
 	if r.CreatedBy == "" {
 		r.CreatedBy = "owner"
@@ -176,7 +176,7 @@ func createReportTx(ctx context.Context, tx *sql.Tx, project string, in reports.
 	}
 	if r.NeedsOwnerAction {
 		var registered int
-		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM projects WHERE id=?", project).Scan(&registered); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM projects WHERE company_id=? AND id=?", tx.company, project).Scan(&registered); err != nil {
 			return r, err
 		}
 		if registered > 0 {
@@ -187,12 +187,12 @@ func createReportTx(ctx context.Context, tx *sql.Tx, project string, in reports.
 		}
 	}
 	body, _ := json.Marshal(r)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO reports VALUES(?,?,?,?,?,?,?,?)", r.ID, project, nullable(r.TaskID), nullable(r.RunID), r.Kind, r.Source, nullable(key), body); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO reports VALUES(?,?,?,?,?,?,?,?,?)", r.ID, project, nullable(r.TaskID), nullable(r.RunID), r.Kind, r.Source, nullable(key), body, tx.company); err != nil {
 		return r, err
 	}
 	return r, entityEvent(ctx, tx, "report.created", project, r.ID, r)
 }
-func autoRuntimeReport(ctx context.Context, tx *sql.Tx, id string) error {
+func autoRuntimeReport(ctx context.Context, tx *Tx, id string) error {
 	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=?", id)
 	if err != nil {
 		return err
@@ -236,19 +236,19 @@ func autoRuntimeReport(ctx context.Context, tx *sql.Tx, id string) error {
 func canonicalTopic(topic string) string {
 	return strings.ToLower(strings.Join(strings.Fields(topic), " "))
 }
-func (s *Store) Decision(ctx context.Context, id string) (decisions.Decision, error) {
-	return getDoc[decisions.Decision](ctx, s.DB, "SELECT body FROM decisions WHERE id=?", id)
+func (s *Store) Decision(ctx context.Context, company, id string) (decisions.Decision, error) {
+	return getDoc[decisions.Decision](ctx, s.DB, "SELECT body FROM decisions WHERE company_id=? AND id=?", company, id)
 }
-func (s *Store) Decisions(ctx context.Context, project, status, topic string, after int64, limit int) (Page[decisions.Decision], error) {
+func (s *Store) Decisions(ctx context.Context, company, project, status, topic string, after int64, limit int) (Page[decisions.Decision], error) {
 	switch status {
 	case "", "proposed", "under_discussion", "approved", "superseded", "rejected":
 	default:
 		return Page[decisions.Decision]{}, inputError("unsupported decision status")
 	}
-	return pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT rowid,body FROM decisions WHERE project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND rowid>? ORDER BY rowid LIMIT ?", project, status, status, canonicalTopic(topic), canonicalTopic(topic))
+	return pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT rowid,body FROM decisions WHERE company_id=? AND project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND rowid>? ORDER BY rowid LIMIT ?", company, project, status, status, canonicalTopic(topic), canonicalTopic(topic))
 }
-func (s *Store) ProposeDecision(ctx context.Context, project string, in decisions.Propose) (decisions.Decision, error) {
-	return mutate(ctx, s, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *sql.Tx) (decisions.Decision, error) {
+func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
+	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
 		now := time.Now().Unix()
 		d := decisions.Decision{ID: protocol.ID(), ProjectID: project, Category: in.Category, Topic: canonicalTopic(in.Topic), Status: "proposed", Value: in.Value, Rationale: in.Rationale, CreatedBy: in.Actor, TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
 		if d.CreatedBy == "" {
@@ -258,7 +258,7 @@ func (s *Store) ProposeDecision(ctx context.Context, project string, in decision
 		if err != nil || len(b) > 32*1024 || in.RequestID == "" || d.Topic == "" || len(d.Topic) > 256 || strings.TrimSpace(d.Value) == "" || len(d.Value) > 16*1024 || strings.TrimSpace(d.Rationale) == "" || len(d.Rationale) > 8192 {
 			return d, inputError("request_id, bounded topic, value and rationale required")
 		}
-		if _, err = getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", project); err != nil {
+		if _, err = projectTx(ctx, tx, project); err != nil {
 			return d, err
 		}
 		if err = journalLinks(ctx, tx, project, d.TaskID, d.RunID, d.Artifacts); err != nil {
@@ -269,13 +269,13 @@ func (s *Store) ProposeDecision(ctx context.Context, project string, in decision
 			return d, err
 		}
 		body, _ := json.Marshal(d)
-		if _, err = tx.ExecContext(ctx, "INSERT INTO decisions VALUES(?,?,?,?,?,?)", d.ID, project, d.Topic, d.Status, d.Version, body); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO decisions VALUES(?,?,?,?,?,?,?)", d.ID, project, d.Topic, d.Status, d.Version, body, tx.company); err != nil {
 			return d, err
 		}
 		return d, entityEvent(ctx, tx, "decision.proposed", project, d.ID, d)
 	})
 }
-func saveDecision(ctx context.Context, tx *sql.Tx, d *decisions.Decision, kind string) error {
+func saveDecision(ctx context.Context, tx *Tx, d *decisions.Decision, kind string) error {
 	old := d.Version
 	d.Version++
 	d.UpdatedAt = time.Now().Unix()
@@ -290,14 +290,14 @@ func saveDecision(ctx context.Context, tx *sql.Tx, d *decisions.Decision, kind s
 	}
 	return entityEvent(ctx, tx, kind, d.ProjectID, d.ID, d)
 }
-func (s *Store) RecordDecision(ctx context.Context, id string, in decisions.Record) (decisions.Decision, error) {
+func (s *Store) RecordDecision(ctx context.Context, company, id string, in decisions.Record) (decisions.Decision, error) {
 	// Include actor and grant in the mutation fingerprint; json:"-" fields are trusted metadata.
 	input := struct {
 		Record                         decisions.Record
 		Actor, ApprovalID, ScopeTaskID string
 	}{in, in.Actor, in.ApprovalID, in.ScopeTaskID}
-	return mutate(ctx, s, "decision.record:"+id, in.RequestID, input, func(tx *sql.Tx) (decisions.Decision, error) {
-		d, err := getDoc[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE id=?", id)
+	return mutate(ctx, s, company, "decision.record:"+id, in.RequestID, input, func(tx *Tx) (decisions.Decision, error) {
+		d, err := getDoc[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND id=?", company, id)
 		if err != nil {
 			return d, err
 		}
@@ -321,7 +321,7 @@ func (s *Store) RecordDecision(ctx context.Context, id string, in decisions.Reco
 			return d, inputError("replacement applies only when approving")
 		}
 		if in.Status == "approved" {
-			active, err := getDoc[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE project_id=? AND topic=? AND status='approved'", d.ProjectID, d.Topic)
+			active, err := getDoc[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND project_id=? AND topic=? AND status='approved'", company, d.ProjectID, d.Topic)
 			if err != nil && !errors.Is(err, ErrNotFound) {
 				return d, err
 			}
@@ -371,8 +371,8 @@ func excerpt(s string, max int) (string, bool) {
 	}
 	return s, true
 }
-func decisionContext(ctx context.Context, tx *sql.Tx, project string) ([]decisions.ContextEntry, bool, error) {
-	ds, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE project_id=? AND status='approved' ORDER BY topic LIMIT 33", project)
+func decisionContext(ctx context.Context, tx *Tx, project string) ([]decisions.ContextEntry, bool, error) {
+	ds, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND project_id=? AND status='approved' ORDER BY topic LIMIT 33", tx.company, project)
 	if err != nil {
 		return nil, false, err
 	}
@@ -388,7 +388,7 @@ func decisionContext(ctx context.Context, tx *sql.Tx, project string) ([]decisio
 	}
 	return items, more, nil
 }
-func enrichRunDecisions(ctx context.Context, tx *sql.Tx, spec *protocol.RunSpec) error {
+func enrichRunDecisions(ctx context.Context, tx *Tx, spec *protocol.RunSpec) error {
 	items, more, err := decisionContext(ctx, tx, spec.Project)
 	if err != nil {
 		return err
@@ -412,11 +412,11 @@ func shortText(s string, max int) string {
 	}
 	return v
 }
-func validateDecisionGrant(ctx context.Context, tx *sql.Tx, d decisions.Decision, in decisions.Record) error {
+func validateDecisionGrant(ctx context.Context, tx *Tx, d decisions.Decision, in decisions.Record) error {
 	if in.GrantedCall == nil || in.GrantedCall.Name != "factory_decision_record" {
 		return inputError("owner decision grant required")
 	}
-	a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE id=?", in.ApprovalID)
+	a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", tx.company, in.ApprovalID)
 	if err != nil {
 		return err
 	}
@@ -441,15 +441,15 @@ func validateDecisionGrant(ctx context.Context, tx *sql.Tx, d decisions.Decision
 
 // DecideDecision rechecks captured and current delegation inside the atomic registry mutation.
 // current is trusted Core configuration, never tool arguments.
-func (s *Store) DecideDecision(ctx context.Context, project string, in decisions.Decide, current config.Agent) (decisions.Decision, error) {
+func (s *Store) DecideDecision(ctx context.Context, company, project string, in decisions.Decide, current config.Agent) (decisions.Decision, error) {
 	input := struct {
 		Decision     decisions.Decide
 		Actor, RunID string
 		Current      config.Agent
 	}{in, in.Actor, in.RunID, current}
-	return mutate(ctx, s, "decision.decide:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, input, func(tx *sql.Tx) (decisions.Decision, error) {
+	return mutate(ctx, s, company, "decision.decide:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, input, func(tx *Tx) (decisions.Decision, error) {
 		d := decisions.Decision{}
-		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=? AND status='RUNNING' AND lease_until>=?", in.RunID, time.Now().Unix())
+		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=? AND status='RUNNING' AND lease_until>=?", company, in.RunID, time.Now().Unix())
 		if err != nil {
 			return d, err
 		}
@@ -474,7 +474,7 @@ func (s *Store) DecideDecision(ctx context.Context, project string, in decisions
 			return d, err
 		}
 		// Owner review is authoritative for a topic, regardless of category/value relabelling.
-		history, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE project_id=? AND topic=?", project, topic)
+		history, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND project_id=? AND topic=?", company, project, topic)
 		if err != nil {
 			return d, err
 		}
@@ -509,7 +509,7 @@ func (s *Store) DecideDecision(ctx context.Context, project string, in decisions
 			}
 		}
 		body, _ := json.Marshal(d)
-		if _, err = tx.ExecContext(ctx, "INSERT INTO decisions VALUES(?,?,?,?,?,?)", d.ID, project, topic, d.Status, d.Version, body); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO decisions VALUES(?,?,?,?,?,?,?)", d.ID, project, topic, d.Status, d.Version, body, tx.company); err != nil {
 			return d, err
 		}
 		return d, entityEvent(ctx, tx, "decision.decided", project, d.ID, d)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"appfactory/internal/openspec"
@@ -17,6 +18,9 @@ var ErrInput = errors.New("invalid input")
 var ErrInvalid = errors.New("invalid event")
 var ErrConflict = errors.New("state or version conflict")
 var ErrNotFound = errors.New("not found")
+
+// DefaultCompany owns every row created before tenancy and all work of a single-company Core.
+const DefaultCompany = "default"
 
 type Store struct {
 	DB       *sql.DB
@@ -53,8 +57,35 @@ func Open(path string) (*Store, error) {
 	}
 	return &Store{DB: db}, nil
 }
-func (s *Store) Create(ctx context.Context, r protocol.RunSpec) error {
+
+// Tx is a transaction bound to one company. Helpers write tx.company into every row they
+// insert and scope every lookup by a caller-supplied ID with it.
+type Tx struct {
+	*sql.Tx
+	company string
+}
+
+func (s *Store) begin(ctx context.Context, company string) (*Tx, error) {
+	if company == "" {
+		return nil, inputError("company required")
+	}
 	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &Tx{Tx: tx, company: company}, nil
+}
+
+// CreateCompany registers a tenant. The default company exists in every database.
+func (s *Store) CreateCompany(ctx context.Context, id, name string) error {
+	if !entityName.MatchString(id) || strings.TrimSpace(name) == "" {
+		return inputError("company requires valid id and name")
+	}
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO companies VALUES(?,?,?)", id, name, time.Now().Unix())
+	return constraint(err)
+}
+func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) error {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
@@ -64,10 +95,10 @@ func (s *Store) Create(ctx context.Context, r protocol.RunSpec) error {
 	}
 	return tx.Commit()
 }
-func (s *Store) Get(ctx context.Context, id string) (Run, error) {
+func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	var r Run
 	var b []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs WHERE id=?", id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -77,8 +108,8 @@ func (s *Store) Get(ctx context.Context, id string) (Run, error) {
 	err = json.Unmarshal(b, &r.Spec)
 	return r, err
 }
-func (s *Store) List(ctx context.Context) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs ORDER BY created_at,id")
+func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs WHERE company_id=? ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -97,13 +128,13 @@ func (s *Store) List(ctx context.Context) ([]Run, error) {
 	}
 	return rs, rows.Err()
 }
-func (s *Store) Claim(ctx context.Context, id string) (string, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
-	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=?", id)
+	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", company, id)
 	if err != nil {
 		return "", err
 	}
@@ -153,8 +184,8 @@ func (s *Store) Claim(ctx context.Context, id string) (string, error) {
 	return token, nil
 }
 
-func (s *Store) Heartbeat(ctx context.Context, id, token string) (bool, error) {
-	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND lease_until>=?", time.Now().Add(45*time.Second).Unix(), id, token, time.Now().Unix())
+func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool, error) {
+	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND lease_until>=?", time.Now().Add(45*time.Second).Unix(), company, id, token, time.Now().Unix())
 	if err != nil {
 		return false, err
 	}
@@ -162,9 +193,11 @@ func (s *Store) Heartbeat(ctx context.Context, id, token string) (bool, error) {
 	if n != 1 {
 		return false, ErrConflict
 	}
-	r, err := s.Get(ctx, id)
+	r, err := s.Get(ctx, company, id)
 	return r.Status == "CANCELLING", err
 }
+
+// Pending and Sent drive the outbox publisher, which serves every company.
 func (s *Store) Pending(ctx context.Context) ([]Outbox, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT id,subject,body FROM outbox WHERE sent=0 ORDER BY rowid LIMIT 100")
 	if err != nil {
@@ -185,7 +218,7 @@ func (s *Store) Sent(ctx context.Context, id string) error {
 	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET sent=1 WHERE id=?", id)
 	return err
 }
-func (s *Store) Apply(ctx context.Context, e protocol.Envelope) error {
+func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) error {
 	if e.Version != 1 || e.ID == "" {
 		return fmt.Errorf("%w: unsupported envelope", ErrInvalid)
 	}
@@ -199,7 +232,7 @@ func (s *Store) Apply(ctx context.Context, e protocol.Envelope) error {
 	if p.Status != "" && p.Status != "COMPLETED" && p.Status != "FAILED" && p.Status != "CANCELLED" && p.Status != "UNKNOWN" {
 		return fmt.Errorf("%w: terminal status", ErrInvalid)
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
@@ -212,7 +245,7 @@ func (s *Store) Apply(ctx context.Context, e protocol.Envelope) error {
 		return nil
 	}
 	var token, status string
-	if err = tx.QueryRowContext(ctx, "SELECT lease,status FROM runs WHERE id=?", p.RunID).Scan(&token, &status); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT lease,status FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: unknown run", ErrInvalid)
 		}
@@ -230,7 +263,7 @@ func (s *Store) Apply(ctx context.Context, e protocol.Envelope) error {
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO events(id,run_id,body) VALUES(?,?,?)", e.ID, p.RunID, body); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO events(id,run_id,body,company_id) VALUES(?,?,?,?)", e.ID, p.RunID, body, company); err != nil {
 		return err
 	}
 	if status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" {
@@ -254,8 +287,8 @@ func (s *Store) Apply(ctx context.Context, e protocol.Envelope) error {
 	}
 	return tx.Commit()
 }
-func (s *Store) Events(ctx context.Context, id string) ([]protocol.Envelope, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT body FROM events WHERE run_id=? ORDER BY seq", id)
+func (s *Store) Events(ctx context.Context, company, id string) ([]protocol.Envelope, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT body FROM events WHERE company_id=? AND run_id=? ORDER BY seq", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +308,7 @@ func (s *Store) Events(ctx context.Context, id string) ([]protocol.Envelope, err
 	return out, rows.Err()
 }
 
-func insertRun(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
+func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	if err := enrichRunDecisions(ctx, tx, r); err != nil {
 		return err
 	}
@@ -289,12 +322,12 @@ func insertRun(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
 	if len(b) > 900*1024 {
 		return inputError("run context exceeds broker message budget")
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id) VALUES(?,?,?,?,?,'QUEUED',?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, time.Now().Unix(), r.SessionID, nullable(r.TaskID)); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, time.Now().Unix(), r.SessionID, nullable(r.TaskID), tx.company); err != nil {
 		return fmt.Errorf("project already active or insert failed: %w", err)
 	}
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
 	b, _ = json.Marshal(e)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body) VALUES(?,?,?)", e.ID, "factory.commands.agent.run."+string(r.Provider), b); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, "factory.commands.agent.run."+string(r.Provider), b, tx.company); err != nil {
 		return err
 	}
 	return nil
@@ -303,12 +336,12 @@ func insertRun(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
 // A session ID is opaque to Core but owned by the runtime that created it: Claude cannot
 // resume a Codex thread. Explicit direct resumes are rejected; Core-scheduled task and
 // conversation continuations start a fresh session after the agent's provider changed.
-func checkSessionProvider(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
+func checkSessionProvider(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	if r.SessionID == "" {
 		return nil
 	}
 	var b []byte
-	err := tx.QueryRowContext(ctx, "SELECT spec FROM runs WHERE session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1", r.SessionID).Scan(&b)
+	err := tx.QueryRowContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1", tx.company, r.SessionID).Scan(&b)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}

@@ -23,7 +23,7 @@ func TestTaskMutationPoliciesAndVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &Core{Store: s, Agents: agents, Token: "test"}
-	_, err = s.CreateProject(context.Background(), tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/api-test"})
+	_, err = s.CreateProject(context.Background(), storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/api-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,17 +75,17 @@ func TestSchedulerPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &Core{Store: s, Agents: agents}
-	_, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/priority-test"})
+	_, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/priority-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var ids []string
 	for _, priority := range []int{1, 10} {
-		task, err := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "priority", Priority: priority, Assignee: "demo"})
+		task, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "priority", Priority: priority, Assignee: "demo"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = s.TaskAction(ctx, task.ID, tasks.Action{Version: task.Version, Action: "ready"}); err != nil {
+		if _, err = s.TaskAction(ctx, storage.DefaultCompany, task.ID, tasks.Action{Version: task.Version, Action: "ready"}); err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, task.ID)
@@ -93,8 +93,8 @@ func TestSchedulerPriority(t *testing.T) {
 	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	low, _ := s.Task(ctx, ids[0])
-	high, _ := s.Task(ctx, ids[1])
+	low, _ := s.Task(ctx, storage.DefaultCompany, ids[0])
+	high, _ := s.Task(ctx, storage.DefaultCompany, ids[1])
 	if low.Status != "READY" || high.Status != "IN_PROGRESS" {
 		t.Fatal("priority/reservation ignored", low, high)
 	}

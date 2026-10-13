@@ -24,23 +24,23 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 		if !c.agentExists(w, p.Agent) {
 			return
 		}
-		v, err := c.Store.CreateConversation(r.Context(), p)
+		v, err := c.Store.CreateConversation(r.Context(), c.companyFrom(r), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /conversations", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Conversations(r.Context(), r.URL.Query().Get("project"))
+		v, err := c.Store.Conversations(r.Context(), c.companyFrom(r), r.URL.Query().Get("project"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /conversations/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Conversation(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Conversation(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := c.Store.Conversation(r.Context(), r.PathValue("id")); err != nil {
+		if _, err := c.Store.Conversation(r.Context(), c.companyFrom(r), r.PathValue("id")); err != nil {
 			reply(w, nil, err)
 			return
 		}
-		v, err := c.Store.Messages(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Messages(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /conversations/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		conv, err := c.Store.Conversation(r.Context(), r.PathValue("id"))
+		conv, err := c.Store.Conversation(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -65,15 +65,15 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 		if p.MessageType == "" {
 			p.MessageType = "question"
 		}
-		v, err := c.Store.SendMessage(r.Context(), messaging.Send{ProjectID: conv.ProjectID, Sender: "owner", Recipient: conv.Agent, ConversationID: conv.ID, MessageType: p.MessageType, Body: p.Body, Questions: p.Questions, RequestID: p.RequestID, TimeoutSeconds: p.TimeoutSeconds})
+		v, err := c.Store.SendMessage(r.Context(), c.companyFrom(r), messaging.Send{ProjectID: conv.ProjectID, Sender: "owner", Recipient: conv.Agent, ConversationID: conv.ID, MessageType: p.MessageType, Body: p.Body, Questions: p.Questions, RequestID: p.RequestID, TimeoutSeconds: p.TimeoutSeconds})
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /messages/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Message(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Message(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /inbox", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Inbox(r.Context(), r.URL.Query().Get("project"))
+		v, err := c.Store.Inbox(r.Context(), c.companyFrom(r), r.URL.Query().Get("project"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /inbox/{id}/read", func(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.ReadInbox(r.Context(), r.PathValue("id"), p.Version, p.RequestID)
+		v, err := c.Store.ReadInbox(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Version, p.RequestID)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /inbox/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +97,7 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.ReplyMessage(r.Context(), r.PathValue("id"), messaging.Reply{Version: p.Version, Sender: "owner", Body: p.Body, Answers: p.Answers, RequestID: p.RequestID})
+		v, err := c.Store.ReplyMessage(r.Context(), c.companyFrom(r), r.PathValue("id"), messaging.Reply{Version: p.Version, Sender: "owner", Body: p.Body, Answers: p.Answers, RequestID: p.RequestID})
 		reply(w, v, err)
 	})
 }
@@ -108,7 +108,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 	conversationID, _ := args["conversation_id"].(string)
 	var origin messaging.Message
 	if run.Spec.MessageID != "" {
-		v, err := c.Store.Message(ctx, run.Spec.MessageID)
+		v, err := c.Store.Message(ctx, c.companyFrom(r), run.Spec.MessageID)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -119,7 +119,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		}
 	}
 	if messageID != "" {
-		m, err := c.Store.Message(ctx, messageID)
+		m, err := c.Store.Message(ctx, c.companyFrom(r), messageID)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -130,7 +130,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		}
 	}
 	if conversationID != "" {
-		conv, err := c.Store.Conversation(ctx, conversationID)
+		conv, err := c.Store.Conversation(ctx, c.companyFrom(r), conversationID)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -142,7 +142,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 	}
 	switch pName {
 	case "factory_message_get":
-		v, err := c.Store.Message(ctx, messageID)
+		v, err := c.Store.Message(ctx, c.companyFrom(r), messageID)
 		reply(w, v, err)
 		return
 	case "factory_message_list":
@@ -150,11 +150,11 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 			http.Error(w, "conversation_id required outside message run", 400)
 			return
 		}
-		v, err := c.Store.Messages(ctx, conversationID)
+		v, err := c.Store.Messages(ctx, c.companyFrom(r), conversationID)
 		reply(w, v, err)
 		return
 	case "factory_message_reply":
-		target, err := c.Store.Message(ctx, messageID)
+		target, err := c.Store.Message(ctx, c.companyFrom(r), messageID)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -163,7 +163,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 			http.Error(w, "question is not pending for this recipient", 403)
 			return
 		}
-		v, err := c.Store.ReplyMessage(ctx, messageID, messaging.Reply{Version: int(args["version"].(float64)), Sender: run.Spec.Agent, Body: args["body"].(string), Answers: asAnswers(args["answers"]), RequestID: args["request_id"].(string)})
+		v, err := c.Store.ReplyMessage(ctx, c.companyFrom(r), messageID, messaging.Reply{Version: int(args["version"].(float64)), Sender: run.Spec.Agent, Body: args["body"].(string), Answers: asAnswers(args["answers"]), RequestID: args["request_id"].(string)})
 		reply(w, v, err)
 		return
 	}
@@ -202,7 +202,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		return
 	}
 	if taskID != "" {
-		task, err := c.Store.Task(ctx, taskID)
+		task, err := c.Store.Task(ctx, c.companyFrom(r), taskID)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -232,28 +232,29 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 	if v, ok := args["timeout_seconds"].(float64); ok {
 		timeout = int(v)
 	}
-	v, err := c.Store.SendMessage(ctx, messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: args["body"].(string), Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID})
+	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: args["body"].(string), Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID})
 	reply(w, v, err)
 }
 func asAnswers(v any) map[string]any { m, _ := v.(map[string]any); return m }
 
 func (c *Core) ScheduleMessages(ctx context.Context) error {
-	if err := c.Store.ExpireMessages(ctx); err != nil {
+	company := c.company()
+	if err := c.Store.ExpireMessages(ctx, company); err != nil {
 		return err
 	}
-	pending, err := c.Store.PendingMessages(ctx)
+	pending, err := c.Store.PendingMessages(ctx, company)
 	if err != nil {
 		return err
 	}
 	for _, m := range pending {
 		a, ok := c.Agents[m.Recipient]
 		if !ok {
-			if err := c.Store.EscalateMessage(ctx, m.ID, m.Version, "recipient configuration unavailable"); err != nil && !errors.Is(err, storage.ErrConflict) {
+			if err := c.Store.EscalateMessage(ctx, company, m.ID, m.Version, "recipient configuration unavailable"); err != nil && !errors.Is(err, storage.ErrConflict) {
 				return err
 			}
 			continue
 		}
-		project, err := c.Store.Project(ctx, m.ProjectID)
+		project, err := c.Store.Project(ctx, company, m.ProjectID)
 		if err != nil {
 			return err
 		}
@@ -274,12 +275,12 @@ func (c *Core) ScheduleMessages(ctx context.Context) error {
 			prompt += "Read and handle the notification, then finish. Do not invent a reply to a non-question message.\n"
 		}
 		spec := protocol.RunSpec{ID: protocol.ID(), Project: m.ProjectID, Agent: m.Recipient, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: project.Workspace, Prompt: prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hex.EncodeToString(hash[:]), Skills: append([]string{}, a.AvailableSkills...)}
-		if _, err = c.Store.DispatchMessage(ctx, m, spec); err != nil {
+		if _, err = c.Store.DispatchMessage(ctx, company, m, spec); err != nil {
 			if errors.Is(err, storage.ErrConflict) {
 				continue
 			}
 			if errors.Is(err, storage.ErrInput) {
-				if e := c.Store.EscalateMessage(ctx, m.ID, m.Version, err.Error()); e != nil && !errors.Is(e, storage.ErrConflict) {
+				if e := c.Store.EscalateMessage(ctx, company, m.ID, m.Version, err.Error()); e != nil && !errors.Is(e, storage.ErrConflict) {
 					return e
 				}
 				continue

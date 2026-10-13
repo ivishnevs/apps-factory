@@ -31,6 +31,26 @@ type Core struct {
 	Bus        *bus.Bus
 	Agents     map[string]config.Agent
 	Token      string
+	// Company is the tenant this Core serves; empty means storage.DefaultCompany.
+	Company string
+}
+
+type companyKey struct{}
+
+func (c *Core) company() string {
+	if c.Company == "" {
+		return storage.DefaultCompany
+	}
+	return c.Company
+}
+
+// companyFrom resolves the company of an authenticated request once: the run's company for
+// run credentials (set by agentGateway), otherwise the company of the owner token.
+func (c *Core) companyFrom(r *http.Request) string {
+	if company, ok := r.Context().Value(companyKey{}).(string); ok {
+		return company
+	}
+	return c.company()
 }
 
 func (c *Core) Handler() http.Handler {
@@ -51,22 +71,25 @@ func (c *Core) Handler() http.Handler {
 	})
 	m.HandleFunc("GET /agents", func(w http.ResponseWriter, r *http.Request) { write(w, config.Names(c.Agents)) })
 	m.HandleFunc("POST /runs", c.create)
-	m.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) { v, err := c.Store.List(r.Context()); reply(w, v, err) })
+	m.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.List(r.Context(), c.companyFrom(r))
+		reply(w, v, err)
+	})
 	m.HandleFunc("GET /runs/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Get(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Get(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /runs/{id}/tool-calls", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.ToolCalls(r.Context(), r.PathValue("id"))
+		v, err := c.Store.ToolCalls(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /runs/{id}/events", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Events(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Events(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /runs/{id}/credential", c.credential)
 	m.HandleFunc("POST /runs/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
-		token, err := c.Store.Claim(r.Context(), r.PathValue("id"))
+		token, err := c.Store.Claim(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, map[string]string{"lease": token}, err)
 	})
 	m.HandleFunc("POST /runs/{id}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
@@ -76,11 +99,11 @@ func (c *Core) Handler() http.Handler {
 		if !decode(w, r, &p) {
 			return
 		}
-		cancel, err := c.Store.Heartbeat(r.Context(), r.PathValue("id"), p.Lease)
+		cancel, err := c.Store.Heartbeat(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Lease)
 		reply(w, map[string]bool{"cancel": cancel}, err)
 	})
 	m.HandleFunc("POST /runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, map[string]bool{"ok": true}, c.Store.Cancel(r.Context(), r.PathValue("id")))
+		reply(w, map[string]bool{"ok": true}, c.Store.Cancel(r.Context(), c.companyFrom(r), r.PathValue("id")))
 	})
 	m.HandleFunc("POST /runs/{id}/resolve", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -94,7 +117,7 @@ func (c *Core) Handler() http.Handler {
 			http.Error(w, "workspace reconciliation evidence required", 400)
 			return
 		}
-		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), r.PathValue("id"), p.Status, p.Result))
+		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Status, p.Result))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" {
@@ -159,7 +182,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "valid agent, project, absolute macOS workspace and prompt required", 400)
 		return
 	}
-	if project, err := c.Store.Project(r.Context(), p.Project); err == nil {
+	if project, err := c.Store.Project(r.Context(), c.companyFrom(r), p.Project); err == nil {
 		if filepath.Clean(p.Workspace) != project.Workspace {
 			http.Error(w, "workspace differs from registered project", 400)
 			return
@@ -176,11 +199,11 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(snapshot)
 	// Workspace is a host path: Core in Docker must not attempt to resolve it.
 	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hex.EncodeToString(hash[:]), Skills: append([]string{}, a.AvailableSkills...)}
-	if err := c.Store.Create(r.Context(), spec); err != nil {
+	if err := c.Store.Create(r.Context(), c.companyFrom(r), spec); err != nil {
 		http.Error(w, err.Error(), 409)
 		return
 	}
-	persisted, err := c.Store.Get(r.Context(), spec.ID)
+	persisted, err := c.Store.Get(r.Context(), c.companyFrom(r), spec.ID)
 	if err != nil {
 		reply(w, nil, err)
 		return
@@ -204,10 +227,10 @@ func (c *Core) Run(ctx context.Context) error {
 		case err := <-errs:
 			return err
 		case <-tick.C:
-			if err = c.Store.Expire(ctx); err != nil {
+			if err = c.Store.Expire(ctx, c.company()); err != nil {
 				return err
 			}
-			if err = c.Store.ExpireApprovals(ctx); err != nil {
+			if err = c.Store.ExpireApprovals(ctx, c.company()); err != nil {
 				return err
 			}
 			if err = c.ScheduleMessages(ctx); err != nil {
@@ -257,7 +280,7 @@ func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 				}
 				continue
 			}
-			if err = c.Store.Apply(ctx, e); err != nil {
+			if err = c.Store.Apply(ctx, c.company(), e); err != nil {
 				if errors.Is(err, storage.ErrConflict) || errors.Is(err, storage.ErrInvalid) {
 					_ = m.Term()
 				} else {

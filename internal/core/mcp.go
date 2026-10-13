@@ -21,9 +21,10 @@ import (
 	"appfactory/internal/storage"
 )
 
-func (c *Core) runToken(id, lease string) string {
+// runToken binds a run credential to the run's company, ID and lease.
+func (c *Core) runToken(company, id, lease string) string {
 	mac := hmac.New(sha256.New, []byte(c.Token))
-	mac.Write([]byte("factory-mcp-v1\x00" + id + "\x00" + lease))
+	mac.Write([]byte("factory-mcp-v2\x00" + company + "\x00" + id + "\x00" + lease))
 	return "run." + id + "." + hex.EncodeToString(mac.Sum(nil))
 }
 func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
@@ -35,17 +36,18 @@ func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 	}
 	var lease, status string
 	var until int64
-	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE id=?", r.PathValue("id")).Scan(&lease, &status, &until)
+	company := c.companyFrom(r)
+	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, r.PathValue("id")).Scan(&lease, &status, &until)
 	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1 || status != "RUNNING" || until < time.Now().Unix() {
 		http.Error(w, "active run lease required", 403)
 		return
 	}
-	run, err := c.Store.Get(r.Context(), r.PathValue("id"))
+	run, err := c.Store.Get(r.Context(), c.companyFrom(r), r.PathValue("id"))
 	if err != nil {
 		reply(w, nil, err)
 		return
 	}
-	write(w, map[string]string{"token": c.runToken(run.Spec.ID, lease), "instructions": runtimeInstructions(run.Spec)})
+	write(w, map[string]string{"token": c.runToken(company, run.Spec.ID, lease), "instructions": runtimeInstructions(run.Spec)})
 }
 func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.Handler) {
 	// Only these two endpoints accept run credentials; they never authorize owner APIs.
@@ -57,12 +59,15 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	var lease, status string
 	var until int64
-	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE id=?", parts[1]).Scan(&lease, &status, &until)
-	if err != nil || lease == "" || status != "RUNNING" || until < time.Now().Unix() || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(parts[1], lease))) != 1 {
+	// A token minted for another company's run fails both the scoped lookup and the HMAC.
+	company := c.company()
+	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, parts[1]).Scan(&lease, &status, &until)
+	if err != nil || lease == "" || status != "RUNNING" || until < time.Now().Unix() || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
 		http.Error(w, "run credential expired or invalid", 401)
 		return
 	}
-	run, err := c.Store.Get(r.Context(), parts[1])
+	r = r.WithContext(context.WithValue(r.Context(), companyKey{}, company))
+	run, err := c.Store.Get(r.Context(), c.companyFrom(r), parts[1])
 	if err != nil {
 		reply(w, nil, err)
 		return
@@ -116,7 +121,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	// Audit before dispatch. Store only identity/tool/key/status, never tokens or model arguments.
 	requestID, _ := p.Arguments["request_id"].(string)
 	auditID := protocol.ID()
-	if _, err = c.Store.DB.ExecContext(r.Context(), "INSERT INTO tool_calls(id,run_id,agent,project_id,tool,request_id,status,created_at) VALUES(?,?,?,?,?,?,0,?)", auditID, run.Spec.ID, run.Spec.Agent, run.Spec.Project, p.Name, requestID, time.Now().Unix()); err != nil {
+	if _, err = c.Store.DB.ExecContext(r.Context(), "INSERT INTO tool_calls(id,run_id,agent,project_id,tool,request_id,status,created_at,company_id) VALUES(?,?,?,?,?,?,0,?,?)", auditID, run.Spec.ID, run.Spec.Agent, run.Spec.Project, p.Name, requestID, time.Now().Unix(), company); err != nil {
 		reply(w, nil, err)
 		return
 	}
@@ -223,7 +228,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 			}
 		}
 	}
-	a, err := c.Store.CallApproval(r.Context(), run.Spec.Project, run.Spec.Agent, run.Spec.TaskID, p)
+	a, err := c.Store.CallApproval(r.Context(), c.companyFrom(r), run.Spec.Project, run.Spec.Agent, run.Spec.TaskID, p)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
 		reply(w, nil, err)
 		return
@@ -268,7 +273,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	id, _ := args["id"].(string)
 	if id != "" {
-		t, err := c.Store.Task(r.Context(), id)
+		t, err := c.Store.Task(r.Context(), c.companyFrom(r), id)
 		if err != nil {
 			reply(w, nil, err)
 			return

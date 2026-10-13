@@ -105,7 +105,7 @@ func TestJetStreamFoundation(t *testing.T) {
 				t.Fatal(err)
 			}
 		case <-tick.C:
-			r, e := s.Get(ctx, spec.ID)
+			r, e := s.Get(ctx, storage.DefaultCompany, spec.ID)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -118,15 +118,15 @@ func TestJetStreamFoundation(t *testing.T) {
 			if r.Result != "foundation ok" || r.SessionID != "fake-thread" {
 				t.Fatal(r)
 			}
-			events, e := s.Events(ctx, spec.ID)
+			events, e := s.Events(ctx, storage.DefaultCompany, spec.ID)
 			if e != nil || len(events) < 4 {
 				t.Fatal("events missing", e)
 			}
-			if _, e = s.Claim(ctx, spec.ID); e == nil {
+			if _, e = s.Claim(ctx, storage.DefaultCompany, spec.ID); e == nil {
 				t.Fatal("terminal run reclaimed")
 			}
 			// Duplicate stored event must not duplicate or alter result.
-			if e = s.Apply(ctx, events[len(events)-1]); e != nil {
+			if e = s.Apply(ctx, storage.DefaultCompany, events[len(events)-1]); e != nil {
 				t.Fatal(e)
 			}
 			cancel()
@@ -166,10 +166,10 @@ func TestJetStreamCancellation(t *testing.T) {
 	spec := protocol.RunSpec{ID: "cancel-run", Project: "cancel-project", Agent: "demo", Provider: protocol.RuntimeCodex, Workspace: t.TempDir(), Prompt: "CANCEL_TEST", TimeoutSeconds: 30}
 	ctx, stop := context.WithTimeout(context.Background(), 20*time.Second)
 	defer stop()
-	if err = s.Create(ctx, spec); err != nil {
+	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, spec.ID)
+	lease, err := s.Claim(ctx, storage.DefaultCompany, spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,14 +194,14 @@ func TestJetStreamCancellation(t *testing.T) {
 			if err = json.Unmarshal(msg.Data, &event); err != nil {
 				t.Fatal(err)
 			}
-			if err = s.Apply(ctx, event); err != nil {
+			if err = s.Apply(ctx, storage.DefaultCompany, event); err != nil {
 				t.Fatal(err)
 			}
 			_ = msg.AckSync()
 			var payload protocol.Event
 			_ = json.Unmarshal(event.Payload, &payload)
 			if payload.SessionID != "" && !cancelled {
-				if err = s.Cancel(ctx, spec.ID); err != nil {
+				if err = s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
 					t.Fatal(err)
 				}
 				cancelled = true
@@ -222,7 +222,7 @@ func TestJetStreamCancellation(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("runtime shutdown timeout")
 	}
-	saved, err := s.Get(ctx, spec.ID)
+	saved, err := s.Get(ctx, storage.DefaultCompany, spec.ID)
 	if err != nil || saved.Status != "CANCELLED" {
 		t.Fatal(saved, err)
 	}

@@ -21,12 +21,12 @@ type FeedItem struct {
 	Summary   string    `json:"summary,omitempty"`
 }
 
-func (s *Store) ProjectFeed(ctx context.Context, project string, after int64, limit int) (Page[FeedItem], error) {
+func (s *Store) ProjectFeed(ctx context.Context, company, project string, after int64, limit int) (Page[FeedItem], error) {
 	out := Page[FeedItem]{Items: []FeedItem{}, NextAfter: after}
 	if after < 0 || limit < 1 || limit > 100 {
 		return out, inputError("after >= 0 and limit 1..100 required")
 	}
-	rows, err := s.DB.QueryContext(ctx, "SELECT seq,entity_id,body FROM entity_events WHERE project_id=? AND seq>? ORDER BY seq LIMIT ?", project, after, limit+1)
+	rows, err := s.DB.QueryContext(ctx, "SELECT seq,entity_id,body FROM entity_events WHERE company_id=? AND project_id=? AND seq>? ORDER BY seq LIMIT ?", company, project, after, limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -75,14 +75,14 @@ type ProjectContext struct {
 	MoreDecisions    bool                     `json:"more_decisions"`
 }
 
-func (s *Store) ProjectContext(ctx context.Context, project string) (ProjectContext, error) {
+func (s *Store) ProjectContext(ctx context.Context, company, project string) (ProjectContext, error) {
 	var out ProjectContext
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return out, err
 	}
 	defer tx.Rollback()
-	out.Project, err = getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", project)
+	out.Project, err = projectTx(ctx, tx, project)
 	if err != nil {
 		return out, err
 	}

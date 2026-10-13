@@ -33,32 +33,32 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	a.Spec.Approvals.Require = []string{"factory.task.update"}
 	catalog.Agents["demo"] = a
 	c := &Core{Store: s, Agents: catalog.Agents, Token: "owner"}
-	_, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approvals"})
+	_, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approvals"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "before"})
+	target, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "before"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "approval requester", Assignee: "demo"})
+	task, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "approval requester", Assignee: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err = s.TaskAction(ctx, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
+	task, err = s.TaskAction(ctx, storage.DefaultCompany, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	task, _ = s.Task(ctx, task.ID)
-	run, _ := s.Get(ctx, task.CurrentRunID)
-	lease, err := s.Claim(ctx, run.Spec.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
+	run, _ := s.Get(ctx, storage.DefaultCompany, task.CurrentRunID)
+	lease, err := s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := c.runToken(run.Spec.ID, lease)
+	token := c.runToken(storage.DefaultCompany, run.Spec.ID, lease)
 	httpCall := func(auth, method, path string, body any) *httptest.ResponseRecorder {
 		b, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, path, bytes.NewReader(b))
@@ -87,7 +87,7 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if w = call(request); w.Code != 200 {
 		t.Fatal("request replay", w.Code, w.Body.String())
 	}
-	inbox, _ := s.Inbox(ctx, "p")
+	inbox, _ := s.Inbox(ctx, storage.DefaultCompany, "p")
 	if len(inbox) != 1 || inbox[0].ApprovalID != grant.ID {
 		t.Fatal(inbox)
 	}
@@ -97,10 +97,10 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if w = httpCall(token, "POST", "/approvals/"+grant.ID+"/decision", approvals.Decision{Version: 1, Action: "approve", Reason: "ok", RequestID: "decision"}); w.Code != 401 {
 		t.Fatal("agent may decide", w.Code)
 	}
-	if err = s.Apply(ctx, protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "COMPLETED", SessionID: "same-thread"})); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "COMPLETED", SessionID: "same-thread"})); err != nil {
 		t.Fatal(err)
 	}
-	task, _ = s.Task(ctx, task.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	if task.Status != "BLOCKED" {
 		t.Fatal(task)
 	}
@@ -122,23 +122,23 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if w = httpCall("owner", "POST", "/approvals/"+grant.ID+"/decision", decide); w.Code != 200 {
 		t.Fatal("decision replay", w.Code)
 	}
-	task, _ = s.Task(ctx, task.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	if task.Status != "READY" {
 		t.Fatal(task)
 	}
 	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	task, _ = s.Task(ctx, task.ID)
-	resumed, _ := s.Get(ctx, task.CurrentRunID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
+	resumed, _ := s.Get(ctx, storage.DefaultCompany, task.CurrentRunID)
 	if resumed.Spec.SessionID != "same-thread" {
 		t.Fatal(resumed)
 	}
-	lease, err = s.Claim(ctx, resumed.Spec.ID)
+	lease, err = s.Claim(ctx, storage.DefaultCompany, resumed.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token = c.runToken(resumed.Spec.ID, lease)
+	token = c.runToken(storage.DefaultCompany, resumed.Spec.ID, lease)
 	changed := factorytools.Call{Name: action.Name, Arguments: map[string]any{"id": target.ID, "version": target.Version, "title": "changed", "request_id": "exact-intent"}}
 	if w = call(changed); w.Code != 423 {
 		t.Fatal("changed parameters", w.Code, w.Body.String())
@@ -156,11 +156,11 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if w = call(action); w.Code != 200 {
 		t.Fatal("approved idempotent replay", w.Code, w.Body.String())
 	}
-	target, _ = s.Task(ctx, target.ID)
+	target, _ = s.Task(ctx, storage.DefaultCompany, target.ID)
 	if target.Title != "approved title" || target.Version != 2 {
 		t.Fatal(target)
 	}
-	calls, _ := s.ToolCalls(ctx, resumed.Spec.ID)
+	calls, _ := s.ToolCalls(ctx, storage.DefaultCompany, resumed.Spec.ID)
 	uses := 0
 	for _, v := range calls {
 		if v.ApprovalID == grant.ID && v.Status == 200 {
@@ -178,7 +178,7 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	}
 	// A different task/agent/project never receives this grant.
 	for _, scope := range [][3]string{{"p", "demo", "different-task"}, {"p", "manager", task.ID}, {"other", "demo", task.ID}} {
-		if _, err = s.CallApproval(ctx, scope[0], scope[1], scope[2], action); err != storage.ErrNotFound {
+		if _, err = s.CallApproval(ctx, storage.DefaultCompany, scope[0], scope[1], scope[2], action); err != storage.ErrNotFound {
 			t.Fatal(scope, err)
 		}
 	}
@@ -201,24 +201,24 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 			a.Spec.Approvals.Mode = "always"
 			cat.Agents["demo"] = a
 			c := &Core{Store: s, Agents: cat.Agents, Token: "owner"}
-			s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approval-" + outcome})
+			s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approval-" + outcome})
 			snapshot, _ := json.Marshal(a)
-			s.Create(ctx, protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/approval-" + outcome, ConfigSnapshot: snapshot})
-			lease, err := s.Claim(ctx, "run")
+			s.Create(ctx, storage.DefaultCompany, protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/approval-" + outcome, ConfigSnapshot: snapshot})
+			lease, err := s.Claim(ctx, storage.DefaultCompany, "run")
 			if err != nil {
 				t.Fatal(err)
 			}
 			call := func(name string, args map[string]any) *httptest.ResponseRecorder {
 				b, _ := json.Marshal(factorytools.Call{Name: name, Arguments: args})
 				r := httptest.NewRequest("POST", "/agent/call", bytes.NewReader(b))
-				r.Header.Set("Authorization", "Bearer "+c.runToken("run", lease))
+				r.Header.Set("Authorization", "Bearer "+c.runToken(storage.DefaultCompany, "run", lease))
 				w := httptest.NewRecorder()
 				c.Handler().ServeHTTP(w, r)
 				return w
 			}
 			action := factorytools.Call{Name: "factory_task_block", Arguments: map[string]any{"id": "missing", "version": 1, "reason": "test", "request_id": "intent"}}
 			// Use a real task; the owner sees a concrete target.
-			target, e := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "target"})
+			target, e := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "target"})
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -230,13 +230,13 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 			var grant approvals.Approval
 			json.Unmarshal(w.Body.Bytes(), &grant)
 			if outcome == "reject" {
-				_, err = s.DecideApproval(ctx, grant.ID, approvals.Decision{Version: 1, Action: "reject", Reason: "No", RequestID: "reject"})
+				_, err = s.DecideApproval(ctx, storage.DefaultCompany, grant.ID, approvals.Decision{Version: 1, Action: "reject", Reason: "No", RequestID: "reject"})
 			} else {
 				grant.ExpiresAt = time.Now().Unix() - 1
 				b, _ := json.Marshal(grant)
 				_, err = s.DB.Exec("UPDATE approvals SET body=? WHERE id=?", b, grant.ID)
 				if err == nil {
-					err = s.ExpireApprovals(ctx)
+					err = s.ExpireApprovals(ctx, storage.DefaultCompany)
 				}
 			}
 			if err != nil {
@@ -245,7 +245,7 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 			if w = call(action.Name, action.Arguments); w.Code != 423 {
 				t.Fatal(outcome, w.Code, w.Body.String())
 			}
-			grant, _ = s.Approval(ctx, grant.ID)
+			grant, _ = s.Approval(ctx, storage.DefaultCompany, grant.ID)
 			expected := "REJECTED"
 			if outcome == "expire" {
 				expected = "EXPIRED"
@@ -253,7 +253,7 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 			if grant.Status != expected {
 				t.Fatal(grant)
 			}
-			m, _ := s.Message(ctx, grant.MessageID)
+			m, _ := s.Message(ctx, storage.DefaultCompany, grant.MessageID)
 			if m.Status != "ANSWERED" {
 				t.Fatal(m)
 			}
@@ -278,26 +278,26 @@ func TestApprovalDecisionDoesNotReleaseActiveOrUnknownWriter(t *testing.T) {
 				t.Fatal(err)
 			}
 			c := &Core{Store: s, Agents: cat.Agents}
-			if _, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approval-writer-" + terminal}); err != nil {
+			if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approval-writer-" + terminal}); err != nil {
 				t.Fatal(err)
 			}
-			task, err := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "waiting", Assignee: "demo"})
+			task, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "waiting", Assignee: "demo"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			task, err = s.TaskAction(ctx, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
+			task, err = s.TaskAction(ctx, storage.DefaultCompany, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err = c.Schedule(ctx); err != nil {
 				t.Fatal(err)
 			}
-			task, _ = s.Task(ctx, task.ID)
-			lease, err := s.Claim(ctx, task.CurrentRunID)
+			task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
+			lease, err := s.Claim(ctx, storage.DefaultCompany, task.CurrentRunID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			grant, err := s.RequestApproval(ctx, approvals.Request{ProjectID: "p", Agent: "demo", TaskID: task.ID, RunID: task.CurrentRunID, Call: factorytools.Call{Name: "factory_task_create", Arguments: map[string]any{"title": "future", "request_id": "intent"}}, Reason: "test", Blocking: true, RequestID: "ask"})
+			grant, err := s.RequestApproval(ctx, storage.DefaultCompany, approvals.Request{ProjectID: "p", Agent: "demo", TaskID: task.ID, RunID: task.CurrentRunID, Call: factorytools.Call{Name: "factory_task_create", Arguments: map[string]any{"title": "future", "request_id": "intent"}}, Reason: "test", Blocking: true, RequestID: "ask"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -305,22 +305,22 @@ func TestApprovalDecisionDoesNotReleaseActiveOrUnknownWriter(t *testing.T) {
 				if _, err = s.DB.Exec("UPDATE runs SET lease_until=0 WHERE id=?", task.CurrentRunID); err != nil {
 					t.Fatal(err)
 				}
-				if err = s.Expire(ctx); err != nil {
+				if err = s.Expire(ctx, storage.DefaultCompany); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err = s.DecideApproval(ctx, grant.ID, approvals.Decision{Version: 1, Action: "approve", Reason: "yes", RequestID: "decision"}); err != nil {
+			if _, err = s.DecideApproval(ctx, storage.DefaultCompany, grant.ID, approvals.Decision{Version: 1, Action: "approve", Reason: "yes", RequestID: "decision"}); err != nil {
 				t.Fatal(err)
 			}
-			saved, _ := s.Task(ctx, task.ID)
+			saved, _ := s.Task(ctx, storage.DefaultCompany, task.ID)
 			if terminal == "COMPLETED" {
 				if saved.Status != "IN_PROGRESS" {
 					t.Fatal("decision released active writer", saved)
 				}
-				if err = s.Apply(ctx, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "COMPLETED", SessionID: "thread"})); err != nil {
+				if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "COMPLETED", SessionID: "thread"})); err != nil {
 					t.Fatal(err)
 				}
-				saved, _ = s.Task(ctx, task.ID)
+				saved, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 				if saved.Status != "READY" {
 					t.Fatal(saved)
 				}
@@ -331,7 +331,7 @@ func TestApprovalDecisionDoesNotReleaseActiveOrUnknownWriter(t *testing.T) {
 				if err = c.Schedule(ctx); err != nil {
 					t.Fatal(err)
 				}
-				saved, _ = s.Task(ctx, task.ID)
+				saved, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 				if saved.CurrentRunID != task.CurrentRunID || saved.Status != "BLOCKED" {
 					t.Fatal(saved)
 				}

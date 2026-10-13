@@ -46,28 +46,28 @@ func TestRunScopedMCP(t *testing.T) {
 		return w
 	}
 	for _, id := range []string{"p", "other"} {
-		if _, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: id, Name: id, Workspace: "/tmp/mcp-" + id}); err != nil {
+		if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: id, Name: id, Workspace: "/tmp/mcp-" + id}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	other, err := s.CreateTask(ctx, tasks.Create{ProjectID: "other", Title: "secret"})
+	other, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "other", Title: "secret"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "main", Assignee: "demo"})
+	task, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "main", Assignee: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err = s.TaskAction(ctx, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
+	task, err = s.TaskAction(ctx, storage.DefaultCompany, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	task, _ = s.Task(ctx, task.ID)
-	run, _ := s.Get(ctx, task.CurrentRunID)
-	lease, err := s.Claim(ctx, run.Spec.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
+	run, _ := s.Get(ctx, storage.DefaultCompany, task.CurrentRunID)
+	lease, err := s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestRunScopedMCP(t *testing.T) {
 	if w = tool("task_submit", submit); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	task, _ = s.Task(ctx, task.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	if task.Status != "IN_PROGRESS" || task.Submission == nil {
 		t.Fatal(task)
 	}
@@ -170,7 +170,7 @@ func TestRunScopedMCP(t *testing.T) {
 	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	child, _ = s.Task(ctx, child.ID)
+	child, _ = s.Task(ctx, storage.DefaultCompany, child.ID)
 	if child.Attempt != 0 {
 		t.Fatal("writer released before terminal")
 	}
@@ -185,10 +185,10 @@ func TestRunScopedMCP(t *testing.T) {
 		t.Fatal("restart invalidated live token", w.Code, w.Body.String())
 	}
 	event := protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "COMPLETED", Result: "final text"})
-	if err = s.Apply(ctx, event); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, event); err != nil {
 		t.Fatal(err)
 	}
-	task, _ = s.Task(ctx, task.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	if task.Status != "IN_REVIEW" || task.Submission.Summary != "structured" || len(task.Submission.Checks) != 1 {
 		t.Fatal("draft lost", task)
 	}
@@ -201,18 +201,18 @@ func TestRunScopedMCP(t *testing.T) {
 	}
 	// Reviewer is a distinct bound run; accepting own work never gets owner treatment.
 	reviewSpec := protocol.RunSpec{ID: protocol.ID(), Project: "p", Agent: "reviewer", Workspace: "/tmp/mcp-p", Provider: protocol.RuntimeCodex}
-	if err = s.Create(ctx, reviewSpec); err != nil {
+	if err = s.Create(ctx, storage.DefaultCompany, reviewSpec); err != nil {
 		t.Fatal(err)
 	}
-	reviewLease, err := s.Claim(ctx, reviewSpec.ID)
+	reviewLease, err := s.Claim(ctx, storage.DefaultCompany, reviewSpec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token = c.runToken(reviewSpec.ID, reviewLease)
+	token = c.runToken(storage.DefaultCompany, reviewSpec.ID, reviewLease)
 	if w = tool("task_reject", map[string]any{"id": task.ID, "version": task.Version, "feedback": "Add evidence", "request_id": "review-reject"}); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	task, _ = s.Task(ctx, task.ID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	if task.Status != "REWORK" {
 		t.Fatal(task)
 	}

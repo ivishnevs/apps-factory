@@ -29,28 +29,28 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	}
 	c := &Core{Store: s, Agents: catalog.Agents, Skills: catalog.Skills, Token: "owner"}
 	for _, id := range []string{"p", "other"} {
-		if _, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: id, Name: id, Workspace: "/tmp/messages-" + id}); err != nil {
+		if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: id, Name: id, Workspace: "/tmp/messages-" + id}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	foreign, err := s.CreateConversation(ctx, messaging.ConversationCreate{ProjectID: "other", Agent: "manager", Title: "Other", RequestID: "other"})
+	foreign, err := s.CreateConversation(ctx, storage.DefaultCompany, messaging.ConversationCreate{ProjectID: "other", Agent: "manager", Title: "Other", RequestID: "other"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := catalog.Agents["demo"]
 	snapshot, _ := json.Marshal(a)
 	run := protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/messages-p", ConfigSnapshot: snapshot}
-	if err = s.Create(ctx, run); err != nil {
+	if err = s.Create(ctx, storage.DefaultCompany, run); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, run.ID)
+	lease, err := s.Claim(ctx, storage.DefaultCompany, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	call := func(name string, args map[string]any) *httptest.ResponseRecorder {
 		b, _ := json.Marshal(factorytools.Call{Name: "factory_" + name, Arguments: args})
 		r := httptest.NewRequest("POST", "/agent/call", bytes.NewReader(b))
-		r.Header.Set("Authorization", "Bearer "+c.runToken(run.ID, lease))
+		r.Header.Set("Authorization", "Bearer "+c.runToken(storage.DefaultCompany, run.ID, lease))
 		w := httptest.NewRecorder()
 		c.Handler().ServeHTTP(w, r)
 		return w
@@ -97,25 +97,25 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	if err = c.ScheduleMessages(ctx); err != nil {
 		t.Fatal(err)
 	}
-	m, _ = s.Message(ctx, m.ID)
+	m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
 	if m.DeliveryRunID != "" {
 		t.Fatal("writer overlap", m)
 	}
-	if err = s.Apply(ctx, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED", SessionID: "developer-thread"})); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED", SessionID: "developer-thread"})); err != nil {
 		t.Fatal(err)
 	}
 	if err = c.ScheduleMessages(ctx); err != nil {
 		t.Fatal(err)
 	}
-	m, _ = s.Message(ctx, m.ID)
+	m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
 	if m.DeliveryRunID == "" {
 		t.Fatal("no recipient work", m)
 	}
-	responder, err := s.Get(ctx, m.DeliveryRunID)
+	responder, err := s.Get(ctx, storage.DefaultCompany, m.DeliveryRunID)
 	if err != nil || responder.Spec.MessageID != m.ID || responder.Spec.SessionID != "" || responder.Spec.TaskID != "" {
 		t.Fatal("mixed sessions/tasks", responder, err)
 	}
-	managerLease, err := s.Claim(ctx, responder.Spec.ID)
+	managerLease, err := s.Claim(ctx, storage.DefaultCompany, responder.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	m, _ = s.Message(ctx, m.ID)
+	m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
 	if m.Status != "ANSWERED" {
 		t.Fatal(m)
 	}
@@ -149,10 +149,10 @@ func TestUndispatchableMessageEscalatesWithoutStoppingCore(t *testing.T) {
 				t.Fatal(err)
 			}
 			c := &Core{Store: s, Agents: agents}
-			if _, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/undispatchable"}); err != nil {
+			if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/undispatchable"}); err != nil {
 				t.Fatal(err)
 			}
-			m, err := s.SendMessage(ctx, messaging.Send{ProjectID: "p", Sender: "demo", Recipient: "manager", MessageType: "question", Body: "Cannot dispatch", RequestID: "ask"})
+			m, err := s.SendMessage(ctx, storage.DefaultCompany, messaging.Send{ProjectID: "p", Sender: "demo", Recipient: "manager", MessageType: "question", Body: "Cannot dispatch", RequestID: "ask"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,11 +166,11 @@ func TestUndispatchableMessageEscalatesWithoutStoppingCore(t *testing.T) {
 			if err = c.ScheduleMessages(ctx); err != nil {
 				t.Fatal("scheduler stopped", err)
 			}
-			m, _ = s.Message(ctx, m.ID)
+			m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
 			if m.Status != "ESCALATED" || m.DeliveryRunID != "" {
 				t.Fatal(m)
 			}
-			inbox, err := s.Inbox(ctx, "p")
+			inbox, err := s.Inbox(ctx, storage.DefaultCompany, "p")
 			if err != nil || len(inbox) != 1 {
 				t.Fatal(inbox, err)
 			}

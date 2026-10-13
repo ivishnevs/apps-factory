@@ -30,20 +30,20 @@ func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 	}
 	c := &Core{Store: s, Agents: agents, Token: "owner"}
 	for _, id := range []string{"p", "other"} {
-		if _, e = s.CreateProject(ctx, tasks.ProjectCreate{ID: id, Name: id, Workspace: "/tmp/journal-" + id}); e != nil {
+		if _, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: id, Name: id, Workspace: "/tmp/journal-" + id}); e != nil {
 			t.Fatal(e)
 		}
 	}
 	a, _ := json.Marshal(agents["demo"])
 	run := protocol.RunSpec{ID: "journal", Project: "p", Agent: "demo", Workspace: "/tmp/journal-p", ConfigSnapshot: a}
-	if e = s.Create(ctx, run); e != nil {
+	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	lease, e := s.Claim(ctx, run.ID)
+	lease, e := s.Claim(ctx, storage.DefaultCompany, run.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
-	token := c.runToken(run.ID, lease)
+	token := c.runToken(storage.DefaultCompany, run.ID, lease)
 	httpCall := func(auth, method, path string, body any) *httptest.ResponseRecorder {
 		b, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, path, bytes.NewReader(b))
@@ -65,14 +65,14 @@ func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 	if d.CreatedBy != "demo" || d.RunID != run.ID || d.Status != "proposed" {
 		t.Fatal(d)
 	}
-	inbox, _ := s.Inbox(ctx, "p")
+	inbox, _ := s.Inbox(ctx, storage.DefaultCompany, "p")
 	if len(inbox) != 1 || inbox[0].DecisionID != d.ID || inbox[0].Blocking {
 		t.Fatal(inbox)
 	}
 	if w = httpCall("owner", "POST", "/inbox/"+d.MessageID+"/read", map[string]any{"version": 1, "request_id": "read"}); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	got, _ := s.Decision(ctx, d.ID)
+	got, _ := s.Decision(ctx, storage.DefaultCompany, d.ID)
 	if got.Status != "proposed" {
 		t.Fatal("read approved decision", got)
 	}
@@ -112,7 +112,7 @@ func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 	if w = call("factory_decision_record", args); w.Code != 200 {
 		t.Fatal("replay", w.Code, w.Body.String())
 	}
-	other, e := s.ProposeDecision(ctx, "other", decisions.Propose{Topic: "secret", Value: "other project", Rationale: "private", RequestID: "other"})
+	other, e := s.ProposeDecision(ctx, storage.DefaultCompany, "other", decisions.Propose{Topic: "secret", Value: "other project", Rationale: "private", RequestID: "other"})
 	if e != nil {
 		t.Fatal(e)
 	}

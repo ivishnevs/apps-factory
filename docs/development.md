@@ -8,6 +8,13 @@ transaction each, recorded in `schema_migrations(version, name, applied_at)`. `0
 `schema_migrations`) is adopted without re-running anything. `user_version` mirrors the highest applied
 version, so older Cores still refuse a newer schema; Core refuses to start when the database has a version it
 does not know. A new migration is a new file with the next number; never edit an applied one.
+
+Tenancy: every domain table has `company_id` (migration 0008; existing rows belong to `default`), every
+`Store` method takes the company right after `ctx`, and transactions carry it in `storage.Tx` so each insert
+and each lookup by a caller-supplied ID is scoped. Idempotency keys (`mutation_results`) and agent slots are
+per company. Row IDs stay globally unique on SQLite; composite `(company_id, id)` keys come with Postgres.
+Core serves one company (`Core.Company`, default `default`); `companyFrom(r)` resolves it per request, and run
+credentials bind the company into their HMAC, so a token for another company's run is rejected.
 Back up a stopped Core data directory before upgrading; downgrade requires restoring its compatible backup.
 
 `make build`, `make check`, `make up`, `make down`, `make schema`.

@@ -14,8 +14,8 @@ type ToolCall struct {
 	CreatedAt  int64  `json:"created_at"`
 }
 
-func (s *Store) ToolCalls(ctx context.Context, run string) ([]ToolCall, error) {
-	if _, err := s.Get(ctx, run); err != nil {
+func (s *Store) ToolCalls(ctx context.Context, company, run string) ([]ToolCall, error) {
+	if _, err := s.Get(ctx, company, run); err != nil {
 		return nil, err
 	}
 	rows, err := s.DB.QueryContext(ctx, "SELECT id,run_id,agent,project_id,tool,request_id,status,created_at,COALESCE(approval_id,'') FROM tool_calls WHERE run_id=? ORDER BY created_at,rowid", run)

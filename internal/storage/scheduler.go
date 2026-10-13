@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-func (s *Store) Dispatch(ctx context.Context, id string, version int, spec protocol.RunSpec) (protocol.RunSpec, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) Dispatch(ctx context.Context, company, id string, version int, spec protocol.RunSpec) (protocol.RunSpec, error) {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return spec, err
 	}
@@ -56,13 +56,13 @@ func (s *Store) Dispatch(ctx context.Context, id string, version int, spec proto
 	if waiting > 0 {
 		return spec, ErrConflict
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", t.Assignee).Scan(&waiting); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", company, t.Assignee).Scan(&waiting); err != nil {
 		return spec, err
 	}
 	if waiting > 0 {
 		return spec, ErrConflict
 	}
-	p, err := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", t.ProjectID)
+	p, err := projectTx(ctx, tx, t.ProjectID)
 	if err != nil {
 		return spec, err
 	}
@@ -82,7 +82,7 @@ func (s *Store) Dispatch(ctx context.Context, id string, version int, spec proto
 	if err = insertRun(ctx, tx, &spec); err != nil {
 		return spec, constraint(err)
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO task_attempts VALUES(?,?,?)", spec.ID, t.ID, spec.Attempt); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO task_attempts VALUES(?,?,?,?)", spec.ID, t.ID, spec.Attempt, company); err != nil {
 		return spec, err
 	}
 	t.WaitMessageID = ""
@@ -99,7 +99,7 @@ func (s *Store) Dispatch(ctx context.Context, id string, version int, spec proto
 	}
 	return spec, tx.Commit()
 }
-func syncTaskRun(ctx context.Context, tx *sql.Tx, runID string, knownFailure bool) error {
+func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) error {
 	if err := autoRuntimeReport(ctx, tx, runID); err != nil {
 		return err
 	}
@@ -173,8 +173,8 @@ func syncTaskRun(ctx context.Context, tx *sql.Tx, runID string, knownFailure boo
 	}
 	return saveTask(ctx, tx, &t, kind)
 }
-func (s *Store) Attempts(ctx context.Context, id string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.task_id=? ORDER BY a.attempt", id)
+func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +201,8 @@ type Comment struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-func (s *Store) Comments(ctx context.Context, id string) ([]Comment, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,author,text,created_at FROM task_comments WHERE task_id=? ORDER BY created_at,rowid", id)
+func (s *Store) Comments(ctx context.Context, company, id string) ([]Comment, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,author,text,created_at FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,rowid", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -217,15 +217,15 @@ func (s *Store) Comments(ctx context.Context, id string) ([]Comment, error) {
 	}
 	return out, rows.Err()
 }
-func (s *Store) Cancel(ctx context.Context, id string) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) Cancel(ctx context.Context, company, id string) error {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	var status string
 	var taskID sql.NullString
-	if err = tx.QueryRowContext(ctx, "SELECT status,task_id FROM runs WHERE id=?", id).Scan(&status, &taskID); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT status,task_id FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &taskID); err != nil {
 		return err
 	}
 	if status != "QUEUED" && status != "RUNNING" {
@@ -264,13 +264,13 @@ func (s *Store) Cancel(ctx context.Context, id string) error {
 	}
 	return tx.Commit()
 }
-func (s *Store) Expire(ctx context.Context) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) Expire(ctx context.Context, company string) error {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE status IN ('RUNNING','CANCELLING') AND lease_until<?", time.Now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND lease_until<?", company, time.Now().Unix())
 	if err != nil {
 		return err
 	}
@@ -298,19 +298,19 @@ func (s *Store) Expire(ctx context.Context) error {
 	}
 	return tx.Commit()
 }
-func (s *Store) Resolve(ctx context.Context, id, status, result string) error {
+func (s *Store) Resolve(ctx context.Context, company, id, status, result string) error {
 	if status != "COMPLETED" && status != "FAILED" && status != "CANCELLED" {
 		return ErrConflict
 	}
 	if strings.TrimSpace(result) == "" {
 		return inputError("reconciliation evidence required")
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE id=? AND status='UNKNOWN'", status, result, time.Now().Unix(), id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE company_id=? AND id=? AND status='UNKNOWN'", status, result, time.Now().Unix(), company, id)
 	if err != nil {
 		return err
 	}

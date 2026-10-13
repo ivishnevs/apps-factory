@@ -45,7 +45,7 @@ func TestLegacyV7DatabaseIsAdopted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r, err := s.Get(context.Background(), "old"); err != nil || r.Result != "kept" {
+	if r, err := s.Get(context.Background(), DefaultCompany, "old"); err != nil || r.Result != "kept" {
 		t.Fatal(r, err)
 	}
 	var adopted int

@@ -13,21 +13,24 @@ import (
 	"appfactory/internal/protocol"
 )
 
-func (s *Store) Conversation(ctx context.Context, id string) (messaging.Conversation, error) {
-	return getDoc[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE id=?", id)
+func (s *Store) Conversation(ctx context.Context, company, id string) (messaging.Conversation, error) {
+	return getDoc[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND id=?", company, id)
 }
-func (s *Store) Conversations(ctx context.Context, project string) ([]messaging.Conversation, error) {
-	return listDocs[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE project_id=? ORDER BY rowid", project)
+func conversationTx(ctx context.Context, tx *Tx, id string) (messaging.Conversation, error) {
+	return getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE company_id=? AND id=?", tx.company, id)
 }
-func (s *Store) CreateConversation(ctx context.Context, in messaging.ConversationCreate) (messaging.Conversation, error) {
-	return mutate(ctx, s, "conversation.create", in.RequestID, in, func(tx *sql.Tx) (messaging.Conversation, error) {
+func (s *Store) Conversations(ctx context.Context, company, project string) ([]messaging.Conversation, error) {
+	return listDocs[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND project_id=? ORDER BY rowid", company, project)
+}
+func (s *Store) CreateConversation(ctx context.Context, company string, in messaging.ConversationCreate) (messaging.Conversation, error) {
+	return mutate(ctx, s, company, "conversation.create", in.RequestID, in, func(tx *Tx) (messaging.Conversation, error) {
 		if in.RequestID == "" || strings.TrimSpace(in.Title) == "" || len(in.Title) > 1024 || in.Agent == "" || in.Agent == "owner" {
 			return messaging.Conversation{}, inputError("request_id, title and recipient agent required")
 		}
 		return createConversation(ctx, tx, in, "owner")
 	})
 }
-func createConversation(ctx context.Context, tx *sql.Tx, in messaging.ConversationCreate, kind string) (messaging.Conversation, error) {
+func createConversation(ctx context.Context, tx *Tx, in messaging.ConversationCreate, kind string) (messaging.Conversation, error) {
 	v := messaging.Conversation{ID: in.ID, ProjectID: in.ProjectID, Agent: in.Agent, Title: in.Title, Kind: kind, CreatedAt: time.Now().Unix()}
 	if v.ID == "" {
 		v.ID = protocol.ID()
@@ -35,26 +38,29 @@ func createConversation(ctx context.Context, tx *sql.Tx, in messaging.Conversati
 	if !entityName.MatchString(v.ID) {
 		return v, inputError("invalid conversation id")
 	}
-	if _, err := getDoc[json.RawMessage](ctx, tx, "SELECT body FROM projects WHERE id=?", v.ProjectID); err != nil {
+	if _, err := projectTx(ctx, tx, v.ProjectID); err != nil {
 		return v, err
 	}
 	b, _ := json.Marshal(v)
-	if _, err := tx.ExecContext(ctx, "INSERT INTO conversations VALUES(?,?,?)", v.ID, v.ProjectID, b); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO conversations VALUES(?,?,?,?)", v.ID, v.ProjectID, b, tx.company); err != nil {
 		return v, err
 	}
 	return v, entityEvent(ctx, tx, "conversation.created", v.ProjectID, v.ID, v)
 }
-func (s *Store) Message(ctx context.Context, id string) (messaging.Message, error) {
-	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE id=?", id)
+func (s *Store) Message(ctx context.Context, company, id string) (messaging.Message, error) {
+	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND id=?", company, id)
 }
-func (s *Store) Messages(ctx context.Context, conversation string) ([]messaging.Message, error) {
-	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE conversation_id=? ORDER BY rowid", conversation)
+func messageTx(ctx context.Context, tx *Tx, id string) (messaging.Message, error) {
+	return getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND id=?", tx.company, id)
 }
-func (s *Store) Inbox(ctx context.Context, project string) ([]messaging.Message, error) {
-	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,rowid", project, project)
+func (s *Store) Messages(ctx context.Context, company, conversation string) ([]messaging.Message, error) {
+	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND conversation_id=? ORDER BY rowid", company, conversation)
 }
-func (s *Store) PendingMessages(ctx context.Context) ([]messaging.Message, error) {
-	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE delivery_status='PENDING' AND recipient!='owner' AND status IN ('PENDING','UNREAD') ORDER BY created_at,rowid")
+func (s *Store) Inbox(ctx context.Context, company, project string) ([]messaging.Message, error) {
+	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,rowid", company, project, project)
+}
+func (s *Store) PendingMessages(ctx context.Context, company string) ([]messaging.Message, error) {
+	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND delivery_status='PENDING' AND recipient!='owner' AND status IN ('PENDING','UNREAD') ORDER BY created_at,rowid", company)
 }
 func validQuestions(questions []messaging.Question) error {
 	if len(questions) > 16 {
@@ -88,12 +94,12 @@ func validQuestions(questions []messaging.Question) error {
 	}
 	return nil
 }
-func (s *Store) SendMessage(ctx context.Context, in messaging.Send) (messaging.Message, error) {
-	return mutate(ctx, s, "message.send:"+in.Sender+":"+in.ProjectID+":"+in.RunID, in.RequestID, in, func(tx *sql.Tx) (messaging.Message, error) {
+func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Send) (messaging.Message, error) {
+	return mutate(ctx, s, company, "message.send:"+in.Sender+":"+in.ProjectID+":"+in.RunID, in.RequestID, in, func(tx *Tx) (messaging.Message, error) {
 		return sendMessageTx(ctx, tx, in)
 	})
 }
-func sendMessageTx(ctx context.Context, tx *sql.Tx, in messaging.Send) (messaging.Message, error) {
+func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Message, error) {
 	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: time.Now().Unix()}
 	if in.RequestID == "" || in.Sender == "" || in.Recipient == "" || in.Sender == in.Recipient || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id, distinct sender/recipient and body up to 16 KiB required")
@@ -130,7 +136,7 @@ func sendMessageTx(ctx context.Context, tx *sql.Tx, in messaging.Send) (messagin
 		}
 		hash := sha256.Sum256([]byte(m.ProjectID + "\x00" + m.Sender + "\x00" + chain))
 		cid := "chain-" + hex.EncodeToString(hash[:16])
-		conv, err := getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE id=?", cid)
+		conv, err := conversationTx(ctx, tx, cid)
 		if err == ErrNotFound {
 			runes := []rune(in.Body)
 			conv, err = createConversation(ctx, tx, messaging.ConversationCreate{ID: cid, ProjectID: m.ProjectID, Agent: m.Recipient, Title: string(runes[:min(len(runes), 128)])}, "agent")
@@ -140,7 +146,7 @@ func sendMessageTx(ctx context.Context, tx *sql.Tx, in messaging.Send) (messagin
 		}
 		m.ConversationID = conv.ID
 	}
-	conv, err := getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE id=?", m.ConversationID)
+	conv, err := conversationTx(ctx, tx, m.ConversationID)
 	if err != nil {
 		return m, err
 	}
@@ -172,7 +178,7 @@ func sendMessageTx(ctx context.Context, tx *sql.Tx, in messaging.Send) (messagin
 		}
 		var status, agent, project string
 		var until int64
-		if err = tx.QueryRowContext(ctx, "SELECT status,agent,project,lease_until FROM runs WHERE id=?", in.RunID).Scan(&status, &agent, &project, &until); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT status,agent,project,lease_until FROM runs WHERE company_id=? AND id=?", tx.company, in.RunID).Scan(&status, &agent, &project, &until); err != nil {
 			return m, err
 		}
 		if status != "RUNNING" || agent != in.Sender || project != in.ProjectID || until < time.Now().Unix() {
@@ -202,12 +208,12 @@ func sendMessageTx(ctx context.Context, tx *sql.Tx, in messaging.Send) (messagin
 	canonical, _ := json.Marshal(m.Questions)
 	fingerprint := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.ToLower(m.Body)), " ") + "\x00" + m.Sender + "\x00" + m.Recipient + "\x00" + m.TaskID + "\x00" + string(canonical)))
 	b, _ := json.Marshal(m)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:])); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:]), tx.company); err != nil {
 		return m, err
 	}
 	return m, entityEvent(ctx, tx, "message.created", m.ProjectID, m.ID, m)
 }
-func saveMessage(ctx context.Context, tx *sql.Tx, m *messaging.Message, kind string) error {
+func saveMessage(ctx context.Context, tx *Tx, m *messaging.Message, kind string) error {
 	old := m.Version
 	m.Version++
 	b, _ := json.Marshal(m)
@@ -270,10 +276,10 @@ func validAnswers(qs []messaging.Question, answers map[string]any) error {
 	}
 	return nil
 }
-func (s *Store) ReplyMessage(ctx context.Context, id string, in messaging.Reply) (messaging.Message, error) {
-	return mutate(ctx, s, "message.reply:"+id, in.RequestID, in, func(tx *sql.Tx) (messaging.Message, error) {
+func (s *Store) ReplyMessage(ctx context.Context, company, id string, in messaging.Reply) (messaging.Message, error) {
+	return mutate(ctx, s, company, "message.reply:"+id, in.RequestID, in, func(tx *Tx) (messaging.Message, error) {
 		var count int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM approvals WHERE message_id=?", id).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM approvals WHERE company_id=? AND message_id=?", company, id).Scan(&count); err != nil {
 			return messaging.Message{}, err
 		}
 		if count > 0 {
@@ -282,8 +288,8 @@ func (s *Store) ReplyMessage(ctx context.Context, id string, in messaging.Reply)
 		return replyMessageTx(ctx, tx, id, in)
 	})
 }
-func replyMessageTx(ctx context.Context, tx *sql.Tx, id string, in messaging.Reply) (messaging.Message, error) {
-	m, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", id)
+func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) (messaging.Message, error) {
+	m, err := messageTx(ctx, tx, id)
 	if err != nil {
 		return m, err
 	}
@@ -344,7 +350,7 @@ func replyMessageTx(ctx context.Context, tx *sql.Tx, id string, in messaging.Rep
 		}
 	}
 	b, _ := json.Marshal(answer)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", answer.ID, answer.ProjectID, answer.ConversationID, nullable(answer.TaskID), answer.Sender, answer.Recipient, answer.MessageType, answer.Status, answer.DeliveryStatus, answer.Version, b, answer.CreatedAt, ""); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", answer.ID, answer.ProjectID, answer.ConversationID, nullable(answer.TaskID), answer.Sender, answer.Recipient, answer.MessageType, answer.Status, answer.DeliveryStatus, answer.Version, b, answer.CreatedAt, "", tx.company); err != nil {
 		return answer, err
 	}
 	m.Status = "ANSWERED"
@@ -362,7 +368,7 @@ func replyMessageTx(ctx context.Context, tx *sql.Tx, id string, in messaging.Rep
 	}
 	return answer, nil
 }
-func resumeWaitingTask(ctx context.Context, tx *sql.Tx, m messaging.Message) error {
+func resumeWaitingTask(ctx context.Context, tx *Tx, m messaging.Message) error {
 	if !m.Blocking || m.TaskID == "" {
 		return nil
 	}
@@ -385,13 +391,13 @@ func resumeWaitingTask(ctx context.Context, tx *sql.Tx, m messaging.Message) err
 	t.RetryEligible = false
 	return saveTask(ctx, tx, &t, "task.resumed")
 }
-func (s *Store) DispatchMessage(ctx context.Context, m messaging.Message, spec protocol.RunSpec) (protocol.RunSpec, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) DispatchMessage(ctx context.Context, company string, m messaging.Message, spec protocol.RunSpec) (protocol.RunSpec, error) {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return spec, err
 	}
 	defer tx.Rollback()
-	saved, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", m.ID)
+	saved, err := messageTx(ctx, tx, m.ID)
 	if err != nil {
 		return spec, err
 	}
@@ -399,7 +405,7 @@ func (s *Store) DispatchMessage(ctx context.Context, m messaging.Message, spec p
 		return spec, ErrConflict
 	}
 	var busy int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", spec.Agent).Scan(&busy); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", company, spec.Agent).Scan(&busy); err != nil {
 		return spec, err
 	}
 	if busy > 0 {
@@ -417,7 +423,7 @@ func (s *Store) DispatchMessage(ctx context.Context, m messaging.Message, spec p
 	if err = insertRun(ctx, tx, &spec); err != nil {
 		return spec, constraint(err)
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO message_runs VALUES(?,?)", spec.ID, m.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO message_runs VALUES(?,?,?)", spec.ID, m.ID, company); err != nil {
 		return spec, err
 	}
 	saved.DeliveryRunID = spec.ID
@@ -427,7 +433,7 @@ func (s *Store) DispatchMessage(ctx context.Context, m messaging.Message, spec p
 	}
 	return spec, tx.Commit()
 }
-func syncMessageRun(ctx context.Context, tx *sql.Tx, runID string) error {
+func syncMessageRun(ctx context.Context, tx *Tx, runID string) error {
 	var id string
 	if err := tx.QueryRowContext(ctx, "SELECT message_id FROM message_runs WHERE run_id=?", runID).Scan(&id); err == sql.ErrNoRows {
 		return nil
@@ -476,13 +482,13 @@ func syncMessageRun(ctx context.Context, tx *sql.Tx, runID string) error {
 	}
 	return saveMessage(ctx, tx, &m, "message.delivery_completed")
 }
-func (s *Store) ExpireMessages(ctx context.Context) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) ExpireMessages(ctx context.Context, company string) error {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM messages WHERE message_type='question' AND status='PENDING'")
+	rows, err := tx.QueryContext(ctx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND status='PENDING'", company)
 	if err != nil {
 		return err
 	}
@@ -520,23 +526,23 @@ func (s *Store) ExpireMessages(ctx context.Context) error {
 	return tx.Commit()
 }
 
-func messageWaitState(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+func messageWaitState(ctx context.Context, tx *Tx, id string) (bool, error) {
 	var status string
 	err := tx.QueryRowContext(ctx, "SELECT status FROM messages WHERE id=?", id).Scan(&status)
 	return status == "ANSWERED", err
 }
-func (s *Store) AnswerFor(ctx context.Context, id string) (messaging.Message, error) {
-	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", id)
+func (s *Store) AnswerFor(ctx context.Context, company, id string) (messaging.Message, error) {
+	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", company, id)
 }
 
 // ReadInbox acknowledges owner notifications without answering or dismissing a question.
-func (s *Store) ReadInbox(ctx context.Context, id string, version int, key string) (messaging.Message, error) {
+func (s *Store) ReadInbox(ctx context.Context, company, id string, version int, key string) (messaging.Message, error) {
 	input := struct {
 		Version   int
 		RequestID string
 	}{version, key}
-	return mutate(ctx, s, "message.read:"+id, key, input, func(tx *sql.Tx) (messaging.Message, error) {
-		m, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", id)
+	return mutate(ctx, s, company, "message.read:"+id, key, input, func(tx *Tx) (messaging.Message, error) {
+		m, err := messageTx(ctx, tx, id)
 		if err != nil {
 			return m, err
 		}
@@ -552,13 +558,13 @@ func (s *Store) ReadInbox(ctx context.Context, id string, version int, key strin
 }
 
 // EscalateMessage stops an undispatchable delivery and makes it visible to the owner.
-func (s *Store) EscalateMessage(ctx context.Context, id string, version int, reason string) error {
+func (s *Store) EscalateMessage(ctx context.Context, company, id string, version int, reason string) error {
 	input := struct {
 		Version int
 		Reason  string
 	}{version, reason}
-	_, err := mutate(ctx, s, "message.escalate:"+id, "scheduler-escalation", input, func(tx *sql.Tx) (messaging.Message, error) {
-		m, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", id)
+	_, err := mutate(ctx, s, company, "message.escalate:"+id, "scheduler-escalation", input, func(tx *Tx) (messaging.Message, error) {
+		m, err := messageTx(ctx, tx, id)
 		if err != nil {
 			return m, err
 		}

@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -10,11 +9,11 @@ import (
 	"appfactory/internal/tasks"
 )
 
-func (s *Store) checkTaskChange(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
+func (s *Store) checkTaskChange(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if t.OpenSpecChange == "" {
 		return nil
 	}
-	p, e := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", t.ProjectID)
+	p, e := projectTx(ctx, tx, t.ProjectID)
 	if e != nil {
 		return e
 	}
@@ -23,14 +22,14 @@ func (s *Store) checkTaskChange(ctx context.Context, tx *sql.Tx, t tasks.Task) e
 	}
 	return nil
 }
-func (s *Store) InitOpenSpec(ctx context.Context, project, actor, runID, key string) (openspec.Initialized, error) {
+func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID, key string) (openspec.Initialized, error) {
 	input := struct{ Project, Actor, RunID string }{project, actor, runID}
-	return mutate(ctx, s, "openspec.init:"+project+":"+actor+":"+runID, key, input, func(tx *sql.Tx) (openspec.Initialized, error) {
+	return mutate(ctx, s, company, "openspec.init:"+project+":"+actor+":"+runID, key, input, func(tx *Tx) (openspec.Initialized, error) {
 		out := openspec.Initialized{}
 		if key == "" {
 			return out, inputError("request_id required")
 		}
-		p, e := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", project)
+		p, e := projectTx(ctx, tx, project)
 		if e != nil {
 			return out, e
 		}
@@ -44,7 +43,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, project, actor, runID, key str
 		}
 		if runID != "" {
 			var valid int
-			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE id=? AND project=? AND agent=? AND status='RUNNING' AND lease_until>?", runID, project, actor, time.Now().Unix()).Scan(&valid); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND id=? AND project=? AND agent=? AND status='RUNNING' AND lease_until>?", tx.company, runID, project, actor, time.Now().Unix()).Scan(&valid); e != nil {
 				return out, e
 			}
 			if valid != 1 {
@@ -62,7 +61,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, project, actor, runID, key str
 	})
 }
 
-func blockOpenSpecRun(ctx context.Context, tx *sql.Tx, id, taskID, reason string) error {
+func blockOpenSpecRun(ctx context.Context, tx *Tx, id, taskID, reason string) error {
 	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, time.Now().Unix(), id); e != nil {
 		return e
 	}

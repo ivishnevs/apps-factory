@@ -46,7 +46,7 @@ func (c *Core) journalRoutes(m *http.ServeMux) {
 			return
 		}
 		p.Actor = "owner"
-		v, err := c.Store.CreateReport(r.Context(), r.PathValue("project"), p)
+		v, err := c.Store.CreateReport(r.Context(), c.companyFrom(r), r.PathValue("project"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{project}/reports", func(w http.ResponseWriter, r *http.Request) {
@@ -54,11 +54,11 @@ func (c *Core) journalRoutes(m *http.ServeMux) {
 		if !ok {
 			return
 		}
-		v, err := c.Store.Reports(r.Context(), r.PathValue("project"), r.URL.Query().Get("kind"), r.URL.Query().Get("task_id"), r.URL.Query().Get("run_id"), a, l)
+		v, err := c.Store.Reports(r.Context(), c.companyFrom(r), r.PathValue("project"), r.URL.Query().Get("kind"), r.URL.Query().Get("task_id"), r.URL.Query().Get("run_id"), a, l)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /reports/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Report(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Report(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /projects/{project}/decisions", func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +67,7 @@ func (c *Core) journalRoutes(m *http.ServeMux) {
 			return
 		}
 		p.Actor = "owner"
-		v, err := c.Store.ProposeDecision(r.Context(), r.PathValue("project"), p)
+		v, err := c.Store.ProposeDecision(r.Context(), c.companyFrom(r), r.PathValue("project"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{project}/decisions", func(w http.ResponseWriter, r *http.Request) {
@@ -75,11 +75,11 @@ func (c *Core) journalRoutes(m *http.ServeMux) {
 		if !ok {
 			return
 		}
-		v, err := c.Store.Decisions(r.Context(), r.PathValue("project"), r.URL.Query().Get("status"), r.URL.Query().Get("topic"), a, l)
+		v, err := c.Store.Decisions(r.Context(), c.companyFrom(r), r.PathValue("project"), r.URL.Query().Get("status"), r.URL.Query().Get("topic"), a, l)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /decisions/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.Decision(r.Context(), r.PathValue("id"))
+		v, err := c.Store.Decision(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /decisions/{id}/record", func(w http.ResponseWriter, r *http.Request) {
@@ -88,11 +88,11 @@ func (c *Core) journalRoutes(m *http.ServeMux) {
 			return
 		}
 		p.Actor = "owner"
-		v, err := c.Store.RecordDecision(r.Context(), r.PathValue("id"), p)
+		v, err := c.Store.RecordDecision(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{project}/context", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.ProjectContext(r.Context(), r.PathValue("project"))
+		v, err := c.Store.ProjectContext(r.Context(), c.companyFrom(r), r.PathValue("project"))
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{project}/feed", func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +100,7 @@ func (c *Core) journalRoutes(m *http.ServeMux) {
 		if !ok {
 			return
 		}
-		v, err := c.Store.ProjectFeed(r.Context(), r.PathValue("project"), a, l)
+		v, err := c.Store.ProjectFeed(r.Context(), c.companyFrom(r), r.PathValue("project"), a, l)
 		reply(w, v, err)
 	})
 }
@@ -171,10 +171,10 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
 		in.Actor = run.Spec.Agent
-		v, err := c.Store.CreateReport(ctx, run.Spec.Project, in)
+		v, err := c.Store.CreateReport(ctx, c.companyFrom(r), run.Spec.Project, in)
 		reply(w, v, err)
 	case "factory_report_get":
-		v, err := c.Store.Report(ctx, stringArg(args, "report_id"))
+		v, err := c.Store.Report(ctx, c.companyFrom(r), stringArg(args, "report_id"))
 		if err == nil && v.ProjectID != run.Spec.Project {
 			http.Error(w, "report outside project", 403)
 			return
@@ -185,7 +185,7 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		if !ok {
 			return
 		}
-		v, err := c.Store.Reports(ctx, run.Spec.Project, stringArg(args, "kind"), stringArg(args, "task_id"), stringArg(args, "run_id"), a, l)
+		v, err := c.Store.Reports(ctx, c.companyFrom(r), run.Spec.Project, stringArg(args, "kind"), stringArg(args, "task_id"), stringArg(args, "run_id"), a, l)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -203,7 +203,7 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 			return
 		}
 		in.Actor, in.RunID, in.TaskID = run.Spec.Agent, run.Spec.ID, run.Spec.TaskID
-		v, err := c.Store.DecideDecision(ctx, run.Spec.Project, in, current)
+		v, err := c.Store.DecideDecision(ctx, c.companyFrom(r), run.Spec.Project, in, current)
 		reply(w, v, err)
 	case "factory_decision_propose":
 		if !ownerNoticeAllowed(w, snapshot, current) {
@@ -217,11 +217,11 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
 		in.Actor = run.Spec.Agent
-		v, err := c.Store.ProposeDecision(ctx, run.Spec.Project, in)
+		v, err := c.Store.ProposeDecision(ctx, c.companyFrom(r), run.Spec.Project, in)
 		reply(w, v, err)
 	case "factory_decision_get", "factory_decision_record":
 		id := stringArg(args, "decision_id")
-		d, err := c.Store.Decision(ctx, id)
+		d, err := c.Store.Decision(ctx, c.companyFrom(r), id)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -247,7 +247,7 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		in.ScopeTaskID = run.Spec.TaskID
 		in.ApprovalID, _ = ctx.Value(approvalIntentKey{}).(string)
 		in.GrantedCall = &p
-		v, err := c.Store.RecordDecision(ctx, id, in)
+		v, err := c.Store.RecordDecision(ctx, c.companyFrom(r), id, in)
 		reply(w, v, err)
 	case "factory_decision_list":
 		a, l, ok := toolPage(w, args)
@@ -258,7 +258,7 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		if _, ok := args["status"]; !ok {
 			status = "approved"
 		}
-		v, err := c.Store.Decisions(ctx, run.Spec.Project, status, stringArg(args, "topic"), a, l)
+		v, err := c.Store.Decisions(ctx, c.companyFrom(r), run.Spec.Project, status, stringArg(args, "topic"), a, l)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -275,10 +275,10 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		if !ok {
 			return
 		}
-		v, err := c.Store.ProjectFeed(ctx, run.Spec.Project, a, l)
+		v, err := c.Store.ProjectFeed(ctx, c.companyFrom(r), run.Spec.Project, a, l)
 		reply(w, v, err)
 	case "factory_project_context":
-		v, err := c.Store.ProjectContext(ctx, run.Spec.Project)
+		v, err := c.Store.ProjectContext(ctx, c.companyFrom(r), run.Spec.Project)
 		if err != nil {
 			reply(w, nil, err)
 			return

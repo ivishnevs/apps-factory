@@ -29,10 +29,10 @@ func TestOpenSpecGatewayPolicyScopeAndInitialization(t *testing.T) {
 	}
 	c := &Core{Store: s, Agents: agents, Token: "owner"}
 	workspace := t.TempDir()
-	if _, e = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
+	if _, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.InitOpenSpec(ctx, "p", "owner", "", "setup"); e != nil {
+	if _, e = s.InitOpenSpec(ctx, storage.DefaultCompany, "p", "owner", "", "setup"); e != nil {
 		t.Fatal(e)
 	}
 	os.MkdirAll(filepath.Join(workspace, "openspec/changes/feature"), 0755)
@@ -40,14 +40,14 @@ func TestOpenSpecGatewayPolicyScopeAndInitialization(t *testing.T) {
 	current := agents["demo"]
 	snapshot, _ := json.Marshal(current)
 	run := protocol.RunSpec{ID: "spec-agent", Project: "p", Agent: "demo", Workspace: workspace, ConfigSnapshot: snapshot}
-	if e = s.Create(ctx, run); e != nil {
+	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	lease, e := s.Claim(ctx, run.ID)
+	lease, e := s.Claim(ctx, storage.DefaultCompany, run.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
-	token := c.runToken(run.ID, lease)
+	token := c.runToken(storage.DefaultCompany, run.ID, lease)
 	httpCall := func(auth, method, path string, body any) *httptest.ResponseRecorder {
 		b, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, path, bytes.NewReader(b))
@@ -104,7 +104,7 @@ func TestOpenSpecGatewayPolicyScopeAndInitialization(t *testing.T) {
 }
 func mustRunSpec(t *testing.T, s *storage.Store, id string) []byte {
 	t.Helper()
-	r, e := s.Get(context.Background(), id)
+	r, e := s.Get(context.Background(), storage.DefaultCompany, id)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -125,18 +125,18 @@ func TestSchedulerBlocksDisappearedOpenSpecBeforeRun(t *testing.T) {
 	}
 	c := &Core{Store: s, Agents: agents}
 	workspace := t.TempDir()
-	if _, e = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
+	if _, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
 		t.Fatal(e)
 	}
 	s.OpenSpec.Init(workspace)
 	os.MkdirAll(filepath.Join(workspace, "openspec/changes/feature"), 0755)
 	proposal := filepath.Join(workspace, "openspec/changes/feature/proposal.md")
 	os.WriteFile(proposal, []byte("# Feature"), 0644)
-	task, e := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "linked", Assignee: "demo", OpenSpecChange: "feature"})
+	task, e := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "linked", Assignee: "demo", OpenSpecChange: "feature"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	task, e = s.TaskAction(ctx, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
+	task, e = s.TaskAction(ctx, storage.DefaultCompany, task.ID, tasks.Action{Version: task.Version, Action: "ready"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -144,7 +144,7 @@ func TestSchedulerBlocksDisappearedOpenSpecBeforeRun(t *testing.T) {
 	if e = c.Schedule(ctx); e != nil {
 		t.Fatal(e)
 	}
-	current, _ := s.Task(ctx, task.ID)
+	current, _ := s.Task(ctx, storage.DefaultCompany, task.ID)
 	if current.Status != "BLOCKED" || current.Attempt != 0 {
 		t.Fatal(current)
 	}
@@ -166,36 +166,36 @@ func TestOpenSpecBrokenLinkBlocksKnownFailedRetry(t *testing.T) {
 	agents["demo"] = agent
 	c := &Core{Store: s, Agents: agents}
 	workspace := t.TempDir()
-	if _, e = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
+	if _, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
 		t.Fatal(e)
 	}
 	s.OpenSpec.Init(workspace)
 	os.MkdirAll(filepath.Join(workspace, "openspec/changes/feature"), 0755)
 	proposal := filepath.Join(workspace, "openspec/changes/feature/proposal.md")
 	os.WriteFile(proposal, []byte("# Feature"), 0644)
-	task, e := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "linked", Assignee: "demo", OpenSpecChange: "feature"})
+	task, e := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "linked", Assignee: "demo", OpenSpecChange: "feature"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.TaskAction(ctx, task.ID, tasks.Action{Version: task.Version, Action: "ready"}); e != nil {
+	if _, e = s.TaskAction(ctx, storage.DefaultCompany, task.ID, tasks.Action{Version: task.Version, Action: "ready"}); e != nil {
 		t.Fatal(e)
 	}
 	if e = c.Schedule(ctx); e != nil {
 		t.Fatal(e)
 	}
-	task, _ = s.Task(ctx, task.ID)
-	lease, e := s.Claim(ctx, task.CurrentRunID)
+	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
+	lease, e := s.Claim(ctx, storage.DefaultCompany, task.CurrentRunID)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.Apply(ctx, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "FAILED"})); e != nil {
+	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "FAILED"})); e != nil {
 		t.Fatal(e)
 	}
 	os.Rename(proposal, proposal+".held")
 	if e = c.Schedule(ctx); e != nil {
 		t.Fatal("broken retry killed scheduler", e)
 	}
-	current, _ := s.Task(ctx, task.ID)
+	current, _ := s.Task(ctx, storage.DefaultCompany, task.ID)
 	if current.Status != "BLOCKED" || current.Attempt != 1 {
 		t.Fatal(current)
 	}

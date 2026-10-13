@@ -51,10 +51,10 @@ func TestMCPCapturedPermissionsAndAssignAllowlist(t *testing.T) {
 			}
 			agents["demo"] = current
 			c := &Core{Store: s, Agents: agents, Token: "test"}
-			if _, err = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/permissions"}); err != nil {
+			if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/permissions"}); err != nil {
 				t.Fatal(err)
 			}
-			task, err := s.CreateTask(ctx, tasks.Create{ProjectID: "p", Title: "child"})
+			task, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "child"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -63,23 +63,23 @@ func TestMCPCapturedPermissionsAndAssignAllowlist(t *testing.T) {
 			}
 			snapshot, _ := json.Marshal(captured)
 			run := protocol.RunSpec{ID: protocol.ID(), Project: "p", Agent: "demo", Workspace: "/tmp/permissions", ConfigSnapshot: snapshot}
-			if err = s.Create(ctx, run); err != nil {
+			if err = s.Create(ctx, storage.DefaultCompany, run); err != nil {
 				t.Fatal(err)
 			}
-			lease, err := s.Claim(ctx, run.ID)
+			lease, err := s.Claim(ctx, storage.DefaultCompany, run.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			input, _ := json.Marshal(factorytools.Call{Name: name, Arguments: args})
 			req := httptest.NewRequest("POST", "/agent/call", bytes.NewReader(input))
-			req.Header.Set("Authorization", "Bearer "+c.runToken(run.ID, lease))
+			req.Header.Set("Authorization", "Bearer "+c.runToken(storage.DefaultCompany, run.ID, lease))
 			w := httptest.NewRecorder()
 			c.Handler().ServeHTTP(w, req)
 			if w.Code != want {
 				t.Fatal(w.Code, w.Body.String())
 			}
 			if scenario != "assign-only" {
-				all, err := s.Tasks(ctx, "p", "")
+				all, err := s.Tasks(ctx, storage.DefaultCompany, "p", "")
 				if err != nil || len(all) != 1 {
 					t.Fatal("denied mutation persisted", all, err)
 				}

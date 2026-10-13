@@ -22,13 +22,16 @@ func validArtifact(a tasks.Artifact) error {
 	}
 	return nil
 }
-func (s *Store) Artifact(ctx context.Context, project, id, version string) (artifacts.Record, error) {
-	return getDoc[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE project_id=? AND id=? AND version=?", project, id, version)
+func (s *Store) Artifact(ctx context.Context, company, project, id, version string) (artifacts.Record, error) {
+	return getDoc[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? AND version=?", company, project, id, version)
 }
-func (s *Store) Artifacts(ctx context.Context, project string) ([]artifacts.Record, error) {
-	return listDocs[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE project_id=? ORDER BY rowid", project)
+func (s *Store) Artifacts(ctx context.Context, company, project string) ([]artifacts.Record, error) {
+	return listDocs[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? ORDER BY rowid", company, project)
 }
-func registerArtifactTx(ctx context.Context, tx *sql.Tx, project string, in artifacts.Register) (artifacts.Record, error) {
+func artifactVersionTx(ctx context.Context, tx *Tx, project, id, version string) (artifacts.Record, error) {
+	return getDoc[artifacts.Record](ctx, tx, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? AND version=?", tx.company, project, id, version)
+}
+func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifacts.Register) (artifacts.Record, error) {
 	if in.Actor == "" {
 		in.Actor = "owner"
 	}
@@ -45,7 +48,7 @@ func registerArtifactTx(ctx context.Context, tx *sql.Tx, project string, in arti
 	}
 	if in.RunID != "" {
 		var taskID sql.NullString
-		if err = tx.QueryRowContext(ctx, "SELECT task_id FROM runs WHERE id=?", in.RunID).Scan(&taskID); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT task_id FROM runs WHERE company_id=? AND id=?", tx.company, in.RunID).Scan(&taskID); err != nil {
 			return a, err
 		}
 		if taskID.String != in.TaskID {
@@ -59,7 +62,7 @@ func registerArtifactTx(ctx context.Context, tx *sql.Tx, project string, in arti
 	if conflicts > 0 {
 		return a, ErrConflict
 	}
-	old, err := getDoc[artifacts.Record](ctx, tx, "SELECT body FROM artifact_versions WHERE project_id=? AND id=? AND version=?", project, a.ID, a.Version)
+	old, err := artifactVersionTx(ctx, tx, project, a.ID, a.Version)
 	if err == nil {
 		if old.URI != a.URI {
 			return a, ErrConflict
@@ -70,13 +73,13 @@ func registerArtifactTx(ctx context.Context, tx *sql.Tx, project string, in arti
 		return a, err
 	}
 	b, _ := json.Marshal(a)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_versions VALUES(?,?,?,?,?)", project, a.ID, a.Version, a.URI, b); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_versions VALUES(?,?,?,?,?,?)", project, a.ID, a.Version, a.URI, b, tx.company); err != nil {
 		return a, err
 	}
 	return a, entityEvent(ctx, tx, "artifact.registered", project, a.ID, a)
 }
-func (s *Store) RegisterArtifact(ctx context.Context, project string, in artifacts.Register) (artifacts.Record, error) {
-	return mutate(ctx, s, "artifact.register:"+project, in.RequestID, in, func(tx *sql.Tx) (artifacts.Record, error) {
+func (s *Store) RegisterArtifact(ctx context.Context, company, project string, in artifacts.Register) (artifacts.Record, error) {
+	return mutate(ctx, s, company, "artifact.register:"+project, in.RequestID, in, func(tx *Tx) (artifacts.Record, error) {
 		if in.RequestID == "" {
 			return artifacts.Record{}, inputError("request_id required")
 		}
@@ -91,26 +94,27 @@ func (s *Store) RegisterArtifact(ctx context.Context, project string, in artifac
 		}
 		a, err := registerArtifactTx(ctx, tx, project, in)
 		if err == nil && in.RunID != "" {
-			_, err = tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?) ON CONFLICT(task_id,run_id,id,version) DO NOTHING", in.TaskID, in.RunID, in.Artifact.ID, in.Artifact.Version, in.Artifact.URI)
+			_, err = tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(task_id,run_id,id,version) DO NOTHING", in.TaskID, in.RunID, in.Artifact.ID, in.Artifact.Version, in.Artifact.URI, tx.company)
 		}
 		return a, err
 	})
 }
-func artifactApprovalTx(ctx context.Context, q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, project, id, version string) (approvals.Approval, error) {
-	return getDoc[approvals.Approval](ctx, q, "SELECT body FROM approvals WHERE project_id=? AND kind='artifact' AND artifact_id=? AND artifact_version=? ORDER BY rowid DESC LIMIT 1", project, id, version)
+
+const artifactApprovalQuery = "SELECT body FROM approvals WHERE company_id=? AND project_id=? AND kind='artifact' AND artifact_id=? AND artifact_version=? ORDER BY rowid DESC LIMIT 1"
+
+func artifactApprovalTx(ctx context.Context, tx *Tx, project, id, version string) (approvals.Approval, error) {
+	return getDoc[approvals.Approval](ctx, tx, artifactApprovalQuery, tx.company, project, id, version)
 }
-func (s *Store) ArtifactApproval(ctx context.Context, project, id, version string) (approvals.Approval, error) {
-	return artifactApprovalTx(ctx, s.DB, project, id, version)
+func (s *Store) ArtifactApproval(ctx context.Context, company, project, id, version string) (approvals.Approval, error) {
+	return getDoc[approvals.Approval](ctx, s.DB, artifactApprovalQuery, company, project, id, version)
 }
-func (s *Store) RequestArtifactApproval(ctx context.Context, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
-	return mutate(ctx, s, "artifact.approval:"+project+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *sql.Tx) (approvals.Approval, error) {
+func (s *Store) RequestArtifactApproval(ctx context.Context, company, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
+	return mutate(ctx, s, company, "artifact.approval:"+project+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
 		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: time.Now().Unix()}
 		if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.Agent == "" || in.Agent == "owner" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
 			return a, inputError("agent, reason, request_id and bounded timeout required")
 		}
-		record, err := getDoc[artifacts.Record](ctx, tx, "SELECT body FROM artifact_versions WHERE project_id=? AND id=? AND version=?", project, in.ArtifactID, in.ArtifactVersion)
+		record, err := artifactVersionTx(ctx, tx, project, in.ArtifactID, in.ArtifactVersion)
 		if err != nil {
 			return a, err
 		}
@@ -139,13 +143,13 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, project string, in 
 			return a, err
 		}
 		b, _ := json.Marshal(a)
-		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,kind,artifact_id,artifact_version) VALUES(?,?,?,?,?,?,?,?,?,?,?)", a.ID, project, a.Agent, a.TaskID, "artifact:"+a.ID, m.ID, a.Status, b, "artifact", in.ArtifactID, in.ArtifactVersion); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,kind,artifact_id,artifact_version,company_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", a.ID, project, a.Agent, a.TaskID, "artifact:"+a.ID, m.ID, a.Status, b, "artifact", in.ArtifactID, in.ArtifactVersion, tx.company); err != nil {
 			return a, err
 		}
 		return a, entityEvent(ctx, tx, "approval.requested", project, a.ID, a)
 	})
 }
-func requiredArtifacts(ctx context.Context, tx *sql.Tx, project string, refs []tasks.Artifact) error {
+func requiredArtifacts(ctx context.Context, tx *Tx, project string, refs []tasks.Artifact) error {
 	if len(refs) > 64 {
 		return inputError("at most 64 required artifacts")
 	}
@@ -159,7 +163,7 @@ func requiredArtifacts(ctx context.Context, tx *sql.Tx, project string, refs []t
 			return inputError("duplicate required artifact version")
 		}
 		seen[key] = true
-		a, err := getDoc[artifacts.Record](ctx, tx, "SELECT body FROM artifact_versions WHERE project_id=? AND id=? AND version=?", project, ref.ID, ref.Version)
+		a, err := artifactVersionTx(ctx, tx, project, ref.ID, ref.Version)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
@@ -169,7 +173,7 @@ func requiredArtifacts(ctx context.Context, tx *sql.Tx, project string, refs []t
 	}
 	return nil
 }
-func approvedArtifactInputs(ctx context.Context, tx *sql.Tx, t tasks.Task) ([]tasks.ApprovedArtifact, string, error) {
+func approvedArtifactInputs(ctx context.Context, tx *Tx, t tasks.Task) ([]tasks.ApprovedArtifact, string, error) {
 	inputs := []tasks.ApprovedArtifact{}
 	for _, ref := range t.RequiredArtifacts {
 		a, err := artifactApprovalTx(ctx, tx, t.ProjectID, ref.ID, ref.Version)
@@ -183,7 +187,7 @@ func approvedArtifactInputs(ctx context.Context, tx *sql.Tx, t tasks.Task) ([]ta
 	}
 	return inputs, "", nil
 }
-func applyArtifactWait(ctx context.Context, tx *sql.Tx, t *tasks.Task) error {
+func applyArtifactWait(ctx context.Context, tx *Tx, t *tasks.Task) error {
 	_, reason, err := approvedArtifactInputs(ctx, tx, *t)
 	if err != nil {
 		return err
@@ -198,8 +202,8 @@ func applyArtifactWait(ctx context.Context, tx *sql.Tx, t *tasks.Task) error {
 	}
 	return nil
 }
-func reconcileArtifactTasks(ctx context.Context, tx *sql.Tx) error {
-	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE status IN ('READY','BLOCKED','IN_PROGRESS')")
+func reconcileArtifactTasks(ctx context.Context, tx *Tx) error {
+	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND status IN ('READY','BLOCKED','IN_PROGRESS')", tx.company)
 	if err != nil {
 		return err
 	}
@@ -267,8 +271,8 @@ func reconcileArtifactTasks(ctx context.Context, tx *sql.Tx) error {
 	}
 	return nil
 }
-func (s *Store) ReconcileArtifactTasks(ctx context.Context) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+func (s *Store) ReconcileArtifactTasks(ctx context.Context, company string) error {
+	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
@@ -280,9 +284,9 @@ func (s *Store) ReconcileArtifactTasks(ctx context.Context) error {
 }
 
 // Runtime startup validates the pinned decisions again, atomically with claiming.
-func approvedRunArtifacts(ctx context.Context, tx *sql.Tx, spec protocol.RunSpec) (bool, error) {
+func approvedRunArtifacts(ctx context.Context, tx *Tx, spec protocol.RunSpec) (bool, error) {
 	for _, input := range spec.ApprovedArtifacts {
-		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE id=?", input.ApprovalID)
+		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", tx.company, input.ApprovalID)
 		if errors.Is(err, ErrNotFound) {
 			return false, nil
 		}

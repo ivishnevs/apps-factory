@@ -31,24 +31,24 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 		t.Fatal(e)
 	}
 	c := &Core{Store: s, Agents: agents, Token: "owner"}
-	_, e = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/autonomy"})
+	_, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/autonomy"})
 	if e != nil {
 		t.Fatal(e)
 	}
 	a := agents["manager-autonomous"]
 	snapshot, _ := json.Marshal(a)
 	run := protocol.RunSpec{ID: "autonomy", Project: "p", Agent: a.Metadata.Name, Workspace: "/tmp/autonomy", ConfigSnapshot: snapshot}
-	if e = s.Create(ctx, run); e != nil {
+	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	lease, e := s.Claim(ctx, run.ID)
+	lease, e := s.Claim(ctx, storage.DefaultCompany, run.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
 	call := func(name string, args map[string]any) *httptest.ResponseRecorder {
 		b, _ := json.Marshal(factorytools.Call{Name: "factory_" + name, Arguments: args})
 		r := httptest.NewRequest("POST", "/agent/call", bytes.NewReader(b))
-		r.Header.Set("Authorization", "Bearer "+c.runToken(run.ID, lease))
+		r.Header.Set("Authorization", "Bearer "+c.runToken(storage.DefaultCompany, run.ID, lease))
 		w := httptest.NewRecorder()
 		c.Handler().ServeHTTP(w, r)
 		return w
@@ -66,7 +66,7 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	if w = call("decision_decide", args); w.Code != 200 {
 		t.Fatal("replay", w.Code, w.Body.String())
 	}
-	inbox, _ := s.Inbox(ctx, "p")
+	inbox, _ := s.Inbox(ctx, storage.DefaultCompany, "p")
 	if len(inbox) != 0 {
 		t.Fatal("autonomy notified owner", inbox)
 	}
@@ -121,11 +121,11 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	}
 
 	// An approved owner choice stays authoritative, including when a replacement is rejected.
-	ownerChoice, e := s.ProposeDecision(ctx, "p", decisions.Propose{Topic: "owner storage", Value: "PostgreSQL", Rationale: "Owner requirement", Actor: "owner", RequestID: "owner-choice"})
+	ownerChoice, e := s.ProposeDecision(ctx, storage.DefaultCompany, "p", decisions.Propose{Topic: "owner storage", Value: "PostgreSQL", Rationale: "Owner requirement", Actor: "owner", RequestID: "owner-choice"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	ownerChoice, e = s.RecordDecision(ctx, ownerChoice.ID, decisions.Record{Version: 1, Status: "approved", Rationale: "Confirmed", Actor: "owner", RequestID: "owner-approve"})
+	ownerChoice, e = s.RecordDecision(ctx, storage.DefaultCompany, ownerChoice.ID, decisions.Record{Version: 1, Status: "approved", Rationale: "Confirmed", Actor: "owner", RequestID: "owner-approve"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -136,21 +136,21 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	if w = call("decision_decide", args); w.Code != 409 {
 		t.Fatal("owner choice takeover", w.Code)
 	}
-	replacement, e := s.ProposeDecision(ctx, "p", decisions.Propose{Topic: "owner storage", Value: "SQLite", Rationale: "Alternative", Actor: "owner", RequestID: "owner-alternative"})
+	replacement, e := s.ProposeDecision(ctx, storage.DefaultCompany, "p", decisions.Propose{Topic: "owner storage", Value: "SQLite", Rationale: "Alternative", Actor: "owner", RequestID: "owner-alternative"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.RecordDecision(ctx, replacement.ID, decisions.Record{Version: 1, Status: "rejected", Rationale: "Keep original", Actor: "owner", RequestID: "reject-alternative"}); e != nil {
+	if _, e = s.RecordDecision(ctx, storage.DefaultCompany, replacement.ID, decisions.Record{Version: 1, Status: "rejected", Rationale: "Keep original", Actor: "owner", RequestID: "reject-alternative"}); e != nil {
 		t.Fatal(e)
 	}
-	retained, e := s.Decision(ctx, ownerChoice.ID)
+	retained, e := s.Decision(ctx, storage.DefaultCompany, ownerChoice.ID)
 	if e != nil || retained.Status != "approved" || retained.Version != ownerChoice.Version {
 		t.Fatal("rejection displaced previous choice", retained, e)
 	}
 	delete(args, "supersedes_id")
 	delete(args, "supersedes_version")
 	// Owner-managed topics cannot be taken over by changing category or decision value.
-	proposal, e := s.ProposeDecision(ctx, "p", decisions.Propose{Topic: "product", Value: "Paid app", Rationale: "idea", Actor: "manager", RequestID: "proposal"})
+	proposal, e := s.ProposeDecision(ctx, storage.DefaultCompany, "p", decisions.Propose{Topic: "product", Value: "Paid app", Rationale: "idea", Actor: "manager", RequestID: "proposal"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -160,15 +160,15 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 		t.Fatal("pending takeover", w.Code)
 	}
 	reject := decisions.Record{Version: 1, Status: "rejected", Rationale: "Free offline app only", Actor: "owner", RequestID: "reject"}
-	rejected, e := s.RecordDecision(ctx, proposal.ID, reject)
+	rejected, e := s.RecordDecision(ctx, storage.DefaultCompany, proposal.ID, reject)
 	if e != nil {
 		t.Fatal(e)
 	}
-	repeated, e := s.RecordDecision(ctx, proposal.ID, reject)
+	repeated, e := s.RecordDecision(ctx, storage.DefaultCompany, proposal.ID, reject)
 	if e != nil || repeated.ReactionMessageID != rejected.ReactionMessageID {
 		t.Fatal("rejection replay", repeated, e)
 	}
-	pending, e := s.PendingMessages(ctx)
+	pending, e := s.PendingMessages(ctx, storage.DefaultCompany)
 	if e != nil || len(pending) != 1 || pending[0].DecisionID != proposal.ID || pending[0].Recipient != "manager" {
 		t.Fatal("reaction", pending, e)
 	}
@@ -179,12 +179,12 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	if e = c.ScheduleMessages(ctx); e != nil {
 		t.Fatal(e)
 	}
-	m, _ := s.Message(ctx, rejected.ReactionMessageID)
+	m, _ := s.Message(ctx, storage.DefaultCompany, rejected.ReactionMessageID)
 	if m.DeliveryRunID != "" {
 		t.Fatal("overlapping writer", m)
 	}
 	// Restart before dispatch: the revision remains durable and is scheduled once after writer release.
-	if e = s.Apply(ctx, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED"})); e != nil {
+	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED"})); e != nil {
 		t.Fatal(e)
 	}
 	s.DB.Close()
@@ -196,18 +196,18 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	if e = c.ScheduleMessages(ctx); e != nil {
 		t.Fatal(e)
 	}
-	m, _ = s.Message(ctx, rejected.ReactionMessageID)
+	m, _ = s.Message(ctx, storage.DefaultCompany, rejected.ReactionMessageID)
 	if m.DeliveryRunID == "" {
 		t.Fatal("no revision run", m)
 	}
-	revision, e := s.Get(ctx, m.DeliveryRunID)
+	revision, e := s.Get(ctx, storage.DefaultCompany, m.DeliveryRunID)
 	if e != nil || revision.Spec.Agent != "manager" || revision.Spec.TaskID != "" || !strings.Contains(revision.Spec.Prompt, "owner decision rejection") || !strings.Contains(revision.Spec.Prompt, "Free offline app only") {
 		t.Fatal(revision, e)
 	}
 	if e = c.ScheduleMessages(ctx); e != nil {
 		t.Fatal(e)
 	}
-	runs, _ := s.List(ctx)
+	runs, _ := s.List(ctx, storage.DefaultCompany)
 	if len(runs) != 2 {
 		t.Fatal("duplicated revision", runs)
 	}
@@ -228,23 +228,23 @@ func TestDecisionAuthorityRequiresCapturedGrant(t *testing.T) {
 	captured := current
 	captured.Rules = nil
 	b, _ := json.Marshal(captured)
-	_, e = s.CreateProject(ctx, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/captured"})
+	_, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/captured"})
 	if e != nil {
 		t.Fatal(e)
 	}
 	run := protocol.RunSpec{ID: "captured", Project: "p", Agent: "manager", Workspace: "/tmp/captured", ConfigSnapshot: b}
-	if e = s.Create(ctx, run); e != nil {
+	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.Claim(ctx, run.ID); e != nil {
+	if _, e = s.Claim(ctx, storage.DefaultCompany, run.ID); e != nil {
 		t.Fatal(e)
 	}
 	in := decisions.Decide{Propose: decisions.Propose{Category: "technical", Topic: "storage", Value: "SQLite", Rationale: "why", Actor: "manager", RunID: run.ID, RequestID: "new"}}
-	if _, e = s.DecideDecision(ctx, "p", in, current); e == nil {
+	if _, e = s.DecideDecision(ctx, storage.DefaultCompany, "p", in, current); e == nil {
 		t.Fatal("current grant expanded captured permissions")
 	}
 	current.Rules = nil
-	if _, e = s.DecideDecision(ctx, "other", in, current); e == nil {
+	if _, e = s.DecideDecision(ctx, storage.DefaultCompany, "other", in, current); e == nil {
 		t.Fatal("project mismatch accepted")
 	}
 }
