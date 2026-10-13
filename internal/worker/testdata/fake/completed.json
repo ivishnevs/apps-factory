@@ -1,0 +1,10 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"method": "item/agentMessage/delta", "data": {"delta": "foundation ok"}},
+    {"method": "item/completed", "data": {"item": {"type": "agentMessage", "text": "foundation ok"}}},
+    {"method": "turn/completed", "data": {"turn": {"id": "recorded-turn", "status": "completed"}}}
+  ],
+  "status": "COMPLETED",
+  "text": "foundation ok"
+}

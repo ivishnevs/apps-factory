@@ -70,7 +70,11 @@ func TestMigrationPreservesFoundation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(schema); err != nil {
+	baseline, err := migrationFS.ReadFile("migrations/0001_runs.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(baseline) + "PRAGMA user_version=1;"); err != nil {
 		t.Fatal(err)
 	}
 	spec := protocol.RunSpec{ID: "legacy", Project: "legacy", Agent: "demo"}

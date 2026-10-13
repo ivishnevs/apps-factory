@@ -143,7 +143,10 @@ func (c *Client) Respond(id json.RawMessage, result any, rpcErr any) error {
 	return c.send(v)
 }
 func (c *Client) Done() <-chan struct{} { return c.done }
-func (c *Client) Err() error            { c.mu.Lock(); defer c.mu.Unlock(); return c.err }
+
+// Pid is the runtime process ID, which is also its process group ID.
+func (c *Client) Pid() int   { return c.cmd.Process.Pid }
+func (c *Client) Err() error { c.mu.Lock(); defer c.mu.Unlock(); return c.err }
 func (c *Client) Close() {
 	_ = c.in.Close()
 	if c.cmd.Process != nil {

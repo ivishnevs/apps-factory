@@ -16,6 +16,9 @@ session ID and runtime_options. Core alone claims leases and updates persisted r
 7. Reuse workspace allocation and add runtime-specific smoke/integration tests. Keep provider settings
    inside runtime_options rather than adding SDK-specific fields to Core.
 
+Go runtimes implement `internal/driver.Driver` (Codex: `internal/driver/codex`); the executor in
+`internal/worker` keeps claim, lease, heartbeat, credential and event publication, and
+`internal/driver/fake` replays scripted sessions for executor tests.
 Claude is implemented as a TypeScript Worker in `workers/claude`; see claude-runtime.md.
 Non-Go Workers reuse `bin/factory-workspace` (lock + OpenSpec preflight) and `bin/factory-mcp`.
 Factory MCP instructions come from the credential response, not from Worker code. Task Engine creates the same durable

@@ -2,19 +2,22 @@
 
 Go 1.24.1; nats.go 1.41.2 (compatible with this Go baseline), modernc SQLite 1.36.3,
 yaml.v3 3.0.1. SQLite is pure Go; no CGO toolchain is needed in the Core container.
-Embedded migrations are internal/storage/schema.sql (version 1) migration2.sql (Task Engine) and migration3.sql (MCP audit), and migration4.sql (messaging).
-Subsequent migrations add action approvals (5), artifact approvals (6), and reports/decisions (7).
-Startup migrates transactionally to PRAGMA user_version = 7 without rewriting old run specs.
+Embedded migrations are internal/storage/migrations/NNNN_name.sql, applied in order, each in its own
+transaction, and recorded in schema_migrations; add a migration as the next numbered file. A database
+from before schema_migrations is adopted at its PRAGMA user_version, which stays equal to the latest
+version so older binaries refuse a newer schema. Core refuses to start on a version it does not know.
 Back up a stopped Core data directory before upgrading; downgrade requires restoring its compatible backup.
 
 `make build`, `make check`, `make up`, `make down`, `make schema`.
 FACTORY_ROOT selects config root; FACTORY_DB selects SQLite file; FACTORY_LISTEN selects HTTP bind.
 FACTORY_URL is the native CLI/Worker endpoint. NATS_URL is the authenticated broker URL.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required.
+FACTORY_WORKER_STATE (default data/codex-worker) keeps pidfiles of running runtimes; on start the
+Codex Worker kills process groups left there by its previous runs. Do not share it between Workers.
 Core uses signal cancellation, HTTP shutdown deadlines and structured JSON logs.
 Worker handles SIGTERM/SIGINT by requesting turn interruption before closing its process group.
 
-Normal tests use fake RPC subprocesses, with no model/network. NATS_TEST_URL enables the integration
+Normal tests use fake RPC subprocesses or the internal/driver/fake scripted driver, with no model/network. NATS_TEST_URL enables the integration
 test on an isolated broker; the test deletes its streams. scripts/smoke.py is a separately invoked
 real ChatGPT smoke test and consumes subscription usage. It verifies start, streaming, completion
 and thread resume, and prints only run metadata and requested final text.
@@ -44,3 +47,18 @@ Versioned artifact verification: `scripts/artifact-approvals-smoke.py --restart-
 Reports and decisions: `scripts/journal-smoke.py --restart-core` verifies three real Codex tasks, pending proposal persistence, independent inbox/task review, explicit replacement and captured run contexts. See [reports and decisions](reports-decisions.md).
 
 OpenSpec uses Go 1.24 os.Root for confined file access, with no new dependency or migration (SQLite remains v7). `scripts/openspec-smoke.py --restart-core` exercises the native official CLI plus the Docker Core gateway and linked tasks. See [OpenSpec](openspec.md).
+
+## Node doctor
+
+`./bin/factory-node doctor` runs the node self-checks locally (node-agent D7) and needs no Core or NATS. It prints a
+STATUS/CHECK/DETAIL table with a remediation hint under every `fail`/`warn` row and exits 1 when any check fails.
+Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, with `-repo URL`, `forge.repo`
+(`git ls-remote`); `disk` free space at `-disk-path` (default `$HOME`) against `-low-gib 20` (warn) and
+`-critical-gib 5` (fail); on macOS `xcode` (`xcode-select -p`, `xcodebuild -version`) and `xcode.simctl` (available
+simulators; warn when none); `factory-mcp` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
+Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call): `codex.*` (`CODEX_BIN`, exactly
+`codex-cli 0.162.1`, `codex login status`) and `claude.*` (Node 22+, built `workers/claude`, `factory-workspace`, and
+`claude auth status` of `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI; warn when no CLI is installed, since the
+SDK-bundled Claude Code is checked only at run start). By default only installed drivers are probed;
+`-drivers codex,claude` requires the listed ones. `drivers` fails when no driver is usable.
+Core/NATS reachability, stack hooks from `NodeHooks` and `node.yaml` watermarks arrive with the node process.

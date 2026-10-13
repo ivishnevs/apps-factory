@@ -11,14 +11,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"appfactory/internal/bus"
+	"appfactory/internal/driver"
+	"appfactory/internal/driver/codex"
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
-	"appfactory/internal/rpc"
 	"appfactory/internal/storage"
 	"appfactory/internal/workspace"
 	"github.com/nats-io/nats.go"
@@ -74,13 +74,34 @@ type Worker struct {
 	Allocator workspace.Allocator
 	Bus       *bus.Bus
 	API       API
+	// Driver runs the runtime; nil means Codex configured by Binary and Args.
+	Driver    driver.Driver
 	Binary    string
 	Args      []string
 	MCPBinary string
+	// StateDir keeps pidfiles of running runtimes; on start the worker kills the process
+	// groups left there by its previous runs. It must not be shared by live workers.
+	StateDir string
+}
+
+// driver also reports whether Factory MCP is injected: when the driver supports MCP, or for
+// Codex built from Binary and Args, unless Args replace the real app-server and MCPBinary is unset.
+func (w *Worker) driver() (driver.Driver, bool) {
+	if w.Driver != nil {
+		return w.Driver, w.Driver.Capabilities().MCP
+	}
+	return codex.Driver{Binary: w.Binary, Args: w.Args}, w.Args == nil || w.MCPBinary != ""
 }
 
 func (w *Worker) Run(ctx context.Context) error {
-	sub, err := w.Bus.Subscribe("factory.commands.agent.run.codex", "codex-worker-v1")
+	if w.StateDir != "" {
+		if err := killOrphans(w.StateDir); err != nil {
+			return fmt.Errorf("orphaned runtimes: %w", err)
+		}
+	}
+	drv, _ := w.driver()
+	name := string(drv.Name())
+	sub, err := w.Bus.Subscribe("factory.commands.agent.run."+name, name+"-worker-v1")
 	if err != nil {
 		return err
 	}
@@ -134,6 +155,8 @@ func (w *Worker) Run(ctx context.Context) error {
 	return nil
 }
 func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, cause string) (runErr error) {
+	// Timeouts and heartbeats run on Go's monotonic clock, which stops during system sleep
+	// (clock_test.go); never derive them from wall-clock time.
 	ctx, cancel := context.WithTimeout(parent, time.Duration(spec.TimeoutSeconds)*time.Second)
 	defer cancel()
 	emit := func(kind string, p protocol.Event) error {
@@ -151,7 +174,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 		}
 	}()
-	if spec.Provider != protocol.RuntimeCodex || spec.TimeoutSeconds < 1 {
+	drv, withMCP := w.driver()
+	if spec.Provider != drv.Name() || spec.TimeoutSeconds < 1 {
 		return fmt.Errorf("invalid RunSpec")
 	}
 	allocator := w.Allocator
@@ -196,16 +220,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 		}
 	}()
-	// Runtime has its own lifetime so cancellation can first send turn/interrupt.
-	runtimeCtx, stopRuntime := context.WithCancel(context.Background())
-	defer stopRuntime()
-	args := w.Args
-	var runtimeEnv []string
-	var factoryInstructions string
-	withMCP := args == nil || w.MCPBinary != ""
-	if args == nil {
-		args = []string{"app-server", "--listen", "stdio://", "-c", "model_provider=\"openai\""}
-	}
+	launch := driver.Launch{Spec: spec, Cwd: cwd, Instructions: spec.Instructions}
 	if withMCP {
 		mcp := w.MCPBinary
 		if mcp == "" {
@@ -228,170 +243,63 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		if credential.Token == "" || credential.Instructions == "" {
 			return fmt.Errorf("missing run credential")
 		}
-		args = append(append([]string{}, args...), "-c", "mcp_servers.factory.command="+strconv.Quote(mcp), "-c", `mcp_servers.factory.env_vars=["FACTORY_RUN_TOKEN","FACTORY_URL"]`, "-c", "mcp_servers.factory.required=true", "-c", "mcp_servers.factory.enabled=true")
-		runtimeEnv = runEnvironment(os.Environ(), w.API.URL, credential.Token)
-		factoryInstructions = credential.Instructions
+		launch.MCP = &driver.MCPConfig{Command: mcp, EnvVars: []string{"FACTORY_RUN_TOKEN", "FACTORY_URL"}}
+		launch.Env = runEnvironment(os.Environ(), w.API.URL, credential.Token)
+		launch.Instructions += credential.Instructions
 	}
-	client, err := rpc.StartEnv(runtimeCtx, w.Binary, args, runtimeEnv)
+	session, err := drv.Launch(ctx, launch)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
-	call := func(method string, params, result any) error {
-		callCtx, stop := context.WithTimeout(ctx, 30*time.Second)
-		defer stop()
-		return client.Call(callCtx, method, params, result)
+	if group := session.ProcessGroup(); w.StateDir != "" && group > 0 {
+		path, e := writePidfile(w.StateDir, spec.ID, group)
+		if e != nil {
+			session.Close()
+			return e
+		}
+		defer os.Remove(path)
 	}
-	if err = call("initialize", map[string]any{"clientInfo": map[string]string{"name": "appfactory", "title": "App Factory", "version": "0.1.0"}}, nil); err != nil {
+	defer session.Close()
+	if err = emit("started", protocol.Event{SessionID: session.ID()}); err != nil {
 		return err
 	}
-	if err = client.Notify("initialized", map[string]any{}); err != nil {
+	if err = session.Start(ctx); err != nil {
 		return err
 	}
-	var account struct {
-		Account *struct {
-			Type string `json:"type"`
-		} `json:"account"`
-	}
-	if err = call("account/read", map[string]bool{"refreshToken": false}, &account); err != nil {
-		return err
-	}
-	if account.Account == nil || account.Account.Type != "chatgpt" {
-		return fmt.Errorf("ChatGPT login required; API-key auth is not supported")
-	}
-	instructions := spec.Instructions
-	if withMCP {
-		instructions += factoryInstructions
-	}
-	params := map[string]any{"cwd": cwd, "approvalPolicy": "never", "sandbox": "danger-full-access", "developerInstructions": instructions}
-	if model, ok := spec.RuntimeOptions["model"].(string); ok && model != "" && model != "default" {
-		params["model"] = model
-	}
-	method := "thread/start"
-	if spec.SessionID != "" {
-		method = "thread/resume"
-		params["threadId"] = spec.SessionID
-		params["excludeTurns"] = true
-	}
-	var thread struct {
-		Thread struct {
-			ID string `json:"id"`
-		} `json:"thread"`
-	}
-	if err = call(method, params, &thread); err != nil {
-		return err
-	}
-	if thread.Thread.ID == "" {
-		return fmt.Errorf("missing thread ID")
-	}
-	threadID := thread.Thread.ID
-	if err = emit("started", protocol.Event{SessionID: threadID}); err != nil {
-		return err
-	}
-	var turn struct {
-		Turn struct {
-			ID string `json:"id"`
-		} `json:"turn"`
-	}
-	if err = call("turn/start", map[string]any{"threadId": threadID, "input": []any{map[string]any{"type": "text", "text": spec.Prompt, "text_elements": []any{}}}}, &turn); err != nil {
-		return err
-	}
-	if turn.Turn.ID == "" {
-		return fmt.Errorf("missing turn ID")
-	}
-	var result strings.Builder
-	for {
+	events := session.Events()
+	cancelled := ctx.Done()
+	var interruptTimeout <-chan time.Time
+	for events != nil {
 		select {
-		case <-ctx.Done():
+		case <-cancelled:
+			cancelled = nil
 			interruptCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
-			err = client.Call(interruptCtx, "turn/interrupt", map[string]string{"threadId": threadID, "turnId": turn.Turn.ID}, nil)
+			err = session.Interrupt(interruptCtx)
 			stop()
 			if err != nil {
 				return fmt.Errorf("interrupt: %w", err)
 			}
 			// Acknowledgement only means interruption requested. Wait for terminal evidence.
-			return w.waitInterrupted(client, emit, &result)
-		case <-client.Done():
-			return fmt.Errorf("app-server disconnected: %w", client.Err())
-		case m := <-client.Events:
-			if err = emit("progress", protocol.Event{Method: m.Method, Data: openspec.AuditData(m.Params)}); err != nil {
-				return err
-			}
-			if len(m.ID) > 0 {
-				switch m.Method {
-				case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-					err = client.Respond(m.ID, map[string]string{"decision": "decline"}, nil)
-				default:
-					_ = client.Respond(m.ID, nil, map[string]any{"code": -32601, "message": "Foundation cannot service this request; owner intervention required"})
-					return fmt.Errorf("server request requires owner: %s", m.Method)
-				}
-				if err != nil {
-					return err
-				}
+			timer := time.NewTimer(10 * time.Second)
+			defer timer.Stop()
+			interruptTimeout = timer.C
+		case <-interruptTimeout:
+			return fmt.Errorf("interrupt result unknown")
+		case e, ok := <-events:
+			if !ok {
+				events = nil
 				continue
 			}
-			switch m.Method {
-			case "item/completed":
-				var p struct {
-					Item struct{ Type, Text string } `json:"item"`
-				}
-				if json.Unmarshal(m.Params, &p) == nil && p.Item.Type == "agentMessage" {
-					if result.Len() > 0 {
-						result.WriteString("\n")
-					}
-					result.WriteString(p.Item.Text)
-				}
-			case "turn/completed":
-				return finish(m, emit, result.String())
-			}
-		}
-	}
-}
-func finish(m rpc.Message, emit func(string, protocol.Event) error, result string) error {
-	var p struct {
-		Turn struct {
-			Status string          `json:"status"`
-			Error  json.RawMessage `json:"error"`
-		} `json:"turn"`
-	}
-	if err := json.Unmarshal(m.Params, &p); err != nil {
-		return err
-	}
-	status := ""
-	switch p.Turn.Status {
-	case "completed":
-		status = "COMPLETED"
-	case "failed":
-		status = "FAILED"
-		result += "\n" + string(p.Turn.Error)
-	case "interrupted":
-		status = "CANCELLED"
-	default:
-		return fmt.Errorf("unknown turn status %q", p.Turn.Status)
-	}
-	return emit("completed", protocol.Event{Status: status, Result: result})
-}
-func (w *Worker) waitInterrupted(c *rpc.Client, emit func(string, protocol.Event) error, result *strings.Builder) error {
-	timer := time.NewTimer(10 * time.Second)
-	defer timer.Stop()
-	for {
-		select {
-		case <-timer.C:
-			return fmt.Errorf("interrupt result unknown")
-		case <-c.Done():
-			return c.Err()
-		case m := <-c.Events:
-			if err := emit("progress", protocol.Event{Method: m.Method, Data: openspec.AuditData(m.Params)}); err != nil {
+			if err = emit("progress", protocol.Event{Method: e.Method, Data: openspec.AuditData(e.Data)}); err != nil {
 				return err
 			}
-			if len(m.ID) > 0 {
-				_ = c.Respond(m.ID, nil, map[string]any{"code": -32601, "message": "run interrupted"})
-			}
-			if m.Method == "turn/completed" {
-				return finish(m, emit, result.String())
-			}
 		}
 	}
+	result := <-session.Done()
+	if result.Err != nil {
+		return result.Err
+	}
+	return emit("completed", protocol.Event{Status: result.Status, Result: result.Text})
 }
 
 // The runtime receives only a run-scoped Factory credential. Host access remains trusted.

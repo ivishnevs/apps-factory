@@ -1,0 +1,7 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"method": "item/agentMessage/delta", "data": {"delta": "partial"}}
+  ],
+  "unknown": "app-server disconnected: EOF"
+}

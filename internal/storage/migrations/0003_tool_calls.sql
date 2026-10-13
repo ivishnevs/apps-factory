@@ -9,4 +9,3 @@ CREATE TABLE tool_calls (
  created_at INTEGER NOT NULL
 );
 CREATE INDEX tool_calls_run ON tool_calls(run_id,created_at);
-PRAGMA user_version=3;

@@ -49,6 +49,58 @@ lease and causation IDs; progress `method` is `claude/<type>[/<subtype>]` and `d
 
 After the result the Worker closes input and drains briefly so the transcript is flushed for resume.
 
+## Per-run shim (`src/shim.ts`)
+
+`internal/driver/claude` (runtime-drivers D3) starts one `node workers/claude/dist/src/shim.js` per run.
+It runs the same `src/runtime.ts` as the standalone Worker, without bus, claim and heartbeat code; the
+standalone service keeps its own lifecycle until `node-agent` lands.
+
+- stdin, first line: launch parameters `{"spec": RunSpec, "cwd", "instructions", "mcp_command"?,
+  "executable"?, "allow_api_key"?, "setting_sources"?}`. `instructions` is the full appended system
+  prompt (agent instructions plus Factory MCP instructions).
+- stdin, then: `{"interrupt": true}` requests `interrupt()`. EOF on stdin (driver gone) and
+  SIGINT/SIGTERM interrupt too, so the driver keeps stdin open for the whole run.
+- Environment: `FACTORY_URL` and `FACTORY_RUN_TOKEN` come only from the shim's environment and reach
+  `factory-mcp` by inheritance; with `mcp_command` set a missing `FACTORY_RUN_TOKEN` is a launch error.
+  Owner/broker secrets and (unless `allow_api_key`) API keys are dropped as in the Worker.
+  `CLAUDE_CODE_EXECUTABLE` applies when the launch has no `executable`.
+- stdout: one JSON event per line, discriminated by `event`; stderr carries diagnostics only.
+
+| Event | Source |
+| --- | --- |
+| `session{id}` | pre-assigned or resumed session, written before the prompt is delivered |
+| `activity{kind, data}` | every SDK message; `kind` is the progress `method`, `data` the redacted message |
+| `quota{resets_at?, rate_limit_type?}` | `rate_limit_event` with `rate_limit_info.status: rejected` |
+| `auth_error{reason, api_key_source?}` | `apiKeySource` other than `none` without `allow_api_key`; assistant `error` of `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `verification_required` |
+| `usage{model, input, output, cache_read, cache_write}` | `result.modelUsage`, one line per model, cumulative for the query |
+| `cost{usd, source: "claude_estimate"}` | `result.total_cost_usd`, cumulative |
+| `max_turns{num_turns}` | FAILED result with subtype `error_max_turns` |
+| `error{class, terminal_reason?, api_error_status?, message?}` | other FAILED results (`class` = result subtype, `api_error` for `success` with `is_error`), or a runtime failure (`launch`, `executable`, `startup_timeout`, `mcp_unavailable`, `session_mismatch`, `no_result`, `interrupt_timeout`, `interrupt_unknown`, `runtime`) |
+| `result{status, result, session_id?}` | always the last line, exactly once; status as in the table above (UNKNOWN after any runtime failure) |
+
+Classification uses structured SDK fields only, never message text. The shim exits 0 after the
+`result` line. `shim.js --probe` prints one `probe{claude_code_version, sdk_version, account}` line
+(`claude --version` of the bundled or `CLAUDE_CODE_EXECUTABLE` binary plus `accountInfo()` on an
+empty prompt stream, no model call) and exits 0, or an `error{class}` line and exits 1.
+
+Recorded SDK streams live in `internal/driver/claude/testdata`: `<name>.json` (launch line,
+environment, account, MCP status sequence, interrupt point), `<name>.sdk.jsonl` (SDK messages in
+delivery order, shaped on SDK 0.3.284 types) and `<name>.events.jsonl` (expected shim stdout, also
+usable as fake shim output by Go driver tests). `test/shim.test.ts` replays start, resume, interrupt,
+max turns and rate limit; `UPDATE_TESTDATA=1 npm test` regenerates the `.events.jsonl` files.
+
+## Clock
+
+Run timeout, heartbeat and runtime deadlines (startup, interrupt, shutdown, MCP polling) use
+`src/clock.ts`, a clock that excludes system sleep (`reliable-recovery` 3.4; outcome mapping is
+unchanged). Node timers follow libuv `uv_now()`/`uv_hrtime()`: on Linux `CLOCK_MONOTONIC`, which
+stops during suspend, so timers are used as is; on macOS `mach_continuous_time()`
+(`CLOCK_MONOTONIC_RAW`), which keeps counting while asleep, so a run would time out right after a
+long sleep. Off Linux the clock observes `process.hrtime` every second while a timer is pending and
+does not count a jump above 5 s between observations; deadlines may be late by up to one tick per
+sleep. `test/clock.test.ts` pins the `process.hrtime` source against the OS clocks on both
+platforms. Per-request HTTP timeouts to Core stay on plain timers.
+
 ## Runtime settings
 
 `permissionMode: bypassPermissions` mirrors Codex `danger-full-access` + `approvalPolicy never`;
@@ -69,7 +121,7 @@ progress events; event data above 256 KiB is replaced with a bounded preview.
 
 ## Verification
 
-`npm test` (in `workers/claude`) covers the startup gate, API-key refusal, MCP readiness, session
+`npm test` (in `workers/claude`) covers the recorded shim streams, the sleep-excluding clock, the startup gate, API-key refusal, MCP readiness, session
 mismatch, cancellation with and without evidence, classification, redaction and env scrubbing with a
 fake `Query`. Verified live on 2026-10-13 against an isolated Core + NATS with Claude Code 2.1.284:
 direct run COMPLETED, resume of the same session, cross-provider resume rejected (409),

@@ -5,7 +5,11 @@ import { CoreAPI, HTTPError } from "./core.js";
 import { COMMAND_SUBJECT, DURABLE, PROVIDER, parseCommand, type EventKind, type RunEvent, type RunSpec } from "./protocol.js";
 import { RuntimeError, runClaude, type QueryFn } from "./runtime.js";
 import { acquire, WorkspaceError } from "./workspace.js";
+import { clock, type Timer } from "./clock.js";
+import { runEnvironment } from "./env.js";
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
+
+export { runEnvironment };
 
 export interface WorkerConfig {
   bus: Pick<Bus, "commands" | "event">;
@@ -18,25 +22,6 @@ export interface WorkerConfig {
   query?: QueryFn;
   heartbeatMs?: number;
   log: (msg: string, fields?: Record<string, unknown>) => void;
-}
-
-const SCRUBBED = ["FACTORY_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "NATS_URL", "NATS_PASSWORD"];
-
-// The runtime receives only a run-scoped Factory credential. Host access remains trusted.
-export function runEnvironment(env: NodeJS.ProcessEnv, base: string, token: string, allowApiKey = false): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (SCRUBBED.includes(k) || (!allowApiKey && (k === "ANTHROPIC_API_KEY" || k === "ANTHROPIC_AUTH_TOKEN"))) continue;
-    out[k] = v;
-  }
-  return {
-    ...out,
-    FACTORY_URL: base,
-    FACTORY_RUN_TOKEN: token,
-    CLAUDE_AGENT_SDK_CLIENT_APP: "appfactory-claude-worker/0.1.0",
-    // A turn is the unit of work: background shells would outlive it and die with the runtime.
-    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
-  };
 }
 
 export class Worker {
@@ -82,8 +67,9 @@ export class Worker {
     const stop = new AbortController();
     const onParent = () => stop.abort();
     parent.addEventListener("abort", onParent, { once: true });
-    let heartbeat: NodeJS.Timeout | undefined;
-    let timeout: NodeJS.Timeout | undefined;
+    // Both run on the sleep-excluding clock: system sleep neither expires the run nor skips beats.
+    let heartbeat: Timer | undefined;
+    let timeout: Timer | undefined;
     let allocation: Awaited<ReturnType<typeof acquire>> | undefined;
     try {
       if (spec.provider !== PROVIDER || !(spec.timeout_seconds >= 1)) throw new RuntimeError("invalid RunSpec");
@@ -97,9 +83,9 @@ export class Worker {
         throw err;
       }
       void allocation.lost.then(() => stop.abort(new RuntimeError("workspace lock lost")));
-      timeout = setTimeout(() => stop.abort(), spec.timeout_seconds * 1000);
+      timeout = clock.timeout(spec.timeout_seconds * 1000, () => stop.abort());
       // Heartbeats also carry cancellation. Failure stops execution instead of running without ownership.
-      heartbeat = setInterval(() => {
+      heartbeat = clock.interval(this.c.heartbeatMs ?? 10_000, () => {
         this.c.api.heartbeat(spec.id, lease).then(
           (res) => res.cancel && stop.abort(),
           (err) => {
@@ -107,7 +93,7 @@ export class Worker {
             stop.abort();
           },
         );
-      }, this.c.heartbeatMs ?? 10_000);
+      });
       const credential = await this.c.api.credential(spec.id, lease);
       if (!credential.token || !credential.instructions) throw new RuntimeError("missing run credential");
       await runClaude({
@@ -131,8 +117,8 @@ export class Worker {
         this.c.log("terminal event publication failed; lease recovery required", { error: String(e) }),
       );
     } finally {
-      clearInterval(heartbeat);
-      clearTimeout(timeout);
+      heartbeat?.cancel();
+      timeout?.cancel();
       parent.removeEventListener("abort", onParent);
       await allocation?.release();
     }

@@ -1,0 +1,38 @@
+{
+  "launch": {
+    "spec": {
+      "id": "run-start",
+      "project": "demo",
+      "agent": "claude-demo",
+      "provider": "claude",
+      "workspace": "/tmp/factory/demo",
+      "prompt": "Read the project and reply FOUNDATION_OK.",
+      "instructions": "You are the demo developer agent.",
+      "timeout_seconds": 600,
+      "runtime_options": {
+        "model": "default"
+      }
+    },
+    "cwd": "/tmp/factory/demo",
+    "instructions": "You are the demo developer agent.\nUse the factory MCP server for project data and exits.",
+    "mcp_command": "/opt/factory/bin/factory-mcp"
+  },
+  "new_session_id": "6f1c7a52-3b0e-4d8f-9a61-2c4e8b7d0f13",
+  "env": {
+    "PATH": "/usr/bin:/bin",
+    "HOME": "/Users/factory",
+    "FACTORY_URL": "http://127.0.0.1:8080",
+    "FACTORY_RUN_TOKEN": "frt_start"
+  },
+  "account": {
+    "email": "owner@example.com",
+    "subscriptionType": "max",
+    "tokenSource": "claude.ai",
+    "apiKeySource": "none",
+    "apiProvider": "firstParty"
+  },
+  "mcp_status": [
+    "pending",
+    "connected"
+  ]
+}

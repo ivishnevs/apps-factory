@@ -1,0 +1,8 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"method": "turn/completed", "data": {"turn": {"id": "recorded-turn", "status": "failed", "error": {"message": "model error"}}}}
+  ],
+  "status": "FAILED",
+  "text": "\n{\"message\":\"model error\"}"
+}

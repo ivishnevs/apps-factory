@@ -1,0 +1,6 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"method": "item/started", "data": {"item": {"type": "commandExecution"}}}
+  ]
+}
