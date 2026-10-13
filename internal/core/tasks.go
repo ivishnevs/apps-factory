@@ -59,6 +59,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
 			return
 		}
+		if p.Ready && !c.taskPermit(w, r, p.Actor, "factory.task.ready", false, false) {
+			return
+		}
 		p.CreatedBy = "owner"
 		if p.Actor != "" {
 			p.CreatedBy = p.Actor
@@ -161,6 +164,17 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			}
 		}
 		v, err := c.Store.UpdateTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
+		reply(w, v, err)
+	})
+	m.HandleFunc("POST /tasks/{id}/comments", func(w http.ResponseWriter, r *http.Request) {
+		var p tasks.Comment
+		if !decode(w, r, &p) {
+			return
+		}
+		if !c.taskPermit(w, r, p.Actor, "factory.task.update", false, false) {
+			return
+		}
+		v, err := c.Store.CommentTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks/{id}/actions", func(w http.ResponseWriter, r *http.Request) {

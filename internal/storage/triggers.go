@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"strings"
 
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
@@ -69,6 +70,35 @@ func clearParks(ctx context.Context, tx *Tx, t tasks.Task, kind, ref, status str
 	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.unparked." + label, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Status: t.Status, Summary: status, Ref: ref})
 }
 
+// closedTask runs what follows a task reaching DONE or CANCELLED by any path: its parks are
+// overridden, dependents whose last dependency it was wake up, and a parent whose last open child
+// it was wakes up.
+func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
+	if t.Status != "DONE" && t.Status != "CANCELLED" {
+		return nil
+	}
+	if err := clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err != nil {
+		return err
+	}
+	if t.Status == "DONE" {
+		if err := dependencyDone(ctx, tx, t); err != nil {
+			return err
+		}
+	}
+	if t.ParentTaskID == "" {
+		return nil
+	}
+	parent, err := taskTx(ctx, tx, t.ParentTaskID)
+	if err != nil || parent.Status == "DONE" || parent.Status == "CANCELLED" {
+		return err
+	}
+	var open int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND json_extract(body,'$.parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, parent.ID).Scan(&open); err != nil || open > 0 {
+		return err
+	}
+	return addTrigger(ctx, tx, parent, "last_child_closed", false, "system", t.ID, "last open child "+t.ID+" is "+t.Status)
+}
+
 // dependencyDone fires dependency_done once on each dependent whose last open dependency just
 // became DONE.
 func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
@@ -103,4 +133,29 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 		}
 	}
 	return nil
+}
+
+// CommentTask adds a comment. A comment by the owner (authority) or by an agent other than the
+// assignee wakes an open task with owner_comment; an agent's own comment never wakes its task.
+func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Comment) (tasks.Task, error) {
+	return mutate(ctx, s, company, "task.comment:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return t, err
+		}
+		if strings.TrimSpace(in.Text) == "" || len(in.Text) > 16*1024 {
+			return t, inputError("comment text up to 16 KiB required")
+		}
+		actor := in.Actor
+		if actor == "" {
+			actor = "owner"
+		}
+		if err = comment(ctx, tx, t.ID, actor, in.Text); err != nil {
+			return t, err
+		}
+		if t.Status == "DONE" || t.Status == "CANCELLED" || actor == t.Assignee {
+			return t, feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.commented", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: in.Text})
+		}
+		return t, addTrigger(ctx, tx, t, "owner_comment", isOwner(actor), actor, "", in.Text)
+	})
 }

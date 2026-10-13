@@ -84,6 +84,8 @@ type Create struct {
 	Dependencies      []string   `json:"dependencies"`
 	RequestID         string     `json:"request_id,omitempty"`
 	Actor             string     `json:"actor,omitempty"`
+	// Ready creates the task released for scheduling (READY, or waiting for its artifacts).
+	Ready bool `json:"ready,omitempty"`
 	// Trusted metadata set by Core, never decoded from a request body.
 	OriginTask string            `json:"-"`
 	OriginRun  string            `json:"-"`
@@ -114,6 +116,12 @@ type Submit struct {
 	Submission Submission `json:"submission"`
 	RequestID  string     `json:"request_id,omitempty"`
 	Actor      string     `json:"actor,omitempty"`
+}
+// Comment adds a comment; a comment by the owner or another agent wakes the task (owner_comment).
+type Comment struct {
+	Text      string `json:"text"`
+	RequestID string `json:"request_id,omitempty"`
+	Actor     string `json:"actor,omitempty"`
 }
 type Review struct {
 	Version   int    `json:"version"`

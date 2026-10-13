@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -174,4 +175,58 @@ func TestTriggerAndParkBackfill(t *testing.T) {
 	defer s.DB.Close()
 	expectVerdict(t, s, "ready", tasks.ReasonRunnable, "ready")
 	expectVerdict(t, s, "blocked", tasks.ReasonParked+tasks.ParkBlock)
+}
+
+func TestCreatedReadyCommentsAndLastChild(t *testing.T) {
+	s := engineStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateTask(ctx, co, tasks.Create{ID: "x", ProjectID: "p", Title: "x", Ready: true}); !errors.Is(err, ErrInput) {
+		t.Fatal("ready task without assignee", err)
+	}
+	r, err := s.CreateTask(ctx, co, tasks.Create{ID: "r", ProjectID: "p", Title: "r", Assignee: "demo", Ready: true})
+	if err != nil || r.Status != "READY" {
+		t.Fatal(r, err)
+	}
+	expectVerdict(t, s, "r", tasks.ReasonRunnable, "created_ready")
+
+	// Comments: the assignee's own comment never wakes its task; others' do, the owner's with authority.
+	comment := func(actor, text string) {
+		t.Helper()
+		if _, err := s.CommentTask(ctx, co, "r", tasks.Comment{Text: text, Actor: actor}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	comment("demo", "started looking")
+	expectVerdict(t, s, "r", tasks.ReasonRunnable, "created_ready")
+	comment("", "use metric units")
+	comment("qa", "please add a test")
+	v := verdict(t, s, "r")
+	if got := pendingKinds(v); len(got) != 3 || got[1] != "owner_comment" || !v.Pending[1].Authority || v.Pending[2].Authority || v.Pending[2].Actor != "qa" {
+		t.Fatalf("%+v", v.Pending)
+	}
+	if cs, _ := s.Comments(ctx, co, "r"); len(cs) != 3 {
+		t.Fatal(cs)
+	}
+
+	// The last open child closing, by any path, wakes the parent once.
+	parent := createEngineTask(t, s, "parent")
+	parent = readyEngineTask(t, s, parent)
+	child := func(id string) tasks.Task {
+		v, err := s.CreateTask(ctx, co, tasks.Create{ID: id, ProjectID: "p", Title: id, Assignee: "demo", ParentTaskID: "parent", Ready: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	c1, c2 := child("c1"), child("c2")
+	if _, err = s.TaskAction(ctx, co, "c1", tasks.Action{Version: c1.Version, Action: "cancel"}); err != nil {
+		t.Fatal(err)
+	}
+	expectVerdict(t, s, "parent", tasks.ReasonRunnable, "ready")
+	run := dispatchEngineTask(t, s, c2, "c2-run")
+	if err = s.Cancel(ctx, co, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	expectVerdict(t, s, "parent", tasks.ReasonRunnable, "ready", "last_child_closed")
 }

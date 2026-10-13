@@ -170,9 +170,13 @@ Migration 0010 adds `task_triggers` and `task_parks` (trigger-log-scheduling D1â
 trigger or park in its own transaction, and each appears in the feed (`task.trigger.<kind>`,
 `task.parked.<kind>`, `task.unparked.<kind>`); the scheduler still decides from task status.
 
-- Triggers raise `tasks.wake_seq`: `ready` (ready action; authority when the owner acts), `assignment`
-  (assignee changed), `review_result` (rejection), `answer` (a blocking question answered),
-  `dependency_done` (once, when the last open dependency becomes DONE) and `artifact_approved`.
+- Triggers raise `tasks.wake_seq`: `ready` (ready action; authority when the owner acts), `created_ready`
+  (`POST /tasks` with `ready: true`; an agent needs `factory.task.ready`), `assignment` (assignee changed),
+  `owner_comment` (`POST /tasks/{id}/comments`, `factory tasks comment ID TEXT`, by the owner with authority or
+  by another agent; the assignee's own comment never wakes its task), `review_result` (rejection), `answer`
+  (a blocking question answered), `dependency_done` (once, when the last open dependency becomes DONE),
+  `last_child_closed` (once, when the last open child becomes DONE or CANCELLED by any path) and
+  `artifact_approved`.
 - Claim records the run's brief window `brief_from = handled_seq`, `brief_to = wake_seq`; a COMPLETED run sets
   `handled_seq = brief_to` (explicit exits replace this later).
 - Parks: `ask` (blocking question, cleared by its answer), `block` (manual or OpenSpec block, cleared by ready),

@@ -185,7 +185,10 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) e
 		}
 		kind = "task.submitted"
 	}
-	return saveTask(ctx, tx, &t, kind)
+	if err = saveTask(ctx, tx, &t, kind); err != nil {
+		return err
+	}
+	return closedTask(ctx, tx, t)
 }
 func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
@@ -267,10 +270,8 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
-		if next == "CANCELLED" {
-			if err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err != nil {
-				return err
-			}
+		if err = closedTask(ctx, tx, t); err != nil {
+			return err
 		}
 	}
 	if next == "CANCELLED" {

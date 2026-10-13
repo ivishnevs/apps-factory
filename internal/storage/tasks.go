@@ -244,6 +244,15 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		if err := requiredArtifacts(ctx, tx, t.ProjectID, t.RequiredArtifacts); err != nil {
 			return t, err
 		}
+		if in.Ready {
+			if t.Assignee == "" {
+				return t, inputError("assignee required to create a ready task")
+			}
+			t.Status = "READY"
+			if err := applyArtifactWait(ctx, tx, &t); err != nil {
+				return t, err
+			}
+		}
 		b, _ := json.Marshal(t)
 		if _, err := tx.ExecContext(ctx, "INSERT INTO tasks(id,project_id,status,assignee,priority,version,body,created_at,company_id) VALUES(?,?,?,?,?,?,?,?,?)", t.ID, t.ProjectID, t.Status, t.Assignee, t.Priority, t.Version, b, t.CreatedAt, tx.company); err != nil {
 			return t, err
@@ -251,7 +260,13 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		if err := dependencies(ctx, tx, t); err != nil {
 			return t, err
 		}
-		return t, entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t)
+		if err := entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t); err != nil {
+			return t, err
+		}
+		if in.Ready {
+			return t, addTrigger(ctx, tx, t, "created_ready", isOwner(in.Actor), in.Actor, "", "created ready")
+		}
+		return t, nil
 	})
 }
 
@@ -530,7 +545,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 		case "block":
 			err = addPark(ctx, tx, t, tasks.ParkBlock, "", t.BlockReason, false)
 		case "cancel":
-			err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden")
+			err = closedTask(ctx, tx, t)
 		}
 		return t, err
 	})
@@ -585,9 +600,7 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 			return t, err
 		}
 		if in.Accept {
-			if err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err == nil {
-				err = dependencyDone(ctx, tx, t)
-			}
+			err = closedTask(ctx, tx, t)
 		} else {
 			err = addTrigger(ctx, tx, t, "review_result", isOwner(in.Actor), in.Actor, "", in.Feedback)
 		}

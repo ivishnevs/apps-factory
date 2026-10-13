@@ -16,7 +16,7 @@ import (
 
 func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks ready/block/cancel ID VERSION [REASON] | tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json]")
+		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks ready/block/cancel ID VERSION [REASON] | tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
 	}
 	if args[0] == "tasks" && args[1] == "why" {
 		return whyCommand(ctx, api, args[2:])
@@ -105,6 +105,13 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 				path += "/submit"
 			}
 			body, err = jsonBody(args[3])
+		case "comment":
+			if len(args) != 4 {
+				return fmt.Errorf("tasks comment ID TEXT")
+			}
+			method = "POST"
+			path = idPath(args[2]) + "/comments"
+			body = map[string]any{"text": args[3], "request_id": protocol.ID()}
 		case "ready", "block", "cancel":
 			if len(args) < 4 || len(args) > 5 {
 				return fmt.Errorf("tasks ready|block|cancel ID VERSION [REASON]")
