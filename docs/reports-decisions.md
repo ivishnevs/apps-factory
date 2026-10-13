@@ -65,6 +65,12 @@ Owner endpoints use FACTORY_TOKEN:
 - POST /decisions/{id}/record.
 - GET /projects/{project}/context; GET /projects/{project}/feed.
 
+The feed is the `feed_events` table (migration 0009): one row per entity event, written in the
+transaction of its cause, with `task_id`, `run_id`, `agent`, `actor`, `status`, `summary` and
+reserved `attention`/`ref`. Each row is also published as `factory.events.feed.<project>.<kind>`
+(outbox ID `feed-<event_id>`). The migration backfills older entity events with their original
+sequences, so `after` cursors issued before the upgrade stay valid.
+
 Lists return items, next_after, has_more. after is a stable SQLite row/event sequence; default limit
 20, maximum 100. Report filters: kind/task_id/run_id; decision filters: status/topic (owner list
 without status includes all statuses). Feed items are short event pointers; full immutable snapshots

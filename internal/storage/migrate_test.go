@@ -44,8 +44,9 @@ func TestLegacyDatabaseIsAdoptedWithoutReapplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.DB.Close()
+	ms, _ := loadMigrations()
 	var n int
-	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations WHERE applied_at=0").Scan(&n); err != nil || n != 8 {
+	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations WHERE applied_at=0").Scan(&n); err != nil || n != len(ms) {
 		t.Fatal(n, err)
 	}
 }

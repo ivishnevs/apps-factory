@@ -113,6 +113,9 @@ func entityEvent(ctx context.Context, tx *Tx, kind, project, id string, v any) e
 	if _, err = tx.ExecContext(ctx, "INSERT INTO entity_events(id,project_id,entity_id,body,company_id) VALUES(?,?,?,?,?)", e.ID, project, id, b, tx.company); err != nil {
 		return err
 	}
+	if err = feed(ctx, tx, feedRow(e, project, id, state)); err != nil {
+		return err
+	}
 	// Persist full audit snapshots in SQLite; broker notifications carry a bounded pointer.
 	e.Payload, err = json.Marshal(map[string]any{"entity_id": id, "project_id": project, "conversation_id": state["conversation_id"], "status": state["status"], "version": state["version"]})
 	if err != nil {
