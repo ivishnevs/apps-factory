@@ -1,0 +1,27 @@
+## 1. Node process
+- [ ] 1.1 `cmd/factory-node` + `internal/node` with `node.yaml`, node token, N slot goroutines using the existing executor; `codex-worker` as `--slots 1` alias; launchd plist example. Verify: node with 3 slots runs 3 fake-driver runs concurrently.
+- [ ] 1.2 Registration with epoch and pre-registration seal of old-epoch worktrees. Verify: restart test ends old runs `lost` and leaves WIP refs.
+- [ ] 1.3 Inventory heartbeat renewing all leases; remove per-run heartbeat; `stop`/`cleanup`/`pause` answer handling. Verify: Core tests for missing RUNNING run → `lost`, CLAIMED judged by start window, elapsed > timeout → `timed_out` + stop.
+- [ ] 1.4 Node offline after 60 s of continuous ticking; online on next heartbeat. Verify: fake-clock test with and without a Core tick gap.
+- [ ] 1.5 Outbound NATS over TLS/WebSocket with per-node credentials; control subject `factory.<company>.nodes.<node_id>.control` for `run.stop`/`cleanup`/`pause`. Verify: node without inbound ports receives a stop within one second while its slots are busy; credentials of node A cannot subscribe to node B's control subject.
+- [ ] 1.6 Heartbeat `stop` list (revoked, terminal, timed out, unknown run ids) and server incarnation; restore runbook in `docs/development.md` (stop Core, restore, rotate incarnation, start, nodes re-register). Verify: test with an inventory run unknown to Core; incarnation change makes the node stop, seal and re-register.
+
+## 2. Capacity at claim
+- [ ] 2.1 Agent `labels`/`resources`; `nodes`, `node_resources`, run `node_id`; claim checks slots, classes, labels, driver, pin; `409 retry` vs `drop`. Verify: two simulator agents on a node with `simulator: 1` run one at a time; the second stays QUEUED, not dropped.
+- [ ] 2.2 Release capacity only after end + seal; `no_capable_node`/`capacity` reasons in `Evaluate`. Verify: reason tests; a run ended but unsealed still holds its class.
+
+## 3. Janitor and disk
+- [ ] 3.1 `NodeHooks` kind in `internal/config`; janitor with `on_task_closed`, `on_run_stop`, `prune`; worktree removal after seal. Verify: hook test removes a fake simulator directory for a closed task only.
+- [ ] 3.2 Low/critical watermarks, aggressive prune, one alert, pause at critical. Verify: fake disk-usage provider test emits one `node.low_disk` and pauses at critical.
+- [ ] 3.3 Node health events (incl. `node.restart_loop`, `node.check_failed`, `node.heartbeat_stalled`) with attention flags, and `factory status` node section. Verify: per-event tests; CLI test output.
+
+## 3b. Node health control
+- [ ] 3b.1 launchd/systemd units with KeepAlive; Core counts epochs per node and emits one `node.restart_loop` alert. Verify: four restarts in 15 minutes produce exactly one alert.
+- [ ] 3b.2 Internal watchdog: slot/process consistency, orphan reaping, heartbeat staleness. Verify: killing an agent process outside the node ends its run and frees the slot; a planted orphan with this node's run id is killed.
+- [ ] 3b.3 Self-checks (git/forge credentials, Core/NATS, disk, template stack hooks) and the `node.RuntimeProbe` hook with a Codex probe (Claude probe in `runtime-drivers`); one event per failure; pause only when no driver is usable or credentials/disk prevent all work. Verify: one failing driver probe disables that driver only; all probes failing pause the node; fixing them unpauses.
+- [ ] 3b.4 `factory node doctor` command. Verify: output table with pass/fail and hints, works with Core down.
+
+## 4. Command guards
+- [ ] 4.1 `commands` in access rules; mandatory `host-ui` and `owner-cli` policies; per-run shim directory first on PATH. Verify: a run calling `cliclick` or `factory` gets exit 126 with the instruction and a refusal event.
+- [ ] 4.2 Approval shims with exact single-use grants. Verify: an approved exact command passes once; a second call or changed args are refused.
+- [ ] 4.3 Update `docs/architecture.md`, `docs/development.md`, `docs/policies.md`, iOS/Android template prompts (debug launch args, deep links, UI tests). Verify: docs reviewed.

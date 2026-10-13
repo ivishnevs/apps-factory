@@ -6,3 +6,4 @@ data/
 .factory-writer.lock
 projects/
 .DS_Store
+docs/roadmap.md
