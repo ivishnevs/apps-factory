@@ -155,6 +155,8 @@ require their existing explicit handling; an answer does not override them. See 
 `GET /tasks/{id}/why`, `GET /projects/{id}/why`) print, for each non-terminal task, the first reason it does
 not run now and who clears it. `tasks.Evaluate` is a pure function of a snapshot that Store loads in one
 transaction; it is diagnostic only and the scheduler does not use it yet (trigger-log-scheduling D3).
+`GET /tasks` and `GET /tasks/{id}` (and the Factory MCP task tools built on them) return every task with its
+`reason` and `clearer`.
 
 Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agent), `live_run`, parks
 (`parked:escalation` — failed with retries exhausted or not allowed; `parked:inspect` — current run UNKNOWN;

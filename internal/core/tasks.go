@@ -81,15 +81,42 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.list", false, false) {
 			return
 		}
-		v, err := c.Store.Tasks(r.Context(), c.companyFrom(r), r.URL.Query().Get("project"), r.URL.Query().Get("status"))
-		reply(w, v, err)
+		ctx, company, project := r.Context(), c.companyFrom(r), r.URL.Query().Get("project")
+		list, err := c.Store.Tasks(ctx, company, project, r.URL.Query().Get("status"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		snaps, err := c.Store.TaskSnapshots(ctx, company, project)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		verdicts := map[string]tasks.Verdict{}
+		for _, snap := range snaps {
+			verdicts[snap.Task.ID] = c.evaluate(snap)
+		}
+		out := make([]taskView, 0, len(list))
+		for _, t := range list {
+			v, ok := verdicts[t.ID]
+			if !ok { // terminal
+				v = tasks.Evaluate(tasks.Snapshot{Task: t})
+			}
+			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer})
+		}
+		write(w, out)
 	})
 	m.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		v, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
-		reply(w, v, err)
+		snap, err := c.Store.TaskSnapshot(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		v := c.evaluate(snap)
+		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer})
 	})
 	// Diagnostics only: why a task does not run now and who clears it (trigger-log-scheduling D3).
 	m.HandleFunc("GET /tasks/{id}/why", func(w http.ResponseWriter, r *http.Request) {
@@ -246,6 +273,14 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		reply(w, v, err)
 	})
 }
+// taskView is a task with why it does not run now (trigger-log-scheduling D3); the fields are added
+// to every task read so clients and agents see the reason without a separate call.
+type taskView struct {
+	tasks.Task
+	Reason  string        `json:"reason"`
+	Clearer tasks.Clearer `json:"clearer"`
+}
+
 func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
 	_, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
 	return tasks.Evaluate(snap)

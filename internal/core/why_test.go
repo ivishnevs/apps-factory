@@ -99,3 +99,54 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
+
+func TestTaskReadsCarryReason(t *testing.T) {
+	ctx := context.Background()
+	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	agents, err := config.Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Core{Store: s, Agents: agents, Token: "owner"}
+	if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/core-reason"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", Ready: true}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "b", ProjectID: "p", Title: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.TaskAction(ctx, storage.DefaultCompany, "b", tasks.Action{Version: b.Version, Action: "cancel"}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string, v any) {
+		t.Helper()
+		r := httptest.NewRequest("GET", path, nil)
+		r.Header.Set("Authorization", "Bearer owner")
+		w := httptest.NewRecorder()
+		c.Handler().ServeHTTP(w, r)
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), v) != nil {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	var list []taskView
+	get("/tasks?project=p", &list)
+	reasons := map[string]string{}
+	for _, v := range list {
+		reasons[v.ID] = v.Reason
+	}
+	if reasons["a"] != tasks.ReasonRunnable || reasons["b"] != tasks.ReasonTerminal {
+		t.Fatal(reasons)
+	}
+	var one taskView
+	get("/tasks/a", &one)
+	if one.ID != "a" || one.Title != "a" || one.Reason != tasks.ReasonRunnable || one.Clearer.Who != "scheduler" {
+		t.Fatal(one)
+	}
+}
