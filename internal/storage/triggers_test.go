@@ -166,15 +166,7 @@ func TestTriggerAndParkBackfill(t *testing.T) {
 	if _, err = s.TaskAction(ctx, DefaultCompany, "blocked", tasks.Action{Version: blocked.Version, Action: "block", Reason: "keys"}); err != nil {
 		t.Fatal(err)
 	}
-	// Roll back to v9: no trigger log, parks or sequences.
-	for _, q := range []string{"DROP TABLE task_triggers", "DROP TABLE task_parks",
-		"ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq",
-		"ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to",
-		"DELETE FROM schema_migrations WHERE version>=10", "PRAGMA user_version=9"} {
-		if _, err = s.DB.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+	rollbackTo(t, s.DB, 9)
 	s.DB.Close()
 	if s, err = Open(path); err != nil {
 		t.Fatal(err)

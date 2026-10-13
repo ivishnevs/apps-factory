@@ -275,7 +275,11 @@ func (c *Core) maintain(ctx context.Context) error {
 	if err := c.ScheduleMessages(ctx); err != nil {
 		return err
 	}
-	return c.Schedule(ctx)
+	if err := c.Schedule(ctx); err != nil {
+		return err
+	}
+	_, err := c.Store.RedeliverQueued(ctx, c.company())
+	return err
 }
 func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 	for ctx.Err() == nil {

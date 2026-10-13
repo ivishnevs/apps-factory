@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -95,5 +96,34 @@ func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 	db.QueryRow("PRAGMA user_version").Scan(&version)
 	if max != 2 || version != 2 {
 		t.Fatal(max, version)
+	}
+}
+
+// downs undo migrations from 0009 on, so backfill tests can build a database as an older Core left it.
+var downs = map[int][]string{
+	9:  {"DROP TABLE feed_events"},
+	10: {"DROP TABLE task_triggers", "DROP TABLE task_parks", "ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq", "ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to"},
+	11: {"DROP INDEX queued_runs", "ALTER TABLE runs DROP COLUMN command_count", "ALTER TABLE runs DROP COLUMN command_at", "ALTER TABLE outbox DROP COLUMN sent_at"},
+}
+
+func rollbackTo(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+	ms, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for v := len(ms); v > version; v-- {
+		qs, ok := downs[v]
+		if !ok {
+			t.Fatalf("no down for migration %d", v)
+		}
+		for _, q := range qs {
+			if _, err = db.Exec(q); err != nil {
+				t.Fatal(q, err)
+			}
+		}
+	}
+	if _, err = db.Exec(fmt.Sprintf("DELETE FROM schema_migrations WHERE version>%d; PRAGMA user_version=%d", version, version)); err != nil {
+		t.Fatal(err)
 	}
 }

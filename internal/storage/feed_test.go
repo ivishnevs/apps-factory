@@ -73,15 +73,7 @@ func TestFeedBackfillKeepsSequencesAndContent(t *testing.T) {
 	if err != nil || len(want.Items) != 3 {
 		t.Fatal(want, err)
 	}
-	// Roll the database back to before migration 0009, as an upgraded v8 database would be.
-	for _, q := range []string{"DROP TABLE feed_events", "DROP TABLE task_triggers", "DROP TABLE task_parks",
-		"ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq",
-		"ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to",
-		"DELETE FROM schema_migrations WHERE version>=9", "PRAGMA user_version=8"} {
-		if _, err = s.DB.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+	rollbackTo(t, s.DB, 8)
 	s.DB.Close()
 	if s, err = Open(path); err != nil {
 		t.Fatal(err)

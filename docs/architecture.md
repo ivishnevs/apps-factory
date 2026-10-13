@@ -10,6 +10,10 @@ a unique lease, changes QUEUED to RUNNING, and enforces the agent concurrency sl
 command for a claimed run is acknowledged without executing again. A busy agent leaves its
 queued command pending for retry. Once claimed, broker command is acknowledged; lease recovery
 handles a crash after this point. This deliberately does not promise exactly-once external effects.
+A run still QUEUED after its command left the outbox gets the same command again (message ID `<run>/<n>`) after
+1, 2, 4, 8 and then every 15 minutes since the last publish, and never while an earlier command is still
+unpublished; a purged or restored stream therefore never strands work, and the duplicates are dropped by claim.
+Each resend is a `run.command_redelivered` feed event.
 
 Worker heartbeats every 10s; leases expire after 45s. Heartbeats also deliver cancellation.
 All Core time comes from `Store.Clock` (wall time unless a test injects `clock.Fake`). Core keeps an in-memory

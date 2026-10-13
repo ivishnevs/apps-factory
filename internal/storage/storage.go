@@ -252,7 +252,7 @@ func (s *Store) Pending(ctx context.Context) ([]Outbox, error) {
 	return out, rows.Err()
 }
 func (s *Store) Sent(ctx context.Context, id string) error {
-	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET sent=1 WHERE id=?", id)
+	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET sent=1,sent_at=? WHERE id=?", s.Now().Unix(), id)
 	return err
 }
 func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) error {
@@ -359,7 +359,7 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	if len(b) > 900*1024 {
 		return inputError("run context exceeds broker message budget")
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id,command_at) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company, tx.now().Unix()); err != nil {
 		return fmt.Errorf("project already active or insert failed: %w", err)
 	}
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
