@@ -419,6 +419,12 @@ func (s *Store) DispatchMessage(ctx context.Context, company string, m messaging
 	if saved.Version != m.Version || saved.DeliveryStatus != "PENDING" || saved.Recipient != spec.Agent || saved.ProjectID != spec.Project || saved.Status != "PENDING" && saved.Status != "UNREAD" {
 		return spec, ErrConflict
 	}
+	if paused, err := pausedFor(ctx, tx, saved.ProjectID, spec.Agent); err != nil || len(paused) > 0 {
+		if err == nil {
+			err = ErrConflict
+		}
+		return spec, err
+	}
 	var busy int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", company, spec.Agent).Scan(&busy); err != nil {
 		return spec, err

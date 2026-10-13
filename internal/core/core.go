@@ -70,6 +70,7 @@ func (c *Core) Handler() http.Handler {
 	c.journalRoutes(m)
 	c.openSpecRoutes(m)
 	c.consoleRoutes(m)
+	c.ownerRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := c.Store.DB.PingContext(r.Context()); err != nil || !c.Bus.NC.IsConnected() {
 			http.Error(w, "unavailable", 503)

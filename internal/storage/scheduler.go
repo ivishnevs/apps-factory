@@ -32,6 +32,12 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if t.Version != version || t.Status != "READY" || t.Assignee == "" || spec.Agent != t.Assignee || spec.Project != t.ProjectID || spec.ID == "" {
 		return spec, ErrConflict
 	}
+	if paused, err := pausedFor(ctx, tx, t.ProjectID, t.Assignee); err != nil || len(paused) > 0 {
+		if err == nil {
+			err = ErrConflict
+		}
+		return spec, err
+	}
 	if err = s.checkTaskChange(ctx, tx, t); err != nil {
 		return spec, err
 	}
@@ -149,6 +155,12 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) e
 		next = "FAILED"
 	case "CANCELLED":
 		next = "CANCELLED"
+		// A run revoked by the kill switch stops the run, not the task.
+		if revoked, err := runRevoked(ctx, tx, runID); err != nil {
+			return err
+		} else if revoked && !t.CancelRequested {
+			next = "READY"
+		}
 	case "UNKNOWN":
 		next = "BLOCKED"
 	}

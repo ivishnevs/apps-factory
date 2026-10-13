@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Reasons a task does not run now (trigger-log-scheduling D3), in evaluation order. Parks and
@@ -15,6 +16,7 @@ const (
 	ReasonParked       = "parked:" // + park kind
 	ReasonDependencies = "dependencies"
 	ReasonArtifacts    = "artifacts"
+	ReasonPaused       = "paused:" // + scope
 	ReasonBackoff      = "backoff"
 	ReasonIdle         = "idle"
 	ReasonCapacity     = "capacity"
@@ -85,6 +87,8 @@ type Snapshot struct {
 	UnapprovedArtifacts []Artifact
 	// MaxRetries is the attempt limit of the assignee's captured config for a failed task.
 	MaxRetries int
+	// Paused are the owner pauses covering the task: "company", "project:<id>", "agent:<name>".
+	Paused []string
 	// AgentRun is a live run of the assignee on another task (one run per agent).
 	AgentRun *Run
 	// WriterRun is a run of another task holding the project/workspace writer, including UNKNOWN.
@@ -141,6 +145,14 @@ func Evaluate(s Snapshot) Verdict {
 	if len(s.UnapprovedArtifacts) > 0 {
 		a := s.UnapprovedArtifacts[0]
 		return v(ReasonArtifacts, fmt.Sprintf("artifact %s@%s is not approved", a.ID, a.Version), "owner", "approve the artifact version (factory artifacts approval ...)")
+	}
+	if len(s.Paused) > 0 {
+		scope := s.Paused[0]
+		target := strings.Replace(scope, ":", " ", 1)
+		if scope == "company" {
+			target = "--all"
+		}
+		return v(ReasonPaused+scope, "paused by the owner", "owner", "factory resume "+target)
 	}
 	if t.Status == "FAILED" {
 		return v(ReasonBackoff, fmt.Sprintf("attempt %d of %d failed", t.Attempt, s.MaxRetries+1), "scheduler", "automatic retry on the next tick")

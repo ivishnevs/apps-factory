@@ -31,7 +31,7 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE")
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | answer MSG TEXT | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -79,6 +79,10 @@ func run() error {
 	}
 	if args[0] == "artifacts" {
 		return artifactCommand(ctx, api, args)
+	}
+	switch args[0] {
+	case "pause", "resume", "pauses", "stop", "start", "pending", "answer", "approve", "reject":
+		return ownerCommand(ctx, api, args)
 	}
 	if args[0] == "status" || args[0] == "watch" || args[0] == "log" || args[0] == "show" {
 		return consoleCommand(ctx, api, args)

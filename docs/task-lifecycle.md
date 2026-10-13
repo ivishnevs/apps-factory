@@ -216,3 +216,22 @@ and keeps one active alert per episode in `task_alerts` (migration 0012):
 
 Raising an alert writes an attention feed event `task.alert.<kind>` (visible in `factory watch --attention`);
 when the condition goes away the alert is cleared with `task.alert_cleared.<kind>`. A new episode alerts again.
+
+## Owner controls
+
+- `factory pause --all | project ID | agent NAME [REASON]`, `factory resume …`, `factory pauses`
+  (`POST /pauses`, `POST /pauses/resume`, `GET /pauses`; migration 0013): no new task or message run is
+  dispatched in a paused scope; live runs continue. `why` shows `paused:company|project:<id>|agent:<name>`
+  (after `artifacts`, before `backoff`) with the resume command. Pauses and resumes are feed events
+  (`owner.paused` with attention, `owner.resumed`).
+- `factory stop [REASON]` (`POST /stop`) is the kill switch: it pauses the company and revokes every live run.
+  A QUEUED run ends at once; a RUNNING run is asked to stop through its heartbeat. A revoked run that ends
+  CANCELLED returns its task to READY instead of cancelling it (a turn that completes first is submitted as
+  usual; a task the owner cancelled stays cancelled). `factory start` resumes the company.
+- `factory pending` (`GET /pending/count`): inbox items, pending approvals, active stall alerts, runs to inspect,
+  tasks in review, and their total.
+- `factory answer MESSAGE_ID TEXT` answers a question without a structured form; `factory approve|reject
+  APPROVAL_ID REASON` decides an approval. Structured forms still use `inbox answer ID JSON_FILE`.
+- `GET /feed/stream` streams the feed as server-sent events (`id` = feed sequence; filters `project`, `task`,
+  `attention`); a client reconnecting with `Last-Event-ID` or `?after=` receives every later row once. The
+  stream is exempt from the server's write timeout.

@@ -139,6 +139,9 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 			return snap, err
 		}
 	}
+	if snap.Paused, err = pausedFor(ctx, tx, t.ProjectID, t.Assignee); err != nil {
+		return snap, err
+	}
 	p, err := projectTx(ctx, tx, t.ProjectID)
 	if err != nil {
 		return snap, err
