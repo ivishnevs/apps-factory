@@ -200,3 +200,15 @@ trigger or park in its own transaction, and each appears in the feed (`task.trig
 approval requests, questions to the owner and escalated messages, reports that need owner action, `ask` parks
 answered by the owner, `inspect` parks and OpenSpec blocks; fuller rules (digest, Telegram) arrive with
 waits-events-cost-cli.
+
+## Stall alerts
+
+Once a minute Core's tick checks every released, non-terminal task (reliable-recovery D8, diagnostic part)
+and keeps one active alert per episode in `task_alerts` (migration 0012):
+
+- `stalled` — the task depends on a task that is in BACKLOG, has no assignee, or was cancelled (a cancelled
+  dependency never becomes DONE, so the task can never run until the dependency is replaced);
+- `idle` — the task has an assignee and its `why` reason has been `idle` for 24 hours.
+
+Raising an alert writes an attention feed event `task.alert.<kind>` (visible in `factory watch --attention`);
+when the condition goes away the alert is cleared with `task.alert_cleared.<kind>`. A new episode alerts again.

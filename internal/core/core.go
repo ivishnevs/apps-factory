@@ -35,6 +35,8 @@ type Core struct {
 	Token      string
 	// Company is the tenant this Core serves; empty means storage.DefaultCompany.
 	Company string
+	// lastStallSweep is touched only by the tick goroutine.
+	lastStallSweep time.Time
 }
 
 type companyKey struct{}
@@ -279,8 +281,10 @@ func (c *Core) maintain(ctx context.Context) error {
 	if err := c.Schedule(ctx); err != nil {
 		return err
 	}
-	_, err := c.Store.RedeliverQueued(ctx, c.company())
-	return err
+	if _, err := c.Store.RedeliverQueued(ctx, c.company()); err != nil {
+		return err
+	}
+	return c.sweepStalls(ctx)
 }
 func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 	for ctx.Err() == nil {
