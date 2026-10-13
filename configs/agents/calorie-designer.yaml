@@ -1,0 +1,21 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: calorie-designer
+  description: Minimalist iOS product designer
+spec:
+  extends: developer
+  role: designer
+  prompt:
+    file: prompts/calorie-designer.md
+  execution:
+    timeout: 45m
+    max_concurrent_runs: 1
+    max_retries: 0
+  communication:
+    can_message: [calorie-manager]
+    can_create_tasks: false
+    can_assign_tasks: false
+  tools:
+    deny: [factory.owner.ask, factory.owner.request_approval, factory.decision.propose, factory.task.review]
+  policies: [calorie-project]

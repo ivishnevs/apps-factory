@@ -1,0 +1,21 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: calorie-manager
+  description: Autonomous product and delivery lead for the calorie calculator
+spec:
+  extends: developer
+  role: manager
+  prompt:
+    file: prompts/calorie-manager.md
+  execution:
+    timeout: 30m
+    max_concurrent_runs: 1
+    max_retries: 0
+  communication:
+    can_message: [calorie-designer, calorie-ios, calorie-qa, owner]
+    can_create_tasks: true
+    can_assign_tasks: true
+  tools:
+    deny: [factory.owner.ask, factory.owner.request_approval, factory.decision.propose]
+  policies: [calorie-project]

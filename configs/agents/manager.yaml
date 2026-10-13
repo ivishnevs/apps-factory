@@ -1,0 +1,14 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: manager
+  description: Project task planning and review through Factory MCP
+spec:
+  extends: developer
+  role: manager
+  prompt:
+    file: prompts/manager.md
+  communication:
+    can_message: [demo, owner]
+    can_create_tasks: true
+    can_assign_tasks: true

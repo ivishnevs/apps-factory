@@ -1,0 +1,22 @@
+apiVersion: factory/v1
+kind: Policy
+metadata:
+  name: calorie-project
+spec:
+  rules:
+    - name: calorie-manager-delegated-decisions
+      type: access
+      agents: [calorie-manager]
+      operations: [factory.decision.decide.product, factory.decision.decide.design, factory.decision.decide.quality, factory.decision.decide.technical]
+      effect: allow
+      instruction: The owner delegates product, design, quality and technical decisions within the calorie-calculator project brief. Decide independently, record significant choices and their reasons, and revise plans after evidence. Do not ask the owner routine questions. This does not authorize publication, purchases, paid accounts, credentials, external contact or changing the factory itself. Accessibility-specific audit and testing are explicitly deferred by the owner for this test.
+    - name: calorie-team-autonomous-delivery
+      type: escalation
+      agents: [calorie-manager]
+      target: self
+      instruction: Resolve team questions independently using the brief and registry. If external prerequisites prevent actual publication, complete all authorized local preparation and record the exact remaining steps without pretending publication or certification occurred. Keep the owner informed through answers/status notifications, not approval requests for routine work.
+    - name: calorie-specialists-route-to-manager
+      type: escalation
+      agents: [calorie-designer, calorie-ios, calorie-qa]
+      target: manager
+      instruction: Route meaningful product/design uncertainty to calorie-manager using Factory questions. Never wait inside a turn; blocking questions require finishing the turn so the manager can run. Do not ask the owner directly.

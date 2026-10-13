@@ -1,0 +1,7 @@
+.cache/
+bin/
+data/
+.env
+*.db*
+.factory-writer.lock
+projects/

@@ -1,0 +1,21 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: calorie-ios
+  description: Native SwiftUI iOS implementation and release engineering
+spec:
+  extends: developer
+  role: developer
+  prompt:
+    file: prompts/calorie-ios.md
+  execution:
+    timeout: 90m
+    max_concurrent_runs: 1
+    max_retries: 0
+  communication:
+    can_message: [calorie-manager, calorie-qa]
+    can_create_tasks: false
+    can_assign_tasks: false
+  tools:
+    deny: [factory.owner.ask, factory.owner.request_approval, factory.decision.propose, factory.task.review]
+  policies: [calorie-project]

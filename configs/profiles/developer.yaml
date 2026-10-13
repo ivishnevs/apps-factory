@@ -1,0 +1,23 @@
+apiVersion: factory/v1
+kind: AgentProfile
+metadata:
+  name: developer
+  description: Trusted development defaults
+spec:
+  role: developer
+  runtime:
+    provider: codex
+    model: default
+  tools:
+    mode: denylist
+  approvals:
+    mode: selective
+  execution:
+    max_concurrent_runs: 1
+    timeout: 5m
+    max_retries: 0
+  skills:
+    include: [openspec]
+  communication:
+    can_message: [manager, owner]
+  policies: [engineering]

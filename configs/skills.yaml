@@ -1,0 +1,5 @@
+skills:
+  openspec:
+    path: skills/openspec/SKILL.md
+    description: Read project specifications and keep implementation changes aligned with OpenSpec.
+    categories: [planning, documentation]

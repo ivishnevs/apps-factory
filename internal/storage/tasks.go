@@ -1,0 +1,526 @@
+package storage
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"appfactory/internal/artifacts"
+	"appfactory/internal/protocol"
+	"appfactory/internal/tasks"
+	"modernc.org/sqlite"
+)
+
+var entityName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$`)
+
+func inputError(message string) error { return fmt.Errorf("%w: %s", ErrInput, message) }
+func constraint(err error) error {
+	var e *sqlite.Error
+	if errors.As(err, &e) && e.Code()&255 == 19 {
+		return fmt.Errorf("%w: %v", ErrConflict, err)
+	}
+	return err
+}
+func getDoc[T any](ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, query string, args ...any) (T, error) {
+	var v T
+	var b []byte
+	err := q.QueryRowContext(ctx, query, args...).Scan(&b)
+	if errors.Is(err, sql.ErrNoRows) {
+		return v, ErrNotFound
+	}
+	if err != nil {
+		return v, err
+	}
+	err = json.Unmarshal(b, &v)
+	return v, err
+}
+func mutate[T any](ctx context.Context, s *Store, scope, key string, input any, fn func(*sql.Tx) (T, error)) (T, error) {
+	var zero T
+	if len(key) > 128 {
+		return zero, inputError("request_id exceeds 128 characters")
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return zero, err
+	}
+	defer tx.Rollback()
+	b, err := json.Marshal(input)
+	if err != nil {
+		return zero, err
+	}
+	hash := sha256.Sum256(b)
+	fingerprint := hex.EncodeToString(hash[:])
+	if key != "" {
+		var old string
+		var response []byte
+		err = tx.QueryRowContext(ctx, "SELECT fingerprint,response FROM mutation_results WHERE scope=? AND request_id=?", scope, key).Scan(&old, &response)
+		if err == nil {
+			if old != fingerprint {
+				return zero, ErrConflict
+			}
+			err = json.Unmarshal(response, &zero)
+			return zero, err
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return zero, err
+		}
+	}
+	v, err := fn(tx)
+	if err != nil {
+		return zero, constraint(err)
+	}
+	if key != "" {
+		response, err := json.Marshal(v)
+		if err != nil {
+			return zero, err
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO mutation_results VALUES(?,?,?,?)", scope, key, fingerprint, response); err != nil {
+			return zero, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return zero, err
+	}
+	return v, nil
+}
+func entityEvent(ctx context.Context, tx *sql.Tx, kind, project, id string, v any) error {
+	e := protocol.Wrap(kind, id, "", v)
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(e.Payload, &state); err != nil {
+		return err
+	}
+	if strings.HasPrefix(kind, "message.") {
+		var conversation string
+		if err := json.Unmarshal(state["conversation_id"], &conversation); err != nil {
+			return err
+		}
+		e.CorrelationID = conversation
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO entity_events(id,project_id,entity_id,body) VALUES(?,?,?,?)", e.ID, project, id, b); err != nil {
+		return err
+	}
+	// Persist full audit snapshots in SQLite; broker notifications carry a bounded pointer.
+	e.Payload, err = json.Marshal(map[string]any{"entity_id": id, "project_id": project, "conversation_id": state["conversation_id"], "status": state["status"], "version": state["version"]})
+	if err != nil {
+		return err
+	}
+	notification, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body) VALUES(?,?,?)", e.ID, "factory.events."+kind, notification)
+	return err
+}
+func (s *Store) Project(ctx context.Context, id string) (tasks.Project, error) {
+	return getDoc[tasks.Project](ctx, s.DB, "SELECT body FROM projects WHERE id=?", id)
+}
+func (s *Store) Projects(ctx context.Context) ([]tasks.Project, error) {
+	return listDocs[tasks.Project](ctx, s.DB, "SELECT body FROM projects ORDER BY id")
+}
+func (s *Store) CreateProject(ctx context.Context, in tasks.ProjectCreate) (tasks.Project, error) {
+	return mutate(ctx, s, "project.create", in.RequestID, in, func(tx *sql.Tx) (tasks.Project, error) {
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), Version: 1, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+		if !entityName.MatchString(p.ID) || strings.TrimSpace(p.Name) == "" || !filepath.IsAbs(in.Workspace) {
+			return p, inputError("project requires valid id, name and absolute host workspace")
+		}
+		b, _ := json.Marshal(p)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO projects(id,workspace,version,body) VALUES(?,?,?,?)", p.ID, p.Workspace, p.Version, b); err != nil {
+			return p, err
+		}
+		return p, entityEvent(ctx, tx, "project.created", p.ID, p.ID, p)
+	})
+}
+func (s *Store) UpdateProject(ctx context.Context, id string, in tasks.ProjectUpdate) (tasks.Project, error) {
+	return mutate(ctx, s, "project.update:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Project, error) {
+		p, err := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", id)
+		if err != nil {
+			return p, err
+		}
+		if p.Version != in.Version {
+			return p, ErrConflict
+		}
+		if strings.TrimSpace(in.Name) == "" {
+			return p, inputError("project name required")
+		}
+		p.Name = in.Name
+		p.Description = in.Description
+		p.Version++
+		p.UpdatedAt = time.Now().Unix()
+		b, _ := json.Marshal(p)
+		if _, err = tx.ExecContext(ctx, "UPDATE projects SET version=?,body=? WHERE id=?", p.Version, b, id); err != nil {
+			return p, err
+		}
+		return p, entityEvent(ctx, tx, "project.updated", id, id, p)
+	})
+}
+func (s *Store) Task(ctx context.Context, id string) (tasks.Task, error) {
+	return taskTx(ctx, s.DB, id)
+}
+func taskTx(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, id string) (tasks.Task, error) {
+	return getDoc[tasks.Task](ctx, q, "SELECT body FROM tasks WHERE id=?", id)
+}
+func listDocs[T any](ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, query string, args ...any) ([]T, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	vs := []T{}
+	for rows.Next() {
+		var b []byte
+		var v T
+		if err = rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(b, &v); err != nil {
+			return nil, err
+		}
+		vs = append(vs, v)
+	}
+	return vs, rows.Err()
+}
+func (s *Store) Tasks(ctx context.Context, project, status string) ([]tasks.Task, error) {
+	return listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE (?='' OR project_id=?) AND (?='' OR status=?) ORDER BY priority DESC,created_at,id", project, project, status, status)
+}
+func (s *Store) CreateTask(ctx context.Context, in tasks.Create) (tasks.Task, error) {
+	return mutate(ctx, s, "task.create", in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, Status: "BACKLOG", Version: 1, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+		if t.ID == "" {
+			t.ID = protocol.ID()
+		}
+		if t.CreatedBy == "" {
+			t.CreatedBy = "owner"
+		}
+		if t.Dependencies == nil {
+			t.Dependencies = []string{}
+		}
+		if !entityName.MatchString(t.ID) || strings.TrimSpace(t.Title) == "" || len(t.Title) > 1024 || len(t.Description) > 64*1024 || t.Priority < -1000 || t.Priority > 1000 {
+			return t, inputError("valid task id/title and priority -1000..1000 required")
+		}
+		if _, err := getDoc[tasks.Project](ctx, tx, "SELECT body FROM projects WHERE id=?", t.ProjectID); err != nil {
+			return t, err
+		}
+		if err := s.checkTaskChange(ctx, tx, t); err != nil {
+			return t, err
+		}
+		if t.ParentTaskID != "" {
+			parent, err := taskTx(ctx, tx, t.ParentTaskID)
+			if err != nil {
+				return t, err
+			}
+			if parent.ProjectID != t.ProjectID {
+				return t, inputError("parent must belong to same project")
+			}
+		}
+		if err := requiredArtifacts(ctx, tx, t.ProjectID, t.RequiredArtifacts); err != nil {
+			return t, err
+		}
+		b, _ := json.Marshal(t)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO tasks(id,project_id,status,assignee,priority,version,body,created_at) VALUES(?,?,?,?,?,?,?,?)", t.ID, t.ProjectID, t.Status, t.Assignee, t.Priority, t.Version, b, t.CreatedAt); err != nil {
+			return t, err
+		}
+		if err := dependencies(ctx, tx, t); err != nil {
+			return t, err
+		}
+		return t, entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t)
+	})
+}
+func dependencies(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM task_dependencies WHERE task_id=?", t.ID); err != nil {
+		return err
+	}
+	if len(t.Dependencies) > 128 {
+		return inputError("at most 128 dependencies per task")
+	}
+	seen := map[string]bool{}
+	for _, dep := range t.Dependencies {
+		if dep == t.ID || seen[dep] {
+			return inputError("self/duplicate dependency")
+		}
+		seen[dep] = true
+		d, err := taskTx(ctx, tx, dep)
+		if err != nil {
+			return err
+		}
+		if d.ProjectID != t.ProjectID {
+			return inputError("dependencies must belong to same project")
+		}
+		var cycle int
+		err = tx.QueryRowContext(ctx, `WITH RECURSIVE reachable(id) AS (SELECT ? UNION SELECT d.depends_on FROM task_dependencies d JOIN reachable r ON d.task_id=r.id) SELECT count(*) FROM reachable WHERE id=?`, dep, t.ID).Scan(&cycle)
+		if err != nil {
+			return err
+		}
+		if cycle > 0 {
+			return inputError("dependency cycle")
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO task_dependencies VALUES(?,?)", t.ID, dep); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func saveTask(ctx context.Context, tx *sql.Tx, t *tasks.Task, kind string) error {
+	old := t.Version
+	t.Version++
+	t.UpdatedAt = time.Now().Unix()
+	b, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE tasks SET status=?,assignee=?,priority=?,version=?,body=? WHERE id=? AND version=?", t.Status, t.Assignee, t.Priority, t.Version, b, t.ID, old)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n != 1 {
+		return ErrConflict
+	}
+	return entityEvent(ctx, tx, kind, t.ProjectID, t.ID, t)
+}
+func (s *Store) UpdateTask(ctx context.Context, id string, in tasks.Update) (tasks.Task, error) {
+	return mutate(ctx, s, "task.update:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return t, err
+		}
+		if t.Version != in.Version {
+			return t, ErrConflict
+		}
+		if t.Status != "BACKLOG" && t.Status != "READY" && t.Status != "REWORK" && t.Status != "BLOCKED" && t.Status != "FAILED" {
+			return t, ErrConflict
+		}
+		if err = editableRun(ctx, tx, t); err != nil {
+			return t, err
+		}
+		if in.Title != nil {
+			t.Title = *in.Title
+		}
+		if in.Description != nil {
+			t.Description = *in.Description
+		}
+		if in.Priority != nil {
+			t.Priority = *in.Priority
+		}
+		if in.Assignee != nil {
+			t.Assignee = *in.Assignee
+		}
+		if in.OpenSpecChange != nil {
+			t.OpenSpecChange = *in.OpenSpecChange
+			if err = s.checkTaskChange(ctx, tx, t); err != nil {
+				return t, err
+			}
+		}
+		if strings.TrimSpace(t.Title) == "" || len(t.Title) > 1024 || len(t.Description) > 64*1024 || t.Priority < -1000 || t.Priority > 1000 {
+			return t, inputError("invalid title or priority")
+		}
+		if in.Dependencies != nil {
+			t.Dependencies = *in.Dependencies
+			if t.Dependencies == nil {
+				t.Dependencies = []string{}
+			}
+			if err = dependencies(ctx, tx, t); err != nil {
+				return t, err
+			}
+		}
+		if in.RequiredArtifacts != nil {
+			t.RequiredArtifacts = *in.RequiredArtifacts
+			if err = requiredArtifacts(ctx, tx, t.ProjectID, t.RequiredArtifacts); err != nil {
+				return t, err
+			}
+		}
+		if t.Status == "READY" || t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "artifact:") {
+			if err = applyArtifactWait(ctx, tx, &t); err != nil {
+				return t, err
+			}
+		}
+		err = saveTask(ctx, tx, &t, "task.updated")
+		return t, err
+	})
+}
+func editableRun(ctx context.Context, tx *sql.Tx, t tasks.Task) error {
+	if t.CurrentRunID == "" {
+		return nil
+	}
+	var status string
+	if err := tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
+		return err
+	}
+	if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" {
+		return ErrConflict
+	}
+	return nil
+}
+func (s *Store) TaskAction(ctx context.Context, id string, in tasks.Action) (tasks.Task, error) {
+	return mutate(ctx, s, "task.action:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return t, err
+		}
+		if t.Version != in.Version {
+			return t, ErrConflict
+		}
+		switch in.Action {
+		case "ready":
+			if t.WaitMessageID != "" {
+				answered, err := messageWaitState(ctx, tx, t.WaitMessageID)
+				if err != nil {
+					return t, err
+				}
+				if !answered {
+					return t, ErrConflict
+				}
+			}
+			if t.Status != "BACKLOG" && t.Status != "REWORK" && t.Status != "FAILED" && t.Status != "BLOCKED" {
+				return t, ErrConflict
+			}
+			if t.Assignee == "" {
+				return t, inputError("assignee required")
+			}
+			if err = editableRun(ctx, tx, t); err != nil {
+				return t, err
+			}
+			if err = s.checkTaskChange(ctx, tx, t); err != nil {
+				return t, err
+			}
+			t.Status = "READY"
+			t.BlockReason = ""
+			t.CancelRequested = false
+			t.RetryEligible = false
+			if err = applyArtifactWait(ctx, tx, &t); err != nil {
+				return t, err
+			}
+		case "block":
+			if t.Status != "BACKLOG" && t.Status != "READY" && t.Status != "REWORK" && t.Status != "FAILED" {
+				return t, ErrConflict
+			}
+			if strings.TrimSpace(in.Reason) == "" {
+				return t, inputError("block reason required")
+			}
+			if err = editableRun(ctx, tx, t); err != nil {
+				return t, err
+			}
+			t.Status = "BLOCKED"
+			t.BlockReason = "manual: " + in.Reason
+		case "cancel":
+			if t.Status == "DONE" || t.Status == "CANCELLED" {
+				return t, ErrConflict
+			}
+			if t.CurrentRunID != "" {
+				var status string
+				if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
+					return t, err
+				}
+				if status == "UNKNOWN" {
+					return t, ErrConflict
+				}
+				if status == "RUNNING" || status == "CANCELLING" {
+					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING' WHERE id=?", t.CurrentRunID); err != nil {
+						return t, err
+					}
+					t.CancelRequested = true
+					break
+				}
+				if status == "QUEUED" {
+					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=?", time.Now().Unix(), t.CurrentRunID); err != nil {
+						return t, err
+					}
+					if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {
+						return t, err
+					}
+				}
+			}
+			t.CancelRequested = true
+			t.Status = "CANCELLED"
+		default:
+			return t, inputError("unknown task action")
+		}
+		if in.Reason != "" {
+			if err = comment(ctx, tx, t.ID, in.Actor, in.Reason); err != nil {
+				return t, err
+			}
+		}
+		err = saveTask(ctx, tx, &t, "task.updated")
+		return t, err
+	})
+}
+func (s *Store) SubmitTask(ctx context.Context, id string, in tasks.Submit) (tasks.Task, error) {
+	return mutate(ctx, s, "task.submit:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return t, err
+		}
+		if t.Version != in.Version || (t.Status != "IN_REVIEW" && t.Status != "IN_PROGRESS") || t.CancelRequested || t.WaitMessageID != "" || t.CurrentRunID != in.RunID {
+			return t, ErrConflict
+		}
+		if strings.TrimSpace(in.Submission.Summary) == "" {
+			return t, inputError("submission summary required")
+		}
+		for _, a := range in.Submission.Artifacts {
+			if _, err = registerArtifactTx(ctx, tx, t.ProjectID, artifacts.Register{Artifact: a, TaskID: t.ID, RunID: in.RunID, Actor: in.Actor}); err != nil {
+				return t, err
+			}
+			if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO task_artifacts VALUES(?,?,?,?,?)", t.ID, in.RunID, a.ID, a.Version, a.URI); err != nil {
+				return t, err
+			}
+		}
+		t.Submission = &in.Submission
+		err = saveTask(ctx, tx, &t, "task.submitted")
+		return t, err
+	})
+}
+func (s *Store) ReviewTask(ctx context.Context, id string, in tasks.Review) (tasks.Task, error) {
+	return mutate(ctx, s, "task.review:"+id, in.RequestID, in, func(tx *sql.Tx) (tasks.Task, error) {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return t, err
+		}
+		if t.Version != in.Version || t.Status != "IN_REVIEW" {
+			return t, ErrConflict
+		}
+		if !in.Accept && strings.TrimSpace(in.Feedback) == "" {
+			return t, inputError("rejection feedback required")
+		}
+		if in.Accept {
+			t.Status = "DONE"
+		} else {
+			t.Status = "REWORK"
+		}
+		t.ReviewFeedback = in.Feedback
+		if err = comment(ctx, tx, id, in.Actor, in.Feedback); err != nil {
+			return t, err
+		}
+		err = saveTask(ctx, tx, &t, "task.reviewed")
+		return t, err
+	})
+}
+func comment(ctx context.Context, tx *sql.Tx, id, author, text string) error {
+	if text == "" {
+		return nil
+	}
+	if author == "" {
+		author = "owner"
+	}
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments VALUES(?,?,?,?,?)", protocol.ID(), id, author, text, time.Now().Unix())
+	return err
+}
+func (s *Store) EntityEvents(ctx context.Context, project, id string) ([]protocol.Envelope, error) {
+	return listDocs[protocol.Envelope](ctx, s.DB, "SELECT body FROM entity_events WHERE (?='' OR project_id=?) AND (?='' OR entity_id=?) ORDER BY seq", project, project, id, id)
+}

@@ -1,0 +1,115 @@
+// Package tasks defines the runtime-independent task lifecycle and API contracts.
+package tasks
+
+type Project struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Workspace   string `json:"workspace"`
+	Version     int    `json:"version"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+}
+type Artifact struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	URI     string `json:"uri"`
+}
+type ApprovedArtifact struct {
+	Artifact        Artifact `json:"artifact"`
+	ApprovalID      string   `json:"approval_id"`
+	ApprovalVersion int      `json:"approval_version"`
+}
+type Submission struct {
+	Summary   string     `json:"summary"`
+	Commit    string     `json:"commit,omitempty"`
+	Checks    []string   `json:"checks,omitempty"`
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+}
+type Task struct {
+	RequiredArtifacts []Artifact  `json:"required_artifacts,omitempty"`
+	WaitMessageID     string      `json:"wait_message_id,omitempty"`
+	RetryEligible     bool        `json:"retry_eligible"`
+	ID                string      `json:"id"`
+	ProjectID         string      `json:"project_id"`
+	Title             string      `json:"title"`
+	Description       string      `json:"description"`
+	Status            string      `json:"status"`
+	Priority          int         `json:"priority"`
+	Assignee          string      `json:"assignee"`
+	CreatedBy         string      `json:"created_by"`
+	ParentTaskID      string      `json:"parent_task_id,omitempty"`
+	OpenSpecChange    string      `json:"openspec_change,omitempty"`
+	Dependencies      []string    `json:"dependencies"`
+	CreatedAt         int64       `json:"created_at"`
+	UpdatedAt         int64       `json:"updated_at"`
+	Version           int         `json:"version"`
+	CurrentRunID      string      `json:"current_run_id,omitempty"`
+	Attempt           int         `json:"attempt"`
+	Result            string      `json:"result,omitempty"`
+	Submission        *Submission `json:"submission,omitempty"`
+	ReviewFeedback    string      `json:"review_feedback,omitempty"`
+	BlockReason       string      `json:"block_reason,omitempty"`
+	CancelRequested   bool        `json:"cancel_requested"`
+}
+type ProjectCreate struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Workspace   string `json:"workspace"`
+	RequestID   string `json:"request_id,omitempty"`
+}
+type ProjectUpdate struct {
+	Version     int    `json:"version"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	RequestID   string `json:"request_id,omitempty"`
+}
+type Create struct {
+	RequiredArtifacts []Artifact `json:"required_artifacts,omitempty"`
+	ID                string     `json:"id,omitempty"`
+	ProjectID         string     `json:"project_id"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description"`
+	Priority          int        `json:"priority"`
+	Assignee          string     `json:"assignee"`
+	CreatedBy         string     `json:"created_by,omitempty"`
+	ParentTaskID      string     `json:"parent_task_id,omitempty"`
+	OpenSpecChange    string     `json:"openspec_change,omitempty"`
+	Dependencies      []string   `json:"dependencies"`
+	RequestID         string     `json:"request_id,omitempty"`
+	Actor             string     `json:"actor,omitempty"`
+}
+type Update struct {
+	RequiredArtifacts *[]Artifact `json:"required_artifacts,omitempty"`
+	Version           int         `json:"version"`
+	Title             *string     `json:"title,omitempty"`
+	Description       *string     `json:"description,omitempty"`
+	Priority          *int        `json:"priority,omitempty"`
+	Assignee          *string     `json:"assignee,omitempty"`
+	OpenSpecChange    *string     `json:"openspec_change,omitempty"`
+	Dependencies      *[]string   `json:"dependencies,omitempty"`
+	RequestID         string      `json:"request_id,omitempty"`
+	Actor             string      `json:"actor,omitempty"`
+}
+type Action struct {
+	Version   int    `json:"version"`
+	Action    string `json:"action"`
+	Reason    string `json:"reason,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+}
+type Submit struct {
+	Version    int        `json:"version"`
+	RunID      string     `json:"run_id"`
+	Submission Submission `json:"submission"`
+	RequestID  string     `json:"request_id,omitempty"`
+	Actor      string     `json:"actor,omitempty"`
+}
+type Review struct {
+	Version   int    `json:"version"`
+	Accept    bool   `json:"accept"`
+	Feedback  string `json:"feedback,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+}

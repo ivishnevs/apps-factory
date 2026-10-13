@@ -1,0 +1,14 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: manager-autonomous
+  description: Technical coordinator with owner escalation disabled
+spec:
+  extends: developer
+  role: manager
+  prompt:
+    file: prompts/manager.md
+  communication:
+    can_message: [demo]
+    can_create_tasks: true
+    can_assign_tasks: true

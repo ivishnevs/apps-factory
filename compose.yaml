@@ -1,0 +1,31 @@
+services:
+  nats:
+    image: nats:2.11.4-alpine
+    command: ["-js", "-sd", "/data", "--user", "factory", "--pass", "${NATS_PASSWORD:?set NATS_PASSWORD in .env}"]
+    ports:
+      - "127.0.0.1:4222:4222"
+    volumes:
+      - nats-data:/data
+    restart: unless-stopped
+  core:
+    build: .
+    environment:
+      FACTORY_LISTEN: 0.0.0.0:8080
+      FACTORY_DB: /data/factory.db
+      FACTORY_WORKSPACE_HOST_ROOT: ${FACTORY_WORKSPACE_HOST_ROOT:-${PWD}}
+      FACTORY_WORKSPACE_LOCAL_ROOT: /workspaces
+      FACTORY_TOKEN: ${FACTORY_TOKEN:?set FACTORY_TOKEN in .env}
+      NATS_URL: nats://factory:${NATS_PASSWORD}@nats:4222
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - core-data:/data
+      - type: bind
+        source: ${FACTORY_WORKSPACE_HOST_ROOT:-${PWD}}
+        target: /workspaces
+    depends_on:
+      - nats
+    restart: unless-stopped
+volumes:
+  nats-data:
+  core-data:
