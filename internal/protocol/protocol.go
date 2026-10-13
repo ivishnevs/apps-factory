@@ -91,7 +91,7 @@ type Usage struct {
 // Quota is a subscription limit hit (runtime-drivers 3.2).
 type Quota struct {
 	// ResetsAt is when the limit lifts; zero means unknown (Core then pauses for a default period).
-	ResetsAt time.Time `json:"resets_at,omitempty"`
+	ResetsAt time.Time `json:"resets_at,omitzero"`
 	// Type is the runtime's limit name, e.g. "five_hour".
 	Type string `json:"type,omitempty"`
 }

@@ -77,6 +77,7 @@ func TestQuotaPausesTheKeyUntilReset(t *testing.T) {
 		}
 	}
 	quota(reset)
+	quota(reset)                 // runtimes may report one hit twice
 	quota(reset.Add(-time.Hour)) // an earlier reset never shortens the pause
 	ps, _ := s.Pauses(ctx, co)
 	if len(ps) != 1 || ps[0].Scope != "quota_key" || ps[0].Target != "claude-max-1" || ps[0].Until != reset.Unix() || ps[0].Actor != "runtime" {
@@ -118,6 +119,15 @@ func TestQuotaPausesTheKeyUntilReset(t *testing.T) {
 	}
 	if !kinds["quota.paused"] {
 		t.Fatal("no attention event for the quota pause", kinds)
+	}
+	paused := 0
+	for _, item := range page.Items {
+		if item.Type == "quota.paused" {
+			paused++
+		}
+	}
+	if paused != 1 {
+		t.Fatal("a repeated limit report raised another event", paused)
 	}
 	if _, ok := kinds["owner.resumed"]; !ok {
 		t.Fatal("expiry not in the feed", kinds)

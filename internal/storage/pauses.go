@@ -259,6 +259,16 @@ func quotaPause(ctx context.Context, tx *Tx, runID string, q protocol.Quota) err
 	if q.Type != "" {
 		reason += " " + q.Type
 	}
+	// A runtime may report one limit hit more than once: only a new pause or a later reset is news.
+	var previous int64
+	switch err = tx.QueryRowContext(ctx, "SELECT until FROM pauses WHERE company_id=? AND scope='quota_key' AND target=?", tx.company, key).Scan(&previous); {
+	case errors.Is(err, sql.ErrNoRows):
+		previous = 0
+	case err != nil:
+		return err
+	case until.Unix() <= previous:
+		return nil
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO pauses(company_id,scope,target,reason,actor,created_at,until) VALUES(?,'quota_key',?,?,'runtime',?,?)
  ON CONFLICT(company_id,scope,target) DO UPDATE SET until=max(until,excluded.until),reason=excluded.reason`, tx.company, key, reason, now.Unix(), until.Unix()); err != nil {
 		return err

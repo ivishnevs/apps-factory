@@ -91,6 +91,7 @@ func (u *UsageList) Scan(src any) error {
 	}
 	return json.Unmarshal(b, u)
 }
+
 type Outbox struct {
 	ID, Subject string
 	Body        []byte
