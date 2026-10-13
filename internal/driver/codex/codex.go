@@ -15,16 +15,23 @@ import (
 	"time"
 
 	"appfactory/internal/driver"
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/rpc"
 )
 
+// SupportedVersion is the only Codex app-server version whose schema is verified.
 const SupportedVersion = "codex-cli 0.162.1"
+
+// Options are the runtime_options keys the driver reads; config.RuntimeOptions must match.
+var Options = []string{"model"}
 
 type Driver struct {
 	Binary string
 	// Args replace the default app-server arguments (tests use a fake server).
 	Args []string
+	// Host runs Probe; nil is the local machine.
+	Host *node.Host
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeCodex }

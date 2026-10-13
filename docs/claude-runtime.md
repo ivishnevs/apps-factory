@@ -7,7 +7,8 @@ broker transport, lease lifecycle and classification of terminal evidence.
 
 Agents select it with `spec.runtime.provider: claude` (see `configs/agents/claude-demo.yaml`).
 `runtime.model: default` leaves the model to Claude Code; any other value is passed as `model`.
-`runtime_options.effort` is forwarded when present.
+`runtime_options.effort` (`low|medium|high|xhigh|max`) and `runtime_options.max_turns` (positive
+integer, SDK `maxTurns`) are forwarded when present.
 
 ## Running
 
@@ -58,8 +59,11 @@ standalone service keeps its own lifecycle until `node-agent` lands.
 - stdin, first line: launch parameters `{"spec": RunSpec, "cwd", "instructions", "mcp_command"?,
   "executable"?, "allow_api_key"?, "setting_sources"?}`. `instructions` is the full appended system
   prompt (agent instructions plus Factory MCP instructions).
-- stdin, then: `{"interrupt": true}` requests `interrupt()`. EOF on stdin (driver gone) and
-  SIGINT/SIGTERM interrupt too, so the driver keeps stdin open for the whole run.
+- stdin, then: `{"start": true}` delivers the prompt. The shim writes `session` after the startup
+  gate and waits for it, so the driver persists the session before the turn executes.
+  `{"interrupt": true}` requests `interrupt()`. EOF on stdin (driver gone) and SIGINT/SIGTERM
+  interrupt too, so the driver keeps stdin open for the whole run. Interruption before `start`
+  ends the run without a prompt (`error{class: not_started}`, `result` UNKNOWN).
 - Environment: `FACTORY_URL` and `FACTORY_RUN_TOKEN` come only from the shim's environment and reach
   `factory-mcp` by inheritance; with `mcp_command` set a missing `FACTORY_RUN_TOKEN` is a launch error.
   Owner/broker secrets and (unless `allow_api_key`) API keys are dropped as in the Worker.
@@ -68,14 +72,14 @@ standalone service keeps its own lifecycle until `node-agent` lands.
 
 | Event | Source |
 | --- | --- |
-| `session{id}` | pre-assigned or resumed session, written before the prompt is delivered |
+| `session{id}` | pre-assigned or resumed session, written before the prompt is delivered (waits for `start`) |
 | `activity{kind, data}` | every SDK message; `kind` is the progress `method`, `data` the redacted message |
 | `quota{resets_at?, rate_limit_type?}` | `rate_limit_event` with `rate_limit_info.status: rejected` |
 | `auth_error{reason, api_key_source?}` | `apiKeySource` other than `none` without `allow_api_key`; assistant `error` of `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `verification_required` |
 | `usage{model, input, output, cache_read, cache_write}` | `result.modelUsage`, one line per model, cumulative for the query |
 | `cost{usd, source: "claude_estimate"}` | `result.total_cost_usd`, cumulative |
 | `max_turns{num_turns}` | FAILED result with subtype `error_max_turns` |
-| `error{class, terminal_reason?, api_error_status?, message?}` | other FAILED results (`class` = result subtype, `api_error` for `success` with `is_error`), or a runtime failure (`launch`, `executable`, `startup_timeout`, `mcp_unavailable`, `session_mismatch`, `no_result`, `interrupt_timeout`, `interrupt_unknown`, `runtime`) |
+| `error{class, terminal_reason?, api_error_status?, message?}` | other FAILED results (`class` = result subtype, `api_error` for `success` with `is_error`), or a runtime failure (`launch`, `executable`, `startup_timeout`, `mcp_unavailable`, `session_mismatch`, `no_result`, `interrupt_timeout`, `interrupt_unknown`, `not_started`, `runtime`) |
 | `result{status, result, session_id?}` | always the last line, exactly once; status as in the table above (UNKNOWN after any runtime failure) |
 
 Classification uses structured SDK fields only, never message text. The shim exits 0 after the
@@ -88,6 +92,34 @@ environment, account, MCP status sequence, interrupt point), `<name>.sdk.jsonl` 
 delivery order, shaped on SDK 0.3.284 types) and `<name>.events.jsonl` (expected shim stdout, also
 usable as fake shim output by Go driver tests). `test/shim.test.ts` replays start, resume, interrupt,
 max turns and rate limit; `UPDATE_TESTDATA=1 npm test` regenerates the `.events.jsonl` files.
+
+## Go driver (`internal/driver/claude`)
+
+`claude.Driver` implements `driver.Driver` with the shim; it is not wired into `cmd/` yet (the
+standalone service still serves `factory.commands.agent.run.claude`). Fields: `Node` (default
+`node`), `Shim` (default `workers/claude/dist/src/shim.js`), `Executable`, `AllowAPIKey`,
+`SettingSources` (launch line fields). The shim runs in its own process group (`ProcessGroup()`,
+killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Command` becomes
+`mcp_command` and `MCP.EnvVars` reach `factory-mcp` by inheritance.
+
+- `Launch` validates `runtime_options` (`model`, `effort`, `max_turns`; anything else is refused),
+  writes the launch line and returns at `session`. A failure before it is a `*claude.Error` with the
+  shim's class (`auth_error` for `auth_error`).
+- `Start` writes `{"start": true}`; `Interrupt` writes `{"interrupt": true}`.
+- Events: `activity` → `EventActivity` with `Method` = `kind`; `usage`, `cost`, `quota`,
+  `auth_error`, `max_turns` and `error` → `EventActivity` with `Method` `claude/shim/<event>` and the
+  line as `Data`.
+- `result` COMPLETED/FAILED/CANCELLED → `Result.Status` with `result` as `Text` (quota and max turns
+  are FAILED); UNKNOWN, a broken line or exit without `result` → `Result.Err` (`*claude.Error`,
+  class from the last `error`/`auth_error`, else `no_result`/`protocol`). After `result` the driver
+  waits up to 10 s for the shim to exit so the transcript is flushed for resume.
+- `CheckVersion` runs `shim.js --probe` and accepts SDK 0.3.284 with Claude Code 2.1.284.
+
+Tests replay the recorded `.events.jsonl` streams through a fake shim process
+(`claudetest.Serve`, re-executed test binary): start, resume, interrupt, max turns, rate limit,
+failures without evidence, and the built shim's launch refusal when `workers/claude` is built.
+`internal/worker` runs Claude runs end to end through the executor against a fake Core
+(`NATS_TEST_URL`): completed and owner-cancelled.
 
 ## Clock
 

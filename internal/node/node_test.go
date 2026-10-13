@@ -1,4 +1,4 @@
-package node
+package node_test
 
 import (
 	"bytes"
@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"appfactory/internal/driver/codex"
+	. "appfactory/internal/node"
 )
 
 type reply struct {
@@ -87,7 +90,15 @@ func healthy() *fakeHost {
 }
 
 func doctor(f *fakeHost, goos string) Doctor {
-	return Doctor{Host: f.host(goos), DiskPath: "/work", Low: 20 * GiB, Critical: 5 * GiB}
+	d := Doctor{Host: f.host(goos), DiskPath: "/work", Low: 20 * GiB, Critical: 5 * GiB}
+	return withRuntimes(f, d)
+}
+
+// withRuntimes wires the probes as cmd/factory-node does.
+func withRuntimes(f *fakeHost, d Doctor) Doctor {
+	h := d.Host
+	d.Runtimes = []Runtime{{Name: "codex", Probe: codex.Driver{Binary: f.env["CODEX_BIN"], Host: &h}}, {Name: "claude", Probe: ClaudeProbe{Host: h, BinDir: d.BinDir()}}}
+	return d
 }
 
 func byCheck(rs []CheckResult) map[string]CheckResult {
@@ -201,6 +212,7 @@ func TestChecks(t *testing.T) {
 			if c.change != nil {
 				c.change(f, &d)
 			}
+			d = withRuntimes(f, d)
 			r, ok := byCheck(d.Run(context.Background()))[c.check]
 			if !ok || r.Status != c.status || !strings.Contains(r.Detail+" "+r.Hint, c.want) {
 				t.Fatalf("%s = %+v, want %s containing %q", c.check, r, c.status, c.want)
@@ -252,5 +264,4 @@ SKIP    xcode          not macOS
 	}
 }
 
-var _ RuntimeProbe = CodexProbe{}
-var _ RuntimeProbe = ClaudeProbe{}
+var _ DriverProbe = ClaudeProbe{}

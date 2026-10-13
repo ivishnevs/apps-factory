@@ -15,7 +15,8 @@ import (
 
 var ErrWorktreesDisabled = errors.New("workspace: worktrees allocator is disabled")
 
-var DefaultScanCommand = []string{"gitleaks", "git", "--redact", "--no-banner", "--exit-code", "1", "--log-opts"}
+// DefaultScanCommand is verified with gitleaks 8.30.1; --verbose puts the redacted findings (rule, file, line, commit) in the report.
+var DefaultScanCommand = []string{"gitleaks", "git", "--redact", "--no-banner", "--no-color", "--verbose", "--exit-code", "1", "--log-opts"}
 
 // WorktreesConfig is off unless Enabled is set; the worker does not use it yet.
 type WorktreesConfig struct {
@@ -111,6 +112,8 @@ func branchName(r Request) string {
 }
 
 // Acquire ensures the task worktree and takes its run lock, waiting for a previous holder.
+// Release kills the run's tracked process group (see Track) before unlocking; a group that
+// survives keeps its pidfile and is killed again by the next Acquire.
 func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
 	wt, err := w.Ensure(ctx, r)
 	if err != nil {
@@ -120,7 +123,12 @@ func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
 	if err != nil {
 		return Worktree{}, err
 	}
-	wt.Release = unlock
+	// A pidfile under a free lock is left by a crashed holder: its group dies before the new run starts.
+	if err = stopRun(wt.Path); err != nil {
+		unlock()
+		return Worktree{}, err
+	}
+	wt.Release = func() { _ = stopRun(wt.Path); unlock() }
 	return wt, nil
 }
 
@@ -411,6 +419,10 @@ func (w *Worktrees) ScanExit(ctx context.Context, r Request) error {
 }
 
 func (w *Worktrees) Scan(ctx context.Context, path, revRange string) error {
+	// gitleaks reports a bad range or a non-repository as "no leaks found" (exit 0).
+	if _, err := git(ctx, path, nil, append([]string{"rev-list", "--quiet"}, strings.Fields(revRange)...)...); err != nil {
+		return fmt.Errorf("workspace: secret scan range %q: %w", revRange, err)
+	}
 	cmd := exec.CommandContext(ctx, w.scan[0], append(w.scan[1:len(w.scan):len(w.scan)], revRange)...)
 	cmd.Dir = path
 	out, err := cmd.CombinedOutput()

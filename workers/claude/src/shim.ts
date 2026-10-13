@@ -1,7 +1,9 @@
 // Per-run Claude Agent SDK shim for internal/driver/claude (runtime-drivers D3): runtime.ts
 // without the bus, claim and heartbeat. Protocol (JSON lines):
-//   stdin:  one Launch line, then control lines; {"interrupt": true} requests interruption and
-//           EOF on stdin (the driver went away) is treated the same way.
+//   stdin:  one Launch line, then control lines. {"start": true} delivers the prompt; the shim
+//           waits for it after writing `session` so the driver can persist the session first.
+//           {"interrupt": true} requests interruption and EOF on stdin (the driver went away) is
+//           treated the same way; before start either ends the run without a prompt.
 //   stdout: normalized events, see ShimEvent; exactly one terminal `result` line, then exit 0.
 //   --probe: one `probe` line with the Claude Code version and accountInfo, no model call.
 // The run token reaches the shim and factory-mcp only through the environment
@@ -180,6 +182,12 @@ export async function runShim(io: ShimIO): Promise<void> {
   const lines = createInterface({ input: io.input, crlfDelay: Infinity });
   let onLaunch!: (line: string | undefined) => void;
   const launchLine = new Promise<string | undefined>((resolve) => (onLaunch = resolve));
+  // Resolves with the driver's start line; rejects when the run is interrupted first.
+  let onStart!: () => void;
+  let notStarted!: (err: Error) => void;
+  const start = new Promise<void>((resolve, reject) => ((onStart = resolve), (notStarted = reject)));
+  start.catch(() => {});
+  stop.signal.addEventListener("abort", () => notStarted(new RuntimeError("interrupted before start", "not_started")), { once: true });
   let launched = false;
   lines.on("line", (line) => {
     if (!launched) {
@@ -189,7 +197,9 @@ export async function runShim(io: ShimIO): Promise<void> {
     }
     if (!line.trim()) return;
     try {
-      if ((JSON.parse(line) as { interrupt?: unknown }).interrupt === true) stop.abort();
+      const c = JSON.parse(line) as { interrupt?: unknown; start?: unknown };
+      if (c.interrupt === true) stop.abort();
+      else if (c.start === true) onStart();
       else io.log?.(`shim: ignored control line ${line.slice(0, 200)}`);
     } catch {
       io.log?.("shim: control line is not JSON");
@@ -215,6 +225,7 @@ export async function runShim(io: ShimIO): Promise<void> {
       signal: stop.signal,
       emit: n.emit,
       observe: n.observe,
+      beforePrompt: () => start,
       newSessionId: io.newSessionId,
       query: io.query,
       executable: launch.executable ?? (io.env["CLAUDE_CODE_EXECUTABLE"] || undefined),

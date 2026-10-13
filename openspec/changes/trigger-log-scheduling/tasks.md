@@ -1,7 +1,7 @@
 ## 1. Model
 - [ ] 1.1 Migration: `task_triggers`, `tasks.wake_seq/handled_seq/not_before`, `task_parks`, run `brief_from/brief_to`; backfill READY tasks with one `ready` trigger and BLOCKED tasks with `ask`/`block` parks. Verify: migration test on a fixture with READY, message-blocked, artifact-blocked and manually blocked tasks.
 - [ ] 1.2 Write triggers in the transactions of their causes (create with assignee + ready, assign, ready, owner comment, answer, last dependency DONE, last child closed, artifact approved, review result). Verify: unit test per cause checks one trigger and `wake_seq` bump in the same transaction; agent self-comment adds none.
-- [ ] 1.3 `internal/tasks/state.go`: `Evaluate(snapshot, now)` with reason order and clearer. Verify: table tests for every reason; property test that exactly one reason is returned and `runnable` iff reason = runnable.
+- [x] 1.3 `internal/tasks/state.go`: `Evaluate(snapshot, now)` with reason order and clearer. Verify: table tests for every reason; property test that exactly one reason is returned and `runnable` iff reason = runnable. Done: 1ffbc21; diagnostic only, the scheduler does not use it yet.
 
 ## 2. Scheduling
 - [ ] 2.1 Dispatcher in `internal/core/tasks.go` + `storage.Dispatch` using `Evaluate` under the company lock; order by priority, oldest unhandled trigger, id. Verify: scheduler tests for ordering and that idle (`wake_seq = handled_seq`) tasks are not dispatched.
@@ -13,7 +13,7 @@
 
 ## 3. Holds and visibility
 - [ ] 3.1 Replace `wait_message_id` and artifact BLOCKED with parks; derive BLOCKED in API responses with `reason`. Verify: messaging and artifact-approval tests pass unchanged at the API level.
-- [ ] 3.2 `factory tasks why ID` and `reason`/`clearer` in task GET/list. Verify: CLI test prints the reason for parked, backoff, idle and dependency cases.
-- [ ] 3.3 Agent task creation records `origin_task/origin_run`; dedup by origin, normalized title and role; cycle check over parent + dependencies at creation. Verify: duplicate create returns the existing task; parent-plus-dependency cycle → 409 `cycle`.
-- [ ] 3.4 `feed_events` table written in cause transactions + outbox subject `factory.<company>.feed.<project>.<kind>`; project feed endpoint as a view. Verify: rollback leaves no feed row; JetStream test delivers each row with a stable `seq`.
+- [ ] 3.2 `factory tasks why ID` and `reason`/`clearer` in task GET/list. Verify: CLI test prints the reason for parked, backoff, idle and dependency cases. Partial: `factory tasks why ID|--project P` and `GET /tasks/{id}/why`, `/projects/{id}/why` done (1ffbc21); `reason`/`clearer` in task GET/list pending.
+- [x] 3.3 Agent task creation records `origin_task/origin_run`; dedup by origin, normalized title and role; cycle check over parent + dependencies at creation. Verify: duplicate create returns the existing task; parent-plus-dependency cycle → 409 `cycle`. Done: c8d3351.
+- [ ] 3.4 `feed_events` table written in cause transactions + outbox subject `factory.<company>.feed.<project>.<kind>`; project feed endpoint as a view. Verify: rollback leaves no feed row; JetStream test delivers each row with a stable `seq`. Partial: `feed_events` written in cause transactions and the project feed reads from it (cbce57e); company-prefixed feed subject pending.
 - [ ] 3.5 Update `docs/task-lifecycle.md` and `docs/architecture.md`. Verify: docs describe triggers, parks, reasons, reconciler, brief and feed.

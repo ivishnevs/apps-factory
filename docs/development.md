@@ -63,7 +63,8 @@ Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, wi
 (`git ls-remote`); `disk` free space at `-disk-path` (default `$HOME`) against `-low-gib 20` (warn) and
 `-critical-gib 5` (fail); on macOS `xcode` (`xcode-select -p`, `xcodebuild -version`) and `xcode.simctl` (available
 simulators; warn when none); `factory-mcp` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
-Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call): `codex.*` (`CODEX_BIN`, exactly
+Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
+injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
 `codex-cli 0.162.1`, `codex login status`) and `claude.*` (Node 22+, built `workers/claude`, `factory-workspace`, and
 `claude auth status` of `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI; warn when no CLI is installed, since the
 SDK-bundled Claude Code is checked only at run start). By default only installed drivers are probed;

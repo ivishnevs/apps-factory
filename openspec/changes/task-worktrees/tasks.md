@@ -1,16 +1,16 @@
 ## 1. Allocation
 - [ ] 1.1 Project `repo_url`/`default_branch`; agent `spec.workspace` mode; migration drops writer indexes and adds `workspaces`. Verify: migration and config tests; two tasks of one project dispatch concurrently.
-- [ ] 1.2 `workspace.Worktrees` with per-repo serialization, idempotent ensure, lock-error retry, `.factory/` exclude and `$FACTORY_SCRATCH`. Verify: test creating 8 worktrees concurrently on one repo succeeds; a killed ensure re-runs cleanly.
-- [ ] 1.3 Per-worktree flock + pidfile, process group per run, kill within 30 s after exit/stop. Verify: worker test where a new run waits for the old group and seal.
+- [x] 1.2 `workspace.Worktrees` with per-repo serialization, idempotent ensure, lock-error retry, `.factory/` exclude and `$FACTORY_SCRATCH`. Verify: test creating 8 worktrees concurrently on one repo succeeds; a killed ensure re-runs cleanly. Done: 2499b4d; behind a disabled flag, not wired into the worker.
+- [ ] 1.3 Per-worktree flock + pidfile, process group per run, kill within 30 s after exit/stop. Verify: worker test where a new run waits for the old group and seal. Partial: per-worktree flock, run pidfile with leader start time, TERM→KILL of the run group within 30 s on release, stale group killed on next acquire (behind the flag); worker integration pending.
 
 ## 2. Seal and continuity
-- [ ] 2.1 Local seal onto `refs/factory/wip/<task>` without touching HEAD/index; report `sealed_head`. Verify: test with staged, unstaged and untracked changes: HEAD, index and files unchanged, WIP ref contains all.
+- [x] 2.1 Local seal onto `refs/factory/wip/<task>` without touching HEAD/index; report `sealed_head`. Verify: test with staged, unstaged and untracked changes: HEAD, index and files unchanged, WIP ref contains all. Done: 2499b4d.
 - [ ] 2.2 Reset to `exit_sha` after handoff/submit/done; continue as is otherwise; `fresh_from_default`. Verify: tests for each exit kind.
 - [ ] 2.3 Start check and `workspace_diverged` escalation; fast-forward when the remote moved and the tree is clean; recreate a missing worktree. Verify: tests for each branch of the check.
 
 ## 3. Push, scan, merge
 - [ ] 3.1 Clean-tree refusal for handoff/submit/done; preflight → push → ensure PR → commit exit in the adapter. Verify: adapter test with a local bare remote and fake `gh`.
-- [ ] 3.2 Pre-push hook per worktree and exit-range scan; redacted refusal. Verify: a planted test secret blocks `git push` and the exit.
+- [ ] 3.2 Pre-push hook per worktree and exit-range scan; redacted refusal. Verify: a planted test secret blocks `git push` and the exit. Partial: pre-push hook and exit-range scan verified with real gitleaks 8.30.1 (range checked first because gitleaks passes on an invalid range); redacted refusal in the adapter pending.
 - [ ] 3.3 Agent merge flow: verdict back to implementer, `review_after_conflicts` policy, merge failures as attempts. Verify: real Codex smoke: implement → submit → approve → agent merges → done accepted.
 
 ## 4. Pinning and docs

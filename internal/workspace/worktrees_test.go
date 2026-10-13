@@ -384,6 +384,49 @@ func TestSecretScanBlocksPush(t *testing.T) {
 	}
 }
 
+func TestGitleaksDefaultCommand(t *testing.T) {
+	if _, err := exec.LookPath(DefaultScanCommand[0]); err != nil {
+		t.Skip("gitleaks not on PATH")
+	}
+	f := setup(t, DefaultScanCommand...)
+	ctx := context.Background()
+	wt, err := f.w.Ensure(ctx, f.req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := wt.Path
+	write(t, filepath.Join(p, "ok.txt"), "fine\n")
+	run(t, p, "add", "-A")
+	run(t, p, "commit", "-qm", "ok")
+	if err = f.w.ScanExit(ctx, f.req); err != nil {
+		t.Fatal(err)
+	}
+	run(t, p, "push", "-q", "-u", "origin", "HEAD")
+	pushed := run(t, f.remote, "rev-parse", wt.Branch)
+
+	key := "AKIA" + "QYLPMN5HHHFPZAM2"
+	write(t, filepath.Join(p, "config.env"), "aws_access_key_id = "+key+"\n")
+	run(t, p, "add", "-A")
+	run(t, p, "commit", "-qm", "leak")
+	cmd := exec.Command("git", "push", "origin", "HEAD")
+	cmd.Dir = p
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "secret scan") || strings.Contains(string(out), key) {
+		t.Fatalf("push with secret: %v\n%s", err, out)
+	}
+	if got := run(t, f.remote, "rev-parse", wt.Branch); got != pushed {
+		t.Fatal("secret reached the remote")
+	}
+	err = f.w.ScanExit(ctx, f.req)
+	var se *SecretError
+	if !errors.As(err, &se) || strings.Contains(se.Report, key) || !strings.Contains(se.Report, "config.env") || !strings.Contains(se.Report, "aws-access-token") {
+		t.Fatalf("exit scan = %v", err)
+	}
+	if err = f.w.Scan(ctx, p, "no-such-ref..HEAD"); err == nil || errors.As(err, &se) {
+		t.Fatalf("bad range scan = %v", err)
+	}
+}
+
 func TestMissingScannerBlocksPush(t *testing.T) {
 	f := setup(t, filepath.Join(t.TempDir(), "no-such-scanner"))
 	ctx := context.Background()

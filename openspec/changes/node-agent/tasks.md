@@ -1,5 +1,5 @@
 ## 1. Node process
-- [ ] 1.1 `cmd/factory-node` + `internal/node` with `node.yaml`, node token, N slot goroutines using the existing executor; `codex-worker` as `--slots 1` alias; launchd plist example. Verify: node with 3 slots runs 3 fake-driver runs concurrently.
+- [ ] 1.1 `cmd/factory-node` + `internal/node` with `node.yaml`, node token, N slot goroutines using the existing executor; `codex-worker` as `--slots 1` alias; launchd plist example. Verify: node with 3 slots runs 3 fake-driver runs concurrently. Partial: `cmd/factory-node` and `internal/node` exist with `doctor` only (2499b4d); slots, node.yaml, launchd pending.
 - [ ] 1.2 Registration with epoch and pre-registration seal of old-epoch worktrees. Verify: restart test ends old runs `lost` and leaves WIP refs.
 - [ ] 1.3 Inventory heartbeat renewing all leases; remove per-run heartbeat; `stop`/`cleanup`/`pause` answer handling. Verify: Core tests for missing RUNNING run → `lost`, CLAIMED judged by start window, elapsed > timeout → `timed_out` + stop.
 - [ ] 1.4 Node offline after 60 s of continuous ticking; online on next heartbeat. Verify: fake-clock test with and without a Core tick gap.
@@ -18,8 +18,8 @@
 ## 3b. Node health control
 - [ ] 3b.1 launchd/systemd units with KeepAlive; Core counts epochs per node and emits one `node.restart_loop` alert. Verify: four restarts in 15 minutes produce exactly one alert.
 - [ ] 3b.2 Internal watchdog: slot/process consistency, orphan reaping, heartbeat staleness. Verify: killing an agent process outside the node ends its run and frees the slot; a planted orphan with this node's run id is killed.
-- [ ] 3b.3 Self-checks (git/forge credentials, Core/NATS, disk, template stack hooks) and the `node.RuntimeProbe` hook with a Codex probe (Claude probe in `runtime-drivers`); one event per failure; pause only when no driver is usable or credentials/disk prevent all work. Verify: one failing driver probe disables that driver only; all probes failing pause the node; fixing them unpauses.
-- [ ] 3b.4 `factory node doctor` command. Verify: output table with pass/fail and hints, works with Core down.
+- [ ] 3b.3 Self-checks (git/forge credentials, Core/NATS, disk, template stack hooks) and the `node.RuntimeProbe` hook with a Codex probe (Claude probe in `runtime-drivers`); one event per failure; pause only when no driver is usable or credentials/disk prevent all work. Verify: one failing driver probe disables that driver only; all probes failing pause the node; fixing them unpauses. Partial: Local self-checks and `node.RuntimeProbe` with Codex and Claude probes done (2499b4d); Core/NATS and template hook checks pending.
+- [x] 3b.4 `factory node doctor` command. Verify: output table with pass/fail and hints, works with Core down. Done: 2499b4d; binary is `factory-node doctor`.
 
 ## 4. Command guards
 - [ ] 4.1 `commands` in access rules; mandatory `host-ui` and `owner-cli` policies; per-run shim directory first on PATH. Verify: a run calling `cliclick` or `factory` gets exit 126 with the instruction and a refusal event.

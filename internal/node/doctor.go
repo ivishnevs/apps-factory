@@ -19,33 +19,42 @@ type Doctor struct {
 	Low      uint64 // disk.low_watermark, bytes
 	Critical uint64 // disk.critical_watermark, bytes
 	Repo     string // optional repository for `git ls-remote`
+	// Drivers are required by name; empty probes every runtime whose binary is installed.
 	Drivers  []string
+	Runtimes []Runtime
 }
 
-// DefaultDrivers are the runtimes the doctor knows. Empty Doctor.Drivers probes those whose binary is installed.
-var DefaultDrivers = []string{"codex", "claude"}
+// Runtime is a driver probe as the doctor runs it; the driver owns the probe (runtime-drivers D4).
+type Runtime struct {
+	Name  string
+	Probe DriverProbe
+}
+
+// DriverProbe is a RuntimeProbe that can tell whether its runtime is installed at all.
+type DriverProbe interface {
+	RuntimeProbe
+	Installed() bool
+}
 
 func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
 	r = append(r, d.disk())
 	r = append(r, d.xcode(ctx)...)
-	bin := d.binDir()
-	r = append(r, binary("factory-mcp", bin, d.Host))
+	r = append(r, binary("factory-mcp", d.BinDir(), d.Host))
 	usable := []string{}
-	for _, name := range DefaultDrivers {
-		explicit := slices.Contains(d.Drivers, name)
+	for _, rt := range d.Runtimes {
+		explicit := slices.Contains(d.Drivers, rt.Name)
 		if len(d.Drivers) > 0 && !explicit {
 			continue
 		}
-		p := d.probe(name, bin)
-		if !explicit && !p.installed() {
-			r = append(r, CheckResult{Check: name, Status: Skip, Detail: "not installed; driver disabled"})
+		if !explicit && !rt.Probe.Installed() {
+			r = append(r, CheckResult{Check: rt.Name, Status: Skip, Detail: "not installed; driver disabled"})
 			continue
 		}
-		pr := p.Probe(ctx)
+		pr := rt.Probe.Probe(ctx)
 		r = append(r, pr...)
 		if !Failed(pr) {
-			usable = append(usable, name)
+			usable = append(usable, rt.Name)
 		}
 	}
 	if len(usable) == 0 {
@@ -57,26 +66,14 @@ func (d Doctor) Run(ctx context.Context) []CheckResult {
 	return r
 }
 
-type driverProbe interface {
-	RuntimeProbe
-	installed() bool
-}
-
-func (d Doctor) probe(name, bin string) driverProbe {
-	if name == "claude" {
-		return ClaudeProbe{Host: d.Host, BinDir: bin}
-	}
-	return CodexProbe{Host: d.Host}
-}
-
 func (d Doctor) git(ctx context.Context) []CheckResult {
-	v, err := d.Host.output(ctx, "git", "--version")
+	v, err := d.Host.Output(ctx, "git", "--version")
 	if err != nil {
 		return []CheckResult{{Check: "git", Status: Fail, Detail: err.Error(), Hint: "install git (macOS: xcode-select --install)"}}
 	}
 	r := []CheckResult{{Check: "git", Status: Pass, Detail: v}}
-	name, _ := d.Host.output(ctx, "git", "config", "--get", "user.name")
-	email, _ := d.Host.output(ctx, "git", "config", "--get", "user.email")
+	name, _ := d.Host.Output(ctx, "git", "config", "--get", "user.name")
+	email, _ := d.Host.Output(ctx, "git", "config", "--get", "user.email")
 	if name == "" || email == "" {
 		r = append(r, CheckResult{Check: "git.user", Status: Fail, Detail: "user.name or user.email not set",
 			Hint: `git config --global user.name "NAME" && git config --global user.email EMAIL`})
@@ -86,12 +83,12 @@ func (d Doctor) git(ctx context.Context) []CheckResult {
 	if _, err = d.Host.LookPath("gh"); err != nil {
 		r = append(r, CheckResult{Check: "forge.auth", Status: Warn, Detail: "gh not found", Hint: "install GitHub CLI and run gh auth login"})
 	} else if out, errOut, err := d.Host.Run(ctx, "gh", "auth", "status"); err != nil {
-		r = append(r, CheckResult{Check: "forge.auth", Status: Warn, Detail: "gh not authenticated: " + firstLine(errOut+out), Hint: "gh auth login"})
+		r = append(r, CheckResult{Check: "forge.auth", Status: Warn, Detail: "gh not authenticated: " + FirstLine(errOut+out), Hint: "gh auth login"})
 	} else {
 		r = append(r, CheckResult{Check: "forge.auth", Status: Pass, Detail: ghAccount(out + errOut)})
 	}
 	if d.Repo != "" {
-		if _, err = d.Host.output(ctx, "git", "ls-remote", "--exit-code", d.Repo, "HEAD"); err != nil {
+		if _, err = d.Host.Output(ctx, "git", "ls-remote", "--exit-code", d.Repo, "HEAD"); err != nil {
 			r = append(r, CheckResult{Check: "forge.repo", Status: Fail, Detail: err.Error(), Hint: "check git credentials (credential helper, SSH key or gh auth setup-git) for " + d.Repo})
 		} else {
 			r = append(r, CheckResult{Check: "forge.repo", Status: Pass, Detail: d.Repo})
@@ -131,19 +128,19 @@ func (d Doctor) xcode(ctx context.Context) []CheckResult {
 	if d.Host.GOOS != "darwin" {
 		return []CheckResult{{Check: "xcode", Status: Skip, Detail: "not macOS"}}
 	}
-	dir, err := d.Host.output(ctx, "xcode-select", "-p")
+	dir, err := d.Host.Output(ctx, "xcode-select", "-p")
 	if err != nil {
 		return []CheckResult{{Check: "xcode", Status: Fail, Detail: err.Error(), Hint: "install Xcode, then sudo xcode-select -s /Applications/Xcode.app"}}
 	}
 	if strings.Contains(dir, "CommandLineTools") {
 		return []CheckResult{{Check: "xcode", Status: Fail, Detail: "only Command Line Tools selected: " + dir, Hint: "sudo xcode-select -s /Applications/Xcode.app"}}
 	}
-	v, err := d.Host.output(ctx, "xcodebuild", "-version")
+	v, err := d.Host.Output(ctx, "xcodebuild", "-version")
 	if err != nil {
 		return []CheckResult{{Check: "xcode", Status: Fail, Detail: err.Error(), Hint: "sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"}}
 	}
 	r := []CheckResult{{Check: "xcode", Status: Pass, Detail: strings.ReplaceAll(v, "\n", ", ")}}
-	out, err := d.Host.output(ctx, "xcrun", "simctl", "list", "devices", "available", "-j")
+	out, err := d.Host.Output(ctx, "xcrun", "simctl", "list", "devices", "available", "-j")
 	if err != nil {
 		return append(r, CheckResult{Check: "xcode.simctl", Status: Fail, Detail: err.Error(), Hint: "sudo xcodebuild -runFirstLaunch; check `xcrun simctl list`"})
 	}
@@ -166,8 +163,8 @@ func (d Doctor) xcode(ctx context.Context) []CheckResult {
 	return append(r, CheckResult{Check: "xcode.simctl", Status: Pass, Detail: fmt.Sprintf("%d available simulators in %d runtimes", n, runtimes)})
 }
 
-// binDir is FACTORY_BIN_DIR, else the directory of this executable if it holds factory-mcp, else ./bin.
-func (d Doctor) binDir() string {
+// BinDir is FACTORY_BIN_DIR, else the directory of this executable if it holds factory-mcp, else ./bin.
+func (d Doctor) BinDir() string {
 	if v := d.Host.Getenv("FACTORY_BIN_DIR"); v != "" {
 		return v
 	}

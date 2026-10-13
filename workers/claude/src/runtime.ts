@@ -29,7 +29,8 @@ export type ErrorClass =
   | "session_mismatch"
   | "no_result"
   | "interrupt_timeout"
-  | "interrupt_unknown";
+  | "interrupt_unknown"
+  | "not_started";
 
 // Any RuntimeError (or other throw) after claim is reported as UNKNOWN by the Worker.
 export class RuntimeError extends Error {
@@ -54,6 +55,9 @@ export interface RuntimeInput {
   // Called with every runtime message after its progress event (the shim derives usage, quota
   // and auth signals from it).
   observe?: (m: SDKMessage) => Promise<void> | void;
+  // Awaited after `started` and before the prompt is delivered: the shim waits for the driver's
+  // start line. The standalone Worker delivers the prompt immediately.
+  beforePrompt?: () => Promise<void>;
   // Session ID for a new session; random UUID by default.
   newSessionId?: () => string;
   query?: QueryFn;
@@ -80,6 +84,7 @@ export function methodOf(m: SDKMessage): string {
 export function runtimeOptions(input: RuntimeInput, sessionId: string, abortController: AbortController): Options {
   const model = input.spec.runtime_options?.["model"];
   const effort = input.spec.runtime_options?.["effort"];
+  const maxTurns = input.spec.runtime_options?.["max_turns"];
   return {
     cwd: input.cwd,
     abortController,
@@ -97,6 +102,7 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     mcpServers: input.mcpCommand ? { factory: { type: "stdio", command: input.mcpCommand } } : {},
     ...(typeof model === "string" && model !== "" && model !== "default" ? { model } : {}),
     ...(typeof effort === "string" && effort !== "" ? { effort: effort as Options["effort"] } : {}),
+    ...(typeof maxTurns === "number" && Number.isInteger(maxTurns) && maxTurns > 0 ? { maxTurns } : {}),
     ...(input.spec.session_id ? { resume: input.spec.session_id } : { sessionId }),
     ...(input.executable ? { pathToClaudeCodeExecutable: input.executable } : {}),
     ...(input.log ? { stderr: input.log } : {}),
@@ -144,6 +150,7 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
     if (input.mcpCommand) await within(factoryConnected(q), startup, "factory MCP startup", "startup_timeout");
     // Core persists the session before the turn executes.
     await input.emit("started", { session_id: sessionId });
+    await input.beforePrompt?.();
     openGate();
 
     const cancelled = new Promise<"cancel">((resolve) => {

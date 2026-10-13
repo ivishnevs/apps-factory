@@ -3,6 +3,7 @@
 package main
 
 import (
+	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
 	"context"
 	"flag"
@@ -37,11 +38,19 @@ func run(args []string) (int, error) {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2, err
 	}
-	d := node.Doctor{Host: node.LocalHost(runtime.GOOS), DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo}
+	h := node.LocalHost(runtime.GOOS)
+	d := node.Doctor{Host: h, DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo}
+	// Each driver owns its probe; the Claude probe moves into internal/driver/claude with that driver.
+	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: os.Getenv("CODEX_BIN"), Host: &h}},
+		{Name: "claude", Probe: node.ClaudeProbe{Host: h, BinDir: d.BinDir()}}}
+	known := []string{}
+	for _, rt := range d.Runtimes {
+		known = append(known, rt.Name)
+	}
 	for _, v := range strings.Split(*drivers, ",") {
 		if v = strings.TrimSpace(v); v != "" {
-			if !slices.Contains(node.DefaultDrivers, v) {
-				return 2, fmt.Errorf("unknown driver %q (known: %s)", v, strings.Join(node.DefaultDrivers, ", "))
+			if !slices.Contains(known, v) {
+				return 2, fmt.Errorf("unknown driver %q (known: %s)", v, strings.Join(known, ", "))
 			}
 			d.Drivers = append(d.Drivers, v)
 		}

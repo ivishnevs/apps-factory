@@ -29,6 +29,18 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 	if err != nil {
 		t.Fatal(err)
 	}
+	d := &fake.Driver{Script: sc}
+	r, events := runDriver(t, url, Worker{Driver: d}, cancel)
+	if want := len(sc.Activity) + 2; events != want {
+		t.Fatalf("%d events, want started + %d progress + terminal", events, len(sc.Activity))
+	}
+	return r, d
+}
+
+// runDriver executes one run with w's driver against a fake Core, applying the published
+// events to Core's store until the run is terminal; it returns the run and its event count.
+func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, int) {
+	t.Helper()
 	b, err := bus.Connect(url)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +56,7 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 	c := &core.Core{Store: s, Bus: b, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
-	spec := protocol.RunSpec{ID: "fake-run", Project: "fake-project", Agent: "demo", Provider: protocol.RuntimeCodex, Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30}
+	spec := protocol.RunSpec{ID: "fake-run", Project: "fake-project", Agent: "demo", Provider: w.Driver.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30}
 	ctx, stop := context.WithTimeout(context.Background(), 20*time.Second)
 	defer stop()
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
@@ -58,8 +70,7 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &fake.Driver{Script: sc}
-	w := Worker{Bus: b, API: API{URL: server.URL, Token: "test-token"}, Driver: d}
+	w.Bus, w.API = b, API{URL: server.URL, Token: "test-token"}
 	done := make(chan error, 1)
 	go func() { done <- w.execute(ctx, spec, lease, "fake-command") }()
 	for {
@@ -95,10 +106,7 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := len(sc.Activity) + 2; len(events) != want {
-		t.Fatalf("%d events, want started + %d progress + terminal", len(events), len(sc.Activity))
-	}
-	return r, d
+	return r, len(events)
 }
 
 func TestJetStreamFakeDriverOutcomes(t *testing.T) {

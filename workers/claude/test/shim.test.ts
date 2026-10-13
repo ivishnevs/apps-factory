@@ -73,10 +73,25 @@ function replay(messages: SDKMessage[], s: Pick<Scenario, "account" | "mcp_statu
   return { query, seen };
 }
 
-async function shim(launchLine: string | undefined, query: QueryFn, env: Record<string, string>, stdin = new PassThrough(), newSessionId?: string) {
+// Runs the shim like the driver: launch line, then the start line once `session` was written.
+async function shim(
+  launchLine: string | undefined,
+  query: QueryFn,
+  env: Record<string, string>,
+  stdin = new PassThrough(),
+  newSessionId?: string,
+  onSession = (stdin: PassThrough) => void stdin.write(JSON.stringify({ start: true }) + "\n"),
+) {
   const stdout = new PassThrough();
   let text = "";
-  stdout.on("data", (d: Buffer) => (text += d.toString()));
+  let session = false;
+  stdout.on("data", (d: Buffer) => {
+    text += d.toString();
+    if (!session && jsonl<ShimEvent>(text).some((e) => e.event === "session")) {
+      session = true;
+      onSession(stdin);
+    }
+  });
   if (launchLine !== undefined) stdin.write(launchLine + "\n");
   else stdin.end();
   await runShim({
@@ -152,7 +167,10 @@ test("recorded interrupt: stdin interrupt yields CANCELLED from the result evide
 });
 
 test("recorded max turns: max_turns event, FAILED", async () => {
-  const { events } = await scenario("max_turns");
+  const { events, seen } = await scenario("max_turns");
+  assert.equal(seen.options!.maxTurns, 1);
+  assert.equal(seen.options!.effort, "low");
+  assert.equal(seen.options!.model, "claude-opus-4-7");
   assert.deepEqual(events.at(-2), { event: "max_turns", num_turns: 2 });
   assert.equal(last(events).status, "FAILED");
 });
@@ -217,6 +235,26 @@ test("invalid launch and early EOF are classified launch errors", async () => {
     ["error", "result"],
   );
   assert.equal(seen.options, undefined, "runtime is not started without a valid launch");
+});
+
+test("the prompt waits for the start line; interrupt before start ends without a prompt", async () => {
+  const { query, seen } = replay([], { account, mcp_status: ["connected"] }, new PassThrough());
+  let prompted = -1;
+  const events = await shim(JSON.stringify(baseLaunch()), query, {}, undefined, "s", (stdin) => {
+    // Give the runtime a chance to deliver the prompt early before interrupting.
+    setTimeout(() => {
+      prompted = seen.prompts.length;
+      stdin.write(JSON.stringify({ interrupt: true }) + "\n");
+    }, 50);
+  });
+  assert.equal(prompted, 0);
+  assert.equal(seen.prompts.length, 0);
+  assert.equal(seen.interrupted, false, "no turn to interrupt");
+  assert.deepEqual(events, [
+    { event: "session", id: "s" },
+    { event: "error", class: "not_started", message: "interrupted before start" },
+    { event: "result", status: "UNKNOWN", result: "interrupted before start", session_id: "s" },
+  ]);
 });
 
 test("stdin EOF after launch interrupts the run", async () => {

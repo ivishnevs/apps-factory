@@ -8,44 +8,11 @@ import (
 	"strings"
 )
 
-// CodexVersion is the only Codex app-server version whose schema is verified (see cmd/codex-worker).
-const CodexVersion = "codex-cli 0.162.1"
+// Runtime probes live with their drivers (codex.Driver.Probe); ClaudeProbe stays here until internal/driver/claude
+// owns it (runtime-drivers 3.1).
 
 // ClaudeVersion is the Claude Code version bundled with the pinned Agent SDK (docs/claude-runtime.md).
 const ClaudeVersion = "2.1.284"
-
-// CodexProbe checks the Codex binary (CODEX_BIN, default codex), its exact version and ChatGPT login.
-type CodexProbe struct{ Host Host }
-
-func (p CodexProbe) binary() string { return p.Host.env("CODEX_BIN", "codex") }
-func (p CodexProbe) installed() bool {
-	_, err := p.Host.LookPath(p.binary())
-	return err == nil
-}
-
-func (p CodexProbe) Probe(ctx context.Context) []CheckResult {
-	install := "npm install -g @openai/codex@0.162.1 (or set CODEX_BIN)"
-	bin, err := p.Host.LookPath(p.binary())
-	if err != nil {
-		return []CheckResult{{Check: "codex.binary", Status: Fail, Detail: p.binary() + " not found", Hint: install}}
-	}
-	r := []CheckResult{{Check: "codex.binary", Status: Pass, Detail: bin}}
-	v, err := p.Host.output(ctx, bin, "--version")
-	if err != nil {
-		return append(r, CheckResult{Check: "codex.version", Status: Fail, Detail: err.Error(), Hint: install})
-	}
-	if v != CodexVersion {
-		return append(r, CheckResult{Check: "codex.version", Status: Fail, Detail: v + "; supported: exactly " + CodexVersion,
-			Hint: install + "; a newer version needs `make schema` and a verified app-server protocol first"})
-	}
-	r = append(r, CheckResult{Check: "codex.version", Status: Pass, Detail: v})
-	out, errOut, err := p.Host.Run(ctx, bin, "login", "status")
-	msg := firstLine(out + "\n" + errOut)
-	if err != nil {
-		return append(r, CheckResult{Check: "codex.auth", Status: Fail, Detail: "not logged in: " + msg, Hint: "codex login (ChatGPT account)"})
-	}
-	return append(r, CheckResult{Check: "codex.auth", Status: Pass, Detail: msg})
-}
 
 // ClaudeProbe checks what workers/claude needs: Node 22+, the built worker and factory-workspace, and the
 // Claude Code login. The CLI (CLAUDE_CODE_EXECUTABLE or claude on PATH) reports the login without a model call;
@@ -65,7 +32,7 @@ func (p ClaudeProbe) cli() (string, bool) {
 func (p ClaudeProbe) worker() string {
 	return filepath.Join(p.BinDir, "..", "workers", "claude", "dist", "src", "main.js")
 }
-func (p ClaudeProbe) installed() bool {
+func (p ClaudeProbe) Installed() bool {
 	_, ok := p.cli()
 	return ok || exists(p.Host, p.worker())
 }
@@ -84,7 +51,7 @@ func (p ClaudeProbe) Probe(ctx context.Context) []CheckResult {
 			Hint: "install Claude Code and run claude, then /login with a Claude subscription"})
 	}
 	pinned := p.Host.Getenv("CLAUDE_CODE_EXECUTABLE") != ""
-	v, err := p.Host.output(ctx, cli, "--version")
+	v, err := p.Host.Output(ctx, cli, "--version")
 	switch {
 	case err != nil:
 		r = append(r, CheckResult{Check: "claude.version", Status: Fail, Detail: err.Error(), Hint: "check CLAUDE_CODE_EXECUTABLE or reinstall Claude Code"})
@@ -101,7 +68,7 @@ func (p ClaudeProbe) Probe(ctx context.Context) []CheckResult {
 
 func (p ClaudeProbe) node(ctx context.Context) CheckResult {
 	hint := "install Node.js 22 or newer"
-	v, err := p.Host.output(ctx, "node", "--version")
+	v, err := p.Host.Output(ctx, "node", "--version")
 	if err != nil {
 		return CheckResult{Check: "claude.node", Status: Fail, Detail: "node: " + err.Error(), Hint: hint}
 	}
@@ -121,7 +88,7 @@ func (p ClaudeProbe) auth(ctx context.Context, cli string) CheckResult {
 		SubscriptionType string `json:"subscriptionType"`
 	}
 	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &s); jerr != nil {
-		msg := firstLine(errOut + "\n" + out)
+		msg := FirstLine(errOut + "\n" + out)
 		if err == nil {
 			msg = "unreadable output: " + jerr.Error()
 		}

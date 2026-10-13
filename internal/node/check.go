@@ -65,20 +65,17 @@ func LocalHost(goos string) Host {
 		}}
 }
 
-func (h Host) env(k, d string) string {
-	if v := h.Getenv(k); v != "" {
-		return v
-	}
-	return d
-}
-func (h Host) output(ctx context.Context, name string, args ...string) (string, error) {
+// Output runs a command and returns its trimmed stdout; a failure carries the first stderr line.
+func (h Host) Output(ctx context.Context, name string, args ...string) (string, error) {
 	out, errOut, err := h.Run(ctx, name, args...)
 	if err != nil && strings.TrimSpace(errOut) != "" {
-		err = fmt.Errorf("%w: %s", err, firstLine(errOut))
+		err = fmt.Errorf("%w: %s", err, FirstLine(errOut))
 	}
 	return strings.TrimSpace(out), err
 }
-func firstLine(s string) string {
+
+// FirstLine is the first line of s after trimming.
+func FirstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]

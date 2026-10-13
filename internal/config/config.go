@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -327,6 +328,9 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	if a.Spec.Runtime.Model == "" {
 		a.Spec.Runtime.Model = "default"
 	}
+	if err := ValidateRuntimeOptions(protocol.RuntimeProvider(a.Spec.Runtime.Provider), a.RuntimeOptions()); err != nil {
+		return err
+	}
 	if a.Spec.Execution.MaxConcurrentRuns != 1 {
 		return fmt.Errorf("current runtime supports max_concurrent_runs: 1")
 	}
@@ -428,6 +432,33 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	a.Instructions = ctx.String()
 	return nil
 }
+
+// RuntimeOptions are the runtime_options keys each driver reads (runtime-drivers D1). Drivers declare
+// their own list (e.g. codex.Options) and test it against this registry; config stays free of driver imports.
+var RuntimeOptions = map[protocol.RuntimeProvider][]string{
+	protocol.RuntimeCodex:  {"model"},
+	protocol.RuntimeClaude: {"model", "effort", "max_turns"},
+}
+
+// RuntimeOptions are the run's runtime_options derived from the agent's runtime section.
+func (a Agent) RuntimeOptions() map[string]any {
+	return map[string]any{"model": a.Spec.Runtime.Model}
+}
+
+// ValidateRuntimeOptions rejects an option the provider's driver does not read: never silently dropped.
+func ValidateRuntimeOptions(p protocol.RuntimeProvider, opts map[string]any) error {
+	known, ok := RuntimeOptions[p]
+	if !ok {
+		return fmt.Errorf("unsupported runtime provider %q", p)
+	}
+	for _, k := range sortedKeys(opts) {
+		if !slices.Contains(known, k) {
+			return fmt.Errorf("runtime option %q is not supported by %s (supported: %s)", k, p, strings.Join(known, ", "))
+		}
+	}
+	return nil
+}
+
 func (a Agent) Authorize(op string) policies.Decision {
 	d := policies.Decision{Effect: "allow", Reasons: []string{}}
 	add := func(effect, reason string) {
