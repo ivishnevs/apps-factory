@@ -142,7 +142,7 @@ func (c *Core) Handler() http.Handler {
 		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Status, p.Result))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" {
+		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" {
 			c.agentGateway(w, r, m)
 			return
 		}

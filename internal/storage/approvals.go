@@ -26,7 +26,14 @@ func (s *Store) Approvals(ctx context.Context, company, project string) ([]appro
 }
 func (s *Store) RequestApproval(ctx context.Context, company string, in approvals.Request) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "approval.request:"+in.ProjectID+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
-		a := approvals.Approval{ID: protocol.ID(), ProjectID: in.ProjectID, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Call: in.Call, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
+		a := approvals.Approval{ID: protocol.ID(), Kind: in.Kind, ProjectID: in.ProjectID, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Call: in.Call, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
+		kind, fingerprint := "action", callFingerprint(in.Call)
+		if in.Kind == "command" {
+			// Fingerprinted by ID: after a grant is used the same argv can be requested again.
+			kind, fingerprint = "command", "command:"+a.ID
+		} else if in.Kind != "" {
+			return a, inputError("unknown approval kind")
+		}
 		b, err := json.Marshal(in.Call)
 		if err != nil || len(b) > 12*1024 || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.RequestID == "" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
 			return a, inputError("reason, request_id and bounded call/timeout required")
@@ -47,7 +54,7 @@ func (s *Store) RequestApproval(ctx context.Context, company string, in approval
 			return a, err
 		}
 		data, _ := json.Marshal(a)
-		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,company_id) VALUES(?,?,?,?,?,?,?,?,?)", a.ID, a.ProjectID, a.Agent, a.TaskID, callFingerprint(a.Call), a.MessageID, a.Status, data, tx.company); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,company_id,kind) VALUES(?,?,?,?,?,?,?,?,?,?)", a.ID, a.ProjectID, a.Agent, a.TaskID, fingerprint, a.MessageID, a.Status, data, tx.company, kind); err != nil {
 			return a, err
 		}
 		return a, entityEvent(ctx, tx, "approval.requested", a.ProjectID, a.ID, a)
@@ -124,7 +131,7 @@ func (s *Store) ExpireApprovals(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind='action' OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", company, tx.now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind IN ('action','command') OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", company, tx.now().Unix())
 	if err != nil {
 		return err
 	}

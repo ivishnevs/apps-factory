@@ -59,6 +59,20 @@ HTTP: `GET /approvals?project=...`, `GET /approvals/ID`,
 `POST /approvals/ID/decision`. Эти endpoints требуют токен владельца; run-токен
 не позволяет решать запросы. Решение, ответ inbox и пробуждение задачи атомарны.
 
+## Команды (command guards)
+
+Агент запрашивает одноразовое разрешение на shell-команду через `factory_owner_request_approval` с
+`call: {"name":"command","arguments":{"argv":["git","push","origin","main"]}}` (ровно ключ `argv`, непустые строки).
+Core отклоняет запрос, если правила агента запрещают команду (403) или она не требует одобрения (400).
+Approval хранится с `kind: command` и fingerprint `command:<id>`, поэтому после использования тот же argv можно
+запросить снова; `CallApproval` (action) его не находит. Решение владельца — как у action (`factory approve|reject`).
+
+`factory-shim` проверяет команду через `POST /agent/command` с run-токеном. Core берёт самый старый APPROVED,
+неистёкший грант этого run'а (проект, агент, задача) с точно таким же argv, переводит его в `USED` (событие
+`approval.used`) и отвечает 200; иначе 423 с инструкцией. Одобренный грант истекает через `timeout_seconds`
+(по умолчанию 86400 с), как action. Каждый отказ (403/423) — событие run'а `factory/command_refused` и строка ленты
+`run.command_refused`.
+
 ## Проверка и аудит
 
 `factory_approval_get` возвращает решение в области текущего агента/проекта/задачи.

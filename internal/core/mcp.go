@@ -100,6 +100,14 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		}
 		return true
 	}
+	if r.URL.Path == "/agent/command" {
+		if r.Method != "POST" {
+			http.Error(w, "not found", 404)
+			return
+		}
+		c.commandCheck(w, r, run, snapshot, current)
+		return
+	}
 	if r.URL.Path == "/agent/tools" && r.Method == "GET" {
 		out := []factorytools.Tool{}
 		for _, t := range factorytools.Definitions() {

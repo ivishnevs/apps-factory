@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 
 	"appfactory/internal/approvals"
@@ -60,6 +61,13 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 	b, _ := json.Marshal(p.Arguments["call"])
 	if err := json.Unmarshal(b, &call); err != nil {
 		http.Error(w, "invalid call", 400)
+		return
+	}
+	if call.Name == "command" {
+		if !c.commandApprovalCall(w, call, snapshot, current) || !ownerReachable(w, snapshot, current) {
+			return
+		}
+		c.requestApproval(w, r, p, run, call, "command")
 		return
 	}
 	var target factorytools.Tool
@@ -126,12 +134,28 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 			return
 		}
 	}
+	c.requestApproval(w, r, p, run, call, "")
+}
+
+// ownerReachable requires both the captured and the current agent to be allowed to message the owner.
+func ownerReachable(w http.ResponseWriter, agents ...config.Agent) bool {
+	for _, a := range agents {
+		if !slices.Contains(a.Spec.Communication.CanMessage, "owner") {
+			http.Error(w, "owner communication permission required", 403)
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Core) requestApproval(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run, call factorytools.Call, kind string) {
 	var in approvals.Request
-	b, _ = json.Marshal(p.Arguments)
+	b, _ := json.Marshal(p.Arguments)
 	if err := json.Unmarshal(b, &in); err != nil {
 		http.Error(w, "invalid approval request", 400)
 		return
 	}
+	in.Kind = kind
 	if _, present := p.Arguments["blocking"]; !present {
 		in.Blocking = run.Spec.TaskID != ""
 	}

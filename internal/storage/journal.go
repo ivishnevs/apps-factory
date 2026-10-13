@@ -419,7 +419,7 @@ func validateDecisionGrant(ctx context.Context, tx *Tx, d decisions.Decision, in
 	if err != nil {
 		return err
 	}
-	if a.Kind == "artifact" || a.Status != "APPROVED" || a.ExpiresAt <= tx.now().Unix() || a.ProjectID != d.ProjectID || a.Agent != in.Actor || a.TaskID != in.ScopeTaskID || callFingerprint(a.Call) != callFingerprint(*in.GrantedCall) {
+	if a.Kind == "artifact" || a.Kind == "command" || a.Status != "APPROVED" || a.ExpiresAt <= tx.now().Unix() || a.ProjectID != d.ProjectID || a.Agent != in.Actor || a.TaskID != in.ScopeTaskID || callFingerprint(a.Call) != callFingerprint(*in.GrantedCall) {
 		return ErrConflict
 	}
 	var recorded struct {

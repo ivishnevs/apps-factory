@@ -29,6 +29,8 @@ type Request struct {
 	Blocking                        bool              `json:"blocking"`
 	TimeoutSeconds                  int               `json:"timeout_seconds"`
 	RequestID                       string            `json:"request_id"`
+	// Kind "command" makes a single-use grant for one exact shell argv (command guards); set by Core.
+	Kind string `json:"-"`
 }
 type Decision struct {
 	Version   int    `json:"version"`
