@@ -50,7 +50,7 @@ func runClaude(t *testing.T, scenario string, cancel bool) (string, string, stri
 	d := claude.Driver{Node: bin, Args: []string{"-test.run=^TestFakeClaudeShim$", "--"}}
 	// MCPBinary only has to exist: the fake shim never starts it.
 	r, events := runDriver(t, url, Worker{Driver: d, MCPBinary: bin}, cancel)
-	return r.Status, r.Result, r.SessionID, events, strings.Count(string(b), "\n")
+	return r.Status, r.Result, r.SessionID, len(events), strings.Count(string(b), "\n")
 }
 
 func TestJetStreamClaudeDriver(t *testing.T) {

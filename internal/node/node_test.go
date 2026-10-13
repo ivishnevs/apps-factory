@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/codex"
 	. "appfactory/internal/node"
 )
@@ -97,7 +98,7 @@ func doctor(f *fakeHost, goos string) Doctor {
 // withRuntimes wires the probes as cmd/factory-node does.
 func withRuntimes(f *fakeHost, d Doctor) Doctor {
 	h := d.Host
-	d.Runtimes = []Runtime{{Name: "codex", Probe: codex.Driver{Binary: f.env["CODEX_BIN"], Host: &h}}, {Name: "claude", Probe: ClaudeProbe{Host: h, BinDir: d.BinDir()}}}
+	d.Runtimes = []Runtime{{Name: "codex", Probe: codex.Driver{Binary: f.env["CODEX_BIN"], Host: &h}}, {Name: "claude", Probe: claude.Driver{Host: &h, BinDir: d.BinDir()}}}
 	return d
 }
 
@@ -264,4 +265,4 @@ SKIP    xcode          not macOS
 	}
 }
 
-var _ DriverProbe = ClaudeProbe{}
+var _ DriverProbe = claude.Driver{}

@@ -21,6 +21,7 @@ FACTORY_URL is the native CLI/Worker endpoint. NATS_URL is the authenticated bro
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required.
 FACTORY_WORKER_STATE (default data/codex-worker) keeps pidfiles of running runtimes; on start the
 Codex Worker kills process groups left there by its previous runs. Do not share it between Workers.
+`codex-worker` is `factory-node run --slots 1` with the Codex driver (see Node process).
 Core uses signal cancellation, HTTP shutdown deadlines and structured JSON logs.
 Worker handles SIGTERM/SIGINT by requesting turn interruption before closing its process group.
 
@@ -69,4 +70,49 @@ injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`
 `claude auth status` of `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI; warn when no CLI is installed, since the
 SDK-bundled Claude Code is checked only at run start). By default only installed drivers are probed;
 `-drivers codex,claude` requires the listed ones. `drivers` fails when no driver is usable.
-Core/NATS reachability, stack hooks from `NodeHooks` and `node.yaml` watermarks arrive with the node process.
+Core/NATS reachability and stack hooks from `NodeHooks` arrive with node registration.
+
+## Node process
+
+`./bin/factory-node run [-config node.yaml] [-slots N]` (`make node`) is one process with N slot goroutines
+(node-agent 1.1, local part; no registration, inventory heartbeat or control subject yet). Each slot runs the
+existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats); the slots share one pull
+subscription per enabled driver on `factory.commands.agent.run.<driver>` with the durable `<driver>-worker-v1`, so they
+compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
+Environment as for the Worker: `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. Each enabled
+driver's `CheckVersion` must pass at start. SIGINT/SIGTERM interrupt running runs (as the Codex Worker does) and wait
+for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
+
+`node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
+errors.
+
+```yaml
+name: mini-1                 # default: host name
+slots: 2                     # 1..64
+state_dir: data/factory-node # pidfiles; never shared by live nodes or workers
+bin_dir: /opt/factory/bin    # factory-mcp and ../workers/claude/dist/src/shim.js; default: next to the binary
+drivers:
+  codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
+  claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
+disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
+```
+
+Claude stays off by default while `workers/claude` serves `factory.commands.agent.run.claude`; enable it only with
+that service stopped (both would share the `claude-worker-v1` consumer).
+
+- Start: runtime process groups recorded in `state_dir` by a previous process are killed (`worker.KillOrphans`).
+- Disk: before each claim a free slot reads free space on `disk.path`. Below the critical watermark claiming
+  pauses (one error log), below the low watermark one warning is logged; both clear with a log line when space
+  returns. Running runs continue. Janitor pruning and `node.low_disk`/`node.disk_critical` events come later.
+- Watchdog (every 30 s): a busy slot whose recorded runtime group is gone has its run cancelled (the executor reports
+  it); a recorded group without a busy slot is killed and its pidfile removed; an idle slot whose claim loop has not
+  turned for 2 minutes is restarted. Busy slots are bounded by the run timeout, not by this check.
+
+launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
+prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as
+`WorkingDirectory`, logs in `~/Library/Logs/factory-node.log`, a 30 s `ExitTimeOut` for interruption, and the
+current `PATH`, `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN`, `CODEX_BIN` and `CLAUDE_CODE_EXECUTABLE` (the token is a
+placeholder when unset). The plist then holds the token: `chmod 600` it. Load with
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.appfactory.node.plist`, stop with
+`launchctl bootout gui/$(id -u)/com.appfactory.node`. Run only one of the node or a standalone `codex-worker` per
+state directory.

@@ -114,6 +114,8 @@ killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Comma
   class from the last `error`/`auth_error`, else `no_result`/`protocol`). After `result` the driver
   waits up to 10 s for the shim to exit so the transcript is flushed for resume.
 - `CheckVersion` runs `shim.js --probe` and accepts SDK 0.3.284 with Claude Code 2.1.284.
+- `Probe` (`factory-node doctor`, fields `Host`, `BinDir`) checks Node 22+, the built worker,
+  `factory-workspace` and `claude auth status` of `Executable`, `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI.
 
 Tests replay the recorded `.events.jsonl` streams through a fake shim process
 (`claudetest.Serve`, re-executed test binary): start, resume, interrupt, max turns, rate limit,

@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"appfactory/internal/procgroup"
 )
 
 // startGroup starts sh -c script as the leader of a new process group and reaps it in the background.
@@ -58,7 +60,7 @@ func TestReleaseKillsRunGroup(t *testing.T) {
 			err = errors.New("next run acquired while the old group was alive")
 		}
 		if err == nil {
-			wt2.Release()
+			err = wt2.Release()
 		}
 		next <- err
 	}()
@@ -68,7 +70,9 @@ func TestReleaseKillsRunGroup(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 	start := time.Now()
-	wt.Release()
+	if err = wt.Release(); err != nil {
+		t.Fatal(err)
+	}
 	if !groupGone(pid) {
 		t.Fatal("group alive after release")
 	}
@@ -101,6 +105,32 @@ func TestStopEscalatesToSIGKILL(t *testing.T) {
 	}
 	if el := time.Since(start); el < stopGrace || !groupGone(pid) {
 		t.Fatalf("stop after %s, gone %v", el, groupGone(pid))
+	}
+}
+
+func TestReleaseReportsSurvivingGroup(t *testing.T) {
+	defer func(g, l time.Duration) { stopGrace, stopLimit = g, l }(stopGrace, stopLimit)
+	stopGrace, stopLimit = 0, 300*time.Millisecond
+	f := setup(t)
+	wt, err := f.w.Acquire(context.Background(), f.req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An unreaped leader stays a zombie, so its group outlives SIGKILL.
+	cmd := exec.Command("sleep", "60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Wait()
+	if err = wt.Track(cmd.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	if err = wt.Release(); err == nil || !strings.Contains(err.Error(), "still alive") {
+		t.Fatalf("release = %v", err)
+	}
+	if _, err = os.Stat(pidPath(wt.Path)); err != nil {
+		t.Fatalf("pidfile of a surviving group removed: %v", err)
 	}
 }
 
@@ -138,13 +168,15 @@ func TestStaleRunPIDReused(t *testing.T) {
 	}
 	// The recorded leader is gone and its PID now belongs to an unrelated group leader.
 	pid, exited := startGroup(t, "sleep 60 & wait")
-	b, _ := json.Marshal(runPid{Group: pid, Started: "Mon Jan  1 00:00:00 2001"})
+	b, _ := json.Marshal(procgroup.Group{ID: pid, Started: "Mon Jan  1 00:00:00 2001"})
 	write(t, pidPath(wt.Path), string(b))
 	got, err := f.w.Acquire(ctx, f.req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got.Release()
+	if err = got.Release(); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-exited:
 		t.Fatal("killed an unrelated process group with a reused PID")

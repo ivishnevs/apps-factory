@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
+
+	"appfactory/internal/procgroup"
 )
 
 // A pidfile records the process group of a running runtime so a restarted worker can kill it.
@@ -21,17 +20,12 @@ type pidfile struct {
 	Started string `json:"started"`
 }
 
-func processStart(pid int) (string, error) {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", fmt.Sprint(pid)).Output()
-	return strings.TrimSpace(string(out)), err
-}
-
 func writePidfile(dir, run string, group int) (string, error) {
-	started, err := processStart(group)
+	g, err := procgroup.Record(group)
 	if err != nil {
 		return "", err
 	}
-	b, _ := json.Marshal(pidfile{run, group, started})
+	b, _ := json.Marshal(pidfile{run, g.ID, g.Started})
 	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -39,16 +33,50 @@ func writePidfile(dir, run string, group int) (string, error) {
 	return path, os.WriteFile(path, b, 0o600)
 }
 
-// killOrphans kills and reaps the runtime process groups left by previous runs of this
-// worker, then removes their pidfiles.
+// killOrphans kills (SIGKILL) and reaps the runtime process groups left by previous runs of
+// this worker, then removes their pidfiles.
 func killOrphans(dir string) error {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.pid.json"))
+	groups, err := TrackedGroups(dir)
 	if err != nil {
 		return err
 	}
+	for _, g := range groups {
+		if err = g.Reap(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// KillOrphans is killOrphans for executors hosted outside this package (node slots).
+func KillOrphans(dir string) error {
+	if err := killOrphans(dir); err != nil {
+		return fmt.Errorf("orphaned runtimes: %w", err)
+	}
+	return nil
+}
+
+// TrackedGroup is a runtime process group recorded in a StateDir pidfile.
+type TrackedGroup struct {
+	Run   string
+	Group int
+	path  string
+	p     pidfile
+}
+
+// TrackedGroups lists the pidfiles in dir; invalid ones are removed.
+func TrackedGroups(dir string) ([]TrackedGroup, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*.pid.json"))
+	if err != nil {
+		return nil, err
+	}
+	var r []TrackedGroup
 	for _, path := range paths {
 		var p pidfile
 		b, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // the run ended meanwhile
+		}
 		if err == nil {
 			err = json.Unmarshal(b, &p)
 		}
@@ -57,41 +85,24 @@ func killOrphans(dir string) error {
 			_ = os.Remove(path)
 			continue
 		}
-		if orphaned(p) {
-			slog.Info("killing orphaned runtime", "run", p.Run, "group", p.Group)
-			if err = killGroup(p.Group); err != nil {
-				return fmt.Errorf("run %s: %w", p.Run, err)
-			}
+		r = append(r, TrackedGroup{p.Run, p.Group, path, p})
+	}
+	return r, nil
+}
+
+// Reap kills the group if it is still the recorded one, then removes its pidfile.
+func (g TrackedGroup) Reap() error {
+	if pg := (procgroup.Group{ID: g.p.Group, Started: g.p.Started}); pg.Running() {
+		slog.Info("killing orphaned runtime", "run", g.Run, "group", g.Group)
+		if err := pg.Stop(0, 5*time.Second); err != nil {
+			return fmt.Errorf("run %s: %w", g.Run, err)
 		}
-		if err = os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	}
+	if err := os.Remove(g.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }
 
-// orphaned reports whether the recorded group still exists. A live leader must have the
-// recorded start time; without a leader, a live group with that ID can only be the original
-// one, because a PID is not reused while a process group with that ID exists.
-func orphaned(p pidfile) bool {
-	if started, err := processStart(p.Group); err == nil && started != "" {
-		return started == p.Started
-	}
-	return groupAlive(p.Group)
-}
-
-func groupAlive(group int) bool {
-	return !errors.Is(syscall.Kill(-group, 0), syscall.ESRCH)
-}
-
-func killGroup(group int) error {
-	if err := syscall.Kill(-group, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return err
-	}
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if !groupAlive(group) {
-			return nil
-		}
-	}
-	return fmt.Errorf("process group %d still alive", group)
-}
+// GroupAlive reports whether any process of the group still exists.
+func GroupAlive(group int) bool { return procgroup.Alive(group) }

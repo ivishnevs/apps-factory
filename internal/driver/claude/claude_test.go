@@ -21,6 +21,8 @@ import (
 	"appfactory/internal/protocol"
 )
 
+var _ driver.Driver = Driver{}
+
 // TestFakeShim is the fake shim process: it replays FACTORY_FAKE_SHIM from
 // FACTORY_FAKE_SHIM_DIR (default testdata) and records the launch line and run token.
 func TestFakeShim(t *testing.T) {

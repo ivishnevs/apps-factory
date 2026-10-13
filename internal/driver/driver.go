@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 )
 
@@ -15,6 +16,10 @@ type Driver interface {
 	Capabilities() Capabilities
 	// CheckVersion fails when the installed runtime is outside the supported range.
 	CheckVersion(ctx context.Context) (string, error)
+	// Probe checks binary, supported version and authentication without a model call;
+	// Installed tells whether the runtime is present at all (node.DriverProbe).
+	Probe(ctx context.Context) []node.CheckResult
+	Installed() bool
 	// Launch prepares a session up to its ID without sending the prompt.
 	Launch(ctx context.Context, l Launch) (Session, error)
 }

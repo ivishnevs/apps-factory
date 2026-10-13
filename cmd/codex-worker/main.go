@@ -1,11 +1,11 @@
+// codex-worker is `factory-node run --slots 1` with the Codex driver only, configured from the
+// environment as before (CODEX_BIN, FACTORY_WORKER_STATE, NATS_URL, FACTORY_URL, FACTORY_TOKEN).
 package main
 
 import (
-	"appfactory/internal/bus"
-	"appfactory/internal/driver/codex"
-	"appfactory/internal/worker"
+	"appfactory/internal/node"
+	"appfactory/internal/node/runner"
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -20,26 +20,17 @@ func main() {
 	}
 }
 func run() error {
-	drv := codex.Driver{Binary: env("CODEX_BIN", "codex")}
-	if _, err := drv.CheckVersion(context.Background()); err != nil {
+	c := node.Defaults()
+	c.Name, c.Slots = "codex-worker", 1 // defaults enable Codex only
+	if v := os.Getenv("FACTORY_WORKER_STATE"); v != "" {
+		c.StateDir = v
+	} else {
+		c.StateDir = "data/codex-worker"
+	}
+	if err := c.Validate(); err != nil {
 		return err
 	}
-	if os.Getenv("FACTORY_TOKEN") == "" {
-		return fmt.Errorf("FACTORY_TOKEN required")
-	}
-	b, err := bus.Connect(env("NATS_URL", "nats://127.0.0.1:4222"))
-	if err != nil {
-		return err
-	}
-	defer b.NC.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	w := worker.Worker{Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN")}, Driver: drv, StateDir: env("FACTORY_WORKER_STATE", "data/codex-worker")}
-	return w.Run(ctx)
-}
-func env(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
+	return runner.Main(ctx, c, os.Getenv)
 }

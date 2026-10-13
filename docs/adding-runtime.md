@@ -18,8 +18,9 @@ session ID and runtime_options. Core alone claims leases and updates persisted r
 
 Go runtimes implement `internal/driver.Driver` (Codex: `internal/driver/codex`); the executor in
 `internal/worker` keeps claim, lease, heartbeat, credential and event publication, and
-`internal/driver/fake` replays scripted sessions for executor tests. A driver also implements
-`node.RuntimeProbe` (binary, supported version, auth; no model call) for `factory-node doctor`, and declares the
+`internal/driver/fake` replays scripted sessions for executor tests (an activity with `tool` performs that Factory
+MCP call through `Launch.MCP` with the run credential and records the response). `driver.Driver` includes
+`Probe`/`Installed` (`node.DriverProbe`: binary, supported version, auth; no model call) for `factory-node doctor`; a driver also declares the
 runtime_options keys it reads; register them in `config.RuntimeOptions`, where config load rejects any other key.
 Claude is implemented as a TypeScript Worker in `workers/claude`; see claude-runtime.md.
 Non-Go Workers reuse `bin/factory-workspace` (lock + OpenSpec preflight) and `bin/factory-mcp`.

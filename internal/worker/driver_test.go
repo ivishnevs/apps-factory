@@ -2,6 +2,7 @@ package worker
 
 import (
 	"appfactory/internal/bus"
+	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/protocol"
@@ -10,7 +11,9 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,15 +34,15 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 	}
 	d := &fake.Driver{Script: sc}
 	r, events := runDriver(t, url, Worker{Driver: d}, cancel)
-	if want := len(sc.Activity) + 2; events != want {
-		t.Fatalf("%d events, want started + %d progress + terminal", events, len(sc.Activity))
+	if want := len(sc.Activity) + 2; len(events) != want {
+		t.Fatalf("%d events, want started + %d progress + terminal", len(events), len(sc.Activity))
 	}
 	return r, d
 }
 
 // runDriver executes one run with w's driver against a fake Core, applying the published
-// events to Core's store until the run is terminal; it returns the run and its event count.
-func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, int) {
+// events to Core's store until the run is terminal; it returns the run and its stored events.
+func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, []protocol.Envelope) {
 	t.Helper()
 	b, err := bus.Connect(url)
 	if err != nil {
@@ -53,7 +56,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, in
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.DB.Close() })
-	c := &core.Core{Store: s, Bus: b, Token: "test-token"}
+	c := &core.Core{Store: s, Bus: b, Token: "test-token", Agents: map[string]config.Agent{"demo": {Spec: config.Spec{Role: "executor"}}}}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	spec := protocol.RunSpec{ID: "fake-run", Project: "fake-project", Agent: "demo", Provider: w.Driver.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30}
@@ -106,7 +109,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, in
 	if err != nil {
 		t.Fatal(err)
 	}
-	return r, len(events)
+	return r, events
 }
 
 func TestJetStreamFakeDriverOutcomes(t *testing.T) {
@@ -132,5 +135,44 @@ func TestJetStreamFakeDriverCancellation(t *testing.T) {
 	r, _ := runFake(t, "hanging.json", true)
 	if r.Status != "CANCELLED" {
 		t.Fatalf("%+v", r)
+	}
+}
+
+// A scripted tool call goes through the real factory-mcp adapter with the run credential.
+func TestJetStreamFakeDriverToolCall(t *testing.T) {
+	url := os.Getenv("NATS_TEST_URL")
+	if url == "" {
+		t.Skip("set NATS_TEST_URL to dedicated broker")
+	}
+	mcp := filepath.Join(t.TempDir(), "factory-mcp")
+	if out, err := exec.Command("go", "build", "-o", mcp, "appfactory/cmd/factory-mcp").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	sc, err := fake.Load(filepath.Join("testdata", "fake", "tool_call.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: mcp}, false)
+	if r.Status != "COMPLETED" || len(events) != len(sc.Activity)+2 {
+		t.Fatalf("%+v, %d events", r, len(events))
+	}
+	var call fake.ToolEvent
+	for _, e := range events {
+		var p protocol.Event
+		if json.Unmarshal(e.Payload, &p) == nil && p.Method == fake.ToolMethod {
+			if err = json.Unmarshal(p.Data, &call); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var result struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	_ = json.Unmarshal(call.Result, &result)
+	if call.Name != "factory_agent_list" || call.Error != "" || result.IsError || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, `"name":"demo"`) {
+		t.Fatalf("tool call %+v", call)
 	}
 }

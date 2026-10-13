@@ -1,0 +1,9 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"tool": {"name": "factory_agent_list", "arguments": {}}},
+    {"method": "turn/completed", "data": {"turn": {"id": "recorded-turn", "status": "completed"}}}
+  ],
+  "status": "COMPLETED",
+  "text": "listed agents"
+}

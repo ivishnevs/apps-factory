@@ -3,6 +3,7 @@ package worker
 import (
 	"appfactory/internal/bus"
 	"appfactory/internal/core"
+	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"context"
@@ -39,7 +40,7 @@ func TestRestartKillsOrphanedRuntime(t *testing.T) {
 	if err := killOrphans(dir); err != nil {
 		t.Fatal(err)
 	}
-	if groupAlive(cmd.Process.Pid) {
+	if procgroup.Alive(cmd.Process.Pid) {
 		t.Fatal("orphaned runtime group survived")
 	}
 	if files, _ := filepath.Glob(filepath.Join(dir, "*")); len(files) != 0 {
@@ -62,7 +63,7 @@ func TestReusedPidIsNotKilled(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
-	if !groupAlive(cmd.Process.Pid) {
+	if !procgroup.Alive(cmd.Process.Pid) {
 		t.Fatal("unrelated process group killed")
 	}
 }
@@ -131,7 +132,7 @@ func TestJetStreamRestartKillsRunningAppServer(t *testing.T) {
 	if err = killOrphans(dir); err != nil {
 		t.Fatal(err)
 	}
-	if groupAlive(p.Group) {
+	if procgroup.Alive(p.Group) {
 		t.Fatal("app-server survived")
 	}
 	if err = <-done; err == nil {

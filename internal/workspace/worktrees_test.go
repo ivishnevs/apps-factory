@@ -110,7 +110,9 @@ func TestEnsureWorktree(t *testing.T) {
 		t.Fatalf("second run acquired a locked worktree: %v", err)
 	}
 	write(t, filepath.Join(wt.Path, "work.txt"), "keep\n")
-	wt.Release()
+	if err = wt.Release(); err != nil {
+		t.Fatal(err)
+	}
 	again, err := f.w.Acquire(ctx, f.req)
 	if err != nil {
 		t.Fatal(err)

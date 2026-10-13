@@ -1,4 +1,4 @@
-.PHONY: build test check up down worker claude-worker schema
+.PHONY: build test check up down worker node claude-worker schema
 build:
 	mkdir -p bin
 	go build -o bin/factory ./cmd/factory
@@ -18,6 +18,8 @@ down:
 	docker compose down
 worker: build
 	./bin/codex-worker
+node: build
+	./bin/factory-node run
 claude-worker: build
 	node workers/claude/dist/src/main.js
 schema:

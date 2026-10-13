@@ -63,7 +63,8 @@ type Request struct {
 
 type Worktree struct {
 	Path, Branch, Scratch, Repo string
-	Release                     func()
+	// Release unlocks the worktree; it reports a run group that survived Stop.
+	Release func() error
 }
 
 type SealResult struct {
@@ -113,7 +114,7 @@ func branchName(r Request) string {
 
 // Acquire ensures the task worktree and takes its run lock, waiting for a previous holder.
 // Release kills the run's tracked process group (see Track) before unlocking; a group that
-// survives keeps its pidfile and is killed again by the next Acquire.
+// survives makes Release fail, keeps its pidfile and is killed again by the next Acquire.
 func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
 	wt, err := w.Ensure(ctx, r)
 	if err != nil {
@@ -128,7 +129,10 @@ func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
 		unlock()
 		return Worktree{}, err
 	}
-	wt.Release = func() { _ = stopRun(wt.Path); unlock() }
+	wt.Release = func() error {
+		defer unlock()
+		return stopRun(wt.Path)
+	}
 	return wt, nil
 }
 
@@ -189,7 +193,7 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 	} else if err != nil {
 		return Worktree{}, err
 	}
-	return Worktree{Path: path, Branch: branch, Scratch: scratch, Repo: repo, Release: func() {}}, nil
+	return Worktree{Path: path, Branch: branch, Scratch: scratch, Repo: repo, Release: func() error { return nil }}, nil
 }
 
 func (w *Worktrees) ensureClone(ctx context.Context, dir, repo, url string) error {

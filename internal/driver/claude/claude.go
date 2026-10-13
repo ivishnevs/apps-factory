@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"appfactory/internal/driver"
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 )
 
@@ -40,6 +41,10 @@ type Driver struct {
 	Executable     string
 	AllowAPIKey    bool
 	SettingSources []string
+	// Host runs Probe; nil is the local machine. BinDir holds factory-workspace (default "bin";
+	// the built worker is BinDir/../workers/claude).
+	Host   *node.Host
+	BinDir string
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }

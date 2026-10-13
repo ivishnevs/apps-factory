@@ -5,20 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
+
+	"appfactory/internal/procgroup"
 )
 
-// runPid in .factory/run.pid records the process group of the run holding a worktree.
-// The leader's start time tells a reused PID from the original leader.
-type runPid struct {
-	Group   int    `json:"group"`
-	Started string `json:"started"`
-}
-
+// .factory/run.pid records the process group of the run holding a worktree (procgroup.Group).
 var (
 	stopGrace = 10 * time.Second // SIGTERM to SIGKILL
 	stopLimit = 30 * time.Second // group gone or Stop fails
@@ -32,11 +25,11 @@ func (wt Worktree) Track(group int) error {
 	if group <= 1 {
 		return fmt.Errorf("workspace: invalid process group %d", group)
 	}
-	started, err := processStart(group)
-	if err != nil || started == "" {
-		return fmt.Errorf("workspace: process %d: start time unknown: %v", group, err)
+	g, err := procgroup.Record(group)
+	if err != nil {
+		return fmt.Errorf("workspace: %w", err)
 	}
-	b, _ := json.Marshal(runPid{group, started})
+	b, _ := json.Marshal(g)
 	tmp := pidPath(wt.Path) + ".tmp"
 	if err = os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
@@ -55,46 +48,14 @@ func stopRun(path string) error {
 	} else if err != nil {
 		return err
 	}
-	var p runPid
-	if json.Unmarshal(b, &p) == nil && p.Group > 1 && running(p) {
-		if err = killGroup(p); err != nil {
-			return err
+	var g procgroup.Group
+	if json.Unmarshal(b, &g) == nil {
+		if err = g.Stop(stopGrace, stopLimit); err != nil {
+			return fmt.Errorf("workspace: %w", err)
 		}
 	}
 	if err = os.Remove(pidPath(path)); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	return err
-}
-
-func processStart(pid int) (string, error) {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", fmt.Sprint(pid)).Output()
-	return strings.TrimSpace(string(out)), err
-}
-
-// running reports whether the recorded group still exists. A live leader must have the recorded
-// start time; without a leader, a live group with that ID can only be the original one, because
-// a PID is not reused while a process group with that ID exists.
-func running(p runPid) bool {
-	if started, err := processStart(p.Group); err == nil && started != "" {
-		return started == p.Started
-	}
-	return !errors.Is(syscall.Kill(-p.Group, 0), syscall.ESRCH)
-}
-
-func killGroup(p runPid) error {
-	_ = syscall.Kill(-p.Group, syscall.SIGTERM)
-	start, killed := time.Now(), false
-	for running(p) {
-		el := time.Since(start)
-		if el >= stopLimit {
-			return fmt.Errorf("workspace: process group %d still alive after %s", p.Group, stopLimit)
-		}
-		if !killed && el >= stopGrace {
-			_ = syscall.Kill(-p.Group, syscall.SIGKILL)
-			killed = true
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return nil
 }

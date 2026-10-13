@@ -95,13 +95,11 @@ func (w *Worker) driver() (driver.Driver, bool) {
 
 func (w *Worker) Run(ctx context.Context) error {
 	if w.StateDir != "" {
-		if err := killOrphans(w.StateDir); err != nil {
-			return fmt.Errorf("orphaned runtimes: %w", err)
+		if err := KillOrphans(w.StateDir); err != nil {
+			return err
 		}
 	}
-	drv, _ := w.driver()
-	name := string(drv.Name())
-	sub, err := w.Bus.Subscribe("factory.commands.agent.run."+name, name+"-worker-v1")
+	sub, err := w.Subscribe()
 	if err != nil {
 		return err
 	}
@@ -114,43 +112,66 @@ func (w *Worker) Run(ctx context.Context) error {
 			return err
 		}
 		for _, m := range msgs {
-			var e protocol.Envelope
-			var spec protocol.RunSpec
-			if json.Unmarshal(m.Data, &e) != nil || e.Version != 1 || e.Type != "agent.run.requested" || json.Unmarshal(e.Payload, &spec) != nil || spec.ID == "" || spec.ID != e.CorrelationID {
-				_ = m.Term()
-				slog.Error("invalid run command")
-				continue
-			}
-			// Fetch authoritative input from Core, then atomically claim before runtime startup.
-			var saved storage.Run
-			if err = w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &saved); err != nil {
-				_ = m.NakWithDelay(time.Second)
-				continue
-			}
-			spec = saved.Spec
-			var claim struct {
-				Lease string `json:"lease"`
-			}
-			if err = w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/claim", nil, &claim); err != nil {
-				var h *HTTPError
-				if errors.As(err, &h) && h.Status == 409 {
-					var r storage.Run
-					if w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &r) == nil && r.Status != "QUEUED" {
-						_ = m.AckSync()
-						continue
-					}
-				}
-				_ = m.NakWithDelay(time.Second)
-				continue
-			}
-			if err = m.AckSync(); err != nil {
+			if err = w.Process(ctx, m, nil); err != nil {
 				return err
-			} // Core's lease now owns recovery, not redelivery.
-			slog.Info("run claimed", "run", spec.ID)
-			if err = w.execute(ctx, spec, claim.Lease, e.ID); err != nil {
-				slog.Error("runtime run", "run", spec.ID, "error", err)
 			}
 		}
+	}
+	return nil
+}
+
+// Subscribe binds the driver's run command subject with its durable consumer. Executors of one driver
+// share that consumer, so node slots and standalone workers compete for the same commands.
+func (w *Worker) Subscribe() (*nats.Subscription, error) {
+	drv, _ := w.driver()
+	name := string(drv.Name())
+	return w.Bus.Subscribe("factory.commands.agent.run."+name, name+"-worker-v1")
+}
+
+// Process validates, claims and executes one run command. running, when set, receives the claimed run
+// and the cancel func of its execution before the runtime starts. Process fails only when the command
+// cannot be acknowledged; run failures go to Core as events.
+func (w *Worker) Process(ctx context.Context, m *nats.Msg, running func(run string, cancel context.CancelFunc)) error {
+	var e protocol.Envelope
+	var spec protocol.RunSpec
+	if json.Unmarshal(m.Data, &e) != nil || e.Version != 1 || e.Type != "agent.run.requested" || json.Unmarshal(e.Payload, &spec) != nil || spec.ID == "" || spec.ID != e.CorrelationID {
+		_ = m.Term()
+		slog.Error("invalid run command")
+		return nil
+	}
+	// Fetch authoritative input from Core, then atomically claim before runtime startup.
+	var saved storage.Run
+	if err := w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &saved); err != nil {
+		_ = m.NakWithDelay(time.Second)
+		return nil
+	}
+	spec = saved.Spec
+	var claim struct {
+		Lease string `json:"lease"`
+	}
+	if err := w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/claim", nil, &claim); err != nil {
+		var h *HTTPError
+		if errors.As(err, &h) && h.Status == 409 {
+			var r storage.Run
+			if w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &r) == nil && r.Status != "QUEUED" {
+				_ = m.AckSync()
+				return nil
+			}
+		}
+		_ = m.NakWithDelay(time.Second)
+		return nil
+	}
+	if err := m.AckSync(); err != nil {
+		return err
+	} // Core's lease now owns recovery, not redelivery.
+	slog.Info("run claimed", "run", spec.ID)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if running != nil {
+		running(spec.ID, cancel)
+	}
+	if err := w.execute(runCtx, spec, claim.Lease, e.ID); err != nil {
+		slog.Error("runtime run", "run", spec.ID, "error", err)
 	}
 	return nil
 }
