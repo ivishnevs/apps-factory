@@ -180,3 +180,17 @@ trigger or park in its own transaction, and each appears in the feed (`task.trig
   override all active parks. `escalation` is still derived from FAILED until reliable-recovery.
 - The migration backfills a `ready` trigger for READY tasks and parks for existing manual/OpenSpec blocks,
   unanswered blocking questions and UNKNOWN current runs.
+
+## Owner console v0
+
+- `factory status [PROJECT]` (`GET /status`): per project the task counts by status, active runs (including
+  UNKNOWN), how many tasks are runnable, every waiting task with its `why` reason and who clears it, and the
+  inbox size.
+- `factory watch [PROJECT] [--attention]` (`GET /feed`): the last 20 feed events, then new ones every 2 s; `!`
+  marks events that need the owner.
+- `factory log TASK` (`GET /feed?task=ID`): the whole feed history of one task.
+
+`GET /feed` filters by `project`, `task` and `attention=1` and pages with `after`/`limit`. Attention is set for
+approval requests, questions to the owner and escalated messages, reports that need owner action, `ask` parks
+answered by the owner, `inspect` parks and OpenSpec blocks; fuller rules (digest, Telegram) arrive with
+waits-events-cost-cli.

@@ -122,7 +122,7 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) e
 	}
 	switch status {
 	case "UNKNOWN":
-		err = addPark(ctx, tx, t, tasks.ParkInspect, runID, "run "+runID+" ended with unknown outcome")
+		err = addPark(ctx, tx, t, tasks.ParkInspect, runID, "run "+runID+" ended with unknown outcome", true)
 	case "COMPLETED", "FAILED", "CANCELLED":
 		err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared")
 	}

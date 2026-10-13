@@ -190,7 +190,7 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if err = saveTask(ctx, tx, &t, "task.waiting"); err != nil {
 			return m, err
 		}
-		if err = addPark(ctx, tx, t, tasks.ParkAsk, m.ID, "waiting for the answer to question "+m.ID+" from "+m.Recipient); err != nil {
+		if err = addPark(ctx, tx, t, tasks.ParkAsk, m.ID, "waiting for the answer to question "+m.ID+" from "+m.Recipient, m.Recipient == "owner"); err != nil {
 			return m, err
 		}
 	}

@@ -33,8 +33,9 @@ func addTrigger(ctx context.Context, tx *Tx, t tasks.Task, kind string, authorit
 	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.trigger." + kind, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: body, Ref: ref})
 }
 
-// addPark holds the task; an identical active park (task, kind, ref) is kept as is.
-func addPark(ctx context.Context, tx *Tx, t tasks.Task, kind, ref, reason string) error {
+// addPark holds the task; an identical active park (task, kind, ref) is kept as is. attention marks
+// the feed event of a park that waits on the owner.
+func addPark(ctx context.Context, tx *Tx, t tasks.Task, kind, ref, reason string, attention bool) error {
 	now := tx.now()
 	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO task_parks(id,company_id,task_id,kind,ref_id,reason,park_seq,status,created_at)
  SELECT ?,?,?,?,?,?,wake_seq,'active',? FROM tasks WHERE company_id=? AND id=?`, protocol.ID(), tx.company, t.ID, kind, ref, reason, now.Unix(), tx.company, t.ID)
@@ -44,7 +45,7 @@ func addPark(ctx context.Context, tx *Tx, t tasks.Task, kind, ref, reason string
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil
 	}
-	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.parked." + kind, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Status: t.Status, Summary: reason, Ref: ref})
+	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.parked." + kind, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Status: t.Status, Summary: reason, Ref: ref, Attention: attention})
 }
 
 // anyRef matches every park of a kind; anyKind matches every kind.

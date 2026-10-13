@@ -50,6 +50,17 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 		item.RunID = id
 	}
 	item.Summary, _ = excerpt(str("summary", "title", "topic"), 4096)
+	// Attention marks what waits on the owner; fuller rules arrive with waits-events-cost-cli.
+	var needsOwner bool
+	_ = json.Unmarshal(state["needs_owner_action"], &needsOwner)
+	switch {
+	case e.Type == "approval.requested", e.Type == "report.created" && needsOwner:
+		item.Attention = true
+	case e.Type == "message.created" && str("recipient") == "owner" && (str("message_type") == "question" || str("status") == "ESCALATED"):
+		item.Attention = true
+	case e.Type == "message.escalated":
+		item.Attention = true
+	}
 	return item
 }
 
@@ -74,12 +85,26 @@ func feed(ctx context.Context, tx *Tx, item FeedItem) error {
 	return err
 }
 
+// FeedFilter narrows a feed read; empty fields match everything.
+type FeedFilter struct {
+	Project, Task string
+	// Attention keeps only events that need the owner.
+	Attention bool
+}
+
 func (s *Store) ProjectFeed(ctx context.Context, company, project string, after int64, limit int) (Page[FeedItem], error) {
+	return s.Feed(ctx, company, FeedFilter{Project: project}, after, limit)
+}
+
+// Feed reads the company's event feed in sequence order.
+func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after int64, limit int) (Page[FeedItem], error) {
 	out := Page[FeedItem]{Items: []FeedItem{}, NextAfter: after}
 	if after < 0 || limit < 1 || limit > 100 {
 		return out, inputError("after >= 0 and limit 1..100 required")
 	}
-	rows, err := s.DB.QueryContext(ctx, "SELECT seq,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref FROM feed_events WHERE company_id=? AND project_id=? AND seq>? ORDER BY seq LIMIT ?", company, project, after, limit+1)
+	rows, err := s.DB.QueryContext(ctx, `SELECT seq,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref FROM feed_events
+ WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR task_id=?) AND (?=0 OR attention=1) AND seq>? ORDER BY seq LIMIT ?`,
+		company, f.Project, f.Project, f.Task, f.Task, f.Attention, after, limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -100,6 +125,28 @@ func (s *Store) ProjectFeed(ctx context.Context, company, project string, after 
 		item.Summary = shortText(item.Summary, 512)
 		out.Items = append(out.Items, item)
 		out.NextAfter = item.Sequence
+	}
+	return out, rows.Err()
+}
+
+// ActiveRuns lists runs that are queued, running, cancelling or awaiting reconciliation (UNKNOWN).
+func (s *Store) ActiveRuns(ctx context.Context, company string) ([]Run, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs WHERE company_id=? AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN') ORDER BY created_at,id", company)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Run{}
+	for rows.Next() {
+		var r Run
+		var b []byte
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(b, &r.Spec); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }

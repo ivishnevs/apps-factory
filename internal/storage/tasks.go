@@ -528,7 +528,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 				err = addTrigger(ctx, tx, t, "ready", isOwner(in.Actor), in.Actor, "", in.Reason)
 			}
 		case "block":
-			err = addPark(ctx, tx, t, tasks.ParkBlock, "", t.BlockReason)
+			err = addPark(ctx, tx, t, tasks.ParkBlock, "", t.BlockReason, false)
 		case "cancel":
 			err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden")
 		}

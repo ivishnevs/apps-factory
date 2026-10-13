@@ -82,7 +82,7 @@ func blockOpenSpecRun(ctx context.Context, tx *Tx, id, taskID, reason string) er
 		if e = saveTask(ctx, tx, &t, "task.openspec_waiting"); e != nil {
 			return e
 		}
-		return addPark(ctx, tx, t, tasks.ParkBlock, "openspec", t.BlockReason)
+		return addPark(ctx, tx, t, tasks.ParkBlock, "openspec", t.BlockReason, true)
 	}
 	return nil
 }
