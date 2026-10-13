@@ -27,6 +27,9 @@ type Spec struct {
 	Runtime struct {
 		Provider string `yaml:"provider" json:"provider"`
 		Model    string `yaml:"model" json:"model"`
+		// QuotaKey names the subscription whose limit this agent consumes; agents sharing it pause
+		// together when one hits the limit. Empty means the agent's name.
+		QuotaKey string `yaml:"quota_key" json:"quota_key,omitempty"`
 	} `yaml:"runtime" json:"runtime"`
 	Prompt struct {
 		File string `yaml:"file" json:"file"`
@@ -62,6 +65,11 @@ type Spec struct {
 		MaxRetries        int    `yaml:"max_retries" json:"max_retries"`
 	} `yaml:"execution" json:"execution"`
 	Policies []string `yaml:"policies" json:"policies"`
+	// Workspace.Mode: "" or shared runs in the project workspace; worktree runs each task in its own worktree;
+	// scratch (no repository) runs in the project workspace through the Local allocator.
+	Workspace struct {
+		Mode string `yaml:"mode" json:"mode,omitempty"`
+	} `yaml:"workspace" json:"workspace,omitzero"`
 }
 type Agent struct {
 	APIVersion      string          `yaml:"apiVersion" json:"apiVersion"`
@@ -96,7 +104,10 @@ func LoadCatalog(root string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	rawPolicies := map[string]policies.Policy{"system": policies.System()}
+	rawPolicies := map[string]policies.Policy{}
+	for _, p := range policies.Builtins() {
+		rawPolicies[p.Metadata.Name] = p
+	}
 	paths, err := filepath.Glob(filepath.Join(root, "configs/policies/*.yaml"))
 	if err != nil {
 		return nil, err
@@ -187,6 +198,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 			if err != nil || d < time.Second || d > 24*time.Hour {
 				return nil, fmt.Errorf("profile %s: invalid timeout", name)
 			}
+		}
+		if err = validWorkspaceMode(a.Spec.Workspace.Mode); err != nil {
+			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
 		if a.Spec.Execution.MaxRetries < 0 || a.Spec.Execution.MaxConcurrentRuns < 0 || a.Spec.Execution.MaxConcurrentRuns > 1 {
 			return nil, fmt.Errorf("profile %s: unsupported execution limits", name)
@@ -328,7 +342,13 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	if a.Spec.Runtime.Model == "" {
 		a.Spec.Runtime.Model = "default"
 	}
+	if q := a.Spec.Runtime.QuotaKey; q != "" && !namePattern.MatchString(q) {
+		return fmt.Errorf("invalid runtime quota_key %q", q)
+	}
 	if err := ValidateRuntimeOptions(protocol.RuntimeProvider(a.Spec.Runtime.Provider), a.RuntimeOptions()); err != nil {
+		return err
+	}
+	if err := validWorkspaceMode(a.Spec.Workspace.Mode); err != nil {
 		return err
 	}
 	if a.Spec.Execution.MaxConcurrentRuns != 1 {
@@ -411,6 +431,7 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	var ctx strings.Builder
 	ctx.Write(b)
 	ctx.WriteString("\n\nFactory policies (trusted-agent instructions; full host access is not isolated):\n")
+	guarded := false
 	for _, r := range a.Rules {
 		fmt.Fprintf(&ctx, "- %s [%s", r.Name, r.Type)
 		if r.Effect != "" {
@@ -419,7 +440,15 @@ func (c *Catalog) finish(root string, a *Agent) error {
 		if r.Target != "" {
 			fmt.Fprintf(&ctx, ", %s", r.Target)
 		}
-		fmt.Fprintf(&ctx, "] %s Operations: %s\n", r.Instruction, strings.Join(r.Operations, ", "))
+		fmt.Fprintf(&ctx, "] %s Operations: %s", r.Instruction, strings.Join(r.Operations, ", "))
+		if len(r.Commands) > 0 {
+			fmt.Fprintf(&ctx, "; commands: %s", strings.Join(r.Commands, ", "))
+			guarded = true
+		}
+		ctx.WriteString("\n")
+	}
+	if guarded {
+		ctx.WriteString("Shell commands under deny or approval rules are guarded on PATH: a refused command exits 126 with the rule's instruction. For an approval rule, request factory_owner_request_approval with call {\"name\":\"command\",\"arguments\":{\"argv\":[exact argv, starting with the command name]}} and finish the turn; once APPROVED, exactly that command runs once.\n")
 	}
 	fmt.Fprintf(&ctx, "Factory tools: mode=%s; allow=%v; deny=%v. Factory approvals: mode=%s; require=%v. The policy evaluator marks protected operations as requiring parameter-bound approval. For supported mutation tools, request an exact call through factory_owner_request_approval and finish the turn when blocking. Only APPROVED authorizes retry with identical arguments; deny takes precedence. Release, purchase, production-secret and project-deletion executors are not implemented yet.\n", a.Spec.Tools.Mode, a.Spec.Tools.Allow, a.Spec.Tools.Deny, a.Spec.Approvals.Mode, a.Spec.Approvals.Require)
 	fmt.Fprintf(&ctx, "Communication: can_message=%v; can_create_tasks=%t; can_assign_tasks=%t. Core enforces these permissions for Factory messaging and task tools.\n", a.Spec.Communication.CanMessage, a.Spec.Communication.CanCreateTasks, a.Spec.Communication.CanAssignTasks)
@@ -484,6 +513,11 @@ func (a Agent) Authorize(op string) policies.Decision {
 	}
 	return d
 }
+
+// AuthorizeCommand decides a shell command (argv[0] is the command name) with the agent's access rules.
+func (a Agent) AuthorizeCommand(argv []string) policies.CommandDecision {
+	return policies.Command(a.Rules, argv)
+}
 func Names(agents map[string]Agent) []string { return sortedKeys(agents) }
 func sortedKeys[T any](m map[string]T) []string {
 	xs := []string{}
@@ -530,4 +564,13 @@ func (a Agent) DecisionAuthority(category string) []string {
 		}
 	}
 	return rules
+}
+
+// validWorkspaceMode accepts RunSpec.workspace_mode values; empty is shared.
+func validWorkspaceMode(m string) error {
+	switch m {
+	case "", "shared", "worktree", "scratch":
+		return nil
+	}
+	return fmt.Errorf("invalid workspace mode %q: expected shared, worktree or scratch", m)
 }

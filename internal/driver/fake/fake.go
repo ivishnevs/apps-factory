@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"appfactory/internal/driver"
 	"appfactory/internal/node"
@@ -29,18 +31,56 @@ type Script struct {
 }
 
 // Activity is one event. With Tool the session performs that Factory MCP call and the event's
-// Data is the exchange (ToolEvent); Method defaults to ToolMethod.
+// Data is the exchange (ToolEvent); Method defaults to ToolMethod. With Exec it runs that shell
+// command as a runtime's tool would (launch Env, PATH lookup, Cwd); Data is an ExecEvent and Method
+// defaults to ExecMethod. Usage, Cost or Quota make it that driver event kind; Method defaults to
+// fake/<kind>.
 type Activity struct {
 	Method string          `json:"method"`
 	Data   json.RawMessage `json:"data"`
 	Tool   *ToolCall       `json:"tool,omitempty"`
+	Usage  *protocol.Usage `json:"usage,omitempty"`
+	Cost   *struct {
+		USD    float64 `json:"usd"`
+		Source string  `json:"source"`
+	} `json:"cost,omitempty"`
+	Quota *protocol.Quota `json:"quota,omitempty"`
+	Exec  []string        `json:"exec,omitempty"`
 }
+
+func (a Activity) event() driver.Event {
+	e := driver.Event{Kind: driver.EventActivity, Method: a.Method, Data: a.Data, Usage: a.Usage, Quota: a.Quota}
+	switch {
+	case a.Usage != nil:
+		e.Kind = driver.EventUsage
+	case a.Cost != nil:
+		e.Kind, e.Cost = driver.EventCost, &driver.Cost{USD: a.Cost.USD, Source: a.Cost.Source}
+	case a.Quota != nil:
+		e.Kind = driver.EventQuota
+	}
+	if e.Method == "" && e.Kind != driver.EventActivity {
+		e.Method = "fake/" + string(e.Kind)
+	}
+	return e
+}
+
 type ToolCall struct {
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
 }
 
-const ToolMethod = "fake/mcp/tool_call"
+const (
+	ToolMethod = "fake/mcp/tool_call"
+	ExecMethod = "fake/exec"
+)
+
+// ExecEvent is the Data of a scripted command.
+type ExecEvent struct {
+	Argv   []string `json:"argv"`
+	Exit   int      `json:"exit"`
+	Stdout string   `json:"stdout"`
+	Stderr string   `json:"stderr"`
+}
 
 // ToolEvent is the Data of a scripted tool call: the MCP tools/call result or the call error.
 type ToolEvent struct {
@@ -68,6 +108,10 @@ type Driver struct {
 	Checks []node.CheckResult
 	// CallTool performs scripted tool calls; nil uses StdioCall.
 	CallTool func(ctx context.Context, l driver.Launch, c ToolCall) (json.RawMessage, error)
+	// Files are written, relative to the launch Cwd, when the session starts.
+	Files map[string]string
+	// Command, when set, is started in the launch Cwd as the session's process group and killed by Close.
+	Command []string
 
 	mu       sync.Mutex
 	launches []driver.Launch
@@ -115,7 +159,18 @@ func (d *Driver) Launch(_ context.Context, l driver.Launch) (driver.Session, err
 	if call == nil {
 		call = StdioCall
 	}
-	return &session{script: d.Script, launch: l, call: call, id: id, events: make(chan driver.Event, len(d.Script.Activity)), done: make(chan driver.Result, 1), interrupt: make(chan struct{}), stop: make(chan struct{})}, nil
+	s := &session{script: d.Script, launch: l, call: call, id: id, files: d.Files, events: make(chan driver.Event, len(d.Script.Activity)), done: make(chan driver.Result, 1), interrupt: make(chan struct{}), stop: make(chan struct{})}
+	if len(d.Command) > 0 {
+		s.cmd = exec.Command(d.Command[0], d.Command[1:]...)
+		s.cmd.Dir, s.cmd.Env = l.Cwd, l.Env
+		s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := s.cmd.Start(); err != nil {
+			return nil, err
+		}
+		s.exited = make(chan struct{})
+		go func() { _ = s.cmd.Wait(); close(s.exited) }()
+	}
+	return s, nil
 }
 
 // StdioCall performs one tools/call through the Factory MCP stdio server of l.MCP as a runtime
@@ -180,12 +235,24 @@ type session struct {
 	done                    chan driver.Result
 	interrupt, stop         chan struct{}
 	interruptOnce, stopOnce sync.Once
+	files                   map[string]string
+	cmd                     *exec.Cmd
+	exited                  chan struct{}
 }
 
 func (s *session) ID() string                  { return s.id }
 func (s *session) Events() <-chan driver.Event { return s.events }
 func (s *session) Done() <-chan driver.Result  { return s.done }
 func (s *session) Start(ctx context.Context) error {
+	for name, body := range s.files {
+		p := filepath.Join(s.launch.Cwd, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
 	go func() {
 		for _, a := range s.script.Activity {
 			if a.Tool != nil {
@@ -194,7 +261,13 @@ func (s *session) Start(ctx context.Context) error {
 					a.Method = ToolMethod
 				}
 			}
-			s.events <- driver.Event{Kind: driver.EventActivity, Method: a.Method, Data: a.Data}
+			if len(a.Exec) > 0 {
+				a.Data = s.exec(ctx, a.Exec)
+				if a.Method == "" {
+					a.Method = ExecMethod
+				}
+			}
+			s.events <- a.event()
 		}
 		r := s.result()
 		close(s.events)
@@ -208,6 +281,24 @@ func (s *session) tool(ctx context.Context, c ToolCall) json.RawMessage {
 	if e.Result, err = s.call(ctx, s.launch, c); err != nil {
 		e.Error = err.Error()
 	}
+	b, _ := json.Marshal(e)
+	return b
+}
+func (s *session) exec(ctx context.Context, argv []string) json.RawMessage {
+	// sh resolves argv[0] on the launch PATH, as a runtime's shell tool does.
+	cmd := exec.CommandContext(ctx, "/bin/sh", append([]string{"-c", `exec "$@"`, "sh"}, argv...)...)
+	cmd.Env, cmd.Dir = s.launch.Env, s.launch.Cwd
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	e := ExecEvent{Argv: argv}
+	if err := cmd.Run(); err != nil {
+		e.Exit = -1
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			e.Exit = exit.ExitCode()
+		}
+	}
+	e.Stdout, e.Stderr = stdout.String(), stderr.String()
 	b, _ := json.Marshal(e)
 	return b
 }
@@ -229,5 +320,18 @@ func (s *session) Interrupt(context.Context) error {
 	s.interruptOnce.Do(func() { close(s.interrupt) })
 	return nil
 }
-func (s *session) ProcessGroup() int { return 0 }
-func (s *session) Close()            { s.stopOnce.Do(func() { close(s.stop) }) }
+func (s *session) ProcessGroup() int {
+	if s.cmd == nil {
+		return 0
+	}
+	return s.cmd.Process.Pid
+}
+func (s *session) Close() {
+	s.stopOnce.Do(func() {
+		close(s.stop)
+		if s.cmd != nil {
+			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+			<-s.exited
+		}
+	})
+}

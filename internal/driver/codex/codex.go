@@ -1,5 +1,6 @@
 // Package codex drives `codex app-server` over stdio: initialize → account/read →
-// thread/start|resume → turn/start, finishing on turn/completed.
+// thread/start|resume → turn/start, finishing on turn/completed. Usage comes from
+// thread/tokenUsage/updated (tokens only, no cost); quota from a usageLimitExceeded turn error.
 package codex
 
 import (
@@ -93,6 +94,10 @@ type session struct {
 	stop             chan struct{}
 	closeOnce        sync.Once
 	interrupted      atomic.Bool
+	model            string
+	base             *tokens // thread total before this run's turn
+	limits           rateLimits
+	quotaSent        bool
 }
 
 func (s *session) call(ctx context.Context, method string, params, result any) error {
@@ -132,6 +137,7 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
+		Model string `json:"model"`
 	}
 	if err := s.call(ctx, method, params, &thread); err != nil {
 		return err
@@ -139,7 +145,7 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 	if thread.Thread.ID == "" {
 		return fmt.Errorf("missing thread ID")
 	}
-	s.threadID = thread.Thread.ID
+	s.threadID, s.model = thread.Thread.ID, thread.Model
 	return nil
 }
 
@@ -200,7 +206,19 @@ func (s *session) loop() driver.Result {
 			}
 			return driver.Result{Err: fmt.Errorf("app-server disconnected: %w", s.client.Err())}
 		case m := <-s.client.Events:
-			if !s.send(driver.Event{Kind: driver.EventActivity, Method: m.Method, Data: m.Params}) {
+			ev := driver.Event{Kind: driver.EventActivity, Method: m.Method, Data: m.Params}
+			var quota *protocol.Quota
+			switch m.Method {
+			case "thread/tokenUsage/updated":
+				if u := s.usage(m.Params); u != nil {
+					ev.Kind, ev.Usage = driver.EventUsage, u
+				}
+			case "account/rateLimits/updated":
+				s.limits.merge(m.Params)
+			case "error", "turn/completed":
+				quota = s.quota(m.Method, m.Params)
+			}
+			if !s.send(ev) || quota != nil && !s.send(driver.Event{Kind: driver.EventQuota, Method: "codex/quota", Data: m.Params, Quota: quota}) {
 				return driver.Result{Err: errors.New("session closed")}
 			}
 			if len(m.ID) > 0 {
@@ -257,4 +275,106 @@ func finish(params json.RawMessage, text string) driver.Result {
 		return driver.Result{Status: "CANCELLED", Text: text}
 	}
 	return driver.Result{Err: fmt.Errorf("unknown turn status %q", p.Turn.Status)}
+}
+
+// tokens is a TokenUsageBreakdown of thread/tokenUsage/updated (Codex 0.162.1 schema): inputTokens
+// include cachedInputTokens, outputTokens include reasoningOutputTokens.
+type tokens struct {
+	Input      int64 `json:"inputTokens"`
+	Cached     int64 `json:"cachedInputTokens"`
+	CacheWrite int64 `json:"cacheWriteInputTokens"`
+	Output     int64 `json:"outputTokens"`
+}
+
+func (a tokens) minus(b tokens) tokens {
+	return tokens{a.Input - b.Input, a.Cached - b.Cached, a.CacheWrite - b.CacheWrite, a.Output - b.Output}
+}
+
+// usage is this run's cumulative usage: tokenUsage.total is per thread (a resumed thread
+// includes earlier runs), so the first update of the turn fixes the baseline total - last.
+func (s *session) usage(params json.RawMessage) *protocol.Usage {
+	var p struct {
+		TurnID     string `json:"turnId"`
+		TokenUsage struct {
+			Total, Last tokens
+		} `json:"tokenUsage"`
+	}
+	if json.Unmarshal(params, &p) != nil || p.TurnID != s.turnID {
+		return nil
+	}
+	if s.base == nil {
+		b := p.TokenUsage.Total.minus(p.TokenUsage.Last)
+		s.base = &b
+	}
+	t := p.TokenUsage.Total.minus(*s.base)
+	return &protocol.Usage{Model: s.model, Input: t.Input - t.Cached, Output: t.Output, CacheRead: t.Cached, CacheWrite: t.CacheWrite}
+}
+
+type window struct {
+	UsedPercent int    `json:"usedPercent"`
+	ResetsAt    *int64 `json:"resetsAt"`
+}
+
+// rateLimits is the merged account/rateLimits/updated snapshot; updates are sparse.
+type rateLimits struct {
+	Primary, Secondary *window
+	Reached            *string `json:"rateLimitReachedType"`
+}
+
+func (r *rateLimits) merge(params json.RawMessage) {
+	var p struct {
+		RateLimits rateLimits `json:"rateLimits"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	if p.RateLimits.Primary != nil {
+		r.Primary = p.RateLimits.Primary
+	}
+	if p.RateLimits.Secondary != nil {
+		r.Secondary = p.RateLimits.Secondary
+	}
+	if p.RateLimits.Reached != nil {
+		r.Reached = p.RateLimits.Reached
+	}
+}
+
+// quota maps a final usageLimitExceeded turn error (error notification without retry, or a
+// failed turn/completed) to a quota event, once. The reset time is the latest reset of an
+// exhausted rate-limit window, unknown without one.
+func (s *session) quota(method string, params json.RawMessage) *protocol.Quota {
+	var p struct {
+		WillRetry bool `json:"willRetry"`
+		Error     *struct {
+			Info json.RawMessage `json:"codexErrorInfo"`
+		} `json:"error"`
+		Turn struct {
+			Error *struct {
+				Info json.RawMessage `json:"codexErrorInfo"`
+			} `json:"error"`
+		} `json:"turn"`
+	}
+	if s.quotaSent || json.Unmarshal(params, &p) != nil || p.WillRetry {
+		return nil
+	}
+	e := p.Error
+	if method == "turn/completed" {
+		e = p.Turn.Error
+	}
+	if e == nil || string(e.Info) != `"usageLimitExceeded"` {
+		return nil
+	}
+	s.quotaSent = true
+	q := &protocol.Quota{}
+	if s.limits.Reached != nil {
+		q.Type = *s.limits.Reached
+	}
+	for _, w := range []*window{s.limits.Primary, s.limits.Secondary} {
+		if w != nil && w.UsedPercent >= 100 && w.ResetsAt != nil {
+			if t := time.Unix(*w.ResetsAt, 0).UTC(); t.After(q.ResetsAt) {
+				q.ResetsAt = t
+			}
+		}
+	}
+	return q
 }

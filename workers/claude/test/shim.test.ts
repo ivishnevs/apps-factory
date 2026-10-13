@@ -141,9 +141,18 @@ test("recorded start: pre-assigned session, activity, usage, cost, completed", a
   assert.equal(seen.options!.sessionId, s.new_session_id);
   assert.equal(seen.options!.resume, undefined);
   assert.deepEqual(events[0], { event: "session", id: s.new_session_id });
+  type UsageEvent = Extract<ShimEvent, { event: "usage" }>;
+  const usage = events.filter((e): e is UsageEvent => e.event === "usage");
+  // Running usage per assistant message (the last per message id counts), then the result's.
   assert.deepEqual(
-    events.filter((e) => e.event === "usage").map((e) => (e as { model: string }).model),
-    ["claude-opus-4-7", "claude-haiku-4-5"],
+    usage.map((e) => [e.model, e.input, e.output, e.cost_usd]),
+    [
+      ["claude-opus-4-7", 3, 12, undefined],
+      ["claude-opus-4-7", 3, 61, undefined],
+      ["claude-opus-4-7", 8, 70, undefined],
+      ["claude-opus-4-7", 8, 70, 0.0912],
+      ["claude-haiku-4-5", 412, 18, 0.0029],
+    ],
   );
   assert.deepEqual(events.find((e) => e.event === "cost"), { event: "cost", usd: 0.0941, source: "claude_estimate" });
   assert.deepEqual(last(events), { event: "result", status: "COMPLETED", result: "FOUNDATION_OK", session_id: s.new_session_id });
@@ -163,6 +172,8 @@ test("recorded interrupt: stdin interrupt yields CANCELLED from the result evide
   assert.ok(seen.interrupted);
   assert.equal(last(events).status, "CANCELLED");
   assert.ok(events.some((e) => e.event === "usage"), "an interrupted turn still reports usage");
+  const result = events.findIndex((e) => e.event === "activity" && e.kind.startsWith("claude/result/"));
+  assert.ok(events.findIndex((e) => e.event === "usage") < result, "running usage precedes the result");
   assert.ok(!events.some((e) => e.event === "error"));
 });
 

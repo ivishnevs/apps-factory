@@ -17,7 +17,9 @@ import (
 	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/codex"
+	"appfactory/internal/node/shim"
 	"appfactory/internal/openspec"
+	"appfactory/internal/policies"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/workspace"
@@ -79,9 +81,15 @@ type Worker struct {
 	Binary    string
 	Args      []string
 	MCPBinary string
+	// ShimBinary is factory-shim, linked per guarded command (node-agent D6); empty is next to the executable.
+	ShimBinary string
 	// StateDir keeps pidfiles of running runtimes; on start the worker kills the process
 	// groups left there by its previous runs. It must not be shared by live workers.
 	StateDir string
+	// Worktrees serves runs with workspace_mode worktree; nil runs them in the project workspace.
+	Worktrees *workspace.Worktrees
+	// NodeID names this node in workspace reports (node.yaml name).
+	NodeID string
 }
 
 // driver also reports whether Factory MCP is injected: when the driver supports MCP, or for
@@ -180,7 +188,46 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	// (clock_test.go); never derive them from wall-clock time.
 	ctx, cancel := context.WithTimeout(parent, time.Duration(spec.TimeoutSeconds)*time.Second)
 	defer cancel()
+	// The run's latest usage and quota ride on every terminal event, so a stopped, timed-out or
+	// unknown run still reports what it consumed.
+	var meter meter
+	var session driver.Session
+	var wt *workspace.Worktree
+	var req workspace.Request
+	sealed := false
+	// seal stops the run's process group and snapshots the worktree once, before the terminal event.
+	seal := func() {
+		if wt == nil || sealed {
+			return
+		}
+		sealed = true
+		if session != nil {
+			session.Close()
+		}
+		if err := wt.Stop(); err != nil {
+			slog.Error("worktree run group", "run", spec.ID, "error", err)
+		}
+		sealCtx, stop := context.WithTimeout(context.Background(), time.Minute)
+		defer stop()
+		res, err := w.Worktrees.Seal(sealCtx, req)
+		if err != nil {
+			slog.Error("worktree seal", "run", spec.ID, "task", req.Task, "path", wt.Path, "error", err)
+			return
+		}
+		slog.Info("worktree sealed", "run", spec.ID, "task", req.Task, "path", wt.Path, "branch", wt.Branch, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA)
+		// The WIP ref stays local (task-worktrees D3); Core records the sealed head. A failed report is logged only.
+		report := workspaceReport{Lease: lease, Mode: "worktree", Branch: wt.Branch, NodeID: w.NodeID, SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix()}
+		if err := w.reportWorkspace(sealCtx, spec.ID, report); err != nil {
+			slog.Error("workspace report", "run", spec.ID, "task", req.Task, "error", err)
+		}
+	}
 	emit := func(kind string, p protocol.Event) error {
+		if p.Status != "" {
+			seal()
+		}
+		if kind != "started" && kind != "progress" {
+			p.Usage, p.Quota = meter.usage(), meter.quota
+		}
 		p.RunID = spec.ID
 		p.Lease = lease
 		pubCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
@@ -199,16 +246,31 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if spec.Provider != drv.Name() || spec.TimeoutSeconds < 1 {
 		return fmt.Errorf("invalid RunSpec")
 	}
-	allocator := w.Allocator
-	if allocator == nil {
-		allocator = workspace.Local{}
+	var cwd string
+	if r, ok := w.worktreeRequest(spec); ok {
+		t, err := w.Worktrees.Acquire(ctx, r)
+		if err != nil {
+			return fmt.Errorf("worktree: %w", err)
+		}
+		wt, req, cwd = &t, r, t.Path
+		defer func() {
+			seal()
+			if err := t.Release(); err != nil {
+				slog.Error("worktree release", "run", spec.ID, "error", err)
+			}
+		}()
+	} else {
+		allocator := w.Allocator
+		if allocator == nil {
+			allocator = workspace.Local{}
+		}
+		allocation, err := allocator.Acquire(ctx, spec.Workspace)
+		if err != nil {
+			return err
+		}
+		defer allocation.Release()
+		cwd = allocation.Path
 	}
-	allocation, err := allocator.Acquire(ctx, spec.Workspace)
-	if err != nil {
-		return err
-	}
-	defer allocation.Release()
-	cwd := allocation.Path
 	if spec.OpenSpecChange != "" {
 		if _, e := (openspec.Access{}).CheckChange(cwd, spec.OpenSpecChange); e != nil {
 			return emit("failed", protocol.Event{Status: "FAILED", Result: "OpenSpec preflight failed before runtime startup: " + e.Error()})
@@ -242,35 +304,54 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 	}()
 	launch := driver.Launch{Spec: spec, Cwd: cwd, Instructions: spec.Instructions}
-	if withMCP {
-		mcp := w.MCPBinary
-		if mcp == "" {
-			executable, e := os.Executable()
-			if e != nil {
-				return e
-			}
-			mcp = filepath.Join(filepath.Dir(executable), "factory-mcp")
-		}
-		if info, e := os.Stat(mcp); e != nil || info.IsDir() {
-			return fmt.Errorf("factory-mcp executable required; run make build")
-		}
+	shimDir, err := w.shims(spec)
+	if err != nil {
+		return err
+	}
+	if shimDir != "" {
+		defer os.RemoveAll(shimDir)
+	}
+	if withMCP || shimDir != "" {
+		// Approval shims ask Core with the run credential even when the runtime has no Factory MCP.
 		var credential struct {
 			Token        string `json:"token"`
 			Instructions string `json:"instructions"`
 		}
-		if err = w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/credential", map[string]string{"lease": lease}, &credential); err != nil {
+		if err := w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/credential", map[string]string{"lease": lease}, &credential); err != nil {
 			return err
 		}
 		if credential.Token == "" || credential.Instructions == "" {
 			return fmt.Errorf("missing run credential")
 		}
-		launch.MCP = &driver.MCPConfig{Command: mcp, EnvVars: []string{"FACTORY_RUN_TOKEN", "FACTORY_URL"}}
 		launch.Env = runEnvironment(os.Environ(), w.API.URL, credential.Token)
-		launch.Instructions += credential.Instructions
+		if withMCP {
+			mcp, e := sibling(w.MCPBinary, "factory-mcp")
+			if e != nil {
+				return e
+			}
+			launch.MCP = &driver.MCPConfig{Command: mcp, EnvVars: []string{"FACTORY_RUN_TOKEN", "FACTORY_URL"}}
+			launch.Instructions += credential.Instructions
+		}
+		if shimDir != "" {
+			launch.Env = shim.Env(launch.Env, shimDir)
+		}
 	}
-	session, err := drv.Launch(ctx, launch)
+	if wt != nil {
+		env := launch.Env
+		if env == nil {
+			env = os.Environ()
+		}
+		launch.Env = setEnv(env, "FACTORY_SCRATCH", wt.Scratch)
+	}
+	session, err = drv.Launch(ctx, launch)
 	if err != nil {
 		return err
+	}
+	if group := session.ProcessGroup(); wt != nil && group > 0 {
+		if err = wt.Track(group); err != nil {
+			session.Close()
+			return err
+		}
 	}
 	if group := session.ProcessGroup(); w.StateDir != "" && group > 0 {
 		path, e := writePidfile(w.StateDir, spec.ID, group)
@@ -311,7 +392,16 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				events = nil
 				continue
 			}
-			if err = emit("progress", protocol.Event{Method: e.Method, Data: openspec.AuditData(e.Data)}); err != nil {
+			p := protocol.Event{Method: e.Method, Data: openspec.AuditData(e.Data)}
+			switch e.Kind {
+			case driver.EventUsage, driver.EventCost:
+				meter.add(e)
+				p.Usage = meter.usage()
+			case driver.EventQuota:
+				meter.add(e)
+				p.Quota = meter.quota
+			}
+			if err = emit("progress", p); err != nil {
 				return err
 			}
 		}
@@ -321,6 +411,151 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		return result.Err
 	}
 	return emit("completed", protocol.Event{Status: result.Status, Result: result.Text})
+}
+
+// meter keeps a run's latest usage per model, its total cost and its quota hit.
+type meter struct {
+	models []protocol.Usage
+	cost   *driver.Cost
+	quota  *protocol.Quota
+}
+
+func (m *meter) add(e driver.Event) {
+	switch {
+	case e.Usage != nil:
+		for i := range m.models {
+			if m.models[i].Model == e.Usage.Model {
+				m.models[i] = *e.Usage
+				return
+			}
+		}
+		m.models = append(m.models, *e.Usage)
+	case e.Cost != nil:
+		c := *e.Cost
+		m.cost = &c
+	case e.Quota != nil:
+		q := *e.Quota
+		m.quota = &q
+	}
+}
+
+// usage returns a copy of the per-model usage; a run total cost goes to the single model when
+// no model carries its own price.
+func (m *meter) usage() []protocol.Usage {
+	if len(m.models) == 0 {
+		return nil
+	}
+	out := append([]protocol.Usage(nil), m.models...)
+	if m.cost != nil && len(out) == 1 && out[0].CostUSD == 0 {
+		out[0].CostUSD, out[0].CostSource = m.cost.USD, m.cost.Source
+	}
+	return out
+}
+
+// worktreeRequest is the task worktree of a workspace_mode worktree run; shared and scratch runs, and
+// runs this worker cannot place in a worktree, use the project workspace through the Allocator (Local).
+func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool) {
+	if spec.WorkspaceMode != "worktree" {
+		return workspace.Request{}, false
+	}
+	if w.Worktrees == nil || spec.TaskID == "" || spec.RepoURL == "" {
+		slog.Warn("worktree run in the project workspace", "run", spec.ID, "worktrees", w.Worktrees != nil, "task", spec.TaskID, "repo_url", spec.RepoURL != "")
+		return workspace.Request{}, false
+	}
+	// RunSpec has no company yet; the node serves the default company.
+	return workspace.Request{Company: storage.DefaultCompany, Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL,
+		DefaultBranch: spec.DefaultBranch, Branch: workspace.BranchName(spec.TaskID, "")}, true
+}
+
+// workspaceReport is the body of POST /runs/{id}/workspace.
+type workspaceReport struct {
+	Lease      string `json:"lease"`
+	Mode       string `json:"mode"`
+	Branch     string `json:"branch,omitempty"`
+	NodeID     string `json:"node_id,omitempty"`
+	ExitSHA    string `json:"exit_sha,omitempty"`
+	SealedHead string `json:"sealed_head,omitempty"`
+	SealedAt   int64  `json:"sealed_at,omitempty"`
+}
+
+// reportWorkspace posts a run's workspace to Core, retrying transient failures (network errors, 5xx)
+// a few times; 4xx answers are final.
+func (w *Worker) reportWorkspace(ctx context.Context, run string, r workspaceReport) error {
+	var err error
+	for attempt := range 4 {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return errors.Join(err, ctx.Err())
+			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			}
+		}
+		if err = w.API.Do(ctx, "POST", "/runs/"+run+"/workspace", r, nil); err == nil {
+			return nil
+		}
+		var h *HTTPError
+		if errors.As(err, &h) && h.Status < 500 {
+			return err
+		}
+	}
+	return err
+}
+
+// setEnv replaces or adds k in env.
+func setEnv(env []string, k, v string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if name, _, _ := strings.Cut(e, "="); name != k {
+			out = append(out, e)
+		}
+	}
+	return append(out, k+"="+v)
+}
+
+// sibling resolves a Factory executable: path, else name next to this executable.
+func sibling(path, name string) (string, error) {
+	if path == "" {
+		executable, err := os.Executable()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(filepath.Dir(executable), name)
+	}
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return "", fmt.Errorf("%s executable required; run make build", name)
+	}
+	return path, nil
+}
+
+// shims materializes the run's shim directory from the captured agent rules; "" when nothing is guarded.
+func (w *Worker) shims(spec protocol.RunSpec) (string, error) {
+	var agent struct {
+		Rules []policies.Rule `json:"rules"`
+	}
+	if len(spec.ConfigSnapshot) > 0 {
+		if err := json.Unmarshal(spec.ConfigSnapshot, &agent); err != nil {
+			return "", fmt.Errorf("invalid agent snapshot: %w", err)
+		}
+	}
+	if len(policies.Guarded(agent.Rules)) == 0 {
+		return "", nil
+	}
+	binary, err := sibling(w.ShimBinary, "factory-shim")
+	if err != nil {
+		return "", err
+	}
+	if binary, err = filepath.Abs(binary); err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "factory-shims-")
+	if err != nil {
+		return "", err
+	}
+	if _, err = shim.Install(dir, binary, agent.Rules); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
 }
 
 // The runtime receives only a run-scoped Factory credential. Host access remains trusted.

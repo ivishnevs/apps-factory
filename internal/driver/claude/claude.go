@@ -28,6 +28,8 @@ const (
 	DefaultShim         = "workers/claude/dist/src/shim.js"
 	SupportedSDK        = "0.3.284"
 	SupportedClaudeCode = "2.1.284"
+	// CostSource names the SDK's own cost figures (modelUsage costUSD, total_cost_usd).
+	CostSource = "claude_estimate"
 )
 
 type Driver struct {
@@ -346,8 +348,9 @@ func (s *session) send(e driver.Event) bool {
 	}
 }
 
-// loop forwards SDK messages as activity and the shim's normalized signals (usage, cost,
-// quota, auth_error, max_turns, error) as activity `claude/shim/<event>` until the result.
+// loop forwards SDK messages as activity and the shim's normalized signals as `claude/shim/<event>`
+// with the line as Data until the result: usage, cost and quota as their driver kinds, the
+// others (auth_error, max_turns, error) as activity.
 func (s *session) loop() driver.Result {
 	for {
 		select {
@@ -370,6 +373,9 @@ func (s *session) loop() driver.Result {
 			default:
 				s.note(e)
 				ev.Method, ev.Data = "claude/shim/"+e.Event, line
+				if err = signal(&ev, e.Event, line); err != nil {
+					return driver.Result{Err: err}
+				}
 			}
 			if !s.send(ev) {
 				return driver.Result{Err: errors.New("session closed")}
@@ -395,4 +401,43 @@ func (s *session) flush() {
 			return
 		}
 	}
+}
+
+// signal sets the driver kind of a usage, cost or quota line.
+func signal(ev *driver.Event, kind string, line []byte) error {
+	var l struct {
+		Model         string     `json:"model"`
+		Input         int64      `json:"input"`
+		Output        int64      `json:"output"`
+		CacheRead     int64      `json:"cache_read"`
+		CacheWrite    int64      `json:"cache_write"`
+		CostUSD       *float64   `json:"cost_usd"`
+		USD           float64    `json:"usd"`
+		Source        string     `json:"source"`
+		ResetsAt      *time.Time `json:"resets_at"`
+		RateLimitType string     `json:"rate_limit_type"`
+	}
+	switch kind {
+	case "usage", "cost", "quota":
+		if err := json.Unmarshal(line, &l); err != nil {
+			return &Error{Class: "protocol", Message: fmt.Sprintf("invalid %s line: %v", kind, err)}
+		}
+	}
+	switch kind {
+	case "usage":
+		u := &protocol.Usage{Model: l.Model, Input: l.Input, Output: l.Output, CacheRead: l.CacheRead, CacheWrite: l.CacheWrite}
+		if l.CostUSD != nil {
+			u.CostUSD, u.CostSource = *l.CostUSD, CostSource
+		}
+		ev.Kind, ev.Usage = driver.EventUsage, u
+	case "cost":
+		ev.Kind, ev.Cost = driver.EventCost, &driver.Cost{USD: l.USD, Source: l.Source}
+	case "quota":
+		q := &protocol.Quota{Type: l.RateLimitType}
+		if l.ResetsAt != nil {
+			q.ResetsAt = l.ResetsAt.UTC()
+		}
+		ev.Kind, ev.Quota = driver.EventQuota, q
+	}
+	return nil
 }

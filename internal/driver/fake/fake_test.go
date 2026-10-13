@@ -50,3 +50,29 @@ func TestStdioCallWithoutServer(t *testing.T) {
 		t.Fatal("call without MCP config succeeded")
 	}
 }
+
+func TestScriptedUsageCostQuota(t *testing.T) {
+	var sc Script
+	if err := json.Unmarshal([]byte(`{"status":"FAILED","activity":[
+		{"usage":{"model":"m","input":1,"output":2}},
+		{"method":"x/cost","cost":{"usd":0.5,"source":"claude_estimate"}},
+		{"quota":{"resets_at":"2026-10-14T05:00:00Z","type":"five_hour"}}]}`), &sc); err != nil {
+		t.Fatal(err)
+	}
+	s, err := (&Driver{Script: sc}).Launch(context.Background(), driver.Launch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var got []driver.Event
+	for e := range s.Events() {
+		got = append(got, e)
+	}
+	if len(got) != 3 || got[0].Kind != driver.EventUsage || got[0].Method != "fake/usage" || got[0].Usage.Output != 2 ||
+		got[1].Kind != driver.EventCost || got[1].Method != "x/cost" || got[1].Cost.USD != 0.5 ||
+		got[2].Kind != driver.EventQuota || got[2].Quota.Type != "five_hour" || got[2].Quota.ResetsAt.Hour() != 5 {
+		t.Fatalf("events %+v", got)
+	}
+}

@@ -18,7 +18,7 @@ var ErrWorktreesDisabled = errors.New("workspace: worktrees allocator is disable
 // DefaultScanCommand is verified with gitleaks 8.30.1; --verbose puts the redacted findings (rule, file, line, commit) in the report.
 var DefaultScanCommand = []string{"gitleaks", "git", "--redact", "--no-banner", "--no-color", "--verbose", "--exit-code", "1", "--log-opts"}
 
-// WorktreesConfig is off unless Enabled is set; the worker does not use it yet.
+// WorktreesConfig is off unless Enabled is set (node.yaml worktrees).
 type WorktreesConfig struct {
 	Enabled bool
 	Root    string
@@ -102,14 +102,19 @@ func branchName(r Request) string {
 	if r.Branch != "" {
 		return r.Branch
 	}
-	s := strings.Trim(slugBad.ReplaceAllString(strings.ToLower(r.Slug), "-"), "-")
+	return BranchName(r.Task, r.Slug)
+}
+
+// BranchName is a task's default branch: af/<task-id>-<slug>, or af/<task-id> without a slug.
+func BranchName(task, slug string) string {
+	s := strings.Trim(slugBad.ReplaceAllString(strings.ToLower(slug), "-"), "-")
 	if len(s) > 40 {
 		s = strings.TrimRight(s[:40], "-")
 	}
 	if s == "" {
-		return "af/" + r.Task
+		return "af/" + task
 	}
-	return "af/" + r.Task + "-" + s
+	return "af/" + task + "-" + s
 }
 
 // Acquire ensures the task worktree and takes its run lock, waiting for a previous holder.

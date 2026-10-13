@@ -18,6 +18,8 @@ other lists replace. Empty additive lists do not remove inherited restrictions.
 See configs/profiles/developer.yaml and configs/agents/demo.yaml. Supported fields are the
 specification's runtime, prompt, capabilities, skills/discover, tools, approvals, communication,
 context, execution and policies, plus `role` for policy applicability. Provider is currently codex.
+`runtime.quota_key` (optional, a lowercase name) groups agents sharing one subscription: when a run
+hits its limit Core pauses every agent with that key until the reset; it defaults to the agent name.
 Prompt paths must resolve inside FACTORY_ROOT, including symlinks. timeout is 1s–24h.
 Current execution ceiling is max_concurrent_runs 1. max_retries must be nonnegative; Task Engine applies it only to known Worker-reported failed turns.
 UNKNOWN and manually reconciled failures never retry automatically. Communication create/assign permissions are checked on named-agent task mutations; can_message
@@ -29,6 +31,11 @@ patterns; unrestricted introduces no allowlist. Inherited explicit denies remain
 Patterns use Go path.Match (`*` matches dotted operation names). Policy denies always win.
 Approvals support never/selective/always/inherit. Explicit require patterns and mandatory policy
 approval rules cannot be bypassed by never. Policy approvals express requirements; [exact owner grants](approvals.md) satisfy them at the MCP gateway without overriding deny.
+
+`workspace.mode` selects where runs execute: `shared` (default) uses the project workspace; `worktree` gives each
+task its own git worktree and branch on the node (see development.md, Task worktrees); `scratch` is for agents
+that need no repository and runs in the project workspace. It is inherited from profiles like other scalars.
+Nodes without worktrees enabled, and runs without a task or repository, fall back to the project workspace.
 
 ## Runtime context
 

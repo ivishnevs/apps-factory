@@ -49,12 +49,29 @@ type EventKind string
 const (
 	// EventActivity carries one raw runtime notification or request for audit and progress.
 	EventActivity EventKind = "activity"
+	// EventUsage carries Usage: cumulative tokens of one model in this run (the last per model
+	// wins), with its cost when the runtime prices it per model.
+	EventUsage EventKind = "usage"
+	// EventCost carries Cost: the run's cumulative cost as the runtime reports it.
+	EventCost EventKind = "cost"
+	// EventQuota carries Quota: the runtime hit its subscription limit.
+	EventQuota EventKind = "quota"
 )
 
+// Event is one normalized event; Method and Data keep the raw runtime message for audit.
 type Event struct {
 	Kind   EventKind
 	Method string
 	Data   json.RawMessage
+	Usage  *protocol.Usage
+	Cost   *Cost
+	Quota  *protocol.Quota
+}
+
+// Cost is a runtime-reported price in USD; Source names it (e.g. "claude_estimate").
+type Cost struct {
+	USD    float64
+	Source string
 }
 
 // Result is terminal evidence. Status is COMPLETED, FAILED or CANCELLED; Err means the

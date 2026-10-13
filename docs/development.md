@@ -63,7 +63,7 @@ STATUS/CHECK/DETAIL table with a remediation hint under every `fail`/`warn` row 
 Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, with `-repo URL`, `forge.repo`
 (`git ls-remote`); `disk` free space at `-disk-path` (default `$HOME`) against `-low-gib 20` (warn) and
 `-critical-gib 5` (fail); on macOS `xcode` (`xcode-select -p`, `xcodebuild -version`) and `xcode.simctl` (available
-simulators; warn when none); `factory-mcp` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
+simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
 Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
 injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
 `codex-cli 0.162.1`, `codex login status`) and `claude.*` (Node 22+, built `workers/claude`, `factory-workspace`, and
@@ -90,11 +90,12 @@ errors.
 name: mini-1                 # default: host name
 slots: 2                     # 1..64
 state_dir: data/factory-node # pidfiles; never shared by live nodes or workers
-bin_dir: /opt/factory/bin    # factory-mcp and ../workers/claude/dist/src/shim.js; default: next to the binary
+bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
 drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
+worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
 ```
 
 Claude stays off by default while `workers/claude` serves `factory.commands.agent.run.claude`; enable it only with
@@ -107,6 +108,31 @@ that service stopped (both would share the `claude-worker-v1` consumer).
 - Watchdog (every 30 s): a busy slot whose recorded runtime group is gone has its run cancelled (the executor reports
   it); a recorded group without a busy slot is killed and its pidfile removed; an idle slot whose claim loop has not
   turned for 2 minutes is restarted. Busy slots are bounded by the run timeout, not by this check.
+
+- Command guards: runs whose captured rules deny or require approval for commands (always, through the
+  mandatory `host-ui` and `owner-cli` policies) need `factory-shim` (`make build`; `bin_dir`, else next to the
+  binary). The executor fetches the run credential, creates a temporary shim directory first on PATH
+  (`FACTORY_SHIM_DIR`) and removes it after the run; see [policies](policies.md#command-guards). Executor tests
+  script shell commands with `fake.Activity.Exec` (`internal/worker/shim_test.go`).
+
+### Task worktrees
+
+With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` get one git worktree per task under
+`worktrees.root` (default `<state_dir>/worktrees`):
+
+- `<root>/default/<project>/repo` is the shared clone of the run's `repo_url`; `tasks/<task>` is the task's worktree
+  on branch `af/<task>`; `scratch/<task>` is exported to the runtime as `FACTORY_SCRATCH`.
+- Each worktree has its own lock, so a second run of the same task waits; later runs reuse the worktree and its work.
+- At run end the runtime process group gets TERM, then KILL after 10 s; the run fails if it survives 30 s. The
+  worktree is then sealed: uncommitted work is committed onto `refs/factory/wip/<task>` (the worktree itself is left
+  unchanged) and `sealed_head` is written to `.factory/state`. Nothing is pushed. The worker then reports
+  `{mode, branch, node_id, sealed_head, sealed_at}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`;
+  `GET /tasks/{id}/workspace` reads it). Transient failures are retried briefly; a failed report is logged
+  and does not fail the run.
+- Runs without `task_id` or `repo_url` (for example message runs), or with worktrees disabled, fall back to the shared
+  project workspace with a warning. `shared` and `scratch` runs use the project workspace (`workspace.Local`).
+
+Not yet: push, PR, reset to `exit_sha` (`exit_sha` is not reported yet), start checks. The SQLite writer indexes still serialize runs of one project.
 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as

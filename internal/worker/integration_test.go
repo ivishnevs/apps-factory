@@ -88,7 +88,7 @@ func TestJetStreamFoundation(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := API{URL: server.URL, Token: "test-token"}
-	w := Worker{Bus: b, API: api, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}
+	w := Worker{Bus: b, API: api, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
 	go func() { errs <- w.Run(ctx) }()
 	var spec protocol.RunSpec
 	if err = api.Do(ctx, "POST", "/runs", map[string]string{"project": "test", "agent": "demo", "workspace": t.TempDir(), "prompt": "Reply foundation ok"}, &spec); err != nil {

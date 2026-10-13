@@ -6,6 +6,7 @@ build:
 	go build -o bin/factory-mcp ./cmd/factory-mcp
 	go build -o bin/factory-workspace ./cmd/factory-workspace
 	go build -o bin/factory-node ./cmd/factory-node
+	go build -o bin/factory-shim ./cmd/factory-shim
 	cd workers/claude && npm ci --ignore-scripts && npm run build
 test:
 	go test -race ./...

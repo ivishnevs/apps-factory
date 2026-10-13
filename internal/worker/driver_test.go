@@ -42,7 +42,8 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 
 // runDriver executes one run with w's driver against a fake Core, applying the published
 // events to Core's store until the run is terminal; it returns the run and its stored events.
-func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, []protocol.Envelope) {
+// mods change the spec the executor receives after Core stored the run.
+func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...func(*protocol.RunSpec)) (storage.Run, []protocol.Envelope) {
 	t.Helper()
 	b, err := bus.Connect(url)
 	if err != nil {
@@ -73,6 +74,9 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, []
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, mod := range mods {
+		mod(&spec)
+	}
 	w.Bus, w.API = b, API{URL: server.URL, Token: "test-token"}
 	done := make(chan error, 1)
 	go func() { done <- w.execute(ctx, spec, lease, "fake-command") }()
@@ -101,8 +105,9 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool) (storage.Run, []
 		}
 	}
 	<-done
-	r, err := s.Get(ctx, storage.DefaultCompany, spec.ID)
-	if err != nil {
+	// The run as Core serves it, so tests see what an owner sees (usage included).
+	var r storage.Run
+	if err = w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &r); err != nil {
 		t.Fatal(err)
 	}
 	events, err := s.Events(ctx, storage.DefaultCompany, spec.ID)
@@ -128,6 +133,47 @@ func TestJetStreamFakeDriverOutcomes(t *testing.T) {
 				t.Fatalf("launch %+v", l)
 			}
 		})
+	}
+}
+
+// Usage and quota go on their progress events and on the terminal event, here an UNKNOWN one
+// without a result; the run's total cost prices its single model.
+func TestJetStreamFakeDriverUsageOnUnknown(t *testing.T) {
+	url := os.Getenv("NATS_TEST_URL")
+	if url == "" {
+		t.Skip("set NATS_TEST_URL to dedicated broker")
+	}
+	sc, err := fake.Load(filepath.Join("testdata", "fake", "usage_disconnected.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc}}, false)
+	if r.Status != "UNKNOWN" || len(r.Usage) != 1 || r.Usage[0].Model != "gpt-5.5" || r.Usage[0].Input != 150 || r.Usage[0].CostUSD != 0.25 {
+		t.Fatalf("%+v", r)
+	}
+	payloads := make([]protocol.Event, len(events))
+	for i, e := range events {
+		if err = json.Unmarshal(e.Payload, &payloads[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// started, delta, usage, usage, cost, quota, terminal
+	if len(payloads) != 7 {
+		t.Fatalf("%d events", len(payloads))
+	}
+	first := protocol.Usage{Model: "gpt-5.5", Input: 100, Output: 20, CacheRead: 300}
+	last := protocol.Usage{Model: "gpt-5.5", Input: 150, Output: 40, CacheRead: 600}
+	priced := last
+	priced.CostUSD, priced.CostSource = 0.25, "fake_estimate"
+	quota := protocol.Quota{ResetsAt: time.Date(2026, 10, 13, 23, 0, 0, 0, time.UTC), Type: "five_hour"}
+	if payloads[1].Usage != nil || payloads[2].Method != "fake/usage" || len(payloads[2].Usage) != 1 || payloads[2].Usage[0] != first ||
+		len(payloads[3].Usage) != 1 || payloads[3].Usage[0] != last || len(payloads[4].Usage) != 1 || payloads[4].Usage[0] != priced ||
+		payloads[5].Quota == nil || !payloads[5].Quota.ResetsAt.Equal(quota.ResetsAt) || payloads[5].Quota.Type != quota.Type {
+		t.Fatalf("progress %+v", payloads[1:6])
+	}
+	terminal := payloads[6]
+	if terminal.Status != "UNKNOWN" || len(terminal.Usage) != 1 || terminal.Usage[0] != priced || terminal.Quota == nil || terminal.Quota.Type != "five_hour" {
+		t.Fatalf("terminal %+v", terminal)
 	}
 }
 

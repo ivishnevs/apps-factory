@@ -1,0 +1,11 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"method": "item/agentMessage/delta", "data": {"delta": "partial"}},
+    {"usage": {"model": "gpt-5.5", "input": 100, "output": 20, "cache_read": 300}},
+    {"usage": {"model": "gpt-5.5", "input": 150, "output": 40, "cache_read": 600}},
+    {"cost": {"usd": 0.25, "source": "fake_estimate"}},
+    {"quota": {"resets_at": "2026-10-13T23:00:00Z", "type": "five_hour"}}
+  ],
+  "unknown": "app-server disconnected: EOF"
+}

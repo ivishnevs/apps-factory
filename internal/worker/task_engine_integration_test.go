@@ -50,7 +50,7 @@ func TestJetStreamTaskEngineRestart(t *testing.T) {
 	workerCtx, stopWorker := context.WithCancel(root)
 	defer stopWorker()
 	bin, _ := os.Executable()
-	w := Worker{Bus: b, API: api, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}
+	w := Worker{Bus: b, API: api, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
 	workerDone := make(chan error, 1)
 	go func() { workerDone <- w.Run(workerCtx) }()
 	var project tasks.Project

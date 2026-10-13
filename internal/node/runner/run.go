@@ -16,6 +16,7 @@ import (
 	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
 	"appfactory/internal/worker"
+	"appfactory/internal/workspace"
 	"github.com/nats-io/nats.go"
 )
 
@@ -94,14 +95,21 @@ func Run(ctx context.Context, n Node) error {
 	if wait <= 0 {
 		wait = time.Second
 	}
-	mcp := ""
+	mcp, shim := "", ""
 	if c.BinDir != "" {
-		mcp = filepath.Join(c.BinDir, "factory-mcp")
+		mcp, shim = filepath.Join(c.BinDir, "factory-mcp"), filepath.Join(c.BinDir, "factory-shim")
+	}
+	var trees *workspace.Worktrees
+	if c.Worktrees.Enabled {
+		var err error
+		if trees, err = workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: c.Worktrees.Root, ScanCommand: c.Worktrees.ScanCommand}); err != nil {
+			return err
+		}
 	}
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
-		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, StateDir: c.StateDir}
+		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name}
 		sub, err := w.Subscribe()
 		if err != nil {
 			return err
@@ -121,7 +129,7 @@ func Run(ctx context.Context, n Node) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	go wd.Run(ctx)
-	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir)
+	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root)
 	err := pool.Run(ctx)
 	if errors.Is(err, context.Canceled) {
 		err = nil

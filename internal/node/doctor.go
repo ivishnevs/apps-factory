@@ -40,7 +40,7 @@ func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
 	r = append(r, d.disk())
 	r = append(r, d.xcode(ctx)...)
-	r = append(r, binary("factory-mcp", d.BinDir(), d.Host))
+	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
 	usable := []string{}
 	for _, rt := range d.Runtimes {
 		explicit := slices.Contains(d.Drivers, rt.Name)

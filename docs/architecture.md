@@ -30,6 +30,11 @@ Use one canonical host path per project: Core in Docker cannot resolve macOS sym
 Do not register the same physical directory under aliases, particularly when reconciling UNKNOWN.
 The `.factory-writer.lock` file may remain after release; flock state, not file existence, owns the lock.
 
+Agents with `workspace.mode: worktree` run in per-task git worktrees managed by the node (`internal/workspace`),
+each with its own lock, branch `af/<task>` and a local WIP ref sealed at run end. The worker reports the seal to
+Core (`POST /runs/{id}/workspace`, one `workspaces` row per task); the writer index above still serializes runs
+per project.
+
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
 Worker events carry the Core lease. Core atomically persists an event and updates the run,
 then acknowledges broker delivery. SQLite event IDs deduplicate replay. Progress never revives

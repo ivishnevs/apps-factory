@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"appfactory/internal/configfile"
@@ -18,10 +19,19 @@ type Config struct {
 	Slots int    `yaml:"slots"`
 	// StateDir keeps pidfiles of running runtimes; it must not be shared by live nodes or workers.
 	StateDir string `yaml:"state_dir"`
-	// BinDir holds factory-mcp and is the base of the built Claude shim; empty is the executable's directory.
+	// BinDir holds factory-mcp and factory-shim and is the base of the built Claude shim; empty is the executable's directory.
 	BinDir  string  `yaml:"bin_dir"`
 	Drivers Drivers `yaml:"drivers"`
 	Disk    Disk    `yaml:"disk"`
+	// Worktrees serves runs with workspace_mode worktree (task-worktrees); off by default.
+	Worktrees Worktrees `yaml:"worktrees"`
+}
+
+// Worktrees: Root defaults to <state_dir>/worktrees; ScanCommand (pre-push secret scan) to gitleaks.
+type Worktrees struct {
+	Enabled     bool     `yaml:"enabled"`
+	Root        string   `yaml:"root"`
+	ScanCommand []string `yaml:"scan_command"`
 }
 
 type Drivers struct {
@@ -110,6 +120,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Disk.Path == "" {
 		c.Disk.Path = c.StateDir
+	}
+	if c.Worktrees.Enabled && c.Worktrees.Root == "" && c.StateDir != "" {
+		c.Worktrees.Root = filepath.Join(c.StateDir, "worktrees")
+	}
+	if len(c.Worktrees.ScanCommand) > 0 && c.Worktrees.ScanCommand[0] == "" {
+		errs = append(errs, errors.New("worktrees.scan_command: empty executable"))
 	}
 	switch {
 	case c.Disk.CriticalGiB < 0 || c.Disk.LowGiB < 0:

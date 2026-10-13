@@ -43,6 +43,44 @@ It cannot be replaced by YAML, removed from an agent or bypassed using unrestric
 The protected operation names are factory.project.delete, factory.release.publish,
 factory.secrets.access_production, external.purchase, factory.config.* and factory.decision.record.
 
+## Command guards
+
+Access rules may list shell `commands` instead of (or besides) `operations` (node-agent D6):
+
+```yaml
+    - name: simulator-taps
+      type: access
+      roles: [developer]
+      commands: ["xcrun simctl io * tap*"]
+      effect: approval
+      instruction: Prefer UI tests by accessibility identifier; ask the owner for one-off taps.
+```
+
+A pattern matches the basename of argv[0] or the command line (that basename and the arguments
+joined by single spaces); `*` matches any text including spaces and slashes, `?` one character.
+The first word must be a literal command name (no glob, no path): it names the shim. Commands are
+only valid on access rules and resolve per agent like operations (roles/agents filters, mandatory
+policies, deny > approval > allow; no matching rule allows).
+
+Reserved mandatory policies, defined in code like `system` (YAML cannot replace them):
+- `host-ui` denies `cliclick`, `osascript`, `osacompile` and `xdotool`: use debug launch arguments,
+  deep links or UI tests by accessibility identifier.
+- `owner-cli` denies the `factory` owner CLI: use the Factory MCP tools.
+
+The executor reads the rules captured in the run's agent snapshot and, when any deny/approval rule
+names a command, creates a per-run directory first on the runtime PATH (`FACTORY_SHIM_DIR`) with
+`rules.json` and one symlink per guarded command to `factory-shim`. The shim decides the exact argv
+(argv[0] reduced to its basename):
+- allow: exec the real binary, found on PATH without the shim directory (127 when missing);
+- deny: print the rule's instruction, report to Core (best effort), exit 126;
+- approval: `POST /agent/command` with the run token and exact argv; Core consumes one APPROVED
+  single-use `command` grant and answers 200, otherwise the shim exits 126 and tells the agent to
+  request `factory_owner_request_approval` with
+  `call: {"name":"command","arguments":{"argv":["git","push","origin","main"]}}` and finish the turn.
+  An approved command runs exactly once; a second run or changed arguments are refused.
+
+This is a guardrail, not a sandbox: agents run as the same OS user and an absolute path bypasses it.
+
 `factory agents authorize AGENT OPERATION` previews the decision without executing an operation.
 The API exposes POST /agents/{agent}/authorize with {"operation":"..."}. This is an owner-level
 inspection endpoint, not an agent capability grant. Actual skill reads/lists/searches enforce

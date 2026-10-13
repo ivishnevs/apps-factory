@@ -40,11 +40,13 @@ export interface Launch {
   setting_sources?: SettingSource[];
 }
 
-// Normalized events (design D1). usage/cost are cumulative for the query: the last line wins.
+// Normalized events (design D1). usage (per model) and cost (total) are cumulative for the query:
+// the last line wins. Running usage after each assistant message has no cost; the result's
+// modelUsage then gives the final usage with each model's cost.
 export type ShimEvent =
   | { event: "session"; id: string }
   | { event: "activity"; kind: string; data: unknown }
-  | { event: "usage"; model: string; input: number; output: number; cache_read: number; cache_write: number }
+  | { event: "usage"; model: string; input: number; output: number; cache_read: number; cache_write: number; cost_usd?: number }
   | { event: "cost"; usd: number; source: "claude_estimate" }
   | { event: "quota"; resets_at?: string; rate_limit_type?: string }
   | { event: "auth_error"; reason: string; api_key_source?: string }
@@ -59,6 +61,8 @@ const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed", "
 
 export type Write = (e: ShimEvent) => Promise<void>;
 
+type Tokens = { input: number; output: number; cache_read: number; cache_write: number };
+
 export function lineWriter(out: Writable): Write {
   return (e) => new Promise((resolve, reject) => out.write(JSON.stringify(e) + "\n", (err) => (err ? reject(err) : resolve())));
 }
@@ -69,6 +73,9 @@ export class Normalizer {
   private lastResult: SDKResultMessage | undefined;
   private authReported = false;
   private sessionId: string | undefined;
+  // Assistant message usage per model and message id: one API message arrives as several
+  // assistant messages (one per content block), so the last one per id counts.
+  private readonly running = new Map<string, Map<string, Tokens>>();
   finished = false;
 
   constructor(private readonly write: Write) {}
@@ -85,6 +92,7 @@ export class Normalizer {
   };
 
   readonly observe = async (m: SDKMessage): Promise<void> => {
+    if (m.type === "assistant") await this.runningUsage(m.message);
     if (m.type === "rate_limit_event" && m.rate_limit_info.status === "rejected") {
       const resets = m.rate_limit_info.resetsAt;
       await this.write({
@@ -105,11 +113,30 @@ export class Normalizer {
           output: u.outputTokens,
           cache_read: u.cacheReadInputTokens,
           cache_write: u.cacheCreationInputTokens,
+          cost_usd: u.costUSD,
         });
       }
       await this.write({ event: "cost", usd: m.total_cost_usd, source: "claude_estimate" });
     }
   };
+
+  private async runningUsage(msg: { id?: string; model?: string; usage?: unknown } | undefined) {
+    const u = msg?.usage as
+      | { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }
+      | undefined;
+    if (!msg?.id || !msg.model || msg.model === "<synthetic>" || !u) return;
+    const byId = this.running.get(msg.model) ?? new Map<string, Tokens>();
+    this.running.set(msg.model, byId);
+    byId.set(msg.id, {
+      input: u.input_tokens ?? 0,
+      output: u.output_tokens ?? 0,
+      cache_read: u.cache_read_input_tokens ?? 0,
+      cache_write: u.cache_creation_input_tokens ?? 0,
+    });
+    const sum: Tokens = { input: 0, output: 0, cache_read: 0, cache_write: 0 };
+    for (const t of byId.values()) for (const k of Object.keys(sum) as (keyof Tokens)[]) sum[k] += t[k];
+    await this.write({ event: "usage", model: msg.model, ...sum });
+  }
 
   // Failure before or instead of terminal evidence: always UNKNOWN, with a structured class.
   async fail(err: unknown): Promise<void> {

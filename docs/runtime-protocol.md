@@ -78,3 +78,22 @@ Optional fields; workers and Cores that do not know them ignore them.
   (`factory projects create ID WORKSPACE --repo URL --branch BRANCH`, `PATCH /projects/{id}`). Core sets
   `workspace_mode` only when the project has `repo_url`; otherwise the run keeps the shared workspace.
 - `GET /runs/{id}` and task attempts return `usage`; `factory show` prints tokens and the runtime's cost estimate.
+
+### Usage and quota sources
+
+- Executor: keeps the run's latest usage per model and its latest quota hit. Each usage/cost report becomes a
+  progress event carrying the run's usage so far; a quota hit becomes a progress event with `quota`. Every
+  terminal event (`completed`, `failed` including `UNKNOWN`, and the one after an interrupt without a result)
+  carries both. A run total cost (driver cost event) is set on the single model when no model has its own price.
+- Codex: the model comes from the `thread/start`/`thread/resume` response. Usage comes from
+  `thread/tokenUsage/updated` for this run's turn: `total` is thread-wide, so the first update is a baseline
+  and later ones are reported relative to it. `input` = `inputTokens − cachedInputTokens`,
+  `cache_read` = `cachedInputTokens`, `cache_write` = `cacheWriteInputTokens`; reasoning tokens are inside
+  `output`. No cost. A final `usageLimitExceeded` turn error (an `error` notification with `willRetry=false`,
+  or a failed `turn/completed`) is a quota hit (method `codex/quota`): `type` is `rateLimitReachedType`,
+  `resets_at` is the latest reset of an exhausted window in the merged `account/rateLimits/updated`
+  snapshots, unknown without one. `rateLimitExceeded` is a transient API limit, not a quota hit.
+- Claude: the shim reports running usage per model after each assistant message (the last report per
+  message id, `<synthetic>` skipped), so a killed or timed-out run still has usage; the result's `modelUsage`
+  gives final usage with per-model `cost_usd` (`claude_estimate`), then the total cost. A rate-limit event
+  that rejects the request is a quota hit with the limit's reset time and type (e.g. `five_hour`).

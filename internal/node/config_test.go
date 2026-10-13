@@ -60,6 +60,7 @@ func TestConfigValidation(t *testing.T) {
 		"state_dir: ''":                                            "state_dir is required",
 		"slot: 2":                                                  "field slot not found",
 		"drivers: {codex: {enabled: true, binary: codex, model: gpt}}": "field model not found",
+		"worktrees: {enabled: true, scan_command: ['']}":               "empty executable",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "node.yaml") {
@@ -68,6 +69,21 @@ func TestConfigValidation(t *testing.T) {
 	}
 	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
+	}
+}
+
+func TestConfigWorktrees(t *testing.T) {
+	c, err := LoadConfig("")
+	if err != nil || c.Worktrees.Enabled || c.Worktrees.Root != "" {
+		t.Fatalf("worktrees must be off by default: %+v %v", c.Worktrees, err)
+	}
+	c, err = LoadConfig(writeConfig(t, "state_dir: /s\nworktrees: {enabled: true}\n"))
+	if err != nil || !c.Worktrees.Enabled || c.Worktrees.Root != "/s/worktrees" {
+		t.Fatalf("%+v %v", c.Worktrees, err)
+	}
+	c, err = LoadConfig(writeConfig(t, "worktrees: {enabled: true, root: /w, scan_command: [true]}\n"))
+	if err != nil || c.Worktrees.Root != "/w" || len(c.Worktrees.ScanCommand) != 1 {
+		t.Fatalf("%+v %v", c.Worktrees, err)
 	}
 }
 

@@ -11,6 +11,7 @@ type Rule struct {
 	Name        string   `yaml:"name" json:"name"`
 	Type        string   `yaml:"type" json:"type"`
 	Operations  []string `yaml:"operations" json:"operations,omitempty"`
+	Commands    []string `yaml:"commands" json:"commands,omitempty"`
 	Effect      string   `yaml:"effect" json:"effect,omitempty"`
 	Target      string   `yaml:"target" json:"target,omitempty"`
 	Instruction string   `yaml:"instruction" json:"instruction"`
@@ -55,10 +56,13 @@ func Validate(p Policy) error {
 		names[r.Name] = true
 		switch r.Type {
 		case "access":
-			if len(r.Operations) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval") || r.Target != "" {
+			if len(r.Operations)+len(r.Commands) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval") || r.Target != "" {
 				return fmt.Errorf("invalid access rule %s", r.Name)
 			}
 		case "escalation":
+			if len(r.Commands) > 0 {
+				return fmt.Errorf("commands only apply to access rules")
+			}
 			if r.Target != "self" && r.Target != "manager" && r.Target != "owner" {
 				return fmt.Errorf("invalid escalation target")
 			}
@@ -66,7 +70,7 @@ func Validate(p Policy) error {
 				return fmt.Errorf("effect only applies to access rules")
 			}
 		case "reporting":
-			if r.Effect != "" || r.Target != "" {
+			if r.Effect != "" || r.Target != "" || len(r.Commands) > 0 {
 				return fmt.Errorf("reporting uses instructions, not effect/target")
 			}
 		default:
@@ -78,6 +82,11 @@ func Validate(p Policy) error {
 			}
 			if _, err := path.Match(op, "test"); err != nil {
 				return err
+			}
+		}
+		for _, c := range r.Commands {
+			if err := validCommand(c); err != nil {
+				return fmt.Errorf("policy %s rule %s: %w", p.Metadata.Name, r.Name, err)
 			}
 		}
 	}

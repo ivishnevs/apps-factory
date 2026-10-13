@@ -2,6 +2,7 @@ package worker
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/claude/claudetest"
+	"appfactory/internal/protocol"
+	"appfactory/internal/storage"
 )
 
 // TestFakeClaudeShim is the fake shim process for the Claude driver: it replays a recorded
@@ -34,6 +37,11 @@ func TestFakeClaudeShim(t *testing.T) {
 }
 
 func runClaude(t *testing.T, scenario string, cancel bool) (string, string, string, int, int) {
+	r, events, lines := runClaudeEvents(t, scenario, cancel)
+	return r.Status, r.Result, r.SessionID, len(events), lines
+}
+
+func runClaudeEvents(t *testing.T, scenario string, cancel bool) (storage.Run, []protocol.Envelope, int) {
 	url := os.Getenv("NATS_TEST_URL")
 	if url == "" {
 		t.Skip("set NATS_TEST_URL to dedicated broker")
@@ -50,7 +58,7 @@ func runClaude(t *testing.T, scenario string, cancel bool) (string, string, stri
 	d := claude.Driver{Node: bin, Args: []string{"-test.run=^TestFakeClaudeShim$", "--"}}
 	// MCPBinary only has to exist: the fake shim never starts it.
 	r, events := runDriver(t, url, Worker{Driver: d, MCPBinary: bin}, cancel)
-	return r.Status, r.Result, r.SessionID, len(events), strings.Count(string(b), "\n")
+	return r, events, strings.Count(string(b), "\n")
 }
 
 func TestJetStreamClaudeDriver(t *testing.T) {
@@ -64,8 +72,22 @@ func TestJetStreamClaudeDriver(t *testing.T) {
 	}
 }
 
+// End to end: the cancelled run's terminal event carries the usage the shim reported before and with its result.
 func TestJetStreamClaudeDriverCancellation(t *testing.T) {
-	if status, _, _, _, _ := runClaude(t, "interrupt", true); status != "CANCELLED" {
-		t.Fatal(status)
+	r, events, _ := runClaudeEvents(t, "interrupt", true)
+	if r.Status != "CANCELLED" {
+		t.Fatal(r.Status)
+	}
+	var terminal protocol.Event
+	if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
+		t.Fatal(err)
+	}
+	want := protocol.Usage{Model: "claude-opus-4-7", Input: 3, Output: 48, CacheWrite: 14190, CostUSD: 0.0398, CostSource: claude.CostSource}
+	if terminal.Status != "CANCELLED" || len(terminal.Usage) != 1 || terminal.Usage[0] != want || terminal.Quota != nil {
+		t.Fatalf("terminal %+v", terminal)
+	}
+	// Core keeps it on the run: GET /runs/{id} returns it.
+	if len(r.Usage) != 1 || r.Usage[0] != want {
+		t.Fatalf("run usage %+v", r.Usage)
 	}
 }

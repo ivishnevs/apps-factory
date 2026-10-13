@@ -70,7 +70,7 @@ func healthy() *fakeHost {
 	return &fakeHost{
 		env:   map[string]string{},
 		paths: map[string]string{"gh": "/usr/bin/gh", "codex": "/usr/bin/codex", "claude": "/usr/bin/claude"},
-		files: map[string]bool{"/opt/factory/bin/factory-mcp": true, "/opt/factory/bin/factory-workspace": true,
+		files: map[string]bool{"/opt/factory/bin/factory-mcp": true, "/opt/factory/bin/factory-shim": true, "/opt/factory/bin/factory-workspace": true,
 			"/opt/factory/workers/claude/dist/src/main.js": true},
 		cmds: map[string]reply{
 			"git --version":                          {out: "git version 2.50.1\n"},

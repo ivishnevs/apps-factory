@@ -166,8 +166,13 @@ func run(t *testing.T, name string, interrupt bool) (driver.Session, []driver.Ev
 		t.Fatalf("session %q, want %q", s.ID(), session)
 	}
 	var gotMethods []string
+	kinds := map[string]driver.EventKind{"claude/shim/usage": driver.EventUsage, "claude/shim/cost": driver.EventCost, "claude/shim/quota": driver.EventQuota}
 	for _, e := range events {
-		if e.Kind != driver.EventActivity || len(e.Data) == 0 {
+		want, ok := kinds[e.Method]
+		if !ok {
+			want = driver.EventActivity
+		}
+		if e.Kind != want || len(e.Data) == 0 || (e.Kind == driver.EventUsage) != (e.Usage != nil) || (e.Kind == driver.EventCost) != (e.Cost != nil) || (e.Kind == driver.EventQuota) != (e.Quota != nil) {
 			t.Fatalf("event %+v", e)
 		}
 		gotMethods = append(gotMethods, e.Method)
@@ -186,9 +191,10 @@ func TestRecordedStart(t *testing.T) {
 	if rec.Launch.Spec.SessionID != "" || rec.Launch.Spec.Prompt == "" {
 		t.Fatalf("launch %s", rec.Raw)
 	}
-	var usage struct{ Model string }
-	if events[len(events)-1].Method != "claude/shim/cost" || json.Unmarshal(events[len(events)-3].Data, &usage) != nil || usage.Model != "claude-opus-4-7" {
-		t.Fatalf("usage/cost %s", events[len(events)-3].Data)
+	opus, haiku, cost := events[len(events)-3], events[len(events)-2], events[len(events)-1]
+	if *opus.Usage != (protocol.Usage{Model: "claude-opus-4-7", Input: 8, Output: 70, CacheRead: 14210, CacheWrite: 14590, CostUSD: 0.0912, CostSource: "claude_estimate"}) ||
+		haiku.Usage.Model != "claude-haiku-4-5" || *cost.Cost != (driver.Cost{USD: 0.0941, Source: "claude_estimate"}) {
+		t.Fatalf("usage/cost %+v %+v %+v", opus.Usage, haiku.Usage, cost.Cost)
 	}
 	group := s.ProcessGroup()
 	s.Close()
@@ -204,7 +210,20 @@ func TestRecordedResume(t *testing.T) {
 	}
 }
 
-func TestRecordedInterrupt(t *testing.T) { run(t, "interrupt", true) }
+// An interrupted turn reports running usage before the result evidence and the final usage after.
+func TestRecordedInterrupt(t *testing.T) {
+	_, events, _, _ := run(t, "interrupt", true)
+	var usage []protocol.Usage
+	for _, e := range events {
+		if e.Usage != nil {
+			usage = append(usage, *e.Usage)
+		}
+	}
+	want := protocol.Usage{Model: "claude-opus-4-7", Input: 3, Output: 48, CacheWrite: 14190}
+	if len(usage) != 2 || usage[0] != want || usage[1].CostUSD != 0.0398 {
+		t.Fatalf("usage %+v", usage)
+	}
+}
 
 func TestRecordedMaxTurns(t *testing.T) {
 	_, events, r, rec := run(t, "max_turns", false)
@@ -219,15 +238,13 @@ func TestRecordedMaxTurns(t *testing.T) {
 
 func TestRecordedRateLimit(t *testing.T) {
 	_, events, r, _ := run(t, "rate_limit", false)
-	var quota struct {
-		ResetsAt string `json:"resets_at"`
-	}
+	var quota protocol.Quota
 	for _, e := range events {
-		if e.Method == "claude/shim/quota" {
-			_ = json.Unmarshal(e.Data, &quota)
+		if e.Quota != nil {
+			quota = *e.Quota
 		}
 	}
-	if r.Status != "FAILED" || quota.ResetsAt != "2026-10-13T23:00:00.000Z" {
+	if r.Status != "FAILED" || !quota.ResetsAt.Equal(time.Date(2026, 10, 13, 23, 0, 0, 0, time.UTC)) || quota.Type != "five_hour" {
 		t.Fatalf("%+v %+v", r, quota)
 	}
 }
