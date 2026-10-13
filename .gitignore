@@ -5,3 +5,4 @@ data/
 *.db*
 .factory-writer.lock
 projects/
+.DS_Store

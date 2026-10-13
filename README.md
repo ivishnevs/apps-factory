@@ -1,7 +1,8 @@
 # App Factory Orchestrator
 
 Реализованы Foundation, Agent Config и Task Engine: Go Core, SQLite, NATS JetStream, YAML-агенты и профили,
-реестр skills, единый каталог policies, проекты/задачи с зависимостями, scheduler, Factory MCP, сообщения/inbox и нативный Go Codex Worker.
+реестр skills, единый каталог policies, проекты/задачи с зависимостями, scheduler, Factory MCP, сообщения/inbox, нативный Go Codex Worker
+и TypeScript Claude Worker на Claude Agent SDK.
 Core работает в Docker, Worker — на macOS рядом с workspace, Git и Xcode.
 
 ## Запуск
@@ -23,7 +24,11 @@ make up
 ./bin/factory config validate
 ./bin/factory doctor
 ./bin/codex-worker
+# и/или для агентов с runtime.provider: claude (нужны Node 22+ и вход через `claude` /login):
+make claude-worker
 ```
+
+Claude Worker: [docs/claude-runtime.md](docs/claude-runtime.md).
 
 Core и NATS публикуют порты только на loopback. `.env` исключён из Git и Docker build context.
 В этой рабочей копии `.env` уже создан со случайными значениями. Не заменяйте его при обычном запуске.

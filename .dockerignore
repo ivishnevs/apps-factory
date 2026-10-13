@@ -5,3 +5,5 @@ data
 .git
 **/.factory-writer.lock
 projects
+workers/*/node_modules
+workers/*/dist

@@ -11,7 +11,13 @@ import (
 
 type RuntimeProvider string
 
-const RuntimeCodex RuntimeProvider = "codex"
+const (
+	RuntimeCodex  RuntimeProvider = "codex"
+	RuntimeClaude RuntimeProvider = "claude"
+)
+
+// Valid reports whether a native Worker exists for the provider's command subject.
+func (p RuntimeProvider) Valid() bool { return p == RuntimeCodex || p == RuntimeClaude }
 
 type RunSpec struct {
 	OpenSpecChange    string                   `json:"openspec_change,omitempty"`

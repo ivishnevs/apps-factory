@@ -1,0 +1,24 @@
+{
+  "name": "@appfactory/claude-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "check": "tsc -p . --noEmit",
+    "test": "node --test dist/test/*.test.js",
+    "start": "node dist/src/main.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.284",
+    "@nats-io/jetstream": "3.4.0",
+    "@nats-io/transport-node": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "typescript": "5.9.3"
+  }
+}

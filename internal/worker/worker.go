@@ -201,6 +201,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	defer stopRuntime()
 	args := w.Args
 	var runtimeEnv []string
+	var factoryInstructions string
 	withMCP := args == nil || w.MCPBinary != ""
 	if args == nil {
 		args = []string{"app-server", "--listen", "stdio://", "-c", "model_provider=\"openai\""}
@@ -218,16 +219,18 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return fmt.Errorf("factory-mcp executable required; run make build")
 		}
 		var credential struct {
-			Token string `json:"token"`
+			Token        string `json:"token"`
+			Instructions string `json:"instructions"`
 		}
 		if err = w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/credential", map[string]string{"lease": lease}, &credential); err != nil {
 			return err
 		}
-		if credential.Token == "" {
+		if credential.Token == "" || credential.Instructions == "" {
 			return fmt.Errorf("missing run credential")
 		}
 		args = append(append([]string{}, args...), "-c", "mcp_servers.factory.command="+strconv.Quote(mcp), "-c", `mcp_servers.factory.env_vars=["FACTORY_RUN_TOKEN","FACTORY_URL"]`, "-c", "mcp_servers.factory.required=true", "-c", "mcp_servers.factory.enabled=true")
 		runtimeEnv = runEnvironment(os.Environ(), w.API.URL, credential.Token)
+		factoryInstructions = credential.Instructions
 	}
 	client, err := rpc.StartEnv(runtimeCtx, w.Binary, args, runtimeEnv)
 	if err != nil {
@@ -258,8 +261,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	instructions := spec.Instructions
 	if withMCP {
-		instructions += "\nFactory MCP is available as server factory. Use its tools for project/task operations and lazy skill reads. Identity and project are bound to this run; do not supply actor or project_id. Mutations require a stable request_id and the latest entity version. On transport uncertainty, reuse the SAME request_id and arguments; do not repeat side effects with a new key. A 423 response requires owner approval: use factory_owner_request_approval with the exact tool name and original arguments including request_id and version. For a blocking request finish this turn immediately; Core resumes after a decision. Read factory_approval_get before retrying, and proceed only if APPROVED. Rejection, expiry and ordinary chat answers never authorize an action. Changing arguments requires a new approval. Artifact versions can be registered with factory_artifact_register and approved separately with factory_artifact_request_approval; a task submission does not approve an artifact. Downstream tasks declare required_artifacts with exact id/version/URI. Use the owner-approved artifact inputs pinned in your run prompt. OpenSpec documents live in the project workspace: use factory_openspec_list/read/check for current requirements. Read a linked change and relevant specs before implementing it. Factory checks references; use official OpenSpec tools for schema/semantic validation and archive. Markdown checkboxes do not change task status. A structured submission does not finish or accept a task. Read approved project decisions before repeating an owner question; use decision_get for full records and decision_list for current versions. Decision proposals are not approvals or tool permissions; decision_record requires exact owner authorization. Reports record significant actions; a needs_owner_action report creates an inbox notice without blocking this turn.\n"
-		instructions += "Current Factory message: " + spec.MessageID + "; run: " + spec.ID + "; task: " + spec.TaskID + "; agent: " + spec.Agent + "; project: " + spec.Project + ".\n"
+		instructions += factoryInstructions
 	}
 	params := map[string]any{"cwd": cwd, "approvalPolicy": "never", "sandbox": "danger-full-access", "developerInstructions": instructions}
 	if model, ok := spec.RuntimeOptions["model"].(string); ok && model != "" && model != "default" {

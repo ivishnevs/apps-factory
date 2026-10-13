@@ -75,7 +75,7 @@ func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 	if task.Status != "READY" || task.Submission != nil {
 		t.Fatal(task)
 	}
-	resumed, err := s.Dispatch(ctx, task.ID, task.Version, protocol.RunSpec{ID: "resume", Project: "p", Agent: "demo"})
+	resumed, err := s.Dispatch(ctx, task.ID, task.Version, protocol.RunSpec{ID: "resume", Project: "p", Agent: "demo", Provider: protocol.RuntimeCodex})
 	if err != nil || resumed.SessionID != "thread-"+run.ID {
 		t.Fatal("thread lost", resumed, err)
 	}

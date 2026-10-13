@@ -1,0 +1,15 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: claude-demo
+  description: Claude Agent SDK runtime smoke test agent
+spec:
+  extends: developer
+  runtime:
+    provider: claude
+    model: default
+  prompt:
+    file: prompts/demo.md
+  execution:
+    max_concurrent_runs: 1
+    timeout: 5m

@@ -340,6 +340,9 @@ func insertRun(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
 	if err := enrichRunDecisions(ctx, tx, r); err != nil {
 		return err
 	}
+	if err := checkSessionProvider(ctx, tx, r); err != nil {
+		return err
+	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err
@@ -355,6 +358,32 @@ func insertRun(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
 	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body) VALUES(?,?,?)", e.ID, "factory.commands.agent.run."+string(r.Provider), b); err != nil {
 		return err
 	}
+	return nil
+}
+
+// A session ID is opaque to Core but owned by the runtime that created it: Claude cannot
+// resume a Codex thread. Explicit direct resumes are rejected; Core-scheduled task and
+// conversation continuations start a fresh session after the agent's provider changed.
+func checkSessionProvider(ctx context.Context, tx *sql.Tx, r *protocol.RunSpec) error {
+	if r.SessionID == "" {
+		return nil
+	}
+	var b []byte
+	err := tx.QueryRowContext(ctx, "SELECT spec FROM runs WHERE session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1", r.SessionID).Scan(&b)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var prior protocol.RunSpec
+	if err = json.Unmarshal(b, &prior); err != nil || prior.Provider == r.Provider {
+		return err
+	}
+	if r.TaskID == "" && r.MessageID == "" {
+		return inputError("session belongs to " + string(prior.Provider) + " runtime, agent uses " + string(r.Provider))
+	}
+	r.SessionID = ""
 	return nil
 }
 func nullable(s string) any {

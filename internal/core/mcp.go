@@ -40,7 +40,12 @@ func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "active run lease required", 403)
 		return
 	}
-	write(w, map[string]string{"token": c.runToken(r.PathValue("id"), lease)})
+	run, err := c.Store.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		reply(w, nil, err)
+		return
+	}
+	write(w, map[string]string{"token": c.runToken(run.Spec.ID, lease), "instructions": runtimeInstructions(run.Spec)})
 }
 func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.Handler) {
 	// Only these two endpoints accept run credentials; they never authorize owner APIs.

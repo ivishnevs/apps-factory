@@ -39,6 +39,7 @@ a mutation automatically. A 409 is a state/version conflict, not permission to r
 ## Identity and execution
 
 Worker uses the owner credential only to claim/heartbeat/fetch and request a run credential.
+The credential response also carries the provider-neutral Factory MCP instructions appended to the run.
 The credential is an HMAC tied to the run and lease; the Core checks RUNNING and lease expiration
 on every call/discovery. Terminal/UNKNOWN/CANCELLING runs cannot invoke MCP. A Core restart preserves
 validity with the same secret and DB. Token rotation revokes issued credentials. Tokens cannot

@@ -11,6 +11,7 @@ import (
 
 	"appfactory/internal/configfile"
 	"appfactory/internal/policies"
+	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
 	"gopkg.in/yaml.v3"
 )
@@ -320,8 +321,8 @@ func decodeAgent(m map[string]any) (Agent, error) {
 	return a, err
 }
 func (c *Catalog) finish(root string, a *Agent) error {
-	if a.Spec.Runtime.Provider != "codex" {
-		return fmt.Errorf("only codex provider is implemented")
+	if !protocol.RuntimeProvider(a.Spec.Runtime.Provider).Valid() {
+		return fmt.Errorf("unsupported runtime provider %q: expected codex or claude", a.Spec.Runtime.Provider)
 	}
 	if a.Spec.Runtime.Model == "" {
 		a.Spec.Runtime.Model = "default"

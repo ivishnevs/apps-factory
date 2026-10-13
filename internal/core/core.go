@@ -175,7 +175,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := sha256.Sum256(snapshot)
 	// Workspace is a host path: Core in Docker must not attempt to resolve it.
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeCodex, Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hex.EncodeToString(hash[:]), Skills: append([]string{}, a.AvailableSkills...)}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hex.EncodeToString(hash[:]), Skills: append([]string{}, a.AvailableSkills...)}
 	if err := c.Store.Create(r.Context(), spec); err != nil {
 		http.Error(w, err.Error(), 409)
 		return

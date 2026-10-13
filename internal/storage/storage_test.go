@@ -4,6 +4,7 @@ import (
 	"appfactory/internal/protocol"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -126,5 +127,36 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	var out protocol.Envelope
 	if json.Unmarshal(b, &out) != nil || out.Version != 1 {
 		t.Fatal("bad envelope")
+	}
+}
+func TestSessionBelongsToProvider(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	spec := protocol.RunSpec{ID: "codex", Project: "p", Agent: "a", Provider: protocol.RuntimeCodex, Workspace: "/tmp/p"}
+	if err = s.Create(ctx, spec); err != nil {
+		t.Fatal(err)
+	}
+	token, err := s.Claim(ctx, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Apply(ctx, protocol.Wrap("completed", "codex", "", protocol.Event{RunID: "codex", Lease: token, SessionID: "thread-1", Status: "COMPLETED"})); err != nil {
+		t.Fatal(err)
+	}
+	direct := protocol.RunSpec{ID: "direct", Project: "p", Agent: "a", Provider: protocol.RuntimeClaude, Workspace: "/tmp/p", SessionID: "thread-1"}
+	if err = s.Create(ctx, direct); !errors.Is(err, ErrInput) {
+		t.Fatal("cross-provider resume accepted", err)
+	}
+	continuation := direct
+	continuation.ID, continuation.MessageID = "message", "m1"
+	if err = s.Create(ctx, continuation); err != nil {
+		t.Fatal(err)
+	}
+	if run, err := s.Get(ctx, "message"); err != nil || run.SessionID != "" || run.Spec.SessionID != "" {
+		t.Fatalf("continuation kept foreign session: %+v %v", run, err)
 	}
 }

@@ -78,8 +78,8 @@ func TestRunScopedMCP(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	var credential struct{ Token string }
-	if err = json.Unmarshal(w.Body.Bytes(), &credential); err != nil {
+	var credential struct{ Token, Instructions string }
+	if err = json.Unmarshal(w.Body.Bytes(), &credential); err != nil || !strings.Contains(credential.Instructions, "run: "+run.Spec.ID+";") {
 		t.Fatal(err)
 	}
 	token := credential.Token
