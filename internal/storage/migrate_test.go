@@ -1,88 +1,98 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"appfactory/internal/protocol"
 )
 
-// legacySchema builds a database the way the PRAGMA user_version chain left it.
-func legacySchema(t *testing.T, db *sql.DB, version int) {
-	t.Helper()
-	ms, err := migrations()
+func TestFreshDatabaseRecordsAllMigrations(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range ms[:version] {
-		if _, err = db.Exec(m.SQL); err != nil {
-			t.Fatal(m.Name, err)
-		}
-	}
-	if _, err = db.Exec(fmt.Sprintf("PRAGMA user_version=%d", version)); err != nil {
+	defer s.DB.Close()
+	ms, err := loadMigrations()
+	if err != nil {
 		t.Fatal(err)
+	}
+	var n, max, version int
+	if err = s.DB.QueryRow("SELECT count(*),max(version) FROM schema_migrations WHERE applied_at>0").Scan(&n, &max); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(ms) || max != len(ms) || version != len(ms) {
+		t.Fatal(n, max, version)
 	}
 }
 
-func TestLegacyV7DatabaseIsAdopted(t *testing.T) {
+func TestLegacyDatabaseIsAdoptedWithoutReapplying(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DB.Exec("DROP TABLE schema_migrations"); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.Close()
+	// Re-applying any migration would fail with "table already exists".
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	var n int
+	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations WHERE applied_at=0").Scan(&n); err != nil || n != 8 {
+		t.Fatal(n, err)
+	}
+}
+
+func TestNewerSchemaIsRefused(t *testing.T) {
+	for name, q := range map[string]string{
+		"user_version":      "PRAGMA user_version=99",
+		"schema_migrations": "INSERT INTO schema_migrations(version,name,applied_at) VALUES(99,'future',1)",
+	} {
+		path := filepath.Join(t.TempDir(), "db")
+		s, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "user_version" {
+			s.DB.Exec("DROP TABLE schema_migrations")
+		}
+		if _, err = s.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+		s.DB.Close()
+		if _, err = Open(path); err == nil || !strings.Contains(err.Error(), "unsupported database schema 99") {
+			t.Fatal(name, err)
+		}
+	}
+}
+
+func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacySchema(t, db, legacyVersion)
-	b, _ := json.Marshal(protocol.RunSpec{ID: "old", Project: "p", Agent: "demo"})
-	if _, err = db.Exec("INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,result) VALUES('old','p','demo','/tmp/p',?,'COMPLETED',1,'kept')", b); err != nil {
+	// A conflicting table makes migration 0003 fail after 0001-0002 succeed.
+	if _, err = db.Exec("CREATE TABLE tool_calls (id TEXT)"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
-	s, err := Open(path)
-	if err != nil {
+	if _, err = Open(path); err == nil || !strings.Contains(err.Error(), "0003_tool_calls") {
 		t.Fatal(err)
 	}
-	if r, err := s.Get(context.Background(), DefaultCompany, "old"); err != nil || r.Result != "kept" {
-		t.Fatal(r, err)
-	}
-	var adopted int
-	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations WHERE version<=?", legacyVersion).Scan(&adopted); err != nil || adopted != legacyVersion {
-		t.Fatal(adopted, err)
-	}
-	s.DB.Close()
-	if s, err = Open(path); err != nil {
-		t.Fatal("reopen", err)
-	}
-	s.DB.Close()
-}
-
-func TestNewerSchemaIsRefused(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.DB.Exec("INSERT INTO schema_migrations VALUES(9999,'9999_future',0)"); err != nil {
-		t.Fatal(err)
-	}
-	s.DB.Close()
-	if _, err = Open(path); err == nil || !strings.Contains(err.Error(), "unsupported database schema 9999") {
-		t.Fatal("newer schema accepted", err)
-	}
-
-	untracked := filepath.Join(t.TempDir(), "db")
-	db, err := sql.Open("sqlite", untracked)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec("PRAGMA user_version=8"); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	if _, err = Open(untracked); err == nil {
-		t.Fatal("untracked newer schema accepted")
+	db, _ = sql.Open("sqlite", path)
+	defer db.Close()
+	var max, version int
+	db.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&max)
+	db.QueryRow("PRAGMA user_version").Scan(&version)
+	if max != 2 || version != 2 {
+		t.Fatal(max, version)
 	}
 }

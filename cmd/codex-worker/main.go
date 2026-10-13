@@ -2,14 +2,13 @@ package main
 
 import (
 	"appfactory/internal/bus"
+	"appfactory/internal/driver/codex"
 	"appfactory/internal/worker"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 )
 
@@ -21,13 +20,9 @@ func main() {
 	}
 }
 func run() error {
-	binary := env("CODEX_BIN", "codex")
-	version, err := exec.Command(binary, "--version").Output()
-	if err != nil {
+	drv := codex.Driver{Binary: env("CODEX_BIN", "codex")}
+	if _, err := drv.CheckVersion(context.Background()); err != nil {
 		return err
-	}
-	if strings.TrimSpace(string(version)) != "codex-cli 0.162.1" {
-		return fmt.Errorf("unsupported Codex %q: expected 0.162.1; regenerate and verify schema before upgrade", strings.TrimSpace(string(version)))
 	}
 	if os.Getenv("FACTORY_TOKEN") == "" {
 		return fmt.Errorf("FACTORY_TOKEN required")
@@ -39,7 +34,7 @@ func run() error {
 	defer b.NC.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	w := worker.Worker{Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN")}, Binary: binary}
+	w := worker.Worker{Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN")}, Driver: drv, StateDir: env("FACTORY_WORKER_STATE", "data/codex-worker")}
 	return w.Run(ctx)
 }
 func env(k, d string) string {

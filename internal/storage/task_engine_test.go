@@ -70,7 +70,13 @@ func TestMigrationPreservesFoundation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacySchema(t, db, 1)
+	baseline, err := migrationFS.ReadFile("migrations/0001_runs.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(baseline) + "PRAGMA user_version=1;"); err != nil {
+		t.Fatal(err)
+	}
 	spec := protocol.RunSpec{ID: "legacy", Project: "legacy", Agent: "demo"}
 	b, _ := json.Marshal(spec)
 	if _, err = db.Exec("INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,result) VALUES('legacy','legacy','demo','/tmp/legacy',?,'COMPLETED',1,'old result')", b); err != nil {
@@ -86,7 +92,7 @@ func TestMigrationPreservesFoundation(t *testing.T) {
 	if err != nil || r.Result != "old result" {
 		t.Fatal(r, err)
 	}
-	ms, _ := migrations()
+	ms, _ := loadMigrations()
 	var version, recorded int
 	if err = s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(ms) {
 		t.Fatal(version, err)

@@ -1,5 +1,6 @@
-// Claude Agent SDK adapter. The SDK owns the agent loop; this module owns only startup
-// checks, event forwarding and conservative classification of terminal evidence.
+// Claude Agent SDK adapter shared by the standalone Worker (worker.ts) and the per-run shim
+// (shim.ts). The SDK owns the agent loop; this module owns only startup checks, event forwarding
+// and conservative classification of terminal evidence.
 import { randomUUID } from "node:crypto";
 import {
   query as sdkQuery,
@@ -12,12 +13,34 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { EventKind, RunEvent, RunSpec, TerminalStatus } from "./protocol.js";
 import { Redactor } from "./redact.js";
+import { clock, type Timer } from "./clock.js";
 
 export type QueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => Query;
 export type Emit = (kind: EventKind, event: Omit<RunEvent, "run_id" | "lease">) => Promise<void>;
 
+// Structured failure classes, so callers never classify by message text.
+export type ErrorClass =
+  | "runtime"
+  | "launch"
+  | "executable"
+  | "auth"
+  | "startup_timeout"
+  | "mcp_unavailable"
+  | "session_mismatch"
+  | "no_result"
+  | "interrupt_timeout"
+  | "interrupt_unknown";
+
 // Any RuntimeError (or other throw) after claim is reported as UNKNOWN by the Worker.
-export class RuntimeError extends Error {}
+export class RuntimeError extends Error {
+  constructor(
+    message: string,
+    readonly cls: ErrorClass = "runtime",
+    readonly detail: Record<string, unknown> = {},
+  ) {
+    super(message);
+  }
+}
 
 export interface RuntimeInput {
   spec: RunSpec;
@@ -28,6 +51,11 @@ export interface RuntimeInput {
   // Aborted by execution timeout, owner cancellation or lost lease.
   signal: AbortSignal;
   emit: Emit;
+  // Called with every runtime message after its progress event (the shim derives usage, quota
+  // and auth signals from it).
+  observe?: (m: SDKMessage) => Promise<void> | void;
+  // Session ID for a new session; random UUID by default.
+  newSessionId?: () => string;
   query?: QueryFn;
   executable?: string;
   allowApiKey?: boolean;
@@ -75,22 +103,20 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
   };
 }
 
-const sleep = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
-
-async function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
+async function within<T>(p: Promise<T>, ms: number, what: string, cls: ErrorClass = "runtime"): Promise<T> {
+  let timer: Timer | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new RuntimeError(`${what} timed out`)), ms);
+    timer = clock.timeout(ms, () => reject(new RuntimeError(`${what} timed out`, cls)));
   });
   try {
     return await Promise.race([p, timeout]);
   } finally {
-    clearTimeout(timer);
+    timer?.cancel();
   }
 }
 
 export async function runClaude(input: RuntimeInput): Promise<void> {
-  const sessionId = input.spec.session_id || randomUUID();
+  const sessionId = input.spec.session_id || (input.newSessionId ?? randomUUID)();
   let openGate!: () => void;
   const gate = new Promise<void>((resolve) => (openGate = resolve));
   let endInput!: () => void;
@@ -105,14 +131,17 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
   const q = (input.query ?? sdkQuery)({ prompt: prompt(), options: runtimeOptions(input, sessionId, abortController) });
   const iterator = q[Symbol.asyncIterator]();
   const redactor = new Redactor();
+  let deadlineTimer: Timer | undefined;
   try {
     const startup = input.startupTimeoutMs ?? 30_000;
-    const account = await within(q.accountInfo(), startup, "runtime startup");
+    const account = await within(q.accountInfo(), startup, "runtime startup", "startup_timeout");
     if (!input.allowApiKey && account.apiKeySource && account.apiKeySource !== "none") {
-      throw new RuntimeError(`Claude subscription login required; API key source ${account.apiKeySource} is not allowed`);
+      throw new RuntimeError(`Claude subscription login required; API key source ${account.apiKeySource} is not allowed`, "auth", {
+        api_key_source: account.apiKeySource,
+      });
     }
     // Factory MCP is required, like Codex mcp_servers.factory.required: wait while it connects.
-    if (input.mcpCommand) await within(factoryConnected(q), startup, "factory MCP startup");
+    if (input.mcpCommand) await within(factoryConnected(q), startup, "factory MCP startup", "startup_timeout");
     // Core persists the session before the turn executes.
     await input.emit("started", { session_id: sessionId });
     openGate();
@@ -123,28 +152,29 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
     });
     let interrupted = false;
     let deadline: Promise<"deadline"> | undefined;
-    let deadlineTimer: NodeJS.Timeout | undefined;
     for (;;) {
       const next = iterator.next();
       let r = await Promise.race([next, deadline ?? cancelled]);
       if (r === "cancel") {
         interrupted = true;
-        await within(q.interrupt(), 5_000, "interrupt");
+        await within(q.interrupt(), 5_000, "interrupt", "interrupt_timeout");
         // Acknowledgement only means interruption was requested. Wait for terminal evidence.
         deadline = new Promise((resolve) => {
-          deadlineTimer = setTimeout(() => resolve("deadline"), input.interruptTimeoutMs ?? 10_000);
+          deadlineTimer = clock.timeout(input.interruptTimeoutMs ?? 10_000, () => resolve("deadline"));
         });
         r = await Promise.race([next, deadline]);
       }
-      if (r === "deadline") throw new RuntimeError("interrupt result unknown");
-      if (r.done) throw new RuntimeError("runtime ended without terminal evidence");
+      if (r === "deadline") throw new RuntimeError("interrupt result unknown", "interrupt_unknown");
+      if (r.done) throw new RuntimeError("runtime ended without terminal evidence", "no_result");
       const m = r.value;
       await input.emit("progress", { method: methodOf(m), data: redactor.data(m) });
+      await input.observe?.(m);
       if (m.type === "system" && m.subtype === "init" && m.session_id !== sessionId) {
-        throw new RuntimeError(`runtime session ${m.session_id} differs from persisted ${sessionId}`);
+        throw new RuntimeError(`runtime session ${m.session_id} differs from persisted ${sessionId}`, "session_mismatch", {
+          session_id: m.session_id,
+        });
       }
       if (m.type === "result") {
-        clearTimeout(deadlineTimer);
         await input.emit("completed", classify(m, interrupted));
         // Let the CLI flush its transcript so the session can be resumed.
         endInput();
@@ -153,6 +183,7 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
       }
     }
   } finally {
+    deadlineTimer?.cancel();
     endInput();
     q.close();
   }
@@ -162,8 +193,8 @@ async function factoryConnected(q: Query) {
   for (;;) {
     const status = (await q.mcpServerStatus()).find((s) => s.name === "factory")?.status;
     if (status === "connected") return;
-    if (status !== "pending") throw new RuntimeError(`factory MCP server ${status ?? "missing"}`);
-    await sleep(250, undefined);
+    if (status !== "pending") throw new RuntimeError(`factory MCP server ${status ?? "missing"}`, "mcp_unavailable", { status: status ?? "missing" });
+    await clock.sleep(250);
   }
 }
 

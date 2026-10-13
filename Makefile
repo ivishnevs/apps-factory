@@ -5,6 +5,7 @@ build:
 	go build -o bin/codex-worker ./cmd/codex-worker
 	go build -o bin/factory-mcp ./cmd/factory-mcp
 	go build -o bin/factory-workspace ./cmd/factory-workspace
+	go build -o bin/factory-node ./cmd/factory-node
 	cd workers/claude && npm ci --ignore-scripts && npm run build
 test:
 	go test -race ./...

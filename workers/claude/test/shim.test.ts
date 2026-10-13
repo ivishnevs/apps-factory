@@ -1,0 +1,270 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { PassThrough } from "node:stream";
+import { test } from "node:test";
+import type { AccountInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { probe, runShim, sdkVersion, type Launch, type ShimEvent } from "../src/shim.js";
+import type { QueryFn } from "../src/runtime.js";
+
+// Recorded SDK message streams shared with internal/driver/claude (Go) tests. Each scenario is
+// <name>.json (launch line, environment, account, MCP status sequence, interrupt point),
+// <name>.sdk.jsonl (SDK messages in delivery order) and <name>.events.jsonl (expected shim stdout).
+// UPDATE_TESTDATA=1 npm test rewrites the .events.jsonl files.
+const TESTDATA = new URL("../../../../internal/driver/claude/testdata/", import.meta.url);
+
+interface Scenario {
+  launch: Launch;
+  env: Record<string, string>;
+  account: AccountInfo;
+  mcp_status: string[];
+  new_session_id?: string;
+  // Index of the first message delivered only after the shim called interrupt().
+  interrupt_after?: number;
+}
+
+interface Seen {
+  options?: Options;
+  prompts: SDKUserMessage[];
+  interrupted: boolean;
+  closed: boolean;
+}
+
+const jsonl = <T>(text: string): T[] =>
+  text
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as T);
+
+// A Query that replays messages after the prompt is delivered. At interrupt_after it sends the
+// interrupt control line through the shim's stdin, like the driver, and waits for interrupt().
+function replay(messages: SDKMessage[], s: Pick<Scenario, "account" | "mcp_status" | "interrupt_after">, stdin: PassThrough) {
+  const seen: Seen = { prompts: [], interrupted: false, closed: false };
+  let onInterrupt!: () => void;
+  const interrupt = new Promise<void>((r) => (onInterrupt = r));
+  const statuses = [...s.mcp_status];
+  const query: QueryFn = ({ prompt, options }) => {
+    seen.options = options;
+    async function* stream() {
+      for await (const p of prompt) {
+        seen.prompts.push(p);
+        break;
+      }
+      for (const [i, m] of messages.entries()) {
+        if (i === s.interrupt_after) {
+          stdin.write(JSON.stringify({ interrupt: true }) + "\n");
+          await interrupt;
+        }
+        yield m;
+      }
+    }
+    return Object.assign(stream(), {
+      accountInfo: async () => s.account,
+      mcpServerStatus: async () => [{ name: "factory", status: statuses.length > 1 ? statuses.shift() : statuses[0] }],
+      interrupt: async () => {
+        seen.interrupted = true;
+        onInterrupt();
+        return undefined;
+      },
+      close: () => {
+        seen.closed = true;
+      },
+    }) as unknown as Query;
+  };
+  return { query, seen };
+}
+
+async function shim(launchLine: string | undefined, query: QueryFn, env: Record<string, string>, stdin = new PassThrough(), newSessionId?: string) {
+  const stdout = new PassThrough();
+  let text = "";
+  stdout.on("data", (d: Buffer) => (text += d.toString()));
+  if (launchLine !== undefined) stdin.write(launchLine + "\n");
+  else stdin.end();
+  await runShim({
+    input: stdin,
+    output: stdout,
+    env,
+    query,
+    newSessionId: newSessionId ? () => newSessionId : undefined,
+    startupTimeoutMs: 1_000,
+    interruptTimeoutMs: 1_000,
+  });
+  stdin.end();
+  return jsonl<ShimEvent>(text);
+}
+
+async function scenario(name: string) {
+  const s = JSON.parse(readFileSync(new URL(`${name}.json`, TESTDATA), "utf8")) as Scenario;
+  const messages = jsonl<SDKMessage>(readFileSync(new URL(`${name}.sdk.jsonl`, TESTDATA), "utf8"));
+  const stdin = new PassThrough();
+  const { query, seen } = replay(messages, s, stdin);
+  const launchLine = JSON.stringify(s.launch);
+  const events = await shim(launchLine, query, s.env, stdin, s.new_session_id);
+  const golden = new URL(`${name}.events.jsonl`, TESTDATA);
+  if (process.env["UPDATE_TESTDATA"] === "1") writeFileSync(golden, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  assert.ok(existsSync(golden), `${golden.pathname} missing; run UPDATE_TESTDATA=1 npm test`);
+  assert.deepEqual(events, jsonl<ShimEvent>(readFileSync(golden, "utf8")), `${name}: shim output differs from ${name}.events.jsonl`);
+
+  // Common protocol invariants.
+  assert.equal(events[0]!.event, "session");
+  assert.equal(events.filter((e) => e.event === "result").length, 1);
+  assert.equal(events.at(-1)!.event, "result");
+  assert.equal(seen.prompts[0]!.message.content, s.launch.spec.prompt);
+  assert.ok(seen.closed);
+  // The run token reaches the runtime (and factory-mcp by inheritance) only through the environment.
+  const token = s.env["FACTORY_RUN_TOKEN"]!;
+  assert.ok(!launchLine.includes(token));
+  assert.equal(seen.options!.env!["FACTORY_RUN_TOKEN"], token);
+  assert.deepEqual(seen.options!.mcpServers, { factory: { type: "stdio", command: s.launch.mcp_command } });
+  assert.equal(seen.options!.env!["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"], "1");
+  return { events, seen, s };
+}
+
+const last = (events: ShimEvent[]) => events.at(-1) as Extract<ShimEvent, { event: "result" }>;
+
+test("recorded start: pre-assigned session, activity, usage, cost, completed", async () => {
+  const { events, seen, s } = await scenario("start");
+  assert.equal(seen.options!.sessionId, s.new_session_id);
+  assert.equal(seen.options!.resume, undefined);
+  assert.deepEqual(events[0], { event: "session", id: s.new_session_id });
+  assert.deepEqual(
+    events.filter((e) => e.event === "usage").map((e) => (e as { model: string }).model),
+    ["claude-opus-4-7", "claude-haiku-4-5"],
+  );
+  assert.deepEqual(events.find((e) => e.event === "cost"), { event: "cost", usd: 0.0941, source: "claude_estimate" });
+  assert.deepEqual(last(events), { event: "result", status: "COMPLETED", result: "FOUNDATION_OK", session_id: s.new_session_id });
+  assert.ok(!events.some((e) => e.event === "error"));
+});
+
+test("recorded resume: persisted session is resumed", async () => {
+  const { events, seen, s } = await scenario("resume");
+  assert.equal(seen.options!.resume, s.launch.spec.session_id);
+  assert.equal(seen.options!.sessionId, undefined);
+  assert.deepEqual(events[0], { event: "session", id: s.launch.spec.session_id });
+  assert.equal(last(events).status, "COMPLETED");
+});
+
+test("recorded interrupt: stdin interrupt yields CANCELLED from the result evidence", async () => {
+  const { events, seen } = await scenario("interrupt");
+  assert.ok(seen.interrupted);
+  assert.equal(last(events).status, "CANCELLED");
+  assert.ok(events.some((e) => e.event === "usage"), "an interrupted turn still reports usage");
+  assert.ok(!events.some((e) => e.event === "error"));
+});
+
+test("recorded max turns: max_turns event, FAILED", async () => {
+  const { events } = await scenario("max_turns");
+  assert.deepEqual(events.at(-2), { event: "max_turns", num_turns: 2 });
+  assert.equal(last(events).status, "FAILED");
+});
+
+test("recorded rate limit: rejected rate_limit_event is a quota event with the reset time", async () => {
+  const { events } = await scenario("rate_limit");
+  const quota = events.filter((e) => e.event === "quota");
+  assert.deepEqual(quota, [{ event: "quota", resets_at: "2026-10-13T23:00:00.000Z", rate_limit_type: "five_hour" }]);
+  assert.deepEqual(events.at(-2), { event: "error", class: "api_error", terminal_reason: "api_error", api_error_status: 429 });
+  assert.equal(last(events).status, "FAILED");
+});
+
+const baseLaunch = (): Launch => ({
+  spec: {
+    id: "run-x",
+    project: "p",
+    agent: "a",
+    provider: "claude",
+    workspace: "/tmp/w",
+    prompt: "do it",
+    instructions: "i",
+    timeout_seconds: 60,
+  },
+  cwd: "/tmp/w",
+  instructions: "factory",
+});
+
+const account: AccountInfo = { apiKeySource: "none" };
+
+test("API key auth is an auth_error before the prompt", async () => {
+  const { query, seen } = replay([], { account: { apiKeySource: "ANTHROPIC_API_KEY" }, mcp_status: ["connected"] }, new PassThrough());
+  const events = await shim(JSON.stringify(baseLaunch()), query, { ANTHROPIC_API_KEY: "k" });
+  assert.deepEqual(events, [
+    { event: "auth_error", reason: "api_key_source", api_key_source: "ANTHROPIC_API_KEY" },
+    { event: "result", status: "UNKNOWN", result: "Claude subscription login required; API key source ANTHROPIC_API_KEY is not allowed" },
+  ]);
+  assert.equal(seen.prompts.length, 0);
+  assert.equal(seen.options!.env!["ANTHROPIC_API_KEY"], undefined);
+});
+
+test("structured assistant authentication error is an auth_error", async () => {
+  const msgs = [
+    { type: "assistant", error: "authentication_failed", message: { content: [] }, session_id: "s" },
+    { type: "result", subtype: "success", is_error: true, result: "x", num_turns: 1, total_cost_usd: 0, modelUsage: {}, session_id: "s" },
+  ] as unknown as SDKMessage[];
+  const { query } = replay(msgs, { account, mcp_status: ["connected"] }, new PassThrough());
+  const events = await shim(JSON.stringify(baseLaunch()), query, {}, undefined, "s");
+  assert.deepEqual(
+    events.filter((e) => e.event !== "activity").map((e) => e.event),
+    ["session", "auth_error", "cost", "error", "result"],
+  );
+});
+
+test("invalid launch and early EOF are classified launch errors", async () => {
+  const { query, seen } = replay([], { account, mcp_status: ["connected"] }, new PassThrough());
+  assert.deepEqual((await shim("{not json", query, {}))[0], { event: "error", class: "launch", message: "launch line is not JSON" });
+  assert.equal((await shim(undefined, query, {}))[0]!.event, "error");
+  const mcp = { ...baseLaunch(), mcp_command: "/bin/factory-mcp" };
+  const noToken = await shim(JSON.stringify(mcp), query, {});
+  assert.deepEqual(
+    noToken.map((e) => e.event),
+    ["error", "result"],
+  );
+  assert.equal(seen.options, undefined, "runtime is not started without a valid launch");
+});
+
+test("stdin EOF after launch interrupts the run", async () => {
+  const stdin = new PassThrough();
+  let onInterrupt!: () => void;
+  const interrupted = new Promise<void>((r) => (onInterrupt = r));
+  const query: QueryFn = ({ prompt }) => {
+    async function* stream() {
+      for await (const _ of prompt) break;
+      yield { type: "system", subtype: "init", session_id: "s" } as unknown as SDKMessage;
+      stdin.end();
+      await interrupted;
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: [], num_turns: 0, total_cost_usd: 0, modelUsage: {}, terminal_reason: "aborted_streaming", session_id: "s" } as unknown as SDKMessage;
+    }
+    return Object.assign(stream(), {
+      accountInfo: async () => account,
+      interrupt: async () => void onInterrupt(),
+      close: () => {},
+    }) as unknown as Query;
+  };
+  const events = await shim(JSON.stringify(baseLaunch()), query, {}, stdin, "s");
+  assert.equal(last(events).status, "CANCELLED");
+});
+
+test("probe reports version and account without a prompt", async () => {
+  let prompted = false;
+  let options: Options | undefined;
+  const query: QueryFn = ({ prompt, options: o }) => {
+    options = o;
+    async function* stream(): AsyncGenerator<SDKMessage> {
+      for await (const _ of prompt) prompted = true;
+    }
+    return Object.assign(stream(), { accountInfo: async () => ({ apiKeySource: "none", subscriptionType: "max" }), close: () => {} }) as unknown as Query;
+  };
+  const out = new PassThrough();
+  let text = "";
+  out.on("data", (d: Buffer) => (text += d.toString()));
+  const ok = await probe({ output: out, env: {}, executable: "/opt/claude", query, version: async () => "2.1.284" });
+  assert.ok(ok);
+  assert.deepEqual(jsonl(text), [
+    { event: "probe", claude_code_version: "2.1.284", sdk_version: sdkVersion(), account: { apiKeySource: "none", subscriptionType: "max" } },
+  ]);
+  assert.equal(sdkVersion(), "0.3.284");
+  assert.equal(options!.pathToClaudeCodeExecutable, "/opt/claude");
+  assert.equal(prompted, false);
+
+  text = "";
+  const failed = await probe({ output: out, env: {}, executable: "/missing/claude", query, version: async () => Promise.reject(new Error("ENOENT")) });
+  assert.equal(failed, false);
+  assert.deepEqual(jsonl(text), [{ event: "error", class: "executable", message: "ENOENT" }]);
+});
