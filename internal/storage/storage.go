@@ -207,7 +207,7 @@ func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
 		return "", ErrConflict
 	}
 	token := protocol.ID()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=? WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0) WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
 	if err != nil {
 		return "", err
 	}

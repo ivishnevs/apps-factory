@@ -72,14 +72,51 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 			snap.MaxRetries = captured.Spec.Execution.MaxRetries
 		}
 	}
-	if t.WaitMessageID != "" {
-		m, err := messageTx(ctx, tx, t.WaitMessageID)
-		if err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT wake_seq,handled_seq FROM tasks WHERE company_id=? AND id=?", tx.company, t.ID).Scan(&snap.WakeSeq, &snap.HandledSeq); err != nil {
+		return snap, err
+	}
+	parks, err := tx.QueryContext(ctx, "SELECT p.id,p.kind,p.ref_id,p.reason,coalesce(m.recipient,'') FROM task_parks p LEFT JOIN messages m ON p.kind='ask' AND m.id=p.ref_id WHERE p.company_id=? AND p.task_id=? AND p.status='active' ORDER BY p.created_at,p.id", tx.company, t.ID)
+	if err != nil {
+		return snap, err
+	}
+	for parks.Next() {
+		var p tasks.Park
+		var recipient string
+		if err = parks.Scan(&p.ID, &p.Kind, &p.RefID, &p.Reason, &recipient); err != nil {
+			parks.Close()
 			return snap, err
 		}
-		if m.Status != "ANSWERED" {
-			snap.WaitMessage, snap.WaitMessageRecipient = m.ID, m.Recipient
+		p.Who = "owner"
+		if recipient != "" && recipient != "owner" {
+			p.Who = "agent:" + recipient
 		}
+		snap.Parks = append(snap.Parks, p)
+	}
+	if err = parks.Err(); err != nil {
+		parks.Close()
+		return snap, err
+	}
+	if err = parks.Close(); err != nil {
+		return snap, err
+	}
+	triggers, err := tx.QueryContext(ctx, "SELECT seq,kind,actor,authority,ref_id FROM task_triggers WHERE company_id=? AND task_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT 20", tx.company, t.ID, snap.HandledSeq, snap.WakeSeq)
+	if err != nil {
+		return snap, err
+	}
+	for triggers.Next() {
+		var g tasks.Trigger
+		if err = triggers.Scan(&g.Seq, &g.Kind, &g.Actor, &g.Authority, &g.RefID); err != nil {
+			triggers.Close()
+			return snap, err
+		}
+		snap.Pending = append(snap.Pending, g)
+	}
+	if err = triggers.Err(); err != nil {
+		triggers.Close()
+		return snap, err
+	}
+	if err = triggers.Close(); err != nil {
+		return snap, err
 	}
 	for _, dep := range t.Dependencies {
 		d, err := taskTx(ctx, tx, dep)

@@ -10,6 +10,7 @@ import (
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
+	"appfactory/internal/tasks"
 )
 
 func (s *Store) Conversation(ctx context.Context, company, id string) (messaging.Conversation, error) {
@@ -189,6 +190,9 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if err = saveTask(ctx, tx, &t, "task.waiting"); err != nil {
 			return m, err
 		}
+		if err = addPark(ctx, tx, t, tasks.ParkAsk, m.ID, "waiting for the answer to question "+m.ID+" from "+m.Recipient); err != nil {
+			return m, err
+		}
 	}
 	if m.MessageType == "question" && m.Sender != "owner" {
 		var count int
@@ -364,6 +368,18 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	}
 	if err = resumeWaitingTask(ctx, tx, m); err != nil {
 		return answer, err
+	}
+	if m.Blocking && m.TaskID != "" {
+		t, err := taskTx(ctx, tx, m.TaskID)
+		if err != nil {
+			return answer, err
+		}
+		if err = clearParks(ctx, tx, t, tasks.ParkAsk, m.ID, "cleared"); err != nil {
+			return answer, err
+		}
+		if err = addTrigger(ctx, tx, t, "answer", isOwner(in.Sender), in.Sender, m.ID, in.Body); err != nil {
+			return answer, err
+		}
 	}
 	return answer, nil
 }

@@ -254,6 +254,7 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		return t, entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t)
 	})
 }
+
 // ErrCycle refuses a parent/dependency combination in which a task would wait on itself.
 var ErrCycle = fmt.Errorf("%w: cycle", ErrConflict)
 
@@ -374,6 +375,7 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		if in.Priority != nil {
 			t.Priority = *in.Priority
 		}
+		previousAssignee := t.Assignee
 		if in.Assignee != nil {
 			t.Assignee = *in.Assignee
 		}
@@ -406,7 +408,12 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 				return t, err
 			}
 		}
-		err = saveTask(ctx, tx, &t, "task.updated")
+		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
+			return t, err
+		}
+		if t.Assignee != "" && t.Assignee != previousAssignee {
+			err = addTrigger(ctx, tx, t, "assignment", isOwner(in.Actor), in.Actor, "", "assigned to "+t.Assignee)
+		}
 		return t, err
 	})
 }
@@ -512,7 +519,19 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 				return t, err
 			}
 		}
-		err = saveTask(ctx, tx, &t, "task.updated")
+		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
+			return t, err
+		}
+		switch in.Action {
+		case "ready":
+			if err = clearParks(ctx, tx, t, tasks.ParkBlock, anyRef, "cleared"); err == nil {
+				err = addTrigger(ctx, tx, t, "ready", isOwner(in.Actor), in.Actor, "", in.Reason)
+			}
+		case "block":
+			err = addPark(ctx, tx, t, tasks.ParkBlock, "", t.BlockReason)
+		case "cancel":
+			err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden")
+		}
 		return t, err
 	})
 }
@@ -562,7 +581,16 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 		if err = comment(ctx, tx, id, in.Actor, in.Feedback); err != nil {
 			return t, err
 		}
-		err = saveTask(ctx, tx, &t, "task.reviewed")
+		if err = saveTask(ctx, tx, &t, "task.reviewed"); err != nil {
+			return t, err
+		}
+		if in.Accept {
+			if err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err == nil {
+				err = dependencyDone(ctx, tx, t)
+			}
+		} else {
+			err = addTrigger(ctx, tx, t, "review_result", isOwner(in.Actor), in.Actor, "", in.Feedback)
+		}
 		return t, err
 	})
 }

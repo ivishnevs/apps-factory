@@ -120,6 +120,21 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) e
 	if t.CurrentRunID != runID {
 		return nil
 	}
+	switch status {
+	case "UNKNOWN":
+		err = addPark(ctx, tx, t, tasks.ParkInspect, runID, "run "+runID+" ended with unknown outcome")
+	case "COMPLETED", "FAILED", "CANCELLED":
+		err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared")
+	}
+	if err != nil {
+		return err
+	}
+	if status == "COMPLETED" {
+		// Until explicit exits exist, a completed turn handles the triggers it was briefed on.
+		if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
+			return err
+		}
+	}
 	if t.Status != "IN_PROGRESS" && !(t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "run:")) {
 		return nil
 	}
@@ -251,6 +266,11 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 		}
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
+		}
+		if next == "CANCELLED" {
+			if err = clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err != nil {
+				return err
+			}
 		}
 	}
 	if next == "CANCELLED" {

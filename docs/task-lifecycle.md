@@ -159,7 +159,24 @@ transaction; it is diagnostic only and the scheduler does not use it yet (trigge
 Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agent), `live_run`, parks
 (`parked:escalation` — failed with retries exhausted or not allowed; `parked:inspect` — current run UNKNOWN;
 `parked:ask` — unanswered blocking question; `parked:block` — manual or OpenSpec block), `dependencies`,
-`artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK and other states that wait
-for an explicit action), `capacity` (the agent is busy on another task, or another run — including an UNKNOWN
-one — holds the project writer), else `runnable`. Until the trigger log and parks exist these are derived from
-status, `block_reason`, `wait_message_id` and run state.
+`artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK, a READY task without an
+unhandled trigger, and other states that wait for an explicit action), `capacity` (the agent is busy on another
+task, or another run — including an UNKNOWN one — holds the project writer), else `runnable`. The verdict also
+lists the pending triggers the next run will be briefed on.
+
+## Trigger log and parks (shadow mode)
+
+Migration 0010 adds `task_triggers` and `task_parks` (trigger-log-scheduling D1–D2). Every cause writes its
+trigger or park in its own transaction, and each appears in the feed (`task.trigger.<kind>`,
+`task.parked.<kind>`, `task.unparked.<kind>`); the scheduler still decides from task status.
+
+- Triggers raise `tasks.wake_seq`: `ready` (ready action; authority when the owner acts), `assignment`
+  (assignee changed), `review_result` (rejection), `answer` (a blocking question answered),
+  `dependency_done` (once, when the last open dependency becomes DONE) and `artifact_approved`.
+- Claim records the run's brief window `brief_from = handled_seq`, `brief_to = wake_seq`; a COMPLETED run sets
+  `handled_seq = brief_to` (explicit exits replace this later).
+- Parks: `ask` (blocking question, cleared by its answer), `block` (manual or OpenSpec block, cleared by ready),
+  `inspect` (current run UNKNOWN, cleared when the run is resolved or terminal evidence arrives). Cancel and DONE
+  override all active parks. `escalation` is still derived from FAILED until reliable-recovery.
+- The migration backfills a `ready` trigger for READY tasks and parks for existing manual/OpenSpec blocks,
+  unanswered blocking questions and UNKNOWN current runs.

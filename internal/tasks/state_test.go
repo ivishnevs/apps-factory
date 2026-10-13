@@ -6,11 +6,15 @@ import (
 )
 
 func ready() Snapshot {
-	return Snapshot{Task: Task{ID: "t", Status: "READY", Assignee: "dev"}, AgentConfigured: true, MaxRetries: 2}
+	return Snapshot{Task: Task{ID: "t", Status: "READY", Assignee: "dev"}, AgentConfigured: true, MaxRetries: 2, WakeSeq: 3, HandledSeq: 1,
+		Pending: []Trigger{{Seq: 2, Kind: "ready", Actor: "owner", Authority: true}, {Seq: 3, Kind: "answer", Actor: "owner", Authority: true, RefID: "m0"}}}
 }
 
 func TestEvaluateReasons(t *testing.T) {
 	live := &Run{ID: "r1", Status: "RUNNING", TaskID: "t"}
+	inspect := Park{ID: "p1", Kind: ParkInspect, RefID: "r1", Reason: "run r1 ended with unknown outcome", Who: "owner"}
+	ask := Park{ID: "p2", Kind: ParkAsk, RefID: "m1", Reason: "waiting for the answer to question m1", Who: "owner"}
+	block := Park{ID: "p3", Kind: ParkBlock, Reason: "manual: waiting for keys", Who: "owner"}
 	cases := []struct {
 		name   string
 		change func(*Snapshot)
@@ -30,14 +34,20 @@ func TestEvaluateReasons(t *testing.T) {
 		{"unknown outcome", func(s *Snapshot) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "run: outcome unknown"
 			s.CurrentRun = &Run{ID: "r1", Status: "UNKNOWN"}
+			s.Parks = []Park{inspect}
 		}, ReasonParked + ParkInspect, "owner"},
 		{"question to owner", func(s *Snapshot) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "message: waiting for answer"
-			s.WaitMessage, s.WaitMessageRecipient = "m1", "owner"
+			s.Parks = []Park{ask}
 		}, ReasonParked + ParkAsk, "owner"},
-		{"question to manager", func(s *Snapshot) { s.WaitMessage, s.WaitMessageRecipient = "m1", "manager" }, ReasonParked + ParkAsk, "agent:manager"},
-		{"manual block", func(s *Snapshot) { s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: waiting for keys" }, ReasonParked + ParkBlock, "owner"},
-		{"openspec block", func(s *Snapshot) { s.Task.Status, s.Task.BlockReason = "BLOCKED", "openspec: change missing" }, ReasonParked + ParkBlock, "owner"},
+		{"question to manager", func(s *Snapshot) {
+			s.Parks = []Park{{ID: "p", Kind: ParkAsk, RefID: "m1", Reason: "q", Who: "agent:manager"}}
+		}, ReasonParked + ParkAsk, "agent:manager"},
+		{"manual block", func(s *Snapshot) {
+			s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: waiting for keys"
+			s.Parks = []Park{block}
+		}, ReasonParked + ParkBlock, "owner"},
+		{"blocked status without park", func(s *Snapshot) { s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: x" }, ReasonIdle, "owner"},
 		{"dependency", func(s *Snapshot) { s.Dependencies = []Dependency{{"a", "DONE"}, {"b", "IN_REVIEW"}} }, ReasonDependencies, "task:b"},
 		{"artifact", func(s *Snapshot) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "artifact: waiting for owner approval of layout@1"
@@ -45,23 +55,23 @@ func TestEvaluateReasons(t *testing.T) {
 		}, ReasonArtifacts, "owner"},
 		{"retry pending", func(s *Snapshot) { s.Task.Status, s.Task.Attempt, s.Task.RetryEligible = "FAILED", 1, true }, ReasonBackoff, "scheduler"},
 		{"in review", func(s *Snapshot) { s.Task.Status = "IN_REVIEW" }, ReasonIdle, "reviewer"},
+		{"ready without trigger", func(s *Snapshot) { s.WakeSeq, s.HandledSeq, s.Pending = 3, 3, nil }, ReasonIdle, "owner"},
 		{"rework", func(s *Snapshot) { s.Task.Status = "REWORK" }, ReasonIdle, "owner"},
 		{"agent busy", func(s *Snapshot) { s.AgentRun = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"} }, ReasonCapacity, "run:r2"},
 		{"writer busy", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "QUEUED", TaskID: "other"} }, ReasonCapacity, "run:r3"},
 		{"project quarantined", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "UNKNOWN", TaskID: "other"} }, ReasonCapacity, "owner"},
 		// Order: the first false conjunct wins.
 		{"backlog before unassigned", func(s *Snapshot) { s.Task.Status, s.Task.Assignee = "BACKLOG", "" }, ReasonBacklog, "owner"},
-		{"live run before parks", func(s *Snapshot) { s.CurrentRun = live; s.WaitMessage = "m1" }, ReasonLiveRun, "run:r1"},
+		{"live run before parks", func(s *Snapshot) { s.CurrentRun = live; s.Parks = []Park{ask} }, ReasonLiveRun, "run:r1"},
 		{"escalation before inspect", func(s *Snapshot) {
 			s.Task.Status = "FAILED"
-			s.CurrentRun = &Run{ID: "r1", Status: "UNKNOWN"}
+			s.Parks = []Park{inspect}
 		}, ReasonParked + ParkEscalation, "owner"},
 		{"inspect before ask", func(s *Snapshot) {
-			s.CurrentRun = &Run{ID: "r1", Status: "UNKNOWN"}
-			s.WaitMessage, s.WaitMessageRecipient = "m1", "owner"
+			s.Parks = []Park{ask, inspect}
 		}, ReasonParked + ParkInspect, "owner"},
 		{"parks before dependencies", func(s *Snapshot) {
-			s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: x"
+			s.Parks = []Park{block}
 			s.Dependencies = []Dependency{{"b", "READY"}}
 		}, ReasonParked + ParkBlock, "owner"},
 		{"dependencies before artifacts", func(s *Snapshot) {
@@ -83,6 +93,9 @@ func TestEvaluateReasons(t *testing.T) {
 			}
 			if v.Reason != ReasonRunnable && (v.Detail == "" || v.Clearer.Action == "") {
 				t.Fatalf("reason without detail or action: %+v", v)
+			}
+			if len(v.Pending) != len(s.Pending) {
+				t.Fatalf("pending triggers not reported: %+v", v)
 			}
 		})
 	}

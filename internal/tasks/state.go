@@ -2,12 +2,11 @@ package tasks
 
 import (
 	"fmt"
-	"strings"
 )
 
-// Reasons a task does not run now (trigger-log-scheduling D3), in evaluation order. Until the
-// trigger log and parks exist, Snapshot derives them from task status, block_reason,
-// wait_message_id and run state; Evaluate is diagnostic and does not drive the scheduler.
+// Reasons a task does not run now (trigger-log-scheduling D3), in evaluation order. Parks and
+// triggers come from the trigger log (written in shadow mode); escalation is still derived from a
+// FAILED status until reliable-recovery. Evaluate is diagnostic and does not drive the scheduler.
 const (
 	ReasonTerminal     = "terminal"
 	ReasonBacklog      = "backlog"
@@ -45,6 +44,24 @@ func (r Run) Live() bool {
 	return r.Status == "QUEUED" || r.Status == "RUNNING" || r.Status == "CANCELLING"
 }
 
+// Park is an active hold on a task; Who clears it.
+type Park struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	RefID  string `json:"ref_id,omitempty"`
+	Reason string `json:"reason"`
+	Who    string `json:"who"`
+}
+
+// Trigger is a logged reason to run the task.
+type Trigger struct {
+	Seq       int64  `json:"seq"`
+	Kind      string `json:"kind"`
+	Actor     string `json:"actor"`
+	Authority bool   `json:"authority"`
+	RefID     string `json:"ref_id,omitempty"`
+}
+
 type Dependency struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
@@ -57,10 +74,13 @@ type Snapshot struct {
 	AgentConfigured bool
 	// CurrentRun is the task's current run, if any.
 	CurrentRun *Run
-	// WaitMessage is the unanswered blocking question the task waits on; Recipient answers it.
-	WaitMessage          string
-	WaitMessageRecipient string
-	Dependencies         []Dependency
+	// Parks are the task's active parks.
+	Parks []Park
+	// WakeSeq is the latest trigger, HandledSeq the latest consumed by a successful run; Pending
+	// are the triggers in (HandledSeq, WakeSeq].
+	WakeSeq, HandledSeq int64
+	Pending             []Trigger
+	Dependencies        []Dependency
 	// UnapprovedArtifacts are required artifact versions without a current owner approval.
 	UnapprovedArtifacts []Artifact
 	// MaxRetries is the attempt limit of the assignee's captured config for a failed task.
@@ -83,13 +103,15 @@ type Verdict struct {
 	Reason  string  `json:"reason"`
 	Detail  string  `json:"detail,omitempty"`
 	Clearer Clearer `json:"clearer"`
+	// Pending triggers the next run of the task will be briefed on.
+	Pending []Trigger `json:"pending_triggers,omitempty"`
 }
 
 // Evaluate returns the first reason in D3 order why the task does not run now, or runnable.
 func Evaluate(s Snapshot) Verdict {
 	t := s.Task
 	v := func(reason, detail, who, action string) Verdict {
-		return Verdict{TaskID: t.ID, Status: t.Status, Reason: reason, Detail: detail, Clearer: Clearer{Who: who, Action: action}}
+		return Verdict{TaskID: t.ID, Status: t.Status, Reason: reason, Detail: detail, Clearer: Clearer{Who: who, Action: action}, Pending: s.Pending}
 	}
 	switch t.Status {
 	case "DONE", "CANCELLED":
@@ -132,6 +154,10 @@ func Evaluate(s Snapshot) Verdict {
 		return v(ReasonIdle, "in progress without a live run", "owner", "inspect the last attempt (factory tasks attempts "+t.ID+")")
 	case "BLOCKED":
 		return v(ReasonIdle, t.BlockReason, "owner", "factory tasks ready "+t.ID+" VERSION")
+	case "READY":
+		if s.WakeSeq <= s.HandledSeq {
+			return v(ReasonIdle, "no unhandled trigger", "owner", "factory tasks ready "+t.ID+" VERSION")
+		}
 	}
 	if r := s.AgentRun; r != nil {
 		return v(ReasonCapacity, fmt.Sprintf("agent %s is busy with run %s (task %s)", t.Assignee, r.ID, r.TaskID), "run:"+r.ID, "wait for the agent's current run")
@@ -145,32 +171,31 @@ func Evaluate(s Snapshot) Verdict {
 	return v(ReasonRunnable, "", "scheduler", "dispatch on the next tick")
 }
 
-// park derives the current model's holds as D3 parks.
+// park returns the first active park of a kind. Escalation is still derived from FAILED.
 func park(s Snapshot, kind string) (Verdict, bool) {
 	t := s.Task
 	hold := func(detail, who, action string) (Verdict, bool) {
 		return Verdict{Detail: detail, Clearer: Clearer{Who: who, Action: action}}, true
 	}
-	switch kind {
-	case ParkEscalation:
+	if kind == ParkEscalation {
 		if t.Status == "FAILED" && (!t.RetryEligible || t.Attempt > s.MaxRetries) {
 			return hold(fmt.Sprintf("attempt %d failed; automatic retries exhausted or not allowed", t.Attempt), "owner", "factory tasks ready "+t.ID+" VERSION to retry, or cancel")
 		}
-	case ParkInspect:
-		if r := s.CurrentRun; r != nil && r.Status == "UNKNOWN" {
-			return hold("run "+r.ID+" ended with unknown outcome", "owner", "inspect the workspace, then factory runs resolve "+r.ID+" STATUS EVIDENCE")
+		return Verdict{}, false
+	}
+	for _, p := range s.Parks {
+		if p.Kind != kind {
+			continue
 		}
-	case ParkAsk:
-		if s.WaitMessage != "" {
-			who := s.WaitMessageRecipient
-			if who != "owner" {
-				who = "agent:" + who
-			}
-			return hold("waiting for the answer to question "+s.WaitMessage, who, "answer message "+s.WaitMessage)
-		}
-	case ParkBlock:
-		if t.Status == "BLOCKED" && (strings.HasPrefix(t.BlockReason, "manual:") || strings.HasPrefix(t.BlockReason, "openspec:")) {
-			return hold(t.BlockReason, "owner", "remove the cause, then factory tasks ready "+t.ID+" VERSION")
+		switch kind {
+		case ParkInspect:
+			return hold(p.Reason, p.Who, "inspect the workspace, then factory runs resolve "+p.RefID+" STATUS EVIDENCE")
+		case ParkAsk:
+			return hold(p.Reason, p.Who, "answer message "+p.RefID)
+		case ParkBlock:
+			return hold(p.Reason, p.Who, "remove the cause, then factory tasks ready "+t.ID+" VERSION")
+		default:
+			return hold(p.Reason, p.Who, "clear the "+kind+" park")
 		}
 	}
 	return Verdict{}, false
