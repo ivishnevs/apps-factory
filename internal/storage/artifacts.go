@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"appfactory/internal/approvals"
 	"appfactory/internal/artifacts"
@@ -35,7 +34,7 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 	if in.Actor == "" {
 		in.Actor = "owner"
 	}
-	a := artifacts.Record{Artifact: in.Artifact, ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, CreatedBy: in.Actor, CreatedAt: time.Now().Unix()}
+	a := artifacts.Record{Artifact: in.Artifact, ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, CreatedBy: in.Actor, CreatedAt: tx.now().Unix()}
 	if err := validArtifact(in.Artifact); err != nil {
 		return a, err
 	}
@@ -110,7 +109,7 @@ func (s *Store) ArtifactApproval(ctx context.Context, company, project, id, vers
 }
 func (s *Store) RequestArtifactApproval(ctx context.Context, company, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "artifact.approval:"+project+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
-		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: time.Now().Unix()}
+		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
 		if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.Agent == "" || in.Agent == "owner" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
 			return a, inputError("agent, reason, request_id and bounded timeout required")
 		}
@@ -237,7 +236,7 @@ func reconcileArtifactTasks(ctx context.Context, tx *Tx) error {
 			if reason == "" && valid {
 				continue
 			}
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=? AND status='QUEUED'", time.Now().Unix(), t.CurrentRunID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=? AND status='QUEUED'", tx.now().Unix(), t.CurrentRunID); err != nil {
 				return err
 			}
 			if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {

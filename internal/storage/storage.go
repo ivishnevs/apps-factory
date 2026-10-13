@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"appfactory/internal/clock"
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -22,10 +24,42 @@ var ErrNotFound = errors.New("not found")
 // DefaultCompany owns every row created before tenancy and all work of a single-company Core.
 const DefaultCompany = "default"
 
+// LeaseTTL is how long a run lease lives without a heartbeat.
+const LeaseTTL = 45 * time.Second
+
 type Store struct {
 	DB       *sql.DB
 	OpenSpec openspec.Access
+	// Clock is the source of every timestamp Store writes or compares; nil means wall time.
+	Clock clock.Clock
+	// Continuity, when set by Core's tick, defers lease expiry until one TTL of continuous
+	// ticking has passed, so a host sleep does not expire every lease at once.
+	Continuity *clock.Continuity
 }
+
+func (s *Store) Now() time.Time {
+	if s.Clock == nil {
+		return time.Now()
+	}
+	return s.Clock.Now()
+}
+
+// leaseCutoff is the lease_until below which a lease counts as expired: now, or 0 while the
+// current continuity window is younger than one TTL (every lease still gets its full TTL).
+func (s *Store) leaseCutoff() int64 {
+	now := s.Now()
+	if s.Continuity != nil {
+		start := s.Continuity.Start()
+		if start.IsZero() || !start.Add(LeaseTTL).Before(now) {
+			return 0
+		}
+	}
+	return now.Unix()
+}
+
+// LeaseLive reports whether a lease ending at until is still valid for Core.
+func (s *Store) LeaseLive(until int64) bool { return until >= s.leaseCutoff() }
+
 type Run struct {
 	StartedAt  int64            `json:"started_at"`
 	FinishedAt int64            `json:"finished_at"`
@@ -63,7 +97,10 @@ func Open(path string) (*Store, error) {
 type Tx struct {
 	*sql.Tx
 	company string
+	store   *Store
 }
+
+func (tx *Tx) now() time.Time { return tx.store.Now() }
 
 func (s *Store) begin(ctx context.Context, company string) (*Tx, error) {
 	if company == "" {
@@ -73,7 +110,7 @@ func (s *Store) begin(ctx context.Context, company string) (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Tx{Tx: tx, company: company}, nil
+	return &Tx{Tx: tx, company: company, store: s}, nil
 }
 
 // CreateCompany registers a tenant. The default company exists in every database.
@@ -81,7 +118,7 @@ func (s *Store) CreateCompany(ctx context.Context, id, name string) error {
 	if !entityName.MatchString(id) || strings.TrimSpace(name) == "" {
 		return inputError("company requires valid id and name")
 	}
-	_, err := s.DB.ExecContext(ctx, "INSERT INTO companies VALUES(?,?,?)", id, name, time.Now().Unix())
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO companies VALUES(?,?,?)", id, name, s.Now().Unix())
 	return constraint(err)
 }
 func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) error {
@@ -170,7 +207,7 @@ func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
 		return "", ErrConflict
 	}
 	token := protocol.ID()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=strftime('%s','now') WHERE id=? AND status='QUEUED'", token, time.Now().Add(45*time.Second).Unix(), id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=? WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
 	if err != nil {
 		return "", err
 	}
@@ -185,7 +222,7 @@ func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
 }
 
 func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool, error) {
-	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND lease_until>=?", time.Now().Add(45*time.Second).Unix(), company, id, token, time.Now().Unix())
+	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
 	if err != nil {
 		return false, err
 	}
@@ -272,7 +309,7 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 			if p.Status != "COMPLETED" && p.Status != "FAILED" && p.Status != "CANCELLED" && p.Status != "UNKNOWN" {
 				return fmt.Errorf("invalid terminal status")
 			}
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE id=?", p.Status, p.Result, time.Now().Unix(), p.RunID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE id=?", p.Status, p.Result, tx.now().Unix(), p.RunID); err != nil {
 				return err
 			}
 		}
@@ -322,7 +359,7 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	if len(b) > 900*1024 {
 		return inputError("run context exceeds broker message budget")
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, time.Now().Unix(), r.SessionID, nullable(r.TaskID), tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company); err != nil {
 		return fmt.Errorf("project already active or insert failed: %w", err)
 	}
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)

@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"appfactory/internal/bus"
+	"appfactory/internal/clock"
 	"appfactory/internal/config"
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
 	"appfactory/internal/storage"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -218,7 +220,10 @@ func (c *Core) Run(ctx context.Context) error {
 	}
 	errs := make(chan error, 1)
 	go func() { errs <- c.consume(ctx, sub) }()
-	tick := time.NewTicker(time.Second)
+	if c.Store.Continuity == nil {
+		c.Store.Continuity = clock.NewContinuity(3 * tickInterval)
+	}
+	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
 	for {
 		select {
@@ -227,16 +232,7 @@ func (c *Core) Run(ctx context.Context) error {
 		case err := <-errs:
 			return err
 		case <-tick.C:
-			if err = c.Store.Expire(ctx, c.company()); err != nil {
-				return err
-			}
-			if err = c.Store.ExpireApprovals(ctx, c.company()); err != nil {
-				return err
-			}
-			if err = c.ScheduleMessages(ctx); err != nil {
-				return err
-			}
-			if err = c.Schedule(ctx); err != nil {
+			if err = c.maintain(ctx); err != nil {
 				return err
 			}
 			out, err := c.Store.Pending(ctx)
@@ -257,6 +253,26 @@ func (c *Core) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+const tickInterval = time.Second
+
+// maintain is one Core tick: observe continuity first, so leases are judged against a
+// window that restarted if the host slept, then expire, schedule and dispatch.
+func (c *Core) maintain(ctx context.Context) error {
+	if c.Store.Continuity != nil {
+		c.Store.Continuity.Observe(c.Store.Now())
+	}
+	if err := c.Store.Expire(ctx, c.company()); err != nil {
+		return err
+	}
+	if err := c.Store.ExpireApprovals(ctx, c.company()); err != nil {
+		return err
+	}
+	if err := c.ScheduleMessages(ctx); err != nil {
+		return err
+	}
+	return c.Schedule(ctx)
 }
 func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 	for ctx.Err() == nil {

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"appfactory/internal/approvals"
@@ -149,7 +148,7 @@ func (s *Store) CreateReport(ctx context.Context, company, project string, in re
 	})
 }
 func createReportTx(ctx context.Context, tx *Tx, project string, in reports.Create, source, key string) (reports.Report, error) {
-	r := reports.Report{ID: protocol.ID(), ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, CreatedBy: in.Actor, Source: source, Kind: in.Kind, Summary: in.Summary, Purpose: in.Purpose, Changes: in.Changes, Result: in.Result, Artifacts: in.Artifacts, NeedsOwnerAction: in.NeedsOwnerAction, OwnerAction: in.OwnerAction, CreatedAt: time.Now().Unix()}
+	r := reports.Report{ID: protocol.ID(), ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, CreatedBy: in.Actor, Source: source, Kind: in.Kind, Summary: in.Summary, Purpose: in.Purpose, Changes: in.Changes, Result: in.Result, Artifacts: in.Artifacts, NeedsOwnerAction: in.NeedsOwnerAction, OwnerAction: in.OwnerAction, CreatedAt: tx.now().Unix()}
 	if r.CreatedBy == "" {
 		r.CreatedBy = "owner"
 	}
@@ -249,7 +248,7 @@ func (s *Store) Decisions(ctx context.Context, company, project, status, topic s
 }
 func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
 	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
-		now := time.Now().Unix()
+		now := tx.now().Unix()
 		d := decisions.Decision{ID: protocol.ID(), ProjectID: project, Category: in.Category, Topic: canonicalTopic(in.Topic), Status: "proposed", Value: in.Value, Rationale: in.Rationale, CreatedBy: in.Actor, TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
 		if d.CreatedBy == "" {
 			d.CreatedBy = "owner"
@@ -278,7 +277,7 @@ func (s *Store) ProposeDecision(ctx context.Context, company, project string, in
 func saveDecision(ctx context.Context, tx *Tx, d *decisions.Decision, kind string) error {
 	old := d.Version
 	d.Version++
-	d.UpdatedAt = time.Now().Unix()
+	d.UpdatedAt = tx.now().Unix()
 	b, _ := json.Marshal(d)
 	result, err := tx.ExecContext(ctx, "UPDATE decisions SET status=?,version=?,body=? WHERE id=? AND version=?", d.Status, d.Version, b, d.ID, old)
 	if err != nil {
@@ -420,7 +419,7 @@ func validateDecisionGrant(ctx context.Context, tx *Tx, d decisions.Decision, in
 	if err != nil {
 		return err
 	}
-	if a.Kind == "artifact" || a.Status != "APPROVED" || a.ExpiresAt <= time.Now().Unix() || a.ProjectID != d.ProjectID || a.Agent != in.Actor || a.TaskID != in.ScopeTaskID || callFingerprint(a.Call) != callFingerprint(*in.GrantedCall) {
+	if a.Kind == "artifact" || a.Status != "APPROVED" || a.ExpiresAt <= tx.now().Unix() || a.ProjectID != d.ProjectID || a.Agent != in.Actor || a.TaskID != in.ScopeTaskID || callFingerprint(a.Call) != callFingerprint(*in.GrantedCall) {
 		return ErrConflict
 	}
 	var recorded struct {
@@ -449,7 +448,7 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 	}{in, in.Actor, in.RunID, current}
 	return mutate(ctx, s, company, "decision.decide:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, input, func(tx *Tx) (decisions.Decision, error) {
 		d := decisions.Decision{}
-		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=? AND status='RUNNING' AND lease_until>=?", company, in.RunID, time.Now().Unix())
+		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=? AND status='RUNNING' AND lease_until>=?", company, in.RunID, s.leaseCutoff())
 		if err != nil {
 			return d, err
 		}
@@ -498,7 +497,7 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 		capturedHash := sha256.Sum256(spec.ConfigSnapshot)
 		live, _ := json.Marshal(current)
 		liveHash := sha256.Sum256(live)
-		now := time.Now().Unix()
+		now := tx.now().Unix()
 		d = decisions.Decision{ID: protocol.ID(), ProjectID: project, Topic: topic, Category: in.Category, Status: "approved", Value: in.Value, Rationale: in.Rationale, CreatedBy: in.Actor, ApprovedBy: in.Actor, RecordedBy: in.Actor, Authority: "policy", AuthorityRules: rules, CurrentAuthorityRules: liveRules, ConfigHash: hex.EncodeToString(capturedHash[:]), CurrentConfigHash: hex.EncodeToString(liveHash[:]), TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
 		if active != nil {
 			active.Status = "superseded"

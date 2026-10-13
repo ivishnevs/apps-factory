@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
@@ -38,7 +37,7 @@ func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 	var until int64
 	company := c.companyFrom(r)
 	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, r.PathValue("id")).Scan(&lease, &status, &until)
-	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1 || status != "RUNNING" || until < time.Now().Unix() {
+	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1 || status != "RUNNING" || !c.Store.LeaseLive(until) {
 		http.Error(w, "active run lease required", 403)
 		return
 	}
@@ -62,7 +61,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	// A token minted for another company's run fails both the scoped lookup and the HMAC.
 	company := c.company()
 	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, parts[1]).Scan(&lease, &status, &until)
-	if err != nil || lease == "" || status != "RUNNING" || until < time.Now().Unix() || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
+	if err != nil || lease == "" || status != "RUNNING" || !c.Store.LeaseLive(until) || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
 		http.Error(w, "run credential expired or invalid", 401)
 		return
 	}
@@ -121,7 +120,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	// Audit before dispatch. Store only identity/tool/key/status, never tokens or model arguments.
 	requestID, _ := p.Arguments["request_id"].(string)
 	auditID := protocol.ID()
-	if _, err = c.Store.DB.ExecContext(r.Context(), "INSERT INTO tool_calls(id,run_id,agent,project_id,tool,request_id,status,created_at,company_id) VALUES(?,?,?,?,?,?,0,?,?)", auditID, run.Spec.ID, run.Spec.Agent, run.Spec.Project, p.Name, requestID, time.Now().Unix(), company); err != nil {
+	if _, err = c.Store.DB.ExecContext(r.Context(), "INSERT INTO tool_calls(id,run_id,agent,project_id,tool,request_id,status,created_at,company_id) VALUES(?,?,?,?,?,?,0,?,?)", auditID, run.Spec.ID, run.Spec.Agent, run.Spec.Project, p.Name, requestID, c.Store.Now().Unix(), company); err != nil {
 		reply(w, nil, err)
 		return
 	}
@@ -234,7 +233,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		return
 	}
 	if needsApproval || err == nil {
-		if err != nil || a.Status != "APPROVED" || a.ExpiresAt <= time.Now().Unix() {
+		if err != nil || a.Status != "APPROVED" || a.ExpiresAt <= c.Store.Now().Unix() {
 			w.WriteHeader(423)
 			write(w, map[string]string{"effect": "approval", "approval_id": a.ID, "status": a.Status, "instruction": "Request factory_owner_request_approval for this exact call and finish the turn. Only an APPROVED decision authorizes it."})
 			return

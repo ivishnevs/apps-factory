@@ -12,6 +12,10 @@ queued command pending for retry. Once claimed, broker command is acknowledged; 
 handles a crash after this point. This deliberately does not promise exactly-once external effects.
 
 Worker heartbeats every 10s; leases expire after 45s. Heartbeats also deliver cancellation.
+All Core time comes from `Store.Clock` (wall time unless a test injects `clock.Fake`). Core keeps an in-memory
+continuity window that restarts on Core start or after a gap of more than 3 ticks (the host slept or the
+process was paused); a lease expires only when both its `lease_until` and the window start plus one TTL have
+passed, so after a wake every worker gets a full TTL to heartbeat before anything becomes UNKNOWN.
 Core marks expired active runs UNKNOWN. UNKNOWN releases the agent slot, but quarantines the
 project, workspace and known session. Owner reconciliation is explicit; no automatic runtime retry.
 Queued cancellation is immediate, running cancellation is observed within a heartbeat interval.

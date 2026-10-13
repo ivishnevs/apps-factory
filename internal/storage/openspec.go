@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"appfactory/internal/openspec"
 	"appfactory/internal/tasks"
@@ -43,7 +42,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 		}
 		if runID != "" {
 			var valid int
-			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND id=? AND project=? AND agent=? AND status='RUNNING' AND lease_until>?", tx.company, runID, project, actor, time.Now().Unix()).Scan(&valid); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND id=? AND project=? AND agent=? AND status='RUNNING' AND lease_until>=?", tx.company, runID, project, actor, s.leaseCutoff()).Scan(&valid); e != nil {
 				return out, e
 			}
 			if valid != 1 {
@@ -62,7 +61,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 }
 
 func blockOpenSpecRun(ctx context.Context, tx *Tx, id, taskID, reason string) error {
-	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, time.Now().Unix(), id); e != nil {
+	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, tx.now().Unix(), id); e != nil {
 		return e
 	}
 	if e := autoRuntimeReport(ctx, tx, id); e != nil {

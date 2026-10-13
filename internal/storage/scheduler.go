@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 )
 
 func (s *Store) Dispatch(ctx context.Context, company, id string, version int, spec protocol.RunSpec) (protocol.RunSpec, error) {
@@ -235,7 +234,7 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 	if status == "QUEUED" {
 		next = "CANCELLED"
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,finished_at=CASE WHEN ?='CANCELLED' THEN ? ELSE finished_at END WHERE id=?", next, next, time.Now().Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,finished_at=CASE WHEN ?='CANCELLED' THEN ? ELSE finished_at END WHERE id=?", next, next, tx.now().Unix(), id); err != nil {
 		return err
 	}
 	if taskID.Valid {
@@ -270,7 +269,7 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND lease_until<?", company, time.Now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND lease_until<?", company, s.leaseCutoff())
 	if err != nil {
 		return err
 	}
@@ -310,7 +309,7 @@ func (s *Store) Resolve(ctx context.Context, company, id, status, result string)
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE company_id=? AND id=? AND status='UNKNOWN'", status, result, time.Now().Unix(), company, id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE company_id=? AND id=? AND status='UNKNOWN'", status, result, tx.now().Unix(), company, id)
 	if err != nil {
 		return err
 	}

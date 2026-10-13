@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"appfactory/internal/approvals"
 	"appfactory/internal/factorytools"
@@ -27,7 +26,7 @@ func (s *Store) Approvals(ctx context.Context, company, project string) ([]appro
 }
 func (s *Store) RequestApproval(ctx context.Context, company string, in approvals.Request) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "approval.request:"+in.ProjectID+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
-		a := approvals.Approval{ID: protocol.ID(), ProjectID: in.ProjectID, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Call: in.Call, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: time.Now().Unix()}
+		a := approvals.Approval{ID: protocol.ID(), ProjectID: in.ProjectID, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Call: in.Call, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
 		b, err := json.Marshal(in.Call)
 		if err != nil || len(b) > 12*1024 || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.RequestID == "" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
 			return a, inputError("reason, request_id and bounded call/timeout required")
@@ -80,7 +79,7 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 			}
 			a.Status = "REVOKED"
 		} else {
-			if a.Status != "PENDING" || a.ExpiresAt <= time.Now().Unix() {
+			if a.Status != "PENDING" || a.ExpiresAt <= tx.now().Unix() {
 				return a, ErrConflict
 			}
 			switch in.Action {
@@ -102,7 +101,7 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 				return a, err
 			}
 		}
-		a.DecidedAt = time.Now().Unix()
+		a.DecidedAt = tx.now().Unix()
 		a.DecisionReason = in.Reason
 		err = saveApproval(ctx, tx, &a, "approval.resolved")
 		if err == nil && a.Kind == "artifact" {
@@ -122,7 +121,7 @@ func (s *Store) ExpireApprovals(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind='action' OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", company, time.Now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind='action' OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", company, tx.now().Unix())
 	if err != nil {
 		return err
 	}

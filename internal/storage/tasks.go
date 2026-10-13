@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"appfactory/internal/artifacts"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
+
 	"modernc.org/sqlite"
 )
 
@@ -136,7 +136,7 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), Version: 1, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
 		if !entityName.MatchString(p.ID) || strings.TrimSpace(p.Name) == "" || !filepath.IsAbs(in.Workspace) {
 			return p, inputError("project requires valid id, name and absolute host workspace")
 		}
@@ -162,7 +162,7 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 		p.Name = in.Name
 		p.Description = in.Description
 		p.Version++
-		p.UpdatedAt = time.Now().Unix()
+		p.UpdatedAt = tx.now().Unix()
 		b, _ := json.Marshal(p)
 		if _, err = tx.ExecContext(ctx, "UPDATE projects SET version=?,body=? WHERE id=?", p.Version, b, id); err != nil {
 			return p, err
@@ -203,7 +203,7 @@ func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]t
 }
 func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.create", in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
-		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, Status: "BACKLOG", Version: 1, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
 		if t.ID == "" {
 			t.ID = protocol.ID()
 		}
@@ -281,7 +281,7 @@ func dependencies(ctx context.Context, tx *Tx, t tasks.Task) error {
 func saveTask(ctx context.Context, tx *Tx, t *tasks.Task, kind string) error {
 	old := t.Version
 	t.Version++
-	t.UpdatedAt = time.Now().Unix()
+	t.UpdatedAt = tx.now().Unix()
 	b, err := json.Marshal(t)
 	if err != nil {
 		return err
@@ -440,7 +440,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 					break
 				}
 				if status == "QUEUED" {
-					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=?", time.Now().Unix(), t.CurrentRunID); err != nil {
+					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=?", tx.now().Unix(), t.CurrentRunID); err != nil {
 						return t, err
 					}
 					if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {
@@ -519,7 +519,7 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if author == "" {
 		author = "owner"
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments VALUES(?,?,?,?,?,?)", protocol.ID(), id, author, text, time.Now().Unix(), tx.company)
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments VALUES(?,?,?,?,?,?)", protocol.ID(), id, author, text, tx.now().Unix(), tx.company)
 	return err
 }
 func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {

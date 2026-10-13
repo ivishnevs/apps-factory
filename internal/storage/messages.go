@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
@@ -31,7 +30,7 @@ func (s *Store) CreateConversation(ctx context.Context, company string, in messa
 	})
 }
 func createConversation(ctx context.Context, tx *Tx, in messaging.ConversationCreate, kind string) (messaging.Conversation, error) {
-	v := messaging.Conversation{ID: in.ID, ProjectID: in.ProjectID, Agent: in.Agent, Title: in.Title, Kind: kind, CreatedAt: time.Now().Unix()}
+	v := messaging.Conversation{ID: in.ID, ProjectID: in.ProjectID, Agent: in.Agent, Title: in.Title, Kind: kind, CreatedAt: tx.now().Unix()}
 	if v.ID == "" {
 		v.ID = protocol.ID()
 	}
@@ -100,7 +99,7 @@ func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Se
 	})
 }
 func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Message, error) {
-	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: time.Now().Unix()}
+	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
 	if in.RequestID == "" || in.Sender == "" || in.Recipient == "" || in.Sender == in.Recipient || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id, distinct sender/recipient and body up to 16 KiB required")
 	}
@@ -181,7 +180,7 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if err = tx.QueryRowContext(ctx, "SELECT status,agent,project,lease_until FROM runs WHERE company_id=? AND id=?", tx.company, in.RunID).Scan(&status, &agent, &project, &until); err != nil {
 			return m, err
 		}
-		if status != "RUNNING" || agent != in.Sender || project != in.ProjectID || until < time.Now().Unix() {
+		if status != "RUNNING" || agent != in.Sender || project != in.ProjectID || !tx.store.LeaseLive(until) {
 			return m, ErrConflict
 		}
 		t.WaitMessageID = m.ID
@@ -299,7 +298,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if in.Sender != m.Recipient && in.Sender != "owner" {
 		return m, inputError("only recipient or owner can answer")
 	}
-	if (m.Status == "ESCALATED" || m.Deadline <= time.Now().Unix()) && in.Sender != "owner" {
+	if (m.Status == "ESCALATED" || m.Deadline <= tx.now().Unix()) && in.Sender != "owner" {
 		return m, ErrConflict
 	}
 	if in.RequestID == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
@@ -308,7 +307,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if err = validAnswers(m.Questions, in.Answers); err != nil {
 		return m, err
 	}
-	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: time.Now().Unix(), DeliveryStatus: "NONE"}
+	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE"}
 	if !m.Blocking && m.Sender != "owner" {
 		answer.Status = "UNREAD"
 		answer.DeliveryStatus = "PENDING"
@@ -331,7 +330,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 					rows.Close()
 					return answer, e
 				}
-				if strings.HasPrefix(previous.EscalationReason, "recipient run ended without") && previous.Deadline > time.Now().Unix() {
+				if strings.HasPrefix(previous.EscalationReason, "recipient run ended without") && previous.Deadline > tx.now().Unix() {
 					reopen = append(reopen, previous)
 				}
 			}
@@ -504,7 +503,7 @@ func (s *Store) ExpireMessages(ctx context.Context, company string) error {
 			rows.Close()
 			return err
 		}
-		if m.Deadline <= time.Now().Unix() {
+		if m.Deadline <= tx.now().Unix() {
 			pending = append(pending, m)
 		}
 	}
