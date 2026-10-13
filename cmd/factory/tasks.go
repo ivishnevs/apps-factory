@@ -47,13 +47,27 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 				path += "?" + q.Encode()
 			}
 		case "create":
-			if len(args) < 4 || len(args) > 5 {
-				return fmt.Errorf("projects create ID ABS_WORKSPACE [DESCRIPTION]")
+			p := map[string]any{"request_id": protocol.ID()}
+			positional := []string{}
+			for i := 2; i < len(args); i++ {
+				switch args[i] {
+				case "--repo", "--branch":
+					if i+1 == len(args) {
+						return fmt.Errorf("%s needs a value", args[i])
+					}
+					p[map[string]string{"--repo": "repo_url", "--branch": "default_branch"}[args[i]]] = args[i+1]
+					i++
+				default:
+					positional = append(positional, args[i])
+				}
+			}
+			if len(positional) < 2 || len(positional) > 3 {
+				return fmt.Errorf("projects create ID ABS_WORKSPACE [DESCRIPTION] [--repo URL] [--branch BRANCH]")
 			}
 			method = "POST"
-			p := map[string]any{"id": args[2], "name": args[2], "workspace": args[3], "request_id": protocol.ID()}
-			if len(args) == 5 {
-				p["description"] = args[4]
+			p["id"], p["name"], p["workspace"] = positional[0], positional[0], positional[1]
+			if len(positional) == 3 {
+				p["description"] = positional[2]
 			}
 			body = p
 		case "update":

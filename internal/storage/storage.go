@@ -67,6 +67,29 @@ type Run struct {
 	Status     string           `json:"status"`
 	SessionID  string           `json:"session_id"`
 	Result     string           `json:"result"`
+	// Usage is the last cumulative usage the worker reported (runtime-drivers 2.5).
+	Usage UsageList `json:"usage,omitempty"`
+}
+
+// UsageList is runs.usage: JSON of the last reported Event.usage, empty when none.
+type UsageList []protocol.Usage
+
+func (u *UsageList) Scan(src any) error {
+	var b []byte
+	switch v := src.(type) {
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	case nil:
+	default:
+		return fmt.Errorf("usage column: %T", src)
+	}
+	*u = nil
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, u)
 }
 type Outbox struct {
 	ID, Subject string
@@ -135,7 +158,7 @@ func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) 
 func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	var r Run
 	var b []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -146,7 +169,7 @@ func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	return r, err
 }
 func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at FROM runs WHERE company_id=? ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage FROM runs WHERE company_id=? ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +178,7 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 	for rows.Next() {
 		var r Run
 		var b []byte
-		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt); err != nil {
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(b, &r.Spec); err != nil {
@@ -316,6 +339,18 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	}
 	if p.SessionID != "" {
 		if _, err = tx.ExecContext(ctx, "UPDATE runs SET session_id=? WHERE id=?", p.SessionID, p.RunID); err != nil {
+			return err
+		}
+	}
+	// Usage is cumulative: the last reported value replaces the stored one.
+	if len(p.Usage) > 0 {
+		b, _ := json.Marshal(p.Usage)
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET usage=? WHERE id=?", string(b), p.RunID); err != nil {
+			return err
+		}
+	}
+	if p.Quota != nil {
+		if err = quotaPause(ctx, tx, p.RunID, *p.Quota); err != nil {
 			return err
 		}
 	}

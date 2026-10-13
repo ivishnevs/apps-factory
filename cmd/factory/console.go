@@ -75,11 +75,12 @@ func consoleCommand(ctx context.Context, api worker.API, args []string) error {
 
 // taskDetail is everything factory show prints about one task.
 type taskDetail struct {
-	Task     map[string]any     `json:"task"`
-	Why      tasks.Verdict      `json:"why"`
-	Attempts []storage.Run      `json:"attempts"`
-	Comments []storage.Comment  `json:"comments"`
-	Events   []storage.FeedItem `json:"recent_events"`
+	Task      map[string]any     `json:"task"`
+	Why       tasks.Verdict      `json:"why"`
+	Attempts  []storage.Run      `json:"attempts"`
+	Comments  []storage.Comment  `json:"comments"`
+	Events    []storage.FeedItem `json:"recent_events"`
+	Workspace *tasks.Workspace   `json:"workspace,omitempty"`
 }
 
 func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
@@ -95,6 +96,10 @@ func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
 		return err
 	}
 	d.Events = events
+	var ws tasks.Workspace
+	if api.Do(ctx, "GET", base+"/workspace", nil, &ws) == nil {
+		d.Workspace = &ws
+	}
 	if asJSON {
 		return printJSON(d)
 	}
@@ -128,11 +133,24 @@ func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
 			if len(result) > 80 {
 				result = result[:80] + "…"
 			}
-			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\n", i+1, a.Spec.ID, a.Status, result)
+			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\t%s\n", i+1, a.Spec.ID, a.Status, usageText(a.Usage), result)
 		}
 		if err = tw.Flush(); err != nil {
 			return err
 		}
+	}
+	if w := d.Workspace; w != nil {
+		fmt.Printf("workspace: %s", w.Mode)
+		if w.Branch != "" {
+			fmt.Printf(" branch %s", w.Branch)
+		}
+		if w.SealedHead != "" {
+			fmt.Printf(" sealed %.12s", w.SealedHead)
+		}
+		if w.ExitSHA != "" {
+			fmt.Printf(" exit %.12s", w.ExitSHA)
+		}
+		fmt.Println()
 	}
 	if len(d.Comments) > 0 {
 		fmt.Println("comments:")
@@ -256,4 +274,21 @@ func printFeed(item storage.FeedItem, withProject bool) {
 		line += " — " + strings.ReplaceAll(item.Summary, "\n", " ")
 	}
 	fmt.Println(line)
+}
+
+// usageText summarizes a run's usage: tokens in/out over all models and the runtime's cost estimate.
+func usageText(u storage.UsageList) string {
+	if len(u) == 0 {
+		return "-"
+	}
+	var in, out int64
+	var cost float64
+	for _, m := range u {
+		in, out, cost = in+m.Input+m.CacheRead, out+m.Output, cost+m.CostUSD
+	}
+	s := fmt.Sprintf("%dk in / %dk out", in/1000, out/1000)
+	if cost > 0 {
+		s += fmt.Sprintf(" ~$%.2f", cost)
+	}
+	return s
 }

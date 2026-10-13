@@ -22,6 +22,7 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 
 	"github.com/nats-io/nats.go"
 )
@@ -110,6 +111,18 @@ func (c *Core) Handler() http.Handler {
 		}
 		cancel, err := c.Store.Heartbeat(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Lease)
 		reply(w, map[string]bool{"cancel": cancel}, err)
+	})
+	// Workers report a task run's workspace (task-worktrees D1), authenticated by the run's lease.
+	m.HandleFunc("POST /runs/{id}/workspace", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Lease string `json:"lease"`
+			tasks.Workspace
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		v, err := c.Store.ReportWorkspace(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Lease, p.Workspace)
+		reply(w, v, err)
 	})
 	m.HandleFunc("POST /runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.Cancel(r.Context(), c.companyFrom(r), r.PathValue("id")))
@@ -271,6 +284,9 @@ func (c *Core) maintain(ctx context.Context) error {
 		c.Store.Continuity.Observe(c.Store.Now())
 	}
 	if err := c.Store.Expire(ctx, c.company()); err != nil {
+		return err
+	}
+	if err := c.Store.ExpirePauses(ctx, c.company()); err != nil {
 		return err
 	}
 	if err := c.Store.ExpireApprovals(ctx, c.company()); err != nil {

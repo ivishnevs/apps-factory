@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"appfactory/internal/protocol"
 )
@@ -16,14 +18,16 @@ type Pause struct {
 	Reason    string `json:"reason,omitempty"`
 	Actor     string `json:"actor"`
 	CreatedAt int64  `json:"created_at"`
+	// Until ends the pause automatically (quota pauses); 0 means until resumed.
+	Until int64 `json:"until,omitempty"`
 }
 
 func validPause(scope, target string) error {
 	switch {
 	case scope == "company" && target == "":
-	case (scope == "project" || scope == "agent") && entityName.MatchString(target):
+	case (scope == "project" || scope == "agent" || scope == "quota_key") && entityName.MatchString(target):
 	default:
-		return inputError("pause scope must be company, project ID or agent name")
+		return inputError("pause scope must be company, project ID, agent name or quota key")
 	}
 	return nil
 }
@@ -53,7 +57,7 @@ func (s *Store) SetPause(ctx context.Context, company string, p Pause) error {
 	if p.Actor == "" {
 		p.Actor = "owner"
 	}
-	res, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO pauses VALUES(?,?,?,?,?,?)", company, p.Scope, p.Target, p.Reason, p.Actor, tx.now().Unix())
+	res, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO pauses(company_id,scope,target,reason,actor,created_at,until) VALUES(?,?,?,?,?,?,?)", company, p.Scope, p.Target, p.Reason, p.Actor, tx.now().Unix(), p.Until)
 	if err != nil {
 		return err
 	}
@@ -91,7 +95,7 @@ func (s *Store) ClearPause(ctx context.Context, company, scope, target, actor st
 }
 
 func (s *Store) Pauses(ctx context.Context, company string) ([]Pause, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT scope,target,reason,actor,created_at FROM pauses WHERE company_id=? ORDER BY scope,target", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT scope,target,reason,actor,created_at,until FROM pauses WHERE company_id=? AND (until=0 OR until>?) ORDER BY scope,target", company, s.Now().Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +103,7 @@ func (s *Store) Pauses(ctx context.Context, company string) ([]Pause, error) {
 	out := []Pause{}
 	for rows.Next() {
 		var p Pause
-		if err = rows.Scan(&p.Scope, &p.Target, &p.Reason, &p.Actor, &p.CreatedAt); err != nil {
+		if err = rows.Scan(&p.Scope, &p.Target, &p.Reason, &p.Actor, &p.CreatedAt, &p.Until); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -107,10 +111,12 @@ func (s *Store) Pauses(ctx context.Context, company string) ([]Pause, error) {
 	return out, rows.Err()
 }
 
-// pausedFor returns the paused scopes covering a project and agent, most general first:
-// "company", "project:<id>", "agent:<name>".
-func pausedFor(ctx context.Context, tx *Tx, project, agent string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT scope,target FROM pauses WHERE company_id=? AND (scope='company' OR scope='project' AND target=? OR scope='agent' AND target=?) ORDER BY CASE scope WHEN 'company' THEN 0 WHEN 'project' THEN 1 ELSE 2 END", tx.company, project, agent)
+// pausedFor returns the paused scopes covering a project, an agent and its quota key, most general
+// first: "company", "project:<id>", "agent:<name>", "quota_key:<key>". An empty quotaKey skips quota pauses.
+func pausedFor(ctx context.Context, tx *Tx, project, agent, quotaKey string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT scope,target FROM pauses WHERE company_id=? AND (until=0 OR until>?)
+ AND (scope='company' OR scope='project' AND target=? OR scope='agent' AND target=? OR scope='quota_key' AND target=?)
+ ORDER BY CASE scope WHEN 'company' THEN 0 WHEN 'project' THEN 1 WHEN 'agent' THEN 2 ELSE 3 END`, tx.company, tx.now().Unix(), project, agent, quotaKey)
 	if err != nil {
 		return nil, err
 	}
@@ -212,4 +218,109 @@ func (s *Store) PendingCounts(ctx context.Context, company string) (PendingCount
 	}
 	p.Total = p.Inbox + p.Alerts + p.Inspect
 	return p, nil
+}
+
+// DefaultQuotaPause is how long a quota pause lasts when the runtime gives no reset time.
+const DefaultQuotaPause = time.Hour
+
+// QuotaKey is the agent's spec.runtime.quota_key in its JSON config (a run's config snapshot or a
+// marshalled config.Agent), defaulting to the agent name.
+func QuotaKey(agentJSON []byte, agent string) string {
+	var a struct {
+		Spec struct {
+			Runtime struct {
+				QuotaKey string `json:"quota_key"`
+			} `json:"runtime"`
+		} `json:"spec"`
+	}
+	if json.Unmarshal(agentJSON, &a) == nil && a.Spec.Runtime.QuotaKey != "" {
+		return a.Spec.Runtime.QuotaKey
+	}
+	return agent
+}
+
+// quotaPause pauses the run's quota key until the limit resets; a later reset extends it, an earlier
+// one never shortens it.
+func quotaPause(ctx context.Context, tx *Tx, runID string, q protocol.Quota) error {
+	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", tx.company, runID)
+	if err != nil {
+		return err
+	}
+	key := QuotaKey(spec.ConfigSnapshot, spec.Agent)
+	if !entityName.MatchString(key) {
+		return nil
+	}
+	now := tx.now()
+	until := q.ResetsAt
+	if until.IsZero() || !until.After(now) {
+		until = now.Add(DefaultQuotaPause)
+	}
+	reason := "subscription limit"
+	if q.Type != "" {
+		reason += " " + q.Type
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO pauses(company_id,scope,target,reason,actor,created_at,until) VALUES(?,'quota_key',?,?,'runtime',?,?)
+ ON CONFLICT(company_id,scope,target) DO UPDATE SET until=max(until,excluded.until),reason=excluded.reason`, tx.company, key, reason, now.Unix(), until.Unix()); err != nil {
+		return err
+	}
+	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "quota.paused", EntityID: "quota_key:" + key, ProjectID: spec.Project, CreatedAt: now, TaskID: spec.TaskID, RunID: runID, Agent: spec.Agent, Actor: "runtime", Summary: reason + "; claims for quota key " + key + " paused until " + until.UTC().Format(time.RFC3339), Attention: true, Ref: key})
+}
+
+// ExpirePauses removes pauses whose until has passed and records their end in the feed.
+func (s *Store) ExpirePauses(ctx context.Context, company string) error {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := tx.now().Unix()
+	rows, err := tx.QueryContext(ctx, "SELECT scope,target,reason FROM pauses WHERE company_id=? AND until>0 AND until<=?", company, now)
+	if err != nil {
+		return err
+	}
+	var expired []Pause
+	for rows.Next() {
+		var p Pause
+		if err = rows.Scan(&p.Scope, &p.Target, &p.Reason); err != nil {
+			rows.Close()
+			return err
+		}
+		expired = append(expired, p)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(expired) == 0 {
+		return nil
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM pauses WHERE company_id=? AND until>0 AND until<=?", company, now); err != nil {
+		return err
+	}
+	for _, p := range expired {
+		p.Actor = "system"
+		if err = pauseFeed(ctx, tx, "owner.resumed", p); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// activeQuotaKeys lists the quota keys paused now.
+func activeQuotaKeys(ctx context.Context, tx *Tx) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT target FROM pauses WHERE company_id=? AND scope='quota_key' AND (until=0 OR until>?)", tx.company, tx.now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var k string
+		if err = rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
 }

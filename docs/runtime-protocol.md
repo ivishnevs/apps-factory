@@ -70,3 +70,11 @@ Optional fields; workers and Cores that do not know them ignore them.
 - `Event.quota`: `{resets_at, type}` when the runtime hits its subscription limit. Core pauses the agent's
   quota key (`spec.runtime.quota_key`, default the agent name) until `resets_at` (unknown: a default period);
   the run's own outcome is reported as usual.
+- `POST /runs/{id}/workspace` `{lease, mode, branch, node_id, exit_sha, sealed_head, sealed_at}`: the worker reports
+  a task run's workspace (`mode` shared|worktree|scratch; SHAs are full object IDs). The run's lease authenticates
+  it, also after the run ended, so the seal that follows the end can be reported. Core keeps one row per task
+  (`workspaces`); `GET /tasks/{id}/workspace` reads it.
+- Projects take `repo_url` (https, ssh, file, scp-style or absolute path) and `default_branch`
+  (`factory projects create ID WORKSPACE --repo URL --branch BRANCH`, `PATCH /projects/{id}`). Core sets
+  `workspace_mode` only when the project has `repo_url`; otherwise the run keeps the shared workspace.
+- `GET /runs/{id}` and task attempts return `usage`; `factory show` prints tokens and the runtime's cost estimate.

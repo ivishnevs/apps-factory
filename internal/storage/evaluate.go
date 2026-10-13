@@ -139,7 +139,11 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 			return snap, err
 		}
 	}
-	if snap.Paused, err = pausedFor(ctx, tx, t.ProjectID, t.Assignee); err != nil {
+	// Quota keys come from the agent catalog, which Core owns: storage passes the paused keys along.
+	if snap.Paused, err = pausedFor(ctx, tx, t.ProjectID, t.Assignee, ""); err != nil {
+		return snap, err
+	}
+	if snap.QuotaPaused, err = activeQuotaKeys(ctx, tx); err != nil {
 		return snap, err
 	}
 	p, err := projectTx(ctx, tx, t.ProjectID)

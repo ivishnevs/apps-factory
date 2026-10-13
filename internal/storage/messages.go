@@ -419,7 +419,7 @@ func (s *Store) DispatchMessage(ctx context.Context, company string, m messaging
 	if saved.Version != m.Version || saved.DeliveryStatus != "PENDING" || saved.Recipient != spec.Agent || saved.ProjectID != spec.Project || saved.Status != "PENDING" && saved.Status != "UNREAD" {
 		return spec, ErrConflict
 	}
-	if paused, err := pausedFor(ctx, tx, saved.ProjectID, spec.Agent); err != nil || len(paused) > 0 {
+	if paused, err := pausedFor(ctx, tx, saved.ProjectID, spec.Agent, QuotaKey(spec.ConfigSnapshot, spec.Agent)); err != nil || len(paused) > 0 {
 		if err == nil {
 			err = ErrConflict
 		}

@@ -87,8 +87,10 @@ type Snapshot struct {
 	UnapprovedArtifacts []Artifact
 	// MaxRetries is the attempt limit of the assignee's captured config for a failed task.
 	MaxRetries int
-	// Paused are the owner pauses covering the task: "company", "project:<id>", "agent:<name>".
-	Paused []string
+	// Paused are the pauses covering the task: "company", "project:<id>", "agent:<name>",
+	// "quota_key:<key>". QuotaPaused lists every paused quota key; Core adds the assignee's one to Paused.
+	Paused      []string
+	QuotaPaused []string
 	// AgentRun is a live run of the assignee on another task (one run per agent).
 	AgentRun *Run
 	// WriterRun is a run of another task holding the project/workspace writer, including UNKNOWN.
@@ -151,6 +153,9 @@ func Evaluate(s Snapshot) Verdict {
 		target := strings.Replace(scope, ":", " ", 1)
 		if scope == "company" {
 			target = "--all"
+		}
+		if strings.HasPrefix(scope, "quota_key:") {
+			return v(ReasonPaused+scope, "subscription limit reached", "time", "the pause ends when the limit resets (or factory resume "+target+")")
 		}
 		return v(ReasonPaused+scope, "paused by the owner", "owner", "factory resume "+target)
 	}

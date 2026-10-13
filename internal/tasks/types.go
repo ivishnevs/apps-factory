@@ -9,6 +9,10 @@ type Project struct {
 	Version     int    `json:"version"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
+	// RepoURL enables worktrees for agents in workspace mode worktree; DefaultBranch empty is the
+	// remote HEAD (task-worktrees 1.1).
+	RepoURL       string `json:"repo_url,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 type Artifact struct {
 	ID      string `json:"id"`
@@ -58,17 +62,35 @@ type Task struct {
 	Deduplicated bool `json:"deduplicated,omitempty"`
 }
 type ProjectCreate struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Workspace   string `json:"workspace"`
-	RequestID   string `json:"request_id,omitempty"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Workspace     string `json:"workspace"`
+	RequestID     string `json:"request_id,omitempty"`
+	RepoURL       string `json:"repo_url,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 type ProjectUpdate struct {
 	Version     int    `json:"version"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	RequestID   string `json:"request_id,omitempty"`
+	// Nil keeps the current value; "" clears it.
+	RepoURL       *string `json:"repo_url,omitempty"`
+	DefaultBranch *string `json:"default_branch,omitempty"`
+}
+
+// Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.
+type Workspace struct {
+	TaskID     string `json:"task_id"`
+	Mode       string `json:"mode"`
+	Branch     string `json:"branch,omitempty"`
+	NodeID     string `json:"node_id,omitempty"`
+	ExitSHA    string `json:"exit_sha,omitempty"`
+	SealedHead string `json:"sealed_head,omitempty"`
+	SealedAt   int64  `json:"sealed_at,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	UpdatedAt  int64  `json:"updated_at"`
 }
 type Create struct {
 	RequiredArtifacts []Artifact `json:"required_artifacts,omitempty"`
@@ -117,6 +139,7 @@ type Submit struct {
 	RequestID  string     `json:"request_id,omitempty"`
 	Actor      string     `json:"actor,omitempty"`
 }
+
 // Comment adds a comment; a comment by the owner or another agent wakes the task (owner_comment).
 type Comment struct {
 	Text      string `json:"text"`

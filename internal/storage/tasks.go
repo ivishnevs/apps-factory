@@ -139,7 +139,10 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		if err := validRepo(p.RepoURL, p.DefaultBranch); err != nil {
+			return p, err
+		}
 		if !entityName.MatchString(p.ID) || strings.TrimSpace(p.Name) == "" || !filepath.IsAbs(in.Workspace) {
 			return p, inputError("project requires valid id, name and absolute host workspace")
 		}
@@ -164,6 +167,15 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 		}
 		p.Name = in.Name
 		p.Description = in.Description
+		if in.RepoURL != nil {
+			p.RepoURL = *in.RepoURL
+		}
+		if in.DefaultBranch != nil {
+			p.DefaultBranch = *in.DefaultBranch
+		}
+		if err = validRepo(p.RepoURL, p.DefaultBranch); err != nil {
+			return p, err
+		}
 		p.Version++
 		p.UpdatedAt = tx.now().Unix()
 		b, _ := json.Marshal(p)

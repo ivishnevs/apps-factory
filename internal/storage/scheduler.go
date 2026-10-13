@@ -32,7 +32,7 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if t.Version != version || t.Status != "READY" || t.Assignee == "" || spec.Agent != t.Assignee || spec.Project != t.ProjectID || spec.ID == "" {
 		return spec, ErrConflict
 	}
-	if paused, err := pausedFor(ctx, tx, t.ProjectID, t.Assignee); err != nil || len(paused) > 0 {
+	if paused, err := pausedFor(ctx, tx, t.ProjectID, t.Assignee, QuotaKey(spec.ConfigSnapshot, t.Assignee)); err != nil || len(paused) > 0 {
 		if err == nil {
 			err = ErrConflict
 		}
@@ -72,6 +72,11 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		return spec, err
 	}
 	spec.Workspace = p.Workspace
+	// Worktrees need a repository: without repo_url the task keeps the shared project workspace.
+	spec.RepoURL, spec.DefaultBranch, spec.WorkspaceMode = p.RepoURL, p.DefaultBranch, ""
+	if p.RepoURL != "" {
+		spec.WorkspaceMode = WorkspaceMode(spec.ConfigSnapshot)
+	}
 	if t.CurrentRunID != "" {
 		var status, session string
 		if err = tx.QueryRowContext(ctx, "SELECT status,session_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &session); err != nil {
@@ -203,7 +208,7 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) e
 	return closedTask(ctx, tx, t)
 }
 func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
+	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at,r.usage FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +217,7 @@ func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error)
 	for rows.Next() {
 		var r Run
 		var b []byte
-		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt); err != nil {
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(b, &r.Spec); err != nil {

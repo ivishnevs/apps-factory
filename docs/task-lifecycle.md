@@ -224,6 +224,10 @@ when the condition goes away the alert is cleared with `task.alert_cleared.<kind
   dispatched in a paused scope; live runs continue. `why` shows `paused:company|project:<id>|agent:<name>`
   (after `artifacts`, before `backoff`) with the resume command. Pauses and resumes are feed events
   (`owner.paused` with attention, `owner.resumed`).
+- Quota pauses: a worker event with `quota` pauses the agent's quota key (`spec.runtime.quota_key`, default the
+  agent name; every agent sharing the key) until `resets_at` (unknown: 1 hour); a later reset extends it, an
+  earlier one never shortens it. The tick ends expired pauses. `why` shows `paused:quota_key:<key>` cleared by
+  `time`; `factory resume quota_key KEY` ends it early. Event `quota.paused` carries attention.
 - `factory stop [REASON]` (`POST /stop`) is the kill switch: it pauses the company and revokes every live run.
   A QUEUED run ends at once; a RUNNING run is asked to stop through its heartbeat. A revoked run that ends
   CANCELLED returns its task to READY instead of cancelling it (a turn that completes first is submitted as

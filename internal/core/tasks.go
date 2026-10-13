@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"appfactory/internal/config"
@@ -149,6 +150,13 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		}
 		write(w, out)
 	})
+	m.HandleFunc("GET /tasks/{id}/workspace", func(w http.ResponseWriter, r *http.Request) {
+		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
+			return
+		}
+		v, err := c.Store.TaskWorkspace(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		reply(w, v, err)
+	})
 	m.HandleFunc("GET /tasks/{id}/attempts", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
@@ -273,6 +281,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		reply(w, v, err)
 	})
 }
+
 // taskView is a task with why it does not run now (trigger-log-scheduling D3); the fields are added
 // to every task read so clients and agents see the reason without a separate call.
 type taskView struct {
@@ -282,7 +291,15 @@ type taskView struct {
 }
 
 func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
-	_, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
+	var a config.Agent
+	a, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
+	if snap.AgentConfigured && len(snap.QuotaPaused) > 0 {
+		b, _ := json.Marshal(a)
+		key := storage.QuotaKey(b, snap.Task.Assignee)
+		if slices.Contains(snap.QuotaPaused, key) {
+			snap.Paused = append(snap.Paused, "quota_key:"+key)
+		}
+	}
 	return tasks.Evaluate(snap)
 }
 func (c *Core) agentExists(w http.ResponseWriter, name string) bool {

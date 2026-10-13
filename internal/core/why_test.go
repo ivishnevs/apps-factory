@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -148,5 +149,75 @@ func TestTaskReadsCarryReason(t *testing.T) {
 	get("/tasks/a", &one)
 	if one.ID != "a" || one.Title != "a" || one.Reason != tasks.ReasonRunnable || one.Clearer.Who != "scheduler" {
 		t.Fatal(one)
+	}
+}
+
+func TestQuotaPauseAndWorkspaceOverHTTP(t *testing.T) {
+	ctx := context.Background()
+	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	agents, err := config.Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Core{Store: s, Agents: agents, Token: "owner"}
+	co := storage.DefaultCompany
+	if _, err = s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/core-quota", RepoURL: "/srv/git/app.git"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", Ready: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Without quota_key in its config the agent's key is its name.
+	if err = s.SetPause(ctx, co, storage.Pause{Scope: "quota_key", Target: "demo", Actor: "runtime", Until: s.Now().Add(time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, path string, body any, v any) int {
+		t.Helper()
+		b, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, path, bytes.NewReader(b))
+		r.Header.Set("Authorization", "Bearer owner")
+		w := httptest.NewRecorder()
+		c.Handler().ServeHTTP(w, r)
+		if v != nil {
+			_ = json.Unmarshal(w.Body.Bytes(), v)
+		}
+		return w.Code
+	}
+	var verdict tasks.Verdict
+	call("GET", "/tasks/a/why", nil, &verdict)
+	if verdict.Reason != tasks.ReasonPaused+"quota_key:demo" || verdict.Clearer.Who != "time" {
+		t.Fatal(verdict)
+	}
+	if err = c.Schedule(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := s.Task(ctx, co, "a"); a.Status != "READY" {
+		t.Fatal("dispatched on a paused quota key", a.Status)
+	}
+	if err = s.ClearPause(ctx, co, "quota_key", "demo", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Schedule(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Task(ctx, co, "a")
+	run, _ := s.Get(ctx, co, a.CurrentRunID)
+	if run.Spec.RepoURL != "/srv/git/app.git" || run.Spec.WorkspaceMode != "" {
+		t.Fatalf("%+v", run.Spec)
+	}
+	lease, err := s.Claim(ctx, co, a.CurrentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := call("POST", "/runs/"+a.CurrentRunID+"/workspace", map[string]any{"lease": lease, "mode": "shared"}, nil); code != 200 {
+		t.Fatal(code)
+	}
+	var ws tasks.Workspace
+	if code := call("GET", "/tasks/a/workspace", nil, &ws); code != 200 || ws.Mode != "shared" || ws.RunID != a.CurrentRunID {
+		t.Fatal(code, ws)
 	}
 }

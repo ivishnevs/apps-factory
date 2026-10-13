@@ -17,10 +17,10 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		switch {
 		case len(args) >= 1 && args[0] == "--all":
 			return "company", "", args[1:], nil
-		case len(args) >= 2 && (args[0] == "project" || args[0] == "agent"):
+		case len(args) >= 2 && (args[0] == "project" || args[0] == "agent" || args[0] == "quota_key"):
 			return args[0], args[1], args[2:], nil
 		}
-		return "", "", nil, fmt.Errorf("scope: --all | project ID | agent NAME")
+		return "", "", nil, fmt.Errorf("scope: --all | project ID | agent NAME | quota_key KEY")
 	}
 	var result any
 	switch args[0] {
