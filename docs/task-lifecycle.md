@@ -195,6 +195,10 @@ trigger or park in its own transaction, and each appears in the feed (`task.trig
 - `factory watch [PROJECT] [--attention]` (`GET /feed`): the last 20 feed events, then new ones every 2 s; `!`
   marks events that need the owner.
 - `factory log TASK` (`GET /feed?task=ID`): the whole feed history of one task.
+- `factory show TASK`: the task, its `why` with pending triggers, dependencies, attempts, comments and the last
+  10 feed events.
+
+Every console command takes `--json` (`watch --json` prints one JSON object per event).
 
 `GET /feed` filters by `project`, `task` and `attention=1` and pages with `after`/`limit`. Attention is set for
 approval requests, questions to the owner and escalated messages, reports that need owner action, `ask` parks

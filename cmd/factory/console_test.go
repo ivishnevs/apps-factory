@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -107,5 +108,25 @@ func TestConsoleCommandsAgainstCore(t *testing.T) {
 			t.Errorf("why lacks %q:\n%s", want, why)
 		}
 	}
-	t.Log("\n" + status + "\n" + log + "\n" + why)
+	if _, err = s.CommentTask(ctx, co, "b", tasks.Comment{Text: "wait for the design"}); err != nil {
+		t.Fatal(err)
+	}
+	showB := capture(t, func() error { return consoleCommand(ctx, api, []string{"show", "b"}) })
+	for _, want := range []string{"b — Test screen  [BACKLOG]", "why: backlog", "owner: factory tasks ready b VERSION", "dependencies: a", "comments:", "owner: wait for the design", "recent events:", "task.trigger.owner_comment"} {
+		if !strings.Contains(showB, want) {
+			t.Errorf("show lacks %q:\n%s", want, showB)
+		}
+	}
+	var detail taskDetail
+	if err = json.Unmarshal([]byte(capture(t, func() error { return consoleCommand(ctx, api, []string{"show", "a", "--json"}) })), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Task["id"] != "a" || detail.Why.Reason != "live_run" || len(detail.Attempts) != 1 || len(detail.Events) == 0 {
+		t.Fatalf("%+v", detail)
+	}
+	var projects []core.ProjectStatus
+	if err = json.Unmarshal([]byte(capture(t, func() error { return consoleCommand(ctx, api, []string{"status", "--json"}) })), &projects); err != nil || len(projects) != 1 || projects[0].Inbox != 1 {
+		t.Fatal(projects, err)
+	}
+	t.Log("\n" + status + "\n" + log + "\n" + why + "\n" + showB)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -12,11 +13,22 @@ import (
 
 	"appfactory/internal/core"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
 
-// consoleCommand is the owner console v0: status, watch and log.
+// consoleCommand is the owner console v0: status, watch, log and show; --json prints JSON.
 func consoleCommand(ctx context.Context, api worker.API, args []string) error {
+	asJSON := false
+	rest := []string{}
+	for _, a := range args {
+		if a == "--json" {
+			asJSON = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	args = rest
 	switch {
 	case args[0] == "status" && len(args) <= 2:
 		path := "/status"
@@ -27,6 +39,9 @@ func consoleCommand(ctx context.Context, api worker.API, args []string) error {
 		if err := api.Do(ctx, "GET", path, nil, &projects); err != nil {
 			return err
 		}
+		if asJSON {
+			return printJSON(projects)
+		}
 		return renderStatus(projects)
 	case args[0] == "watch":
 		q := url.Values{}
@@ -36,21 +51,103 @@ func consoleCommand(ctx context.Context, api worker.API, args []string) error {
 			} else if q.Get("project") == "" && !strings.HasPrefix(a, "-") {
 				q.Set("project", a)
 			} else {
-				return fmt.Errorf("watch [PROJECT] [--attention]")
+				return fmt.Errorf("watch [PROJECT] [--attention] [--json]")
 			}
 		}
-		return watch(ctx, api, q)
+		return watch(ctx, api, q, asJSON)
 	case args[0] == "log" && len(args) == 2:
 		items, _, err := feedAll(ctx, api, url.Values{"task": {args[1]}}, 0, 0)
 		if err != nil {
 			return err
 		}
+		if asJSON {
+			return printJSON(items)
+		}
 		for _, item := range items {
 			printFeed(item, false)
 		}
 		return nil
+	case args[0] == "show" && len(args) == 2:
+		return show(ctx, api, args[1], asJSON)
 	}
-	return fmt.Errorf("usage: status [PROJECT] | watch [PROJECT] [--attention] | log TASK")
+	return fmt.Errorf("usage: status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK; add --json for JSON")
+}
+
+// taskDetail is everything factory show prints about one task.
+type taskDetail struct {
+	Task     map[string]any     `json:"task"`
+	Why      tasks.Verdict      `json:"why"`
+	Attempts []storage.Run      `json:"attempts"`
+	Comments []storage.Comment  `json:"comments"`
+	Events   []storage.FeedItem `json:"recent_events"`
+}
+
+func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
+	var d taskDetail
+	base := "/tasks/" + url.PathEscape(id)
+	for path, v := range map[string]any{base: &d.Task, base + "/why": &d.Why, base + "/attempts": &d.Attempts, base + "/comments": &d.Comments} {
+		if err := api.Do(ctx, "GET", path, nil, v); err != nil {
+			return err
+		}
+	}
+	events, _, err := feedAll(ctx, api, url.Values{"task": {id}}, 0, 10)
+	if err != nil {
+		return err
+	}
+	d.Events = events
+	if asJSON {
+		return printJSON(d)
+	}
+	str := func(k string) string { return fmt.Sprint(d.Task[k]) }
+	fmt.Printf("%s — %s  [%s]\n", str("id"), str("title"), str("status"))
+	fmt.Printf("project %s  assignee %s  priority %v  version %v\n", str("project_id"), str("assignee"), d.Task["priority"], d.Task["version"])
+	fmt.Printf("why: %s", d.Why.Reason)
+	if d.Why.Detail != "" {
+		fmt.Printf(" — %s", d.Why.Detail)
+	}
+	fmt.Printf("\n  %s: %s\n", d.Why.Clearer.Who, d.Why.Clearer.Action)
+	if len(d.Why.Pending) > 0 {
+		pending := []string{}
+		for _, g := range d.Why.Pending {
+			pending = append(pending, g.Kind+" by "+g.Actor)
+		}
+		fmt.Println("pending triggers:", strings.Join(pending, ", "))
+	}
+	if deps, _ := d.Task["dependencies"].([]any); len(deps) > 0 {
+		ids := make([]string, len(deps))
+		for i, dep := range deps {
+			ids[i] = fmt.Sprint(dep)
+		}
+		fmt.Println("dependencies:", strings.Join(ids, ", "))
+	}
+	if len(d.Attempts) > 0 {
+		fmt.Println("attempts:")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		for i, a := range d.Attempts {
+			result := strings.ReplaceAll(a.Result, "\n", " ")
+			if len(result) > 80 {
+				result = result[:80] + "…"
+			}
+			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\n", i+1, a.Spec.ID, a.Status, result)
+		}
+		if err = tw.Flush(); err != nil {
+			return err
+		}
+	}
+	if len(d.Comments) > 0 {
+		fmt.Println("comments:")
+		for _, c := range d.Comments {
+			fmt.Printf("  %s %s: %s\n", time.Unix(c.CreatedAt, 0).Local().Format("01-02 15:04"), c.Author, strings.ReplaceAll(c.Text, "\n", " "))
+		}
+	}
+	if len(d.Events) > 0 {
+		fmt.Println("recent events:")
+		for _, item := range d.Events {
+			fmt.Print("  ")
+			printFeed(item, false)
+		}
+	}
+	return nil
 }
 
 func renderStatus(projects []core.ProjectStatus) error {
@@ -113,13 +210,21 @@ func feedAll(ctx context.Context, api worker.API, q url.Values, after int64, kee
 	}
 }
 
-func watch(ctx context.Context, api worker.API, q url.Values) error {
+func watch(ctx context.Context, api worker.API, q url.Values, asJSON bool) error {
 	items, cursor, err := feedAll(ctx, api, q, 0, 20)
 	if err != nil {
 		return err
 	}
 	for {
 		for _, item := range items {
+			if asJSON {
+				b, err := json.Marshal(item)
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(b))
+				continue
+			}
 			printFeed(item, true)
 		}
 		select {
