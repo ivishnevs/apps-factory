@@ -22,6 +22,6 @@
 - [x] 3b.4 `factory node doctor` command. Verify: output table with pass/fail and hints, works with Core down. Done: 2499b4d; binary is `factory-node doctor`.
 
 ## 4. Command guards
-- [ ] 4.1 `commands` in access rules; mandatory `host-ui` and `owner-cli` policies; per-run shim directory first on PATH. Verify: a run calling `cliclick` or `factory` gets exit 126 with the instruction and a refusal event.
-- [ ] 4.2 Approval shims with exact single-use grants. Verify: an approved exact command passes once; a second call or changed args are refused.
+- [ ] 4.1 `commands` in access rules; mandatory `host-ui` and `owner-cli` policies; per-run shim directory first on PATH. Verify: a run calling `cliclick` or `factory` gets exit 126 with the instruction and a refusal event. Partial: Core records every refusal from `POST /agent/command` as a run event `factory/command_refused` and a feed row (8a20a62); client side (rules, mandatory policies, factory-shim on PATH) in 15eb9af. Live run test with NATS pending.
+- [ ] 4.2 Approval shims with exact single-use grants. Verify: an approved exact command passes once; a second call or changed args are refused. Partial: Core grants of kind `command` requested with `call {name: command, arguments: {argv}}`, consumed once on an exact argv match (USED), expiring like actions; tested over the run-token gateway (8a20a62). Live run test with NATS pending.
 - [ ] 4.3 Update `docs/architecture.md`, `docs/development.md`, `docs/policies.md`, iOS/Android template prompts (debug launch args, deep links, UI tests). Verify: docs reviewed.
