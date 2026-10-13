@@ -148,3 +148,18 @@ instead of IN_REVIEW. A later explicit answer resumes only a message-blocked tas
 COMPLETED prior run. Dispatch resumes the same task thread, adds the answer and clears the marker.
 No submission is accepted while waiting. Cancellation, failure, unknown outcomes and manual blocks
 require their existing explicit handling; an answer does not override them. See messaging.md.
+
+## Why a task does not run
+
+`factory tasks why ID` and `factory tasks why --project PROJECT` (add `--json` for JSON; HTTP
+`GET /tasks/{id}/why`, `GET /projects/{id}/why`) print, for each non-terminal task, the first reason it does
+not run now and who clears it. `tasks.Evaluate` is a pure function of a snapshot that Store loads in one
+transaction; it is diagnostic only and the scheduler does not use it yet (trigger-log-scheduling D3).
+
+Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agent), `live_run`, parks
+(`parked:escalation` — failed with retries exhausted or not allowed; `parked:inspect` — current run UNKNOWN;
+`parked:ask` — unanswered blocking question; `parked:block` — manual or OpenSpec block), `dependencies`,
+`artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK and other states that wait
+for an explicit action), `capacity` (the agent is busy on another task, or another run — including an UNKNOWN
+one — holds the project writer), else `runnable`. Until the trigger log and parks exist these are derived from
+status, `block_reason`, `wait_message_id` and run state.

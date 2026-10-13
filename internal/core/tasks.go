@@ -88,6 +88,37 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		v, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		reply(w, v, err)
 	})
+	// Diagnostics only: why a task does not run now and who clears it (trigger-log-scheduling D3).
+	m.HandleFunc("GET /tasks/{id}/why", func(w http.ResponseWriter, r *http.Request) {
+		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
+			return
+		}
+		snap, err := c.Store.TaskSnapshot(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		write(w, c.evaluate(snap))
+	})
+	m.HandleFunc("GET /projects/{id}/why", func(w http.ResponseWriter, r *http.Request) {
+		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.list", false, false) {
+			return
+		}
+		if _, err := c.Store.Project(r.Context(), c.companyFrom(r), r.PathValue("id")); err != nil {
+			reply(w, nil, err)
+			return
+		}
+		snaps, err := c.Store.TaskSnapshots(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		out := make([]tasks.Verdict, 0, len(snaps))
+		for _, snap := range snaps {
+			out = append(out, c.evaluate(snap))
+		}
+		write(w, out)
+	})
 	m.HandleFunc("GET /tasks/{id}/attempts", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
@@ -200,6 +231,10 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		v, err := c.Store.ReviewTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
+}
+func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
+	_, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
+	return tasks.Evaluate(snap)
 }
 func (c *Core) agentExists(w http.ResponseWriter, name string) bool {
 	if _, ok := c.Agents[name]; !ok {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"appfactory/internal/protocol"
+	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 	"context"
 	"encoding/json"
@@ -10,11 +11,15 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"text/tabwriter"
 )
 
 func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks ready/block/cancel ID VERSION [REASON] | tasks review ID VERSION accept|reject [FEEDBACK]")
+		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks ready/block/cancel ID VERSION [REASON] | tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json]")
+	}
+	if args[0] == "tasks" && args[1] == "why" {
+		return whyCommand(ctx, api, args[2:])
 	}
 	method, path := "GET", "/"+args[0]
 	var body any
@@ -142,6 +147,38 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 		return err
 	}
 	return printJSON(result)
+}
+
+// whyCommand explains why tasks do not run now and who clears each reason.
+func whyCommand(ctx context.Context, api worker.API, args []string) error {
+	asJSON := len(args) > 0 && args[len(args)-1] == "--json"
+	if asJSON {
+		args = args[:len(args)-1]
+	}
+	var verdicts []tasks.Verdict
+	switch {
+	case len(args) == 1 && args[0] != "--project":
+		var v tasks.Verdict
+		if err := api.Do(ctx, "GET", "/tasks/"+url.PathEscape(args[0])+"/why", nil, &v); err != nil {
+			return err
+		}
+		verdicts = []tasks.Verdict{v}
+	case len(args) == 2 && args[0] == "--project":
+		if err := api.Do(ctx, "GET", "/projects/"+url.PathEscape(args[1])+"/why", nil, &verdicts); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("tasks why ID|--project PROJECT [--json]")
+	}
+	if asJSON {
+		return printJSON(verdicts)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TASK\tSTATUS\tREASON\tDETAIL\tWHO\tACTION")
+	for _, v := range verdicts {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", v.TaskID, v.Status, v.Reason, v.Detail, v.Clearer.Who, v.Clearer.Action)
+	}
+	return tw.Flush()
 }
 func jsonBody(path string) (map[string]any, error) {
 	var r io.Reader = os.Stdin
