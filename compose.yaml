@@ -16,6 +16,8 @@ services:
       FACTORY_WORKSPACE_LOCAL_ROOT: /workspaces
       FACTORY_TOKEN: ${FACTORY_TOKEN:?set FACTORY_TOKEN in .env}
       NATS_URL: nats://factory:${NATS_PASSWORD}@nats:4222
+      # Runs end with factory_exit_* (docs/explicit-exits-contract.md); set 0 in .env for the old rules.
+      FACTORY_EXPLICIT_EXITS: ${FACTORY_EXPLICIT_EXITS:-1}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

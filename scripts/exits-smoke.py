@@ -13,6 +13,7 @@ import uuid
 
 base = os.environ.get('FACTORY_URL', 'http://127.0.0.1:8080')
 token = os.environ['FACTORY_TOKEN']
+agent = os.environ.get('SMOKE_AGENT', 'demo')  # claude-demo runs the same smoke on Claude
 project = 'exits-smoke-' + uuid.uuid4().hex[:8]
 workspace = Path('.cache/' + project).resolve()
 workspace.mkdir(parents=True, exist_ok=True)
@@ -51,11 +52,11 @@ submit_text = ('Use only Factory MCP tools, no shell and no files. Read the proj
     'Then end the run with factory_exit_submit, summary EXIT_SUBMIT_OK and checks ["read the project"]. '
     'Do nothing after the exit.')
 submit = api('POST', '/tasks', {'project_id': project, 'title': 'Exit submit', 'description': submit_text,
-    'assignee': 'demo', 'ready': True, 'request_id': project + '-submit'})
+    'assignee': agent, 'ready': True, 'request_id': project + '-submit'})
 submit = wait(submit['id'], ('IN_REVIEW',))
 submit_run = run_of(submit)
 assert submit['submission']['summary'] == 'EXIT_SUBMIT_OK', submit
-assert submit['implementer'] == 'demo', submit
+assert submit['implementer'] == agent, submit
 assert submit_run['outcome'] == 'succeeded', submit_run
 calls = api('GET', '/runs/' + submit['current_run_id'] + '/tool-calls')
 assert any(c['tool'] == 'factory_exit_submit' and c['status'] == 200 for c in calls), calls
@@ -66,12 +67,12 @@ assert api('GET', '/tasks/' + submit['id'])['status'] == 'DONE'
 done_text = ('Use only Factory MCP tools, no shell and no files. This task needs no work: '
     'end the run at once with factory_exit_done, summary EXIT_DONE_OK.')
 done = api('POST', '/tasks', {'project_id': project, 'title': 'Exit done', 'description': done_text,
-    'assignee': 'demo', 'ready': True, 'request_id': project + '-done'})
+    'assignee': agent, 'ready': True, 'request_id': project + '-done'})
 done = wait(done['id'], ('DONE',))
 done_run = run_of(done)
 assert done['result'] == 'EXIT_DONE_OK', done
 assert done_run['outcome'] == 'succeeded', done_run
 
-print(json.dumps({'project': project, 'submit': {'task': submit['id'], 'run': submit_run['spec']['id'], 'run_status': submit_run['status'], 'outcome': submit_run['outcome']},
+print(json.dumps({'agent': agent, 'project': project, 'submit': {'task': submit['id'], 'run': submit_run['spec']['id'], 'run_status': submit_run['status'], 'outcome': submit_run['outcome']},
     'done': {'task': done['id'], 'run': done_run['spec']['id'], 'run_status': done_run['status'], 'outcome': done_run['outcome']},
     'tool_calls': [c['tool'] + ':' + str(c['status']) for c in calls]}, indent=2))
