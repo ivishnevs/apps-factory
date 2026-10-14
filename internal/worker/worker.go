@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"appfactory/internal/bus"
@@ -228,45 +229,87 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			slog.Error("session record", "run", spec.ID, "session", record.SessionID, "error", err)
 		}
 	}
+	// A runtime still running ExitGrace after its accepted exit is stopped with cause errExitGrace (no
+	// failure outcome: the exit stands).
+	ctx, stopAfterExit := context.WithCancelCause(ctx)
+	defer stopAfterExit(nil)
 	var wt *workspace.Worktree
 	var req workspace.Request
-	sealed := false
-	// seal stops the run's process group and snapshots the worktree once, before the terminal event.
-	seal := func() {
-		if wt == nil || sealed {
-			return
-		}
-		sealed = true
-		if session != nil {
-			session.Close()
-		}
-		if err := wt.Stop(); err != nil {
-			slog.Error("worktree run group", "run", spec.ID, "error", err)
-		}
-		sealCtx, stop := context.WithTimeout(context.Background(), time.Minute)
-		defer stop()
-		res, err := w.Worktrees.Seal(sealCtx, req)
-		if err != nil {
-			slog.Error("worktree seal", "run", spec.ID, "task", req.Task, "path", wt.Path, "error", err)
-			return
-		}
-		slog.Info("worktree sealed", "run", spec.ID, "task", req.Task, "path", wt.Path, "branch", wt.Branch, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA)
-		// The WIP ref stays local (task-worktrees D3); Core records the sealed head. A failed report is logged only.
-		report := workspaceReport{Lease: lease, Mode: "worktree", Branch: wt.Branch, NodeID: w.NodeID, SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix()}
-		if err := w.reportWorkspace(sealCtx, spec.ID, report); err != nil {
-			slog.Error("workspace report", "run", spec.ID, "task", req.Task, "error", err)
-		}
-	}
 	// exitFile is where the MCP adapter records the run's exit (docs/explicit-exits-contract.md §5).
 	var exitFile string
+	// exitHead is the worktree's HEAD when the worker first saw the exit accepted: the exit's commit
+	// unless the adapter names it in the exit file.
+	var exitMu sync.Mutex
+	var exitHead string
+	noteExit := func() {
+		if wt == nil {
+			return
+		}
+		exitMu.Lock()
+		defer exitMu.Unlock()
+		if exitHead != "" {
+			return
+		}
+		headCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if h, err := wt.Head(headCtx); err == nil {
+			exitHead = h
+		} else {
+			slog.Warn("worktree HEAD at the accepted exit", "run", spec.ID, "error", err)
+		}
+	}
+	finished := false
+	var exitEnd exitRecord
+	// finish runs once, before the terminal event and before the exit file is removed: it stops a
+	// worktree run's runtime and process group, reads the run's exit, then seals the worktree with it.
+	finish := func() exitRecord {
+		if finished {
+			return exitEnd
+		}
+		finished = true
+		if wt != nil {
+			if session != nil {
+				session.Close()
+			}
+			if err := wt.Stop(); err != nil {
+				slog.Error("worktree run group", "run", spec.ID, "error", err)
+			}
+		}
+		exitEnd = exitRecord{ExitState: factorytools.ExitState{State: "none"}}
+		if exitFile != "" {
+			exitEnd = readExitRecord(exitFile)
+		}
+		if wt == nil {
+			return exitEnd
+		}
+		var exit workspace.Exit
+		if exitEnd.State == "accepted" {
+			if exitEnd.ExitSHA == "" {
+				noteExit()
+				exitMu.Lock()
+				exitEnd.ExitSHA = exitHead
+				exitMu.Unlock()
+			}
+			exit = workspace.Exit{Kind: exitEnd.Kind, SHA: exitEnd.ExitSHA}
+		}
+		w.sealWorktree(spec.ID, lease, *wt, req, exit)
+		return exitEnd
+	}
 	emit := func(kind string, p protocol.Event) error {
 		if p.Status != "" {
-			seal()
+			x := finish()
+			if exitFile != "" {
+				p.ExitState = x.State
+			}
+			// After an accepted exit the run ends as the exit says, also when the executor stopped the
+			// runtime meanwhile (ExitGrace, a timeout, a stop) or the end has no evidence: Core records
+			// it succeeded, and a CANCELLED or UNKNOWN end would misreport it.
+			if x.State == "accepted" && p.Status != "COMPLETED" && (ctx.Err() != nil || p.Status == "UNKNOWN") {
+				slog.Info("run ended after its accepted exit", "run", spec.ID, "exit", x.Kind, "status", p.Status, "outcome", p.Outcome)
+				kind, p.Status, p.Outcome = "completed", "COMPLETED", ""
+			}
 			record.Status = p.Status
 			saveRecord()
-			if exitFile != "" {
-				p.ExitState = readExitState(exitFile).State
-			}
 		}
 		if kind != "started" && kind != "progress" {
 			p.Usage, p.Quota = meter.usage(), meter.quota
@@ -314,13 +357,18 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			slog.Error("worktree start check", "run", spec.ID, "task", r.Task, "path", diverged.Path, "head", diverged.Head, "sealed_head", diverged.SealedHead, "remote", diverged.Remote, "reason", diverged.Reason)
 			return emit("failed", protocol.Event{Status: "FAILED", Result: diverged.Error(), Outcome: outcomeSetupFailed})
 		}
+		if workspace.IsLockError(err) {
+			// Git lock contention that outlived the allocator's retries is transient, not a broken setup
+			// (task-worktrees D1): an ordinary retryable failure.
+			return notStarted(driver.OutcomeFailed, fmt.Errorf("worktree: %w", err))
+		}
 		if err != nil {
 			return setupFailed(fmt.Errorf("worktree: %w", err))
 		}
 		stopped = t.Path
 		wt, req, cwd = &t, r, t.Path
 		defer func() {
-			seal()
+			finish()
 			if err := t.Release(); err != nil {
 				slog.Error("worktree release", "run", spec.ID, "error", err)
 			}
@@ -417,7 +465,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			if e != nil {
 				return setupFailed(e)
 			}
-			defer os.RemoveAll(dir)
+			// The run's exit is read (and the worktree sealed with it) before its file goes away, also
+			// when the run returns with an error and its terminal event is emitted afterwards.
+			defer func() { finish(); os.RemoveAll(dir) }()
 			exitFile = filepath.Join(dir, "exit.json")
 			launch.Env = setEnv(launch.Env, "FACTORY_EXIT_FILE", exitFile)
 			launch.Env = setEnv(launch.Env, "FACTORY_WORKDIR", cwd)
@@ -488,11 +538,12 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	record.Started = true
 	saveRecord()
 	if exitFile != "" {
-		// After an accepted exit the turn may finish; a runtime still running 30 s later is stopped (the
-		// exit stands: Core records the run succeeded).
+		// After an accepted exit the turn may finish; a runtime still running ExitGrace later is stopped
+		// (the exit stands: the run ends COMPLETED, Core records it succeeded). The worktree's HEAD when the
+		// exit is first seen accepted is the exit's commit.
 		watchDone := make(chan struct{})
 		defer close(watchDone)
-		go watchExit(exitFile, watchDone, cancel)
+		go watchExit(exitFile, watchDone, noteExit, func() { stopAfterExit(errExitGrace) })
 	}
 	events := session.Events()
 	cancelled := ctx.Done()
@@ -561,6 +612,10 @@ const (
 
 // errRunTimeout is the cancellation cause of the run's own hard timeout (RunSpec.timeout_seconds).
 var errRunTimeout = errors.New("run timeout")
+
+// errExitGrace is the cancellation cause of a runtime stopped ExitGrace after its accepted exit; it has
+// no outcome, and the run ends COMPLETED (the exit stands).
+var errExitGrace = errors.New("stopped after the accepted exit")
 
 // stopOutcome is the outcome of the reason ctx was cancelled: timed_out for the run's own timeout or
 // Core's v2 stop timed_out, idle_timeout for Core's v2 stop idle_timeout. A revoke (owner cancel,
@@ -692,8 +747,12 @@ func (m *meter) usage() []protocol.Usage {
 
 // worktreeRequest is the task worktree of a workspace_mode worktree run; shared and scratch runs, and
 // runs this worker cannot place in a worktree, use the project workspace through the Allocator (Local).
+// WorkspaceFreshFromDefault is the workspace mode whose task worktree starts every run from the freshly
+// fetched default branch, without a task branch (task-worktrees D4; release-type agents).
+const WorkspaceFreshFromDefault = "fresh_from_default"
+
 func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool) {
-	if spec.WorkspaceMode != "worktree" {
+	if spec.WorkspaceMode != "worktree" && spec.WorkspaceMode != WorkspaceFreshFromDefault {
 		return workspace.Request{}, false
 	}
 	if w.Worktrees == nil || spec.TaskID == "" || spec.RepoURL == "" {
@@ -701,8 +760,37 @@ func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool
 		return workspace.Request{}, false
 	}
 	// RunSpec has no company yet; the node serves the default company.
-	return workspace.Request{Company: storage.DefaultCompany, Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL,
-		DefaultBranch: spec.DefaultBranch, Branch: workspace.BranchName(spec.TaskID, "")}, true
+	r := workspace.Request{Company: storage.DefaultCompany, Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch}
+	if spec.WorkspaceMode == WorkspaceFreshFromDefault {
+		r.Fresh = true
+	} else {
+		r.Branch = workspace.BranchName(spec.TaskID, "")
+	}
+	return r, true
+}
+
+// sealWorktree seals a run's worktree with its accepted exit (reset to the exit's commit after handoff,
+// submit or done) and reports it to Core: mode, branch, node, the last exit's commit, sealed_head. The
+// WIP ref stays local (task-worktrees D3). Failures are logged only.
+func (w *Worker) sealWorktree(run, lease string, wt workspace.Worktree, req workspace.Request, exit workspace.Exit) {
+	ctx, stop := context.WithTimeout(context.Background(), time.Minute)
+	defer stop()
+	res, err := w.Worktrees.SealExit(ctx, req, exit)
+	if err != nil {
+		slog.Error("worktree seal", "run", run, "task", req.Task, "path", wt.Path, "exit", exit.Kind, "exit_sha", exit.SHA, "error", err)
+		if res.SealedHead == "" {
+			return
+		}
+	}
+	// wip_sha and unpushed are what pins the task to this node (task-worktrees D8); Core has no field for
+	// them yet, so they are logged.
+	slog.Info("worktree sealed", "run", run, "task", req.Task, "path", wt.Path, "branch", wt.Branch, "exit", exit.Kind,
+		"exit_sha", res.ExitSHA, "reset", res.Reset, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA, "unpushed", res.Unpushed)
+	report := workspaceReport{Lease: lease, Mode: "worktree", Branch: wt.Branch, NodeID: w.NodeID, ExitSHA: res.ExitSHA,
+		SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix()}
+	if err := w.reportWorkspace(ctx, run, report); err != nil {
+		slog.Error("workspace report", "run", run, "task", req.Task, "error", err)
+	}
 }
 
 // workspaceReport is the body of POST /runs/{id}/workspace.
@@ -838,14 +926,37 @@ func readExitState(path string) factorytools.ExitState {
 	return st
 }
 
+// exitRecord is the exit file with the exit's commit. ExitSHA (`exit_sha`, the head of the accepted
+// exit's facts) is read when the adapter writes it; otherwise the worker takes the worktree's HEAD when
+// it first sees the exit accepted.
+type exitRecord struct {
+	factorytools.ExitState
+	ExitSHA string `json:"exit_sha,omitempty"`
+}
+
+// readExitRecord reads the exit file like readExitState, with the exit's commit when present.
+func readExitRecord(path string) exitRecord {
+	var r exitRecord
+	b, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(b, &r) != nil || r.State == "" {
+		return exitRecord{ExitState: factorytools.ExitState{State: "none"}}
+	}
+	return r
+}
+
 // ExitGuardRetries bounds the follow-up turns of a runtime that ends its turn without an exit.
 var ExitGuardRetries = 2
 
 // ExitGrace is how long a runtime may keep running after its exit was accepted.
 var ExitGrace = 30 * time.Second
 
-func watchExit(path string, done <-chan struct{}, stop context.CancelFunc) {
-	tick := time.NewTicker(time.Second)
+// exitPoll is how often the worker reads the exit file while the runtime runs.
+var exitPoll = 250 * time.Millisecond
+
+// watchExit polls the exit file: when it first says accepted, accepted is called (the worker notes the
+// worktree's HEAD as the exit's commit) and, ExitGrace later, stop.
+func watchExit(path string, done <-chan struct{}, accepted, stop func()) {
+	tick := time.NewTicker(exitPoll)
 	defer tick.Stop()
 	var deadline <-chan time.Time
 	for {
@@ -858,6 +969,7 @@ func watchExit(path string, done <-chan struct{}, stop context.CancelFunc) {
 			return
 		case <-tick.C:
 			if deadline == nil && readExitState(path).State == "accepted" {
+				accepted()
 				deadline = time.After(ExitGrace)
 			}
 		}

@@ -59,6 +59,11 @@ func TestWorktreeRequest(t *testing.T) {
 	if !ok || r.Company != "default" || r.Project != "p" || r.Task != "t1" || r.Branch != "af/t1" || r.RepoURL != "/repo.git" || r.DefaultBranch != "main" {
 		t.Fatalf("%+v %v", r, ok)
 	}
+	fresh := spec
+	fresh.WorkspaceMode = WorkspaceFreshFromDefault
+	if r, ok = (&Worker{Worktrees: trees}).worktreeRequest(fresh); !ok || !r.Fresh || r.Branch != "" || r.Task != "t1" {
+		t.Fatalf("fresh: %+v %v", r, ok)
+	}
 	for name, s := range map[string]protocol.RunSpec{
 		"shared":  {WorkspaceMode: "shared", TaskID: "t1", RepoURL: "/repo.git"},
 		"scratch": {WorkspaceMode: "scratch", TaskID: "t1", RepoURL: "/repo.git"},

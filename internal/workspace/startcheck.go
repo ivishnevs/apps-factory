@@ -13,7 +13,8 @@ import (
 // Core escalates workspace_diverged (answers: reset from the remote branch, cancel).
 type DivergedError struct {
 	Task, Branch, Path string
-	// Head is the worktree's HEAD, SealedHead the HEAD recorded by the last seal, Remote origin/<branch>
+	// Head is the worktree's HEAD, SealedHead the HEAD recorded by the last seal (the exit's commit after
+	// a reset to a handoff, submit or done), Remote origin/<branch>
 	// ("" when the branch was never pushed).
 	Head, SealedHead, Remote string
 	Reason                   string
@@ -46,15 +47,20 @@ func (w *Worktrees) startCheck(ctx context.Context, r Request, wt Worktree) erro
 		return err
 	}
 	defer unlock()
+	st, err := readState(wt.Path)
+	if err != nil {
+		return err
+	}
+	// sealed_head is the exit's commit after a reset to it (D4); a reset a crash interrupted is finished
+	// here, so HEAD is compared with the commit the task was handed over at.
+	if err = finishReset(ctx, wt.Path, &st); err != nil {
+		return err
+	}
 	head, err := git(ctx, wt.Path, nil, "rev-parse", "--verify", "HEAD")
 	if err != nil {
 		return err
 	}
 	remote, _ := git(ctx, wt.Path, nil, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+wt.Branch)
-	st, err := readState(wt.Path)
-	if err != nil {
-		return err
-	}
 	diverged := func(reason string) error {
 		return &DivergedError{Task: r.Task, Branch: wt.Branch, Path: wt.Path, Head: head, SealedHead: st.SealedHead, Remote: remote, Reason: reason}
 	}

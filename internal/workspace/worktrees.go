@@ -59,6 +59,9 @@ type Request struct {
 	Company, Project, Task string
 	RepoURL, DefaultBranch string
 	Slug, Branch           string
+	// Fresh is the fresh_from_default mode (task-worktrees D4): the worktree has no task branch, and every
+	// Acquire seals it and checks out the freshly fetched origin/<default> (detached, clean).
+	Fresh bool
 }
 
 type Worktree struct {
@@ -70,15 +73,28 @@ type Worktree struct {
 }
 
 type SealResult struct {
-	SealedHead string    `json:"sealed_head"`
-	WIPSHA     string    `json:"wip_sha,omitempty"`
-	SealedAt   time.Time `json:"sealed_at"`
+	// SealedHead is the HEAD the next run's start check expects: the exit's commit after a reset (D4).
+	SealedHead string `json:"sealed_head"`
+	// WIPSHA is what this seal saved on the local WIP ref: a snapshot of uncommitted work, or, when a
+	// reset to the exit dropped commits made after the exit, the old HEAD.
+	WIPSHA   string    `json:"wip_sha,omitempty"`
+	SealedAt time.Time `json:"sealed_at"`
+	// ExitSHA is the head of the task's last accepted exit seen on this node (kept across seals).
+	ExitSHA string `json:"exit_sha,omitempty"`
+	// Reset: this seal reset the worktree to ExitSHA (handoff, submit or done).
+	Reset bool `json:"reset,omitempty"`
+	// Unpushed: HEAD has commits that are on no origin branch. With WIPSHA it is the work only this node
+	// holds (node pinning, task-worktrees D8).
+	Unpushed bool `json:"unpushed,omitempty"`
 }
 
 type worktreeState struct {
 	Task   string `json:"task"`
 	Branch string `json:"branch"`
 	SealResult
+	// ResetFrom is set while a reset to SealedHead (the exit) is in progress; a seal or start check that
+	// finds it finishes the reset first, so a crash never leaves the worktree between the two heads.
+	ResetFrom string `json:"reset_from,omitempty"`
 }
 
 type SecretError struct{ Report string }
@@ -151,7 +167,12 @@ func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
 				return Worktree{}, err
 			}
 		}
-		if err = w.startCheck(ctx, r, wt); err != nil {
+		if r.Fresh {
+			err = w.freshStart(ctx, r, wt)
+		} else {
+			err = w.startCheck(ctx, r, wt)
+		}
+		if err != nil {
 			unlock()
 			return Worktree{}, err
 		}
@@ -172,9 +193,12 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 	if r.RepoURL == "" {
 		return Worktree{}, errors.New("workspace: repo url is required")
 	}
-	branch := branchName(r)
-	if _, err = git(ctx, "", nil, "check-ref-format", "--branch", branch); err != nil {
-		return Worktree{}, fmt.Errorf("workspace: invalid branch %q", branch)
+	branch := ""
+	if !r.Fresh {
+		branch = branchName(r)
+		if _, err = git(ctx, "", nil, "check-ref-format", "--branch", branch); err != nil {
+			return Worktree{}, fmt.Errorf("workspace: invalid branch %q", branch)
+		}
 	}
 	unlock, err := lockRepo(ctx, filepath.Join(dir, "repo.lock"))
 	if err != nil {
@@ -194,11 +218,16 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 			return Worktree{}, err
 		}
 	}
-	if err = ensureBranch(ctx, repo, branch, def); err != nil {
-		return Worktree{}, err
+	// The task branch mode checks out af/<task>; a fresh worktree is detached at the default branch.
+	checkout := "refs/remotes/origin/" + def
+	if !r.Fresh {
+		if err = ensureBranch(ctx, repo, branch, def); err != nil {
+			return Worktree{}, err
+		}
+		checkout = branch
 	}
 	path := filepath.Join(dir, "tasks", r.Task)
-	created, err := ensureWorktree(ctx, repo, path, branch)
+	created, err := ensureWorktree(ctx, repo, path, checkout, r.Fresh)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -305,7 +334,8 @@ func ensureBranch(ctx context.Context, repo, branch, def string) error {
 
 // ensureWorktree keeps a worktree whose .factory/state exists; anything else at the path is a half-created worktree and is rebuilt.
 // created reports a (re)built worktree.
-func ensureWorktree(ctx context.Context, repo, path, branch string) (created bool, err error) {
+// detach checks branch (then any commit-ish) out without a branch.
+func ensureWorktree(ctx context.Context, repo, path, branch string, detach bool) (created bool, err error) {
 	if _, err := os.Stat(filepath.Join(path, ".factory", "state")); err == nil {
 		top, err := git(ctx, path, nil, "rev-parse", "--show-toplevel")
 		if err == nil && top == path {
@@ -328,7 +358,11 @@ func ensureWorktree(ctx context.Context, repo, path, branch string) (created boo
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	_, err = git(ctx, repo, nil, "worktree", "add", "--quiet", path, branch)
+	args := []string{"worktree", "add", "--quiet"}
+	if detach {
+		args = append(args, "--detach")
+	}
+	_, err = git(ctx, repo, nil, append(args, path, branch)...)
 	return err == nil, err
 }
 
@@ -366,16 +400,11 @@ func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''
 
 // Seal snapshots the worktree's working tree onto the local WIP ref via a temporary index; HEAD, the index and files are untouched.
 func (w *Worktrees) Seal(ctx context.Context, r Request) (SealResult, error) {
-	dir, err := w.project(r)
-	if err != nil {
-		return SealResult{}, err
-	}
-	path := filepath.Join(dir, "tasks", r.Task)
-	unlock, err := lockRepo(ctx, filepath.Join(dir, "repo.lock"))
-	if err != nil {
-		return SealResult{}, err
-	}
-	defer unlock()
+	return w.SealExit(ctx, r, Exit{})
+}
+
+// snapshot is the seal proper (D3), under the repository lock: uncommitted work onto the WIP ref.
+func snapshot(ctx context.Context, r Request, path string) (SealResult, error) {
 	head, err := git(ctx, path, nil, "rev-parse", "--verify", "HEAD")
 	if err != nil {
 		return SealResult{}, err
@@ -426,9 +455,7 @@ func (w *Worktrees) Seal(ctx context.Context, r Request) (SealResult, error) {
 			return SealResult{}, err
 		}
 	}
-	st, _ := readState(path)
-	st.Task, st.SealResult = r.Task, res
-	return res, writeState(path, st)
+	return res, nil
 }
 
 // ScanExit scans merge-base(origin/<default>, HEAD)..HEAD with the configured scanner.

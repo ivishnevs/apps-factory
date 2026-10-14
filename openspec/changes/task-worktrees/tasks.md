@@ -5,7 +5,7 @@
 
 ## 2. Seal and continuity
 - [x] 2.1 Local seal onto `refs/factory/wip/<task>` without touching HEAD/index; report `sealed_head`. Verify: test with staged, unstaged and untracked changes: HEAD, index and files unchanged, WIP ref contains all. Done: 2499b4d.
-- [ ] 2.2 Reset to `exit_sha` after handoff/submit/done; continue as is otherwise; `fresh_from_default`. Verify: tests for each exit kind.
+- [ ] 2.2 Reset to `exit_sha` after handoff/submit/done; continue as is otherwise; `fresh_from_default`. Verify: tests for each exit kind. Partial (node side): `Worktrees.SealExit` resets to the exit's commit at the seal (crash-safe, later work on the WIP ref), `exit_sha` reported, `fresh_from_default` worktrees (`TestSealExitContinuity`, `TestFreshFromDefault`, `TestJetStreamWorktreeExitReset`). Pending: `exit_sha` in the adapter's exit file, `fresh_from_default` in agent config and RunSpec.
 - [ ] 2.3 Start check and `workspace_diverged` escalation; fast-forward when the remote moved and the tree is clean; recreate a missing worktree. Verify: tests for each branch of the check. Partial: node-side check in `Worktrees.Acquire` (`TestStartCheck`): fast-forward, recreate, typed `DivergedError` that the executor ends FAILED before the runtime starts. Core's `workspace_diverged` escalation pending (stream A).
 
 ## 3. Push, scan, merge
