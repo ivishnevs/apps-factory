@@ -67,6 +67,19 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		if err := api.Do(ctx, "GET", "/pending/count", nil, &result); err != nil {
 			return err
 		}
+	case "direct":
+		// factory direct TASK TEXT... [--urgent]: an owner directive (authority input) to a task.
+		urgent := len(args) > 0 && args[len(args)-1] == "--urgent"
+		if urgent {
+			args = args[:len(args)-1]
+		}
+		if len(args) < 3 {
+			return fmt.Errorf("direct TASK TEXT [--urgent]")
+		}
+		body := map[string]any{"text": strings.Join(args[2:], " "), "urgent": urgent, "request_id": protocol.ID()}
+		if err := api.Do(ctx, "POST", "/tasks/"+url.PathEscape(args[1])+"/directives", body, &result); err != nil {
+			return err
+		}
 	case "answer":
 		if len(args) < 3 {
 			return fmt.Errorf("answer MESSAGE_ID TEXT")

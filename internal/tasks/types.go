@@ -68,6 +68,10 @@ type Task struct {
 	// SideEffects marks a task whose runs act outside the workspace (publish, deploy): an unclear
 	// outcome parks it for inspection instead of retrying.
 	SideEffects bool `json:"side_effects,omitempty"`
+	// Implementer submitted the task (factory_exit_submit); Reviewer is the agent asked to review it and is
+	// its assignee while the task is IN_REVIEW.
+	Implementer string `json:"implementer,omitempty"`
+	Reviewer    string `json:"reviewer,omitempty"`
 }
 type ProjectCreate struct {
 	ID            string `json:"id"`

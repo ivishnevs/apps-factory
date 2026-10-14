@@ -619,6 +619,28 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 		if !in.Accept && strings.TrimSpace(in.Feedback) == "" {
 			return t, inputError("rejection feedback required")
 		}
+		if s.ExplicitExits && t.Implementer != "" {
+			// A verdict (explicit-exits D1): the task returns to its implementer, who merges and ends with
+			// done after an approval, or reworks it after changes requested.
+			p, err := projectTx(ctx, tx, t.ProjectID)
+			if err != nil {
+				return t, err
+			}
+			if !in.Accept || p.RepoURL != "" {
+				t.Status, t.Assignee, t.Reviewer, t.ReviewFeedback = "READY", t.Implementer, "", in.Feedback
+				text := "approved: merge your pull request, then end with factory_exit_done"
+				if !in.Accept {
+					text = "changes requested: " + in.Feedback
+				}
+				if err = comment(ctx, tx, id, in.Actor, in.Feedback); err != nil {
+					return t, err
+				}
+				if err = saveTask(ctx, tx, &t, "task.reviewed"); err != nil {
+					return t, err
+				}
+				return t, addTrigger(ctx, tx, t, "review_result", isOwner(in.Actor), in.Actor, "", text)
+			}
+		}
 		if in.Accept {
 			t.Status = "DONE"
 		} else {

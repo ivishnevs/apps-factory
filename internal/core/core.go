@@ -36,6 +36,8 @@ type Core struct {
 	Token      string
 	// Company is the tenant this Core serves; empty means storage.DefaultCompany.
 	Company string
+	// ExplicitExits switches runs to factory_exit_* (docs/explicit-exits-contract.md, FACTORY_EXPLICIT_EXITS).
+	ExplicitExits bool
 	// lastStallSweep is touched only by the tick goroutine.
 	lastStallSweep time.Time
 }
@@ -64,6 +66,7 @@ func (c *Core) companyFrom(r *http.Request) string {
 func (c *Core) Handler() http.Handler {
 	if c.Store != nil {
 		c.Store.EscalationTarget = c.pickManager
+		c.Store.ExplicitExits = c.ExplicitExits
 	}
 	m := http.NewServeMux()
 	c.configRoutes(m)
@@ -76,6 +79,7 @@ func (c *Core) Handler() http.Handler {
 	c.consoleRoutes(m)
 	c.ownerRoutes(m)
 	c.nodeRoutes(m)
+	c.directiveRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := c.Store.DB.PingContext(r.Context()); err != nil || !c.Bus.NC.IsConnected() {
 			http.Error(w, "unavailable", 503)
@@ -142,7 +146,7 @@ func (c *Core) Handler() http.Handler {
 		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Status, p.Result))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" {
+		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" || exitPath(r.URL.Path) {
 			c.agentGateway(w, r, m)
 			return
 		}
@@ -235,6 +239,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 }
 func (c *Core) Run(ctx context.Context) error {
 	c.Store.EscalationTarget = c.pickManager
+	c.Store.ExplicitExits = c.ExplicitExits
 	sub, err := c.Bus.Subscribe("factory.events.>", "core-events-v1")
 	if err != nil {
 		return err
@@ -294,6 +299,9 @@ func (c *Core) maintain(ctx context.Context) error {
 		return err
 	}
 	if err := c.Store.ExpirePauses(ctx, c.company()); err != nil {
+		return err
+	}
+	if err := c.Store.ExpireWaits(ctx, c.company()); err != nil {
 		return err
 	}
 	if err := c.Store.ExpireApprovals(ctx, c.company()); err != nil {

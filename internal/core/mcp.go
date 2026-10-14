@@ -61,7 +61,16 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	// A token minted for another company's run fails both the scoped lookup and the HMAC.
 	company := c.company()
 	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, parts[1]).Scan(&lease, &status, &until)
-	if err != nil || lease == "" || status != "RUNNING" || !c.Store.LeaseLive(until) || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
+	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
+		http.Error(w, "run credential expired or invalid", 401)
+		return
+	}
+	if status != "RUNNING" || !c.Store.LeaseLive(until) {
+		if exitPath(r.URL.Path) && r.URL.Path != "/agent/brief" {
+			// The credential is genuine but its run was stopped or ended: the agent must stop (410).
+			jsonStatus(w, http.StatusGone, map[string]string{"reason": "not_current_run", "hint": "this run was stopped or replaced; finish the turn"})
+			return
+		}
 		http.Error(w, "run credential expired or invalid", 401)
 		return
 	}
@@ -100,6 +109,10 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		}
 		return true
 	}
+	if exitPath(r.URL.Path) {
+		c.exitRoute(w, r, run)
+		return
+	}
 	if r.URL.Path == "/agent/command" {
 		if r.Method != "POST" {
 			http.Error(w, "not found", 404)
@@ -109,13 +122,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		return
 	}
 	if r.URL.Path == "/agent/tools" && r.Method == "GET" {
-		out := []factorytools.Tool{}
-		for _, t := range factorytools.Definitions() {
-			if allowed(t) {
-				out = append(out, t)
-			}
-		}
-		write(w, out)
+		write(w, c.agentTools(current, allowed))
 		return
 	}
 	if r.URL.Path != "/agent/call" || r.Method != "POST" {
@@ -141,6 +148,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	if response.status == 0 {
 		response.status = 200
 	}
+	c.withAuthorityInput(r, run, response)
 	if _, err = c.Store.DB.ExecContext(r.Context(), "UPDATE tool_calls SET status=? WHERE id=?", response.status, auditID); err != nil {
 		reply(w, nil, err)
 		return
@@ -174,8 +182,12 @@ func (w *toolResponse) Write(b []byte) (int, error) {
 func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.Handler, p factorytools.Call, run storage.Run, snapshot, current config.Agent, allowed func(factorytools.Tool) bool) {
 	var def factorytools.Tool
 	found := false
-	for _, t := range factorytools.Definitions() {
-		if t.Name == p.Name {
+	defs := factorytools.Definitions()
+	if c.ExplicitExits {
+		defs = append(defs, factorytools.ExitDefinitions()...)
+	}
+	for _, t := range defs {
+		if t.Name == p.Name && !(c.ExplicitExits && factorytools.ReplacedByExits[t.Name]) {
 			def = t
 			found = true
 			break
@@ -194,6 +206,14 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	if !allowed(def) {
 		http.Error(w, "agent permissions deny tool", 403)
+		return
+	}
+	if factorytools.ExitKind(p.Name) != "" {
+		c.exitCall(w, r, p, run)
+		return
+	}
+	if p.Name == "factory_task_direct" {
+		c.directiveCall(w, r, p, run, current)
 		return
 	}
 	if approvalMeta(p.Name) {

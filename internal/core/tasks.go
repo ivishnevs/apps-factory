@@ -375,66 +375,117 @@ func (c *Core) Schedule(ctx context.Context) error {
 	}
 	now := c.Store.Now().Unix()
 	for _, t := range ready {
-		a, ok := c.Agents[t.Assignee]
-		if !ok || t.NotBefore > now { // automatic retry waits for its backoff
+		if t.NotBefore > now { // automatic retry or a wait exit
 			continue
 		}
-		p, err := c.Store.Project(ctx, company, t.ProjectID)
+		if err = c.dispatchTask(ctx, company, t, false); err != nil {
+			return err
+		}
+	}
+	if !c.ExplicitExits {
+		return nil
+	}
+	// Review runs: the reviewer named by factory_exit_submit reviews the task while it stays IN_REVIEW.
+	review, err := c.Store.Tasks(ctx, company, "", "IN_REVIEW")
+	if err != nil {
+		return err
+	}
+	for _, t := range review {
+		if t.Reviewer == "" || t.Assignee != t.Reviewer || t.NotBefore > now {
+			continue
+		}
+		snap, err := c.Store.TaskSnapshot(ctx, company, t.ID)
 		if err != nil {
 			return err
 		}
-		snapshot, err := json.Marshal(a)
+		if snap.WakeSeq <= snap.HandledSeq || snap.CurrentRun != nil && snap.CurrentRun.Live() {
+			continue
+		}
+		if err = c.dispatchTask(ctx, company, t, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dispatchTask builds the run of a READY task (or a review run of a task in review) and dispatches it.
+func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, review bool) error {
+	a, ok := c.Agents[t.Assignee]
+	if !ok {
+		return nil
+	}
+	p, err := c.Store.Project(ctx, company, t.ProjectID)
+	if err != nil {
+		return err
+	}
+	snapshot, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	hash := sha256.Sum256(snapshot)
+	var prompt strings.Builder
+	fmt.Fprintf(&prompt, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
+	if t.OpenSpecChange != "" {
+		fmt.Fprintf(&prompt, "OpenSpec change: %s (openspec/changes/%s). Read proposal and relevant specs with factory_openspec_read before implementation; list current openspec/specs as needed. Documents remain current in files; this is a reference, not a copied snapshot.\n", t.OpenSpecChange, t.OpenSpecChange)
+	}
+	if c.ExplicitExits {
+		directives, err := c.Store.PendingDirectives(ctx, company, t.ID)
 		if err != nil {
 			return err
 		}
-		hash := sha256.Sum256(snapshot)
-		var prompt strings.Builder
-		fmt.Fprintf(&prompt, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
-		if t.OpenSpecChange != "" {
-			fmt.Fprintf(&prompt, "OpenSpec change: %s (openspec/changes/%s). Read proposal and relevant specs with factory_openspec_read before implementation; list current openspec/specs as needed. Documents remain current in files; this is a reference, not a copied snapshot.\n", t.OpenSpecChange, t.OpenSpecChange)
+		for _, d := range directives {
+			fmt.Fprintf(&prompt, "Directive from %s (%s): %s\n", d.Author, d.Kind, contextExcerpt(d.Text, 4*1024))
 		}
-		if t.Attempt > 0 {
-			if prev, err := c.Store.Get(ctx, company, t.CurrentRunID); err == nil && prev.Outcome != "" && prev.Outcome != "succeeded" {
-				fmt.Fprintf(&prompt, "Previous run: %s (automatic retry). Inspect the workspace before continuing: the previous run may have changed files or completed part of the work.\n", prev.Outcome)
-			}
-			fmt.Fprintf(&prompt, "Previous attempt result: %s\nInspect the workspace and previous changes before continuing. Do not repeat completed side effects.\n", contextExcerpt(t.Result, 16*1024))
+	}
+	if review {
+		b, _ := json.Marshal(t.Submission)
+		fmt.Fprintf(&prompt, "You review this task, submitted by %s: %s\nInspect the changes (the branch and its pull request), then end with factory_exit_handoff to %s with verdict approved, or changes_requested with feedback.\n", t.Implementer, b, t.Implementer)
+	}
+	if t.Attempt > 0 && !review {
+		if prev, err := c.Store.Get(ctx, company, t.CurrentRunID); err == nil && prev.Outcome != "" && prev.Outcome != "succeeded" {
+			fmt.Fprintf(&prompt, "Previous run: %s (automatic retry). Inspect the workspace before continuing: the previous run may have changed files or completed part of the work.\n", prev.Outcome)
 		}
-		if t.WaitMessageID != "" {
-			answer, err := c.Store.AnswerFor(ctx, company, t.WaitMessageID)
-			if err != nil {
-				return err
-			}
-			b, err := json.Marshal(answer)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(&prompt, "Answer to your blocking question %s: %s\nContinue the original task using this explicit answer. Do not ask the same question again.\n", t.WaitMessageID, b)
+		fmt.Fprintf(&prompt, "Previous attempt result: %s\nInspect the workspace and previous changes before continuing. Do not repeat completed side effects.\n", contextExcerpt(t.Result, 16*1024))
+	}
+	if t.WaitMessageID != "" {
+		answer, err := c.Store.AnswerFor(ctx, company, t.WaitMessageID)
+		if err != nil {
+			return err
 		}
-		if t.ReviewFeedback != "" {
-			fmt.Fprintf(&prompt, "Previous review feedback: %s\n", t.ReviewFeedback)
+		b, err := json.Marshal(answer)
+		if err != nil {
+			return err
 		}
-		for _, dep := range t.Dependencies {
-			d, err := c.Store.Task(ctx, company, dep)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(&prompt, "Dependency %s [%s]: %s\n", d.ID, d.Status, contextExcerpt(d.Result, 4*1024))
+		fmt.Fprintf(&prompt, "Answer to your blocking question %s: %s\nContinue the original task using this explicit answer. Do not ask the same question again.\n", t.WaitMessageID, b)
+	}
+	if t.ReviewFeedback != "" {
+		fmt.Fprintf(&prompt, "Previous review feedback: %s\n", t.ReviewFeedback)
+	}
+	for _, dep := range t.Dependencies {
+		d, err := c.Store.Task(ctx, company, dep)
+		if err != nil {
+			return err
 		}
+		fmt.Fprintf(&prompt, "Dependency %s [%s]: %s\n", d.ID, d.Status, contextExcerpt(d.Result, 4*1024))
+	}
+	if c.ExplicitExits {
+		prompt.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.\n")
+	} else {
 		prompt.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")
-		spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: p.Workspace, Prompt: prompt.String(), Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigHash: hex.EncodeToString(hash[:]), ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
-		if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err != nil {
-			if errors.Is(err, storage.ErrConflict) {
-				continue
-			}
-			if errors.Is(err, storage.ErrInput) {
-				_, blockErr := c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"})
-				if blockErr != nil && !errors.Is(blockErr, storage.ErrConflict) {
-					return blockErr
-				}
-				continue
-			}
-			return err
+	}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: p.Workspace, Prompt: prompt.String(), Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigHash: hex.EncodeToString(hash[:]), ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
+	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			return nil
 		}
+		if errors.Is(err, storage.ErrInput) {
+			_, blockErr := c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"})
+			if blockErr != nil && !errors.Is(blockErr, storage.ErrConflict) {
+				return blockErr
+			}
+			return nil
+		}
+		return err
 	}
 	return nil
 }

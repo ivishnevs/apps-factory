@@ -38,6 +38,9 @@ type Store struct {
 	// EscalationTarget picks who answers an escalation from the open escalations per target; Core sets it
 	// from its catalog (the least loaded manager agent). Nil means the owner.
 	EscalationTarget func(load map[string]int) string
+	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a COMPLETED
+	// turn without an accepted exit is no_exit instead of an implicit submission.
+	ExplicitExits bool
 }
 
 func (s *Store) Now() time.Time {
@@ -362,6 +365,21 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 				return tx.Commit()
 			}
 			next, result, outcome := endStatus(status, stopReason, p)
+			hasExit, err := runHasExit(ctx, tx, p.RunID)
+			if err != nil {
+				return err
+			}
+			switch {
+			case hasExit:
+				outcome = "succeeded" // an accepted exit fixes the outcome whatever happens afterwards
+			case s.ExplicitExits && next == "COMPLETED" && p.ExitState == "pending":
+				next, outcome = "FAILED", "lost"
+				if result == "" {
+					result = "lost: the exit was not delivered before the run ended"
+				}
+			case s.ExplicitExits && next == "COMPLETED":
+				outcome = "no_exit"
+			}
 			// An empty outcome lets the run_outcome trigger derive it (also for late evidence on UNKNOWN).
 			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status=?,result=?,finished_at=? WHERE id=?", outcome, next, result, tx.now().Unix(), p.RunID); err != nil {
 				return err

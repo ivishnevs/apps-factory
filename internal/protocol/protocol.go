@@ -80,6 +80,9 @@ type Event struct {
 	// (reliable-recovery D1): failed, timed_out, idle_timeout, max_turns, setup_failed or paused_out.
 	// A failure outcome on a CANCELLED event makes the run FAILED: the task is not cancelled.
 	Outcome string `json:"outcome,omitempty"`
+	// ExitState, on a terminal event, is the MCP adapter's exit state (docs/explicit-exits-contract.md §5):
+	// accepted, pending (an exit was queued but not delivered), refused or none.
+	ExitState string `json:"exit_state,omitempty"`
 }
 
 // Usage is cumulative token use of one model in a run (runtime-drivers 2.5).

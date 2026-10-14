@@ -164,8 +164,8 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 		return err
 	}
 	t, err := taskTx(ctx, tx, e.TaskID)
-	if err != nil || t.Status == "DONE" || t.Status == "CANCELLED" {
-		return err
+	if err != nil || t.Status == "DONE" || t.Status == "CANCELLED" || answer == "accept" {
+		return err // accept leaves the task idle until new input
 	}
 	return addTrigger(ctx, tx, t, "answer", isOwner(in.Sender), in.Sender, m.ID, "escalation "+e.Reason+": "+answer)
 }
@@ -179,8 +179,10 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		return err
 	}
 	switch answer {
-	case "retry": // retries_exhausted, budget_exhausted: counters and today's budget reset, run now
+	case "retry": // retries_exhausted, budget_exhausted, no_exit: counters and today's budget reset, run now
 		return retryAnswer(ctx, tx, t)
+	case "accept": // no_exit: take the work as it is
+		return acceptAnswer(ctx, tx, t)
 	case "unblock": // stalled: stop waiting on the stuck dependency
 		t.Dependencies = slices.DeleteFunc(slices.Clone(t.Dependencies), func(d string) bool { return d == e.RefID })
 		if err = dependencies(ctx, tx, t); err != nil {

@@ -35,6 +35,7 @@ func backoff(streak int) time.Duration {
 func init() {
 	escalationAnswers["retries_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
+	escalationAnswers["no_exit"] = []string{"retry", "accept", "cancel"}
 }
 
 func budgetDay(t time.Time) string { return t.UTC().Format("2006-01-02") }
@@ -57,22 +58,32 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return err
 	}
 	now := tx.now()
+	hasExit, err := runHasExit(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
 	if outcome == "succeeded" {
-		if t.AttemptsNoProgress == 0 && t.FailStreak == 0 && t.NotBefore == 0 {
+		if t.AttemptsNoProgress == 0 && t.FailStreak == 0 && (hasExit || t.NotBefore == 0) {
 			return nil
 		}
-		t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0
+		t.AttemptsNoProgress, t.FailStreak = 0, 0
+		if !hasExit { // an exit sets not_before itself (wait)
+			t.NotBefore = 0
+		}
 		return saveTask(ctx, tx, &t, "task.updated")
 	}
 	rule, ok := Outcomes[outcome]
 	if !ok || t.SideEffects || t.CancelRequested || t.WaitMessageID != "" {
 		return nil
 	}
+	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
+	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
 	switch {
-	case t.Status == "FAILED":
+	case outcome == "no_exit":
+	case t.Status == "FAILED", review:
 	case t.Status == "BLOCKED" && status == "UNKNOWN" && released:
 	default:
-		return nil // CANCELLED, READY (kill switch), IN_REVIEW, or a lost run that may still run
+		return nil // CANCELLED, READY (kill switch), or a lost run that may still run
 	}
 	if rule.Budget && !strings.Contains(result, "restarted (epoch") {
 		if _, err = tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=used+1", tx.company, t.ID, budgetDay(now)); err != nil {
@@ -97,6 +108,8 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	}
 	reason, summary := "", ""
 	switch {
+	case outcome == "no_exit" && t.AttemptsNoProgress < RetryAttempts:
+		reason, summary = "no_exit", "the agent's run ended without a factory_exit_* call (for review: the agent did not finish): "+excerpt512(result)
 	case t.AttemptsNoProgress >= RetryAttempts:
 		reason, summary = "retries_exhausted", fmt.Sprintf("%d attempts in a row without progress; last run %s: %s", t.AttemptsNoProgress, outcome, excerpt512(result))
 	case used >= DailyBudget:
@@ -105,13 +118,17 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	t.RetryEligible = false
 	t.Result = result
 	if reason != "" {
-		t.Status, t.BlockReason = "FAILED", ""
+		if !review && outcome != "no_exit" {
+			t.Status, t.BlockReason = "FAILED", ""
+		}
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
 		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(ctx, tx)})
 	}
-	t.Status, t.BlockReason = "READY", ""
+	if !review {
+		t.Status, t.BlockReason = "READY", ""
+	}
 	return saveTask(ctx, tx, &t, "task.retry")
 }
 
@@ -165,14 +182,29 @@ func clearRetryEscalations(ctx context.Context, tx *Tx, t tasks.Task, why string
 
 // retryAnswer is the retry answer of a retry escalation: counters reset, the task runs again now.
 func retryAnswer(ctx context.Context, tx *Tx, t tasks.Task) error {
-	if t.Status != "FAILED" {
+	if t.Status != "FAILED" && t.Status != "IN_PROGRESS" && t.Status != "IN_REVIEW" {
 		return fmt.Errorf("%w: task is %s", ErrConflict, t.Status)
 	}
 	if err := resetRetry(ctx, tx, &t); err != nil {
 		return err
 	}
-	t.Status, t.RetryEligible, t.BlockReason = "READY", false, ""
+	t.RetryEligible, t.BlockReason = false, ""
+	if !(t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer) {
+		t.Status = "READY"
+	}
 	return saveTask(ctx, tx, &t, "task.retry")
+}
+
+// acceptAnswer takes a no_exit run's work as it is: the task's triggers count as handled, so it stays
+// idle until new input.
+func acceptAnswer(ctx context.Context, tx *Tx, t tasks.Task) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=wake_seq WHERE company_id=? AND id=?", tx.company, t.ID); err != nil {
+		return err
+	}
+	if t.Status == "IN_PROGRESS" {
+		t.Status = "READY"
+	}
+	return saveTask(ctx, tx, &t, "task.updated")
 }
 
 // releaseLost marks a lost run's runtime as gone (it no longer holds its project, workspace or session)

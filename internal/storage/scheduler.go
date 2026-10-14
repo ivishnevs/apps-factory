@@ -29,7 +29,9 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 			return spec, ErrConflict
 		}
 	}
-	if t.Version != version || t.Status != "READY" || t.Assignee == "" || spec.Agent != t.Assignee || spec.Project != t.ProjectID || spec.ID == "" {
+	// A review run: the reviewer assigned by factory_exit_submit reviews the task while it stays IN_REVIEW.
+	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
+	if t.Version != version || t.Status != "READY" && !review || t.Assignee == "" || spec.Agent != t.Assignee || spec.Project != t.ProjectID || spec.ID == "" {
 		return spec, ErrConflict
 	}
 	if paused, err := pausedFor(ctx, tx, t.ProjectID, t.Assignee, QuotaKey(spec.ConfigSnapshot, t.Assignee)); err != nil || len(paused) > 0 {
@@ -100,11 +102,15 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		return spec, err
 	}
 	t.WaitMessageID = ""
-	t.Status = "IN_PROGRESS"
+	if !review {
+		t.Status = "IN_PROGRESS"
+	}
 	t.Attempt = spec.Attempt
 	t.CurrentRunID = spec.ID
-	t.Result = ""
-	t.Submission = nil
+	if !review { // the reviewer needs the submission
+		t.Result = ""
+		t.Submission = nil
+	}
 	t.BlockReason = ""
 	t.CancelRequested = false
 	t.RetryEligible = false
@@ -144,6 +150,10 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string, knownFailure bool
 	if t.CurrentRunID != runID {
 		return nil
 	}
+	hasExit, err := runHasExit(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
 	switch status {
 	case "UNKNOWN":
 		err = addPark(ctx, tx, t, tasks.ParkInspect, runID, "run "+runID+" ended with unknown outcome", true)
@@ -153,8 +163,14 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string, knownFailure bool
 	if err != nil {
 		return err
 	}
-	if status == "COMPLETED" {
-		// Until explicit exits exist, a completed turn handles the triggers it was briefed on.
+	if hasExit && !(status == "COMPLETED" && t.WaitMessageID != "") {
+		return nil // the accepted exit already moved the task (an ask still waits for its answer below)
+	}
+	if !hasExit && tx.store.ExplicitExits && status == "COMPLETED" {
+		return nil // no_exit: recoverTask escalates
+	}
+	if status == "COMPLETED" && !hasExit {
+		// Without explicit exits, a completed turn handles the triggers it was briefed on.
 		if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
 			return err
 		}

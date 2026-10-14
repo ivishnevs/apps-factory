@@ -1,6 +1,7 @@
 # Explicit exits: adapter ↔ Core contract
 
-Status: draft (2026-10-14) for stream B's review; not implemented. Owner decisions of 2026-10-14: explicit exits
+Status: draft (2026-10-14) for stream B's review. Core side implemented behind the switch (§11); adapter side
+pending. Owner decisions of 2026-10-14: explicit exits
 yes, `done` only with a merged pull request yes (projects without a remote use `scratch`). Consolidates
 `explicit-exits-authority` D1–D9 and `task-worktrees` D5–D6 into one contract between the MCP adapter on the node
 (`cmd/factory-mcp`, `internal/factorytools`) and Core, so both sides can build against it. Nothing changes until
@@ -149,3 +150,25 @@ A forge or Core failure retries with the same run key.
    the only forge for now?
 4. Exit file path: inside the shim directory (exists only with guards) or a per-run file next to the run's
    pidfile in `state_dir`?
+
+## 11. Core implementation notes
+
+Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 0019), off unless
+`FACTORY_EXPLICIT_EXITS=1`:
+
+- Exits through `/agent/exit` (with facts) and through `/agent/call` (an adapter that does not intercept exit
+  tools yet; no facts, `ack_seq` from the header or the brief end). Without facts a task of a project with a
+  repository is refused `409 facts_required` for submit, handoff and done; scratch projects work today.
+- `/agent/exit*` on a stopped run answers 410 (the credential is checked first, then the run's state).
+- Default reviewer is the owner (`factory tasks review`, mapped to a verdict: approve returns a repository task
+  to its implementer to merge, otherwise ends it; reject returns it with the feedback). A `reviewer` agent gets
+  its own review run while the task stays IN_REVIEW. The manager as default reviewer arrives with the hierarchy.
+- `block on` adds the named tasks as dependencies (the scheduler and the `stalled` escalation already handle
+  them); `on_children` blocks until the last child closes; impossible blocks become an ask. `wait` sets
+  `not_before` and a wait park that the tick turns into a `wake` trigger; `deadline` is stored, not enforced yet.
+- Authority set: the owner (rank 0) and agents with role `manager` (rank 1, `factory_task_direct` for their run's
+  project). A manager's directive does not lift an owner's manual block. Delegators are not authority yet.
+- An urgent directive revokes the running run (CANCELLING; v1 cancel, v2 stop `revoked`); its CANCELLED end
+  returns the task to READY and the next brief starts with the directive.
+- Not yet: `abandon_branch`, project review policy and `review_after_conflicts`, the secret-scan report item,
+  `artifact_approved` as authority input.
