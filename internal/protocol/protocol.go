@@ -48,6 +48,9 @@ type RunSpec struct {
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
 	WorkspaceMode string `json:"workspace_mode,omitempty"`
+
+	// Company is set in the v2 claim answer (runtime protocol v2 §5); Core does not store it in the spec.
+	Company string `json:"company,omitempty"`
 }
 
 type Envelope struct {

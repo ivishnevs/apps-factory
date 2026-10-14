@@ -307,18 +307,21 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND lease_until<?", company, s.leaseCutoff())
+	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND lease_until<?", company, s.leaseCutoff())
 	if err != nil {
 		return err
 	}
 	ids := []string{}
+	unstarted := map[string]bool{}
 	for rows.Next() {
 		var id string
-		if err = rows.Scan(&id); err != nil {
+		var claimed bool
+		if err = rows.Scan(&id, &claimed); err != nil {
 			rows.Close()
 			return err
 		}
 		ids = append(ids, id)
+		unstarted[id] = claimed
 	}
 	err = rows.Err()
 	rows.Close()
@@ -326,6 +329,13 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 		return err
 	}
 	for _, id := range ids {
+		if unstarted[id] {
+			// A v2 run that never started: the runtime never ran, so it fails retryably (protocol v2 §10).
+			if err = endLost(ctx, tx, id, "FAILED", "lost: not started (node lease expired)"); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='UNKNOWN',result='Worker lease expired; inspect workspace before reconciliation' WHERE id=?", id); err != nil {
 			return err
 		}

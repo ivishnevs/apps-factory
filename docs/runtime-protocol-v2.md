@@ -1,6 +1,7 @@
 # Runtime protocol v2
 
-Status: agreed (2026-10-14) after stream B's review; not implemented yet. Consolidates `node-agent` D2–D3, `reliable-recovery` D6–D7 and
+Status: agreed (2026-10-14) after stream B's review; implemented on both sides (Core: §11) and run together in
+`TestJetStreamNodeV2RealCore`. Consolidates `node-agent` D2–D3, `reliable-recovery` D6–D7 and
 `trigger-log-scheduling` D4/D6 into one Core ↔ node contract so both sides can build against it. Nothing here
 changes the current (v1) behaviour until a node registers with `protocol_version: 2`.
 
@@ -38,7 +39,7 @@ Authentication stays the shared worker token until node tokens exist; every requ
  "resources": {"simulator": 2, "build": 2}, "labels": ["macos", "xcode"]}
 ```
 
-Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 30}`.
+Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 60}`.
 
 `drivers` come from each driver's `Probe`; `name` is exactly the provider (`codex`, `claude`). `resources` is the
 capacity from `node.yaml`.
@@ -152,3 +153,51 @@ runtime-protocol.md). Terminal statuses stay COMPLETED/FAILED/CANCELLED/UNKNOWN 
    (stream B); enforced with claim v2, shortage answers `409 retry/capacity`, never `drop`.
 7. **Acknowledged ends:** `acked` in the heartbeat answer (§7).
 8. **No mixing:** a registered node uses only v2.
+
+## 11. Core implementation notes
+
+What Core does where the sections above leave room (`internal/storage/nodes.go`, `internal/core/nodes.go`):
+
+- **CLAIMED** is stored as status `RUNNING` with `run_started = 0` (`protocol = 2`, `node_id`, `epoch`,
+  `claim_id`, `slot`, `start_by` on the run). A claimed run therefore holds its agent, project and node capacity
+  like a running one, and every existing live-run rule (cancel, kill switch, writer indexes) applies to it.
+  Run reads show `RUNNING` until the outcome model adds statuses.
+- **Leases** of v2 runs last 60 s (the offline threshold) and are renewed only by the inventory heartbeat;
+  the per-run `POST /runs/{id}/heartbeat` refuses v2 runs with 409. Lease expiry keeps its continuity guard,
+  so a sleeping Core host expires nothing until one window of continuous ticking.
+- **Claim** without a body is v1 (`{lease}`); with `{node_id, epoch, claim_id, slot}` it is v2. Checks in
+  order: node registered with this epoch (else `drop/old_epoch`); same `(node_id, epoch, claim_id)` → the
+  same answer; revoked → `drop/revoked`; claimed by another claim → `drop/duplicate`; not QUEUED →
+  `drop/stale`; task's live run is another run, assignee changed or cancel requested → `drop/not_runnable`;
+  paused (company, project, agent, quota key) → `retry/paused`; no `ok` driver for the provider, no free
+  slot, or resource classes short (`spec.resources` of the run's agent snapshot against node.yaml
+  `resources` minus the needs of the node's unended runs; an undeclared class has capacity 0) →
+  `retry/capacity`; the agent has another live run → `retry/agent_busy`; OpenSpec or approved-artifact
+  checks fail (recorded on the task as in v1) → `drop/not_runnable`. Refusals are JSON:
+  `409 {"retry":true,"reason":…}` / `409 {"drop":true,"reason":…}`.
+- **Claim answer**: `run_spec` is the stored RunSpec plus `company`; `brief` is `{from, to}` of the run's
+  trigger window; `start_by` is claim + 60 s. Branch names stay the node's (`af/<task>…`).
+- **Register** answers `409 {"reason":"stale_epoch"}` for an epoch not above the last one. **Heartbeat**
+  answers `409 {"reason":"stale_epoch"}` for an older epoch and `404 {"reason":"unknown_node"}` for an
+  unknown node or a newer epoch than registered (the node registers again).
+- **Heartbeat effects**: listed unended runs get their lease renewed; `claimed`/`starting` entries of an
+  unstarted run extend `start_by` to now + 60 s, never past claim + 15 min. `stop`: `revoked` (CANCELLING or
+  kill switch), `terminal` (Core already ended it), `unknown_run` (not this node's epoch), `timed_out`
+  (started longer ago than `timeout_seconds` + 60 s; Core ends it UNKNOWN with result `timed_out: …`, since
+  the runtime may still have acted). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
+  records `end_applied`). Started runs of this epoch missing from the inventory for more than 30 s after
+  `/start` end UNKNOWN (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
+  `critical`. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
+  most 30 answers (the node retries a busy worktree from the next listing).
+- **Lost runs** (§10.2): a new epoch, an offline node (no heartbeat or claim for 60 s of continuous ticking)
+  or an expired lease end the node's unstarted runs FAILED `lost: not started (…)`, retryable like a known
+  failure, and started runs UNKNOWN `lost: …`. A node's terminal event that arrives later still resolves an
+  UNKNOWN run, as in v1. A heartbeat from an offline node brings it back online.
+- **Incarnation** lives in the database (`core_meta`) with a copy in `<db>.incarnation`; when the two differ
+  at start (a restored database), Core creates a new incarnation. Restoring the file together with the
+  database is not detected: after such a restore write any other value into `<db>.incarnation` (for example
+`echo restored > data/factory.db.incarnation`) before starting Core.
+- `GET /nodes` lists registered nodes (epoch, drivers, resources, health, `online`, `last_seen`).
+
+Not yet: agent `labels` matching node labels, a per-node owner pause, node health events, declaring driver
+changes without a new epoch (a `drivers` field in the heartbeat is the proposed addition).

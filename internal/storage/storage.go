@@ -113,7 +113,12 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{DB: db}, nil
+	s := &Store{DB: db}
+	if err = s.checkIncarnation(context.Background(), path); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // Tx is a transaction bound to one company. Helpers write tx.company into every row they
@@ -246,7 +251,7 @@ func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
 }
 
 func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool, error) {
-	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
+	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND protocol=1 AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
 	if err != nil {
 		return false, err
 	}
@@ -326,6 +331,12 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO events(id,run_id,body,company_id) VALUES(?,?,?,?)", e.ID, p.RunID, body, company); err != nil {
 		return err
+	}
+	if p.Status != "" {
+		// The node's inventory heartbeat drops an ended run once Core applied its terminal event.
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET end_applied=1 WHERE id=?", p.RunID); err != nil {
+			return err
+		}
 	}
 	if status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" {
 		// Late terminal evidence can resolve a lost lease; late progress never revives it.

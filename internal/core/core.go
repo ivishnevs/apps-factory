@@ -72,6 +72,7 @@ func (c *Core) Handler() http.Handler {
 	c.openSpecRoutes(m)
 	c.consoleRoutes(m)
 	c.ownerRoutes(m)
+	c.nodeRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := c.Store.DB.PingContext(r.Context()); err != nil || !c.Bus.NC.IsConnected() {
 			http.Error(w, "unavailable", 503)
@@ -98,10 +99,6 @@ func (c *Core) Handler() http.Handler {
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /runs/{id}/credential", c.credential)
-	m.HandleFunc("POST /runs/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
-		token, err := c.Store.Claim(r.Context(), c.companyFrom(r), r.PathValue("id"))
-		reply(w, map[string]string{"lease": token}, err)
-	})
 	m.HandleFunc("POST /runs/{id}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			Lease string `json:"lease"`
@@ -284,6 +281,9 @@ func (c *Core) maintain(ctx context.Context) error {
 		c.Store.Continuity.Observe(c.Store.Now())
 	}
 	if err := c.Store.Expire(ctx, c.company()); err != nil {
+		return err
+	}
+	if err := c.Store.ExpireNodes(ctx, c.company()); err != nil {
 		return err
 	}
 	if err := c.Store.ExpirePauses(ctx, c.company()); err != nil {
