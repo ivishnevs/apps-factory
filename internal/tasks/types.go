@@ -13,6 +13,9 @@ type Project struct {
 	// remote HEAD (task-worktrees 1.1).
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
+	// ReviewAfterConflicts (task-worktrees D7): "required" makes done refuse a pull request whose head moved
+	// after the approval (a new submit and approval first); "agent_decides" (default) leaves it to the agent.
+	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
 }
 type Artifact struct {
 	ID      string `json:"id"`
@@ -74,13 +77,14 @@ type Task struct {
 	Reviewer    string `json:"reviewer,omitempty"`
 }
 type ProjectCreate struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Workspace     string `json:"workspace"`
-	RequestID     string `json:"request_id,omitempty"`
-	RepoURL       string `json:"repo_url,omitempty"`
-	DefaultBranch string `json:"default_branch,omitempty"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Description          string `json:"description"`
+	Workspace            string `json:"workspace"`
+	RequestID            string `json:"request_id,omitempty"`
+	RepoURL              string `json:"repo_url,omitempty"`
+	DefaultBranch        string `json:"default_branch,omitempty"`
+	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
 }
 type ProjectUpdate struct {
 	Version     int    `json:"version"`
@@ -88,8 +92,9 @@ type ProjectUpdate struct {
 	Description string `json:"description"`
 	RequestID   string `json:"request_id,omitempty"`
 	// Nil keeps the current value; "" clears it.
-	RepoURL       *string `json:"repo_url,omitempty"`
-	DefaultBranch *string `json:"default_branch,omitempty"`
+	RepoURL              *string `json:"repo_url,omitempty"`
+	DefaultBranch        *string `json:"default_branch,omitempty"`
+	ReviewAfterConflicts *string `json:"review_after_conflicts,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

@@ -139,7 +139,10 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		if err := validReviewPolicy(p.ReviewAfterConflicts); err != nil {
+			return p, err
+		}
 		if err := validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err
 		}
@@ -172,6 +175,12 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 		}
 		if in.DefaultBranch != nil {
 			p.DefaultBranch = *in.DefaultBranch
+		}
+		if in.ReviewAfterConflicts != nil {
+			if err = validReviewPolicy(*in.ReviewAfterConflicts); err != nil {
+				return p, err
+			}
+			p.ReviewAfterConflicts = *in.ReviewAfterConflicts
 		}
 		if err = validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err
@@ -673,4 +682,12 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 }
 func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {
 	return listDocs[protocol.Envelope](ctx, s.DB, "SELECT body FROM entity_events WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR entity_id=?) ORDER BY seq", company, project, project, id, id)
+}
+
+func validReviewPolicy(v string) error {
+	switch v {
+	case "", "agent_decides", "required":
+		return nil
+	}
+	return inputError("review_after_conflicts must be agent_decides or required")
 }

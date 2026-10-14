@@ -403,3 +403,45 @@ func TestManagerDirective(t *testing.T) {
 		t.Fatal("a developer could give directives", w.Code, w.Body.String())
 	}
 }
+
+// TestReviewAfterConflictsRequired: with the policy required, done is refused when the PR head moved after
+// the approval, and accepted for the approved head.
+func TestReviewAfterConflictsRequired(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	if _, err := h.s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "strict", Name: "strict", Workspace: "/tmp/exits-strict", RepoURL: "https://example.com/s.git", ReviewAfterConflicts: "required"}); err != nil {
+		t.Fatal(err)
+	}
+	h.create("s", "strict", "demo")
+	r := h.start("s")
+	var brief struct {
+		AckSeq int64 `json:"ack_seq"`
+	}
+	_ = json.Unmarshal(h.do(r.token, "GET", "/agent/brief", nil, nil).Body.Bytes(), &brief)
+	exit := func(run exitRun, kind string, args map[string]any, facts *storage.ExitFacts) *httptest.ResponseRecorder {
+		var b struct {
+			AckSeq int64 `json:"ack_seq"`
+		}
+		_ = json.Unmarshal(h.do(run.token, "GET", "/agent/brief", nil, nil).Body.Bytes(), &b)
+		return h.do(run.token, "POST", "/agent/exit", map[string]any{"kind": kind, "arguments": args, "ack_seq": b.AckSeq, "facts": facts}, nil)
+	}
+	open := &storage.PRFacts{Number: 3, State: "open", HeadSHA: "h1"}
+	if w := exit(r, "submit", map[string]any{"summary": "s", "reviewer": "reviewer"}, clean("h1", open)); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.end(r, "COMPLETED", "accepted")
+	rv := h.start("s")
+	if w := exit(rv, "handoff", map[string]any{"to": "demo", "note": "ok", "verdict": "approved"}, clean("h1", open)); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.end(rv, "COMPLETED", "accepted")
+	r = h.start("s")
+	moved := &storage.PRFacts{Number: 3, State: "merged", HeadSHA: "h2"}
+	if w := exit(r, "done", map[string]any{"summary": "x"}, clean("h2", moved)); w.Code != 409 || refusalOf(t, w).Reason != "needs_approval" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	approvedHead := &storage.PRFacts{Number: 3, State: "merged", HeadSHA: "h1"}
+	if w := exit(r, "done", map[string]any{"summary": "x"}, clean("h1", approvedHead)); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

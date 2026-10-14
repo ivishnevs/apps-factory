@@ -159,6 +159,17 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if r := checkFacts(req, p.RepoURL != "", abandoned); r != nil {
 		return out, r
 	}
+	if req.Kind == "done" && p.ReviewAfterConflicts == "required" && !abandoned && req.Facts != nil && req.Facts.PR != nil {
+		// The merged head must be the approved one; a head changed after the approval needs a new review.
+		var approved string
+		err = tx.QueryRowContext(ctx, "SELECT approved_head FROM pr_approvals WHERE company_id=? AND task_id=? AND pr_number=? ORDER BY created_at DESC, rowid DESC LIMIT 1", company, t.ID, req.Facts.PR.Number).Scan(&approved)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return out, err
+		}
+		if approved == "" || approved != req.Facts.PR.HeadSHA {
+			return out, refuse("needs_approval", "the pull request head changed after its approval (project policy review_after_conflicts: required): submit again for review before merging")
+		}
+	}
 	if req.Preflight {
 		return ExitResult{Exit: req.Kind, Task: exitTask(t), AckSeq: req.AckSeq}, nil
 	}
