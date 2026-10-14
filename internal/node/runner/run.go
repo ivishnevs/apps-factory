@@ -16,7 +16,9 @@ import (
 	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
 	"appfactory/internal/node/janitor"
+	"appfactory/internal/node/sessions"
 	"appfactory/internal/protocol"
+	"appfactory/internal/skills"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
@@ -41,13 +43,13 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 		if shim == "" && c.BinDir != "" {
 			shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
 		}
-		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey})
+		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir})
 	}
 	return r
 }
 
-// Main checks the drivers and the environment (FACTORY_TOKEN, FACTORY_URL, NATS_URL), connects and
-// runs the node until ctx ends. codex-worker is Main with one slot and the Codex driver.
+// Main checks the environment (FACTORY_TOKEN, FACTORY_URL, NATS_URL), connects and runs the node until
+// ctx ends; Run checks the drivers. codex-worker is Main with one slot and the Codex driver.
 func Main(ctx context.Context, c node.Config, getenv func(string) string) error {
 	env := func(k, d string) string {
 		if v := getenv(k); v != "" {
@@ -56,11 +58,6 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return d
 	}
 	drivers := Drivers(c, getenv)
-	for _, d := range drivers {
-		if _, err := d.CheckVersion(ctx); err != nil {
-			return fmt.Errorf("%s: %w", d.Name(), err)
-		}
-	}
 	if getenv("FACTORY_TOKEN") == "" {
 		return fmt.Errorf("FACTORY_TOKEN required")
 	}
@@ -70,6 +67,35 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 	}
 	defer b.NC.Close()
 	return Run(ctx, Node{Config: c, Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: getenv("FACTORY_TOKEN")}, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
+}
+
+// SkillsRoot is the directory whose configs/skills.yaml is the node's skills registry.
+func SkillsRoot(c node.Config) string {
+	switch {
+	case c.SkillsRoot != "":
+		return c.SkillsRoot
+	case c.BinDir != "":
+		return filepath.Join(c.BinDir, "..")
+	}
+	return "."
+}
+
+// LoadSkills loads the node's skills registry; nil (logged) when SkillsRoot has no configs/skills.yaml,
+// so runs start without materialized skills.
+func LoadSkills(c node.Config) (*skills.Registry, error) {
+	root, err := filepath.Abs(SkillsRoot(c))
+	if err != nil {
+		return nil, err
+	}
+	if _, err = os.Stat(filepath.Join(root, "configs", "skills.yaml")); errors.Is(err, os.ErrNotExist) {
+		slog.Warn("no skills registry; runs get no materialized skills", "skills_root", root)
+		return nil, nil
+	}
+	r, err := skills.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("skills registry %s: %w", root, err)
+	}
+	return r, nil
 }
 
 // Node is a connected node process.
@@ -83,11 +109,26 @@ type Node struct {
 	FetchWait time.Duration
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
+
+	health *driverHealth // set by Run
 }
 
-// Run kills runtimes left by a previous process, then runs the slots, the disk gate and the watchdog.
+// ErrNoDriver: no enabled driver passed its version check and probe at start.
+var ErrNoDriver = errors.New("no usable runtime driver")
+
+// Run checks the drivers (at least one must be usable at start), kills runtimes left by a previous process,
+// then runs the slots, the periodic driver checks, the disk gate and the watchdog. A driver that fails a later
+// check stops claiming until it passes again; with none usable the node claims nothing.
 func Run(ctx context.Context, n Node) error {
 	c := n.Config
+	if c.Probes.Interval <= 0 || c.Probes.VersionInterval <= 0 {
+		c.Probes = node.Defaults().Probes
+	}
+	n.health = newDriverHealth(n.Drivers, c.Probes)
+	n.health.check(ctx, true)
+	if !n.health.anyUsable() {
+		return fmt.Errorf("%w: %+v", ErrNoDriver, n.health.infos())
+	}
 	if err := os.MkdirAll(c.StateDir, 0o700); err != nil {
 		return err
 	}
@@ -109,9 +150,14 @@ func Run(ctx context.Context, n Node) error {
 			return err
 		}
 	}
+	registry, err := LoadSkills(c)
+	if err != nil {
+		return err
+	}
+	store := sessions.Open(c.StateDir)
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	jan := &janitor.Janitor{Config: c.Janitor, Worktrees: trees, Company: storage.DefaultCompany}
+	jan := &janitor.Janitor{Config: c.Janitor, Worktrees: trees, Company: storage.DefaultCompany, Sessions: store}
 	if n.Host.FreeBytes != nil {
 		low := uint64(c.Disk.LowGiB * node.GiB)
 		jan.LowDisk = func() bool { free, err := n.Host.FreeBytes(c.Disk.Path); return err == nil && free < low }
@@ -134,7 +180,8 @@ func Run(ctx context.Context, n Node) error {
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
-		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped}
+		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
+			Skills: registry, Sessions: store}
 		if s != nil {
 			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
 		}
@@ -142,13 +189,22 @@ func Run(ctx context.Context, n Node) error {
 		if err != nil {
 			return err
 		}
-		pool.Sources = append(pool.Sources, &Source{Name: string(d.Name()), Process: w.Process,
-			Fetch: func() ([]*nats.Msg, error) { return sub.Fetch(1, nats.MaxWait(wait)) }})
-		names = append(names, string(d.Name()))
+		name := string(d.Name())
+		pool.Sources = append(pool.Sources, &Source{Name: name, Process: w.Process,
+			Fetch:     func() ([]*nats.Msg, error) { return sub.Fetch(1, nats.MaxWait(wait)) },
+			Claimable: func() bool { return n.health.usable(name) }})
+		names = append(names, name)
 	}
+	usable := n.health.anyUsable // false: the whole node pauses
+	pool.Claimable = usable
 	if n.Host.FreeBytes != nil {
-		pool.Claimable = node.NewDiskGate(n.Host, c.Disk).Claimable
+		disk := node.NewDiskGate(n.Host, c.Disk).Claimable
+		pool.Claimable = func() bool { return usable() && disk() }
 	}
+	if s != nil {
+		n.health.changed = func() { s.redeclare.Store(true) }
+	}
+	go n.health.run(ctx)
 	wd := node.Watchdog{}
 	if n.Watchdog != nil {
 		wd = *n.Watchdog
@@ -158,8 +214,8 @@ func Run(ctx context.Context, n Node) error {
 	var failed error
 	done := make(chan struct{})
 	if s != nil {
-		disk := pool.Claimable
-		pool.Claimable = func() bool { return s.claimable() && (disk == nil || disk()) }
+		local := pool.Claimable
+		pool.Claimable = func() bool { return s.claimable() && local() }
 		s.busy = func() int { return busySlots(pool) }
 		go func() {
 			defer close(done)
@@ -172,7 +228,7 @@ func Run(ctx context.Context, n Node) error {
 		close(done)
 	}
 	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root, "protocol_version", c.ProtocolVersion)
-	err := pool.Run(ctx)
+	err = pool.Run(ctx)
 	stop()
 	<-done
 	if failed != nil {

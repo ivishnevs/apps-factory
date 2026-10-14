@@ -158,20 +158,25 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
       else input.signal.addEventListener("abort", () => resolve("cancel"), { once: true });
     });
     let interrupted = false;
+    let interruptFailed: unknown;
     let deadline: Promise<"deadline"> | undefined;
     for (;;) {
       const next = iterator.next();
       let r = await Promise.race([next, deadline ?? cancelled]);
       if (r === "cancel") {
         interrupted = true;
-        await within(q.interrupt(), 5_000, "interrupt", "interrupt_timeout");
-        // Acknowledgement only means interruption was requested. Wait for terminal evidence.
+        // Acknowledgement only means interruption was requested, and a refusal may mean the turn just
+        // ended: either way wait for terminal evidence.
+        await within(q.interrupt(), 5_000, "interrupt", "interrupt_timeout").catch((err: unknown) => {
+          interruptFailed = err;
+          input.log?.(`interrupt refused; waiting for terminal evidence: ${String(err)}`);
+        });
         deadline = new Promise((resolve) => {
           deadlineTimer = clock.timeout(input.interruptTimeoutMs ?? 10_000, () => resolve("deadline"));
         });
         r = await Promise.race([next, deadline]);
       }
-      if (r === "deadline") throw new RuntimeError("interrupt result unknown", "interrupt_unknown");
+      if (r === "deadline") throw interruptFailed ?? new RuntimeError("interrupt result unknown", "interrupt_unknown");
       if (r.done) throw new RuntimeError("runtime ended without terminal evidence", "no_result");
       const m = r.value;
       await input.emit("progress", { method: methodOf(m), data: redactor.data(m) });

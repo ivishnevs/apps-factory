@@ -113,6 +113,14 @@ killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Comma
   are FAILED); UNKNOWN, a broken line or exit without `result` → `Result.Err` (`*claude.Error`,
   class from the last `error`/`auth_error`, else `no_result`/`protocol`). After `result` the driver
   waits up to 10 s for the shim to exit so the transcript is flushed for resume.
+- Skills: `Launch.Skills` (verified copies under `Launch.SkillsRoot`, see
+  [development](development.md#node-process)) are copied into `<cwd>/.claude/skills/<name>` before the shim
+  starts, where Claude Code reads project skills (`settingSources` must include `project`, the default). Each copy
+  carries a `.factory-skill` marker with its hash, is listed in the repository's `info/exclude` (so neither the
+  agent's commits nor the worktree seal include it) and is removed by `Close`; copies a crashed run left behind
+  are replaced, a project's own skill with the same name refuses the launch.
+- `ResumePolicy` resumes only a session whose prompt this node delivered (`driver.ResumeSameNode`); the
+  executor clears `session_id` and prepends the fresh-session note otherwise.
 - `CheckVersion` runs `shim.js --probe` and accepts SDK 0.3.284 with Claude Code 2.1.284.
 - `Probe` (`factory-node doctor`, fields `Host`, `BinDir`) checks Node 22+, the built worker,
   `factory-workspace` and `claude auth status` of `Executable`, `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI.
@@ -146,7 +154,9 @@ Owner/broker secrets are removed from the runtime env; `FACTORY_RUN_TOKEN` reach
 inheritance and is not part of the MCP configuration. Same-user processes can still read process
 environments on macOS; this is the trusted host model, not a boundary.
 
-Sessions are stored by Claude Code under `~/.claude/projects` per workspace path. Core refuses an
+Sessions are stored by Claude Code under `~/.claude/projects` per workspace path, so a session can
+only be resumed on the node (and workspace path) that ran it; the Go executor resumes only sessions it
+recorded in `<state_dir>/sessions` and starts others fresh. Core refuses an
 explicit resume of a session created by another provider; scheduled task/conversation continuations
 start a fresh session after an agent changes provider.
 

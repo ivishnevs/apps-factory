@@ -15,6 +15,6 @@
 
 ## 4. Pinning and docs
 - [ ] 4.1 Record node and unpushed/WIP state for pinning (enforced at claim in `node-agent`). Verify: Core stores the flag from the run end report.
-- [ ] 4.2 `reset-workspace` action (seal, remove, recreate from remote, unpin, new session); `pinned_node_unavailable` reason and self-clearing escalation answered by reset-workspace. Verify: pinned node removed → reason and one escalation; reset-workspace makes the task claimable elsewhere with a fresh session.
+- [ ] 4.2 `reset-workspace` action (seal, remove, recreate from remote, unpin, new session); `pinned_node_unavailable` reason and self-clearing escalation answered by reset-workspace. Verify: pinned node removed → reason and one escalation; reset-workspace makes the task claimable elsewhere with a fresh session. Partial (node side): `Worktrees.Reset` (seal, remove, recreate from the remote or default branch, old state on `refs/factory/reset/<task>`), `janitor.ResetWorkspace` forgets the task's sessions, `factory-node workspace reset`; the protocol action, unpinning and the escalation pending (stream A).
 - [ ] 4.3 Daily unmerged-branch check for closed tasks. Verify: a cancelled task with an open PR yields exactly one event; `abandon_branch` suppresses it.
 - [ ] 4.4 Update `docs/architecture.md`, `docs/task-lifecycle.md`, README limits. Verify: no remaining mention of one writer per project.

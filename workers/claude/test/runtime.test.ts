@@ -163,6 +163,30 @@ test("cancellation interrupts and requires terminal evidence", async () => {
   assert.match(String(lost.error), /interrupt result unknown/);
 });
 
+test("a refused interrupt still waits for the result (the turn ended meanwhile)", async () => {
+  const stop = new AbortController();
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  const f = fake(async function* (_) {
+    yield { type: "system", subtype: "init", session_id: _.options!.sessionId } as unknown as SDKMessage;
+    stop.abort();
+    await released;
+    yield result({ result: "done anyway" });
+  });
+  const query = f.query;
+  f.query = (p) =>
+    Object.assign(query(p), {
+      interrupt: async () => {
+        release();
+        throw new Error("no active turn");
+      },
+    });
+  const { events, error } = await run(f, { signal: stop.signal });
+  assert.equal(error, undefined);
+  assert.equal(events.at(-1)!.status, "COMPLETED");
+  assert.equal(events.at(-1)!.result, "done anyway");
+});
+
 test("runtime exit without a result is unknown", async () => {
   const f = fake(async function* () {});
   const { error } = await run(f);

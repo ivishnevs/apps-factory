@@ -60,19 +60,25 @@ OpenSpec uses Go 1.24 os.Root for confined file access, with no new dependency o
 
 ## Node doctor
 
-`./bin/factory-node doctor` runs the node self-checks locally (node-agent D7) and needs no Core or NATS. It prints a
+`./bin/factory-node doctor` runs the node self-checks locally (node-agent D7); Core and NATS are checked only when
+their variables are set. It prints a
 STATUS/CHECK/DETAIL table with a remediation hint under every `fail`/`warn` row and exits 1 when any check fails.
 Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, with `-repo URL`, `forge.repo`
 (`git ls-remote`); `disk` free space at `-disk-path` (default `$HOME`) against `-low-gib 20` (warn) and
 `-critical-gib 5` (fail); on macOS `xcode` (`xcode-select -p`, `xcodebuild -version`) and `xcode.simctl` (available
 simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
+`core` (with `FACTORY_URL`): an authenticated `GET /health` with `FACTORY_TOKEN` (fails when the token is unset or
+rejected, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS). `nats` (with
+`NATS_URL`): one connection without reconnects and a JetStream account info read (fails when unreachable or
+JetStream is off). Both are read-only, time out after 5 s, never print the token or URL credentials, and are
+`skip` when their variable is unset.
 Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
 injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
 `codex-cli 0.162.1`, `codex login status`) and `claude.*` (Node 22+, built `workers/claude`, `factory-workspace`, and
 `claude auth status` of `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI; warn when no CLI is installed, since the
 SDK-bundled Claude Code is checked only at run start). By default only installed drivers are probed;
 `-drivers codex,claude` requires the listed ones. `drivers` fails when no driver is usable.
-Core/NATS reachability and stack hooks from `NodeHooks` arrive with node registration.
+Stack hooks from `NodeHooks` arrive with node registration.
 
 ## Node process
 
@@ -82,8 +88,8 @@ yet). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack,
 v1); the slots share one pull
 subscription per enabled driver on `factory.commands.agent.run.<driver>` with the durable `<driver>-worker-v1`, so they
 compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
-Environment as for the Worker: `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. Each enabled
-driver's `CheckVersion` must pass at start. SIGINT/SIGTERM interrupt running runs (as the Codex Worker does) and wait
+Environment as for the Worker: `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. At least one
+enabled driver must pass its version check and probe at start (see Driver checks below). SIGINT/SIGTERM interrupt running runs (as the Codex Worker does) and wait
 for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
@@ -97,9 +103,11 @@ resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in 
 labels: [macos, xcode]       # sent in register
 state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
+skills_root: /opt/factory    # configs/skills.yaml + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
 drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
+probes: {interval: 10m, version_interval: 1h}  # driver Probe and version check periods (defaults; at least 1m)
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
 worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
 janitor:                     # trusted node configuration; each command runs with /bin/sh -c
@@ -115,6 +123,15 @@ Claude stays off by default while `workers/claude` serves `factory.commands.agen
 that service stopped (both would share the `claude-worker-v1` consumer).
 
 - Start: runtime process groups recorded in `state_dir` by a previous process are killed (`worker.KillOrphans`).
+- Driver checks (runtime-drivers D4): each enabled driver's version check (`CheckVersion`) runs at start and every
+  `probes.version_interval`, its `Probe` (binary, version range, authentication; never a model call) at start and
+  every `probes.interval`. A failing check disables that driver on this node: free slots stop fetching its
+  subject (one error log), the other drivers keep claiming, running runs continue; the next passing check
+  re-enables it (one info log). With no usable driver the node claims nothing; the node refuses to start when
+  none is usable at start. With `protocol_version: 2` the change is declared to Core by registering the next
+  epoch with the driver's `ok` updated, but only at a heartbeat where the node is idle (no busy slot, empty
+  inventory), since a new epoch loses every unended run of the older one; a busy node keeps the change local
+  until then, and a driver that flipped back meanwhile is not re-registered.
 - Disk: before each claim a free slot reads free space on `disk.path`. Below the critical watermark claiming
   pauses (one error log), below the low watermark one warning is logged; both clear with a log line when space
   returns. Running runs continue. `node.low_disk`/`node.disk_critical` events come later.
@@ -130,10 +147,28 @@ that service stopped (both would share the `claude-worker-v1` consumer).
   it); a recorded group without a busy slot is killed and its pidfile removed; an idle slot whose claim loop has not
   turned for 2 minutes is restarted. Busy slots are bounded by the run timeout, not by this check.
 
+- Skills (runtime-drivers 2.3): a run's offered skills (`RunSpec.skills`) are copied from the node's registry
+  (`skills_root`/`configs/skills.yaml`; without it runs get no skills, logged at start) into a temporary directory
+  outside the workspace, and each copy's content hash (`sha256:` over the skill directory's regular files and
+  names, `skills.Hash`) is checked against the hash pinned on the run. A mismatch, or a skill this node lacks, ends
+  the run FAILED before the runtime starts (`skills: … (refused before runtime startup)`). Core does not pin
+  hashes yet: the executor reads `skill_hashes` from the agent snapshot when present and otherwise logs the
+  computed hash and materializes it. Claude: the copies go to `<cwd>/.claude/skills/<name>` (read with the
+  `project` setting source), marked with `.factory-skill`, added to the repository's `info/exclude` and removed when
+  the session closes; a project's own skill with the same name refuses the launch. Codex: the app-server gets the
+  copy directory through `skills/extraRoots/set` before the thread starts (verified with codex-cli 0.162.1;
+  skills of `CODEX_HOME` stay visible as before).
+- Sessions (runtime-drivers 2.7, `ResumePolicy`): `<state_dir>/sessions` records each session this node ran
+  (session id, task, agent, run, whether the prompt was delivered, terminal status). A run resumes
+  `RunSpec.session_id` only when this node recorded it for the same task and agent and its prompt was delivered;
+  otherwise (another node, a reset workspace, an unknown session) it starts a fresh session and its prompt begins
+  with a note that the task's context comes from Core.
 - Command guards: runs whose captured rules deny or require approval for commands (always, through the
   mandatory `host-ui` and `owner-cli` policies) need `factory-shim` (`make build`; `bin_dir`, else next to the
   binary). The executor fetches the run credential, creates a temporary shim directory first on PATH
-  (`FACTORY_SHIM_DIR`) and removes it after the run; see [policies](policies.md#command-guards). Executor tests
+  (`FACTORY_SHIM_DIR`) and removes it after the run; see [policies](policies.md#command-guards). iOS/Android
+  agents get the alternatives to host UI input (debug launch arguments, deep links, UI tests by accessibility
+  identifier) from the shared `mobile-app-testing` skill ([skills](skills.md#mobile-app-testing)). Executor tests
   script shell commands with `fake.Activity.Exec` (`internal/worker/shim_test.go`).
 
 ### Runtime protocol v2
@@ -190,6 +225,15 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   block the fast-forward → the worktree is left untouched and the run ends FAILED before the runtime starts with
   `workspace_diverged: task … (branch …): <reason>; HEAD …, sealed_head …, origin …`. A missing worktree is
   recreated from the local branch (else the remote branch, else the default branch).
+
+- Reset (task-worktrees 4.2, node side): `./bin/factory-node workspace reset -task ID [-project P] [-config node.yaml]
+  [-wait 1m]` takes the worktree lock (waits for a running run up to `-wait`, then fails), stops a leftover run
+  group, seals, removes the worktree and scratch directory, points the task branch at `origin/<branch>` (else the
+  default branch), recreates the worktree and forgets the task's session records, so the next run starts a fresh
+  session. The abandoned local state (the seal's WIP commit, else an unpushed branch head) stays on
+  `refs/factory/reset/<task>`; the WIP ref is dropped. It prints the result as JSON and can run next to
+  `factory-node run`. The same operation is `janitor.ResetWorkspace` for when Core sends reset-workspace to
+  nodes (no protocol field yet).
 
 Not yet: push, PR, reset to `exit_sha` (`exit_sha` is not reported yet), the `workspace_diverged` escalation. The SQLite writer indexes still serialize runs of one project.
 

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"appfactory/internal/node/sessions"
 	"appfactory/internal/workspace"
 )
 
@@ -69,6 +70,8 @@ type Janitor struct {
 	LockWait time.Duration
 	// Tick is the disk check period between passes; default 1m.
 	Tick time.Duration
+	// Sessions is the node's session record store; reset-workspace forgets the task's sessions there.
+	Sessions *sessions.Store
 
 	mu     sync.Mutex // one cleanup or prune pass at a time
 	closed map[string]time.Time
@@ -223,4 +226,59 @@ func (j *Janitor) hook(ctx context.Context, kind, command string, env ...string)
 		return
 	}
 	j.log().Info("janitor: hook", "kind", kind, "command", command, "env", env, "duration", time.Since(start).Round(time.Millisecond))
+}
+
+// ProjectReset is the reset of one project's worktree of a task.
+type ProjectReset struct {
+	Project string `json:"project"`
+	workspace.ResetResult
+}
+
+// Reset is the node's result of reset-workspace for one task.
+type Reset struct {
+	Task      string         `json:"task"`
+	Worktrees []ProjectReset `json:"worktrees"`
+	// ForgottenSessions are the task's session records removed, so its next run starts a fresh session.
+	ForgottenSessions []string `json:"forgotten_sessions"`
+}
+
+// ResetWorkspace is reset-workspace on this node (task-worktrees 4.2): every worktree of task (only the one
+// of project when set) is sealed, removed and recreated from the remote branch, or the default branch, then
+// the task's session records are forgotten so its next run starts a fresh session whose prompt says the
+// context comes from Core. ctx bounds the wait for a run that holds a worktree (workspace.ErrBusy); nothing
+// is forgotten when a worktree reset fails. A task without worktrees on this node only loses its records.
+func (j *Janitor) ResetWorkspace(ctx context.Context, task, project string) (Reset, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	out := Reset{Task: task, Worktrees: []ProjectReset{}, ForgottenSessions: []string{}}
+	var targets []workspace.Request
+	switch {
+	case j.Worktrees == nil && project != "":
+		return out, errors.New("reset-workspace: worktrees are disabled on this node")
+	case j.Worktrees == nil:
+	case project != "":
+		targets = []workspace.Request{{Company: j.Company, Project: project, Task: task}}
+	default:
+		found, err := j.Worktrees.Find(j.Company, task)
+		if err != nil {
+			return out, err
+		}
+		targets = found
+	}
+	for _, r := range targets {
+		res, err := j.Worktrees.Reset(ctx, r)
+		if err != nil {
+			return out, fmt.Errorf("reset-workspace %s/%s: %w", r.Project, task, err)
+		}
+		j.log().Info("janitor: worktree reset", "task", task, "project", r.Project, "from", res.From, "head", res.Head, "kept", res.Kept, "previous_head", res.PreviousHead)
+		out.Worktrees = append(out.Worktrees, ProjectReset{Project: r.Project, ResetResult: res})
+	}
+	if j.Sessions != nil {
+		gone, err := j.Sessions.ForgetTask(task)
+		out.ForgottenSessions = append(out.ForgottenSessions, gone...)
+		if err != nil {
+			return out, fmt.Errorf("reset-workspace %s: forget sessions: %w", task, err)
+		}
+	}
+	return out, nil
 }

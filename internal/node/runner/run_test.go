@@ -17,12 +17,30 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
+	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 )
+
+// TestDriversClaudeBinDir: the Claude driver probes (v2 register) under the node's bin_dir, not ./bin of
+// whatever directory the node was started in.
+func TestDriversClaudeBinDir(t *testing.T) {
+	c := node.Defaults()
+	on := true
+	c.BinDir, c.Drivers.Claude.Enabled = "/opt/factory/bin", &on
+	for _, d := range Drivers(c, func(string) string { return "" }) {
+		if cd, ok := d.(claude.Driver); ok {
+			if cd.BinDir != c.BinDir || cd.Shim != filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js") {
+				t.Fatalf("%+v", cd)
+			}
+			return
+		}
+	}
+	t.Fatal("claude driver not built")
+}
 
 // TestJetStreamNodeSlots runs three hanging fake-driver runs concurrently on a node with three slots,
 // then shuts the node down, which interrupts all of them (node-agent 1.1).

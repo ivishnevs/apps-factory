@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,11 @@ type Driver struct {
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeCodex }
 func (d Driver) Capabilities() driver.Capabilities {
 	return driver.Capabilities{Resume: true, MCP: true, Activity: true, ToolPolicy: true}
+}
+
+// ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
+func (d Driver) ResumePolicy(prev driver.Outcome, sameNode bool) bool {
+	return driver.ResumeSameNode(prev, sameNode)
 }
 func (d Driver) binary() string {
 	if d.Binary == "" {
@@ -124,6 +130,17 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 	if account.Account == nil || account.Account.Type != "chatgpt" {
 		return fmt.Errorf("ChatGPT login required; API-key auth is not supported")
 	}
+	// The run's skills, materialized and verified by the executor, become an extra skills root of this
+	// app-server (one process per run). User and system skills of CODEX_HOME stay visible as before.
+	if len(l.Skills) > 0 && l.SkillsRoot != "" {
+		root, err := filepath.Abs(l.SkillsRoot)
+		if err != nil {
+			return err
+		}
+		if err = s.call(ctx, "skills/extraRoots/set", map[string]any{"extraRoots": []string{root}}, nil); err != nil {
+			return fmt.Errorf("skills/extraRoots/set: %w", err)
+		}
+	}
 	// Command rules need approval requests: "untrusted" asks for every command outside Codex's
 	// known-safe read-only set (those still meet the PATH shims); without rules nothing asks.
 	approval := "never"
@@ -208,6 +225,9 @@ func (s *session) loop() driver.Result {
 		case <-s.stop:
 			return driver.Result{Err: errors.New("session closed")}
 		case <-s.client.Done():
+			if len(s.client.Events) > 0 {
+				continue // messages read before the disconnect come first (turn/completed is terminal evidence)
+			}
 			if s.interrupted.Load() {
 				return driver.Result{Err: s.client.Err()}
 			}

@@ -26,7 +26,8 @@ func TestConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Slots != 2 || !c.Drivers.Codex.On() || c.Drivers.Claude.On() || c.Disk.LowGiB != 20 || c.Disk.CriticalGiB != 5 || c.Disk.Path != c.StateDir || c.Name == "" {
+	if c.Slots != 2 || !c.Drivers.Codex.On() || c.Drivers.Claude.On() || c.Disk.LowGiB != 20 || c.Disk.CriticalGiB != 5 || c.Disk.Path != c.StateDir || c.Name == "" ||
+		c.Probes.Interval != 10*time.Minute || c.Probes.VersionInterval != time.Hour {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -41,11 +42,13 @@ drivers:
   codex: {enabled: false}
   claude: {enabled: true, executable: /usr/local/bin/claude}
 disk: {path: /work, low_watermark_gib: 50, critical_watermark_gib: 10}
+probes: {interval: 5m, version_interval: 2h}
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Name != "mini-1" || c.Slots != 3 || c.Drivers.Codex.On() || !c.Drivers.Claude.On() || c.Drivers.Claude.Executable != "/usr/local/bin/claude" || c.Disk.Path != "/work" || c.Disk.LowGiB != 50 || c.BinDir != "/opt/factory/bin" {
+	if c.Name != "mini-1" || c.Slots != 3 || c.Drivers.Codex.On() || !c.Drivers.Claude.On() || c.Drivers.Claude.Executable != "/usr/local/bin/claude" || c.Disk.Path != "/work" || c.Disk.LowGiB != 50 || c.BinDir != "/opt/factory/bin" ||
+		c.Probes.Interval != 5*time.Minute || c.Probes.VersionInterval != 2*time.Hour {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -66,6 +69,7 @@ func TestConfigValidation(t *testing.T) {
 		"resources: {Simulator: 1}":  "resources.Simulator",
 		"resources: {simulator: -1}": "resources.simulator",
 		"labels: ['a b']":            `label "a b"`,
+		"probes: {interval: 10s}":    "probes.interval",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "node.yaml") {

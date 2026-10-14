@@ -126,6 +126,11 @@ func (d *Driver) Name() protocol.RuntimeProvider {
 func (d *Driver) Capabilities() driver.Capabilities {
 	return driver.Capabilities{Resume: true, MCP: d.MCP, Activity: true}
 }
+
+// ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
+func (d *Driver) ResumePolicy(prev driver.Outcome, sameNode bool) bool {
+	return driver.ResumeSameNode(prev, sameNode)
+}
 func (d *Driver) CheckVersion(context.Context) (string, error) { return "fake", nil }
 func (d *Driver) Installed() bool                              { return true }
 func (d *Driver) Probe(context.Context) []node.CheckResult {

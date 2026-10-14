@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"appfactory/internal/configfile"
 	"appfactory/internal/node/janitor"
@@ -27,9 +28,14 @@ type Config struct {
 	// StateDir keeps pidfiles of running runtimes and the v2 identity (node_id, epoch); it must not be shared by live nodes or workers.
 	StateDir string `yaml:"state_dir"`
 	// BinDir holds factory-mcp and factory-shim and is the base of the built Claude shim; empty is the executable's directory.
-	BinDir  string  `yaml:"bin_dir"`
-	Drivers Drivers `yaml:"drivers"`
-	Disk    Disk    `yaml:"disk"`
+	BinDir string `yaml:"bin_dir"`
+	// SkillsRoot is the factory checkout whose configs/skills.yaml and skill directories are materialized
+	// for runs (pinned by hash); empty is <bin_dir>/.., else the working directory.
+	SkillsRoot string  `yaml:"skills_root"`
+	Drivers    Drivers `yaml:"drivers"`
+	// Probes: how often the node re-checks its drivers (runtime-drivers D4).
+	Probes Probes `yaml:"probes"`
+	Disk   Disk   `yaml:"disk"`
 	// Worktrees serves runs with workspace_mode worktree (task-worktrees); off by default.
 	Worktrees Worktrees `yaml:"worktrees"`
 	// Janitor: run-stop and task-closed hooks, worktree removal after seal, prune (node-agent D4).
@@ -64,6 +70,13 @@ type ClaudeConfig struct {
 	AllowAPIKey bool   `yaml:"allow_api_key"`
 }
 
+// Probes: Interval runs each driver's Probe (binary, version range, auth; no model call), VersionInterval
+// its version check. A failing check disables that driver on this node until a later check passes.
+type Probes struct {
+	Interval        time.Duration `yaml:"interval"`         // default 10m
+	VersionInterval time.Duration `yaml:"version_interval"` // default 1h
+}
+
 // Disk watermarks in GiB on Path (default state_dir): below low warn, below critical stop claiming.
 type Disk struct {
 	Path        string  `yaml:"path"`
@@ -80,7 +93,8 @@ func Defaults() Config {
 	if !nodeName.MatchString(name) {
 		name = "node"
 	}
-	return Config{Name: name, Slots: 2, ProtocolVersion: 1, StateDir: "data/factory-node", Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
+	return Config{Name: name, Slots: 2, ProtocolVersion: 1, StateDir: "data/factory-node",
+		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour}, Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
 }
 
 // ConfigPath is the flag value, else $FACTORY_NODE_CONFIG; empty means defaults.
@@ -142,6 +156,9 @@ func (c *Config) Validate() error {
 	}
 	if !c.Drivers.Codex.On() && !c.Drivers.Claude.On() {
 		errs = append(errs, errors.New("drivers: enable codex or claude"))
+	}
+	if c.Probes.Interval < time.Minute || c.Probes.VersionInterval < time.Minute {
+		errs = append(errs, errors.New("probes.interval and probes.version_interval must be at least 1m"))
 	}
 	if c.Disk.Path == "" {
 		c.Disk.Path = c.StateDir

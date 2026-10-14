@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -11,8 +12,8 @@ import (
 
 const GiB = 1 << 30
 
-// Doctor runs every self-check that does not need Core: git/forge, disk, stack (Xcode), factory binaries
-// and runtime probes. Core/NATS reachability belongs to the node process.
+// Doctor runs the node self-checks: git/forge, disk, stack (Xcode), factory binaries, Core and NATS reachability
+// (when FACTORY_URL / NATS_URL are set; read-only) and runtime probes.
 type Doctor struct {
 	Host     Host
 	DiskPath string
@@ -22,6 +23,8 @@ type Doctor struct {
 	// Drivers are required by name; empty probes every runtime whose binary is installed.
 	Drivers  []string
 	Runtimes []Runtime
+	// HTTP is the client of the Core check; nil uses one with RemoteTimeout.
+	HTTP *http.Client
 }
 
 // Runtime is a driver probe as the doctor runs it; the driver owns the probe (runtime-drivers D4).
@@ -41,6 +44,7 @@ func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r = append(r, d.disk())
 	r = append(r, d.xcode(ctx)...)
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
+	r = append(r, d.core(ctx), d.natsCheck(ctx))
 	usable := []string{}
 	for _, rt := range d.Runtimes {
 		explicit := slices.Contains(d.Drivers, rt.Name)

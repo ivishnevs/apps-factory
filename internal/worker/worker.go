@@ -18,10 +18,12 @@ import (
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
+	"appfactory/internal/node/sessions"
 	"appfactory/internal/node/shim"
 	"appfactory/internal/openspec"
 	"appfactory/internal/policies"
 	"appfactory/internal/protocol"
+	"appfactory/internal/skills"
 	"appfactory/internal/storage"
 	"appfactory/internal/workspace"
 	"github.com/nats-io/nats.go"
@@ -98,6 +100,11 @@ type Worker struct {
 	// RunStopped, when set, is called once a claimed run has ended, with its worktree path ("" outside a
 	// worktree); the node's janitor runs on_run_stop hooks there.
 	RunStopped func(spec protocol.RunSpec, worktree string)
+	// Skills is the node's local skills registry; a run's offered skills are copied from it and verified
+	// against the hashes pinned on the run. nil runs without materialized skills (logged).
+	Skills *skills.Registry
+	// Sessions records the sessions this node ran (ResumePolicy); nil resumes spec.SessionID as given.
+	Sessions *sessions.Store
 }
 
 // driver also reports whether Factory MCP is injected: when the driver supports MCP, or for
@@ -208,6 +215,17 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	// unknown run still reports what it consumed.
 	var meter meter
 	var session driver.Session
+	// record is this node's record of the run's session, kept from launch to the terminal event.
+	var record sessions.Record
+	saveRecord := func() {
+		if w.Sessions == nil || record.SessionID == "" {
+			return
+		}
+		record.At = time.Now().UTC()
+		if err := w.Sessions.Put(record); err != nil {
+			slog.Error("session record", "run", spec.ID, "session", record.SessionID, "error", err)
+		}
+	}
 	var wt *workspace.Worktree
 	var req workspace.Request
 	sealed := false
@@ -240,6 +258,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	emit := func(kind string, p protocol.Event) error {
 		if p.Status != "" {
 			seal()
+			record.Status = p.Status
+			saveRecord()
 		}
 		if kind != "started" && kind != "progress" {
 			p.Usage, p.Quota = meter.usage(), meter.quota
@@ -303,6 +323,17 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return emit("failed", protocol.Event{Status: "FAILED", Result: "OpenSpec preflight failed before runtime startup: " + e.Error()})
 		}
 	}
+	skillsRoot, skillList, err := w.stageSkills(spec)
+	var skillErr *SkillError
+	if errors.As(err, &skillErr) {
+		return emit("failed", protocol.Event{Status: "FAILED", Result: skillErr.Error() + " (refused before runtime startup)"})
+	}
+	if err != nil {
+		return err
+	}
+	if skillsRoot != "" {
+		defer os.RemoveAll(skillsRoot)
+	}
 
 	// Heartbeats also carry cancellation. Failure stops execution instead of running without ownership.
 	// A v2 run is renewed and stopped by the node's inventory heartbeat.
@@ -334,7 +365,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 		}
 	}()
-	launch := driver.Launch{Spec: spec, Cwd: cwd, Instructions: spec.Instructions}
+	runSpec, prev := w.resumeSpec(drv, spec)
+	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot}
 	shimDir, err := w.shims(spec)
 	if err != nil {
 		return err
@@ -379,6 +411,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if err != nil {
 		return err
 	}
+	record = sessions.Record{SessionID: session.ID(), Task: spec.TaskID, Agent: spec.Agent, Project: spec.Project, Provider: string(spec.Provider), Run: spec.ID}
+	if record.SessionID == prev.SessionID {
+		record.Started = prev.Started // a resumed session stays resumable
+	}
+	saveRecord()
 	if group := session.ProcessGroup(); wt != nil && group > 0 {
 		if err = wt.Track(group); err != nil {
 			session.Close()
@@ -407,24 +444,32 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if err = session.Start(ctx); err != nil {
 		return err
 	}
+	record.Started = true
+	saveRecord()
 	events := session.Events()
 	cancelled := ctx.Done()
 	var interruptTimeout <-chan time.Time
+	var interruptFailed error
 	for events != nil {
 		select {
 		case <-cancelled:
 			cancelled = nil
 			interruptCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
-			err = session.Interrupt(interruptCtx)
+			interruptErr := session.Interrupt(interruptCtx)
 			stop()
-			if err != nil {
-				return fmt.Errorf("interrupt: %w", err)
-			}
-			// Acknowledgement only means interruption requested. Wait for terminal evidence.
+			// Acknowledgement only means interruption requested; a refusal may mean the turn just ended.
+			// Either way wait for terminal evidence.
 			timer := time.NewTimer(10 * time.Second)
 			defer timer.Stop()
 			interruptTimeout = timer.C
+			if interruptErr != nil {
+				slog.Warn("interrupt refused; waiting for terminal evidence", "run", spec.ID, "error", interruptErr)
+				interruptFailed = interruptErr
+			}
 		case <-interruptTimeout:
+			if interruptFailed != nil {
+				return fmt.Errorf("interrupt: %w", interruptFailed)
+			}
 			return fmt.Errorf("interrupt result unknown")
 		case e, ok := <-events:
 			if !ok {

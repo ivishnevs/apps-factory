@@ -3,3 +3,7 @@ skills:
     path: skills/openspec/SKILL.md
     description: Read project specifications and keep implementation changes aligned with OpenSpec.
     categories: [planning, documentation]
+  mobile-app-testing:
+    path: skills/mobile-app-testing/SKILL.md
+    description: Drive and verify iOS and Android apps without the host UI - debug launch arguments, deep links, UI tests by accessibility identifier.
+    categories: [mobile, ios, android, testing]

@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +45,11 @@ func TestFakeAppServer(t *testing.T) {
 		var m rpc.Message
 		if json.Unmarshal(sc.Bytes(), &m) != nil || len(m.ID) == 0 {
 			continue
+		}
+		if log := os.Getenv("FACTORY_FAKE_CODEX_LOG"); log != "" {
+			f, _ := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			_ = json.NewEncoder(f).Encode(map[string]any{"method": m.Method, "params": m.Params})
+			f.Close()
 		}
 		var result any = map[string]any{}
 		switch m.Method {
@@ -105,5 +113,112 @@ func TestUsageAndQuota(t *testing.T) {
 	}
 	if len(quotas) != 1 || !quotas[0].ResetsAt.Equal(time.Unix(1792018800, 0)) || quotas[0].Type != "rate_limit_reached" {
 		t.Fatalf("quota %+v", quotas)
+	}
+}
+
+// TestFakeExitingAppServer completes the turn and exits at once.
+func TestFakeExitingAppServer(t *testing.T) {
+	if os.Getenv("FACTORY_FAKE_CODEX") != "exit" {
+		return
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	enc := json.NewEncoder(os.Stdout)
+	for sc.Scan() {
+		var m rpc.Message
+		if json.Unmarshal(sc.Bytes(), &m) != nil || len(m.ID) == 0 {
+			continue
+		}
+		var result any = map[string]any{}
+		switch m.Method {
+		case "account/read":
+			result = map[string]any{"account": map[string]string{"type": "chatgpt"}}
+		case "thread/start":
+			result = map[string]any{"thread": map[string]string{"id": "thread-1"}}
+		case "turn/start":
+			result = map[string]any{"turn": map[string]string{"id": "turn-1"}}
+		}
+		_ = enc.Encode(map[string]any{"id": m.ID, "result": result})
+		if m.Method == "turn/start" {
+			for i := range 300 {
+				_ = enc.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"item": map[string]string{"type": "agentMessage", "text": fmt.Sprint(i)}}})
+			}
+			_ = enc.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]string{"id": "turn-1", "status": "completed"}}})
+			os.Exit(0)
+		}
+	}
+	os.Exit(0)
+}
+
+// TestTurnCompletedBeforeExitIsTerminal: a turn/completed buffered before the app-server exited is
+// terminal evidence; the disconnect must not win over it.
+func TestTurnCompletedBeforeExitIsTerminal(t *testing.T) {
+	t.Setenv("FACTORY_FAKE_CODEX", "exit")
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeExitingAppServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work"}, Cwd: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = s.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// A slow consumer: the server has exited before the loop reads its last lines.
+		time.Sleep(200 * time.Millisecond)
+		for range s.Events() {
+		}
+		r := <-s.Done()
+		s.Close()
+		cancel()
+		if r.Status != "COMPLETED" {
+			t.Fatalf("result %+v; want COMPLETED", r)
+		}
+	}
+}
+
+// TestSkillsExtraRoot: the run's materialized skills root is set before the thread starts.
+func TestSkillsExtraRoot(t *testing.T) {
+	t.Setenv("FACTORY_FAKE_CODEX", "1")
+	log := filepath.Join(t.TempDir(), "calls.jsonl")
+	t.Setenv("FACTORY_FAKE_CODEX_LOG", log)
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work"}, Cwd: t.TempDir(),
+		Skills: []driver.Skill{{Name: "openspec", Hash: "sha256:x"}}, SkillsRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	b, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var methods []string
+	var roots []string
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var c struct {
+			Method string `json:"method"`
+			Params struct {
+				ExtraRoots []string `json:"extraRoots"`
+			} `json:"params"`
+		}
+		if err = json.Unmarshal([]byte(line), &c); err != nil {
+			t.Fatal(err)
+		}
+		methods = append(methods, c.Method)
+		if c.Method == "skills/extraRoots/set" {
+			roots = c.Params.ExtraRoots
+		}
+	}
+	if !slices.Equal(methods, []string{"initialize", "account/read", "skills/extraRoots/set", "thread/start"}) || !slices.Equal(roots, []string{root}) {
+		t.Fatalf("calls %v, roots %v", methods, roots)
 	}
 }

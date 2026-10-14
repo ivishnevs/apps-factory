@@ -293,6 +293,45 @@ func TestV2Heartbeat(t *testing.T) {
 	}
 }
 
+// TestV2ReregisterStopsLateClaim: a claim of the old epoch recorded after re-registering began (the slot
+// was between its claim answer and Inventory.Add) is stopped too, instead of blocking the re-register
+// until that run ends on its own.
+func TestV2ReregisterStopsLateClaim(t *testing.T) {
+	dir := t.TempDir()
+	f, api := newFakeCore(t, dir)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := newSession(ctx, v2Node(t, api, dir), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := s.inv
+	// r-early ends only after r-late is recorded, so r-late is added after StopAll.
+	release := make(chan struct{})
+	inv.Add("r-early", 1, func() {
+		go func() {
+			<-release
+			inv.End("r-early")
+		}()
+	})
+	f.set(func() { f.incarnation = "inc-2" })
+	done := make(chan error, 1)
+	go func() { done <- s.beat(ctx) }()
+	eventually(t, "re-register started", func() bool { return s.switching.Load() })
+	if inv.Add("r-late", 1, func() {}) {
+		t.Error("run of the closing epoch recorded during re-register; StopAll missed it")
+	}
+	close(release)
+	select {
+	case err = <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("re-register blocked")
+	}
+	if err != nil || inv.Epoch() != 2 || !inv.Add("r-new", 2, func() {}) {
+		t.Fatal(err, inv.Epoch())
+	}
+}
+
 // TestV2HeartbeatRefusals: 409 stops the node, 404 re-registers.
 func TestV2HeartbeatRefusals(t *testing.T) {
 	dir := t.TempDir()

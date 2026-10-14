@@ -19,6 +19,8 @@ type Source struct {
 	Fetch func() ([]*nats.Msg, error)
 	// Process is worker.Worker.Process.
 	Process func(ctx context.Context, m *nats.Msg, running func(run string, cancel context.CancelFunc)) error
+	// Claimable is false while the source's driver is disabled on this node; nil always claims.
+	Claimable func() bool
 
 	mu sync.Mutex
 }
@@ -102,7 +104,18 @@ func (p *Pool) loop(ctx context.Context, i, gen int) {
 		if !p.update(i, gen, func(s *slot) { s.beat = p.now() }) {
 			return
 		}
-		if p.Claimable != nil && !p.Claimable() {
+		var src *Source
+		if p.Claimable == nil || p.Claimable() {
+			for range p.Sources { // the next source whose driver is enabled
+				s := p.Sources[next%len(p.Sources)]
+				next++
+				if s.Claimable == nil || s.Claimable() {
+					src = s
+					break
+				}
+			}
+		}
+		if src == nil {
 			pause := p.Pause
 			if pause <= 0 {
 				pause = time.Second
@@ -113,8 +126,6 @@ func (p *Pool) loop(ctx context.Context, i, gen int) {
 			}
 			continue
 		}
-		src := p.Sources[next%len(p.Sources)]
-		next++
 		src.mu.Lock()
 		msgs, err := src.Fetch()
 		src.mu.Unlock()

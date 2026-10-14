@@ -64,7 +64,8 @@ policies, deny > approval > allow; no matching rule allows).
 
 Reserved mandatory policies, defined in code like `system` (YAML cannot replace them):
 - `host-ui` denies `cliclick`, `osascript`, `osacompile` and `xdotool`: use debug launch arguments,
-  deep links or UI tests by accessibility identifier.
+  deep links or UI tests by accessibility identifier. Mobile agents get the concrete iOS/Android recipes from
+  the shared [`mobile-app-testing` skill](skills.md#mobile-app-testing).
 - `owner-cli` denies the `factory` owner CLI: use the Factory MCP tools.
 
 The executor reads the rules captured in the run's agent snapshot and, when any deny/approval rule

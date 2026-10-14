@@ -1,13 +1,19 @@
 // factory-node is the node agent (openspec change node-agent): `run` executes runs in N slots,
-// `doctor` runs the local self-checks without Core, `launchd` prints a launchd agent for `run`.
+// `doctor` runs the local self-checks without Core, `launchd` prints a launchd agent for `run`,
+// `workspace reset` is reset-workspace of one task on this node for operators.
 package main
 
 import (
 	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
+	"appfactory/internal/node/janitor"
 	"appfactory/internal/node/runner"
+	"appfactory/internal/node/sessions"
+	"appfactory/internal/storage"
+	"appfactory/internal/workspace"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,9 +25,10 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -42,6 +49,10 @@ func run(args []string) (int, error) {
 		return runNode(args[1:])
 	case "launchd":
 		return launchd(args[1:])
+	case "workspace":
+		if len(args) > 1 && args[1] == "reset" {
+			return resetWorkspace(args[2:])
+		}
 	}
 	return 2, errors.New(usage)
 }
@@ -150,6 +161,51 @@ func doctor(args []string) (int, error) {
 	}
 	if node.Failed(results) {
 		return 1, nil
+	}
+	return 0, nil
+}
+
+// resetWorkspace seals, removes and recreates a task's worktree from the remote branch (or the default
+// branch) and forgets the task's session records, so its next run starts a fresh session. The local state
+// is kept on refs/factory/reset/<task>. It can run next to `factory-node run`: a running run of the task
+// makes it wait up to -wait, then fail.
+func resetWorkspace(args []string) (int, error) {
+	fs := flag.NewFlagSet("workspace reset", flag.ContinueOnError)
+	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+", else built-in defaults)")
+	task := fs.String("task", "", "task ID (required)")
+	project := fs.String("project", "", "project ID (default: every project with a worktree of the task)")
+	wait := fs.Duration("wait", time.Minute, "how long to wait for a run that holds the worktree")
+	if err := fs.Parse(args); err != nil {
+		return 2, err
+	}
+	if *task == "" || fs.NArg() > 0 {
+		return 2, errors.New("usage: factory-node workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]")
+	}
+	c, err := node.LoadConfig(node.ConfigPath(*path))
+	if err != nil {
+		return 2, err
+	}
+	j := &janitor.Janitor{Company: storage.DefaultCompany, Sessions: sessions.Open(c.StateDir)}
+	if c.Worktrees.Enabled {
+		if j.Worktrees, err = workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: c.Worktrees.Root, ScanCommand: c.Worktrees.ScanCommand}); err != nil {
+			return 1, err
+		}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, *wait)
+	defer cancel()
+	res, err := j.ResetWorkspace(ctx, *task, *project)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if e := enc.Encode(res); e != nil {
+		return 1, e
+	}
+	if errors.Is(err, workspace.ErrBusy) {
+		return 1, fmt.Errorf("%w; retry when the task's run has ended", err)
+	}
+	if err != nil {
+		return 1, err
 	}
 	return 0, nil
 }

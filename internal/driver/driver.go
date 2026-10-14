@@ -23,7 +23,25 @@ type Driver interface {
 	Installed() bool
 	// Launch prepares a session up to its ID without sending the prompt.
 	Launch(ctx context.Context, l Launch) (Session, error)
+	// ResumePolicy decides whether a run resumes the session of its (task, agent) key (design D1):
+	// prev is what this node recorded about that session's last run, sameNode whether this node ran it
+	// (false also after reset-workspace, which forgets the node's record). When it returns false the
+	// executor starts a fresh session whose prompt says that the context comes from Core.
+	ResumePolicy(prev Outcome, sameNode bool) bool
 }
+
+// Outcome is the last run of a session as this node recorded it.
+type Outcome struct {
+	// Status is the run's terminal status (COMPLETED, FAILED, CANCELLED, UNKNOWN); "" when the node
+	// stopped before it was known.
+	Status string
+	// Started: the prompt reached the runtime, so the runtime persisted the session (a session launched
+	// but never started has no transcript or rollout to resume).
+	Started bool
+}
+
+// ResumeSameNode is the common policy: resume only a started session that this node ran.
+func ResumeSameNode(prev Outcome, sameNode bool) bool { return sameNode && prev.Started }
 
 type Capabilities struct {
 	Resume, Browser, MCP, Cost, Activity, ToolPolicy, ExitGuard bool
@@ -40,6 +58,16 @@ type Launch struct {
 	// Guards are the agent's access rules from the run's config snapshot; drivers with tool_policy
 	// apply their command rules inside the runtime (the PATH shims stay in place).
 	Guards []policies.Rule
+	// Skills are the run's offered skills, copied by the executor under SkillsRoot (SkillsRoot/<name>)
+	// and verified against the hashes pinned on the run; drivers expose them where their runtime reads
+	// skills (Claude: <cwd>/.claude/skills; Codex: skills/extraRoots/set).
+	Skills     []Skill
+	SkillsRoot string
+}
+
+// Skill is one materialized skill: Hash is the verified content hash (skills.Hash) of SkillsRoot/<Name>.
+type Skill struct {
+	Name, Hash string
 }
 
 // MCPConfig is the Factory MCP stdio server; EnvVars name variables passed through from Env.

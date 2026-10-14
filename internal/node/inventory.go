@@ -31,10 +31,11 @@ type InventoryRun struct {
 type Inventory struct {
 	NodeID string
 
-	mu    sync.Mutex
-	epoch int64
-	seq   int64
-	runs  map[string]*entry
+	mu     sync.Mutex
+	epoch  int64
+	seq    int64
+	runs   map[string]*entry
+	closed bool // the epoch takes no more runs (re-registering)
 }
 
 type entry struct {
@@ -62,11 +63,11 @@ func (v *Inventory) Claim(slot int) (int64, string) {
 	return v.epoch, fmt.Sprintf("%d-%d-%d", v.epoch, slot, v.seq)
 }
 
-// Add records a run claimed in epoch; false when that epoch is over (the node re-registered meanwhile).
+// Add records a run claimed in epoch; false when that epoch is over or closed (the node re-registers).
 func (v *Inventory) Add(run string, epoch int64, cancel context.CancelFunc) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if epoch != v.epoch {
+	if epoch != v.epoch || v.closed {
 		return false
 	}
 	v.runs[run] = &entry{state: RunClaimed, claimed: time.Now(), cancel: cancel}
@@ -166,7 +167,14 @@ func (v *Inventory) Snapshot() []InventoryRun {
 func (v *Inventory) Reset(epoch int64) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.epoch, v.seq, v.runs = epoch, 0, map[string]*entry{}
+	v.epoch, v.seq, v.runs, v.closed = epoch, 0, map[string]*entry{}, false
+}
+
+// Close ends the current epoch for new runs: Add refuses until Reset.
+func (v *Inventory) Close() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.closed = true
 }
 
 type slotKey struct{}

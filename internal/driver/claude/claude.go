@@ -53,6 +53,11 @@ func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude 
 func (d Driver) Capabilities() driver.Capabilities {
 	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true}
 }
+
+// ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
+func (d Driver) ResumePolicy(prev driver.Outcome, sameNode bool) bool {
+	return driver.ResumeSameNode(prev, sameNode)
+}
 func (d Driver) command(extra ...string) *exec.Cmd {
 	node, args := d.Node, d.Args
 	if node == "" {
@@ -164,6 +169,10 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	if err != nil {
 		return nil, err
 	}
+	removeSkills, err := installSkills(l.Cwd, l.SkillsRoot, l.Skills, d.SettingSources)
+	if err != nil {
+		return nil, err
+	}
 	// The shim has its own lifetime so cancellation can first send an interrupt.
 	cmd := d.command()
 	cmd.Env = l.Env
@@ -171,16 +180,19 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		removeSkills()
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		removeSkills()
 		return nil, err
 	}
 	if err = cmd.Start(); err != nil {
+		removeSkills()
 		return nil, err
 	}
-	s := &session{cmd: cmd, stdin: stdin, lines: make(chan []byte), exited: make(chan struct{}), events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	s := &session{removeSkills: removeSkills, cmd: cmd, stdin: stdin, lines: make(chan []byte), exited: make(chan struct{}), events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	go s.read(stdout)
 	if err = s.control(line); err == nil {
 		err = s.open(ctx)
@@ -205,18 +217,20 @@ type event struct {
 }
 
 type session struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	write     sync.Mutex
-	lines     chan []byte // closed at stdout EOF
-	exited    chan struct{}
-	waitErr   error
-	id        string
-	failure   *Error // last classified failure, reported when the result has no status
-	events    chan driver.Event
-	done      chan driver.Result
-	stop      chan struct{}
-	closeOnce sync.Once
+	// removeSkills removes the skills materialized in the workspace for this run (Close).
+	removeSkills func()
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	write        sync.Mutex
+	lines        chan []byte // closed at stdout EOF
+	exited       chan struct{}
+	waitErr      error
+	id           string
+	failure      *Error // last classified failure, reported when the result has no status
+	events       chan driver.Event
+	done         chan driver.Result
+	stop         chan struct{}
+	closeOnce    sync.Once
 }
 
 func (s *session) read(out io.Reader) {
@@ -337,6 +351,7 @@ func (s *session) Close() {
 		_ = s.stdin.Close()
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 		<-s.exited
+		s.removeSkills()
 	})
 }
 func (s *session) send(e driver.Event) bool {

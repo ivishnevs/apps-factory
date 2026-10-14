@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"appfactory/internal/driver"
 	"appfactory/internal/node"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
@@ -82,7 +81,7 @@ type session struct {
 	gate     *node.DiskGate // watermarks for health.disk
 	trees    *workspace.Worktrees
 	cleanup  func(ctx context.Context, tasks []string) []string // node janitor, when set
-	drivers  []DriverInfo
+	drivers  *driverHealth
 	inv      *node.Inventory
 	busy     func() int
 	interval time.Duration
@@ -91,8 +90,11 @@ type session struct {
 	incarnation string
 	paused      atomic.Bool // Core's pause
 	switching   atomic.Bool // re-registering: no claims
-	cleanups    chan string
-	cleaned     map[string]bool // janitor's
+	// redeclare: a driver was disabled or re-enabled since register; Core learns it from the next register.
+	redeclare atomic.Bool
+	declared  []DriverInfo // drivers of the last successful register
+	cleanups  chan string
+	cleaned   map[string]bool // janitor's
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -111,26 +113,24 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 	if err != nil {
 		return nil, err
 	}
-	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
-		busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}}
-	for _, d := range n.Drivers {
-		s.drivers = append(s.drivers, probe(ctx, d))
+	h := n.health
+	if h == nil {
+		h = newDriverHealth(n.Drivers, c.Probes)
+		h.check(ctx, true)
 	}
+	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
+		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}}
 	if err = s.register(ctx); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-func probe(ctx context.Context, d driver.Driver) DriverInfo {
-	v, err := d.CheckVersion(ctx)
-	return DriverInfo{Name: string(d.Name()), Version: v, OK: err == nil && !node.Failed(d.Probe(ctx))}
-}
-
-// register registers the current epoch, retrying while Core is unreachable; a refusal is final.
+// register registers the current epoch with the drivers as last checked, retrying while Core is
+// unreachable; a refusal is final.
 func (s *session) register(ctx context.Context) error {
 	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots,
-		Drivers: s.drivers, Resources: s.cfg.Resources, Labels: s.cfg.Labels}
+		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}
 	}
@@ -144,7 +144,7 @@ func (s *session) register(ctx context.Context) error {
 		var h *worker.HTTPError
 		switch {
 		case err == nil:
-			s.incarnation, s.interval = r.Incarnation, time.Duration(r.HeartbeatSeconds)*time.Second
+			s.incarnation, s.interval, s.declared = r.Incarnation, time.Duration(r.HeartbeatSeconds)*time.Second, req.Drivers
 			if s.interval <= 0 {
 				s.interval = defaultHeartbeat
 			}
@@ -179,6 +179,9 @@ func (s *session) run(ctx context.Context) error {
 			return nil
 		case <-t.C:
 			if err := s.beat(ctx); err != nil {
+				return err
+			}
+			if err := s.declareDrivers(ctx); err != nil {
 				return err
 			}
 			t.Reset(s.interval)
@@ -240,6 +243,8 @@ func (s *session) beat(ctx context.Context) error {
 // reregister stops and seals every run, then registers a new epoch that reports nothing older.
 func (s *session) reregister(ctx context.Context, why string) error {
 	slog.Warn("re-registering: stopping all runs", "reason", why, "epoch", s.inv.Epoch())
+	// Close first: a slot between its claim answer and Inventory.Add must not record a run StopAll missed.
+	s.inv.Close()
 	s.switching.Store(true)
 	defer s.switching.Store(false)
 	s.inv.StopAll()
@@ -256,10 +261,55 @@ func (s *session) reregister(ctx context.Context, why string) error {
 	}
 	s.inv.Reset(epoch)
 	s.paused.Store(false)
+	s.redeclare.Store(false) // register carries the current drivers
 	if err = s.register(ctx); ctx.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+// declareDrivers re-registers a new epoch carrying the changed driver list (runtime-drivers D4), but only
+// while the node holds nothing Core could lose: no busy slot and an empty inventory (ended runs acked).
+// Register is the only place the protocol carries drivers, and a new epoch loses every unended run of the
+// older one, so a busy node keeps the change local (its slots already skip the disabled driver) and
+// declares it at the first idle heartbeat. Claims pause only for the register itself.
+func (s *session) declareDrivers(ctx context.Context) error {
+	if !s.redeclare.Load() {
+		return nil
+	}
+	s.switching.Store(true)
+	defer s.switching.Store(false)
+	if s.busy() > 0 || len(s.inv.Snapshot()) > 0 {
+		return nil
+	}
+	s.redeclare.Store(false)
+	if sameOK(s.declared, s.drivers.infos()) { // flipped back meanwhile: Core's view is current
+		return nil
+	}
+	slog.Info("re-registering: driver availability changed", "drivers", s.drivers.infos(), "epoch", s.inv.Epoch())
+	epoch, err := node.NextEpoch(s.cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	s.inv.Reset(epoch)
+	s.paused.Store(false)
+	if err = s.register(ctx); ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+// sameOK reports whether a and b list the same drivers with the same ok.
+func sameOK(a, b []DriverInfo) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].OK != b[i].OK {
+			return false
+		}
+	}
+	return true
 }
 
 // janitor removes the worktrees of closed tasks listed under cleanup, one at a time.

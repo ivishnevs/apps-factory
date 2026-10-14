@@ -4,11 +4,13 @@ import (
 	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
+	"appfactory/internal/driver"
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -187,6 +189,43 @@ func TestJetStreamFakeDriverUsageOnUnknown(t *testing.T) {
 	terminal := payloads[6]
 	if terminal.Status != "UNKNOWN" || len(terminal.Usage) != 1 || terminal.Usage[0] != priced || terminal.Quota == nil || terminal.Quota.Type != "five_hour" {
 		t.Fatalf("terminal %+v", terminal)
+	}
+}
+
+// endedDriver's turn completes as the run times out: the result is ready, and the runtime refuses the
+// interrupt because no turn is active any more.
+type endedDriver struct{ *fake.Driver }
+type endedSession struct {
+	events chan driver.Event
+	done   chan driver.Result
+	ended  chan struct{}
+}
+
+func (d endedDriver) Launch(context.Context, driver.Launch) (driver.Session, error) {
+	return &endedSession{events: make(chan driver.Event), done: make(chan driver.Result, 1), ended: make(chan struct{})}, nil
+}
+func (s *endedSession) ID() string                  { return "ended-thread" }
+func (s *endedSession) Start(context.Context) error { return nil }
+func (s *endedSession) Events() <-chan driver.Event { return s.events }
+func (s *endedSession) Done() <-chan driver.Result  { return s.done }
+func (s *endedSession) ProcessGroup() int           { return 0 }
+func (s *endedSession) Close()                      {}
+func (s *endedSession) Interrupt(context.Context) error {
+	// The turn ended meanwhile: its terminal evidence is about to arrive.
+	s.done <- driver.Result{Status: "COMPLETED", Text: "finished just in time"}
+	close(s.events)
+	return errors.New("no active turn to interrupt")
+}
+
+// TestJetStreamInterruptAfterTurnEnded: a refused interrupt is not terminal; the result that follows is.
+func TestJetStreamInterruptAfterTurnEnded(t *testing.T) {
+	url := os.Getenv("NATS_TEST_URL")
+	if url == "" {
+		t.Skip("set NATS_TEST_URL to dedicated broker")
+	}
+	r, _ := runDriver(t, url, Worker{Driver: endedDriver{&fake.Driver{}}}, false, func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 })
+	if r.Status != "COMPLETED" || r.Result != "finished just in time" {
+		t.Fatalf("%+v", r)
 	}
 }
 
