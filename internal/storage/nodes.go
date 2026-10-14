@@ -532,6 +532,8 @@ type NodeHeartbeat struct {
 	Epoch     int64           `json:"epoch"`
 	Inventory []InventoryRun  `json:"inventory"`
 	Health    json.RawMessage `json:"health"`
+	// ResetDone lists tasks whose worktree the node reset after a reset answer.
+	ResetDone []string `json:"reset_done,omitempty"`
 }
 
 type Stop struct {
@@ -545,13 +547,16 @@ type HeartbeatAnswer struct {
 	Acked       []string `json:"acked"`
 	Cleanup     []string `json:"cleanup"`
 	Pause       bool     `json:"pause"`
+	// Reset lists tasks whose worktree on this node must be reset from the remote branch (workspace_diverged
+	// answered reset_workspace); the node confirms with reset_done.
+	Reset []string `json:"reset"`
 }
 
 // NodeHeartbeat renews the leases of every listed run, judges the node's runs against its inventory and
 // answers what the node must stop, forget and clean up. An older epoch is ErrStaleEpoch; a node or epoch
 // Core does not know is ErrUnknownNode (the node registers again).
 func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb NodeHeartbeat) (HeartbeatAnswer, error) {
-	out := HeartbeatAnswer{Stop: []Stop{}, Acked: []string{}, Cleanup: []string{}}
+	out := HeartbeatAnswer{Stop: []Stop{}, Acked: []string{}, Cleanup: []string{}, Reset: []string{}}
 	inc, err := s.Incarnation(ctx)
 	if err != nil {
 		return out, err
@@ -676,6 +681,46 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	if err = releaseNodeRuns(ctx, tx, node, hb.Epoch, listed, hb.Epoch); err != nil {
 		return out, err
 	}
+	// Resets the node confirmed: the task runs again from the fresh worktree.
+	for _, task := range hb.ResetDone {
+		res, err := tx.ExecContext(ctx, "UPDATE workspaces SET reset_pending=0,updated_at=? WHERE company_id=? AND task_id=? AND node_id=? AND reset_pending=1", now.Unix(), company, task, node)
+		if err != nil {
+			return out, err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			continue
+		}
+		t, err := taskTx(ctx, tx, task)
+		if err != nil {
+			return out, err
+		}
+		if t.Status == "FAILED" {
+			if err = resetRetry(ctx, tx, &t); err != nil {
+				return out, err
+			}
+			t.Status, t.RetryEligible = "READY", false
+			if err = saveTask(ctx, tx, &t, "task.retry"); err != nil {
+				return out, err
+			}
+		}
+	}
+	rrows, err := tx.QueryContext(ctx, "SELECT task_id FROM workspaces WHERE company_id=? AND node_id=? AND reset_pending=1 LIMIT 64", company, node)
+	if err != nil {
+		return out, err
+	}
+	for rrows.Next() {
+		var task string
+		if err = rrows.Scan(&task); err != nil {
+			rrows.Close()
+			return out, err
+		}
+		out.Reset = append(out.Reset, task)
+	}
+	if err = rrows.Err(); err != nil {
+		rrows.Close()
+		return out, err
+	}
+	rrows.Close()
 	// Closed tasks' worktrees on this node, listed a bounded number of times (the node retries busy ones).
 	crow, err := tx.QueryContext(ctx, `SELECT w.task_id FROM workspaces w JOIN tasks t ON t.id=w.task_id
  WHERE w.company_id=? AND w.node_id=? AND w.mode='worktree' AND t.status IN ('DONE','CANCELLED') AND w.cleanup_listed<? ORDER BY w.updated_at LIMIT 64`, company, node, cleanupListings)

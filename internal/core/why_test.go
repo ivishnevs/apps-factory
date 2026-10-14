@@ -179,8 +179,8 @@ func TestQuotaPauseAndWorkspaceOverHTTP(t *testing.T) {
 	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", Ready: true}); err != nil {
 		t.Fatal(err)
 	}
-	// Without quota_key in its config the agent's key is its name.
-	if err = s.SetPause(ctx, co, storage.Pause{Scope: "quota_key", Target: "demo", Actor: "runtime", Until: s.Now().Add(time.Hour).Unix()}); err != nil {
+	// demo takes quota_key codex-subscription from the developer profile (one ChatGPT account).
+	if err = s.SetPause(ctx, co, storage.Pause{Scope: "quota_key", Target: "codex-subscription", Actor: "runtime", Until: s.Now().Add(time.Hour).Unix()}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(method, path string, body any, v any) int {
@@ -197,7 +197,7 @@ func TestQuotaPauseAndWorkspaceOverHTTP(t *testing.T) {
 	}
 	var verdict tasks.Verdict
 	call("GET", "/tasks/a/why", nil, &verdict)
-	if verdict.Reason != tasks.ReasonPaused+"quota_key:demo" || verdict.Clearer.Who != "time" {
+	if verdict.Reason != tasks.ReasonPaused+"quota_key:codex-subscription" || verdict.Clearer.Who != "time" {
 		t.Fatal(verdict)
 	}
 	if err = c.Schedule(ctx); err != nil {
@@ -206,7 +206,7 @@ func TestQuotaPauseAndWorkspaceOverHTTP(t *testing.T) {
 	if a, _ := s.Task(ctx, co, "a"); a.Status != "READY" {
 		t.Fatal("dispatched on a paused quota key", a.Status)
 	}
-	if err = s.ClearPause(ctx, co, "quota_key", "demo", ""); err != nil {
+	if err = s.ClearPause(ctx, co, "quota_key", "codex-subscription", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err = c.Schedule(ctx); err != nil {

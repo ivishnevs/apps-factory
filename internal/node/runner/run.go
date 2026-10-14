@@ -178,6 +178,12 @@ func Run(ctx context.Context, n Node) error {
 			return err
 		}
 		s.cleanup = jan.Cleanup
+		s.reset = func(ctx context.Context, task string) error {
+			resetCtx, cancel := context.WithTimeout(ctx, time.Minute) // a run holding the worktree: retried later
+			defer cancel()
+			_, err := jan.ResetWorkspace(resetCtx, task, "")
+			return err
+		}
 	}
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}

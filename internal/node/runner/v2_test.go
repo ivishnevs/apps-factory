@@ -518,3 +518,40 @@ func TestJetStreamNodeV2(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestV2Reset: a reset listed by Core is done by the node and confirmed in the next heartbeat, once.
+func TestV2Reset(t *testing.T) {
+	dir := t.TempDir()
+	f, api := newFakeCore(t, dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, err := newSession(ctx, v2Node(t, api, dir), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var reset []string
+	s.reset = func(_ context.Context, task string) error {
+		mu.Lock()
+		reset = append(reset, task)
+		mu.Unlock()
+		return nil
+	}
+	go s.resetter(ctx)
+	f.answers = []HeartbeatAnswer{{Reset: []string{"t1"}}}
+	if err = s.beat(ctx); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "reset done", func() bool { s.resetMu.Lock(); defer s.resetMu.Unlock(); return len(s.resetDone) == 1 })
+	if err = s.beat(ctx); err != nil || len(f.lastBeat().ResetDone) != 1 || f.lastBeat().ResetDone[0] != "t1" {
+		t.Fatal(err, f.lastBeat())
+	}
+	if err = s.beat(ctx); err != nil || len(f.lastBeat().ResetDone) != 0 {
+		t.Fatal("confirmation sent twice", f.lastBeat())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reset) != 1 {
+		t.Fatal(reset)
+	}
+}

@@ -8,6 +8,7 @@ spec:
   runtime:
     provider: codex
     model: default
+    quota_key: codex-subscription  # one ChatGPT account: a limit pauses every Codex agent
   tools:
     mode: denylist
   approvals:

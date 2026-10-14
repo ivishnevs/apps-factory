@@ -108,6 +108,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	}
 	reason, summary := "", ""
 	switch {
+	case outcome == "setup_failed" && strings.HasPrefix(result, "workspace_diverged"):
+		// Retrying cannot help: the worktree changed outside any run (task-worktrees D4).
+		reason, summary = "workspace_diverged", excerpt512(result)
 	case outcome == "no_exit" && t.AttemptsNoProgress < RetryAttempts:
 		reason, summary = "no_exit", "the agent's run ended without a factory_exit_* call (for review: the agent did not finish): "+excerpt512(result)
 	case t.AttemptsNoProgress >= RetryAttempts:

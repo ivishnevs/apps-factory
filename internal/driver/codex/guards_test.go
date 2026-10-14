@@ -252,3 +252,18 @@ func TestElicitationAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryAt(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*3600)
+	now := time.Date(2026, 10, 14, 21, 6, 0, 0, loc)
+	msg := "You’ve hit your usage limit. Upgrade to Pro, visit https://chatgpt.com/settings/usage to purchase more credits or try again at 10:45 PM."
+	if got := retryAt(msg, now); !got.Equal(time.Date(2026, 10, 14, 22, 45, 0, 0, loc)) {
+		t.Fatal(got)
+	}
+	if got := retryAt("try again at 9:15 AM.", now); !got.Equal(time.Date(2026, 10, 15, 9, 15, 0, 0, loc)) {
+		t.Fatal("past time is tomorrow", got)
+	}
+	if !retryAt("no time here", now).IsZero() {
+		t.Fatal("parsed nothing")
+	}
+}

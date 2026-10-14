@@ -50,6 +50,7 @@ type EscalationWant struct {
 var escalationAnswers = map[string][]string{
 	"stalled":                 {"unblock", "cancel"},
 	"pinned_node_unavailable": {"reset_workspace", "cancel"},
+	"workspace_diverged":      {"reset_workspace", "cancel"},
 }
 
 // SyncEscalations makes the open escalations of a reason equal to want: a new condition opens one
@@ -184,7 +185,16 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		return retryAnswer(ctx, tx, t)
 	case "accept": // no_exit: take the work as it is
 		return acceptAnswer(ctx, tx, t)
-	case "reset_workspace": // pinned_node_unavailable: unpin; another node starts from the remote branch
+	case "reset_workspace":
+		if e.Reason == "workspace_diverged" {
+			// The node resets the worktree from the remote branch (heartbeat reset); the task runs again on
+			// its reset_done.
+			if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET reset_pending=1,unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
+				return err
+			}
+			return comment(ctx, tx, t.ID, actor, "reset_workspace: the node resets the worktree from the remote branch; local changes stay on refs/factory/reset")
+		}
+		// pinned_node_unavailable: unpin; another node starts from the remote branch.
 		if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
 			return err
 		}

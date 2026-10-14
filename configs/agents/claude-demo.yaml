@@ -8,6 +8,7 @@ spec:
   runtime:
     provider: claude
     model: default
+    quota_key: claude-subscription
   prompt:
     file: prompts/demo.md
   execution:

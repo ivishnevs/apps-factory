@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -426,11 +427,13 @@ func (s *session) quota(method string, params json.RawMessage) *protocol.Quota {
 	var p struct {
 		WillRetry bool `json:"willRetry"`
 		Error     *struct {
-			Info json.RawMessage `json:"codexErrorInfo"`
+			Info    json.RawMessage `json:"codexErrorInfo"`
+			Message string          `json:"message"`
 		} `json:"error"`
 		Turn struct {
 			Error *struct {
-				Info json.RawMessage `json:"codexErrorInfo"`
+				Info    json.RawMessage `json:"codexErrorInfo"`
+				Message string          `json:"message"`
 			} `json:"error"`
 		} `json:"turn"`
 	}
@@ -456,7 +459,32 @@ func (s *session) quota(method string, params json.RawMessage) *protocol.Quota {
 			}
 		}
 	}
+	if q.ResetsAt.IsZero() {
+		// No rate-limit snapshot: the error text names the time ("... or try again at 10:45 PM.").
+		q.ResetsAt = retryAt(e.Message, time.Now())
+	}
 	return q
+}
+
+var tryAgainAt = regexp.MustCompile(`try again at (\d{1,2}:\d{2}\s?[AP]M)`)
+
+// retryAt is the next local time named by "try again at H:MM AM|PM" after now, zero when absent.
+func retryAt(message string, now time.Time) time.Time {
+	m := tryAgainAt.FindStringSubmatch(message)
+	if m == nil {
+		return time.Time{}
+	}
+	clock, err := time.ParseInLocation("3:04 PM", strings.Replace(m[1], "\u202f", " ", 1), now.Location())
+	if err != nil {
+		if clock, err = time.ParseInLocation("3:04PM", m[1], now.Location()); err != nil {
+			return time.Time{}
+		}
+	}
+	at := time.Date(now.Year(), now.Month(), now.Day(), clock.Hour(), clock.Minute(), 0, 0, now.Location())
+	if !at.After(now) {
+		at = at.AddDate(0, 0, 1)
+	}
+	return at.UTC()
 }
 
 // unservedRequest is a server request the driver cannot answer; the run fails (outcome failed).

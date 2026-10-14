@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,6 +51,8 @@ type Heartbeat struct {
 	Epoch     int64               `json:"epoch"`
 	Inventory []node.InventoryRun `json:"inventory"`
 	Health    Health              `json:"health"`
+	// ResetDone confirms the worktree resets Core asked for (answer reset).
+	ResetDone []string `json:"reset_done,omitempty"`
 }
 
 type Health struct {
@@ -69,6 +72,8 @@ type HeartbeatAnswer struct {
 	Acked   []string `json:"acked"`
 	Cleanup []string `json:"cleanup"`
 	Pause   bool     `json:"pause"`
+	// Reset: tasks whose worktree must be reset from the remote branch (workspace_diverged, reset_workspace).
+	Reset []string `json:"reset"`
 }
 
 // ErrStaleEpoch: Core knows a newer epoch of this node_id, so another process uses this state_dir's identity.
@@ -98,6 +103,12 @@ type session struct {
 	declared  []DriverInfo // drivers of the last successful register
 	cleanups  chan string
 	cleaned   map[string]bool // janitor's
+	// reset resets a task's worktree from the remote branch (janitor.ResetWorkspace); resetDone holds the
+	// confirmations until a heartbeat delivered them.
+	reset     func(ctx context.Context, task string) error
+	resets    chan string
+	resetMu   sync.Mutex
+	resetDone []string
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -122,7 +133,7 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 		h.check(ctx, true)
 	}
 	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
-		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}}
+		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64)}
 	if err = s.register(ctx); err != nil {
 		return nil, err
 	}
@@ -174,6 +185,7 @@ func (s *session) claimable() bool { return !s.paused.Load() && !s.switching.Loa
 // run sends the inventory heartbeat every interval until ctx ends; it fails when the node must stop.
 func (s *session) run(ctx context.Context) error {
 	go s.janitor(ctx)
+	go s.resetter(ctx)
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
 	for {
@@ -210,7 +222,10 @@ func (s *session) health() Health {
 // beat sends one heartbeat and applies the answer.
 func (s *session) beat(ctx context.Context) error {
 	var a HeartbeatAnswer
-	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: s.health()}, &a)
+	s.resetMu.Lock()
+	done := append([]string(nil), s.resetDone...)
+	s.resetMu.Unlock()
+	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: s.health(), ResetDone: done}, &a)
 	var h *worker.HTTPError
 	switch {
 	case errors.As(err, &h) && h.Status == 409:
@@ -224,6 +239,17 @@ func (s *session) beat(ctx context.Context) error {
 		return nil
 	case a.Incarnation != "" && a.Incarnation != s.incarnation:
 		return s.reregister(ctx, "Core incarnation changed")
+	}
+	if len(done) > 0 { // delivered
+		s.resetMu.Lock()
+		s.resetDone = s.resetDone[len(done):]
+		s.resetMu.Unlock()
+	}
+	for _, task := range a.Reset {
+		select {
+		case s.resets <- task:
+		default: // full: Core lists it again
+		}
 	}
 	s.inv.Ack(a.Acked)
 	for _, x := range a.Stop {
@@ -313,6 +339,33 @@ func sameOK(a, b []DriverInfo) bool {
 		}
 	}
 	return true
+}
+
+// resetter resets worktrees Core listed under reset, one at a time; a busy worktree is retried from the next
+// listing.
+func (s *session) resetter(ctx context.Context) {
+	pending := map[string]bool{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task := <-s.resets:
+			if pending[task] || s.reset == nil {
+				continue
+			}
+			pending[task] = true
+			err := s.reset(ctx, task)
+			delete(pending, task)
+			if err != nil {
+				slog.Warn("worktree reset postponed", "task", task, "error", err)
+				continue
+			}
+			slog.Info("worktree reset from the remote branch", "task", task)
+			s.resetMu.Lock()
+			s.resetDone = append(s.resetDone, task)
+			s.resetMu.Unlock()
+		}
+	}
 }
 
 // janitor removes the worktrees of closed tasks listed under cleanup, one at a time.

@@ -129,3 +129,52 @@ func TestPinnedTask(t *testing.T) {
 		t.Fatal("reset_workspace did not unpin", err)
 	}
 }
+
+// TestWorkspaceDiverged: a diverged worktree escalates instead of retrying; reset_workspace asks the node to
+// reset (heartbeat reset) and the task runs again once the node confirms (reset_done).
+func TestWorkspaceDiverged(t *testing.T) {
+	s, _ := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "app", Name: "app", Workspace: "/tmp/div-app", RepoURL: "https://example.com/app.git"}); err != nil {
+		t.Fatal(err)
+	}
+	register(t, s, "n1", 1, func(r *NodeRegistration) { r.Worktrees = true })
+	v, _ := s.CreateTask(ctx, co, tasks.Create{ID: "t", ProjectID: "app", Title: "t", Assignee: "dev", Ready: true, RequestID: "c"})
+	spec, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: "r1", Project: "app", Agent: "dev", Provider: protocol.RuntimeCodex, ConfigSnapshot: []byte(`{"spec":{"workspace":{"mode":"worktree"}}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := claimV2(s, spec.ID, "n1", 1, "1-0-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ReportWorkspace(ctx, co, spec.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = end(t, s, spec.ID, c.Lease, protocol.Event{Status: "FAILED", Outcome: "setup_failed", Result: "workspace_diverged: task t (branch af/t): HEAD changed outside any run"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Task(ctx, co, "t")
+	open, _ := s.Escalations(ctx, co, true)
+	if got.Status != "FAILED" || len(open) != 1 || open[0].Reason != "workspace_diverged" {
+		t.Fatalf("%+v %+v", got, open)
+	}
+	q, _ := s.Message(ctx, co, open[0].MessageID)
+	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "reset", Answers: map[string]any{"answer": "reset_workspace"}, RequestID: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.Task(ctx, co, "t"); got.Status != "FAILED" {
+		t.Fatal("ran before the node reset the worktree", got.Status)
+	}
+	a, err := s.NodeHeartbeat(ctx, co, "n1", NodeHeartbeat{Epoch: 1})
+	if err != nil || len(a.Reset) != 1 || a.Reset[0] != "t" {
+		t.Fatal(a, err)
+	}
+	if a, err = s.NodeHeartbeat(ctx, co, "n1", NodeHeartbeat{Epoch: 1, ResetDone: []string{"t"}}); err != nil || len(a.Reset) != 0 {
+		t.Fatal(a, err)
+	}
+	if got, _ = s.Task(ctx, co, "t"); got.Status != "READY" {
+		t.Fatal(got.Status)
+	}
+}
