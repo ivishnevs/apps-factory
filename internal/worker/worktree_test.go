@@ -148,9 +148,10 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 		t.Fatal("tasks share files")
 	}
 
+	// The runtime always gets an environment (the node's credentials removed); a shared run has no scratch.
 	shared, env := run("t3", "shared", nil)
-	if strings.Contains(shared, "tasks") || env != nil {
-		t.Fatalf("shared mode ran in %s with env %v", shared, env != nil)
+	if strings.Contains(shared, "tasks") || slices.ContainsFunc(env, func(v string) bool { return strings.HasPrefix(v, "FACTORY_SCRATCH=") }) {
+		t.Fatalf("shared mode ran in %s with a scratch dir", shared)
 	}
 
 	// HEAD moved outside any run: the start check fails the run before the runtime starts and leaves the
