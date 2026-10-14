@@ -472,3 +472,37 @@ func TestCommentsInBrief(t *testing.T) {
 		t.Fatal(run.Spec.Prompt)
 	}
 }
+
+// TestProgressNeedsAnExitThatMoves: a handoff to itself is not progress (attempts stay), a submit is.
+func TestProgressNeedsAnExitThatMoves(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	h.create("loop", "notes", "demo")
+	for range 2 {
+		r := h.start("loop")
+		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "FAILED", Outcome: "failed"})); err != nil {
+			t.Fatal(err)
+		}
+		h.fake.Advance(time.Hour)
+	}
+	if got := h.task("loop"); got.AttemptsNoProgress != 2 {
+		t.Fatal(got.AttemptsNoProgress)
+	}
+	exitRun := func(name string, args map[string]any) {
+		t.Helper()
+		r := h.start("loop")
+		if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: name, Arguments: args}, nil); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		h.end(r, "COMPLETED", "accepted")
+		h.fake.Advance(time.Hour)
+	}
+	exitRun("factory_exit_handoff", map[string]any{"to": "demo", "note": "later"})
+	if got := h.task("loop"); got.AttemptsNoProgress != 2 || got.FailStreak != 0 {
+		t.Fatalf("handoff to itself counted as progress: %+v", got)
+	}
+	exitRun("factory_exit_submit", map[string]any{"summary": "done"})
+	if got := h.task("loop"); got.AttemptsNoProgress != 0 {
+		t.Fatalf("submit is progress: %+v", got)
+	}
+}

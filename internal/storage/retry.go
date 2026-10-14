@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -64,12 +66,25 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return err
 	}
 	if outcome == "succeeded" {
-		if t.AttemptsNoProgress == 0 && t.FailStreak == 0 && (hasExit || t.NotBefore == 0) {
-			return nil
+		// A success ends the failure streak; it resets the attempts only with progress (D2): an exit that
+		// moved exit_sha, or without git facts submit, done or a handoff to another agent. Without explicit
+		// exits every success counts as progress.
+		progress := true
+		if hasExit {
+			if progress, err = exitProgress(ctx, tx, runID, t.ID); err != nil {
+				return err
+			}
 		}
-		t.AttemptsNoProgress, t.FailStreak = 0, 0
+		before := t
+		t.FailStreak = 0
+		if progress {
+			t.AttemptsNoProgress = 0
+		}
 		if !hasExit { // an exit sets not_before itself (wait)
 			t.NotBefore = 0
+		}
+		if t.FailStreak == before.FailStreak && t.AttemptsNoProgress == before.AttemptsNoProgress && t.NotBefore == before.NotBefore {
+			return nil
 		}
 		return saveTask(ctx, tx, &t, "task.updated")
 	}
@@ -299,4 +314,37 @@ func inspectAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answ
 		return err
 	}
 	return saveTask(ctx, tx, &t, "task.retry")
+}
+
+// exitProgress tells whether the run's accepted exit is progress for its task (reliable-recovery D2).
+func exitProgress(ctx context.Context, tx *Tx, runID, task string) (bool, error) {
+	var kind, sha, args string
+	var at int64
+	if err := tx.QueryRowContext(ctx, "SELECT kind,exit_sha,arguments,created_at FROM run_exits WHERE run_id=?", runID).Scan(&kind, &sha, &args, &at); err != nil {
+		return false, err
+	}
+	if sha != "" {
+		var prev string
+		err := tx.QueryRowContext(ctx, "SELECT exit_sha FROM run_exits WHERE company_id=? AND task_id=? AND run_id!=? AND exit_sha!='' AND created_at<=? ORDER BY created_at DESC, rowid DESC LIMIT 1", tx.company, task, runID, at).Scan(&prev)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil // the first commit handed over
+		}
+		return sha != prev, err
+	}
+	switch kind {
+	case "submit", "done":
+		return true, nil
+	case "handoff":
+		var a struct {
+			To      string `json:"to"`
+			Verdict string `json:"verdict"`
+		}
+		_ = json.Unmarshal([]byte(args), &a)
+		var agent string
+		if err := tx.QueryRowContext(ctx, "SELECT agent FROM runs WHERE id=?", runID).Scan(&agent); err != nil {
+			return false, err
+		}
+		return a.Verdict != "" || a.To != agent, nil
+	}
+	return false, nil // ask, block, wait
 }
