@@ -25,7 +25,9 @@ type Metadata struct {
 type Spec struct {
 	Extends string `yaml:"extends" json:"extends,omitempty"`
 	Role    string `yaml:"role" json:"role,omitempty"`
-	Runtime struct {
+	// ReportsTo is the agent's manager (hierarchy D1): another agent of the company, or owner (default).
+	ReportsTo string `yaml:"reports_to" json:"reports_to,omitempty"`
+	Runtime   struct {
 		Provider string `yaml:"provider" json:"provider"`
 		Model    string `yaml:"model" json:"model"`
 		// QuotaKey names the subscription whose limit this agent consumes; agents sharing it pause
@@ -248,6 +250,10 @@ func LoadCatalog(root string) (*Catalog, error) {
 	if len(c.Agents) == 0 {
 		return nil, fmt.Errorf("no agents in %s/configs/agents", root)
 	}
+	if err := validTree(c.Agents); err != nil {
+		return nil, err
+	}
+	deriveCommunication(c.Agents)
 	for name, a := range c.Agents {
 		if name == "owner" {
 			return nil, fmt.Errorf("agent name owner is reserved")
@@ -604,3 +610,83 @@ func validResources(r map[string]int) error {
 
 // MaxConcurrentRuns is the highest max_concurrent_runs an agent may declare.
 const MaxConcurrentRuns = 8
+
+// Owner is the reserved principal at the top of every chain.
+const Owner = "owner"
+
+// Manager returns the agent's reports_to (owner when empty).
+func Manager(agents map[string]Agent, name string) string {
+	if m := agents[name].Spec.ReportsTo; m != "" {
+		return m
+	}
+	return Owner
+}
+
+// Chain lists the agent's managers from its direct manager up, without the owner.
+func Chain(agents map[string]Agent, name string) []string {
+	var out []string
+	for m := Manager(agents, name); m != Owner && len(out) <= len(agents); m = Manager(agents, m) {
+		out = append(out, m)
+	}
+	return out
+}
+
+// Subtree lists the agents whose chain contains name (its reports at any depth), sorted.
+func Subtree(agents map[string]Agent, name string) []string {
+	var out []string
+	for _, a := range Names(agents) {
+		if slices.Contains(Chain(agents, a), name) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// DirectReports lists the agents reporting to name (owner for the top level), sorted.
+func DirectReports(agents map[string]Agent, name string) []string {
+	var out []string
+	for _, a := range Names(agents) {
+		if Manager(agents, a) == name {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// validTree checks reports_to: an existing agent or owner, never itself, no cycles.
+func validTree(agents map[string]Agent) error {
+	for _, name := range Names(agents) {
+		m := Manager(agents, name)
+		if m == name {
+			return fmt.Errorf("agent %s: reports_to itself", name)
+		}
+		if _, ok := agents[m]; !ok && m != Owner {
+			return fmt.Errorf("agent %s: reports_to unknown agent %s", name, m)
+		}
+		seen := map[string]bool{name: true}
+		for m != Owner {
+			if seen[m] {
+				return fmt.Errorf("agent %s: reports_to cycle through %s", name, m)
+			}
+			seen[m] = true
+			m = Manager(agents, m)
+		}
+	}
+	return nil
+}
+
+// deriveCommunication lets every agent message its chain (owner included) and its direct reports; explicit
+// can_message lists may add peers but never remove these (hierarchy D1).
+func deriveCommunication(agents map[string]Agent) {
+	for _, name := range Names(agents) {
+		a := agents[name]
+		targets := append([]string{}, a.Spec.Communication.CanMessage...)
+		for _, t := range append(append(Chain(agents, name), Owner), DirectReports(agents, name)...) {
+			if !slices.Contains(targets, t) {
+				targets = append(targets, t)
+			}
+		}
+		a.Spec.Communication.CanMessage = targets
+		agents[name] = a
+	}
+}

@@ -107,14 +107,12 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 		t.Fatal("deny priority", w.Code)
 	}
 	c.Agents[a.Metadata.Name] = a
-	for _, name := range []string{"owner_ask", "decision_propose"} {
-		input := map[string]any{"body": "ask", "request_id": "ask"}
-		if name == "decision_propose" {
-			input = map[string]any{"topic": "product", "value": "idea", "rationale": "why", "request_id": "ask"}
-		}
-		if w = call(name, input); w.Code != 403 {
-			t.Fatal("owner ban", name, w.Code, w.Body.String())
-		}
+	// hierarchy D1: the chain (here the owner, its manager) is always reachable; can_message adds peers only.
+	if w = call("owner_ask", map[string]any{"body": "ask", "request_id": "ask"}); w.Code != 200 {
+		t.Fatal("chain removed", w.Code, w.Body.String())
+	}
+	if w = call("decision_propose", map[string]any{"topic": "product", "value": "idea", "rationale": "why", "request_id": "propose"}); w.Code != 200 {
+		t.Fatal("a proposal goes to the owner", w.Code, w.Body.String())
 	}
 	if a.Authorize("external.purchase").Effect != "approval" || a.Authorize("factory.decision.record").Effect != "approval" {
 		t.Fatal("protected permissions changed")

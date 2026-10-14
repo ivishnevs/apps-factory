@@ -1,5 +1,5 @@
 ## 1. Tree and authority
-- [ ] 1.1 `spec.reports_to` in `internal/config` with validation (exists, no cycle, `owner` reserved) and derived communication defaults. Verify: config tests for a 3-level tree, a cycle and an unknown target.
+- [x] 1.1 `spec.reports_to` in `internal/config` with validation (exists, no cycle, `owner` reserved) and derived communication defaults. Verify: config tests for a 3-level tree, a cycle and an unknown target. Done: `config.Chain/Subtree/DirectReports/Manager`, chain and direct reports always in can_message (`TestReportsTo`).
 - [ ] 1.2 Replace the interim rule in `internal/core/authority.go` with `chain`/`subtree`. Verify: authority tests for direct manager, grand-manager, delegator, sibling (none).
 - [ ] 1.3 Authority actions pause/resume/reassign/cancel/reprioritize (MCP + owner API/CLI) with subtree checks and `pauses` table in `Evaluate`; only direct/comment/answer/ready/reassign/artifact approval add authority triggers. Verify: a manager cannot reassign into another subtree (403); pause shows reason `paused:task`; reprioritize and pause leave a wait park active.
 

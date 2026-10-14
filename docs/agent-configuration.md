@@ -50,3 +50,10 @@ Core checks skill operations and named-agent task operations with the resolved p
 Factory MCP binds agent operations to run credentials and checks captured plus current permissions.
 See factory-mcp.md. Trusted agents have full host access, so shell bypass remains possible.
 Configuration changes require Core restart. Stored runs retain their original composed instructions.
+
+## Hierarchy
+
+`spec.reports_to` names the agent's manager: another agent of the company or `owner` (the default). Validation
+refuses an unknown target, a self reference and cycles; `owner` is reserved. The chain of an agent is its managers
+up to the owner, its subtree the agents whose chain contains it. Every agent may message its chain (the owner
+included) and its direct reports; `communication.can_message` adds peers but never removes these.

@@ -2,7 +2,7 @@ apiVersion: factory/v1
 kind: Agent
 metadata:
   name: manager-autonomous
-  description: Technical coordinator with owner escalation disabled
+  description: Technical coordinator that decides technical questions itself
 spec:
   extends: developer
   role: manager

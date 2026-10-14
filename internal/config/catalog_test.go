@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -337,5 +338,43 @@ func TestConcurrencyLimits(t *testing.T) {
 		if _, err := LoadCatalog(root); (err == nil) != ok {
 			t.Fatalf("%q: %v", limits, err)
 		}
+	}
+}
+
+func TestReportsTo(t *testing.T) {
+	root := fixture(t)
+	agent := func(name, reportsTo string) {
+		line := ""
+		if reportsTo != "" {
+			line = "  reports_to: " + reportsTo + "\n"
+		}
+		put(t, root, "configs/agents/"+name+".yaml", "apiVersion: factory/v1\nkind: Agent\nmetadata:\n  name: "+name+"\nspec:\n  extends: base\n"+line)
+	}
+	agent("cto", "")
+	agent("lead", "cto")
+	agent("dev", "lead")
+	c, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Chain(c.Agents, "dev"); !slices.Equal(got, []string{"lead", "cto"}) {
+		t.Fatal(got)
+	}
+	if got := Subtree(c.Agents, "cto"); !slices.Equal(got, []string{"dev", "lead"}) {
+		t.Fatal(got)
+	}
+	if got := c.Agents["lead"].Spec.Communication.CanMessage; !slices.Contains(got, "cto") || !slices.Contains(got, "dev") || !slices.Contains(got, "owner") {
+		t.Fatal("derived communication", got)
+	}
+	if got := c.Agents["dev"].Spec.Communication.CanMessage; slices.Contains(got, "agent") {
+		t.Fatal("a peer was added", got)
+	}
+	agent("cto", "dev")
+	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatal("cycle:", err)
+	}
+	agent("cto", "ghost")
+	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatal("unknown:", err)
 	}
 }
