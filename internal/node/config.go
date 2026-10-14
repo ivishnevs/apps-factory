@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	"appfactory/internal/bus"
 	"appfactory/internal/configfile"
 	"appfactory/internal/node/janitor"
 )
@@ -40,6 +41,48 @@ type Config struct {
 	Worktrees Worktrees `yaml:"worktrees"`
 	// Janitor: run-stop and task-closed hooks, worktree removal after seal, prune (node-agent D4).
 	Janitor janitor.Config `yaml:"janitor"`
+	// NATS is the outbound connection (node-agent D1, task 1.5); without url, NATS_URL, else nats://127.0.0.1:4222.
+	NATS NATS `yaml:"nats"`
+}
+
+// NATS: url is nats://, tls://, ws:// or wss:// (a comma-separated list is allowed) without user info: the
+// per-node user comes from creds_file or nkey_seed_file, so node.yaml holds no secret. The NATS_URL fallback
+// may still carry user:password, as for the local worker.
+type NATS struct {
+	URL         string `yaml:"url"`
+	bus.Options `yaml:",inline"`
+}
+
+// DefaultNATSURL is the local NATS of `make up`.
+const DefaultNATSURL = "nats://127.0.0.1:4222"
+
+// ResolveURL is url, else NATS_URL from getenv, else DefaultNATSURL.
+func (n NATS) ResolveURL(getenv func(string) string) string {
+	if n.URL != "" {
+		return n.URL
+	}
+	if v := getenv("NATS_URL"); v != "" {
+		return v
+	}
+	return DefaultNATSURL
+}
+
+func (n NATS) validate() error {
+	if n.URL != "" {
+		us, err := bus.ParseURLs(n.URL)
+		if err != nil {
+			return fmt.Errorf("nats.url: %w", err)
+		}
+		for _, u := range us {
+			if u.User != nil {
+				return fmt.Errorf("nats.url %s: no user info in node.yaml; use creds_file or nkey_seed_file", bus.RedactURL(u))
+			}
+		}
+	}
+	if err := n.Options.Validate(n.URL); err != nil {
+		return fmt.Errorf("nats: %w", err)
+	}
+	return nil
 }
 
 // Worktrees: Root defaults to <state_dir>/worktrees; ScanCommand (pre-push secret scan) to gitleaks.
@@ -175,6 +218,6 @@ func (c *Config) Validate() error {
 	case c.Disk.CriticalGiB > c.Disk.LowGiB:
 		errs = append(errs, fmt.Errorf("disk.critical_watermark_gib %g must not exceed disk.low_watermark_gib %g", c.Disk.CriticalGiB, c.Disk.LowGiB))
 	}
-	errs = append(errs, c.Janitor.Validate())
+	errs = append(errs, c.Janitor.Validate(), c.NATS.validate())
 	return errors.Join(errs...)
 }

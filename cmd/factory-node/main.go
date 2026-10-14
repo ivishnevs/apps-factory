@@ -28,7 +28,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -133,11 +133,19 @@ func doctor(args []string) (int, error) {
 	critical := fs.Float64("critical-gib", 5, "disk.critical_watermark in GiB")
 	repo := fs.String("repo", "", "repository URL checked with git ls-remote (optional)")
 	drivers := fs.String("drivers", "", "comma list of drivers to require (default: every installed one)")
+	path := fs.String("config", "", "node.yaml whose nats section the NATS check uses (default $"+node.ConfigEnv+"; else NATS_URL alone)")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
 	}
 	h := node.LocalHost(runtime.GOOS)
 	d := node.Doctor{Host: h, DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo}
+	if p := node.ConfigPath(*path); p != "" {
+		c, err := node.LoadConfig(p)
+		if err != nil {
+			return 2, err
+		}
+		d.NATS = c.NATS
+	}
 	// Each driver owns its probe (runtime-drivers D4).
 	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: os.Getenv("CODEX_BIN"), Host: &h}},
 		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: d.BinDir()}}}

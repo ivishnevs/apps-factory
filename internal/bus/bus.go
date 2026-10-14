@@ -14,11 +14,17 @@ type Bus struct {
 	JS nats.JetStreamContext
 }
 
+// Connect dials url without client options (Core, tests); nodes use ConnectWith.
 func Connect(url string) (*Bus, error) {
 	nc, err := nats.Connect(url, nats.Name("appfactory"), nats.Timeout(5*time.Second), nats.MaxReconnects(-1))
 	if err != nil {
 		return nil, err
 	}
+	return setup(nc)
+}
+
+// setup opens JetStream on nc and makes sure the command and event streams exist (StreamInfo only when they do).
+func setup(nc *nats.Conn) (*Bus, error) {
 	js, err := nc.JetStream()
 	if err != nil {
 		nc.Close()

@@ -69,9 +69,12 @@ Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, wi
 simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
 `core` (with `FACTORY_URL`): an authenticated `GET /health` with `FACTORY_TOKEN` (fails when the token is unset or
 rejected, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS). `nats` (with
-`NATS_URL`): one connection without reconnects and a JetStream account info read (fails when unreachable or
-JetStream is off). Both are read-only, time out after 5 s, never print the token or URL credentials, and are
-`skip` when their variable is unset.
+`nats.url` of `-config node.yaml` / `FACTORY_NODE_CONFIG`, else `NATS_URL`): one connection without reconnects
+with the node's own NATS settings (credentials, nkey, TLS; see [Outbound NATS](#outbound-nats-tls-websocket-per-node-user))
+and a JetStream account info read (fails when unreachable, the user or certificate is rejected, or JetStream is
+off); `nats_credentials` warns when the creds, nkey seed or TLS key file is readable by group or others. Both are
+read-only, time out after 5 s, never print the token, URL credentials or file contents, and are `skip` when their
+variable is unset.
 Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
 injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
 `codex-cli 0.162.1`, `codex login status`) and `claude.*` (what the Go driver runs: Node 22+, the built
@@ -88,7 +91,7 @@ yet). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack,
 v1); the slots share one pull
 subscription per enabled driver on `factory.commands.agent.run.<driver>` with the durable `<driver>-worker-v1`, so they
 compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
-Environment as for the Worker: `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. At least one
+Environment as for the Worker: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. At least one
 enabled driver must pass its version check and probe at start (see Driver checks below). SIGINT/SIGTERM interrupt running runs (as the Codex Worker does) and wait
 for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
 
@@ -110,6 +113,10 @@ drivers:
 probes: {interval: 10m, version_interval: 1h}  # driver Probe and version check periods (defaults; at least 1m)
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
 worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
+nats:                        # outbound connection (below); without url: NATS_URL, else nats://127.0.0.1:4222
+  url: wss://nats.example.com:443  # nats://, tls://, ws:// or wss://, comma list allowed; no user info here
+  creds_file: /etc/factory/node.creds    # or nkey_seed_file: /etc/factory/node.nk (exclusive)
+  tls: {ca_file: /etc/factory/nats-ca.pem, server_name: nats.example.com}  # cert_file + key_file for mutual TLS
 janitor:                     # trusted node configuration; each command runs with /bin/sh -c
   interval: 10m              # prune period (default 10m)
   hook_timeout: 5m           # per command (default 5m)
@@ -171,6 +178,52 @@ that service stopped (both would share the `claude-worker-v1` consumer).
   identifier) from the shared `mobile-app-testing` skill ([skills](skills.md#mobile-app-testing)). Executor tests
   script shell commands with `fake.Activity.Exec` (`internal/worker/shim_test.go`).
 
+### Outbound NATS (TLS, WebSocket, per-node user)
+
+node-agent 1.5, node side: the node only dials out, so a machine needs no inbound port. `nats.url` takes
+`nats://`, `tls://` (TCP with TLS), `ws://` or `wss://` (WebSocket, e.g. through an HTTPS reverse proxy). The user is
+a per-node NATS user from `creds_file` (a `.creds` file with user JWT and seed, re-read on every reconnect, for an
+operator/JWT setup) or `nkey_seed_file` (an nkey user seed; the server lists the public key). Any `tls` key makes TLS
+required: `ca_file` replaces the system roots (private CA), `server_name` is the name expected in the server
+certificate (when the URL is an IP or a proxy address), `cert_file`/`key_file` present a client certificate. Secrets
+come only from files: `nats.url` in `node.yaml` must not carry user info (the `NATS_URL` fallback still may, as for
+the local Worker), errors and logs name files, never their contents, and the start log shows the redacted URL, the
+auth kind (`creds`, `nkey`, `url`, `none`) and whether TLS is on. Keep the files `0600` (doctor warns otherwise).
+`tls` with `ws://` is refused (use `wss://`). Core keeps `NATS_URL` (`bus.Connect`); nodes and `codex-worker` use
+`bus.ConnectWith(url, bus.Options)`.
+
+The node's user needs (runtime protocol v1/v2 on today's subjects): publish `$JS.API.INFO`,
+`$JS.API.STREAM.NAMES`, `$JS.API.STREAM.INFO.FACTORY_COMMANDS`, `$JS.API.STREAM.INFO.FACTORY_EVENTS`,
+`$JS.API.CONSUMER.CREATE.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.DURABLE.CREATE.FACTORY_COMMANDS.>`,
+`$JS.API.CONSUMER.INFO.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.MSG.NEXT.FACTORY_COMMANDS.>`,
+`$JS.ACK.FACTORY_COMMANDS.>`, `factory.events.agent.>`; subscribe `_INBOX.>`. The streams must exist (Core creates
+them); a node user cannot create streams or publish commands. Issuing per-node users, narrowing them to one
+company's command subjects and the node's own control subject (`factory.<company>.nodes.<node_id>.control`, not
+implemented yet: it waits for company subject prefixes, runtime protocol v2 §10.5) and a per-node inbox prefix are
+Core/infra work. Example server configuration for a TLS client port and a TLS WebSocket listener with nkey users
+(the local `compose.yaml` is unchanged):
+
+```
+listen: 0.0.0.0:4222
+jetstream { store_dir: /data }
+tls { cert_file: /certs/server.pem, key_file: /certs/server-key.pem }
+websocket { port: 8443, tls { cert_file: /certs/server.pem, key_file: /certs/server-key.pem } }
+authorization {
+  users = [
+    { nkey: UCORE... }                      # Core: all subjects
+    { nkey: UNODE..., permissions: { publish: { allow: [ "$JS.API.INFO", ... the list above ... ] }
+                                    subscribe: { allow: [ "_INBOX.>" ] } } }
+  ]
+}
+```
+
+`scripts/nats-secure-test.sh up` starts two throwaway servers (JetStream in tmpfs; generated CA, server certificate
+for `nats.test`, nkey users `admin` and `node` with exactly that permission set; and an operator-mode server with a
+`.creds` user) in `.nats-secure-test/` and prints the `NATS_TEST_SECURE_*`, `NATS_TEST_ADMIN_SEED`,
+`NATS_TEST_NODE_SEED` and `NATS_TEST_CREDS_*` exports for `TestSecureConnect`, `TestCredsConnect`
+(`internal/bus`) and `TestNATSCheckSecure` (`internal/node`); `scripts/nats-secure-test.sh down` removes them.
+The directory must be shared with the Docker VM (Colima/Docker Desktop share `$HOME`).
+
 ### Explicit exits on the node
 
 With Core's `FACTORY_EXPLICIT_EXITS=1` runs end with `factory_exit_*` ([contract](explicit-exits-contract.md)).
@@ -220,9 +273,26 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
 - At run end the runtime process group gets TERM, then KILL after 10 s; the run fails if it survives 30 s. The
   worktree is then sealed: uncommitted work is committed onto `refs/factory/wip/<task>` (the worktree itself is left
   unchanged) and `sealed_head` is written to `.factory/state`. Nothing is pushed. The worker then reports
-  `{mode, branch, node_id, sealed_head, sealed_at}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`, in v2 its `node_id`;
+  `{mode, branch, node_id, exit_sha, sealed_head, sealed_at}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`, in v2 its `node_id`;
   `GET /tasks/{id}/workspace` reads it). Transient failures are retried briefly; a failed report is logged
   and does not fail the run.
+- Continuity (task-worktrees D4, 2.2): the seal reads the run's exit file. `exit_sha` is the exit file's
+  `exit_sha` when the adapter writes it, else the worktree's HEAD when the worker first saw the exit accepted
+  (polled every 250 ms); it is kept in `.factory/state` and reported with every later seal. After an accepted
+  `handoff`, `submit` or `done` the worktree is reset to `exit_sha` (`reset --hard` + `clean -fd`; ignored files
+  and `.factory/` stay) and `sealed_head = exit_sha`, so the next run starts exactly there. Work after the exit is
+  kept on the WIP ref: the snapshot of uncommitted files, or, without one, the commits made after the exit. A reset
+  is recorded in `.factory/state` (`reset_from`) before it runs; a crash in between is finished by the next seal
+  or start check. After `ask`, `block`, `wait` or no exit the worktree continues as it is. The seal also computes
+  whether HEAD has commits on no origin branch (`unpushed`); with `wip_sha` it is logged for node pinning (no
+  report field yet).
+- `workspace_mode: fresh_from_default` (no Core config yet): the task worktree has no task branch; every run seals
+  what the previous one left, then checks out the freshly fetched `origin/<default>` detached with a clean tree.
+  It is reported as mode `worktree` without a branch.
+- A runtime still running 30 s (`ExitGrace`) after its accepted exit is stopped; a run stopped after its accepted
+  exit (also by its timeout or a stop) or ending without evidence reports `COMPLETED` without an outcome.
+- Git lock errors (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) are retried by the allocator; one
+  that persists ends the run `FAILED` `failed` (retryable contention), never `setup_failed`.
 - Runs without `task_id` or `repo_url` (for example message runs), or with worktrees disabled, fall back to the shared
   project workspace with a warning. `shared` and `scratch` runs use the project workspace (`workspace.Local`).
 
@@ -244,7 +314,9 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   `factory-node run`. The same operation is `janitor.ResetWorkspace` for when Core sends reset-workspace to
   nodes (no protocol field yet).
 
-Not yet: push, PR, reset to `exit_sha` (`exit_sha` is not reported yet), the `workspace_diverged` escalation. The SQLite writer indexes still serialize runs of one project.
+Not yet: the `workspace_diverged` escalation, reporting `unpushed`/`wip_sha` for pinning, `exit_sha` in the
+exit file, `fresh_from_default` in agent config. Push and PR happen only through explicit exits (below). The SQLite
+writer indexes still serialize runs of one project.
 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as

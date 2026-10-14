@@ -137,5 +137,9 @@ How the executor (v1 and v2) and the standalone Claude worker fill `Event.outcom
   (Core decides `lost`). A quota hit alone does not make an evidence-less end known.
 - A lost v1 heartbeat or a worker/node shutdown interrupts like an owner cancel (`CANCELLED`, no outcome);
   the standalone worker's lost workspace lock is `CANCELLED` `failed` (Core ends it `FAILED`).
-- Git lock contention inside workspace allocation is retried by the allocator; a failure after the retries is
-  reported `setup_failed` like other allocation failures.
+- Git lock contention inside worktree allocation (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) is
+  retried by the allocator; a failure after the retries is transient contention, reported `FAILED` `failed`
+  (`CANCELLED` while the run was being stopped), not `setup_failed` (task-worktrees D1).
+- After an accepted exit (`exit_state: accepted`) a run the executor stopped (`ExitGrace` 30 s after the exit,
+  its timeout, a stop) or that ended without terminal evidence reports `COMPLETED` without an outcome: the exit
+  stands and Core records the run `succeeded`.

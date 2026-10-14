@@ -7,3 +7,4 @@ data/
 projects/
 .DS_Store
 docs/roadmap.md
+.nats-secure-test/

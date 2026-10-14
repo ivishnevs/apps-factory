@@ -24,16 +24,43 @@ Core marks expired active runs UNKNOWN. UNKNOWN releases the agent slot, but qua
 project, workspace and known session. Owner reconciliation is explicit; no automatic runtime retry.
 Queued cancellation is immediate, running cancellation is observed within a heartbeat interval.
 
-SQLite has a unique writer index per project and normalized workspace string. Worker implements
-a workspace.Allocator interface with a canonical-path advisory flock, allowing future worktrees.
+SQLite has unique writer indexes per project (`project_writer`) and per normalized workspace string
+(`workspace_writer`) over active and unreleased UNKNOWN runs, so Core still dispatches at most one writing run per
+project, whatever the agent's workspace mode. Dropping them for worktree runs is part of task-worktrees 1.1 (Core);
+until then per-task worktrees isolate each task's files and state but do not yet let two tasks of one project run
+concurrently.
+
+Workspace modes (agent `spec.workspace.mode`): `shared` and `scratch` runs use the project workspace through
+`workspace.Allocator` (`workspace.Local`) with a canonical-path advisory flock.
 Use one canonical host path per project: Core in Docker cannot resolve macOS symlink aliases.
 Do not register the same physical directory under aliases, particularly when reconciling UNKNOWN.
 The `.factory-writer.lock` file may remain after release; flock state, not file existence, owns the lock.
 
-Agents with `workspace.mode: worktree` run in per-task git worktrees managed by the node (`internal/workspace`),
-each with its own lock, branch `af/<task>` and a local WIP ref sealed at run end. The worker reports the seal to
-Core (`POST /runs/{id}/workspace`, one `workspaces` row per task); the writer index above still serializes runs
-per project.
+`worktree` runs (node `worktrees.enabled`; runs with a `task_id` and the project's `repo_url`) get one git worktree
+per task, managed by the node (`internal/workspace.Worktrees`): a shared clone per project, the task's worktree on
+branch `af/<task>` and a scratch directory (`FACTORY_SCRATCH`) outside it. Each worktree has its own lock and run
+pidfile, so a second run of the same task waits, and later runs of the task continue in the same worktree.
+- Seal: at run end the runtime's process group is stopped, then uncommitted work is committed onto the local ref
+  `refs/factory/wip/<task>` without touching HEAD, index or files, and `sealed_head` is recorded. Nothing is pushed
+  by the seal. After an accepted handoff, submit or done the seal then resets the worktree to the exit's commit
+  (`exit_sha`), so the next run starts exactly from what was handed over; after other exits it continues as is. The
+  node reports `{mode, branch, node_id, exit_sha, sealed_head, sealed_at}` to `POST /runs/{id}/workspace`
+  (one `workspaces` row per task, `GET /tasks/{id}/workspace`). A worktree left locked by a crashed process is
+  sealed as that run's work before the next run, or at node start.
+- Start check (under the lock, before the runtime starts): HEAD at `sealed_head` starts the run, after a
+  fast-forward when `origin/<branch>` is strictly ahead; a HEAD changed outside any run, or uncommitted changes that
+  block the fast-forward, end the run FAILED with `workspace_diverged` before the runtime starts (Core's escalation
+  is pending); a missing worktree is recreated from the local, else remote, else default branch.
+- Reset: `factory-node workspace reset -task ID` (node side of reset-workspace) seals, removes and recreates the
+  worktree from the remote or default branch, keeps the abandoned local state on `refs/factory/reset/<task>` and
+  forgets the task's sessions so the next run starts fresh. The Core action, unpinning and the
+  `pinned_node_unavailable` escalation are pending.
+- Janitor (node): for each task in Core's `cleanup` list (v2 heartbeat answer) it takes the worktree lock, seals,
+  runs the `on_task_closed` hooks and removes the worktree and its scratch directory; the branch, the WIP ref and
+  the clone stay. `on_run_stop` hooks run after every run, `prune` entries periodically and at low disk.
+- Pushing the task branch and opening its pull request happen only through explicit exits (`factory_exit_*`, behind
+  `FACTORY_EXPLICIT_EXITS`); see [explicit exits](explicit-exits-contract.md). Node pinning of tasks with unpushed
+  or sealed work is enforced at claim by `node-agent` (pending).
 
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
 Worker events carry the Core lease. Core atomically persists an event and updates the run,

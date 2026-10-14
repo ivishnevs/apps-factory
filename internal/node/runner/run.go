@@ -48,7 +48,7 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 	return r
 }
 
-// Main checks the environment (FACTORY_TOKEN, FACTORY_URL, NATS_URL), connects and runs the node until
+// Main checks the environment (FACTORY_TOKEN, FACTORY_URL; NATS_URL when node.yaml has no nats.url), connects and runs the node until
 // ctx ends; Run checks the drivers. codex-worker is Main with one slot and the Codex driver.
 func Main(ctx context.Context, c node.Config, getenv func(string) string) error {
 	env := func(k, d string) string {
@@ -61,9 +61,11 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 	if getenv("FACTORY_TOKEN") == "" {
 		return fmt.Errorf("FACTORY_TOKEN required")
 	}
-	b, err := bus.Connect(env("NATS_URL", "nats://127.0.0.1:4222"))
+	natsURL := c.NATS.ResolveURL(getenv)
+	slog.Info("connecting to NATS", "url", bus.Redact(natsURL), "auth", c.NATS.Auth(natsURL), "tls", c.NATS.TLS.Enabled())
+	b, err := bus.ConnectWith(natsURL, c.NATS.Options)
 	if err != nil {
-		return err
+		return fmt.Errorf("nats %s: %w", bus.Redact(natsURL), err)
 	}
 	defer b.NC.Close()
 	return Run(ctx, Node{Config: c, Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: getenv("FACTORY_TOKEN")}, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
