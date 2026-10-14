@@ -273,3 +273,46 @@ func TestJetStreamCommandGrantEndToEnd(t *testing.T) {
 		t.Fatalf("%d refusals recorded on the run, want 3", len(refused))
 	}
 }
+
+// TestJetStreamHostUIRefusalEndToEnd (node-agent 4.1): through a real Core, the node executor and
+// factory-shim, a run of a catalog agent calling cliclick (mandatory host-ui policy) gets exit 126 with the
+// policy's instruction, the real cliclick never runs, and Core records the refusal on the run.
+func TestJetStreamHostUIRefusalEndToEnd(t *testing.T) {
+	tools := t.TempDir()
+	clicked := filepath.Join(t.TempDir(), "clicked")
+	if err := os.WriteFile(filepath.Join(tools, "cliclick"), []byte("#!/bin/sh\ntouch "+clicked+"\necho clicked\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
+	agents, err := config.Load("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &fake.Driver{MCP: true, Script: fake.Script{Status: "COMPLETED", Text: "tapped", Activity: []fake.Activity{
+		{Exec: []string{"cliclick", "c:100,200"}},
+	}}}
+	e := startE2E(t, false, agents, d)
+	e.task("t1")
+	run := e.finished("t1")
+	if run.Status != "COMPLETED" {
+		t.Fatalf("run %+v", run)
+	}
+	var execs []fake.ExecEvent
+	for _, p := range e.activity(run.Spec.ID, fake.ExecMethod) {
+		var x fake.ExecEvent
+		if json.Unmarshal(p.Data, &x) == nil {
+			execs = append(execs, x)
+		}
+	}
+	instruction := policies.HostUI().Spec.Rules[0].Instruction
+	if len(execs) != 1 || execs[0].Exit != shim.Refused || execs[0].Stdout != "" || !bytes.Contains([]byte(execs[0].Stderr), []byte(instruction)) {
+		t.Fatalf("cliclick %+v", execs)
+	}
+	if _, err = os.Stat(clicked); !os.IsNotExist(err) {
+		t.Fatal("the real cliclick ran", err)
+	}
+	refused := e.activity(run.Spec.ID, "factory/command_refused")
+	if len(refused) != 1 || !bytes.Contains(refused[0].Data, []byte("cliclick")) || !bytes.Contains(refused[0].Data, []byte("host-ui")) {
+		t.Fatalf("refusal events on the run: %+v", refused)
+	}
+}
