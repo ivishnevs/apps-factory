@@ -60,6 +60,14 @@ type Task struct {
 	OriginRun  string `json:"origin_run,omitempty"`
 	// Deduplicated is set only on a create response that returned an existing open task.
 	Deduplicated bool `json:"deduplicated,omitempty"`
+	// Automatic retry (reliable-recovery D2): attempt outcomes in a row without progress for the
+	// current assignee, backoff outcomes in a row, and the earliest time the next run may start.
+	AttemptsNoProgress int   `json:"attempts_no_progress,omitempty"`
+	FailStreak         int   `json:"fail_streak,omitempty"`
+	NotBefore          int64 `json:"not_before,omitempty"`
+	// SideEffects marks a task whose runs act outside the workspace (publish, deploy): an unclear
+	// outcome parks it for inspection instead of retrying.
+	SideEffects bool `json:"side_effects,omitempty"`
 }
 type ProjectCreate struct {
 	ID            string `json:"id"`
@@ -108,6 +116,8 @@ type Create struct {
 	Actor             string     `json:"actor,omitempty"`
 	// Ready creates the task released for scheduling (READY, or waiting for its artifacts).
 	Ready bool `json:"ready,omitempty"`
+	// SideEffects: the task's runs act outside the workspace; failures are inspected, not retried.
+	SideEffects bool `json:"side_effects,omitempty"`
 	// Trusted metadata set by Core, never decoded from a request body.
 	OriginTask string            `json:"-"`
 	OriginRun  string            `json:"-"`
@@ -122,6 +132,7 @@ type Update struct {
 	Assignee          *string     `json:"assignee,omitempty"`
 	OpenSpecChange    *string     `json:"openspec_change,omitempty"`
 	Dependencies      *[]string   `json:"dependencies,omitempty"`
+	SideEffects       *bool       `json:"side_effects,omitempty"`
 	RequestID         string      `json:"request_id,omitempty"`
 	Actor             string      `json:"actor,omitempty"`
 }

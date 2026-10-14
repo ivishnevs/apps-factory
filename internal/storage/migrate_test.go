@@ -103,6 +103,12 @@ func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 var downs = map[int][]string{
 	9:  {"DROP TABLE feed_events"},
 	10: {"DROP TABLE task_triggers", "DROP TABLE task_parks", "ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq", "ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to"},
+	18: {"DROP TABLE task_budget", "DROP INDEX project_writer", "DROP INDEX workspace_writer", "DROP INDEX session_turn",
+		"CREATE UNIQUE INDEX project_writer ON runs(project) WHERE status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN')",
+		"CREATE UNIQUE INDEX workspace_writer ON runs(workspace) WHERE workspace != '' AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN')",
+		"CREATE UNIQUE INDEX session_turn ON runs(session_id) WHERE session_id != '' AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN')",
+		"DROP INDEX active_task_run", "CREATE UNIQUE INDEX active_task_run ON runs(task_id) WHERE task_id IS NOT NULL AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN')",
+		"ALTER TABLE runs DROP COLUMN released"},
 	17: {"DROP TABLE escalations"},
 	16: {"DROP TRIGGER run_outcome", "ALTER TABLE runs DROP COLUMN outcome", "ALTER TABLE runs DROP COLUMN last_activity_at", "ALTER TABLE runs DROP COLUMN stop_reason"},
 	15: {"DROP TABLE core_meta", "DROP TABLE nodes", "DROP INDEX runs_node", "ALTER TABLE runs DROP COLUMN protocol", "ALTER TABLE runs DROP COLUMN node_id", "ALTER TABLE runs DROP COLUMN epoch", "ALTER TABLE runs DROP COLUMN claim_id", "ALTER TABLE runs DROP COLUMN slot", "ALTER TABLE runs DROP COLUMN start_by", "ALTER TABLE runs DROP COLUMN run_started", "ALTER TABLE runs DROP COLUMN end_applied", "ALTER TABLE workspaces DROP COLUMN cleanup_listed"},

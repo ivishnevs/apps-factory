@@ -31,7 +31,7 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 	}
 	create := func(id, assignee string, ready bool, deps ...string) {
 		t.Helper()
-		v, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: id, ProjectID: "p", Title: id, Assignee: assignee, Dependencies: deps})
+		v, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: id, ProjectID: "p", Title: id, Assignee: assignee, Dependencies: deps, SideEffects: id == "a"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,8 +85,16 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 	if err = s.Expire(ctx, storage.DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
+	// a has side effects: inspected, not retried. Its v1 runtime is gone (the worker stops on a lost
+	// lease), so the run holds no writer and d can run.
 	got := why()
-	expect(got, map[string]string{"a": tasks.ReasonParked + tasks.ParkInspect, "b": tasks.ReasonDependencies, "d": tasks.ReasonCapacity})
+	expect(got, map[string]string{"a": tasks.ReasonParked + tasks.ParkInspect, "b": tasks.ReasonDependencies, "d": tasks.ReasonRunnable})
+	// A lost run whose runtime may still run (a silent v2 node) keeps the project's writer.
+	if _, err = s.DB.Exec("UPDATE runs SET released=0 WHERE id=?", a.CurrentRunID); err != nil {
+		t.Fatal(err)
+	}
+	got = why()
+	expect(got, map[string]string{"d": tasks.ReasonCapacity})
 	if got["d"].Clearer.Who != "owner" {
 		t.Fatal("quarantine must name the owner", got["d"])
 	}

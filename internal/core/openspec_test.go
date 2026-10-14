@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"appfactory/internal/clock"
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
@@ -161,9 +163,8 @@ func TestOpenSpecBrokenLinkBlocksKnownFailedRetry(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	agent := agents["demo"]
-	agent.Spec.Execution.MaxRetries = 1
-	agents["demo"] = agent
+	fake := clock.NewFake(time.Now())
+	s.Clock = fake
 	c := &Core{Store: s, Agents: agents}
 	workspace := t.TempDir()
 	if _, e = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: workspace}); e != nil {
@@ -192,6 +193,7 @@ func TestOpenSpecBrokenLinkBlocksKnownFailedRetry(t *testing.T) {
 		t.Fatal(e)
 	}
 	os.Rename(proposal, proposal+".held")
+	fake.Advance(2 * time.Minute) // past the retry backoff
 	if e = c.Schedule(ctx); e != nil {
 		t.Fatal("broken retry killed scheduler", e)
 	}

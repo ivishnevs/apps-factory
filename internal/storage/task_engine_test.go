@@ -232,10 +232,16 @@ func TestDispatchAtomicAndSingleWriter(t *testing.T) {
 		t.Fatal("non-atomic dispatch", commands, attempts)
 	}
 }
+
+// A side-effect task is inspected, never retried automatically, after an unknown outcome.
 func TestTaskUnknownReconciliationAndCancel(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
-	a := readyEngineTask(t, s, createEngineTask(t, s, "a"))
+	created, err := s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", SideEffects: true, RequestID: "create-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := readyEngineTask(t, s, created)
 	r := dispatchEngineTask(t, s, a, "run-a")
 	if _, err := s.Claim(ctx, DefaultCompany, r.ID); err != nil {
 		t.Fatal(err)

@@ -373,9 +373,10 @@ func (c *Core) Schedule(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	now := c.Store.Now().Unix()
 	for _, t := range ready {
 		a, ok := c.Agents[t.Assignee]
-		if !ok {
+		if !ok || t.NotBefore > now { // automatic retry waits for its backoff
 			continue
 		}
 		p, err := c.Store.Project(ctx, company, t.ProjectID)
@@ -393,6 +394,9 @@ func (c *Core) Schedule(ctx context.Context) error {
 			fmt.Fprintf(&prompt, "OpenSpec change: %s (openspec/changes/%s). Read proposal and relevant specs with factory_openspec_read before implementation; list current openspec/specs as needed. Documents remain current in files; this is a reference, not a copied snapshot.\n", t.OpenSpecChange, t.OpenSpecChange)
 		}
 		if t.Attempt > 0 {
+			if prev, err := c.Store.Get(ctx, company, t.CurrentRunID); err == nil && prev.Outcome != "" && prev.Outcome != "succeeded" {
+				fmt.Fprintf(&prompt, "Previous run: %s (automatic retry). Inspect the workspace before continuing: the previous run may have changed files or completed part of the work.\n", prev.Outcome)
+			}
 			fmt.Fprintf(&prompt, "Previous attempt result: %s\nInspect the workspace and previous changes before continuing. Do not repeat completed side effects.\n", contextExcerpt(t.Result, 16*1024))
 		}
 		if t.WaitMessageID != "" {

@@ -171,7 +171,11 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now); err != nil {
 		return out, err
 	}
-	if err = loseNodeRuns(ctx, tx, r.NodeID, r.Epoch, fmt.Sprintf("node %s restarted (epoch %d)", r.NodeID, r.Epoch)); err != nil {
+	if err = loseNodeRuns(ctx, tx, r.NodeID, r.Epoch, fmt.Sprintf("node %s restarted (epoch %d)", r.NodeID, r.Epoch), true); err != nil {
+		return out, err
+	}
+	// Runs lost earlier while the node was silent are gone too: the new process killed their groups.
+	if err = releaseNodeRuns(ctx, tx, r.NodeID, r.Epoch, nil, 0); err != nil {
 		return out, err
 	}
 	var same int
@@ -188,7 +192,9 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 }
 
 // loseNodeRuns ends the unended runs of node claimed before epoch (every epoch when epoch is 0).
-func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why string) error {
+// released: the node's runtime is known to be gone (a new epoch); otherwise the lost runs keep their
+// project, workspace and session until the node confirms.
+func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why string, released bool) error {
 	rows, err := tx.QueryContext(ctx, "SELECT id,run_started FROM runs WHERE company_id=? AND node_id=? AND (?=0 OR epoch<?) AND status IN ('RUNNING','CANCELLING')", tx.company, node, epoch, epoch)
 	if err != nil {
 		return err
@@ -215,13 +221,22 @@ func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why str
 		if l.started == 0 {
 			err = endLost(ctx, tx, l.id, "FAILED", "lost: not started ("+why+")")
 		} else {
-			err = endLost(ctx, tx, l.id, "UNKNOWN", "lost: "+why+"; inspect workspace before reconciliation")
+			err = endLostUnknown(ctx, tx, l.id, "lost: "+why+"; inspect workspace before reconciliation", released)
 		}
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// endLostUnknown ends a started run as lost (UNKNOWN). released says its runtime is known to be gone, so
+// the task may retry at once; otherwise the run keeps its writer slots until the node confirms.
+func endLostUnknown(ctx context.Context, tx *Tx, id, result string, released bool) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET released=? WHERE id=?", released, id); err != nil {
+		return err
+	}
+	return endLost(ctx, tx, id, "UNKNOWN", result)
 }
 
 // endLost ends a run Core judged lost. FAILED is final (the runtime never ran); UNKNOWN keeps the
@@ -635,9 +650,13 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	}
 	rows.Close()
 	for _, id := range missing {
-		if err = endLost(ctx, tx, id, "UNKNOWN", "lost: missing from node "+node+" inventory; inspect workspace before reconciliation"); err != nil {
+		if err = endLostUnknown(ctx, tx, id, "lost: missing from node "+node+" inventory", true); err != nil {
 			return out, err
 		}
+	}
+	// Lost runs the node proves gone: older epochs, or this epoch's runs it no longer lists.
+	if err = releaseNodeRuns(ctx, tx, node, hb.Epoch, listed, hb.Epoch); err != nil {
+		return out, err
 	}
 	// Closed tasks' worktrees on this node, listed a bounded number of times (the node retries busy ones).
 	crow, err := tx.QueryContext(ctx, `SELECT w.task_id FROM workspaces w JOIN tasks t ON t.id=w.task_id
@@ -724,7 +743,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 			return err
 		}
 		slog.Warn("node offline", "node_id", id)
-		if err = loseNodeRuns(ctx, tx, id, 0, "node "+id+" offline"); err != nil {
+		if err = loseNodeRuns(ctx, tx, id, 0, "node "+id+" offline", false); err != nil {
 			return err
 		}
 	}

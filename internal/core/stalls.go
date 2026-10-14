@@ -82,6 +82,11 @@ func (c *Core) escalationTarget(ctx context.Context, company string) (string, er
 	if err != nil {
 		return "", err
 	}
+	return c.pickManager(load), nil
+}
+
+// pickManager is the manager agent with the fewest open escalations (then by name), else the owner.
+func (c *Core) pickManager(load map[string]int) string {
 	target := "owner"
 	for _, name := range config.Names(c.Agents) {
 		if c.Agents[name].Spec.Role != "manager" {
@@ -91,5 +96,5 @@ func (c *Core) escalationTarget(ctx context.Context, company string) (string, er
 			target = name
 		}
 	}
-	return target, nil
+	return target
 }

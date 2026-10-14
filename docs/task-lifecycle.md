@@ -60,17 +60,39 @@ action reasons; artifact rows retain references per run/version.
 
 ## Failure, retry and cancellation
 
-Only an explicit Worker FAILED turn is eligible for bounded retry: at most max_retries after the
-initial attempt, using the previous run's configuration snapshot. Attempt count includes rework,
-so the limit is conservative across the task's entire history. The demo profile has max_retries 0.
-Retry context includes previous diagnostics and instructions to inspect existing changes and avoid
-repeating completed side effects. No exception from starting/communicating with runtime is treated
-as a known failure; Worker reports UNKNOWN conservatively.
+Automatic retry (reliable-recovery D2–D3; owner decision 2026-10-14: autonomy first, dangerous or wasteful
+cases are handled when they appear). When a task's run ends, the outcome table (`storage.Outcomes`, see Run
+outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
 
-UNKNOWN never auto-retries. Lease expiry and event handling update run/task in the same transaction.
-After workspace inspection use runs resolve; COMPLETED submits for review, FAILED leaves an explicit
-ready decision to the owner, CANCELLED ends the task. Reconciliation is audited and does not itself
-allow automatic retry. Late trustworthy terminal evidence may resolve UNKNOWN before manual resolution.
+- `failed`, `timed_out`, `idle_timeout`, `max_turns`, `setup_failed` count as an attempt
+  (`attempts_no_progress`), `lost` does not; all of them apply the backoff: `fail_streak` + 1 and
+  `not_before` = now + 1, 5, then 15 minutes. The task goes back to READY and the scheduler dispatches it
+  after `not_before`, in the same workspace and session (the node's ResumePolicy may start a fresh one), with
+  "Previous run: <outcome> (automatic retry)" and the previous result in the prompt. Its triggers are not
+  consumed, so the retry handles the same work.
+- `paused_out` (quota, auth, missing runtime) counts nothing: the task is READY again and runs when the pause
+  lifts. `revoked` and `stale` keep today's behaviour (cancel → CANCELLED, kill switch → READY).
+- `succeeded` resets the counters and the backoff.
+- Budget: every budget outcome (all of the above except `revoked`, `paused_out`, `stale`, and losses caused by
+  a node restart) counts in `task_budget` per task and UTC day.
+- Three attempts in a row without progress open a `retries_exhausted` escalation, 30 budget runs in a day a
+  `budget_exhausted` escalation; the task stays FAILED. Answers `retry` (counters, backoff and today's budget
+  reset, the task runs now) or `cancel`. Releasing the task (`factory tasks ready`) has the same effect as
+  `retry` and clears the escalation; reassigning it resets the counters for the new assignee.
+- Lost runs: a v1 run whose lease expired is released at once (the worker stops a run whose heartbeat fails).
+  A v2 run lost to a new node epoch, or missing from the node's inventory, is released too. A v2 run lost
+  because the node went silent (or stopped past its timeout) may still be running: it keeps its project,
+  workspace and session writer slots and its task stays BLOCKED (`parked:inspect`) until the node proves it
+  gone — it registers a newer epoch, sends a heartbeat without it, or reports the stop of a run Core declared
+  lost (that CANCELLED is a confirmation, not an owner cancel). Then the task retries as above. Only an
+  unreleased UNKNOWN run holds its project.
+- `side_effects: true` (task create/update JSON) marks a task whose runs act outside the workspace (publish,
+  deploy): it is never retried automatically. A failure leaves it FAILED for the owner; an unknown outcome
+  parks it for inspection (`runs resolve`, required even when the runtime is known to be gone).
+  `max_retries` in agent YAML still applies only to these tasks.
+
+Late trustworthy terminal evidence still resolves an UNKNOWN run. Reconciliation (`runs resolve`) is audited:
+COMPLETED submits for review, FAILED leaves the decision to the owner, CANCELLED ends the task.
 
 ### Run outcomes
 
@@ -81,9 +103,8 @@ Every ended run records one outcome next to its status (`outcome` in run reads a
 window or node lost; UNKNOWN and FAILED `lost: not started`), `revoked` (cancel, kill switch) and `stale`
 (a queued run cancelled by a claim-time check). The `run_outcome` trigger derives it unless the code that
 ended the run set one; late terminal evidence on an UNKNOWN run replaces `lost`, an owner's
-`runs resolve` does not. Scheduling still follows the status: outcomes do not retry anything yet
-(automatic retry waits for the owner's decision). The attempt/backoff/budget flags of each outcome are
-`storage.Outcomes`.
+`runs resolve` does not. The attempt/backoff/budget flags of each outcome are `storage.Outcomes` and drive the automatic retry
+above.
 
 The hang detector stops a started run that has had no event for 30 minutes (see runtime-protocol.md, Idle
 stop): it ends FAILED `idle_timeout`, a known failure, and its task is not cancelled. A worker's own
@@ -249,8 +270,8 @@ closing, clears the escalation and withdraws its question (status `WITHDRAWN`). 
 - `factory answer MSG OPTION` answers an escalation question with one of its options (any single-choice
   question); other structured forms still use `factory inbox answer MSG JSON_FILE`.
 
-The escalation reasons for exhausted retries, the daily budget and side-effect inspection arrive with
-automatic retry (owner decision pending).
+Retry escalations (`retries_exhausted`, `budget_exhausted`) are described under Failure, retry and
+cancellation.
 
 ## Owner controls
 

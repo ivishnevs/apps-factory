@@ -49,7 +49,7 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 }
 
 func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, error) {
-	snap := tasks.Snapshot{Task: t}
+	snap := tasks.Snapshot{Task: t, Now: tx.now()}
 	run := func(query string, args ...any) (*tasks.Run, error) {
 		var r tasks.Run
 		err := tx.QueryRowContext(ctx, query, args...).Scan(&r.ID, &r.Status, &r.TaskID)
@@ -151,6 +151,6 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		return snap, err
 	}
 	// The project and workspace writer indexes include UNKNOWN runs, which quarantine the project.
-	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND (project=? OR workspace=?) AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN') AND coalesce(task_id,'')!=? ORDER BY status='UNKNOWN' DESC,created_at LIMIT 1", tx.company, t.ProjectID, p.Workspace, t.ID)
+	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND (project=? OR workspace=?) AND (status IN ('QUEUED','RUNNING','CANCELLING') OR status='UNKNOWN' AND released=0) AND coalesce(task_id,'')!=? ORDER BY status='UNKNOWN' DESC,created_at LIMIT 1", tx.company, t.ProjectID, p.Workspace, t.ID)
 	return snap, err
 }

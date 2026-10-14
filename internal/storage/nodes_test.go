@@ -321,8 +321,9 @@ func TestLostRuns(t *testing.T) {
 	if st, res, _, _ := runRow(t, s, spec.ID); st != "FAILED" || !strings.Contains(res, "lost: not started (node n1 restarted (epoch 2))") {
 		t.Fatal(st, res)
 	}
+	// Never started, so safe: the task retries after the first backoff, not counted as an attempt.
 	got, err := s.Task(ctx, DefaultCompany, "t1")
-	if err != nil || got.Status != "FAILED" || !got.RetryEligible {
+	if err != nil || got.Status != "READY" || got.FailStreak != 1 || got.AttemptsNoProgress != 0 || got.NotBefore != fake.Now().Add(time.Minute).Unix() {
 		t.Fatalf("%+v %v", got, err)
 	}
 

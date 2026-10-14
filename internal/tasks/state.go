@@ -3,6 +3,7 @@ package tasks
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Reasons a task does not run now (trigger-log-scheduling D3), in evaluation order. Parks and
@@ -72,6 +73,8 @@ type Dependency struct {
 // Snapshot is everything Evaluate reads; storage loads it, Core adds catalog facts.
 type Snapshot struct {
 	Task Task
+	// Now is the evaluation time (for the retry backoff); zero ignores the backoff.
+	Now time.Time
 	// AgentConfigured: the assignee exists in the company's agent catalog.
 	AgentConfigured bool
 	// CurrentRun is the task's current run, if any.
@@ -93,7 +96,8 @@ type Snapshot struct {
 	QuotaPaused []string
 	// AgentRun is a live run of the assignee on another task (one run per agent).
 	AgentRun *Run
-	// WriterRun is a run of another task holding the project/workspace writer, including UNKNOWN.
+	// WriterRun is a run of another task holding the project/workspace writer, including an UNKNOWN run
+	// whose runtime may still run (not released).
 	WriterRun *Run
 }
 
@@ -158,6 +162,9 @@ func Evaluate(s Snapshot) Verdict {
 			return v(ReasonPaused+scope, "subscription limit reached", "time", "the pause ends when the limit resets (or factory resume "+target+")")
 		}
 		return v(ReasonPaused+scope, "paused by the owner", "owner", "factory resume "+target)
+	}
+	if t.Status == "READY" && t.NotBefore > 0 && !s.Now.IsZero() && s.Now.Unix() < t.NotBefore {
+		return v(ReasonBackoff, fmt.Sprintf("automatic retry after %s (%d failed in a row, %d of %d attempts without progress)", time.Unix(t.NotBefore, 0).UTC().Format(time.RFC3339), t.FailStreak, t.AttemptsNoProgress, 3), "time", "the retry starts after the backoff (or factory tasks ready "+t.ID+" VERSION now)")
 	}
 	if t.Status == "FAILED" {
 		return v(ReasonBackoff, fmt.Sprintf("attempt %d of %d failed", t.Attempt, s.MaxRetries+1), "scheduler", "automatic retry on the next tick")

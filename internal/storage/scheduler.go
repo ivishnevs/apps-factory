@@ -82,7 +82,11 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		if err = tx.QueryRowContext(ctx, "SELECT status,session_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &session); err != nil {
 			return spec, err
 		}
-		if status == "UNKNOWN" || status == "RUNNING" || status == "QUEUED" || status == "CANCELLING" {
+		var released bool
+		if err = tx.QueryRowContext(ctx, "SELECT released FROM runs WHERE id=?", t.CurrentRunID).Scan(&released); err != nil {
+			return spec, err
+		}
+		if status == "UNKNOWN" && !released || status == "RUNNING" || status == "QUEUED" || status == "CANCELLING" {
 			return spec, ErrConflict
 		}
 		spec.SessionID = session
@@ -109,7 +113,16 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	}
 	return spec, tx.Commit()
 }
+
+// syncTaskRun moves the task of an ended run, then applies the outcome table (automatic retry).
 func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) error {
+	if err := syncTaskStatus(ctx, tx, runID, knownFailure); err != nil {
+		return err
+	}
+	return recoverTask(ctx, tx, runID)
+}
+
+func syncTaskStatus(ctx context.Context, tx *Tx, runID string, knownFailure bool) error {
 	if err := autoRuntimeReport(ctx, tx, runID); err != nil {
 		return err
 	}
@@ -336,7 +349,7 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 			}
 			continue
 		}
-		if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='UNKNOWN',result='Worker lease expired; inspect workspace before reconciliation' WHERE id=?", id); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='UNKNOWN',released=(protocol=1),result='Worker lease expired; inspect workspace before reconciliation' WHERE id=?", id); err != nil {
 			return err
 		}
 		if err = syncTaskRun(ctx, tx, id, false); err != nil {

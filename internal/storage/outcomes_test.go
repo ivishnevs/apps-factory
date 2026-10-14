@@ -109,7 +109,7 @@ func TestOutcomes(t *testing.T) {
 }
 
 // TestTimedOutTaskIsNotCancelled: a worker stopping its run on its own timeout reports CANCELLED with
-// outcome timed_out; the task fails (retry-eligible) instead of being cancelled.
+// outcome timed_out; the task retries after the backoff instead of being cancelled.
 func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
@@ -123,7 +123,7 @@ func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := s.Task(ctx, DefaultCompany, "t1")
-	if got.Status != "FAILED" || !got.RetryEligible {
+	if got.Status != "READY" || got.AttemptsNoProgress != 1 || got.NotBefore == 0 {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -187,7 +187,7 @@ func TestIdleRunIsStopped(t *testing.T) {
 	if r.Status != "FAILED" || r.Outcome != "idle_timeout" || !strings.HasPrefix(r.Result, "idle_timeout") {
 		t.Fatalf("%+v", r)
 	}
-	if got, _ := s.Task(ctx, co, "t1"); got.Status != "FAILED" || !got.RetryEligible {
+	if got, _ := s.Task(ctx, co, "t1"); got.Status != "READY" || got.AttemptsNoProgress != 1 || got.NotBefore == 0 {
 		t.Fatalf("%+v", got)
 	}
 }

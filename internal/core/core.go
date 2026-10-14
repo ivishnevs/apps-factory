@@ -62,6 +62,9 @@ func (c *Core) companyFrom(r *http.Request) string {
 }
 
 func (c *Core) Handler() http.Handler {
+	if c.Store != nil {
+		c.Store.EscalationTarget = c.pickManager
+	}
 	m := http.NewServeMux()
 	c.configRoutes(m)
 	c.taskRoutes(m)
@@ -231,6 +234,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 	write(w, persisted.Spec)
 }
 func (c *Core) Run(ctx context.Context) error {
+	c.Store.EscalationTarget = c.pickManager
 	sub, err := c.Bus.Subscribe("factory.events.>", "core-events-v1")
 	if err != nil {
 		return err

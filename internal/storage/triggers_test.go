@@ -105,8 +105,12 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 	}
 	expectVerdict(t, s, "b", tasks.ReasonRunnable, "ready", "dependency_done")
 
-	// A lost lease parks the task for inspection; resolving the run clears it.
+	// A lost lease parks a side-effect task for inspection; resolving the run clears it.
 	b, _ = s.Task(ctx, co, "b")
+	yes := true
+	if b, err = s.UpdateTask(ctx, co, "b", tasks.Update{Version: b.Version, SideEffects: &yes}); err != nil {
+		t.Fatal(err)
+	}
 	run = dispatchEngineTask(t, s, b, "b1")
 	if _, err = s.Claim(ctx, co, run.ID); err != nil {
 		t.Fatal(err)

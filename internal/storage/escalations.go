@@ -179,6 +179,8 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		return err
 	}
 	switch answer {
+	case "retry": // retries_exhausted, budget_exhausted: counters and today's budget reset, run now
+		return retryAnswer(ctx, tx, t)
 	case "unblock": // stalled: stop waiting on the stuck dependency
 		t.Dependencies = slices.DeleteFunc(slices.Clone(t.Dependencies), func(d string) bool { return d == e.RefID })
 		if err = dependencies(ctx, tx, t); err != nil {

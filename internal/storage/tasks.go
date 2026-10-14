@@ -218,7 +218,7 @@ func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]t
 }
 func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.create", in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
-		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, OriginTask: in.OriginTask, OriginRun: in.OriginRun, Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, OriginTask: in.OriginTask, OriginRun: in.OriginRun, SideEffects: in.SideEffects, Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
 		if t.ID == "" {
 			t.ID = protocol.ID()
 		}
@@ -406,6 +406,16 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		if in.Assignee != nil {
 			t.Assignee = *in.Assignee
 		}
+		if in.SideEffects != nil {
+			t.SideEffects = *in.SideEffects
+		}
+		if t.Assignee != previousAssignee {
+			// A new assignee starts its own attempt count (reliable-recovery D2).
+			t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0
+			if err = clearRetryEscalations(ctx, tx, t, "reassigned to "+t.Assignee); err != nil {
+				return t, err
+			}
+		}
 		if in.OpenSpecChange != nil {
 			t.OpenSpecChange = *in.OpenSpecChange
 			if err = s.checkTaskChange(ctx, tx, t); err != nil {
@@ -449,10 +459,12 @@ func editableRun(ctx context.Context, tx *Tx, t tasks.Task) error {
 		return nil
 	}
 	var status string
-	if err := tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
+	var released bool
+	if err := tx.QueryRowContext(ctx, "SELECT status,released FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &released); err != nil {
 		return err
 	}
-	if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" {
+	// A side-effect task's lost run must be inspected (runs resolve) even when its runtime is gone.
+	if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" && (!released || t.SideEffects) {
 		return ErrConflict
 	}
 	return nil
@@ -493,6 +505,13 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			t.BlockReason = ""
 			t.CancelRequested = false
 			t.RetryEligible = false
+			// A release by an authority counts as a retry answer: counters, backoff and today's budget reset.
+			if err = resetRetry(ctx, tx, &t); err != nil {
+				return t, err
+			}
+			if err = clearRetryEscalations(ctx, tx, t, "released by "+in.Actor); err != nil {
+				return t, err
+			}
 			if err = applyArtifactWait(ctx, tx, &t); err != nil {
 				return t, err
 			}
@@ -514,10 +533,11 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			}
 			if t.CurrentRunID != "" {
 				var status string
-				if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
+				var released bool
+				if err = tx.QueryRowContext(ctx, "SELECT status,released FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &released); err != nil {
 					return t, err
 				}
-				if status == "UNKNOWN" {
+				if status == "UNKNOWN" && !released {
 					return t, ErrConflict
 				}
 				if status == "RUNNING" || status == "CANCELLING" {

@@ -35,6 +35,9 @@ type Store struct {
 	// Continuity, when set by Core's tick, defers lease expiry until one TTL of continuous
 	// ticking has passed, so a host sleep does not expire every lease at once.
 	Continuity *clock.Continuity
+	// EscalationTarget picks who answers an escalation from the open escalations per target; Core sets it
+	// from its catalog (the least loaded manager agent). Nil means the owner.
+	EscalationTarget func(load map[string]int) string
 }
 
 func (s *Store) Now() time.Time {
@@ -349,6 +352,14 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 		if p.Status != "" {
 			if p.Status != "COMPLETED" && p.Status != "FAILED" && p.Status != "CANCELLED" && p.Status != "UNKNOWN" {
 				return fmt.Errorf("invalid terminal status")
+			}
+			if status == "UNKNOWN" && p.Status == "CANCELLED" && !failureOutcomes[p.Outcome] {
+				// The node stopped a run Core already declared lost (stop: terminal): that confirms the
+				// runtime is gone, it is not an owner cancel.
+				if err = releaseLost(ctx, tx, p.RunID); err != nil {
+					return err
+				}
+				return tx.Commit()
 			}
 			next, result, outcome := endStatus(status, stopReason, p)
 			// An empty outcome lets the run_outcome trigger derive it (also for late evidence on UNKNOWN).
