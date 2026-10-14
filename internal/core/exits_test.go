@@ -445,3 +445,30 @@ func TestReviewAfterConflictsRequired(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
+
+// TestCommentsInBrief: a non-authority comment wakes nothing but reaches the next brief; a manager's wakes.
+func TestCommentsInBrief(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	if _, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "c", ProjectID: "notes", Title: "c", Assignee: "demo", RequestID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	for actor, code := range map[string]int{"calorie-qa": 200, "calorie-manager": 200} {
+		if w := h.do(h.c.Token, "POST", "/tasks/c/comments", map[string]any{"text": "note from " + actor, "actor": actor, "request_id": actor}, nil); w.Code != code {
+			t.Fatal(actor, w.Code, w.Body.String())
+		}
+	}
+	snap, _ := h.s.TaskSnapshot(ctx, storage.DefaultCompany, "c")
+	if len(snap.Pending) != 1 || snap.Pending[0].Actor != "calorie-manager" || !snap.Pending[0].Authority {
+		t.Fatalf("%+v", snap.Pending)
+	}
+	task := h.task("c")
+	if _, err := h.s.TaskAction(ctx, storage.DefaultCompany, "c", tasks.Action{Version: task.Version, Action: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	r := h.start("c")
+	run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id)
+	if !strings.Contains(run.Spec.Prompt, "Comment by calorie-qa: note from calorie-qa") {
+		t.Fatal(run.Spec.Prompt)
+	}
+}

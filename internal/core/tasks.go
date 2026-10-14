@@ -209,6 +209,8 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, p.Actor, "factory.task.update", false, false) {
 			return
 		}
+		// Authority until the hierarchy: the owner and agents with role manager.
+		p.Authority = p.Actor == "" || c.Agents[p.Actor].Spec.Role == "manager"
 		v, err := c.Store.CommentTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
@@ -460,6 +462,20 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	}
 	if t.ReviewFeedback != "" {
 		fmt.Fprintf(&prompt, "Previous review feedback: %s\n", t.ReviewFeedback)
+	}
+	// Comments since the task's last run (non-authority comments wake nothing; the brief carries them).
+	var since int64
+	if t.CurrentRunID != "" {
+		if prev, err := c.Store.Get(ctx, company, t.CurrentRunID); err == nil {
+			since = prev.StartedAt
+		}
+	}
+	if comments, err := c.Store.Comments(ctx, company, t.ID); err == nil {
+		for _, cm := range comments {
+			if cm.CreatedAt > since && cm.Author != t.Assignee {
+				fmt.Fprintf(&prompt, "Comment by %s: %s\n", cm.Author, contextExcerpt(cm.Text, 2*1024))
+			}
+		}
 	}
 	for _, dep := range t.Dependencies {
 		d, err := c.Store.Task(ctx, company, dep)

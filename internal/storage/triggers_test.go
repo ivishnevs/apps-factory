@@ -194,22 +194,24 @@ func TestCreatedReadyCommentsAndLastChild(t *testing.T) {
 	}
 	expectVerdict(t, s, "r", tasks.ReasonRunnable, "created_ready")
 
-	// Comments: the assignee's own comment never wakes its task; others' do, the owner's with authority.
-	comment := func(actor, text string) {
+	// Comments: only authority comments wake the task (D8); the assignee's own and other agents' comments are
+	// stored for the next brief.
+	comment := func(actor, text string, authority bool) {
 		t.Helper()
-		if _, err := s.CommentTask(ctx, co, "r", tasks.Comment{Text: text, Actor: actor}); err != nil {
+		if _, err := s.CommentTask(ctx, co, "r", tasks.Comment{Text: text, Actor: actor, Authority: authority}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	comment("demo", "started looking")
+	comment("demo", "started looking", false)
+	comment("qa", "please add a test", false)
 	expectVerdict(t, s, "r", tasks.ReasonRunnable, "created_ready")
-	comment("", "use metric units")
-	comment("qa", "please add a test")
+	comment("", "use metric units", false)
+	comment("lead", "ship metric first", true)
 	v := verdict(t, s, "r")
-	if got := pendingKinds(v); len(got) != 3 || got[1] != "owner_comment" || !v.Pending[1].Authority || v.Pending[2].Authority || v.Pending[2].Actor != "qa" {
+	if got := pendingKinds(v); len(got) != 3 || got[1] != "owner_comment" || !v.Pending[1].Authority || !v.Pending[2].Authority || v.Pending[2].Actor != "lead" {
 		t.Fatalf("%+v", v.Pending)
 	}
-	if cs, _ := s.Comments(ctx, co, "r"); len(cs) != 3 {
+	if cs, _ := s.Comments(ctx, co, "r"); len(cs) != 4 {
 		t.Fatal(cs)
 	}
 

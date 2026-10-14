@@ -168,6 +168,8 @@ type Comment struct {
 	Text      string `json:"text"`
 	RequestID string `json:"request_id,omitempty"`
 	Actor     string `json:"actor,omitempty"`
+	// Authority is set by Core (never decoded): the owner or an agent with authority over the task.
+	Authority bool `json:"-"`
 }
 type Review struct {
 	Version   int    `json:"version"`

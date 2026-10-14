@@ -144,8 +144,9 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 	return nil
 }
 
-// CommentTask adds a comment. A comment by the owner (authority) or by an agent other than the
-// assignee wakes an open task with owner_comment; an agent's own comment never wakes its task.
+// CommentTask adds a comment. Only a comment by an authority (the owner, or an agent with authority over the
+// task, decided by Core) wakes an open task with an authority trigger (explicit-exits-authority D8); other
+// comments are stored and listed in the next brief, and an agent's own comment never wakes its task.
 func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Comment) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.comment:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
@@ -162,9 +163,10 @@ func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Co
 		if err = comment(ctx, tx, t.ID, actor, in.Text); err != nil {
 			return t, err
 		}
-		if t.Status == "DONE" || t.Status == "CANCELLED" || actor == t.Assignee {
+		authority := in.Authority || isOwner(actor)
+		if t.Status == "DONE" || t.Status == "CANCELLED" || actor == t.Assignee || !authority {
 			return t, feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.commented", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: in.Text})
 		}
-		return t, addTrigger(ctx, tx, t, "owner_comment", isOwner(actor), actor, "", in.Text)
+		return t, addTrigger(ctx, tx, t, "owner_comment", true, actor, "", in.Text)
 	})
 }
