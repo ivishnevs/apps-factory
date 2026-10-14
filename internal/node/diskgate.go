@@ -62,6 +62,17 @@ func (d *DiskGate) Claimable() bool {
 	return !d.paused
 }
 
+// Level classifies free bytes by the watermarks: ok, low or critical (the inventory heartbeat's health.disk).
+func (d *DiskGate) Level(free uint64) string {
+	switch {
+	case free < d.Critical:
+		return "critical"
+	case free < d.Low:
+		return "low"
+	}
+	return "ok"
+}
+
 // Paused reports the last decision.
 func (d *DiskGate) Paused() bool {
 	d.mu.Lock()

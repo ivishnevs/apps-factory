@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	"appfactory/internal/node"
+	"appfactory/internal/policies"
 	"appfactory/internal/protocol"
 )
 
@@ -36,6 +37,9 @@ type Launch struct {
 	// Instructions are the developer instructions, including Factory MCP instructions.
 	Instructions string
 	MCP          *MCPConfig
+	// Guards are the agent's access rules from the run's config snapshot; drivers with tool_policy
+	// apply their command rules inside the runtime (the PATH shims stay in place).
+	Guards []policies.Rule
 }
 
 // MCPConfig is the Factory MCP stdio server; EnvVars name variables passed through from Env.

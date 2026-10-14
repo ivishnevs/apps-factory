@@ -15,6 +15,9 @@ import (
 	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
+	"appfactory/internal/node/janitor"
+	"appfactory/internal/protocol"
+	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
 	"github.com/nats-io/nats.go"
@@ -106,10 +109,35 @@ func Run(ctx context.Context, n Node) error {
 			return err
 		}
 	}
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	jan := &janitor.Janitor{Config: c.Janitor, Worktrees: trees, Company: storage.DefaultCompany}
+	if n.Host.FreeBytes != nil {
+		low := uint64(c.Disk.LowGiB * node.GiB)
+		jan.LowDisk = func() bool { free, err := n.Host.FreeBytes(c.Disk.Path); return err == nil && free < low }
+	}
+	// The v2 heartbeat's cleanup list goes to jan.Cleanup.
+	go jan.Run(ctx)
+	runStopped := func(spec protocol.RunSpec, worktree string) {
+		hookCtx, done := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer done()
+		jan.RunStopped(hookCtx, spec.ID, spec.TaskID, worktree)
+	}
+	var s *session // protocol v2
+	if c.ProtocolVersion == 2 {
+		var err error
+		if s, err = newSession(ctx, n, trees); err != nil {
+			return err
+		}
+		s.cleanup = jan.Cleanup
+	}
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
-		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name}
+		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped}
+		if s != nil {
+			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
+		}
 		sub, err := w.Subscribe()
 		if err != nil {
 			return err
@@ -126,15 +154,44 @@ func Run(ctx context.Context, n Node) error {
 		wd = *n.Watchdog
 	}
 	wd.Slots, wd.Groups = pool, groups(c.StateDir)
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
 	go wd.Run(ctx)
-	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root)
+	var failed error
+	done := make(chan struct{})
+	if s != nil {
+		disk := pool.Claimable
+		pool.Claimable = func() bool { return s.claimable() && (disk == nil || disk()) }
+		s.busy = func() int { return busySlots(pool) }
+		go func() {
+			defer close(done)
+			if failed = s.run(ctx); failed != nil {
+				slog.Error("node stopping", "error", failed)
+				stop()
+			}
+		}()
+	} else {
+		close(done)
+	}
+	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root, "protocol_version", c.ProtocolVersion)
 	err := pool.Run(ctx)
+	stop()
+	<-done
+	if failed != nil {
+		return failed
+	}
 	if errors.Is(err, context.Canceled) {
 		err = nil
 	}
 	return err
+}
+
+func busySlots(p *Pool) int {
+	n := 0
+	for _, s := range p.Status() {
+		if s.Busy {
+			n++
+		}
+	}
+	return n
 }
 
 // groups is the executor's pidfile view for the watchdog.

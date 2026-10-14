@@ -8,16 +8,23 @@ import (
 	"regexp"
 
 	"appfactory/internal/configfile"
+	"appfactory/internal/node/janitor"
 )
 
 // ConfigEnv names node.yaml when no -config flag is given; without either the node runs on defaults.
 const ConfigEnv = "FACTORY_NODE_CONFIG"
 
-// Config is node.yaml (node-agent D1). Registration, resources and labels arrive with Core's node API.
+// Config is node.yaml (node-agent D1).
 type Config struct {
 	Name  string `yaml:"name"`
 	Slots int    `yaml:"slots"`
-	// StateDir keeps pidfiles of running runtimes; it must not be shared by live nodes or workers.
+	// ProtocolVersion 1 (default) claims per run with per-run heartbeats; 2 registers the node and
+	// speaks only runtime protocol v2 (docs/runtime-protocol-v2.md).
+	ProtocolVersion int `yaml:"protocol_version"`
+	// Resources is the node's capacity per class (e.g. simulator: 2), sent in register; Core enforces it at claim.
+	Resources map[string]int `yaml:"resources"`
+	Labels    []string       `yaml:"labels"`
+	// StateDir keeps pidfiles of running runtimes and the v2 identity (node_id, epoch); it must not be shared by live nodes or workers.
 	StateDir string `yaml:"state_dir"`
 	// BinDir holds factory-mcp and factory-shim and is the base of the built Claude shim; empty is the executable's directory.
 	BinDir  string  `yaml:"bin_dir"`
@@ -25,6 +32,8 @@ type Config struct {
 	Disk    Disk    `yaml:"disk"`
 	// Worktrees serves runs with workspace_mode worktree (task-worktrees); off by default.
 	Worktrees Worktrees `yaml:"worktrees"`
+	// Janitor: run-stop and task-closed hooks, worktree removal after seal, prune (node-agent D4).
+	Janitor janitor.Config `yaml:"janitor"`
 }
 
 // Worktrees: Root defaults to <state_dir>/worktrees; ScanCommand (pre-push secret scan) to gitleaks.
@@ -71,7 +80,7 @@ func Defaults() Config {
 	if !nodeName.MatchString(name) {
 		name = "node"
 	}
-	return Config{Name: name, Slots: 2, StateDir: "data/factory-node", Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
+	return Config{Name: name, Slots: 2, ProtocolVersion: 1, StateDir: "data/factory-node", Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
 }
 
 // ConfigPath is the flag value, else $FACTORY_NODE_CONFIG; empty means defaults.
@@ -99,7 +108,10 @@ func LoadConfig(path string) (Config, error) {
 	return c, nil
 }
 
-var nodeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+var (
+	nodeName     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+	resourceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`) // as agent spec.resources
+)
 
 const maxSlots = 64
 
@@ -114,6 +126,19 @@ func (c *Config) Validate() error {
 	}
 	if c.StateDir == "" {
 		errs = append(errs, errors.New("state_dir is required"))
+	}
+	if c.ProtocolVersion != 1 && c.ProtocolVersion != 2 {
+		errs = append(errs, fmt.Errorf("protocol_version %d: must be 1 or 2", c.ProtocolVersion))
+	}
+	for k, n := range c.Resources {
+		if !resourceName.MatchString(k) || n < 0 {
+			errs = append(errs, fmt.Errorf("resources.%s: lowercase name and a count of at least 0", k))
+		}
+	}
+	for _, l := range c.Labels {
+		if !nodeName.MatchString(l) {
+			errs = append(errs, fmt.Errorf("label %q: letters, digits, '.', '_' or '-', at most 63", l))
+		}
 	}
 	if !c.Drivers.Codex.On() && !c.Drivers.Claude.On() {
 		errs = append(errs, errors.New("drivers: enable codex or claude"))
@@ -133,5 +158,6 @@ func (c *Config) Validate() error {
 	case c.Disk.CriticalGiB > c.Disk.LowGiB:
 		errs = append(errs, fmt.Errorf("disk.critical_watermark_gib %g must not exceed disk.low_watermark_gib %g", c.Disk.CriticalGiB, c.Disk.LowGiB))
 	}
+	errs = append(errs, c.Janitor.Validate())
 	return errors.Join(errs...)
 }

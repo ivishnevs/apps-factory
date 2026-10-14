@@ -17,6 +17,7 @@ import (
 	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/codex"
+	"appfactory/internal/node"
 	"appfactory/internal/node/shim"
 	"appfactory/internal/openspec"
 	"appfactory/internal/policies"
@@ -88,8 +89,15 @@ type Worker struct {
 	StateDir string
 	// Worktrees serves runs with workspace_mode worktree; nil runs them in the project workspace.
 	Worktrees *workspace.Worktrees
-	// NodeID names this node in workspace reports (node.yaml name).
+	// NodeID names this node in workspace reports (node.yaml name; the v2 node_id).
 	NodeID string
+	// Inventory, when set, makes the executor a slot of a registered node (runtime protocol v2): commands are
+	// pointers, claims carry node_id, epoch, claim_id and slot, a launched run is started with POST /start, and
+	// leases are renewed by the node's inventory heartbeat instead of per-run heartbeats.
+	Inventory *node.Inventory
+	// RunStopped, when set, is called once a claimed run has ended, with its worktree path ("" outside a
+	// worktree); the node's janitor runs on_run_stop hooks there.
+	RunStopped func(spec protocol.RunSpec, worktree string)
 }
 
 // driver also reports whether Factory MCP is injected: when the driver supports MCP, or for
@@ -140,6 +148,9 @@ func (w *Worker) Subscribe() (*nats.Subscription, error) {
 // and the cancel func of its execution before the runtime starts. Process fails only when the command
 // cannot be acknowledged; run failures go to Core as events.
 func (w *Worker) Process(ctx context.Context, m *nats.Msg, running func(run string, cancel context.CancelFunc)) error {
+	if w.Inventory != nil {
+		return w.processV2(ctx, m, running)
+	}
 	var e protocol.Envelope
 	var spec protocol.RunSpec
 	if json.Unmarshal(m.Data, &e) != nil || e.Version != 1 || e.Type != "agent.run.requested" || json.Unmarshal(e.Payload, &spec) != nil || spec.ID == "" || spec.ID != e.CorrelationID {
@@ -188,6 +199,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	// (clock_test.go); never derive them from wall-clock time.
 	ctx, cancel := context.WithTimeout(parent, time.Duration(spec.TimeoutSeconds)*time.Second)
 	defer cancel()
+	// RunStopped runs last: after the seal, the release and the terminal event.
+	var stopped string
+	if w.RunStopped != nil {
+		defer func() { w.RunStopped(spec, stopped) }()
+	}
 	// The run's latest usage and quota ride on every terminal event, so a stopped, timed-out or
 	// unknown run still reports what it consumed.
 	var meter meter
@@ -246,12 +262,23 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if spec.Provider != drv.Name() || spec.TimeoutSeconds < 1 {
 		return fmt.Errorf("invalid RunSpec")
 	}
+	v2 := w.Inventory != nil
+	if v2 {
+		w.Inventory.Set(spec.ID, node.RunStarting)
+	}
 	var cwd string
 	if r, ok := w.worktreeRequest(spec); ok {
 		t, err := w.Worktrees.Acquire(ctx, r)
+		var diverged *workspace.DivergedError
+		if errors.As(err, &diverged) {
+			// Core escalates workspace_diverged; the worktree is left as it is (task-worktrees D4).
+			slog.Error("worktree start check", "run", spec.ID, "task", r.Task, "path", diverged.Path, "head", diverged.Head, "sealed_head", diverged.SealedHead, "remote", diverged.Remote, "reason", diverged.Reason)
+			return emit("failed", protocol.Event{Status: "FAILED", Result: diverged.Error()})
+		}
 		if err != nil {
 			return fmt.Errorf("worktree: %w", err)
 		}
+		stopped = t.Path
 		wt, req, cwd = &t, r, t.Path
 		defer func() {
 			seal()
@@ -278,9 +305,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 
 	// Heartbeats also carry cancellation. Failure stops execution instead of running without ownership.
+	// A v2 run is renewed and stopped by the node's inventory heartbeat.
 	heartbeatCtx, stopHeartbeat := context.WithCancel(parent)
 	defer stopHeartbeat()
 	go func() {
+		if v2 {
+			return
+		}
 		t := time.NewTicker(10 * time.Second)
 		defer t.Stop()
 		for {
@@ -310,6 +341,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	if shimDir != "" {
 		defer os.RemoveAll(shimDir)
+		launch.Guards, _ = snapshotRules(spec) // parsed by shims
 	}
 	if withMCP || shimDir != "" {
 		// Approval shims ask Core with the run credential even when the runtime has no Factory MCP.
@@ -362,6 +394,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer os.Remove(path)
 	}
 	defer session.Close()
+	if v2 {
+		// Phase 2 of the claim: workspace allocated and runtime launched (protocol v2 §6). Start is retry-safe.
+		if err = w.API.Retry(ctx, 8, "/runs/"+spec.ID+"/start", map[string]string{"lease": lease}, nil); err != nil {
+			return fmt.Errorf("start: %w", err)
+		}
+		w.Inventory.Set(spec.ID, node.RunRunning)
+	}
 	if err = emit("started", protocol.Event{SessionID: session.ID()}); err != nil {
 		return err
 	}
@@ -481,8 +520,14 @@ type workspaceReport struct {
 // reportWorkspace posts a run's workspace to Core, retrying transient failures (network errors, 5xx)
 // a few times; 4xx answers are final.
 func (w *Worker) reportWorkspace(ctx context.Context, run string, r workspaceReport) error {
+	return w.API.Retry(ctx, 4, "/runs/"+run+"/workspace", r, nil)
+}
+
+// Retry POSTs body up to attempts times with a growing pause while the failure is transient (network
+// error, 5xx); 4xx answers are final. Retried requests must be idempotent.
+func (a API) Retry(ctx context.Context, attempts int, path string, body, result any) error {
 	var err error
-	for attempt := range 4 {
+	for attempt := range attempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -490,7 +535,7 @@ func (w *Worker) reportWorkspace(ctx context.Context, run string, r workspaceRep
 			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
 			}
 		}
-		if err = w.API.Do(ctx, "POST", "/runs/"+run+"/workspace", r, nil); err == nil {
+		if err = a.Do(ctx, "POST", path, body, result); err == nil {
 			return nil
 		}
 		var h *HTTPError
@@ -529,16 +574,9 @@ func sibling(path, name string) (string, error) {
 
 // shims materializes the run's shim directory from the captured agent rules; "" when nothing is guarded.
 func (w *Worker) shims(spec protocol.RunSpec) (string, error) {
-	var agent struct {
-		Rules []policies.Rule `json:"rules"`
-	}
-	if len(spec.ConfigSnapshot) > 0 {
-		if err := json.Unmarshal(spec.ConfigSnapshot, &agent); err != nil {
-			return "", fmt.Errorf("invalid agent snapshot: %w", err)
-		}
-	}
-	if len(policies.Guarded(agent.Rules)) == 0 {
-		return "", nil
+	rules, err := snapshotRules(spec)
+	if err != nil || len(policies.Guarded(rules)) == 0 {
+		return "", err
 	}
 	binary, err := sibling(w.ShimBinary, "factory-shim")
 	if err != nil {
@@ -551,11 +589,24 @@ func (w *Worker) shims(spec protocol.RunSpec) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err = shim.Install(dir, binary, agent.Rules); err != nil {
+	if _, err = shim.Install(dir, binary, rules); err != nil {
 		os.RemoveAll(dir)
 		return "", err
 	}
 	return dir, nil
+}
+
+// snapshotRules are the access rules captured in the run's agent snapshot.
+func snapshotRules(spec protocol.RunSpec) ([]policies.Rule, error) {
+	var agent struct {
+		Rules []policies.Rule `json:"rules"`
+	}
+	if len(spec.ConfigSnapshot) > 0 {
+		if err := json.Unmarshal(spec.ConfigSnapshot, &agent); err != nil {
+			return nil, fmt.Errorf("invalid agent snapshot: %w", err)
+		}
+	}
+	return agent.Rules, nil
 }
 
 // The runtime receives only a run-scoped Factory credential. Host access remains trusted.

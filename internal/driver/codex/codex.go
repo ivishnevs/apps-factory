@@ -37,7 +37,7 @@ type Driver struct {
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeCodex }
 func (d Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: true, Activity: true}
+	return driver.Capabilities{Resume: true, MCP: true, Activity: true, ToolPolicy: true}
 }
 func (d Driver) binary() string {
 	if d.Binary == "" {
@@ -76,7 +76,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		stopRuntime()
 		return nil, err
 	}
-	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, l.Env), events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	if err = s.open(ctx, l); err != nil {
 		s.Close()
 		return nil, err
@@ -94,6 +94,7 @@ type session struct {
 	stop             chan struct{}
 	closeOnce        sync.Once
 	interrupted      atomic.Bool
+	guards           *guards
 	model            string
 	base             *tokens // thread total before this run's turn
 	limits           rateLimits
@@ -123,7 +124,13 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 	if account.Account == nil || account.Account.Type != "chatgpt" {
 		return fmt.Errorf("ChatGPT login required; API-key auth is not supported")
 	}
-	params := map[string]any{"cwd": l.Cwd, "approvalPolicy": "never", "sandbox": "danger-full-access", "developerInstructions": l.Instructions}
+	// Command rules need approval requests: "untrusted" asks for every command outside Codex's
+	// known-safe read-only set (those still meet the PATH shims); without rules nothing asks.
+	approval := "never"
+	if s.guards.active() {
+		approval = "untrusted"
+	}
+	params := map[string]any{"cwd": l.Cwd, "approvalPolicy": approval, "sandbox": "danger-full-access", "developerInstructions": l.Instructions}
 	if model, ok := l.Spec.RuntimeOptions["model"].(string); ok && model != "" && model != "default" {
 		params["model"] = model
 	}
@@ -229,7 +236,10 @@ func (s *session) loop() driver.Result {
 				var err error
 				switch m.Method {
 				case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-					err = s.client.Respond(m.ID, map[string]string{"decision": "decline"}, nil)
+					decision, note := s.guards.decide(context.Background(), m.Method, m.Params)
+					if err = s.client.Respond(m.ID, map[string]string{"decision": decision}, nil); err == nil && note != "" {
+						s.steer(note)
+					}
 				default:
 					_ = s.client.Respond(m.ID, nil, map[string]any{"code": -32601, "message": "Foundation cannot service this request; owner intervention required"})
 					return driver.Result{Err: fmt.Errorf("server request requires owner: %s", m.Method)}
@@ -255,6 +265,13 @@ func (s *session) loop() driver.Result {
 			}
 		}
 	}
+}
+
+// steer gives the agent a declined command's instruction: the approval response carries only the
+// decision. A turn that already ended rejects it, which is harmless.
+func (s *session) steer(note string) {
+	input := []any{map[string]any{"type": "text", "text": "Factory command policy: " + note, "text_elements": []any{}}}
+	_ = s.call(context.Background(), "turn/steer", map[string]any{"threadId": s.threadID, "expectedTurnId": s.turnID, "input": input}, nil)
 }
 func finish(params json.RawMessage, text string) driver.Result {
 	var p struct {

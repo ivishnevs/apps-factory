@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,10 @@ func TestConfigValidation(t *testing.T) {
 		"slot: 2":                                                  "field slot not found",
 		"drivers: {codex: {enabled: true, binary: codex, model: gpt}}": "field model not found",
 		"worktrees: {enabled: true, scan_command: ['']}":               "empty executable",
+		"protocol_version: 3":        "protocol_version 3",
+		"resources: {Simulator: 1}":  "resources.Simulator",
+		"resources: {simulator: -1}": "resources.simulator",
+		"labels: ['a b']":            `label "a b"`,
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "node.yaml") {
@@ -69,6 +74,93 @@ func TestConfigValidation(t *testing.T) {
 	}
 	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
+	}
+}
+
+func TestConfigProtocolV2(t *testing.T) {
+	c, err := LoadConfig("")
+	if err != nil || c.ProtocolVersion != 1 {
+		t.Fatalf("protocol_version must default to 1: %d %v", c.ProtocolVersion, err)
+	}
+	c, err = LoadConfig(writeConfig(t, "protocol_version: 2\nresources: {simulator: 2, build: 1}\nlabels: [macos, xcode]\n"))
+	if err != nil || c.ProtocolVersion != 2 || c.Resources["simulator"] != 2 || len(c.Labels) != 2 {
+		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+func TestIdentity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	id, err := NodeID(dir)
+	if err != nil || len(id) != 32 {
+		t.Fatal(id, err)
+	}
+	for want := int64(1); want <= 3; want++ { // every start: same node_id, next epoch
+		again, err := NodeID(dir)
+		if err != nil || again != id {
+			t.Fatal("node_id changed", again, err)
+		}
+		if epoch, err := NextEpoch(dir); err != nil || epoch != want {
+			t.Fatal(epoch, err, want)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "epoch")); string(b) != "3\n" {
+		t.Fatalf("epoch file %q", b)
+	}
+	os.WriteFile(filepath.Join(dir, "node_id"), []byte("garbage\n"), 0o600)
+	if _, err = NodeID(dir); err == nil {
+		t.Fatal("damaged node_id replaced silently")
+	}
+	if files, _ := filepath.Glob(filepath.Join(dir, "*.tmp-*")); len(files) != 0 {
+		t.Fatal(files)
+	}
+}
+
+func TestInventory(t *testing.T) {
+	v := NewInventory("n", 7)
+	e, id := v.Claim(1)
+	if _, id2 := v.Claim(0); e != 7 || id != "7-1-1" || id2 != "7-0-2" {
+		t.Fatal(e, id, id2)
+	}
+	cancelled := map[string]bool{}
+	for _, run := range []string{"b", "a", "c"} {
+		if !v.Add(run, 7, func() { cancelled[run] = true }) {
+			t.Fatal(run)
+		}
+	}
+	if v.Add("old", 6, nil) {
+		t.Fatal("claim of an older epoch recorded")
+	}
+	v.Set("a", RunRunning)
+	v.End("b")
+	v.Set("b", RunRunning) // ended stays ended
+	s := v.Snapshot()
+	if len(s) != 3 || s[0].RunID != "a" || s[0].State != RunRunning || s[1].State != RunEnded || s[2].State != RunClaimed || v.Active() != 2 {
+		t.Fatalf("%+v", s)
+	}
+	v.Ack([]string{"a", "b"}) // only ended runs are dropped
+	if s = v.Snapshot(); len(s) != 2 || s[0].RunID != "a" {
+		t.Fatalf("%+v", s)
+	}
+	if !v.Stop("c") || !cancelled["c"] || v.Stop("unknown") {
+		t.Fatal(cancelled)
+	}
+	v.StopAll()
+	if !cancelled["a"] {
+		t.Fatal(cancelled)
+	}
+	v.Reset(8)
+	if v.Epoch() != 8 || len(v.Snapshot()) != 0 {
+		t.Fatal("reset")
+	}
+	if _, id = v.Claim(2); id != "8-2-1" {
+		t.Fatal(id)
+	}
+}
+
+func TestLoad1(t *testing.T) {
+	l, err := LocalHost(runtime.GOOS).Load1()
+	if err != nil || l < 0 {
+		t.Fatal(l, err)
 	}
 }
 

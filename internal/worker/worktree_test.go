@@ -152,6 +152,23 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 	if strings.Contains(shared, "tasks") || env != nil {
 		t.Fatalf("shared mode ran in %s with env %v", shared, env != nil)
 	}
+
+	// HEAD moved outside any run: the start check fails the run before the runtime starts and leaves the
+	// worktree as it is; the run-stop callback still sees the run.
+	gitOut(t, cwd, "add", "-A")
+	gitOut(t, cwd, "commit", "--quiet", "-m", "outside a run")
+	moved := gitOut(t, cwd, "rev-parse", "HEAD")
+	d := &fake.Driver{Script: sc}
+	var stopped []string
+	r, _ := runDriver(t, url, Worker{Driver: d, Worktrees: trees, RunStopped: func(s protocol.RunSpec, wt string) { stopped = append(stopped, s.TaskID+":"+wt) }}, false, func(s *protocol.RunSpec) {
+		s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = "t1", remote, "main", "worktree"
+	})
+	if r.Status != "FAILED" || !strings.Contains(r.Result, "workspace_diverged") || !strings.Contains(r.Result, "HEAD changed outside any run") || len(d.Launches()) != 0 {
+		t.Fatalf("%+v, %d launches", r, len(d.Launches()))
+	}
+	if gitOut(t, cwd, "rev-parse", "HEAD") != moved || len(stopped) != 1 || stopped[0] != "t1:" {
+		t.Fatalf("worktree touched or stop callback %v", stopped)
+	}
 }
 
 // A task run of a worktree agent, dispatched by a real Core, reports its sealed workspace to Core.

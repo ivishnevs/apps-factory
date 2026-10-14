@@ -181,6 +181,12 @@ func TestInvalidCatalog(t *testing.T) {
 			b, _ := os.ReadFile(p)
 			put(t, r, "configs/profiles/base.yaml", string(b)+"  workspace:\n    mode: fresh\n")
 		},
+		"zero-resource": func(t *testing.T, r string) {
+			put(t, r, "configs/agents/agent.yaml", mustRead(t, r, "configs/agents/agent.yaml")+"  resources: {simulator: 0}\n")
+		},
+		"bad-resource-name": func(t *testing.T, r string) {
+			put(t, r, "configs/profiles/base.yaml", mustRead(t, r, "configs/profiles/base.yaml")+"  resources: {Simulator: 1}\n")
+		},
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -287,6 +293,25 @@ func TestWorkspaceMode(t *testing.T) {
 	put(t, root, "configs/agents/agent.yaml", strings.Replace(mustRead(t, root, "configs/agents/agent.yaml"), "mode: shared", "mode: scratch", 1))
 	if c, err = LoadCatalog(root); err != nil || c.Agents["agent"].Spec.Workspace.Mode != "scratch" {
 		t.Fatalf("scratch mode: %v", err)
+	}
+}
+
+func TestResources(t *testing.T) {
+	root := fixture(t)
+	c, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(c.Agents["agent"].Spec); strings.Contains(string(b), "resources") {
+		t.Fatalf("no resources changed the snapshot: %s", b)
+	}
+	put(t, root, "configs/profiles/base.yaml", mustRead(t, root, "configs/profiles/base.yaml")+"  resources: {simulator: 1, build: 1}\n")
+	put(t, root, "configs/agents/agent.yaml", mustRead(t, root, "configs/agents/agent.yaml")+"  resources: {build: 2}\n")
+	if c, err = LoadCatalog(root); err != nil {
+		t.Fatal(err)
+	}
+	if r := c.Agents["agent"].Spec.Resources; len(r) != 2 || r["simulator"] != 1 || r["build"] != 2 {
+		t.Fatalf("merged resources %v", r)
 	}
 }
 

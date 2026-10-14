@@ -45,6 +45,7 @@ type Host struct {
 	LookPath   func(string) (string, error)
 	Stat       func(string) (fs.FileInfo, error)
 	FreeBytes  func(path string) (uint64, error)
+	Load1      func() (float64, error) // one-minute load average
 	// Run executes a command and returns stdout and stderr.
 	Run func(ctx context.Context, name string, args ...string) (stdout, stderr string, err error)
 }
@@ -53,7 +54,7 @@ const commandTimeout = 30 * time.Second
 
 func LocalHost(goos string) Host {
 	exe, _ := os.Executable()
-	return Host{GOOS: goos, Executable: exe, Getenv: os.Getenv, LookPath: exec.LookPath, Stat: os.Stat, FreeBytes: freeBytes,
+	return Host{GOOS: goos, Executable: exe, Getenv: os.Getenv, LookPath: exec.LookPath, Stat: os.Stat, FreeBytes: freeBytes, Load1: load1,
 		Run: func(ctx context.Context, name string, args ...string) (string, string, error) {
 			ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 			defer cancel()

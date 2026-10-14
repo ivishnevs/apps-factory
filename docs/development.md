@@ -77,8 +77,9 @@ Core/NATS reachability and stack hooks from `NodeHooks` arrive with node registr
 ## Node process
 
 `./bin/factory-node run [-config node.yaml] [-slots N]` (`make node`) is one process with N slot goroutines
-(node-agent 1.1, local part; no registration, inventory heartbeat or control subject yet). Each slot runs the
-existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats); the slots share one pull
+(node-agent 1.1; registration and the inventory heartbeat with `protocol_version: 2`, below; no control subject
+yet). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats in
+v1); the slots share one pull
 subscription per enabled driver on `factory.commands.agent.run.<driver>` with the durable `<driver>-worker-v1`, so they
 compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
 Environment as for the Worker: `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. Each enabled
@@ -89,15 +90,25 @@ for them. `codex-worker` is the same code with one slot and the Codex driver (`F
 errors.
 
 ```yaml
-name: mini-1                 # default: host name
+name: mini-1                 # default: host name; a label only (v2 identifies the node by node_id)
 slots: 2                     # 1..64
-state_dir: data/factory-node # pidfiles; never shared by live nodes or workers
+protocol_version: 1          # 1 (default): per-run claim and heartbeat; 2: registered node (below)
+resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
+labels: [macos, xcode]       # sent in register
+state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
 drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
 worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
+janitor:                     # trusted node configuration; each command runs with /bin/sh -c
+  interval: 10m              # prune period (default 10m)
+  hook_timeout: 5m           # per command (default 5m)
+  on_run_stop: ['xcrun simctl delete "af-$FACTORY_TASK_ID" || true']    # FACTORY_RUN_ID, FACTORY_TASK_ID, FACTORY_WORKTREE
+  on_task_closed: ['xcrun simctl delete "af-$FACTORY_TASK_ID" || true'] # FACTORY_TASK_ID, FACTORY_WORKTREE
+  prune:
+    - {command: 'find ~/Library/Developer/Xcode/DerivedData -mindepth 1 -maxdepth 1 -mmin +$FACTORY_OLDER_THAN_MINUTES -exec rm -rf {} +', older_than: 72h}
 ```
 
 Claude stays off by default while `workers/claude` serves `factory.commands.agent.run.claude`; enable it only with
@@ -106,7 +117,15 @@ that service stopped (both would share the `claude-worker-v1` consumer).
 - Start: runtime process groups recorded in `state_dir` by a previous process are killed (`worker.KillOrphans`).
 - Disk: before each claim a free slot reads free space on `disk.path`. Below the critical watermark claiming
   pauses (one error log), below the low watermark one warning is logged; both clear with a log line when space
-  returns. Running runs continue. Janitor pruning and `node.low_disk`/`node.disk_critical` events come later.
+  returns. Running runs continue. `node.low_disk`/`node.disk_critical` events come later.
+- Janitor (node-agent D4; hooks live in `node.yaml` until Core serves the catalog's `NodeHooks` to nodes):
+  `on_run_stop` runs after every run (after the seal and the terminal event, before the slot claims again).
+  `prune` runs every `interval` with `FACTORY_OLDER_THAN_MINUTES` from `older_than`, and at once with 0 when free
+  space on `disk.path` falls below the low watermark (again every interval while it stays low). For each task in
+  Core's `cleanup` list (inventory heartbeat) the janitor takes the worktree lock (a running run keeps it; retried
+  on the next list), stops a leftover run group, seals, runs `on_task_closed` once, then removes the worktree and
+  its scratch directory; the branch and `refs/factory/wip/<task>` stay in the repository. A failed seal keeps the
+  worktree. Hook failures and timeouts are logged only.
 - Watchdog (every 30 s): a busy slot whose recorded runtime group is gone has its run cancelled (the executor reports
   it); a recorded group without a busy slot is killed and its pidfile removed; an idle slot whose claim loop has not
   turned for 2 minutes is restarted. Busy slots are bounded by the run timeout, not by this check.
@@ -116,6 +135,35 @@ that service stopped (both would share the `claude-worker-v1` consumer).
   binary). The executor fetches the run credential, creates a temporary shim directory first on PATH
   (`FACTORY_SHIM_DIR`) and removes it after the run; see [policies](policies.md#command-guards). Executor tests
   script shell commands with `fake.Activity.Exec` (`internal/worker/shim_test.go`).
+
+### Runtime protocol v2
+
+With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-protocol-v2.md) (Core must serve it):
+
+- Identity: `<state_dir>/node_id` is a random id generated on first start and never changed (`name` stays a
+  label); a damaged file stops the node instead of creating a new identity. `<state_dir>/epoch` is incremented and
+  fsynced on every start and on every re-register. Copying a state dir to a second machine makes both one node:
+  Core refuses the older epoch (`409 stale_epoch`) and that process exits.
+- Start: orphaned runtime groups are killed, worktrees whose run pidfile outlived the previous process are stopped
+  and sealed locally (not reported), then `POST /nodes/register` sends `node_id`, `name`, `epoch`, `slots`,
+  `drivers` (`CheckVersion` version, `ok` when no driver probe fails), `resources` and `labels`. Unreachable Core is
+  retried (up to 30 s apart); a refusal stops the node.
+- Commands are pointers: only the run id is read (`run_id`, or `id` of a full RunSpec during the transition). A
+  free slot claims with `{node_id, epoch, claim_id, slot}`; `claim_id` is `<epoch>-<slot>-<n>`, an idempotency key
+  reused when a transient failure (network, 5xx) is retried. `409 retry` naks the command with a 5 s delay,
+  `409 drop` acks it; on `200` the command is acked and the executor runs the claim's `run_spec`. After the
+  workspace is allocated and the runtime launched, `POST /runs/{id}/start {lease}` (retried) moves the run to
+  RUNNING; a failed start ends the run UNKNOWN. There are no per-run heartbeats.
+- Every `heartbeat_seconds` (register answer, default 10): `POST /nodes/{node_id}/heartbeat` with the inventory
+  (`claimed`, `starting`, `running`, `ended_unacked` with `elapsed_ms` since the claim on the monotonic clock)
+  and health (`load1`, `cpus`, `free_disk_bytes` and `disk` ok/low/critical on `disk.path` by the node.yaml
+  watermarks, `busy_slots`). The answer's `acked` drops ended runs, `stop` cancels runs through the executor
+  (which interrupts, seals and reports them; a stopped ended run is dropped), `pause` stops claiming on top of the
+  local disk gate, `cleanup` task ids have their worktrees sealed and removed (`git worktree remove`; branch, WIP ref
+  and clone stay; a worktree in use is retried on a later listing) or are logged when worktrees are off. A failed
+  heartbeat is logged; runs continue.
+- A changed `incarnation` (or `404` for the node) stops claiming, stops every run, waits for them to end, then
+  registers the next epoch with an empty inventory. `409` on a heartbeat stops the node.
 
 ### Task worktrees
 
@@ -128,13 +176,22 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
 - At run end the runtime process group gets TERM, then KILL after 10 s; the run fails if it survives 30 s. The
   worktree is then sealed: uncommitted work is committed onto `refs/factory/wip/<task>` (the worktree itself is left
   unchanged) and `sealed_head` is written to `.factory/state`. Nothing is pushed. The worker then reports
-  `{mode, branch, node_id, sealed_head, sealed_at}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`;
+  `{mode, branch, node_id, sealed_head, sealed_at}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`, in v2 its `node_id`;
   `GET /tasks/{id}/workspace` reads it). Transient failures are retried briefly; a failed report is logged
   and does not fail the run.
 - Runs without `task_id` or `repo_url` (for example message runs), or with worktrees disabled, fall back to the shared
   project workspace with a warning. `shared` and `scratch` runs use the project workspace (`workspace.Local`).
 
-Not yet: push, PR, reset to `exit_sha` (`exit_sha` is not reported yet), start checks. The SQLite writer indexes still serialize runs of one project.
+- Start check (task-worktrees D4), under the worktree lock before the runtime starts. A lock left by a crashed
+  run (pidfile, free lock) is sealed first as that run's work. Then: HEAD equals `sealed_head` (or nothing was
+  sealed yet, or the worktree was just recreated) → start, after a fast-forward to `origin/<branch>` when the
+  remote is strictly ahead (unpushed local commits or an agent's rebase are kept as they are); `sealed_head`
+  follows the fast-forward. HEAD differs from `sealed_head` (changed outside any run), or uncommitted changes
+  block the fast-forward → the worktree is left untouched and the run ends FAILED before the runtime starts with
+  `workspace_diverged: task … (branch …): <reason>; HEAD …, sealed_head …, origin …`. A missing worktree is
+  recreated from the local branch (else the remote branch, else the default branch).
+
+Not yet: push, PR, reset to `exit_sha` (`exit_sha` is not reported yet), the `workspace_diverged` escalation. The SQLite writer indexes still serialize runs of one project.
 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as

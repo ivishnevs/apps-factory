@@ -65,6 +65,8 @@ type Worktree struct {
 	Path, Branch, Scratch, Repo string
 	// Release unlocks the worktree; it reports a run group that survived Stop.
 	Release func() error
+	// created: Ensure (re)created the worktree, so the start check has nothing to compare.
+	created bool
 }
 
 type SealResult struct {
@@ -120,25 +122,45 @@ func BranchName(task, slug string) string {
 // Acquire ensures the task worktree and takes its run lock, waiting for a previous holder.
 // Release kills the run's tracked process group (see Track) before unlocking; a group that
 // survives makes Release fail, keeps its pidfile and is killed again by the next Acquire.
+// The start check (task-worktrees D4) runs under the lock; a *DivergedError leaves the worktree untouched.
 func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
-	wt, err := w.Ensure(ctx, r)
-	if err != nil {
-		return Worktree{}, err
+	for {
+		wt, err := w.Ensure(ctx, r)
+		if err != nil {
+			return Worktree{}, err
+		}
+		unlock, err := flockWait(ctx, filepath.Join(wt.Path, ".factory", "lock"))
+		if err != nil {
+			return Worktree{}, err
+		}
+		// The janitor removed the worktree while this run waited for the lock: ensure it again.
+		if _, err = os.Stat(filepath.Join(wt.Path, ".factory", "state")); errors.Is(err, os.ErrNotExist) {
+			unlock()
+			continue
+		}
+		// A pidfile under a free lock is left by a crashed holder: its group dies before the new run starts,
+		// and its work is sealed as the run's own.
+		_, crashed := os.Stat(pidPath(wt.Path))
+		if err = stopRun(wt.Path); err != nil {
+			unlock()
+			return Worktree{}, err
+		}
+		if crashed == nil {
+			if _, err = w.Seal(ctx, r); err != nil {
+				unlock()
+				return Worktree{}, err
+			}
+		}
+		if err = w.startCheck(ctx, r, wt); err != nil {
+			unlock()
+			return Worktree{}, err
+		}
+		wt.Release = func() error {
+			defer unlock()
+			return stopRun(wt.Path)
+		}
+		return wt, nil
 	}
-	unlock, err := flockWait(ctx, filepath.Join(wt.Path, ".factory", "lock"))
-	if err != nil {
-		return Worktree{}, err
-	}
-	// A pidfile under a free lock is left by a crashed holder: its group dies before the new run starts.
-	if err = stopRun(wt.Path); err != nil {
-		unlock()
-		return Worktree{}, err
-	}
-	wt.Release = func() error {
-		defer unlock()
-		return stopRun(wt.Path)
-	}
-	return wt, nil
 }
 
 // Ensure creates or repairs the clone, branch and worktree of a task; it is safe to re-run after a crash at any point.
@@ -176,7 +198,8 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 		return Worktree{}, err
 	}
 	path := filepath.Join(dir, "tasks", r.Task)
-	if err = ensureWorktree(ctx, repo, path, branch); err != nil {
+	created, err := ensureWorktree(ctx, repo, path, branch)
+	if err != nil {
 		return Worktree{}, err
 	}
 	hooks, err := w.writeHooks(dir)
@@ -198,7 +221,7 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 	} else if err != nil {
 		return Worktree{}, err
 	}
-	return Worktree{Path: path, Branch: branch, Scratch: scratch, Repo: repo, Release: func() error { return nil }}, nil
+	return Worktree{Path: path, Branch: branch, Scratch: scratch, Repo: repo, Release: func() error { return nil }, created: created}, nil
 }
 
 func (w *Worktrees) ensureClone(ctx context.Context, dir, repo, url string) error {
@@ -281,31 +304,32 @@ func ensureBranch(ctx context.Context, repo, branch, def string) error {
 }
 
 // ensureWorktree keeps a worktree whose .factory/state exists; anything else at the path is a half-created worktree and is rebuilt.
-func ensureWorktree(ctx context.Context, repo, path, branch string) error {
+// created reports a (re)built worktree.
+func ensureWorktree(ctx context.Context, repo, path, branch string) (created bool, err error) {
 	if _, err := os.Stat(filepath.Join(path, ".factory", "state")); err == nil {
 		top, err := git(ctx, path, nil, "rev-parse", "--show-toplevel")
 		if err == nil && top == path {
-			return nil
+			return false, nil
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
-		return fmt.Errorf("workspace: worktree %s has state but is not a valid worktree; refusing to discard it", path)
+		return false, fmt.Errorf("workspace: worktree %s has state but is not a valid worktree; refusing to discard it", path)
 	}
 	if _, err := os.Stat(path); err == nil {
 		_, _ = git(ctx, repo, nil, "worktree", "remove", "--force", "--force", path)
 		if err = os.RemoveAll(path); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if _, err := git(ctx, repo, nil, "worktree", "prune"); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return false, err
 	}
-	_, err := git(ctx, repo, nil, "worktree", "add", "--quiet", path, branch)
-	return err
+	_, err = git(ctx, repo, nil, "worktree", "add", "--quiet", path, branch)
+	return err == nil, err
 }
 
 func (w *Worktrees) writeHooks(dir string) (string, error) {

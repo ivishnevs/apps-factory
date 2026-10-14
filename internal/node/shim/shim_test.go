@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"appfactory/internal/policies"
 )
@@ -148,6 +149,25 @@ func TestShimDecisions(t *testing.T) {
 	vars["FACTORY_URL"] = "http://127.0.0.1:1"
 	if code, msg, _ = run("git", "push", "origin", "main"); code != Refused || !strings.Contains(msg, "approval check failed") {
 		t.Fatal(code, msg)
+	}
+	// A runtime that consumed the grant hands it over once, for the exact argv only.
+	if err := Grant(dir, []string{"/usr/bin/git", "push", "origin", "main"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ = run("git", "push", "origin", "dev"); code != Refused {
+		t.Fatal("handed-over grant matched other arguments")
+	}
+	if code, _, execd = run("git", "push", "origin", "main"); code != 0 || execd == nil {
+		t.Fatal("handed-over grant refused", code)
+	}
+	if code, _, _ = run("git", "push", "origin", "main"); code != Refused {
+		t.Fatal("handed-over grant used twice")
+	}
+	_ = Grant(dir, []string{"git", "push", "origin", "main"})
+	old := time.Now().Add(-GrantTTL - time.Second)
+	_ = os.Chtimes(grantPath(dir, []string{"git", "push", "origin", "main"}), old, old)
+	if code, _, _ = run("git", "push", "origin", "main"); code != Refused {
+		t.Fatal("expired grant accepted")
 	}
 	if code, msg, _ = run("cliclick"); code != Refused || !strings.Contains(msg, "Use UI tests.") {
 		t.Fatal("deny must not depend on Core", code, msg)

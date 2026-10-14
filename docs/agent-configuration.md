@@ -37,6 +37,11 @@ task its own git worktree and branch on the node (see development.md, Task workt
 that need no repository and runs in the project workspace. It is inherited from profiles like other scalars.
 Nodes without worktrees enabled, and runs without a task or repository, fall back to the project workspace.
 
+`resources` declares what one run of the agent needs on a node, per resource class, e.g. `resources: {simulator: 1}`.
+Class names are lowercase like agent names; needs are at least 1. Profiles' and agents' maps merge per class. Nodes
+declare capacity in node.yaml `resources` (see development.md, Runtime protocol v2); Core grants a v2 claim only
+when the node's free capacity covers the needs and otherwise answers retry (capacity). Nodes do not enforce it.
+
 ## Runtime context
 
 Context contains the prompt, deduplicated applicable policy instructions, tool/approval settings,

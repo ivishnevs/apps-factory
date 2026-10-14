@@ -92,7 +92,7 @@ func (p *Pool) start(i int) {
 	go func(gen int) {
 		defer p.wg.Done()
 		defer stop()
-		p.loop(ctx, i, gen)
+		p.loop(node.WithSlot(ctx, i), i, gen)
 	}(s.gen)
 }
 

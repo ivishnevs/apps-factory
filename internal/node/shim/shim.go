@@ -6,6 +6,8 @@ package shim
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -138,6 +140,51 @@ func Ask(ctx context.Context, client *http.Client, base, token string, argv []st
 	return c, res.StatusCode, nil
 }
 
+// GrantsDir (under the shim directory) holds executions a runtime approved with Core's single-use grant
+// before running them (Codex approval requests); the shim takes one instead of asking Core again.
+const GrantsDir = "grants"
+
+// GrantTTL bounds a handed-over grant: the runtime runs the command right after accepting it.
+const GrantTTL = 2 * time.Minute
+
+func grantPath(dir string, argv []string) string {
+	b, _ := json.Marshal(append([]string{filepath.Base(argv[0])}, argv[1:]...))
+	sum := sha256.Sum256(b)
+	return filepath.Join(dir, GrantsDir, hex.EncodeToString(sum[:]))
+}
+
+// Grant hands one approved execution of the exact argv (argv[0] reduced to its basename) to the shim.
+func Grant(dir string, argv []string) error {
+	p := grantPath(dir, argv)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// take consumes a handed-over grant for argv; an expired one is removed and refused.
+func take(dir string, argv []string) bool {
+	p := grantPath(dir, argv)
+	info, err := os.Stat(p)
+	if err != nil || os.Remove(p) != nil {
+		return false
+	}
+	return time.Since(info.ModTime()) < GrantTTL
+}
+
+// ApprovalHint tells the agent how to obtain a single-use grant for the exact argv.
+func ApprovalHint(argv []string, instruction string) string {
+	exact, _ := json.Marshal(struct {
+		Name      string              `json:"name"`
+		Arguments map[string][]string `json:"arguments"`
+	}{"command", map[string][]string{"argv": argv}})
+	return strings.TrimSpace(instruction + " Request owner approval with factory_owner_request_approval and call " + string(exact) + ", then finish the turn; an APPROVED grant runs exactly this command once.")
+}
+
 // Shim runs one shimmed command. Exec replaces the process with the real binary (syscall.Exec).
 type Shim struct {
 	Getenv  func(string) string
@@ -183,18 +230,17 @@ func (s Shim) Main(ctx context.Context, args []string) int {
 		_, _, _ = ask() // best effort: Core records the refusal on the run
 		return fail("%s is denied by policy rule %s. %s", name, d.Rule, d.Instruction)
 	case "approval":
+		if take(dir, argv) {
+			break
+		}
 		c, status, err := ask()
 		if err != nil {
 			return fail("%s requires owner approval (rule %s) and the approval check failed: %v", name, d.Rule, err)
 		}
 		if status != http.StatusOK || c.Effect != "allow" {
-			exact, _ := json.Marshal(struct {
-				Name      string              `json:"name"`
-				Arguments map[string][]string `json:"arguments"`
-			}{"command", map[string][]string{"argv": argv}})
 			hint := c.Instruction
 			if hint == "" || c.Effect == "approval" {
-				hint = strings.TrimSpace(d.Instruction + " Request owner approval with factory_owner_request_approval and call " + string(exact) + ", then finish the turn; an APPROVED grant runs exactly this command once.")
+				hint = ApprovalHint(argv, d.Instruction)
 			}
 			return fail("%s refused (%s, rule %s). %s", name, c.Effect, d.Rule, hint)
 		}

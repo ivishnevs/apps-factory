@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -70,6 +71,9 @@ type Spec struct {
 	Workspace struct {
 		Mode string `yaml:"mode" json:"mode,omitempty"`
 	} `yaml:"workspace" json:"workspace,omitzero"`
+	// Resources are a run's needs per node resource class (e.g. simulator: 1); Core checks them against the
+	// node's node.yaml resources at claim (runtime protocol v2).
+	Resources map[string]int `yaml:"resources" json:"resources,omitempty"`
 }
 type Agent struct {
 	APIVersion      string          `yaml:"apiVersion" json:"apiVersion"`
@@ -200,6 +204,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 			}
 		}
 		if err = validWorkspaceMode(a.Spec.Workspace.Mode); err != nil {
+			return nil, fmt.Errorf("profile %s: %w", name, err)
+		}
+		if err = validResources(a.Spec.Resources); err != nil {
 			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
 		if a.Spec.Execution.MaxRetries < 0 || a.Spec.Execution.MaxConcurrentRuns < 0 || a.Spec.Execution.MaxConcurrentRuns > 1 {
@@ -349,6 +356,9 @@ func (c *Catalog) finish(root string, a *Agent) error {
 		return err
 	}
 	if err := validWorkspaceMode(a.Spec.Workspace.Mode); err != nil {
+		return err
+	}
+	if err := validResources(a.Spec.Resources); err != nil {
 		return err
 	}
 	if a.Spec.Execution.MaxConcurrentRuns != 1 {
@@ -573,4 +583,17 @@ func validWorkspaceMode(m string) error {
 		return nil
 	}
 	return fmt.Errorf("invalid workspace mode %q: expected shared, worktree or scratch", m)
+}
+
+// validResources: resource classes are lowercase names, needs at least 1 (Core enforces them at claim).
+func validResources(r map[string]int) error {
+	for _, k := range slices.Sorted(maps.Keys(r)) {
+		if !namePattern.MatchString(k) {
+			return fmt.Errorf("invalid resource name %q", k)
+		}
+		if r[k] < 1 {
+			return fmt.Errorf("resources.%s: need must be at least 1", k)
+		}
+	}
+	return nil
 }

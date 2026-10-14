@@ -11,7 +11,7 @@
 - [ ] 2.2 Release capacity only after end + seal; `no_capable_node`/`capacity` reasons in `Evaluate`. Verify: reason tests; a run ended but unsealed still holds its class.
 
 ## 3. Janitor and disk
-- [ ] 3.1 `NodeHooks` kind in `internal/config`; janitor with `on_task_closed`, `on_run_stop`, `prune`; worktree removal after seal. Verify: hook test removes a fake simulator directory for a closed task only.
+- [ ] 3.1 `NodeHooks` kind in `internal/config`; janitor with `on_task_closed`, `on_run_stop`, `prune`; worktree removal after seal. Verify: hook test removes a fake simulator directory for a closed task only. Partial: `internal/node/janitor` with hooks in `node.yaml` `janitor` (the node has no catalog access yet), run-stop hooks from the executor, worktree removal after seal, periodic and low-watermark prune (`TestCleanupClosedTaskOnly`). `NodeHooks` catalog kind and Core's `cleanup` list pending.
 - [ ] 3.2 Low/critical watermarks, aggressive prune, one alert, pause at critical. Verify: fake disk-usage provider test emits one `node.low_disk` and pauses at critical.
 - [ ] 3.3 Node health events (incl. `node.restart_loop`, `node.check_failed`, `node.heartbeat_stalled`) with attention flags, and `factory status` node section. Verify: per-event tests; CLI test output.
 
