@@ -2,10 +2,12 @@ package storage
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"appfactory/internal/clock"
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
@@ -234,3 +236,57 @@ func TestReassignmentResetsAttempts(t *testing.T) {
 }
 
 func withAgent(s tasks.Snapshot) tasks.Snapshot { s.AgentConfigured = true; return s }
+
+// TestInspectEscalation: a task with external effects is inspected instead of retried; continue reconciles a
+// lost run as COMPLETED and tells the next brief the effect happened; retry reruns a failed one.
+func TestInspectEscalation(t *testing.T) {
+	s, fake := retryStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	answer := func(task, choice string) {
+		t.Helper()
+		open, _ := s.Escalations(ctx, co, true)
+		for _, e := range open {
+			if e.TaskID == task && e.Reason == "inspect" {
+				q, _ := s.Message(ctx, co, e.MessageID)
+				if _, err := s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: choice, Answers: map[string]any{"answer": choice}, RequestID: task + choice}); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("no inspect escalation for %s: %+v", task, open)
+	}
+	publish, err := s.CreateTask(ctx, co, tasks.Create{ID: "publish", ProjectID: "p", Title: "publish", Assignee: "demo", SideEffects: true, Ready: true, RequestID: "c-publish"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := dispatchEngineTask(t, s, publish, "p1")
+	if _, err = s.Claim(ctx, co, spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	fake.Advance(LeaseTTL + time.Second)
+	if err = s.Expire(ctx, co); err != nil {
+		t.Fatal(err)
+	}
+	answer("publish", "continue")
+	got := taskOf(t, s, "publish")
+	run, _ := s.Get(ctx, co, "p1")
+	if got.Status != "READY" || !strings.Contains(got.ReviewFeedback, "effect happened") || run.Status != "COMPLETED" {
+		t.Fatalf("%+v %+v", got, run)
+	}
+
+	deploy, _ := s.CreateTask(ctx, co, tasks.Create{ID: "deploy", ProjectID: "p", Title: "deploy", Assignee: "other", SideEffects: true, Ready: true, RequestID: "c-deploy"})
+	spec = dispatchEngineTask(t, s, deploy, "d1")
+	lease, _ := s.Claim(ctx, co, spec.ID)
+	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if got = taskOf(t, s, "deploy"); got.Status != "FAILED" {
+		t.Fatal("side-effect task retried", got.Status)
+	}
+	answer("deploy", "retry")
+	if got = taskOf(t, s, "deploy"); got.Status != "READY" {
+		t.Fatal(got.Status)
+	}
+}

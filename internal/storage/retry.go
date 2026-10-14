@@ -36,6 +36,7 @@ func init() {
 	escalationAnswers["retries_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["no_exit"] = []string{"retry", "accept", "cancel"}
+	escalationAnswers["inspect"] = []string{"retry", "continue", "cancel"}
 }
 
 func budgetDay(t time.Time) string { return t.UTC().Format("2006-01-02") }
@@ -73,8 +74,26 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return saveTask(ctx, tx, &t, "task.updated")
 	}
 	rule, ok := Outcomes[outcome]
-	if !ok || t.SideEffects || t.CancelRequested || t.WaitMessageID != "" {
+	if !ok || t.CancelRequested || t.WaitMessageID != "" {
 		return nil
+	}
+	if t.SideEffects {
+		// reliable-recovery D4: an unclear end of a task with external effects is inspected, never retried.
+		switch outcome {
+		case "revoked", "paused_out", "stale", "unclaimed":
+			return nil
+		}
+		if t.Status != "FAILED" && !(t.Status == "BLOCKED" && status == "UNKNOWN") {
+			return nil
+		}
+		// One inspection per run: a reconciliation (runs resolve) or an answer already decided it.
+		var seen int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM escalations WHERE company_id=? AND task_id=? AND reason='inspect' AND ref_id=?", tx.company, t.ID, runID).Scan(&seen); err != nil || seen > 0 {
+			return err
+		}
+		return openEscalation(ctx, tx, "inspect", escalationAnswers["inspect"], EscalationWant{TaskID: t.ID, RefID: runID,
+			Summary: "run " + runID + " of a task with external effects ended " + outcome + ": " + excerpt512(result) + " — check whether the effect happened: retry (it did not, or it is idempotent), continue (it happened), cancel",
+			Target:  retryTarget(ctx, tx)})
 	}
 	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
 	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
@@ -253,4 +272,31 @@ func releaseNodeRuns(ctx context.Context, tx *Tx, node string, olderThan int64, 
 		}
 	}
 	return nil
+}
+
+// inspectAnswer answers the inspect escalation of a side-effect task: the inspected run is reconciled
+// (an UNKNOWN run becomes FAILED for retry, COMPLETED for continue) and the task runs again; continue tells
+// the next brief that the effect happened.
+func inspectAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answer, actor string) error {
+	status, note := "FAILED", "inspected: the effect did not happen; retry"
+	if answer == "continue" {
+		status, note = "COMPLETED", "inspected: the effect happened; continue from there"
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=result||' ['||?||']',finished_at=? WHERE id=? AND status='UNKNOWN'", status, note, tx.now().Unix(), e.RefID); err != nil {
+		return err
+	}
+	if err := clearParks(ctx, tx, t, tasks.ParkInspect, e.RefID, "cleared"); err != nil {
+		return err
+	}
+	if err := resetRetry(ctx, tx, &t); err != nil {
+		return err
+	}
+	if answer == "continue" {
+		t.ReviewFeedback = "The previous run's external effect happened (confirmed by " + actor + "): do not repeat it; continue from there."
+	}
+	t.Status, t.BlockReason, t.RetryEligible = "READY", "", false
+	if err := comment(ctx, tx, t.ID, actor, note); err != nil {
+		return err
+	}
+	return saveTask(ctx, tx, &t, "task.retry")
 }

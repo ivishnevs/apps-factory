@@ -8,7 +8,7 @@
 
 ## 2. Side-effect inspection
 - [ ] 2.1 Policy rule `type: recovery, mode: inspect` in `internal/policies` + task `side_effects` field; snapshot on the run. Verify: config validation tests; `factory agents authorize` shows the effective mode. Partial: task `side_effects` (create/update) keeps a task out of automatic retry (63aa2c9); the `recovery: inspect` policy rule pending (stream B, internal/policies).
-- [ ] 2.2 `inspect` escalation per task with answers retry/continue/cancel; `factory runs resolve` maps to them. Verify: a lost run of a side-effect task parks only that task while another task of the same project is dispatched.
+- [ ] 2.2 `inspect` escalation per task with answers retry/continue/cancel; `factory runs resolve` maps to them. Verify: a lost run of a side-effect task parks only that task while another task of the same project is dispatched. Done: `inspect` escalation (retry, continue, cancel) on an unclear end of a side-effect task, one per run; `runs resolve` answers it; continue reconciles the run COMPLETED and tells the next brief (`TestInspectEscalation`).
 
 ## 3. Claim and liveness
 - [ ] 3.1 Two-phase claim with idempotent `(worker_id, epoch, claim_id)` and `POST /runs/{id}/start`. Verify: retried claim returns the same lease; unstarted claim ends `lost` after 30 s; new epoch ends old runs `lost` without budget. Partial: idempotent `(node_id, epoch, claim_id)` claim and `POST /runs/{id}/start`; unstarted claim ends FAILED `lost: not started` after the 60 s start window (extended by inventory up to 15 min); new epoch ends old runs (409f51d). Budgets wait for the outcome model.

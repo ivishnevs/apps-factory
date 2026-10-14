@@ -121,7 +121,8 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 	if err = s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
-	expectVerdict(t, s, "b", tasks.ReasonParked+tasks.ParkInspect, "ready", "dependency_done")
+	// The inspect escalation (answers retry, continue, cancel) leads; resolving the run answers it.
+	expectVerdict(t, s, "b", tasks.ReasonParked+tasks.ParkEscalation, "ready", "dependency_done")
 	if err = s.Resolve(ctx, co, run.ID, "FAILED", "inspected; nothing was changed"); err != nil {
 		t.Fatal(err)
 	}

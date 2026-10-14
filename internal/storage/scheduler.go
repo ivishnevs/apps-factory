@@ -394,6 +394,16 @@ func (s *Store) Resolve(ctx context.Context, company, id, status, result string)
 	if n != 1 {
 		return ErrConflict
 	}
+	// A reconciliation answers the run's inspect escalation (the owner inspected the workspace).
+	open, err := listEscalations(ctx, tx, "WHERE company_id=? AND reason='inspect' AND ref_id=? AND status='open'", company, id)
+	if err != nil {
+		return err
+	}
+	for _, e := range open {
+		if err = closeEscalation(ctx, tx, e, "answered", "resolve "+status, "owner", ""); err != nil {
+			return err
+		}
+	}
 	if err = syncTaskRun(ctx, tx, id, false); err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@
 - [ ] 3.4 Park override in the trigger transaction (wait, ask, block, children, escalations except `inspect`). Verify: tests per park kind. Partial: directives override wait, children, ask and the retry/no_exit escalations (eb84710).
 - [ ] 3.5 Urgent stop: outbox `run.stop` on `factory.<company>.nodes.<node_id>.control` (fan-out, outside the work-queue stream), worker subscription, heartbeat fallback, `revoked`, resume with the directive first; urgent artifact approval set by the approver. Verify: stop arrives within one second while 10 run commands are pending in the command stream; within one heartbeat with the control subject disabled. Partial: urgent directive revokes the run (heartbeat stop, ≤ 10 s in v2), the next brief starts with it (eb84710); control subject pending.
 - [ ] 3.7 Agent environment allowlist without owner/user tokens or CLI config; `factory` CLI denied on the agent PATH (shim in `node-agent`; worker env check now). Verify: worker test inspects the runtime env; an agent call to `factory` is refused.
-- [ ] 3.6 Non-authority comments add no trigger and appear in the next brief. Verify: test.
+- [ ] 3.6 Non-authority comments add no trigger and appear in the next brief. Verify: test. Done: only authority comments (owner, role manager) add a trigger; others are listed in the next brief (e7adc95, `TestCommentsInBrief`).
 
 ## 4. Agent guidance and docs
 - [ ] 4.1 Update `prompts/*`, the worker instruction block and skills: always end with one exit; read `authority_input`; merge before `done`. Verify: real Codex smoke `scripts/mcp-smoke.py` passes with explicit exits. Partial: prompts/calorie-* and the run instructions describe the exits when the tools are listed (dfa9ffb); live Codex smoke with exits pending.

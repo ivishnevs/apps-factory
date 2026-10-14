@@ -88,7 +88,7 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 	// a has side effects: inspected, not retried. Its v1 runtime is gone (the worker stops on a lost
 	// lease), so the run holds no writer and d can run.
 	got := why()
-	expect(got, map[string]string{"a": tasks.ReasonParked + tasks.ParkInspect, "b": tasks.ReasonDependencies, "d": tasks.ReasonRunnable})
+	expect(got, map[string]string{"a": tasks.ReasonParked + tasks.ParkEscalation, "b": tasks.ReasonDependencies, "d": tasks.ReasonRunnable})
 	// A lost run whose runtime may still run (a silent v2 node) keeps the project's writer.
 	if _, err = s.DB.Exec("UPDATE runs SET released=0 WHERE id=?", a.CurrentRunID); err != nil {
 		t.Fatal(err)

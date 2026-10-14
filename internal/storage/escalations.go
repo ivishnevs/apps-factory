@@ -180,6 +180,9 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 	if err != nil {
 		return err
 	}
+	if e.Reason == "inspect" && answer != "cancel" {
+		return inspectAnswer(ctx, tx, t, e, answer, actor)
+	}
 	switch answer {
 	case "retry": // retries_exhausted, budget_exhausted, no_exit: counters and today's budget reset, run now
 		return retryAnswer(ctx, tx, t)
