@@ -43,7 +43,7 @@ func TestJetStreamCommandGuards(t *testing.T) {
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "done", Activity: []fake.Activity{
 		{Exec: []string{"cliclick", "c:1,1"}}, {Exec: []string{"mytool", "build"}}, {Exec: []string{"mytool", "push", "x"}},
 	}}}
-	r, events := runDriver(t, url, Worker{Driver: d, ShimBinary: bin}, false, func(s *protocol.RunSpec) { s.ConfigSnapshot = snapshot })
+	r, events := runDriver(t, url, Worker{Driver: d, ShimBinary: bin}, false, stored(func(s *protocol.RunSpec) { s.ConfigSnapshot = snapshot }))
 	if r.Status != "COMPLETED" {
 		t.Fatalf("%+v", r)
 	}

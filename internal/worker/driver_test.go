@@ -42,8 +42,11 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 
 // runDriver executes one run with w's driver against a fake Core, applying the published
 // events to Core's store until the run is terminal; it returns the run and its stored events.
-// mods change the spec the executor receives after Core stored the run.
-func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...func(*protocol.RunSpec)) (storage.Run, []protocol.Envelope) {
+// stored edits the spec before Core stores the run as well (Core reads the captured config).
+type stored func(*protocol.RunSpec)
+
+// mods (func(*protocol.RunSpec) or stored) change the spec the executor receives.
+func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (storage.Run, []protocol.Envelope) {
 	t.Helper()
 	b, err := bus.Connect(url)
 	if err != nil {
@@ -61,6 +64,11 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...func(*pr
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	spec := protocol.RunSpec{ID: "fake-run", Project: "fake-project", Agent: "demo", Provider: w.Driver.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30}
+	for _, mod := range mods {
+		if m, ok := mod.(stored); ok {
+			m(&spec)
+		}
+	}
 	ctx, stop := context.WithTimeout(context.Background(), 20*time.Second)
 	defer stop()
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
@@ -75,7 +83,12 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...func(*pr
 		t.Fatal(err)
 	}
 	for _, mod := range mods {
-		mod(&spec)
+		switch m := mod.(type) {
+		case stored:
+			m(&spec)
+		case func(*protocol.RunSpec):
+			m(&spec)
+		}
 	}
 	w.Bus, w.API = b, API{URL: server.URL, Token: "test-token"}
 	done := make(chan error, 1)
