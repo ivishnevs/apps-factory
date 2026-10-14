@@ -27,6 +27,9 @@ type Register struct {
 	Drivers         []DriverInfo   `json:"drivers"`
 	Resources       map[string]int `json:"resources"`
 	Labels          []string       `json:"labels"`
+	// Worktrees: worktree tasks run in their own worktree here, so Core lets tasks of one project run in
+	// parallel on this node (runtime-protocol-v2 §11).
+	Worktrees bool `json:"worktrees,omitempty"`
 }
 
 // DriverInfo is a driver as probed at register: Version from CheckVersion, OK when no probe failed.
@@ -130,7 +133,7 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 // unreachable; a refusal is final.
 func (s *session) register(ctx context.Context) error {
 	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots,
-		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels}
+		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels, Worktrees: s.trees != nil}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}
 	}
