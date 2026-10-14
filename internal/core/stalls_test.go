@@ -9,12 +9,13 @@ import (
 
 	"appfactory/internal/clock"
 	"appfactory/internal/config"
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 )
 
-func TestStallAlertsRaiseOncePerEpisode(t *testing.T) {
+func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 	ctx := context.Background()
 	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
 	if err != nil {
@@ -59,7 +60,7 @@ func TestStallAlertsRaiseOncePerEpisode(t *testing.T) {
 		}
 		alerts := []storage.FeedItem{}
 		for _, item := range page.Items {
-			if strings.HasPrefix(item.Type, "task.alert") {
+			if strings.HasPrefix(item.Type, "task.escalation") {
 				alerts = append(alerts, item)
 			}
 		}
@@ -69,9 +70,17 @@ func TestStallAlertsRaiseOncePerEpisode(t *testing.T) {
 	if len(alerts) != 2 || !alerts[0].Attention || !alerts[1].Attention {
 		t.Fatalf("%+v", alerts)
 	}
-	byRef := map[string]string{alerts[0].Ref: alerts[0].Summary, alerts[1].Ref: alerts[1].Summary}
-	if !strings.Contains(byRef["spec"], "cancelled") || !strings.Contains(byRef["design"], "BACKLOG") {
-		t.Fatal(byRef)
+	open, err := s.Escalations(ctx, co, true)
+	if err != nil || len(open) != 2 {
+		t.Fatal(open, err)
+	}
+	byRef := map[string]storage.Escalation{open[0].RefID: open[0], open[1].RefID: open[1]}
+	// Routed to the least loaded manager agent of the catalog (calorie-manager first by name).
+	if !strings.Contains(byRef["spec"].Summary, "cancelled") || !strings.Contains(byRef["design"].Summary, "BACKLOG") || byRef["spec"].Target != "calorie-manager" || byRef["design"].Target != "calorie-manager" {
+		t.Fatalf("%+v", byRef)
+	}
+	if snap, _ := s.TaskSnapshot(ctx, co, "build"); c.evaluate(snap).Reason != tasks.ReasonParked+tasks.ParkEscalation {
+		t.Fatalf("%+v", c.evaluate(snap))
 	}
 	if again := sweep(time.Minute); len(again) != 2 {
 		t.Fatal("alert repeated within its episode", again)
@@ -89,8 +98,35 @@ func TestStallAlertsRaiseOncePerEpisode(t *testing.T) {
 		t.Fatal(err)
 	}
 	alerts = sweep(time.Minute)
-	if len(alerts) != 3 || alerts[2].Type != "task.alert_cleared.stalled" || alerts[2].Ref != "design" || alerts[2].Attention {
+	if len(alerts) != 3 || alerts[2].Type != "task.escalation_cleared.stalled" || alerts[2].Ref != byRef["design"].MessageID || alerts[2].Attention {
 		t.Fatalf("%+v", alerts)
+	}
+	if m, _ := s.Message(ctx, co, byRef["design"].MessageID); m.Status != "WITHDRAWN" {
+		t.Fatal("cleared escalation left its question open", m.Status)
+	}
+	// The owner answers the cancelled dependency's escalation: build stops waiting on spec.
+	q, _ := s.Message(ctx, co, byRef["spec"].MessageID)
+	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "go on", Answers: map[string]any{"answer": "nonsense"}, RequestID: "bad"}); err == nil {
+		t.Fatal("answer outside the options accepted")
+	}
+	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "go on without it", Answers: map[string]any{"answer": "unblock"}, RequestID: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	build, _ := s.Task(ctx, co, "build")
+	if len(build.Dependencies) != 1 || build.Dependencies[0] != "design" {
+		t.Fatal(build.Dependencies)
+	}
+	if left, _ := s.Escalations(ctx, co, true); len(left) != 0 {
+		t.Fatalf("%+v", left)
+	}
+	all, _ := s.Escalations(ctx, co, false)
+	for _, e := range all {
+		if e.RefID == "spec" && (e.Status != "answered" || e.Answer != "unblock" || e.Actor != "owner") || e.RefID == "design" && e.Status != "cleared" {
+			t.Fatalf("%+v", all)
+		}
+	}
+	if again := sweep(time.Minute); len(again) != 4 { // + task.escalation_answered.stalled; nothing reopened
+		t.Fatalf("%+v", again)
 	}
 
 	// Idle: a task waiting for review for over a day raises one idle alert.

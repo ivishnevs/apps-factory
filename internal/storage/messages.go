@@ -194,9 +194,9 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 			return m, err
 		}
 	}
-	if m.MessageType == "question" && m.Sender != "owner" {
+	if m.MessageType == "question" && m.Sender != "owner" && m.Sender != "factory" {
 		var count int
-		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM messages WHERE (conversation_id=? OR (?!='' AND task_id=?)) AND message_type='question' AND sender!='owner'", m.ConversationID, m.TaskID, m.TaskID).Scan(&count); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM messages WHERE (conversation_id=? OR (?!='' AND task_id=?)) AND message_type='question' AND sender NOT IN ('owner','factory')", m.ConversationID, m.TaskID, m.TaskID).Scan(&count); err != nil {
 			return m, err
 		}
 		if count >= 8 {
@@ -312,7 +312,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		return m, err
 	}
 	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE"}
-	if !m.Blocking && m.Sender != "owner" {
+	if !m.Blocking && m.Sender != "owner" && m.Sender != "factory" {
 		answer.Status = "UNREAD"
 		answer.DeliveryStatus = "PENDING"
 		if in.Sender == "owner" {
@@ -367,6 +367,9 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		return answer, err
 	}
 	if err = resumeWaitingTask(ctx, tx, m); err != nil {
+		return answer, err
+	}
+	if err = answerEscalation(ctx, tx, m, in); err != nil {
 		return answer, err
 	}
 	if m.Blocking && m.TaskID != "" {

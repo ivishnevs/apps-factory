@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
@@ -53,6 +55,14 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		if err := api.Do(ctx, "POST", "/stop", map[string]string{"reason": strings.Join(args[1:], " ")}, &result); err != nil {
 			return err
 		}
+	case "escalations":
+		path := "/escalations"
+		if len(args) > 1 && args[1] == "--all" {
+			path += "?all=1"
+		}
+		if err := api.Do(ctx, "GET", path, nil, &result); err != nil {
+			return err
+		}
 	case "pending":
 		if err := api.Do(ctx, "GET", "/pending/count", nil, &result); err != nil {
 			return err
@@ -62,16 +72,24 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 			return fmt.Errorf("answer MESSAGE_ID TEXT")
 		}
 		var m struct {
-			Version   int   `json:"version"`
-			Questions []any `json:"questions"`
+			Version   int                  `json:"version"`
+			Questions []messaging.Question `json:"questions"`
 		}
 		if err := api.Do(ctx, "GET", "/messages/"+url.PathEscape(args[1]), nil, &m); err != nil {
 			return err
 		}
-		if len(m.Questions) > 0 {
+		text := strings.Join(args[2:], " ")
+		body := map[string]any{"version": m.Version, "body": text, "request_id": protocol.ID()}
+		switch {
+		case len(m.Questions) == 1 && m.Questions[0].Type == "single_choice":
+			// One choice (escalations): the answer is the option, e.g. factory answer MSG unblock.
+			if !slices.Contains(m.Questions[0].Options, args[2]) {
+				return fmt.Errorf("answer one of: %s", strings.Join(m.Questions[0].Options, ", "))
+			}
+			body["answers"] = map[string]any{m.Questions[0].ID: args[2]}
+		case len(m.Questions) > 0:
 			return fmt.Errorf("message %s has a structured form; use: inbox answer %s JSON_FILE", args[1], args[1])
 		}
-		body := map[string]any{"version": m.Version, "body": strings.Join(args[2:], " "), "request_id": protocol.ID()}
 		if err := api.Do(ctx, "POST", "/inbox/"+url.PathEscape(args[1])+"/answer", body, &result); err != nil {
 			return err
 		}

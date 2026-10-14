@@ -222,17 +222,35 @@ approval requests, questions to the owner and escalated messages, reports that n
 answered by the owner, `inspect` parks and OpenSpec blocks; fuller rules (digest, Telegram) arrive with
 waits-events-cost-cli.
 
-## Stall alerts
+## Stall detection and escalations
 
-Once a minute Core's tick checks every released, non-terminal task (reliable-recovery D8, diagnostic part)
-and keeps one active alert per episode in `task_alerts` (migration 0012):
+Once a minute Core's tick checks every released, non-terminal task (reliable-recovery D8):
 
 - `stalled` — the task depends on a task that is in BACKLOG, has no assignee, or was cancelled (a cancelled
-  dependency never becomes DONE, so the task can never run until the dependency is replaced);
-- `idle` — the task has an assignee and its `why` reason has been `idle` for 24 hours.
+  dependency never becomes DONE). This opens an **escalation** (below) per (task, dependency), answers
+  `unblock` (stop waiting on that dependency) or `cancel` (cancel the waiting task); it clears itself when the
+  dependency is assigned and released, or closes.
+- `idle` — the task has an assignee and its `why` reason has been `idle` for 24 hours: one attention feed event
+  `task.alert.idle` per episode (`task_alerts`, migration 0012), cleared with `task.alert_cleared.idle`.
 
-Raising an alert writes an attention feed event `task.alert.<kind>` (visible in `factory watch --attention`);
-when the condition goes away the alert is cleared with `task.alert_cleared.<kind>`. A new episode alerts again.
+An escalation (reliable-recovery D5, migration 0017) is a park of kind `escalation` on the task (`why` shows
+`parked:escalation` and who answers) plus a question from `factory` with the allowed answers as one
+`single_choice` field. Its target is, until reporting chains exist, the configured agent with role `manager`
+that has the fewest open escalations (then by name), else the owner. A manager's question goes to it as an
+ordinary message run; unanswered for 24 hours it escalates to the owner, who can always answer. At most one
+escalation is open per (task, reason, ref). Answering applies the answer, clears the park and adds an `answer`
+trigger (authority when the owner answers); an invalid option is refused, and `cancel` on a task with open
+children is refused with `needs_cascade` (the escalation stays open). A condition that goes away, or the task
+closing, clears the escalation and withdraws its question (status `WITHDRAWN`). Feed: attention events
+`task.escalation.<reason>`, then `task.escalation_answered.<reason>` or `task.escalation_cleared.<reason>`.
+
+- `factory escalations [--all]` (`GET /escalations[?all=1]`) lists open (or all) escalations with their
+  question id, target and answers.
+- `factory answer MSG OPTION` answers an escalation question with one of its options (any single-choice
+  question); other structured forms still use `factory inbox answer MSG JSON_FILE`.
+
+The escalation reasons for exhausted retries, the daily budget and side-effect inspection arrive with
+automatic retry (owner decision pending).
 
 ## Owner controls
 

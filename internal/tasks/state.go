@@ -198,6 +198,11 @@ func park(s Snapshot, kind string) (Verdict, bool) {
 		if t.Status == "FAILED" && (!t.RetryEligible || t.Attempt > s.MaxRetries) {
 			return hold(fmt.Sprintf("attempt %d failed; automatic retries exhausted or not allowed", t.Attempt), "owner", "factory tasks ready "+t.ID+" VERSION to retry, or cancel")
 		}
+		for _, p := range s.Parks {
+			if p.Kind == ParkEscalation {
+				return hold(p.Reason, p.Who, "answer escalation question "+p.RefID+" (factory answer "+p.RefID+" ANSWER)")
+			}
+		}
 		return Verdict{}, false
 	}
 	for _, p := range s.Parks {

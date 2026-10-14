@@ -132,3 +132,46 @@ func TestOwnerControlsAgainstCore(t *testing.T) {
 }
 
 func fmtInt(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+// TestEscalationsCLI: factory escalations lists open escalations and factory answer MSG OPTION answers
+// one with its single choice; an option outside the list is refused before reaching Core.
+func TestEscalationsCLI(t *testing.T) {
+	ctx := context.Background()
+	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	c := &core.Core{Store: s, Agents: map[string]config.Agent{}, Token: "owner"}
+	server := httptest.NewServer(c.Handler())
+	defer server.Close()
+	api := worker.API{URL: server.URL, Token: "owner"}
+	co := storage.DefaultCompany
+	if _, err = s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/owner-escalations"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "dep", ProjectID: "p", Title: "dep"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", Ready: true, Dependencies: []string{"dep"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SyncEscalations(ctx, co, "stalled", []storage.EscalationWant{{TaskID: "a", RefID: "dep", Summary: "waits on dep, which is in BACKLOG"}}); err != nil {
+		t.Fatal(err)
+	}
+	var open []storage.Escalation
+	out := capture(t, func() error { return ownerCommand(ctx, api, []string{"escalations"}) })
+	if err = json.Unmarshal([]byte(out), &open); err != nil || len(open) != 1 || open[0].Target != "owner" {
+		t.Fatal(out, err)
+	}
+	if err = ownerCommand(ctx, api, []string{"answer", open[0].MessageID, "maybe"}); err == nil || !strings.Contains(err.Error(), "unblock, cancel") {
+		t.Fatal(err)
+	}
+	capture(t, func() error { return ownerCommand(ctx, api, []string{"answer", open[0].MessageID, "unblock"}) })
+	if a, _ := s.Task(ctx, co, "a"); len(a.Dependencies) != 0 {
+		t.Fatal(a.Dependencies)
+	}
+	if out = capture(t, func() error { return ownerCommand(ctx, api, []string{"escalations", "--all"}) }); !strings.Contains(out, `"status": "answered"`) {
+		t.Fatal(out)
+	}
+}

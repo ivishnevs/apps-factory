@@ -50,6 +50,10 @@ func (c *Core) ownerRoutes(m *http.ServeMux) {
 		n, err := c.Store.RevokeLive(r.Context(), company, "owner")
 		reply(w, map[string]int{"revoked": n}, err)
 	})
+	m.HandleFunc("GET /escalations", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.Escalations(r.Context(), c.companyFrom(r), r.URL.Query().Get("all") == "")
+		reply(w, v, err)
+	})
 	m.HandleFunc("GET /pending/count", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.PendingCounts(r.Context(), c.companyFrom(r))
 		reply(w, v, err)

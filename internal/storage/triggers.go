@@ -80,6 +80,15 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if err := clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err != nil {
 		return err
 	}
+	escalations, err := listEscalations(ctx, tx, "WHERE company_id=? AND task_id=? AND status='open'", tx.company, t.ID)
+	if err != nil {
+		return err
+	}
+	for _, e := range escalations {
+		if err = closeEscalation(ctx, tx, e, "cleared", "", "system", "task "+t.Status); err != nil {
+			return err
+		}
+	}
 	if t.Status == "DONE" {
 		if err := dependencyDone(ctx, tx, t); err != nil {
 			return err
