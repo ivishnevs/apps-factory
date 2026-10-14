@@ -378,7 +378,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		return out, drop("not_runnable")
 	}
 	now := tx.now()
-	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,
+	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,
  brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0)
  WHERE id=? AND status='QUEUED'`, protocol.ID(), now.Add(NodeOffline).Unix(), now.Unix(), req.NodeID, req.Epoch, req.ClaimID, req.Slot, now.Add(StartWindow).Unix(), id)
 	if err != nil {
@@ -482,7 +482,7 @@ func (s *Store) StartRun(ctx context.Context, company, id, lease string) (string
 	if token != lease || proto != 2 || status != "RUNNING" && status != "CANCELLING" {
 		return status, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET run_started=? WHERE id=? AND run_started=0", tx.now().Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET run_started=?,last_activity_at=? WHERE id=? AND run_started=0", tx.now().Unix(), tx.now().Unix(), id); err != nil {
 		return "", err
 	}
 	return status, tx.Commit()
@@ -563,11 +563,11 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	listed := map[string]bool{}
 	for _, x := range hb.Inventory {
 		listed[x.RunID] = true
-		var status, rnode string
+		var status, rnode, stopReason string
 		var repoch, started, startedAt, endApplied int64
 		var revoked bool
 		var b []byte
-		err = tx.QueryRowContext(ctx, "SELECT status,node_id,epoch,run_started,started_at,end_applied,revoked,spec FROM runs WHERE company_id=? AND id=?", company, x.RunID).Scan(&status, &rnode, &repoch, &started, &startedAt, &endApplied, &revoked, &b)
+		err = tx.QueryRowContext(ctx, "SELECT status,node_id,epoch,run_started,started_at,end_applied,revoked,spec,stop_reason FROM runs WHERE company_id=? AND id=?", company, x.RunID).Scan(&status, &rnode, &repoch, &started, &startedAt, &endApplied, &revoked, &b, &stopReason)
 		if errors.Is(err, sql.ErrNoRows) || err == nil && (rnode != node || repoch != hb.Epoch) {
 			out.Stop = append(out.Stop, Stop{x.RunID, "unknown_run"})
 			continue
@@ -589,7 +589,9 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		if err = json.Unmarshal(b, &spec); err != nil {
 			return out, err
 		}
-		if started > 0 && spec.TimeoutSeconds > 0 && now.After(time.Unix(started, 0).Add(time.Duration(spec.TimeoutSeconds)*time.Second+TimeoutGrace)) {
+		// elapsed_ms runs on the node's sleep-excluding clock since the claim: a sleeping laptop never
+		// wakes up into a timeout (reliable-recovery D7).
+		if started > 0 && spec.TimeoutSeconds > 0 && time.Duration(x.ElapsedMS)*time.Millisecond > time.Duration(spec.TimeoutSeconds)*time.Second+TimeoutGrace {
 			if err = endLost(ctx, tx, x.RunID, "UNKNOWN", "timed_out: still running past timeout_seconds + 60 s grace; inspect workspace before reconciliation"); err != nil {
 				return out, err
 			}
@@ -604,8 +606,11 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		if _, err = tx.ExecContext(ctx, "UPDATE runs SET lease_until=?,start_by="+startBy+" WHERE id=?", now.Add(NodeOffline).Unix(), x.RunID); err != nil {
 			return out, err
 		}
-		if status == "CANCELLING" || revoked {
+		switch {
+		case status == "CANCELLING" || revoked:
 			out.Stop = append(out.Stop, Stop{x.RunID, "revoked"})
+		case stopReason != "":
+			out.Stop = append(out.Stop, Stop{x.RunID, stopReason})
 		}
 	}
 	// A started run of this epoch the node no longer lists is lost.

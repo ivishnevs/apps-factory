@@ -131,7 +131,7 @@ func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after in
 
 // ActiveRuns lists runs that are queued, running, cancelling or awaiting reconciliation (UNKNOWN).
 func (s *Store) ActiveRuns(ctx context.Context, company string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage FROM runs WHERE company_id=? AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN') ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN') ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (s *Store) ActiveRuns(ctx context.Context, company string) ([]Run, error) {
 	for rows.Next() {
 		var r Run
 		var b []byte
-		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage); err != nil {
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(b, &r.Spec); err != nil {

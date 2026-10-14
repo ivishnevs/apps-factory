@@ -236,7 +236,7 @@ func reconcileArtifactTasks(ctx context.Context, tx *Tx) error {
 			if reason == "" && valid {
 				continue
 			}
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=? AND status='QUEUED'", tx.now().Unix(), t.CurrentRunID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome='stale',finished_at=? WHERE id=? AND status='QUEUED'", tx.now().Unix(), t.CurrentRunID); err != nil {
 				return err
 			}
 			if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {

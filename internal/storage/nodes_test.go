@@ -265,7 +265,8 @@ func TestStartAndHeartbeat(t *testing.T) {
 	}
 }
 
-// TestTimedOutRun: a started run listed past timeout + grace ends UNKNOWN and is stopped.
+// TestTimedOutRun: a started run listed past timeout + grace on the node's sleep-excluding clock
+// (elapsed_ms) ends UNKNOWN timed_out and is stopped; wall-clock time the host slept does not count.
 func TestTimedOutRun(t *testing.T) {
 	s, fake := clockStore(t)
 	ctx := context.Background()
@@ -278,19 +279,28 @@ func TestTimedOutRun(t *testing.T) {
 	if _, err = s.StartRun(ctx, DefaultCompany, "r", c.Lease); err != nil {
 		t.Fatal(err)
 	}
-	for range 366 { // 3600 s timeout + 60 s grace, beating every 10 s
-		fake.Advance(10 * time.Second)
-		if a, err := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Inventory: []InventoryRun{{RunID: "r", State: "running"}}}); err != nil || len(a.Stop) != 0 {
-			t.Fatal(a, err)
+	beat := func(elapsed time.Duration) HeartbeatAnswer {
+		t.Helper()
+		a, err := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Inventory: []InventoryRun{{RunID: "r", State: "running", ElapsedMS: elapsed.Milliseconds()}}})
+		if err != nil {
+			t.Fatal(err)
 		}
+		return a
 	}
-	fake.Advance(10 * time.Second)
-	a, err := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Inventory: []InventoryRun{{RunID: "r", State: "running"}}})
-	if err != nil || len(a.Stop) != 1 || a.Stop[0].Reason != "timed_out" {
-		t.Fatal(a, err)
+	fake.Advance(2 * time.Hour) // the laptop slept: the node's clock did not advance
+	if a := beat(time.Minute); len(a.Stop) != 0 {
+		t.Fatal("sleep counted as run time", a)
 	}
-	if st, res, _, _ := runRow(t, s, "r"); st != "UNKNOWN" || !strings.HasPrefix(res, "timed_out") {
-		t.Fatal(st, res)
+	if a := beat(time.Hour + TimeoutGrace); len(a.Stop) != 0 {
+		t.Fatal("stopped within the grace", a)
+	}
+	a := beat(time.Hour + TimeoutGrace + time.Second)
+	if len(a.Stop) != 1 || a.Stop[0].Reason != "timed_out" {
+		t.Fatal(a)
+	}
+	r, _ := s.Get(ctx, DefaultCompany, "r")
+	if r.Status != "UNKNOWN" || !strings.HasPrefix(r.Result, "timed_out") || r.Outcome != "timed_out" {
+		t.Fatalf("%+v", r)
 	}
 }
 

@@ -286,6 +286,9 @@ func (c *Core) maintain(ctx context.Context) error {
 	if err := c.Store.ExpireNodes(ctx, c.company()); err != nil {
 		return err
 	}
+	if _, err := c.Store.StopIdle(ctx, c.company()); err != nil {
+		return err
+	}
 	if err := c.Store.ExpirePauses(ctx, c.company()); err != nil {
 		return err
 	}

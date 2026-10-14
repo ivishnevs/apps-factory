@@ -78,6 +78,18 @@ Optional fields; workers and Cores that do not know them ignore them.
   (`factory projects create ID WORKSPACE --repo URL --branch BRANCH`, `PATCH /projects/{id}`). Core sets
   `workspace_mode` only when the project has `repo_url`; otherwise the run keeps the shared workspace.
 - `GET /runs/{id}` and task attempts return `usage`; `factory show` prints tokens and the runtime's cost estimate.
+- `Event.outcome` (reliable-recovery D1), on terminal events only: how the run ended when the status does not
+  say it — `failed`, `timed_out`, `idle_timeout`, `max_turns`, `setup_failed` or `paused_out`; other values
+  are refused (`lost`, `revoked`, `stale`, `unclaimed`, `succeeded` and `no_exit` are Core's). A failure
+  outcome (`failed`, `timed_out`, `idle_timeout`, `max_turns`, `setup_failed`) on a `CANCELLED` event ends the
+  run `FAILED`, so a worker that interrupts its own run on a hard timeout reports
+  `{status: CANCELLED, outcome: timed_out}` and the task fails retryably instead of being cancelled. Without
+  an outcome Core derives one from the status and result (see task-lifecycle.md, Run outcomes).
+- Idle stop: a started run without any applied event for 30 minutes (judged after a full window of
+  continuous Core ticking, so a host sleep does not count) is asked to stop — v1: `{"cancel": true}` in the
+  per-run heartbeat answer, v2: heartbeat `stop` with reason `idle_timeout`. The worker interrupts it as for
+  a cancel; its `CANCELLED` end is recorded `FAILED` with outcome `idle_timeout`, and the task is not
+  cancelled.
 
 ### Usage and quota sources
 

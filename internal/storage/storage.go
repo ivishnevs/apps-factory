@@ -69,6 +69,8 @@ type Run struct {
 	Result     string           `json:"result"`
 	// Usage is the last cumulative usage the worker reported (runtime-drivers 2.5).
 	Usage UsageList `json:"usage,omitempty"`
+	// Outcome is how the run ended (reliable-recovery D1); empty while it is live.
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // UsageList is runs.usage: JSON of the last reported Event.usage, empty when none.
@@ -164,7 +166,7 @@ func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) 
 func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	var r Run
 	var b []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage)
+	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -175,7 +177,7 @@ func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	return r, err
 }
 func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage FROM runs WHERE company_id=? ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +186,7 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 	for rows.Next() {
 		var r Run
 		var b []byte
-		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage); err != nil {
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(b, &r.Spec); err != nil {
@@ -236,7 +238,7 @@ func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
 		return "", ErrConflict
 	}
 	token := protocol.ID()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0) WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0) WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
 	if err != nil {
 		return "", err
 	}
@@ -259,8 +261,9 @@ func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool,
 	if n != 1 {
 		return false, ErrConflict
 	}
-	r, err := s.Get(ctx, company, id)
-	return r.Status == "CANCELLING", err
+	var status, stopReason string
+	err = s.DB.QueryRowContext(ctx, "SELECT status,stop_reason FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &stopReason)
+	return status == "CANCELLING" || stopReason != "", err
 }
 
 // Pending and Sent drive the outbox publisher, which serves every company.
@@ -310,8 +313,8 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	if exists > 0 {
 		return nil
 	}
-	var token, status string
-	if err = tx.QueryRowContext(ctx, "SELECT lease,status FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status); err != nil {
+	var token, status, stopReason string
+	if err = tx.QueryRowContext(ctx, "SELECT lease,status,stop_reason FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status, &stopReason); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: unknown run", ErrInvalid)
 		}
@@ -319,6 +322,9 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	}
 	if token == "" || token != p.Lease {
 		return ErrConflict
+	}
+	if p.Outcome != "" && (p.Status == "" || !workerOutcomes[p.Outcome]) {
+		return fmt.Errorf("%w: outcome %q", ErrInvalid, p.Outcome)
 	}
 	p.Data = openspec.AuditData(p.Data)
 	e.Payload, err = json.Marshal(p)
@@ -344,7 +350,13 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 			if p.Status != "COMPLETED" && p.Status != "FAILED" && p.Status != "CANCELLED" && p.Status != "UNKNOWN" {
 				return fmt.Errorf("invalid terminal status")
 			}
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=? WHERE id=?", p.Status, p.Result, tx.now().Unix(), p.RunID); err != nil {
+			next, result, outcome := endStatus(status, stopReason, p)
+			// An empty outcome lets the run_outcome trigger derive it (also for late evidence on UNKNOWN).
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status=?,result=?,finished_at=? WHERE id=?", outcome, next, result, tx.now().Unix(), p.RunID); err != nil {
+				return err
+			}
+		} else if status != "UNKNOWN" {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET last_activity_at=? WHERE id=?", tx.now().Unix(), p.RunID); err != nil {
 				return err
 			}
 		}
@@ -371,6 +383,30 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	}
 	return tx.Commit()
 }
+
+// workerOutcomes are the outcomes a worker may report on a terminal event; the others are Core's.
+var workerOutcomes = map[string]bool{"failed": true, "timed_out": true, "idle_timeout": true, "max_turns": true, "setup_failed": true, "paused_out": true}
+
+// failureOutcomes end a run FAILED even when the worker reports it CANCELLED: the runtime was stopped for
+// a reason of the run itself, not by an owner, so the task must not be cancelled.
+var failureOutcomes = map[string]bool{"failed": true, "timed_out": true, "idle_timeout": true, "max_turns": true, "setup_failed": true}
+
+// endStatus is the status, result and outcome a terminal event gives a live (or UNKNOWN) run. A run Core
+// stopped for inactivity (stop_reason idle_timeout) that the worker reports CANCELLED ended idle_timeout.
+func endStatus(current, stopReason string, p protocol.Event) (status, result, outcome string) {
+	status, result, outcome = p.Status, p.Result, p.Outcome
+	if current == "RUNNING" && stopReason == "idle_timeout" && p.Status == "CANCELLED" && outcome == "" {
+		outcome = "idle_timeout"
+		if result == "" {
+			result = "idle_timeout: no runtime activity for " + IdleTimeout.String() + "; stopped by Core"
+		}
+	}
+	if status == "CANCELLED" && failureOutcomes[outcome] {
+		status = "FAILED"
+	}
+	return status, result, outcome
+}
+
 func (s *Store) Events(ctx context.Context, company, id string) ([]protocol.Envelope, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT body FROM events WHERE company_id=? AND run_id=? ORDER BY seq", company, id)
 	if err != nil {

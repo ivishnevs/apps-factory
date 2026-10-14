@@ -61,7 +61,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 }
 
 func blockOpenSpecRun(ctx context.Context, tx *Tx, id, taskID, reason string) error {
-	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, tx.now().Unix(), id); e != nil {
+	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome='stale',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, tx.now().Unix(), id); e != nil {
 		return e
 	}
 	if e := autoRuntimeReport(ctx, tx, id); e != nil {

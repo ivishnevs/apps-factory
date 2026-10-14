@@ -187,7 +187,9 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   the runtime may still have acted). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
   records `end_applied`). Started runs of this epoch missing from the inventory for more than 30 s after
   `/start` end UNKNOWN (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
-  `critical`. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
+  `critical`. `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
+  Idle stop). `timed_out` is judged on the entry's `elapsed_ms` (the node's sleep-excluding clock since the
+  claim), never on Core's wall clock. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
   most 30 answers (the node retries a busy worktree from the next listing).
 - **Lost runs** (§10.2): a new epoch, an offline node (no heartbeat or claim for 60 s of continuous ticking)
   or an expired lease end the node's unstarted runs FAILED `lost: not started (…)`, retryable like a known

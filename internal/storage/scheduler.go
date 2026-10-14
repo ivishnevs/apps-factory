@@ -208,7 +208,7 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string, knownFailure bool) e
 	return closedTask(ctx, tx, t)
 }
 func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at,r.usage FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
+	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at,r.usage,r.outcome FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error)
 	for rows.Next() {
 		var r Run
 		var b []byte
-		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage); err != nil {
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(b, &r.Spec); err != nil {

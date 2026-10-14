@@ -72,6 +72,23 @@ After workspace inspection use runs resolve; COMPLETED submits for review, FAILE
 ready decision to the owner, CANCELLED ends the task. Reconciliation is audited and does not itself
 allow automatic retry. Late trustworthy terminal evidence may resolve UNKNOWN before manual resolution.
 
+### Run outcomes
+
+Every ended run records one outcome next to its status (`outcome` in run reads and task attempts,
+`STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded` (COMPLETED), `failed`,
+`setup_failed` (OpenSpec preflight, skills or `workspace_diverged` before the runtime started),
+`timed_out`, `idle_timeout`, `max_turns`, `paused_out` (reported by the worker), `lost` (lease, start
+window or node lost; UNKNOWN and FAILED `lost: not started`), `revoked` (cancel, kill switch) and `stale`
+(a queued run cancelled by a claim-time check). The `run_outcome` trigger derives it unless the code that
+ended the run set one; late terminal evidence on an UNKNOWN run replaces `lost`, an owner's
+`runs resolve` does not. Scheduling still follows the status: outcomes do not retry anything yet
+(automatic retry waits for the owner's decision). The attempt/backoff/budget flags of each outcome are
+`storage.Outcomes`.
+
+The hang detector stops a started run that has had no event for 30 minutes (see runtime-protocol.md, Idle
+stop): it ends FAILED `idle_timeout`, a known failure, and its task is not cancelled. A worker's own
+timeout reported as `outcome: timed_out` is handled the same way.
+
 Task cancellation cancels a queued run immediately or sets CANCELLING for heartbeat-driven runtime
 interruption. Writer reservation remains until a known terminal result. UNKNOWN still requires
 reconciliation even when cancellation was requested. Calling runs cancel for a task-linked run also

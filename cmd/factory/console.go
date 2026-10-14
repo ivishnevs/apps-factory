@@ -133,7 +133,11 @@ func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
 			if len(result) > 80 {
 				result = result[:80] + "…"
 			}
-			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\t%s\n", i+1, a.Spec.ID, a.Status, usageText(a.Usage), result)
+			status := a.Status
+			if a.Outcome != "" {
+				status += "/" + a.Outcome
+			}
+			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\t%s\n", i+1, a.Spec.ID, status, usageText(a.Usage), result)
 		}
 		if err = tw.Flush(); err != nil {
 			return err

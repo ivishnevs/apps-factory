@@ -76,6 +76,10 @@ type Event struct {
 	// Quota reports that the runtime hit its subscription limit; Core pauses the agent's quota key
 	// until ResetsAt.
 	Quota *Quota `json:"quota,omitempty"`
+	// Outcome, on a terminal event, names how the run ended when the status alone does not
+	// (reliable-recovery D1): failed, timed_out, idle_timeout, max_turns, setup_failed or paused_out.
+	// A failure outcome on a CANCELLED event makes the run FAILED: the task is not cancelled.
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // Usage is cumulative token use of one model in a run (runtime-drivers 2.5).
