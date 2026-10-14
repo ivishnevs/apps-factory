@@ -375,15 +375,21 @@ func (c *Core) Schedule(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	now := c.Store.Now().Unix()
 	for _, t := range ready {
-		if t.NotBefore > now { // automatic retry or a wait exit
+		// The dispatcher and why share one decision (trigger-log-scheduling D3): only a runnable verdict
+		// dispatches (backoff, pauses, parks, dependencies, capacity and an idle task without new input wait).
+		snap, err := c.Store.TaskSnapshot(ctx, company, t.ID)
+		if err != nil {
+			return err
+		}
+		if v := c.evaluate(snap); v.Reason != tasks.ReasonRunnable {
 			continue
 		}
-		if err = c.dispatchTask(ctx, company, t, false); err != nil {
+		if err = c.dispatchTask(ctx, company, snap.Task, false); err != nil {
 			return err
 		}
 	}
+	now := c.Store.Now().Unix()
 	if !c.ExplicitExits {
 		return nil
 	}
