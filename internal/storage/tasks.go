@@ -139,9 +139,12 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
 		if err := validReviewPolicy(p.ReviewAfterConflicts); err != nil {
 			return p, err
+		}
+		if len(p.Rules) > MaxRules {
+			return p, inputError("rules up to 8 KiB")
 		}
 		if err := validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err
@@ -175,6 +178,12 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 		}
 		if in.DefaultBranch != nil {
 			p.DefaultBranch = *in.DefaultBranch
+		}
+		if in.Rules != nil {
+			if len(*in.Rules) > MaxRules {
+				return p, inputError("rules up to 8 KiB")
+			}
+			p.Rules = *in.Rules
 		}
 		if in.ReviewAfterConflicts != nil {
 			if err = validReviewPolicy(*in.ReviewAfterConflicts); err != nil {
@@ -690,4 +699,32 @@ func validReviewPolicy(v string) error {
 		return nil
 	}
 	return inputError("review_after_conflicts must be agent_decides or required")
+}
+
+// MaxRules bounds company and project rules (they go into every brief).
+const MaxRules = 8 * 1024
+
+// CompanyRules returns the company's rules.
+func (s *Store) CompanyRules(ctx context.Context, company string) (string, error) {
+	var rules string
+	err := s.DB.QueryRowContext(ctx, "SELECT rules FROM companies WHERE id=?", company).Scan(&rules)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return rules, err
+}
+
+// SetCompanyRules replaces the company's rules.
+func (s *Store) SetCompanyRules(ctx context.Context, company, rules string) error {
+	if len(rules) > MaxRules {
+		return inputError("rules up to 8 KiB")
+	}
+	res, err := s.DB.ExecContext(ctx, "UPDATE companies SET rules=? WHERE id=?", rules, company)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrNotFound
+	}
+	return nil
 }

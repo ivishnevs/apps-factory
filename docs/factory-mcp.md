@@ -14,6 +14,7 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 | --- | --- | --- |
 | factory_project_get | factory.project.get | Current project |
 | factory_agent_list | factory.agent.list | Agent name/role/capabilities |
+| factory_settings_get | factory.settings.get | Company or project rules (`scope: company|project`), read-only, the run's own company and project |
 | factory_task_get / factory_task_list | factory.task.get / factory.task.list | Current project's tasks |
 | factory_task_create | factory.task.create | BACKLOG; requires can_create_tasks |
 | factory_task_update | factory.task.update | Metadata/dependencies with version |

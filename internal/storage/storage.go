@@ -155,7 +155,7 @@ func (s *Store) CreateCompany(ctx context.Context, id, name string) error {
 	if !entityName.MatchString(id) || strings.TrimSpace(name) == "" {
 		return inputError("company requires valid id and name")
 	}
-	_, err := s.DB.ExecContext(ctx, "INSERT INTO companies VALUES(?,?,?)", id, name, s.Now().Unix())
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", id, name, s.Now().Unix())
 	return constraint(err)
 }
 func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) error {

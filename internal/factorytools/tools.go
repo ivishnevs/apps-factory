@@ -26,6 +26,7 @@ func Definitions() []Tool {
 		out = append(out, Tool{"factory_" + name, "Factory: " + description, map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}, "factory." + op})
 	}
 	add("project_get", "project.get", "Read the current project (identity comes from the run).", map[string]any{})
+	add("settings_get", "settings.get", "Read the company or project rules (conventions, standing facts, fixed decisions); the brief carries them too.", map[string]any{"scope": map[string]any{"type": "string", "enum": []string{"company", "project"}}}, "scope")
 	add("agent_list", "agent.list", "List available agent names, roles and task capabilities.", map[string]any{})
 	add("task_get", "task.get", "Read a task in this project, including dependencies and submission.", map[string]any{"id": s()}, "id")
 	add("task_list", "task.list", "List tasks in this project, optionally filtered by status.", map[string]any{"status": s()})

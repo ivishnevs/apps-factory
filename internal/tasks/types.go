@@ -16,6 +16,8 @@ type Project struct {
 	// ReviewAfterConflicts (task-worktrees D7): "required" makes done refuse a pull request whose head moved
 	// after the approval (a new submit and approval first); "agent_decides" (default) leaves it to the agent.
 	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
+	// Rules are the project's standing conventions, facts and fixed decisions, carried by every brief.
+	Rules string `json:"rules,omitempty"`
 }
 type Artifact struct {
 	ID      string `json:"id"`
@@ -85,6 +87,7 @@ type ProjectCreate struct {
 	RepoURL              string `json:"repo_url,omitempty"`
 	DefaultBranch        string `json:"default_branch,omitempty"`
 	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
+	Rules                string `json:"rules,omitempty"`
 }
 type ProjectUpdate struct {
 	Version     int    `json:"version"`
@@ -95,6 +98,7 @@ type ProjectUpdate struct {
 	RepoURL              *string `json:"repo_url,omitempty"`
 	DefaultBranch        *string `json:"default_branch,omitempty"`
 	ReviewAfterConflicts *string `json:"review_after_conflicts,omitempty"`
+	Rules                *string `json:"rules,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

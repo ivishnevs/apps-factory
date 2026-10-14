@@ -42,6 +42,20 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		v, err := c.Store.UpdateProject(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
+	m.HandleFunc("GET /settings/company", func(w http.ResponseWriter, r *http.Request) {
+		rules, err := c.Store.CompanyRules(r.Context(), c.companyFrom(r))
+		reply(w, map[string]string{"scope": "company", "rules": rules}, err)
+	})
+	m.HandleFunc("PUT /settings/company", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Rules string `json:"rules"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		err := c.Store.SetCompanyRules(r.Context(), c.companyFrom(r), p.Rules)
+		reply(w, map[string]string{"scope": "company", "rules": p.Rules}, err)
+	})
 	m.HandleFunc("GET /projects/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.EntityEvents(r.Context(), c.companyFrom(r), r.PathValue("id"), "")
 		reply(w, v, err)
@@ -493,6 +507,13 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	}
 	if t.ReviewFeedback != "" {
 		fmt.Fprintf(&prompt, "Previous review feedback: %s\n", t.ReviewFeedback)
+	}
+	// Standing rules: conventions, facts and fixed decisions (factory_settings_get reads them again).
+	if rules, err := c.Store.CompanyRules(ctx, company); err == nil && strings.TrimSpace(rules) != "" {
+		fmt.Fprintf(&prompt, "Company rules:\n%s\n", strings.TrimSpace(rules))
+	}
+	if p, err := c.Store.Project(ctx, company, t.ProjectID); err == nil && strings.TrimSpace(p.Rules) != "" {
+		fmt.Fprintf(&prompt, "Project rules:\n%s\n", strings.TrimSpace(p.Rules))
 	}
 	// Comments since the task's last run (non-authority comments wake nothing; the brief carries them).
 	var since int64

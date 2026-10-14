@@ -288,6 +288,9 @@ cancellation.
   A QUEUED run ends at once; a RUNNING run is asked to stop through its heartbeat. A revoked run that ends
   CANCELLED returns its task to READY instead of cancelling it (a turn that completes first is submitted as
   usual; a task the owner cancelled stays cancelled). `factory start` resumes the company.
+- `factory rules company|PROJECT [TEXT|-]` shows or replaces standing rules (conventions, facts, fixed decisions;
+  `GET|PUT /settings/company`, project `rules` in `PATCH /projects/{id}`, up to 8 KiB each). Every brief carries
+  them; agents reread them with `factory_settings_get`.
 - `factory pending` (`GET /pending/count`): inbox items, pending approvals, active stall alerts, runs to inspect,
   tasks in review, and their total.
 - `factory answer MESSAGE_ID TEXT` answers a question without a structured form; `factory approve|reject

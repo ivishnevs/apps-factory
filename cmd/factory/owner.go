@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 
@@ -65,6 +67,46 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		}
 	case "pending":
 		if err := api.Do(ctx, "GET", "/pending/count", nil, &result); err != nil {
+			return err
+		}
+	case "rules":
+		// factory rules company|PROJECT [TEXT|-]: show or replace standing rules ("-" reads stdin, "" clears).
+		if len(args) < 2 || len(args) > 3 {
+			return fmt.Errorf("rules company|PROJECT [TEXT|-]")
+		}
+		path, set := "/projects/"+url.PathEscape(args[1]), len(args) == 3
+		if args[1] == "company" {
+			path = "/settings/company"
+		}
+		if !set {
+			if err := api.Do(ctx, "GET", path, nil, &result); err != nil {
+				return err
+			}
+			break
+		}
+		text := args[2]
+		if text == "-" {
+			b, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return err
+			}
+			text = string(b)
+		}
+		if args[1] == "company" {
+			if err := api.Do(ctx, "PUT", path, map[string]any{"rules": text}, &result); err != nil {
+				return err
+			}
+			break
+		}
+		var p struct {
+			Version     int    `json:"version"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		if err := api.Do(ctx, "GET", path, nil, &p); err != nil {
+			return err
+		}
+		if err := api.Do(ctx, "PATCH", path, map[string]any{"version": p.Version, "name": p.Name, "description": p.Description, "rules": text}, &result); err != nil {
 			return err
 		}
 	case "abandon-branch":

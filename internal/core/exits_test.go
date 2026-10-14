@@ -508,3 +508,29 @@ func TestProgressNeedsAnExitThatMoves(t *testing.T) {
 		t.Fatalf("submit is progress: %+v", got)
 	}
 }
+
+// TestRulesInBriefAndSettingsGet: company and project rules reach the brief and factory_settings_get.
+func TestRulesInBriefAndSettingsGet(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	if w := h.do(h.c.Token, "PUT", "/settings/company", map[string]any{"rules": "Prices in EUR."}, nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	p, _ := h.s.Project(ctx, storage.DefaultCompany, "notes")
+	rules := "Metric units only."
+	if _, err := h.s.UpdateProject(ctx, storage.DefaultCompany, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Rules: &rules}); err != nil {
+		t.Fatal(err)
+	}
+	h.create("ru", "notes", "demo")
+	r := h.start("ru")
+	run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id)
+	if !strings.Contains(run.Spec.Prompt, "Company rules:\nPrices in EUR.") || !strings.Contains(run.Spec.Prompt, "Project rules:\nMetric units only.") {
+		t.Fatal(run.Spec.Prompt)
+	}
+	for scope, want := range map[string]string{"company": "Prices in EUR.", "project": "Metric units only."} {
+		w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_settings_get", Arguments: map[string]any{"scope": scope}}, nil)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), want) {
+			t.Fatal(scope, w.Code, w.Body.String())
+		}
+	}
+}

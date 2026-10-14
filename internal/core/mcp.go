@@ -377,6 +377,21 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		write(w, c.Skills.Entries(available, q, category))
 		return
 	}
+	if p.Name == "factory_settings_get" {
+		// Read-only, for the run's own company and project only.
+		scope, _ := args["scope"].(string)
+		switch scope {
+		case "company":
+			rules, err := c.Store.CompanyRules(r.Context(), c.companyFrom(r))
+			reply(w, map[string]string{"scope": scope, "rules": rules}, err)
+		case "project":
+			project, err := c.Store.Project(r.Context(), c.companyFrom(r), run.Spec.Project)
+			reply(w, map[string]string{"scope": scope, "project": project.ID, "rules": project.Rules}, err)
+		default:
+			http.Error(w, "scope must be company or project", 400)
+		}
+		return
+	}
 	if p.Name == "factory_agent_list" {
 		out := []map[string]any{}
 		for _, name := range config.Names(c.Agents) {
