@@ -7,3 +7,7 @@ skills:
     path: skills/mobile-app-testing/SKILL.md
     description: Drive and verify iOS and Android apps without the host UI - debug launch arguments, deep links, UI tests by accessibility identifier.
     categories: [mobile, ios, android, testing]
+  task-pull-request:
+    path: skills/task-pull-request/SKILL.md
+    description: Finish a code task through its pull request - submit, update from the default branch after approval, gh pr merge, then exit done.
+    categories: [git, review]

@@ -18,7 +18,7 @@ spec:
     timeout: 5m
     max_retries: 0
   skills:
-    include: [openspec]
+    include: [openspec, task-pull-request]
   communication:
     can_message: [manager, owner]
   policies: [engineering]

@@ -50,18 +50,19 @@ pidfile, so a second run of the same task waits, and later runs of the task cont
   sealed as that run's work before the next run, or at node start.
 - Start check (under the lock, before the runtime starts): HEAD at `sealed_head` starts the run, after a
   fast-forward when `origin/<branch>` is strictly ahead; a HEAD changed outside any run, or uncommitted changes that
-  block the fast-forward, end the run FAILED with `workspace_diverged` before the runtime starts (Core's escalation
-  is pending); a missing worktree is recreated from the local, else remote, else default branch.
+  block the fast-forward, end the run FAILED with `workspace_diverged` before the runtime starts and Core opens the
+  `workspace_diverged` escalation (answered by a reset); a missing worktree is recreated from the local, else remote, else default branch.
 - Reset: `factory-node workspace reset -task ID` (node side of reset-workspace) seals, removes and recreates the
   worktree from the remote or default branch, keeps the abandoned local state on `refs/factory/reset/<task>` and
-  forgets the task's sessions so the next run starts fresh. The Core action, unpinning and the
-  `pinned_node_unavailable` escalation are pending.
+  forgets the task's sessions so the next run starts fresh. Core sends the same reset to the node in the v2
+  heartbeat answer (escalation answers, `pinned_node_unavailable`).
 - Janitor (node): for each task in Core's `cleanup` list (v2 heartbeat answer) it takes the worktree lock, seals,
   runs the `on_task_closed` hooks and removes the worktree and its scratch directory; the branch, the WIP ref and
   the clone stay. `on_run_stop` hooks run after every run, `prune` entries periodically and at low disk.
 - Pushing the task branch and opening its pull request happen only through explicit exits (`factory_exit_*`, behind
-  `FACTORY_EXPLICIT_EXITS`); see [explicit exits](explicit-exits-contract.md). Node pinning of tasks with unpushed
-  or sealed work is enforced at claim by `node-agent` (pending).
+  `FACTORY_EXPLICIT_EXITS`); see [explicit exits](explicit-exits-contract.md). The implementing agent merges the
+  approved pull request itself (`gh pr merge`, skill `task-pull-request`). Tasks with unpushed work are pinned to
+  their node at claim.
 
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
 Worker events carry the Core lease. Core atomically persists an event and updates the run,
