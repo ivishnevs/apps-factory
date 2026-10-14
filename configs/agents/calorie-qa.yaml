@@ -5,6 +5,10 @@ metadata:
   description: Independent product and release verification
 spec:
   extends: developer
+  # Claude (E2E covers both runtimes: manager and iOS developer run on Codex).
+  runtime:
+    provider: claude
+    model: default
   role: qa
   prompt:
     file: prompts/calorie-qa.md

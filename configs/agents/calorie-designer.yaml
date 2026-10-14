@@ -5,6 +5,10 @@ metadata:
   description: Minimalist iOS product designer
 spec:
   extends: developer
+  # Claude (E2E covers both runtimes: manager and iOS developer run on Codex).
+  runtime:
+    provider: claude
+    model: default
   role: designer
   prompt:
     file: prompts/calorie-designer.md

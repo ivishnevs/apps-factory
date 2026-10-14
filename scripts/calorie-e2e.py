@@ -11,8 +11,10 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-PROJECT = 'calorie-calculator'
-STATE = ROOT / '.cache/calorie-e2e/state.json'
+PROJECT = os.environ.get('E2E_PROJECT', 'calorie-calculator')
+# Each project keeps its own state; request ids carry the project so a second run is not a replay.
+STATE = ROOT / ('.cache/calorie-e2e/state.json' if PROJECT == 'calorie-calculator' else '.cache/' + PROJECT + '/state.json')
+SUFFIX = '' if PROJECT == 'calorie-calculator' else '-' + PROJECT
 BASE = os.environ.get('FACTORY_URL', 'http://127.0.0.1:8080').rstrip('/')
 
 def api(method, path, body=None):
@@ -44,14 +46,14 @@ def start():
     assert project['workspace'] == str(workspace), 'Existing project uses another workspace'
     state['workspace'] = str(workspace)
     if 'conversation_id' not in state:
-        conv = api('POST', '/conversations', {'id': 'calorie-owner-dialog', 'project_id': PROJECT,
-            'agent': 'calorie-manager', 'title': 'Calorie calculator — owner and autonomous manager', 'request_id': 'calorie-owner-dialog-v1'})
+        conv = api('POST', '/conversations', {'id': 'calorie-owner-dialog' + SUFFIX, 'project_id': PROJECT,
+            'agent': 'calorie-manager', 'title': 'Calorie calculator — owner and autonomous manager', 'request_id': 'calorie-owner-dialog-v1' + SUFFIX})
         state['conversation_id'] = conv['id']
         save(state)
     if 'kickoff_message_id' not in state:
         message = api('POST', '/conversations/' + state['conversation_id'] + '/messages', {
             'body': 'Start delivery of the calorie calculator. Read PROJECT_BRIEF.md in the workspace for the full owner brief and release gate. We want a clean, minimalist but stylish native iOS interface and a production-quality application, with real builds/tests/QA and release materials. IMPORTANT owner correction: dedicated accessibility work/audit/tests are deferred and are NOT a gate for this test. You have delegated product, design, technical and quality authority; make normal decisions yourself without asking me clarifying questions. Work with calorie-designer, calorie-ios and calorie-qa. Use OpenSpec, the decision registry and Factory tasks. Create and make-ready the first specialist task now, and answer this message with the initial plan. Continue the whole delivery through team review notifications, create follow-up tasks yourself, handle developer questions independently and have QA independently verify actual implementation. Do not ask the owner to manually advance stages. Finish each turn to release the single writer. Publication/uploads/purchases and production credentials are outside this local assignment; prepare everything locally and document exact external prerequisites honestly. Deliver docs/RELEASE_READINESS.md with actual evidence and READY/NOT_READY assessment. Do not fake test questions/defects or successful checks. Begin now.',
-            'request_id': 'calorie-kickoff-v1'})
+            'request_id': 'calorie-kickoff-v1' + SUFFIX})
         state['kickoff_message_id'] = message['id']
         save(state)
     print(json.dumps(state, indent=2, ensure_ascii=False), flush=True)
