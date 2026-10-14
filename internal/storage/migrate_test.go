@@ -103,6 +103,7 @@ func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 var downs = map[int][]string{
 	9:  {"DROP TABLE feed_events"},
 	10: {"DROP TABLE task_triggers", "DROP TABLE task_parks", "ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq", "ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to"},
+	22: {"ALTER TABLE workspaces DROP COLUMN abandon_branch"},
 	21: {"ALTER TABLE outbox DROP COLUMN attempts", "ALTER TABLE outbox DROP COLUMN next_at", "ALTER TABLE outbox DROP COLUMN last_error"},
 	20: {"ALTER TABLE workspaces DROP COLUMN unpushed", "ALTER TABLE nodes DROP COLUMN worktrees",
 		"CREATE UNIQUE INDEX project_writer ON runs(project) WHERE status IN ('QUEUED','RUNNING','CANCELLING') OR (status='UNKNOWN' AND released=0)"},

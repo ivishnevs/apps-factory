@@ -67,6 +67,13 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		if err := api.Do(ctx, "GET", "/pending/count", nil, &result); err != nil {
 			return err
 		}
+	case "abandon-branch":
+		if len(args) != 2 {
+			return fmt.Errorf("abandon-branch TASK")
+		}
+		if err := api.Do(ctx, "POST", "/tasks/"+url.PathEscape(args[1])+"/abandon-branch", nil, &result); err != nil {
+			return err
+		}
 	case "direct":
 		// factory direct TASK TEXT... [--urgent]: an owner directive (authority input) to a task.
 		urgent := len(args) > 0 && args[len(args)-1] == "--urgent"

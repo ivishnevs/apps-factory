@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
@@ -68,5 +70,62 @@ func TestParallelWorktreeTasks(t *testing.T) {
 	}
 	if _, err = s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: "r-e", Project: "app", Agent: "dev-e", Provider: protocol.RuntimeCodex}); !errors.Is(err, ErrConflict) {
 		t.Fatal("shared task dispatched while the project workspace is in use", err)
+	}
+}
+
+// TestPinnedTask: unpushed work pins the task to its node; another node waits (retry pinned). When the node
+// stays offline past PinTimeout the task escalates pinned_node_unavailable, and reset_workspace unpins it.
+func TestPinnedTask(t *testing.T) {
+	s, fake := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "app", Name: "app", Workspace: "/tmp/pin-app", RepoURL: "https://example.com/app.git"}); err != nil {
+		t.Fatal(err)
+	}
+	register(t, s, "n1", 1, func(r *NodeRegistration) { r.Worktrees = true })
+	register(t, s, "n2", 1, func(r *NodeRegistration) { r.Worktrees = true })
+	v, _ := s.CreateTask(ctx, co, tasks.Create{ID: "t", ProjectID: "app", Title: "t", Assignee: "dev", Ready: true, RequestID: "c"})
+	first, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: "r1", Project: "app", Agent: "dev", Provider: protocol.RuntimeCodex, ConfigSnapshot: []byte(`{"spec":{"workspace":{"mode":"worktree"}}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := claimV2(s, first.ID, "n1", 1, "1-0-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ReportWorkspace(ctx, co, first.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n1", Unpushed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err = end(t, s, first.ID, c.Lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	fake.Advance(time.Hour) // past the retry backoff
+	v, _ = s.Task(ctx, co, "t")
+	second, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: "r2", Project: "app", Agent: "dev", Provider: protocol.RuntimeCodex, ConfigSnapshot: []byte(`{"spec":{"workspace":{"mode":"worktree"}}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused(t, func() error { _, err := claimV2(s, second.ID, "n2", 1, "1-0-2"); return err }(), true, "pinned")
+	if want, _ := s.PinnedUnavailable(ctx, co); len(want) != 0 {
+		t.Fatal("n1 is online", want)
+	}
+	// n1 goes silent.
+	fake.Advance(NodeOffline + time.Second)
+	_ = s.ExpireNodes(ctx, co)
+	fake.Advance(PinTimeout)
+	want, err := s.PinnedUnavailable(ctx, co)
+	if err != nil || len(want) != 1 || want[0].TaskID != "t" || want[0].RefID != "n1" {
+		t.Fatal(want, err)
+	}
+	if err = s.SyncEscalations(ctx, co, "pinned_node_unavailable", want); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := s.Escalations(ctx, co, true)
+	q, _ := s.Message(ctx, co, open[0].MessageID)
+	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "go", Answers: map[string]any{"answer": "reset_workspace"}, RequestID: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = claimV2(s, second.ID, "n2", 1, "1-0-3"); err != nil {
+		t.Fatal("reset_workspace did not unpin", err)
 	}
 }

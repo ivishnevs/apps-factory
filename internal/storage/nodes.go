@@ -348,6 +348,14 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		if t.CurrentRunID != id || t.Assignee != spec.Agent || t.CancelRequested {
 			return out, drop("not_runnable")
 		}
+		// Pinning (task-worktrees D8): unpushed work of the task lives on one node; only that node continues it.
+		var pinned string
+		if err = tx.QueryRowContext(ctx, "SELECT node_id FROM workspaces WHERE company_id=? AND task_id=? AND unpushed=1 AND node_id!=''", company, taskID).Scan(&pinned); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return out, err
+		}
+		if pinned != "" && pinned != req.NodeID {
+			return out, retry("pinned")
+		}
 	}
 	if paused, err := pausedFor(ctx, tx, spec.Project, spec.Agent, QuotaKey(spec.ConfigSnapshot, spec.Agent)); err != nil {
 		return out, err
@@ -795,4 +803,29 @@ func nonNilMap(m map[string]int) map[string]int {
 		return map[string]int{}
 	}
 	return m
+}
+
+// PinTimeout is how long a node holding a task's unpushed work may be offline before Core escalates
+// pinned_node_unavailable.
+var PinTimeout = 30 * time.Minute
+
+// PinnedUnavailable lists open tasks pinned to a node that has been offline longer than PinTimeout (the
+// stalled-sweep escalates them).
+func (s *Store) PinnedUnavailable(ctx context.Context, company string) ([]EscalationWant, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT w.task_id,w.node_id,n.name FROM workspaces w JOIN nodes n ON n.company_id=w.company_id AND n.id=w.node_id
+ JOIN tasks t ON t.company_id=w.company_id AND t.id=w.task_id
+ WHERE w.company_id=? AND w.unpushed=1 AND n.online=0 AND n.last_seen<? AND t.status NOT IN ('DONE','CANCELLED')`, company, s.Now().Add(-PinTimeout).Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []EscalationWant{}
+	for rows.Next() {
+		var task, node, name string
+		if err = rows.Scan(&task, &node, &name); err != nil {
+			return nil, err
+		}
+		out = append(out, EscalationWant{TaskID: task, RefID: node, Summary: "unpushed work of this task is on node " + name + " (" + node + "), offline for more than " + PinTimeout.String() + "; reset_workspace continues from the remote branch on any node (the unpushed work stays on that node's WIP ref)"})
+	}
+	return out, rows.Err()
 }

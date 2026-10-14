@@ -187,6 +187,9 @@ func (c *Core) withAuthorityInput(r *http.Request, run storage.Run, response *to
 
 // directiveRoute is the owner's directive (factory direct TASK TEXT [--urgent]).
 func (c *Core) directiveRoutes(m *http.ServeMux) {
+	m.HandleFunc("POST /tasks/{id}/abandon-branch", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]bool{"ok": true}, c.Store.AbandonBranch(r.Context(), c.companyFrom(r), r.PathValue("id"), "owner"))
+	})
 	m.HandleFunc("POST /tasks/{id}/directives", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			Text      string `json:"text"`

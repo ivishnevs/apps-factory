@@ -216,6 +216,20 @@ func TestExitSubmitReviewDone(t *testing.T) {
 	if w = exit("/agent/exit", "done", done, brief.AckSeq, clean("h1", pr)); w.Code != 409 || refusalOf(t, w).Reason != "pr_not_merged" {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	// The owner may give up the branch: then done needs no merged PR.
+	if err := h.s.AbandonBranch(ctx, storage.DefaultCompany, "t", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	// The decision is new input the agent must see first; then done passes without a merged PR.
+	w = exit("/agent/exit/preflight", "done", done, brief.AckSeq, clean("h1", pr))
+	unseen := refusalOf(t, w).Unseen
+	if w.Code != 409 || len(unseen) != 1 || unseen[0].Text != "abandon_branch" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	brief.AckSeq = unseen[0].Seq
+	if w = exit("/agent/exit/preflight", "done", done, brief.AckSeq, clean("h1", pr)); w.Code != 200 {
+		t.Fatal("abandon_branch did not lift the merge rule", w.Code, w.Body.String())
+	}
 	merged := &storage.PRFacts{Number: 7, State: "merged", HeadSHA: "h1"}
 	if w = exit("/agent/exit", "done", done, brief.AckSeq, clean("h1", merged)); w.Code != 200 || h.task("t").Status != "DONE" {
 		t.Fatal(w.Code, w.Body.String(), h.task("t").Status)

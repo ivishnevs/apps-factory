@@ -152,7 +152,11 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err != nil {
 		return out, err
 	}
-	if r := checkFacts(req, p.RepoURL != ""); r != nil {
+	var abandoned bool
+	if err = tx.QueryRowContext(ctx, "SELECT abandon_branch FROM workspaces WHERE company_id=? AND task_id=?", company, t.ID).Scan(&abandoned); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return out, err
+	}
+	if r := checkFacts(req, p.RepoURL != "", abandoned); r != nil {
 		return out, r
 	}
 	if req.Preflight {
@@ -265,7 +269,7 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 }
 
 // checkFacts applies the clean-tree, secret-scan and merged-PR rules (contract §3, §6).
-func checkFacts(req ExitRequest, repo bool) *ExitRefusal {
+func checkFacts(req ExitRequest, repo, abandoned bool) *ExitRefusal {
 	code := req.Kind == "submit" || req.Kind == "handoff" || req.Kind == "done"
 	f := req.Facts
 	if f == nil {
@@ -283,7 +287,7 @@ func checkFacts(req ExitRequest, repo bool) *ExitRefusal {
 	if f.Dirty {
 		return refuse("dirty_tree", "commit or discard your changes, or move notes to $FACTORY_SCRATCH, then exit again")
 	}
-	if req.Kind == "done" && f.AheadOfDefault > 0 && (f.PR == nil || f.PR.State != "merged") {
+	if req.Kind == "done" && !abandoned && f.AheadOfDefault > 0 && (f.PR == nil || f.PR.State != "merged") {
 		return refuse("pr_not_merged", "merge your PR first: rebase on the default branch, resolve conflicts, build, merge")
 	}
 	return nil
@@ -636,4 +640,29 @@ func clearOpenEscalation(ctx context.Context, tx *Tx, t tasks.Task, reason, why 
 		}
 	}
 	return nil
+}
+
+// AbandonBranch records an authority's decision that the task's branch is not merged (done no longer needs a
+// merged pull request).
+func (s *Store) AbandonBranch(ctx context.Context, company, task, actor string) error {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	t, err := taskTx(ctx, tx, task)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO workspaces(company_id,task_id,mode,updated_at,abandon_branch) VALUES(?,?,'worktree',?,1)
+ ON CONFLICT(company_id,task_id) DO UPDATE SET abandon_branch=1,updated_at=excluded.updated_at`, company, t.ID, tx.now().Unix()); err != nil {
+		return err
+	}
+	if err = comment(ctx, tx, t.ID, actor, "abandon_branch: the task's branch will not be merged"); err != nil {
+		return err
+	}
+	if err = addTrigger(ctx, tx, t, "answer", isOwner(actor), actor, "", "abandon_branch"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -72,6 +72,22 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	if err = c.Store.SyncAlerts(ctx, company, "stalled", nil); err != nil {
 		return err
 	}
+	pinned, err := c.Store.PinnedUnavailable(ctx, company)
+	if err != nil {
+		return err
+	}
+	if len(pinned) > 0 {
+		target, err := c.escalationTarget(ctx, company)
+		if err != nil {
+			return err
+		}
+		for i := range pinned {
+			pinned[i].Target = target
+		}
+	}
+	if err = c.Store.SyncEscalations(ctx, company, "pinned_node_unavailable", pinned); err != nil {
+		return err
+	}
 	return c.Store.SyncAlerts(ctx, company, "idle", idle)
 }
 

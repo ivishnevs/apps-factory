@@ -48,7 +48,8 @@ type EscalationWant struct {
 
 // escalationAnswers are the allowed answers per reason; their effects are in applyEscalationAnswer.
 var escalationAnswers = map[string][]string{
-	"stalled": {"unblock", "cancel"},
+	"stalled":                 {"unblock", "cancel"},
+	"pinned_node_unavailable": {"reset_workspace", "cancel"},
 }
 
 // SyncEscalations makes the open escalations of a reason equal to want: a new condition opens one
@@ -183,6 +184,11 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		return retryAnswer(ctx, tx, t)
 	case "accept": // no_exit: take the work as it is
 		return acceptAnswer(ctx, tx, t)
+	case "reset_workspace": // pinned_node_unavailable: unpin; another node starts from the remote branch
+		if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
+			return err
+		}
+		return comment(ctx, tx, t.ID, actor, "reset_workspace: continue from the remote branch; unpushed work stays on node "+e.RefID)
 	case "unblock": // stalled: stop waiting on the stuck dependency
 		t.Dependencies = slices.DeleteFunc(slices.Clone(t.Dependencies), func(d string) bool { return d == e.RefID })
 		if err = dependencies(ctx, tx, t); err != nil {
