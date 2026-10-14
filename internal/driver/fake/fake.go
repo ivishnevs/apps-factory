@@ -30,7 +30,17 @@ type Script struct {
 	Outcome   string     `json:"outcome,omitempty"`
 	Unknown   string     `json:"unknown"`
 	LaunchErr string     `json:"launch_error"`
+	// Auth is a runtime authentication failure (driver.AuthFailure, outcome paused_out): with Status it is the
+	// result's Auth, otherwise the session ends on it without terminal evidence.
+	Auth string `json:"auth,omitempty"`
 }
+
+// AuthError is the fake runtime's authentication failure.
+type AuthError string
+
+func (e AuthError) Error() string      { return "fake auth: " + string(e) }
+func (e AuthError) RunOutcome() string { return driver.OutcomePausedOut }
+func (e AuthError) AuthFailed() bool   { return true }
 
 // Activity is one event. With Tool the session performs that Factory MCP call and the event's
 // Data is the exchange (ToolEvent); Method defaults to ToolMethod. With Exec it runs that shell
@@ -325,8 +335,12 @@ func (s *session) result() driver.Result {
 	switch {
 	case s.script.Unknown != "":
 		return driver.Result{Err: errors.New(s.script.Unknown)}
+	case s.script.Status != "" && s.script.Auth != "":
+		return driver.Result{Status: s.script.Status, Text: s.script.Text, Outcome: s.script.Outcome, Auth: AuthError(s.script.Auth)}
 	case s.script.Status != "":
 		return driver.Result{Status: s.script.Status, Text: s.script.Text, Outcome: s.script.Outcome}
+	case s.script.Auth != "":
+		return driver.Result{Err: AuthError(s.script.Auth), Auth: AuthError(s.script.Auth)}
 	}
 	select {
 	case <-s.interrupt:

@@ -1,5 +1,5 @@
-// Runtime environment shared by the standalone Worker and the per-run shim. The runtime receives
-// only a run-scoped Factory credential. Host access remains trusted.
+// Runtime environment of the per-run shim. The runtime receives only a run-scoped Factory credential.
+// Host access remains trusted.
 const OWNER_SECRETS = ["FACTORY_TOKEN", "NATS_URL", "NATS_PASSWORD"];
 const API_KEYS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
@@ -16,16 +16,6 @@ function scrub(env: NodeJS.ProcessEnv, drop: string[], allowApiKey: boolean): Re
     out[k] = v;
   }
   return out;
-}
-
-// Standalone Worker: replaces the owner credential with the run credential fetched from Core.
-export function runEnvironment(env: NodeJS.ProcessEnv, base: string, token: string, allowApiKey = false): Record<string, string | undefined> {
-  return {
-    ...scrub(env, [...OWNER_SECRETS, "FACTORY_RUN_TOKEN", "FACTORY_URL"], allowApiKey),
-    FACTORY_URL: base,
-    FACTORY_RUN_TOKEN: token,
-    ...RUNTIME_ENV,
-  };
 }
 
 // Shim: the driver already put FACTORY_URL and FACTORY_RUN_TOKEN into the shim's environment;

@@ -1,5 +1,5 @@
 // factory-node is the node agent (openspec change node-agent): `run` executes runs in N slots,
-// `doctor` runs the local self-checks without Core, `launchd` prints a launchd agent for `run`,
+// `doctor` runs the local self-checks without Core, `launchd` and `systemd` print a supervisor unit for `run`,
 // `workspace reset` is reset-workspace of one task on this node for operators.
 package main
 
@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -28,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -49,6 +50,8 @@ func run(args []string) (int, error) {
 		return runNode(args[1:])
 	case "launchd":
 		return launchd(args[1:])
+	case "systemd":
+		return systemd(args[1:])
 	case "workspace":
 		if len(args) > 1 && args[1] == "reset" {
 			return resetWorkspace(args[2:])
@@ -122,6 +125,79 @@ func launchd(args []string) (int, error) {
 	if err = l.Render(os.Stdout); err != nil {
 		return 1, err
 	}
+	return 0, nil
+}
+
+// systemd prints a systemd service for `run`. Secrets are not inlined: FACTORY_TOKEN and NATS_URL go into the
+// 0600 environment file the unit names.
+func systemd(args []string) (int, error) {
+	fs := flag.NewFlagSet("systemd", flag.ContinueOnError)
+	path := fs.String("config", "", "node.yaml passed to run (default $"+node.ConfigEnv+")")
+	name := fs.String("unit", "factory-node", "unit name (the file is <name>.service)")
+	system := fs.Bool("system", false, "system unit run as -user (default: a user unit)")
+	usr := fs.String("user", "", "user of a system unit (default: the current user)")
+	envFile := fs.String("env-file", "", "secrets file, KEY=value lines, chmod 600 (default ~/.config/factory-node/env, /etc/factory-node/env with -system)")
+	if err := fs.Parse(args); err != nil {
+		return 2, err
+	}
+	if fs.NArg() > 0 || *name == "" || strings.ContainsAny(*name, "/ ") {
+		return 2, errors.New("usage: factory-node systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH]")
+	}
+	*name = strings.TrimSuffix(*name, ".service")
+	exe, err := os.Executable()
+	if err != nil {
+		return 1, err
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return 1, err
+	}
+	s := node.Systemd{Description: "App Factory node agent (" + *name + ")", Executable: exe, WorkingDir: wd, System: *system, User: *usr, Env: map[string]string{}}
+	if p := node.ConfigPath(*path); p != "" {
+		if s.Config, err = filepath.Abs(p); err != nil {
+			return 1, err
+		}
+		if _, err = node.LoadConfig(s.Config); err != nil {
+			return 2, err
+		}
+	}
+	home, _ := os.UserHomeDir()
+	config := os.Getenv("XDG_CONFIG_HOME")
+	if config == "" {
+		config = filepath.Join(home, ".config")
+	}
+	unitDir := filepath.Join(config, "systemd", "user")
+	s.EnvFile = filepath.Join(config, "factory-node", "env")
+	if *system {
+		unitDir, s.EnvFile = "/etc/systemd/system", "/etc/factory-node/env"
+		if s.User == "" {
+			u, err := user.Current()
+			if err != nil {
+				return 1, err
+			}
+			s.User = u.Username
+		}
+	}
+	if *envFile != "" {
+		if s.EnvFile, err = filepath.Abs(*envFile); err != nil {
+			return 1, err
+		}
+	}
+	// systemd starts services with a minimal PATH; runtimes need node, codex and git.
+	for _, k := range []string{"PATH", "FACTORY_URL", "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
+		if v := os.Getenv(k); v != "" {
+			s.Env[k] = v
+		}
+	}
+	if err = s.Render(os.Stdout); err != nil {
+		return 1, err
+	}
+	ctl := "systemctl --user"
+	if *system {
+		ctl = "sudo systemctl"
+	}
+	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put FACTORY_TOKEN=... and NATS_URL=... in %s (chmod 600); then %s daemon-reload && %s enable --now %s\n",
+		unitDir, *name, s.EnvFile, ctl, ctl, *name)
 	return 0, nil
 }
 

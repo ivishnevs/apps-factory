@@ -1,9 +1,12 @@
-# Claude runtime — Agent SDK Worker
+# Claude runtime — Go driver and Agent SDK shim
 
-`workers/claude` is a native TypeScript Worker built on `@anthropic-ai/claude-agent-sdk` 0.3.284
-(bundled Claude Code 2.1.284). It is pinned exactly in `package-lock.json`; upgrading requires
-rerunning `npm test` and the live checks below. The SDK owns the agent loop; the Worker owns only the
-broker transport, lease lifecycle and classification of terminal evidence.
+Claude runs inside the node (`factory-node run`) as the Go driver `internal/driver/claude` (runtime-drivers D3),
+which starts one per-run shim, `workers/claude/dist/src/shim.js`, built on `@anthropic-ai/claude-agent-sdk` 0.3.284
+(bundled Claude Code 2.1.284). The SDK is pinned exactly in `package-lock.json`; upgrading requires rerunning
+`npm test` and the live checks below. The SDK owns the agent loop; the shim owns the startup gate, event
+normalization and the hooks; the node's executor (`internal/worker`, shared with Codex) owns claim, lease,
+heartbeat, workspace, credential and events. The standalone TypeScript service (`src/main.ts`, `src/worker.ts`,
+`bin/factory-workspace`) was removed (runtime-drivers 4.1); `workers/claude` is only the shim.
 
 Agents select it with `spec.runtime.provider: claude` (see `configs/agents/claude-demo.yaml`).
 `runtime.model: default` leaves the model to Claude Code; any other value is passed as `model`.
@@ -13,33 +16,37 @@ integer, SDK `maxTurns`) are forwarded when present.
 ## Running
 
 ```sh
-make build            # Go binaries + npm ci + tsc
+make build            # Go binaries + npm ci + tsc (builds the shim)
 claude                # once: /login with a Claude subscription
 ./bin/factory config validate
-make claude-worker    # node workers/claude/dist/src/main.js
+mkdir -p data && cat > data/node.yaml <<'EOF'   # data/ is gitignored
+drivers:
+  claude: {enabled: true}   # codex stays enabled by default; {enabled: false} for a Claude-only node
+EOF
+./bin/factory-node doctor -config data/node.yaml -drivers claude
+./bin/factory-node run -config data/node.yaml
 ```
 
-Environment matches the Codex Worker: `FACTORY_TOKEN`, `FACTORY_URL`, `NATS_URL`.
-Optional: `FACTORY_BIN_DIR` (location of `factory-mcp`/`factory-workspace`), `CLAUDE_CODE_EXECUTABLE`
-(use another Claude Code binary), `CLAUDE_SETTING_SOURCES` (comma list, default `project`),
-`CLAUDE_ALLOW_API_KEY=1` (otherwise API-key auth is refused and `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`
-are removed from the runtime environment).
+Environment as for every node: `FACTORY_TOKEN`, `FACTORY_URL`, `NATS_URL` (see
+[development](development.md#node-process)). `drivers.claude` keys: `node` (default `node`), `shim` (default
+`<bin_dir>/../workers/claude/dist/src/shim.js`), `executable` (another Claude Code binary; else
+`CLAUDE_CODE_EXECUTABLE`), `allow_api_key` (otherwise API-key auth is refused and
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are removed from the runtime environment). The driver is off by
+default: enable it on nodes logged in to Claude. The node fetches `factory.commands.agent.run.claude`
+(durable `claude-worker-v1` in protocol v1; v2 per-node pointers) like any driver subject.
 
 ## Lifecycle
 
-Subject `factory.commands.agent.run.claude`, durable `claude-worker-v1`, one unacknowledged command.
-Fetch → claim → ack → execute, exactly as `internal/worker`. Events use the same envelopes, subjects,
-lease and causation IDs; progress `method` is `claude/<type>[/<subtype>]` and `data` is the SDK message.
+The executor runs a Claude run exactly like a Codex run (see [development](development.md#node-process)):
+claim, ack, workspace or worktree, run credential with the Factory MCP instructions, `Launch`, `POST
+/runs/{id}/start` (v2), `Start`, events, terminal event. Progress `method` is `claude/<type>[/<subtype>]`
+and `data` is the SDK message. Inside the shim:
 
-1. `bin/factory-workspace` acquires the canonical flock and runs the OpenSpec preflight (shared Go code).
-   It holds the lock until its stdin closes, so a crashed Worker releases it with the pipe.
-2. Heartbeat every 10s carries cancellation; a failed heartbeat stops the run. Execution timeout aborts.
-3. `POST /runs/{id}/credential` returns the run token and the Factory MCP instructions.
-4. `query()` starts in streaming-input mode. Before the prompt is delivered, the Worker checks
+1. `query()` starts in streaming-input mode. Before the prompt is delivered, the shim checks
    `accountInfo().apiKeySource` (subscription login reports `none`) and waits until the `factory`
-   MCP server is `connected`. Only then is `started` published with the session ID: new sessions get a
+   MCP server is `connected`. Only then is `session` written: new sessions get a
    pre-assigned UUID (`sessionId`), continuations use `resume`. The `system/init` session must match.
-5. The `result` message is the only terminal evidence:
+2. The `result` message is the only terminal evidence:
 
 | SDK result | Run status |
 | --- | --- |
@@ -48,13 +55,15 @@ lease and causation IDs; progress `method` is `claude/<type>[/<subtype>]` and `d
 | any non-success result after a requested `interrupt()` | CANCELLED |
 | no result, process exit, protocol/startup error, no result within 10s of interrupt | UNKNOWN |
 
-After the result the Worker closes input and drains briefly so the transcript is flushed for resume.
+After the result the shim closes input and drains briefly so the transcript is flushed for resume. The
+executor refines the outcome (`max_turns`, `paused_out` for quota and auth, `timed_out`, see
+[runtime protocol](runtime-protocol.md)). A run that ends on an authentication failure also disables the
+Claude driver on that node until its next probe passes (runtime-drivers 3.2).
 
 ## Per-run shim (`src/shim.ts`)
 
 `internal/driver/claude` (runtime-drivers D3) starts one `node workers/claude/dist/src/shim.js` per run.
-It runs the same `src/runtime.ts` as the standalone Worker, without bus, claim and heartbeat code; the
-standalone service keeps its own lifecycle until `node-agent` lands.
+It runs `src/runtime.ts` (the SDK adapter); bus, claim and heartbeat belong to the Go executor.
 
 - stdin, first line: launch parameters `{"spec": RunSpec, "cwd", "instructions", "mcp_command"?,
   "executable"?, "allow_api_key"?, "setting_sources"?, "exit_file"?, "exit_guard_retries"?,
@@ -78,7 +87,7 @@ standalone service keeps its own lifecycle until `node-agent` lands.
   ends the run without a prompt (`error{class: not_started}`, `result` UNKNOWN).
 - Environment: `FACTORY_URL` and `FACTORY_RUN_TOKEN` come only from the shim's environment and reach
   `factory-mcp` by inheritance; with `mcp_command` set a missing `FACTORY_RUN_TOKEN` is a launch error.
-  Owner/broker secrets and (unless `allow_api_key`) API keys are dropped as in the Worker.
+  Owner/broker secrets and (unless `allow_api_key`) API keys are dropped defensively.
   `CLAUDE_CODE_EXECUTABLE` applies when the launch has no `executable`.
 - stdout: one JSON event per line, discriminated by `event`; stderr carries diagnostics only.
 
@@ -107,8 +116,8 @@ max turns and rate limit; `UPDATE_TESTDATA=1 npm test` regenerates the `.events.
 
 ## Go driver (`internal/driver/claude`)
 
-`claude.Driver` implements `driver.Driver` with the shim; it is not wired into `cmd/` yet (the
-standalone service still serves `factory.commands.agent.run.claude`). Fields: `Node` (default
+`claude.Driver` implements `driver.Driver` with the shim; `factory-node run` builds it from `drivers.claude`
+(`internal/node/runner`) and `factory-node doctor` probes it. Fields: `Node` (default
 `node`), `Shim` (default `workers/claude/dist/src/shim.js`), `Executable`, `AllowAPIKey`,
 `SettingSources` (launch line fields). The shim runs in its own process group (`ProcessGroup()`,
 killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Command` becomes
@@ -119,7 +128,8 @@ command links, `shim.Executable`) becomes `guard_command`; guards without a shim
 
 - `Launch` validates `runtime_options` (`model`, `effort`, `max_turns`; anything else is refused),
   writes the launch line and returns at `session`. A failure before it is a `*claude.Error` with the
-  shim's class (`auth_error` for `auth_error`).
+  shim's class (`auth_error` for `auth_error`). Auth classes (`auth_error`, `auth`) are `driver.AuthFailure`s,
+  and a result after an `auth_error` carries it in `Result.Auth`: the node disables the driver on them.
 - `Start` writes `{"start": true}`; `Interrupt` writes `{"interrupt": true}`.
 - Events: `activity` → `EventActivity` with `Method` = `kind`; `usage`, `cost`, `quota`,
   `auth_error`, `max_turns` and `error` → `EventActivity` with `Method` `claude/shim/<event>` and the
@@ -190,7 +200,8 @@ progress events; event data above 256 KiB is replaced with a bounded preview.
 
 `npm test` (in `workers/claude`) covers the recorded shim streams, the sleep-excluding clock, the startup gate, API-key refusal, MCP readiness, session
 mismatch, cancellation with and without evidence, classification, redaction and env scrubbing with a
-fake `Query`. Verified live on 2026-10-13 against an isolated Core + NATS with Claude Code 2.1.284:
+fake `Query`. Verified live on 2026-10-13 (with the since-removed standalone service, which ran the same
+`src/runtime.ts`) against an isolated Core + NATS with Claude Code 2.1.284:
 direct run COMPLETED, resume of the same session, cross-provider resume rejected (409),
 owner cancellation CANCELLED in ~4s with `terminal_reason: aborted_streaming`, `factory_project_get`
 through Factory MCP with the tool-call audit recorded.

@@ -1,5 +1,4 @@
-// Claude Agent SDK adapter shared by the standalone Worker (worker.ts) and the per-run shim
-// (shim.ts). The SDK owns the agent loop; this module owns only startup checks, event forwarding
+// Claude Agent SDK adapter of the per-run shim (shim.ts), which internal/driver/claude launches. The SDK owns the agent loop; this module owns only startup checks, event forwarding
 // and conservative classification of terminal evidence.
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -34,7 +33,7 @@ export type ErrorClass =
   | "interrupt_unknown"
   | "not_started";
 
-// Any RuntimeError (or other throw) after claim is reported as UNKNOWN by the Worker.
+// The shim reports a RuntimeError's class; the Go driver maps it to a run outcome (claude.Error.RunOutcome).
 export class RuntimeError extends Error {
   constructor(
     message: string,
@@ -58,7 +57,7 @@ export interface RuntimeInput {
   // and auth signals from it).
   observe?: (m: SDKMessage) => Promise<void> | void;
   // Awaited after `started` and before the prompt is delivered: the shim waits for the driver's
-  // start line. The standalone Worker delivers the prompt immediately.
+  // start line.
   beforePrompt?: () => Promise<void>;
   // Session ID for a new session; random UUID by default.
   newSessionId?: () => string;
@@ -163,28 +162,6 @@ export function classify(m: SDKResultMessage, interrupted: boolean, stop?: Outco
   if (interrupted) return { status: "CANCELLED", result, ...(stop ? { outcome: stop } : {}) };
   const outcome: Outcome = m.subtype === "error_max_turns" ? "max_turns" : paused ? "paused_out" : "failed";
   return { status: "FAILED", result, outcome };
-}
-
-// errorEnd is the terminal status and outcome of a run whose runtime ended without a result message.
-// Known: auth or a missing/unsupported Claude Code executable (paused_out); failures before the
-// prompt reached Claude Code or a session mismatch (failed); and any error after the run was stopped
-// with an outcome, since the query is closed (its process killed) right after. Anything else (no
-// result, interrupt without a result after a revoke, other SDK errors) stays UNKNOWN.
-export function errorEnd(err: unknown, stop?: Outcome): { status: TerminalStatus; outcome?: Outcome } {
-  const cls = err instanceof RuntimeError ? err.cls : undefined;
-  switch (cls) {
-    case "auth":
-    case "executable":
-      return { status: "FAILED", outcome: "paused_out" };
-    case "launch":
-    case "startup_timeout":
-    case "mcp_unavailable":
-    case "session_mismatch":
-    case "not_started":
-      return { status: "FAILED", outcome: "failed" };
-  }
-  if (stop) return { status: "FAILED", outcome: stop };
-  return { status: "UNKNOWN" };
 }
 
 export function methodOf(m: SDKMessage): string {

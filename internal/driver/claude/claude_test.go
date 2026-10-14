@@ -309,7 +309,7 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 
 	d, _ := fakeDriver(t, "s", stream(t, `{"event":"auth_error","reason":"api_key_source","api_key_source":"ANTHROPIC_API_KEY"}`, `{"event":"result","status":"UNKNOWN","result":"login required"}`))
 	var e *Error
-	if _, err := launch(d); !errors.As(err, &e) || e.Class != "auth_error" || driver.OutcomeOf(err) != driver.OutcomePausedOut {
+	if _, err := launch(d); !errors.As(err, &e) || e.Class != "auth_error" || driver.OutcomeOf(err) != driver.OutcomePausedOut || !driver.IsAuthFailure(err) {
 		t.Fatalf("auth: %v", err)
 	}
 
@@ -324,7 +324,7 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 	}
 	for range s.Events() {
 	}
-	if r := <-s.Done(); !errors.As(r.Err, &e) || e.Class != "no_result" || driver.OutcomeOf(r.Err) != "" {
+	if r := <-s.Done(); !errors.As(r.Err, &e) || e.Class != "no_result" || driver.OutcomeOf(r.Err) != "" || driver.IsAuthFailure(r.Err) || r.Auth != nil {
 		t.Fatalf("crash: %+v", r)
 	}
 
@@ -353,7 +353,7 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 	}
 	for range s.Events() {
 	}
-	if r := <-s.Done(); r.Status != "FAILED" || r.Outcome != driver.OutcomePausedOut {
+	if r := <-s.Done(); r.Status != "FAILED" || r.Outcome != driver.OutcomePausedOut || !driver.IsAuthFailure(r.Auth) {
 		t.Fatalf("auth during turn: %+v", r)
 	}
 	d, _ = fakeDriver(t, "s", stream(t, `{"event":"session","id":"s1"}`, `{"event":"auth_error","reason":"authentication_failed"}`, `{"event":"error","class":"runtime","message":"boom"}`, `{"event":"result","status":"UNKNOWN","result":"boom","session_id":"s1"}`))
@@ -366,7 +366,7 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 	}
 	for range s.Events() {
 	}
-	if r := <-s.Done(); driver.OutcomeOf(r.Err) != driver.OutcomePausedOut {
+	if r := <-s.Done(); driver.OutcomeOf(r.Err) != driver.OutcomePausedOut || !driver.IsAuthFailure(r.Auth) {
 		t.Fatalf("auth without result: %+v", r)
 	}
 }

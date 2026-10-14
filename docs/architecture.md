@@ -64,6 +64,21 @@ pidfile, so a second run of the same task waits, and later runs of the task cont
   approved pull request itself (`gh pr merge`, skill `task-pull-request`). Tasks with unpushed work are pinned to
   their node at claim.
 
+Nodes (node-agent; details in [development](development.md#node-process)): runs execute on `factory-node run`, one
+process per machine under launchd or systemd (`KeepAlive`/`Restart=always`), configured by `node.yaml`. It holds N
+slots (goroutines running the shared executor `internal/worker`, each run in its own process group) over the
+enabled runtime drivers (`internal/driver`: Codex app-server, Claude through the per-run Agent SDK shim); a driver
+whose probe or version check fails, or whose run ended on an auth failure, stops claiming until a probe passes.
+With [runtime protocol v2](runtime-protocol-v2.md) the node registers with a stable `node_id` and a new epoch on
+every start, claims command pointers with `{node_id, epoch, claim_id, slot}` and renews every lease with one
+inventory heartbeat; the answer carries Core's incarnation (a change makes the node stop, seal and re-register),
+`stop`, `acked`, `cleanup`, `reset` and `pause`. Core enforces declared `resources` and `labels` at claim. The
+janitor runs `on_run_stop`/`on_task_closed` hooks, removes closed tasks' worktrees and prunes caches. Command
+guards put refusing or approval-checking shims first on each run's `PATH` (Claude also checks shell commands in a
+`PreToolUse` hook; see [policies](policies.md#command-guards)); they are guardrails, not isolation. A disk gate
+stops claiming below the critical watermark, and a watchdog reaps runtime groups that belong to no slot.
+`factory-node doctor` runs the self-checks locally without Core.
+
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
 Worker events carry the Core lease. Core atomically persists an event and updates the run,
 then acknowledges broker delivery. SQLite event IDs deduplicate replay. Progress never revives

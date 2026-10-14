@@ -112,7 +112,7 @@ Optional fields; workers and Cores that do not know them ignore them.
 
 ### Run outcomes from workers
 
-How the executor (v1 and v2) and the standalone Claude worker fill `Event.outcome` on terminal events
+How the executor (v1 and v2, every driver) fills `Event.outcome` on terminal events
 (reliable-recovery 3.4); progress and `started` events never carry one.
 
 | How the run ended | Terminal event |
@@ -120,14 +120,14 @@ How the executor (v1 and v2) and the standalone Claude worker fill `Event.outcom
 | Turn completed (also when it finished as an interrupt was requested) | `COMPLETED` |
 | Turn failed | `FAILED` `failed` |
 | Claude `error_max_turns` result (shim `max_turns`) | `FAILED` `max_turns` |
-| Turn failed after a quota hit (`Event.quota` in this run) or a Claude auth error | `FAILED` `paused_out` |
+| Turn failed after a quota hit (`Event.quota` in this run) or a Claude auth error | `FAILED` `paused_out` (an auth error also disables the driver on the node until its next probe passes) |
 | The executor's own hard timeout (`timeout_seconds`, sleep-excluding clock) interrupted the turn | `CANCELLED` `timed_out` |
 | v2 heartbeat `stop` `timed_out` / `idle_timeout` interrupted the turn | `CANCELLED` `timed_out` / `idle_timeout` |
 | Owner cancel: v1 heartbeat `{cancel: true}`, v2 `stop` `revoked`, `terminal`, `unknown_run` | `CANCELLED` |
 | Timeout or idle stop, no result within the interrupt deadline (the executor then kills the runtime) | `FAILED` `timed_out` / `idle_timeout` |
 | Before the runtime started: invalid RunSpec, workspace allocation, `workspace_diverged`, OpenSpec preflight, skills refusal, shims or `factory-mcp` missing, run credential | `FAILED` `setup_failed` |
 | The same, while the run was being stopped | `CANCELLED` with the stop's outcome |
-| Launch refused before the prompt (Claude auth, missing or unsupported runtime executable) | `FAILED` `paused_out` |
+| Launch refused before the prompt (Claude auth, Codex without a ChatGPT login, missing or unsupported runtime executable) | `FAILED` `paused_out` |
 | Other launch, `/start` or `started` failures before the prompt; a broken shim stream | `FAILED` `failed` |
 | No terminal evidence: interrupt for a revoke without a result, shim or app-server gone mid-turn, `turn/start` failure, event publication failure | `UNKNOWN` |
 
@@ -135,8 +135,7 @@ How the executor (v1 and v2) and the standalone Claude worker fill `Event.outcom
   `CANCELLED`; Core records `idle_timeout` from its own stop reason. v2 carries the reason in `stop`.
 - UNKNOWN stays where the runtime may still have acted after the last evidence and nothing names the cause
   (Core decides `lost`). A quota hit alone does not make an evidence-less end known.
-- A lost v1 heartbeat or a worker/node shutdown interrupts like an owner cancel (`CANCELLED`, no outcome);
-  the standalone worker's lost workspace lock is `CANCELLED` `failed` (Core ends it `FAILED`).
+- A lost v1 heartbeat or a worker/node shutdown interrupts like an owner cancel (`CANCELLED`, no outcome).
 - Git lock contention inside worktree allocation (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) is
   retried by the allocator; a failure after the retries is transient contention, reported `FAILED` `failed`
   (`CANCELLED` while the run was being stopped), not `setup_failed` (task-worktrees D1).

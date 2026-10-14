@@ -107,7 +107,7 @@ type Node struct {
 	API     worker.API
 	Drivers []driver.Driver
 	Host    node.Host
-	// FetchWait bounds one fetch; default 1 s as in the standalone worker.
+	// FetchWait bounds one fetch; default 1 s as in codex-worker.
 	FetchWait time.Duration
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
@@ -190,6 +190,7 @@ func Run(ctx context.Context, n Node) error {
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
 			Skills: registry, Sessions: store}
+		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		if s != nil {
 			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
 		}

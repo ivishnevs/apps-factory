@@ -126,15 +126,19 @@ janitor:                     # trusted node configuration; each command runs wit
     - {command: 'find ~/Library/Developer/Xcode/DerivedData -mindepth 1 -maxdepth 1 -mmin +$FACTORY_OLDER_THAN_MINUTES -exec rm -rf {} +', older_than: 72h}
 ```
 
-Claude stays off by default while `workers/claude` serves `factory.commands.agent.run.claude`; enable it only with
-that service stopped (both would share the `claude-worker-v1` consumer).
+Claude runs only through the node: enable `drivers.claude` on nodes logged in to Claude (it is off by default; see
+[Claude runtime](claude-runtime.md)). The standalone TypeScript service and `factory-workspace` were removed
+(runtime-drivers 4.1).
 
 - Start: runtime process groups recorded in `state_dir` by a previous process are killed (`worker.KillOrphans`).
 - Driver checks (runtime-drivers D4): each enabled driver's version check (`CheckVersion`) runs at start and every
   `probes.version_interval`, its `Probe` (binary, version range, authentication; never a model call) at start and
   every `probes.interval`. A failing check disables that driver on this node: free slots stop fetching its
   subject (one error log), the other drivers keep claiming, running runs continue; the next passing check
-  re-enables it (one info log). With no usable driver the node claims nothing; the node refuses to start when
+  re-enables it (one info log). A run that ends on the runtime's authentication failure (`driver.AuthFailure`:
+  Claude `auth_error`, Codex without a ChatGPT login; such runs end `paused_out`) disables its driver the same
+  way at once, without waiting for the next probe; the next passing probe re-enables it (runtime-drivers 3.2).
+  With no usable driver the node claims nothing; the node refuses to start when
   none is usable at start. With `protocol_version: 2` the change is declared to Core by registering the next
   epoch with the driver's `ok` updated, but only at a heartbeat where the node is idle (no busy slot, empty
   inventory), since a new epoch loses every unended run of the older one; a busy node keeps the change local
@@ -262,6 +266,47 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
 - A changed `incarnation` (or `404` for the node) stops claiming, stops every run, waits for them to end, then
   registers the next epoch with an empty inventory. `409` on a heartbeat stops the node.
 
+### Restoring Core's database
+
+Core's database identity is its incarnation (`core_meta` row `incarnation`, copy in `<db>.incarnation` next to the
+SQLite file, `/data/factory.db.incarnation` in the compose volume). At start Core compares the two; when they
+differ (a restored or copied database) it creates a new incarnation and logs `database incarnation differs from
+its file: restored backup; new incarnation`. Nodes see it in the next heartbeat answer and drop everything that
+belongs to the old one. Runbook (protocol v2 nodes keep running throughout; v1 workers such as `codex-worker` have
+no incarnation: stop them first and start them after step 5):
+
+1. Stop Core: `docker compose stop core` (NATS keeps running). Nodes log failed heartbeats and keep their runs.
+2. Restore the database file only: replace `factory.db` and delete `factory.db-wal` and `factory.db-shm` (a WAL
+   file of the newer database must not be replayed onto the backup), keeping the current
+   `factory.db.incarnation`. In compose the files live in the `core-data` volume
+   (`docker volume ls | grep core-data`) and belong to uid 65532:
+
+   ```sh
+   docker run --rm -v <project>_core-data:/data -v "$PWD/backup:/backup:ro" busybox sh -c \
+     'cp /backup/factory.db /data/factory.db && rm -f /data/factory.db-wal /data/factory.db-shm && chown 65532:65532 /data/factory.db'
+   ```
+
+3. When the backup also brought back its own `factory.db.incarnation` (a copy of the whole data directory), the
+   two match and the restore is not detected: write any other value into the file, e.g.
+   `echo restored > /data/factory.db.incarnation`, in the same helper container.
+4. Start Core: `docker compose start core`; check its log for the `restored backup; new incarnation` line.
+   Migrations run as usual when the backup is older than the binary.
+5. Nodes: the next heartbeat answer carries the new incarnation (or `404` when the backup predates the node's
+   registration or epoch). Each node stops claiming, interrupts and seals all its runs, waits for them to end, then
+   registers the next epoch with an empty inventory (`re-registering: stopping all runs` with `Core incarnation
+   changed`, then `node registered` with the new incarnation). Commands still queued in NATS for runs the backup
+   does not know start nothing: their claim is refused (`404`; the node logs `claim failed` and redelivers them).
+6. Check:
+   - `curl -s -H "Authorization: Bearer $FACTORY_TOKEN" $FACTORY_URL/nodes`: every node `online`, a higher `epoch`
+     than before the restore, its `drivers` `ok`, recent `last_seen` and `health` (disk `ok`).
+   - `./bin/factory status` and `./bin/factory runs list`: runs that were active in the backup are now ended by
+     Core (the nodes' new epochs lose them): unstarted ones FAILED
+     `lost: not started` (retried), started ones UNKNOWN `lost: …`. Resolve UNKNOWN runs of `side_effects` tasks
+     (`BLOCKED`) with `./bin/factory runs resolve` after inspecting the workspace.
+   - Work done after the backup point is not in the database: tasks may run again, and their worktrees keep the
+     newer commits (sealed WIP refs and branches stay on the node), so a re-run may start from `workspace_diverged`.
+   - `./bin/factory doctor` for Core, SQLite and NATS.
+
 ### Task worktrees
 
 With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` get one git worktree per task under
@@ -327,3 +372,28 @@ placeholder when unset). The plist then holds the token: `chmod 600` it. Load wi
 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.appfactory.node.plist`, stop with
 `launchctl bootout gui/$(id -u)/com.appfactory.node`. Run only one of the node or a standalone `codex-worker` per
 state directory.
+
+systemd (Linux, node-agent 3b.1): `./bin/factory-node systemd [-config node.yaml] [-unit factory-node] [-system]
+[-user USER] [-env-file PATH]` prints a service for `factory-node run` and, on stderr, where to save it. Default is a
+user unit (`~/.config/systemd/user/<unit>.service`, `WantedBy=default.target`); `-system` prints a system unit run
+as `-user` (default: the current user; `/etc/systemd/system/<unit>.service`, `multi-user.target`, after
+`network-online.target`). The unit has `Restart=always`, `RestartSec=10` and `StartLimitIntervalSec=0` (systemd
+never gives up; Core counts the epochs), the current directory as `WorkingDirectory`, `KillMode=mixed` with
+`TimeoutStopSec=30` (SIGTERM reaches only factory-node, which interrupts its runs and waits; the rest of the
+cgroup is killed after 30 s), logs to journald (`SyslogIdentifier=factory-node`), and the current `PATH`,
+`FACTORY_URL`, `CODEX_BIN` and `CLAUDE_CODE_EXECUTABLE` as `Environment=`. Secrets are never written into the unit:
+`EnvironmentFile=` names an owner-only file (default `~/.config/factory-node/env`, `/etc/factory-node/env` with
+`-system`) holding `FACTORY_TOKEN=…` and `NATS_URL=…` (it may carry the NATS password):
+
+```sh
+install -d -m 700 ~/.config/factory-node
+install -m 600 /dev/null ~/.config/factory-node/env   # then add FACTORY_TOKEN=... and NATS_URL=...
+./bin/factory-node systemd -config /etc/factory/node.yaml > ~/.config/systemd/user/factory-node.service
+systemctl --user daemon-reload && systemctl --user enable --now factory-node
+loginctl enable-linger "$USER"   # a user unit then runs without a login session
+journalctl --user -u factory-node -f
+```
+
+Values are escaped for systemd (`%` specifiers, `$` in `ExecStart`, quotes and backslashes); paths must be
+absolute, and control characters or a secret in `Environment=` refuse the unit. `systemd-analyze verify` accepts
+the output (checked on systemd 252; the unit test runs it when installed).

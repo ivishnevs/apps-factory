@@ -103,7 +103,8 @@ type CodexConfig struct {
 	Binary string `yaml:"binary"`
 }
 
-// ClaudeConfig is the Go driver (internal/driver/claude); off by default while workers/claude serves Claude.
+// ClaudeConfig is the Go driver (internal/driver/claude), the only way Claude runs; off by default: enable it on
+// nodes logged in to Claude.
 type ClaudeConfig struct {
 	Enabled *bool  `yaml:"enabled"`
 	Node    string `yaml:"node"`

@@ -1,5 +1,5 @@
 {
-  "name": "@appfactory/claude-worker",
+  "name": "@appfactory/claude-shim",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,13 +9,10 @@
   "scripts": {
     "build": "tsc -p .",
     "check": "tsc -p . --noEmit",
-    "test": "node --test dist/test/*.test.js",
-    "start": "node dist/src/main.js"
+    "test": "node --test dist/test/*.test.js"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.284",
-    "@nats-io/jetstream": "3.4.0",
-    "@nats-io/transport-node": "3.4.0"
+    "@anthropic-ai/claude-agent-sdk": "0.3.284"
   },
   "devDependencies": {
     "@types/node": "22.18.0",

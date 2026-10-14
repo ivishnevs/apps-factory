@@ -108,6 +108,16 @@ type Worker struct {
 	Skills *skills.Registry
 	// Sessions records the sessions this node ran (ResumePolicy); nil resumes spec.SessionID as given.
 	Sessions *sessions.Store
+	// AuthFailed, when set, is called when a run ends on the runtime's authentication failure
+	// (driver.AuthFailure, driver.Result.Auth); the node disables the driver until its next probe passes.
+	AuthFailed func(err error)
+}
+
+// noteAuth reports a runtime authentication failure to AuthFailed.
+func (w *Worker) noteAuth(err error) {
+	if w.AuthFailed != nil && err != nil && driver.IsAuthFailure(err) {
+		w.AuthFailed(err)
+	}
 }
 
 // driver also reports whether Factory MCP is injected: when the driver supports MCP, or for
@@ -496,6 +506,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	session, err = drv.Launch(ctx, launch)
 	if err != nil {
 		// The prompt was not sent: a missing runtime or an auth failure is paused_out, the rest failed.
+		w.noteAuth(err)
 		return notStarted(cmp.Or(driver.OutcomeOf(err), driver.OutcomeFailed), err)
 	}
 	record = sessions.Record{SessionID: session.ID(), Task: spec.TaskID, Agent: spec.Agent, Project: spec.Project, Provider: string(spec.Provider), Run: spec.ID}
@@ -530,6 +541,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	if err = session.Start(ctx); err != nil {
 		// The prompt may have reached the runtime: unknown unless the error names its outcome.
+		w.noteAuth(err)
 		if o := driver.OutcomeOf(err); o != "" {
 			return &endError{outcome: o, err: err}
 		}
@@ -595,6 +607,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 	}
 	result := <-session.Done()
+	if result.Auth != nil && w.AuthFailed != nil {
+		w.AuthFailed(result.Auth)
+	} else {
+		w.noteAuth(result.Err)
+	}
 	if result.Err != nil {
 		return ended(result, stop, meter.quota != nil)
 	}

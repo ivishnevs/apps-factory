@@ -131,7 +131,7 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 		return err
 	}
 	if account.Account == nil || account.Account.Type != "chatgpt" {
-		return fmt.Errorf("ChatGPT login required; API-key auth is not supported")
+		return loginRequired{}
 	}
 	// The run's skills, materialized and verified by the executor, become an extra skills root of this
 	// app-server (one process per run). User and system skills of CODEX_HOME stay visible as before.
@@ -492,3 +492,11 @@ type unservedRequest struct{ method string }
 
 func (e unservedRequest) Error() string      { return "server request requires owner: " + e.method }
 func (e unservedRequest) RunOutcome() string { return driver.OutcomeFailed }
+
+// loginRequired: the app-server has no ChatGPT login. The run ends paused_out and the node disables Codex
+// until its probe (codex login status) passes (driver.AuthFailure).
+type loginRequired struct{}
+
+func (loginRequired) Error() string      { return "ChatGPT login required; API-key auth is not supported" }
+func (loginRequired) RunOutcome() string { return driver.OutcomePausedOut }
+func (loginRequired) AuthFailed() bool   { return true }

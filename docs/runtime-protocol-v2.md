@@ -198,7 +198,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
 - **Incarnation** lives in the database (`core_meta`) with a copy in `<db>.incarnation`; when the two differ
   at start (a restored database), Core creates a new incarnation. Restoring the file together with the
   database is not detected: after such a restore write any other value into `<db>.incarnation` (for example
-`echo restored > data/factory.db.incarnation`) before starting Core.
+`echo restored > data/factory.db.incarnation`) before starting Core. Runbook: [development](development.md#restoring-cores-database).
 - **Worktrees** (additive register field `worktrees: true`, node.yaml `worktrees.enabled`): a node that runs
   worktree tasks in their own worktree lets tasks of one project run in parallel. A worktree run holds its own
   writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees (or by

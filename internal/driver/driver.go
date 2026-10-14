@@ -126,6 +126,9 @@ type Result struct {
 	// Outcome refines a FAILED result when the runtime said why (OutcomeMaxTurns, OutcomePausedOut).
 	Outcome string
 	Err     error
+	// Auth is the runtime's authentication failure seen during the run, also when the result has terminal
+	// evidence (a FAILED turn ending paused_out); nil otherwise. The node disables the driver on it.
+	Auth error
 }
 
 // Run outcomes a driver may name (reliable-recovery D1; docs/runtime-protocol.md, Event.outcome).
@@ -155,6 +158,20 @@ func OutcomeOf(err error) string {
 		return OutcomePausedOut
 	}
 	return ""
+}
+
+// AuthFailure is a runtime error caused by the runtime's own authentication (logged out, expired or revoked
+// login, refused API key). The run ends paused_out, and a node disables the driver until its next probe passes
+// (runtime-drivers 3.2).
+type AuthFailure interface {
+	error
+	AuthFailed() bool
+}
+
+// IsAuthFailure reports whether err is, or wraps, an AuthFailure.
+func IsAuthFailure(err error) bool {
+	var a AuthFailure
+	return errors.As(err, &a) && a.AuthFailed()
 }
 
 type Session interface {

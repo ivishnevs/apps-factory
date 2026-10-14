@@ -12,7 +12,7 @@ import (
 )
 
 // TestProbeChecksWhatLaunchRuns: Installed and Probe look at the Node binary and the shim the driver
-// launches (not the standalone worker, factory-workspace or a claude CLI), and the version and login
+// launches (not a claude CLI), and the version and login
 // come from `shim.js --probe` run with the pinned Executable.
 func TestProbeChecksWhatLaunchRuns(t *testing.T) {
 	files := map[string]bool{"/opt/node/bin/node": true, "/opt/factory/shim.js": true}

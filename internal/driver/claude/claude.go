@@ -165,6 +165,9 @@ type Error struct{ Class, Message string }
 
 func (e *Error) Error() string { return "claude " + e.Class + ": " + e.Message }
 
+// AuthFailed: Claude Code's login failed or an API key was refused (driver.AuthFailure).
+func (e *Error) AuthFailed() bool { return e.Class == "auth_error" || e.Class == "auth" }
+
 // RunOutcome is the known outcome of a failure without terminal evidence (driver.OutcomeError):
 // auth and a missing or unsupported Claude Code executable are paused_out; a broken shim stream
 // and failures before the prompt reached Claude Code (launch, startup, Factory MCP, session
@@ -365,10 +368,13 @@ func (s *session) result(e event) driver.Result {
 		case s.auth != nil:
 			r.Outcome = driver.OutcomePausedOut
 		}
+		if s.auth != nil {
+			r.Auth = s.auth
+		}
 		return r
 	}
 	if s.auth != nil {
-		return driver.Result{Err: s.auth}
+		return driver.Result{Err: s.auth, Auth: s.auth}
 	}
 	if s.failure != nil {
 		return driver.Result{Err: s.failure}

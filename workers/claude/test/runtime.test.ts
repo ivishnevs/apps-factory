@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Redactor, MAX_EVENT_DATA } from "../src/redact.js";
-import { RuntimeError, StopReason, classify, errorEnd, exitStopHook, runClaude, type QueryFn } from "../src/runtime.js";
-import { failureEnd, runEnvironment } from "../src/worker.js";
+import { RuntimeError, StopReason, classify, exitStopHook, runClaude, type QueryFn } from "../src/runtime.js";
+import { shimEnvironment } from "../src/env.js";
 import type { RunSpec } from "../src/protocol.js";
 
 const spec: RunSpec = {
@@ -218,42 +218,6 @@ test("result outcomes", () => {
   for (const [name, got, want] of cases) assert.equal(end(got), want, name);
 });
 
-test("outcomes without a result", () => {
-  const cases: [string, unknown, "timed_out" | "failed" | undefined, string][] = [
-    ["auth", new RuntimeError("login", "auth"), undefined, "FAILED/paused_out"],
-    ["executable", new RuntimeError("no Claude Code", "executable"), undefined, "FAILED/paused_out"],
-    ["startup", new RuntimeError("runtime startup timed out", "startup_timeout"), undefined, "FAILED/failed"],
-    ["mcp", new RuntimeError("factory MCP server failed", "mcp_unavailable"), undefined, "FAILED/failed"],
-    ["session mismatch", new RuntimeError("forked", "session_mismatch"), undefined, "FAILED/failed"],
-    ["timeout without evidence", new RuntimeError("interrupt result unknown", "interrupt_unknown"), "timed_out", "FAILED/timed_out"],
-    ["lock lost without evidence", new RuntimeError("interrupt result unknown", "interrupt_unknown"), "failed", "FAILED/failed"],
-    ["revoke without evidence", new RuntimeError("interrupt result unknown", "interrupt_unknown"), undefined, "UNKNOWN/"],
-    ["no result", new RuntimeError("runtime ended without terminal evidence", "no_result"), undefined, "UNKNOWN/"],
-    ["other", new Error("bus down"), undefined, "UNKNOWN/"],
-  ];
-  for (const [name, err, stop, want] of cases) {
-    const e = errorEnd(err, stop);
-    assert.equal(`${e.status}/${e.outcome ?? ""}`, want, name);
-  }
-
-  const aborted = (reason?: StopReason) => {
-    const c = new AbortController();
-    c.abort(reason);
-    return c.signal;
-  };
-  const setup: [string, AbortSignal, string][] = [
-    ["setup failure", new AbortController().signal, "FAILED/setup_failed"],
-    ["timeout during setup", aborted(new StopReason("run timeout", "timed_out")), "CANCELLED/timed_out"],
-    ["owner cancel during setup", aborted(new StopReason("cancelled by Core")), "CANCELLED/"],
-  ];
-  for (const [name, signal, want] of setup) {
-    const e = failureEnd(new Error("workspace allocation failed"), true, signal);
-    assert.equal(`${e.status}/${e.outcome ?? ""}`, want, name);
-  }
-  const e = failureEnd(new RuntimeError("interrupt result unknown", "interrupt_unknown"), false, aborted(new StopReason("run timeout", "timed_out")));
-  assert.equal(`${e.status}/${e.outcome ?? ""}`, "FAILED/timed_out");
-});
-
 test("a run stopped by its timeout reports timed_out; max turns and quota refine FAILED", async () => {
   const stop = new AbortController();
   const f = fake(async function* (_, interrupt) {
@@ -300,18 +264,21 @@ test("OpenSpec bodies are omitted and large events bounded", () => {
   assert.equal(big.truncated, true);
 });
 
-test("runtime environment carries only the run credential", () => {
-  const env = runEnvironment(
-    { PATH: "/bin", FACTORY_TOKEN: "owner", NATS_URL: "secret", NATS_PASSWORD: "secret", FACTORY_RUN_TOKEN: "old", ANTHROPIC_API_KEY: "key" },
-    "http://localhost:8080",
-    "scoped",
-  );
+test("runtime environment drops owner secrets and API keys", () => {
+  const env = shimEnvironment({
+    PATH: "/bin",
+    FACTORY_TOKEN: "owner",
+    NATS_URL: "secret",
+    NATS_PASSWORD: "secret",
+    FACTORY_RUN_TOKEN: "scoped",
+    ANTHROPIC_API_KEY: "key",
+  });
   const joined = JSON.stringify(env);
-  for (const secret of ["owner", "secret", "old", "key"]) assert.ok(!joined.includes(`"${secret}"`), secret);
+  for (const secret of ["owner", "secret", "key"]) assert.ok(!joined.includes(`"${secret}"`), secret);
   assert.equal(env.FACTORY_RUN_TOKEN, "scoped");
   assert.equal(env.PATH, "/bin");
   assert.equal(env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, "1");
-  assert.equal(runEnvironment({ ANTHROPIC_API_KEY: "key" }, "u", "t", true).ANTHROPIC_API_KEY, "key");
+  assert.equal(shimEnvironment({ ANTHROPIC_API_KEY: "key" }, true).ANTHROPIC_API_KEY, "key");
 });
 
 test("the exit guard blocks stops without an exit, at most retries times", async () => {

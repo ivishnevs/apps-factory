@@ -14,6 +14,8 @@ import (
 // driverHealth keeps the node's view of its drivers (runtime-drivers D4): the version check runs at start and
 // every VersionInterval, Probe (binary, version range, auth; never a model call) at start and every Interval.
 // A failing check disables the driver on this node: its slots stop claiming its subject until a check passes.
+// A run ended by the runtime's authentication failure disables it the same way until the next probe passes
+// (runtime-drivers 3.2).
 type driverHealth struct {
 	drivers []driver.Driver
 	probes  node.Probes
@@ -28,9 +30,10 @@ type driverState struct {
 	version    string
 	versionErr string // last version check failure, empty when passing
 	probeFail  string // failing probe checks, empty when passing
+	authFail   string // a run's authentication failure since the last passing probe, empty when none
 }
 
-func (s *driverState) ok() bool { return s.versionErr == "" && s.probeFail == "" }
+func (s *driverState) ok() bool { return s.versionErr == "" && s.probeFail == "" && s.authFail == "" }
 
 func newDriverHealth(drivers []driver.Driver, p node.Probes) *driverHealth {
 	h := &driverHealth{drivers: drivers, probes: p, state: map[string]*driverState{}}
@@ -69,6 +72,7 @@ func (h *driverHealth) check(ctx context.Context, version bool) bool {
 			s.version, s.versionErr = v, verr
 		}
 		s.probeFail = strings.Join(failed, "; ")
+		s.authFail = "" // the probe checks authentication: its result replaces a run's auth failure
 		now, verrNow, probeNow, vNow := s.ok(), s.versionErr, s.probeFail, s.version
 		h.mu.Unlock()
 		switch {
@@ -80,6 +84,27 @@ func (h *driverHealth) check(ctx context.Context, version bool) bool {
 		flipped = flipped || was != now
 	}
 	return flipped
+}
+
+// authFailed disables the named driver after a run ended on the runtime's authentication failure, like a
+// failing probe; the next probe that passes re-enables it. It calls changed when the driver was usable.
+func (h *driverHealth) authFailed(name string, err error) {
+	h.mu.Lock()
+	s := h.state[name]
+	if s == nil {
+		h.mu.Unlock()
+		return
+	}
+	was := s.ok()
+	s.authFail = err.Error()
+	h.mu.Unlock()
+	if !was {
+		return
+	}
+	slog.Error("driver disabled on this node", "driver", name, "auth_error", err.Error())
+	if h.changed != nil {
+		h.changed()
+	}
 }
 
 // usable reports whether the named driver passed its last checks.
