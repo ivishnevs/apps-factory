@@ -38,7 +38,7 @@ type Driver struct {
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeCodex }
 func (d Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: true, Activity: true, ToolPolicy: true}
+	return driver.Capabilities{Resume: true, MCP: true, Activity: true, ToolPolicy: true, ExitGuard: true}
 }
 
 // ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
@@ -82,7 +82,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		stopRuntime()
 		return nil, err
 	}
-	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, l.Env), events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, l.Env), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	if err = s.open(ctx, l); err != nil {
 		s.Close()
 		return nil, err
@@ -101,6 +101,8 @@ type session struct {
 	closeOnce        sync.Once
 	interrupted      atomic.Bool
 	guards           *guards
+	exitGuard        func() bool // see driver.Launch.ExitGuard
+	guardLeft        int
 	model            string
 	base             *tokens // thread total before this run's turn
 	limits           rateLimits
@@ -281,10 +283,31 @@ func (s *session) loop() driver.Result {
 					text.WriteString(p.Item.Text)
 				}
 			case "turn/completed":
-				return finish(m.Params, text.String())
+				r := finish(m.Params, text.String())
+				if r.Status == "COMPLETED" && s.exitGuard != nil && s.guardLeft > 0 && !s.interrupted.Load() && !s.exitGuard() && s.followUp() {
+					continue // the runtime gets a turn to exit
+				}
+				return r
 			}
 		}
 	}
+}
+
+// followUp starts the exit guard's turn in the same thread (one of guardLeft).
+func (s *session) followUp() bool {
+	s.guardLeft--
+	var turn struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	input := []any{map[string]any{"type": "text", "text": driver.ExitGuardPrompt, "text_elements": []any{}}}
+	if err := s.call(context.Background(), "turn/start", map[string]any{"threadId": s.threadID, "input": input}, &turn); err != nil || turn.Turn.ID == "" {
+		return false
+	}
+	s.turnID = turn.Turn.ID
+	_ = s.send(driver.Event{Kind: driver.EventActivity, Method: "factory/exit_guard", Data: json.RawMessage(`{"turn":"` + turn.Turn.ID + `"}`)})
+	return true
 }
 
 // steer gives the agent a declined command's instruction: the approval response carries only the

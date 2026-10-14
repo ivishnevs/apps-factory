@@ -53,7 +53,7 @@ type Driver struct {
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }
 func (d Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true}
+	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true, ExitGuard: true}
 }
 
 // ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
@@ -185,6 +185,9 @@ type launchLine struct {
 	Executable     string           `json:"executable,omitempty"`
 	AllowAPIKey    bool             `json:"allow_api_key,omitempty"`
 	SettingSources []string         `json:"setting_sources,omitempty"`
+	// ExitFile and ExitGuardRetries turn on the Stop-hook exit guard (driver.Launch.ExitGuard).
+	ExitFile         string `json:"exit_file,omitempty"`
+	ExitGuardRetries int    `json:"exit_guard_retries,omitempty"`
 }
 
 // Launch starts the shim and returns once it reported the session, before the prompt. The run
@@ -195,6 +198,9 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		return nil, err
 	}
 	launch := launchLine{Spec: l.Spec, Cwd: l.Cwd, Instructions: l.Instructions, Executable: d.Executable, AllowAPIKey: d.AllowAPIKey, SettingSources: d.SettingSources}
+	if l.ExitGuard != nil && l.ExitFile != "" {
+		launch.ExitFile, launch.ExitGuardRetries = l.ExitFile, l.ExitGuardRetries
+	}
 	if l.MCP != nil {
 		launch.MCPCommand = l.MCP.Command
 	}

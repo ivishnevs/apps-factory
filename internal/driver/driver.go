@@ -66,7 +66,17 @@ type Launch struct {
 	// skills (Claude: <cwd>/.claude/skills; Codex: skills/extraRoots/set).
 	Skills     []Skill
 	SkillsRoot string
+	// ExitGuard, when set, reports whether the run already ended with a factory_exit_* call; a driver
+	// with capability ExitGuard does not end a completed turn without one: it asks the runtime to exit,
+	// up to ExitGuardRetries times (explicit-exits-authority D5).
+	ExitGuard        func() bool
+	ExitGuardRetries int
+	// ExitFile is the MCP adapter's exit file behind ExitGuard (drivers whose guard runs in the runtime).
+	ExitFile string
 }
+
+// ExitGuardPrompt is the follow-up turn of a runtime that ended its turn without an exit.
+const ExitGuardPrompt = "Factory: your turn ended without a factory_exit_* call. End the run now with exactly one exit: factory_exit_submit (deliver for review), factory_exit_done (finished; merge first), factory_exit_handoff, factory_exit_ask, factory_exit_block or factory_exit_wait. Do not start new work."
 
 // Skill is one materialized skill: Hash is the verified content hash (skills.Hash) of SkillsRoot/<Name>.
 type Skill struct {

@@ -2,8 +2,10 @@
 // (shim.ts). The SDK owns the agent loop; this module owns only startup checks, event forwarding
 // and conservative classification of terminal evidence.
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   query as sdkQuery,
+  type HookCallback,
   type Options,
   type Query,
   type SDKMessage,
@@ -67,6 +69,30 @@ export interface RuntimeInput {
   log?: (line: string) => void;
   startupTimeoutMs?: number;
   interruptTimeoutMs?: number;
+  // Exit guard (explicit-exits-authority D5): a Stop hook refuses to end a turn without a factory_exit_*
+  // call, at most `retries` times; `file` is the MCP adapter's exit file.
+  exitGuard?: { file: string; retries: number };
+}
+
+// The follow-up instruction of the exit guard (internal/driver.ExitGuardPrompt).
+export const EXIT_GUARD_PROMPT =
+  "Factory: your turn ended without a factory_exit_* call. End the run now with exactly one exit: factory_exit_submit (deliver for review), factory_exit_done (finished; merge first), factory_exit_handoff, factory_exit_ask, factory_exit_block or factory_exit_wait. Do not start new work.";
+
+// exitStopHook blocks a stop while the adapter has not recorded an accepted or queued exit.
+export function exitStopHook(guard: { file: string; retries: number }, read: (file: string) => string | undefined): HookCallback {
+  let blocked = 0;
+  return async () => {
+    let state = "none";
+    try {
+      const raw = read(guard.file);
+      if (raw) state = (JSON.parse(raw) as { state?: string }).state ?? "none";
+    } catch {
+      // no exit recorded
+    }
+    if (state === "accepted" || state === "pending" || blocked >= guard.retries) return {};
+    blocked++;
+    return { decision: "block", reason: EXIT_GUARD_PROMPT };
+  };
 }
 
 // SDKAssistantMessage.error values that mean the account cannot be used, as opposed to a
@@ -157,6 +183,7 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     ...(input.spec.session_id ? { resume: input.spec.session_id } : { sessionId }),
     ...(input.executable ? { pathToClaudeCodeExecutable: input.executable } : {}),
     ...(input.log ? { stderr: input.log } : {}),
+    ...(input.exitGuard ? { hooks: { Stop: [{ hooks: [exitStopHook(input.exitGuard, readExitFile)] }] } } : {}),
   };
 }
 
@@ -269,5 +296,13 @@ async function factoryConnected(q: Query) {
 async function drain(iterator: AsyncIterator<SDKMessage>) {
   while (!(await iterator.next()).done) {
     // Messages after the result are informational and not forwarded.
+  }
+}
+
+function readExitFile(file: string): string | undefined {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return undefined;
   }
 }

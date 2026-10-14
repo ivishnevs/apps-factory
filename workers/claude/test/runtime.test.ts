@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Redactor, MAX_EVENT_DATA } from "../src/redact.js";
-import { RuntimeError, StopReason, classify, errorEnd, runClaude, type QueryFn } from "../src/runtime.js";
+import { RuntimeError, StopReason, classify, errorEnd, exitStopHook, runClaude, type QueryFn } from "../src/runtime.js";
 import { failureEnd, runEnvironment } from "../src/worker.js";
 import type { RunSpec } from "../src/protocol.js";
 
@@ -312,4 +312,17 @@ test("runtime environment carries only the run credential", () => {
   assert.equal(env.PATH, "/bin");
   assert.equal(env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, "1");
   assert.equal(runEnvironment({ ANTHROPIC_API_KEY: "key" }, "u", "t", true).ANTHROPIC_API_KEY, "key");
+});
+
+test("the exit guard blocks stops without an exit, at most retries times", async () => {
+  let file: string | undefined;
+  const hook = exitStopHook({ file: "exit.json", retries: 2 }, () => file);
+  const signal = new AbortController().signal;
+  const stop = () => hook({ hook_event_name: "Stop", stop_hook_active: false } as never, undefined, { signal });
+  assert.equal(((await stop()) as { decision?: string }).decision, "block");
+  assert.equal(((await stop()) as { decision?: string }).decision, "block");
+  assert.deepEqual(await stop(), {}, "bounded by retries");
+  const accepted = exitStopHook({ file: "exit.json", retries: 2 }, () => file);
+  file = JSON.stringify({ state: "accepted", kind: "submit" });
+  assert.deepEqual(await accepted(undefined as never, undefined, { signal }), {});
 });

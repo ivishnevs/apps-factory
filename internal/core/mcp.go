@@ -46,7 +46,11 @@ func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, err)
 		return
 	}
-	write(w, map[string]string{"token": c.runToken(company, run.Spec.ID, lease), "instructions": runtimeInstructions(run.Spec)})
+	instructions := runtimeInstructions(run.Spec)
+	if c.ExplicitExits {
+		instructions += exitInstructions
+	}
+	write(w, map[string]any{"token": c.runToken(company, run.Spec.ID, lease), "instructions": instructions, "explicit_exits": c.ExplicitExits})
 }
 func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.Handler) {
 	// Only these two endpoints accept run credentials; they never authorize owner APIs.

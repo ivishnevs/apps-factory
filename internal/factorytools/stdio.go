@@ -12,6 +12,12 @@ import (
 // Serve runs newline-delimited MCP JSON-RPC on stdio. Only tools are advertised.
 // Calls are serialized; each callback is responsible for its bounded context.
 func Serve(ctx context.Context, in io.Reader, out io.Writer, list func(context.Context) (any, error), call func(context.Context, Call) (any, error)) error {
+	return ServeWith(ctx, in, out, list, call, nil)
+}
+
+// ServeWith is Serve with delivered, called after each tools/call response was written to the runtime
+// (the adapter raises its ack_seq only then: docs/explicit-exits-contract.md §4).
+func ServeWith(ctx context.Context, in io.Reader, out io.Writer, list func(context.Context) (any, error), call func(context.Context, Call) (any, error), delivered func()) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 65536), 1<<20)
 	enc := json.NewEncoder(out)
@@ -89,6 +95,9 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, list func(context.C
 		}
 		if err = enc.Encode(response); err != nil {
 			return err
+		}
+		if req.Method == "tools/call" && delivered != nil {
+			delivered()
 		}
 	}
 	return scanner.Err()

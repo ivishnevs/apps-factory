@@ -493,3 +493,6 @@ func writeState(path string, st worktreeState) error {
 	}
 	return os.Rename(tmp, filepath.Join(dir, "state"))
 }
+
+// ScanCommand is the secret scanner (the revision range is its last argument), for the exit facts.
+func (w *Worktrees) ScanCommand() []string { return append([]string(nil), w.scan...) }

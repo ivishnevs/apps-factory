@@ -222,3 +222,73 @@ func TestSkillsExtraRoot(t *testing.T) {
 		t.Fatalf("calls %v, roots %v", methods, roots)
 	}
 }
+
+// TestFakeTurnsServer completes every turn at once and reports how many turns it saw.
+func TestFakeTurnsServer(t *testing.T) {
+	if os.Getenv("FACTORY_FAKE_CODEX") != "turns" {
+		return
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	enc := json.NewEncoder(os.Stdout)
+	turns := 0
+	for sc.Scan() {
+		var m rpc.Message
+		if json.Unmarshal(sc.Bytes(), &m) != nil || len(m.ID) == 0 {
+			continue
+		}
+		var result any = map[string]any{}
+		switch m.Method {
+		case "account/read":
+			result = map[string]any{"account": map[string]string{"type": "chatgpt"}}
+		case "thread/start":
+			result = map[string]any{"thread": map[string]string{"id": "thread-1"}}
+		case "turn/start":
+			turns++
+			result = map[string]any{"turn": map[string]string{"id": fmt.Sprint("turn-", turns)}}
+		}
+		_ = enc.Encode(map[string]any{"id": m.ID, "result": result})
+		if m.Method == "turn/start" {
+			_ = enc.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"item": map[string]string{"type": "agentMessage", "text": fmt.Sprint("turn ", turns)}}})
+			_ = enc.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]string{"id": fmt.Sprint("turn-", turns), "status": "completed"}}})
+		}
+	}
+	os.Exit(0)
+}
+
+// TestExitGuard: a completed turn without an exit gets follow-up turns (at most ExitGuardRetries); the
+// guard stops as soon as the exit exists.
+func TestExitGuard(t *testing.T) {
+	t.Setenv("FACTORY_FAKE_CODEX", "turns")
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(exitAfter int) (driver.Result, []string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		checks := 0
+		s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeTurnsServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work"}, Cwd: t.TempDir(),
+			ExitGuard: func() bool { checks++; return checks > exitAfter }, ExitGuardRetries: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		if err = s.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var guards []string
+		for e := range s.Events() {
+			if e.Method == "factory/exit_guard" {
+				guards = append(guards, string(e.Data))
+			}
+		}
+		return <-s.Done(), guards
+	}
+	if r, g := run(1); r.Status != "COMPLETED" || len(g) != 1 || !strings.Contains(r.Text, "turn 2") {
+		t.Fatalf("exit on the follow-up: %+v %v", r, g)
+	}
+	if r, g := run(100); r.Status != "COMPLETED" || len(g) != 2 || !strings.Contains(r.Text, "turn 3") {
+		t.Fatalf("bounded follow-ups: %+v %v", r, g)
+	}
+}

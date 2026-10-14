@@ -18,6 +18,7 @@ import (
 	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/codex"
+	"appfactory/internal/factorytools"
 	"appfactory/internal/node"
 	"appfactory/internal/node/sessions"
 	"appfactory/internal/node/shim"
@@ -256,11 +257,16 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			slog.Error("workspace report", "run", spec.ID, "task", req.Task, "error", err)
 		}
 	}
+	// exitFile is where the MCP adapter records the run's exit (docs/explicit-exits-contract.md §5).
+	var exitFile string
 	emit := func(kind string, p protocol.Event) error {
 		if p.Status != "" {
 			seal()
 			record.Status = p.Status
 			saveRecord()
+			if exitFile != "" {
+				p.ExitState = readExitState(exitFile).State
+			}
 		}
 		if kind != "started" && kind != "progress" {
 			p.Usage, p.Quota = meter.usage(), meter.quota
@@ -391,8 +397,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if withMCP || shimDir != "" {
 		// Approval shims ask Core with the run credential even when the runtime has no Factory MCP.
 		var credential struct {
-			Token        string `json:"token"`
-			Instructions string `json:"instructions"`
+			Token         string `json:"token"`
+			Instructions  string `json:"instructions"`
+			ExplicitExits bool   `json:"explicit_exits"`
 		}
 		if err := w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/credential", map[string]string{"lease": lease}, &credential); err != nil {
 			return setupFailed(err)
@@ -406,8 +413,28 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			if e != nil {
 				return setupFailed(e)
 			}
-			launch.MCP = &driver.MCPConfig{Command: mcp, EnvVars: []string{"FACTORY_RUN_TOKEN", "FACTORY_URL"}}
+			dir, e := os.MkdirTemp("", "factory-exit-")
+			if e != nil {
+				return setupFailed(e)
+			}
+			defer os.RemoveAll(dir)
+			exitFile = filepath.Join(dir, "exit.json")
+			launch.Env = setEnv(launch.Env, "FACTORY_EXIT_FILE", exitFile)
+			launch.Env = setEnv(launch.Env, "FACTORY_WORKDIR", cwd)
+			launch.Env = setEnv(launch.Env, "FACTORY_DEFAULT_BRANCH", spec.DefaultBranch)
+			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH"}
+			if wt != nil {
+				scan, _ := json.Marshal(w.Worktrees.ScanCommand())
+				launch.Env = setEnv(launch.Env, "FACTORY_SCAN_COMMAND", string(scan))
+				vars = append(vars, "FACTORY_SCAN_COMMAND")
+			}
+			launch.MCP = &driver.MCPConfig{Command: mcp, EnvVars: vars}
 			launch.Instructions += credential.Instructions
+			if credential.ExplicitExits {
+				file := exitFile
+				launch.ExitGuard = func() bool { s := readExitState(file).State; return s == "accepted" || s == "pending" }
+				launch.ExitGuardRetries, launch.ExitFile = ExitGuardRetries, file
+			}
 		}
 		if shimDir != "" {
 			launch.Env = shim.Env(launch.Env, shimDir)
@@ -460,6 +487,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	record.Started = true
 	saveRecord()
+	if exitFile != "" {
+		// After an accepted exit the turn may finish; a runtime still running 30 s later is stopped (the
+		// exit stands: Core records the run succeeded).
+		watchDone := make(chan struct{})
+		defer close(watchDone)
+		go watchExit(exitFile, watchDone, cancel)
+	}
 	events := session.Events()
 	cancelled := ctx.Done()
 	var interruptTimeout <-chan time.Time
@@ -792,4 +826,40 @@ func nodeEnvironment(env []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+// readExitState reads the adapter's exit file; "none" when it has not recorded an exit.
+func readExitState(path string) factorytools.ExitState {
+	var st factorytools.ExitState
+	b, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(b, &st) != nil || st.State == "" {
+		st.State = "none"
+	}
+	return st
+}
+
+// ExitGuardRetries bounds the follow-up turns of a runtime that ends its turn without an exit.
+var ExitGuardRetries = 2
+
+// ExitGrace is how long a runtime may keep running after its exit was accepted.
+var ExitGrace = 30 * time.Second
+
+func watchExit(path string, done <-chan struct{}, stop context.CancelFunc) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	var deadline <-chan time.Time
+	for {
+		select {
+		case <-done:
+			return
+		case <-deadline:
+			slog.Info("runtime still running after its accepted exit; stopping it")
+			stop()
+			return
+		case <-tick.C:
+			if deadline == nil && readExitState(path).State == "accepted" {
+				deadline = time.After(ExitGrace)
+			}
+		}
+	}
 }

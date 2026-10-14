@@ -38,6 +38,9 @@ export interface Launch {
   executable?: string;
   allow_api_key?: boolean;
   setting_sources?: SettingSource[];
+  // Exit guard: the MCP adapter's exit file and the number of refused stops (explicit exits).
+  exit_file?: string;
+  exit_guard_retries?: number;
 }
 
 // Normalized events (design D1). usage (per model) and cost (total) are cumulative for the query:
@@ -255,6 +258,7 @@ export async function runShim(io: ShimIO): Promise<void> {
       executable: launch.executable ?? (io.env["CLAUDE_CODE_EXECUTABLE"] || undefined),
       allowApiKey: launch.allow_api_key,
       settingSources: launch.setting_sources,
+      ...(launch.exit_file ? { exitGuard: { file: launch.exit_file, retries: launch.exit_guard_retries ?? 2 } } : {}),
       log: io.log,
       startupTimeoutMs: io.startupTimeoutMs,
       interruptTimeoutMs: io.interruptTimeoutMs,

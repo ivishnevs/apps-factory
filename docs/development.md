@@ -171,6 +171,15 @@ that service stopped (both would share the `claude-worker-v1` consumer).
   identifier) from the shared `mobile-app-testing` skill ([skills](skills.md#mobile-app-testing)). Executor tests
   script shell commands with `fake.Activity.Exec` (`internal/worker/shim_test.go`).
 
+### Explicit exits on the node
+
+With Core's `FACTORY_EXPLICIT_EXITS=1` runs end with `factory_exit_*` ([contract](explicit-exits-contract.md)).
+`factory-mcp` then needs `git` (and `gh` for pull requests) on the node; it collects the exit facts in the run's
+working directory, refuses a dirty tree or a scan finding locally, pushes the task branch and opens its pull request
+before `submit`/`handoff`, and writes the exit state to `FACTORY_EXIT_FILE`. The executor reports it on the terminal
+event, stops a runtime that keeps running 30 s after its exit, and turns on the exit guard (Codex follow-up turn,
+Claude Stop hook, 2 attempts each).
+
 ### Runtime protocol v2
 
 With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-protocol-v2.md) (Core must serve it):

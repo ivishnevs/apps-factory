@@ -1,7 +1,7 @@
 # Explicit exits: adapter ↔ Core contract
 
-Status: draft (2026-10-14) for stream B's review. Core side implemented behind the switch (§11); adapter side
-pending. Owner decisions of 2026-10-14: explicit exits
+Status: implemented on both sides behind the switch (2026-10-14): Core (§11) and adapter, worker and exit
+guards (§12). The open questions of §10 were decided as written (§12). Owner decisions of 2026-10-14: explicit exits
 yes, `done` only with a merged pull request yes (projects without a remote use `scratch`). Consolidates
 `explicit-exits-authority` D1–D9 and `task-worktrees` D5–D6 into one contract between the MCP adapter on the node
 (`cmd/factory-mcp`, `internal/factorytools`) and Core, so both sides can build against it. Nothing changes until
@@ -172,3 +172,22 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
   returns the task to READY and the next brief starts with the directive.
 - Not yet: `abandon_branch`, project review policy and `review_after_conflicts`, the secret-scan report item,
   `artifact_approved` as authority input.
+
+## 12. Adapter, worker and exit guard notes
+
+- Adapter (`internal/factorytools/adapter.go`, `cmd/factory-mcp`): `ack_seq` starts at `GET /agent/brief` (an
+  older Core without it leaves sequences untracked: no header); `X-Factory-Ack-Seq` on every request; the seq of
+  `X-Factory-Seen-Seq` and of a 409's `unseen` counts only after the response line was written to the runtime
+  (`ServeWith`'s delivered hook). Exit tools are intercepted: facts from `FACTORY_WORKDIR` (`git rev-parse`,
+  `status --porcelain`, `fetch`, `rev-list --count origin/<default>..HEAD`, `gh pr view`), the clean-tree and
+  scan refusals on the node, preflight → `git push -u origin HEAD:refs/heads/<branch>` → `gh pr create --fill`
+  for submit and handoff, then the exit. Core unreachable: "queued — stop working", retries with the same body
+  (2 s doubling to 1 min), a second exit meanwhile is refused; the process waits for the delivery at exit.
+- Worker: `FACTORY_EXIT_FILE` (a per-run temp dir), `FACTORY_WORKDIR`, `FACTORY_DEFAULT_BRANCH` and, in a worktree,
+  `FACTORY_SCAN_COMMAND` (JSON array, the node's scanner) reach factory-mcp; the terminal event carries
+  `exit_state`; a runtime still running 30 s (`ExitGrace`) after an accepted exit is stopped (the exit stands).
+- Exit guard, on when the run credential says `explicit_exits`: Codex starts a follow-up turn with
+  `driver.ExitGuardPrompt` in the same thread, Claude's shim blocks the Stop hook with the same text; both at most
+  `ExitGuardRetries` (2) times, and both stop as soon as the exit file says accepted or pending.
+- §10 decided: one `/agent/brief` call at adapter start; results are wrapped only while input is unseen; `gh` is the
+  only forge; the exit file lives in its own temp dir (not the shim dir, which exists only with guards).
