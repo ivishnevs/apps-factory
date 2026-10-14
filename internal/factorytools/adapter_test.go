@@ -209,7 +209,7 @@ func TestAdapterSubmitPushesAndOpensPR(t *testing.T) {
 		t.Fatalf("gh calls %s", b)
 	}
 	var st ExitState
-	if b, _ := os.ReadFile(exitFile); json.Unmarshal(b, &st) != nil || st.State != "accepted" || st.Kind != "submit" || st.Head != head {
+	if b, _ := os.ReadFile(exitFile); json.Unmarshal(b, &st) != nil || st.State != "accepted" || st.Kind != "submit" || st.ExitSHA != head {
 		t.Fatalf("exit file %+v", st)
 	}
 }

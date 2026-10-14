@@ -21,8 +21,8 @@ required alongside form answers. Core rejects arbitrary sender/project/run ident
 Read tools are scoped to the run's project; messages are shared project context, not private ACLs.
 
 An agent recipient gets a separate communication run carrying message_id, never the sender's
-TaskID/thread. Core dispatches message work before normal READY tasks while retaining one writer
-per project and one active run per agent. Agent must explicitly call factory_message_reply with
+TaskID/thread. Core dispatches message work before normal READY tasks; message runs use the project
+workspace (one at a time) and an agent has one active run. Agent must explicitly call factory_message_reply with
 message_id/version/body/request_id (and answers when applicable). A completed turn without an
 answer escalates the question to the owner. Known failed/unknown deliveries are not automatically
 retried. Nonblocking answers create a separate recipient delivery; blocking answers resume the task.

@@ -782,12 +782,11 @@ func (w *Worker) sealWorktree(run, lease string, wt workspace.Worktree, req work
 			return
 		}
 	}
-	// wip_sha and unpushed are what pins the task to this node (task-worktrees D8); Core has no field for
-	// them yet, so they are logged.
+	// unpushed pins the task to this node (task-worktrees D8) and is reported to Core; wip_sha is logged.
 	slog.Info("worktree sealed", "run", run, "task", req.Task, "path", wt.Path, "branch", wt.Branch, "exit", exit.Kind,
 		"exit_sha", res.ExitSHA, "reset", res.Reset, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA, "unpushed", res.Unpushed)
 	report := workspaceReport{Lease: lease, Mode: "worktree", Branch: wt.Branch, NodeID: w.NodeID, ExitSHA: res.ExitSHA,
-		SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix()}
+		SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix(), Unpushed: res.Unpushed}
 	if err := w.reportWorkspace(ctx, run, report); err != nil {
 		slog.Error("workspace report", "run", run, "task", req.Task, "error", err)
 	}
@@ -802,6 +801,8 @@ type workspaceReport struct {
 	ExitSHA    string `json:"exit_sha,omitempty"`
 	SealedHead string `json:"sealed_head,omitempty"`
 	SealedAt   int64  `json:"sealed_at,omitempty"`
+	// Unpushed: work of the task that is not on the remote stays on this node (pinning, task-worktrees D8).
+	Unpushed bool `json:"unpushed,omitempty"`
 }
 
 // reportWorkspace posts a run's workspace to Core, retrying transient failures (network errors, 5xx)
@@ -930,8 +931,7 @@ func readExitState(path string) factorytools.ExitState {
 // exit's facts) is read when the adapter writes it; otherwise the worker takes the worktree's HEAD when
 // it first sees the exit accepted.
 type exitRecord struct {
-	factorytools.ExitState
-	ExitSHA string `json:"exit_sha,omitempty"`
+	factorytools.ExitState // ExitSHA (exit_sha) is the adapter's exit commit
 }
 
 // readExitRecord reads the exit file like readExitState, with the exit's commit when present.

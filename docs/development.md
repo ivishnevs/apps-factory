@@ -314,9 +314,9 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   `factory-node run`. The same operation is `janitor.ResetWorkspace` for when Core sends reset-workspace to
   nodes (no protocol field yet).
 
-Not yet: the `workspace_diverged` escalation, reporting `unpushed`/`wip_sha` for pinning, `exit_sha` in the
-exit file, `fresh_from_default` in agent config. Push and PR happen only through explicit exits (below). The SQLite
-writer indexes still serialize runs of one project.
+Not yet: the `workspace_diverged` escalation, claim-side pinning on `unpushed` (reported), `fresh_from_default` in
+agent config. Push and PR happen only through explicit exits (below). Tasks of one project run in parallel on a node
+with `worktrees.enabled` (it registers `worktrees: true`); elsewhere they share the project workspace one at a time.
 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as

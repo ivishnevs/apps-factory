@@ -174,9 +174,9 @@ type ExitState struct {
 	State string    `json:"state"` // accepted, pending, refused
 	Kind  string    `json:"kind"`
 	At    time.Time `json:"at"`
-	// Head is the exit's commit (exit_sha) when the exit carried git facts; the node resets the worktree
-	// to it after handoff, submit or done (task-worktrees 2.2).
-	Head string `json:"head,omitempty"`
+	// ExitSHA is the exit's commit when the exit carried git facts; the node resets the worktree to it
+	// after handoff, submit or done (task-worktrees 2.2).
+	ExitSHA string `json:"exit_sha,omitempty"`
 }
 
 func (a *Adapter) record(state, kind string) {
@@ -186,7 +186,7 @@ func (a *Adapter) record(state, kind string) {
 	a.mu.Lock()
 	head := a.head
 	a.mu.Unlock()
-	b, _ := json.Marshal(ExitState{State: state, Kind: kind, At: time.Now().UTC(), Head: head})
+	b, _ := json.Marshal(ExitState{State: state, Kind: kind, At: time.Now().UTC(), ExitSHA: head})
 	tmp := a.ExitFile + ".tmp"
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, a.ExitFile)

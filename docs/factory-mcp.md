@@ -57,7 +57,8 @@ A failed/unknown/cancelled run cannot make its draft reviewable. Only another ag
 accept/reject IN_REVIEW work. Checks and artifact URIs are declarations, not independently verified
 proof or artifact approvals.
 
-One writer per project means a planner must finish its turn before an executor can run. A later
+Without per-task worktrees one run writes in the project workspace at a time, so a planner must finish its turn
+before an executor can run (with worktrees, tasks of a project run in parallel). A later
 review task can be READY with lower priority than the executor, as the example manager describes.
 Normal dependencies still require DONE, so a review task cannot depend on the unaccepted task it
 must review. No coordinator waits inside a turn or bypasses the scheduler.

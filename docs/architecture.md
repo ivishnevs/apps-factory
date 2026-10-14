@@ -24,11 +24,12 @@ Core marks expired active runs UNKNOWN. UNKNOWN releases the agent slot, but qua
 project, workspace and known session. Owner reconciliation is explicit; no automatic runtime retry.
 Queued cancellation is immediate, running cancellation is observed within a heartbeat interval.
 
-SQLite has unique writer indexes per project (`project_writer`) and per normalized workspace string
-(`workspace_writer`) over active and unreleased UNKNOWN runs, so Core still dispatches at most one writing run per
-project, whatever the agent's workspace mode. Dropping them for worktree runs is part of task-worktrees 1.1 (Core);
-until then per-task worktrees isolate each task's files and state but do not yet let two tasks of one project run
-concurrently.
+SQLite has a unique writer index per workspace slot (`workspace_writer`) over active and unreleased UNKNOWN runs.
+A worktree task run holds its own slot (`<project workspace>#task/<task>`), so tasks of one project run in parallel
+on nodes with worktrees; runs in the shared project workspace (shared or scratch mode, message runs, or a worktree
+run claimed by a node without worktrees or by a v1 worker) hold the project workspace and run one at a time
+(runtime-protocol-v2 §11, Worktrees). `active_task_run` keeps one live run per task and `session_turn` one per
+session.
 
 Workspace modes (agent `spec.workspace.mode`): `shared` and `scratch` runs use the project workspace through
 `workspace.Allocator` (`workspace.Local`) with a canonical-path advisory flock.
