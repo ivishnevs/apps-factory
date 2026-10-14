@@ -4,6 +4,7 @@ metadata:
   name: claude-demo
   description: Claude Agent SDK runtime smoke test agent
 spec:
+  reports_to: manager
   extends: developer
   runtime:
     provider: claude

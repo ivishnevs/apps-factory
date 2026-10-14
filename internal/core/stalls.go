@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"appfactory/internal/config"
@@ -56,13 +57,9 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
 		}
 	}
-	if len(stalled) > 0 {
-		target, err := c.escalationTarget(ctx, company)
-		if err != nil {
-			return err
-		}
-		for i := range stalled {
-			stalled[i].Target = target
+	for i := range stalled {
+		if t, err := c.Store.Task(ctx, company, stalled[i].TaskID); err == nil {
+			stalled[i].Target = c.escalationTarget(t.Assignee)
 		}
 	}
 	// Stalled waits are escalations now (answers unblock, cancel); alerts of the earlier kind clear.
@@ -76,13 +73,9 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(pinned) > 0 {
-		target, err := c.escalationTarget(ctx, company)
-		if err != nil {
-			return err
-		}
-		for i := range pinned {
-			pinned[i].Target = target
+	for i := range pinned {
+		if t, err := c.Store.Task(ctx, company, pinned[i].TaskID); err == nil {
+			pinned[i].Target = c.escalationTarget(t.Assignee)
 		}
 	}
 	if err = c.Store.SyncEscalations(ctx, company, "pinned_node_unavailable", pinned); err != nil {
@@ -91,26 +84,30 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	return c.Store.SyncAlerts(ctx, company, "idle", idle)
 }
 
-// escalationTarget routes an escalation before the hierarchy exists (reliable-recovery D5): the
-// configured agent with role manager that has the fewest open escalations (then by name), else the owner.
-func (c *Core) escalationTarget(ctx context.Context, company string) (string, error) {
-	load, err := c.Store.OpenEscalationsByTarget(ctx, company)
-	if err != nil {
-		return "", err
+// escalationTarget routes an escalation of a task to its assignee's manager (hierarchy: reports_to;
+// reliable-recovery D5), the owner for agents reporting to the owner.
+func (c *Core) escalationTarget(assignee string) string {
+	if m := config.Manager(c.Agents, assignee); m != config.Owner {
+		if _, ok := c.Agents[m]; ok {
+			return m
+		}
 	}
-	return c.pickManager(load), nil
+	return config.Owner
 }
 
-// pickManager is the manager agent with the fewest open escalations (then by name), else the owner.
-func (c *Core) pickManager(load map[string]int) string {
-	target := "owner"
-	for _, name := range config.Names(c.Agents) {
-		if c.Agents[name].Spec.Role != "manager" {
-			continue
-		}
-		if target == "owner" || load[name] < load[target] {
-			target = name
+// hasAuthority tells whether actor has authority over the task (hierarchy D2): the owner, an agent in the
+// assignee's chain, or the assignee of the task it was delegated from (origin_task).
+func (c *Core) hasAuthority(ctx context.Context, company, actor string, t tasks.Task) bool {
+	if actor == "" || actor == config.Owner {
+		return true
+	}
+	if slices.Contains(config.Chain(c.Agents, t.Assignee), actor) {
+		return true
+	}
+	if t.OriginTask != "" {
+		if o, err := c.Store.Task(ctx, company, t.OriginTask); err == nil && o.Assignee == actor {
+			return true
 		}
 	}
-	return target
+	return false
 }

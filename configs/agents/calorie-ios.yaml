@@ -6,6 +6,7 @@ metadata:
 spec:
   extends: developer
   role: developer
+  reports_to: calorie-manager
   prompt:
     file: prompts/calorie-ios.md
   execution:

@@ -223,8 +223,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, p.Actor, "factory.task.update", false, false) {
 			return
 		}
-		// Authority until the hierarchy: the owner and agents with role manager.
-		p.Authority = p.Actor == "" || c.Agents[p.Actor].Spec.Role == "manager"
+		if t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id")); err == nil {
+			p.Authority = c.hasAuthority(r.Context(), c.companyFrom(r), p.Actor, t)
+		}
 		v, err := c.Store.CommentTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})

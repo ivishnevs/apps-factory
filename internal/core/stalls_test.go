@@ -75,8 +75,8 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 		t.Fatal(open, err)
 	}
 	byRef := map[string]storage.Escalation{open[0].RefID: open[0], open[1].RefID: open[1]}
-	// Routed to the least loaded manager agent of the catalog (calorie-manager first by name).
-	if !strings.Contains(byRef["spec"].Summary, "cancelled") || !strings.Contains(byRef["design"].Summary, "BACKLOG") || byRef["spec"].Target != "calorie-manager" || byRef["design"].Target != "calorie-manager" {
+	// Routed to the assignee's manager (reports_to).
+	if !strings.Contains(byRef["spec"].Summary, "cancelled") || !strings.Contains(byRef["design"].Summary, "BACKLOG") || byRef["spec"].Target != "manager" || byRef["design"].Target != "manager" {
 		t.Fatalf("%+v", byRef)
 	}
 	if snap, _ := s.TaskSnapshot(ctx, co, "build"); c.evaluate(snap).Reason != tasks.ReasonParked+tasks.ParkEscalation {

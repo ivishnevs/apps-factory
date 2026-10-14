@@ -4,6 +4,7 @@ metadata:
   name: demo
   description: Foundation smoke test agent
 spec:
+  reports_to: manager
   extends: developer
   runtime:
     provider: codex

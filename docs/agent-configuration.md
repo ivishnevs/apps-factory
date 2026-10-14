@@ -57,3 +57,8 @@ Configuration changes require Core restart. Stored runs retain their original co
 refuses an unknown target, a self reference and cycles; `owner` is reserved. The chain of an agent is its managers
 up to the owner, its subtree the agents whose chain contains it. Every agent may message its chain (the owner
 included) and its direct reports; `communication.can_message` adds peers but never removes these.
+
+Authority over a task belongs to the owner, the agents in its assignee's chain and the assignee of the task it was
+delegated from (`origin_task`). Their comments and `factory_task_direct` directives wake the task; other agents'
+comments only reach its next brief. Recovery and stall escalations go to the assignee's manager (`reports_to`),
+the owner for agents at the top.

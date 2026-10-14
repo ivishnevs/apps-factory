@@ -11,6 +11,7 @@ spec:
     model: default
     quota_key: claude-subscription  # one Claude account: a limit pauses both agents
   role: designer
+  reports_to: calorie-manager
   prompt:
     file: prompts/calorie-designer.md
   execution:

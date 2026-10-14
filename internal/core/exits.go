@@ -41,7 +41,7 @@ func (c *Core) agentTools(agent config.Agent, allowed func(factorytools.Tool) bo
 		return out
 	}
 	for _, t := range factorytools.ExitDefinitions() {
-		if t.Name == "factory_task_direct" && agent.Spec.Role != "manager" {
+		if t.Name == "factory_task_direct" && !agent.Spec.Communication.CanCreateTasks && len(config.DirectReports(c.Agents, agent.Metadata.Name)) == 0 {
 			continue
 		}
 		out = append(out, t)
@@ -131,14 +131,14 @@ func (c *Core) exitCall(w http.ResponseWriter, r *http.Request, p factorytools.C
 
 // directiveCall serves factory_task_direct: a manager's directive to a task of the run's project.
 func (c *Core) directiveCall(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run, current config.Agent) {
-	if current.Spec.Role != "manager" {
-		http.Error(w, "directives are for managers", 403)
-		return
-	}
 	task, _ := p.Arguments["task_id"].(string)
 	t, err := c.Store.Task(r.Context(), c.companyFrom(r), task)
 	if err != nil {
 		reply(w, nil, err)
+		return
+	}
+	if !c.hasAuthority(r.Context(), c.companyFrom(r), run.Spec.Agent, t) {
+		http.Error(w, "directives need authority over the task: its assignee's chain or its delegator", 403)
 		return
 	}
 	if t.ProjectID != run.Spec.Project {

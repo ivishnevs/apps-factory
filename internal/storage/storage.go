@@ -35,9 +35,9 @@ type Store struct {
 	// Continuity, when set by Core's tick, defers lease expiry until one TTL of continuous
 	// ticking has passed, so a host sleep does not expire every lease at once.
 	Continuity *clock.Continuity
-	// EscalationTarget picks who answers an escalation from the open escalations per target; Core sets it
-	// from its catalog (the least loaded manager agent). Nil means the owner.
-	EscalationTarget func(load map[string]int) string
+	// EscalationTarget routes an escalation of a task with this assignee (hierarchy: its manager); Core
+	// sets it from the agent catalog, nil routes to the owner.
+	EscalationTarget func(assignee string) string
 	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a COMPLETED
 	// turn without an accepted exit is no_exit instead of an implicit submission.
 	ExplicitExits bool

@@ -372,11 +372,12 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	}
 }
 
-// TestManagerDirective: managers get factory_task_direct; their directive is authority input on the task.
+// TestManagerDirective: managers get factory_task_direct; their directive is authority input on a task of
+// their subtree.
 func TestManagerDirective(t *testing.T) {
 	h := newExitHarness(t)
 	ctx := context.Background()
-	h.create("target", "notes", "demo")
+	h.create("target", "notes", "calorie-ios")
 	h.create("plan", "code", "calorie-manager")
 	m := h.start("plan")
 	if body := h.do(m.token, "GET", "/agent/tools", nil, nil).Body.String(); !strings.Contains(body, "factory_task_direct") {
@@ -387,7 +388,7 @@ func TestManagerDirective(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if _, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "feature", ProjectID: "code", Title: "feature", RequestID: "create-feature"}); err != nil {
+	if _, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "feature", ProjectID: "code", Title: "feature", Assignee: "calorie-ios", RequestID: "create-feature"}); err != nil {
 		t.Fatal(err)
 	}
 	w = h.do(m.token, "POST", "/agent/call", factorytools.Call{Name: "factory_task_direct", Arguments: map[string]any{"task_id": "feature", "text": "ship the login first", "request_id": "d"}}, nil)
@@ -446,11 +447,12 @@ func TestReviewAfterConflictsRequired(t *testing.T) {
 	}
 }
 
-// TestCommentsInBrief: a non-authority comment wakes nothing but reaches the next brief; a manager's wakes.
+// TestCommentsInBrief: a non-authority comment (a peer) wakes nothing but reaches the next brief; the
+// assignee's manager's wakes.
 func TestCommentsInBrief(t *testing.T) {
 	h := newExitHarness(t)
 	ctx := context.Background()
-	if _, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "c", ProjectID: "notes", Title: "c", Assignee: "demo", RequestID: "c"}); err != nil {
+	if _, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "c", ProjectID: "notes", Title: "c", Assignee: "calorie-ios", RequestID: "c"}); err != nil {
 		t.Fatal(err)
 	}
 	for actor, code := range map[string]int{"calorie-qa": 200, "calorie-manager": 200} {
@@ -532,5 +534,37 @@ func TestRulesInBriefAndSettingsGet(t *testing.T) {
 		if w.Code != 200 || !strings.Contains(w.Body.String(), want) {
 			t.Fatal(scope, w.Code, w.Body.String())
 		}
+	}
+}
+
+// TestAuthorityFollowsTheTree (hierarchy 1.2): direct manager, grand-manager and delegator have authority, a
+// sibling does not; escalations go to the assignee's manager.
+func TestAuthorityFollowsTheTree(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	agents := map[string]config.Agent{}
+	for name, boss := range map[string]string{"cto": "", "lead": "cto", "dev": "lead", "peer": "lead", "other": ""} {
+		var a config.Agent
+		a.Metadata.Name, a.Spec.ReportsTo = name, boss
+		agents[name] = a
+	}
+	h.c.Agents = agents
+	if _, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "origin", ProjectID: "notes", Title: "o", Assignee: "other", RequestID: "o"}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "work", ProjectID: "notes", Title: "w", Assignee: "dev", OriginTask: "origin", RequestID: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for actor, want := range map[string]bool{"": true, "owner": true, "lead": true, "cto": true, "other": true, "peer": false, "dev": false} {
+		if got := h.c.hasAuthority(ctx, storage.DefaultCompany, actor, task); got != want {
+			t.Errorf("%q: %v", actor, got)
+		}
+	}
+	if got := h.c.escalationTarget("dev"); got != "lead" {
+		t.Error("escalation to", got)
+	}
+	if got := h.c.escalationTarget("cto"); got != "owner" {
+		t.Error("escalation to", got)
 	}
 }

@@ -108,7 +108,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		}
 		return openEscalation(ctx, tx, "inspect", escalationAnswers["inspect"], EscalationWant{TaskID: t.ID, RefID: runID,
 			Summary: "run " + runID + " of a task with external effects ended " + outcome + ": " + excerpt512(result) + " — check whether the effect happened: retry (it did not, or it is idempotent), continue (it happened), cancel",
-			Target:  retryTarget(ctx, tx)})
+			Target:  retryTarget(tx, t.Assignee)})
 	}
 	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
 	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
@@ -161,7 +161,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
-		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(ctx, tx)})
+		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(tx, t.Assignee)})
 	}
 	if !review {
 		t.Status, t.BlockReason = "READY", ""
@@ -177,23 +177,11 @@ func excerpt512(s string) string {
 	return s
 }
 
-func retryTarget(ctx context.Context, tx *Tx) string {
+func retryTarget(tx *Tx, assignee string) string {
 	if tx.store.EscalationTarget == nil {
 		return "owner"
 	}
-	load := map[string]int{}
-	rows, err := tx.QueryContext(ctx, "SELECT target,count(*) FROM escalations WHERE company_id=? AND status='open' GROUP BY target", tx.company)
-	if err == nil {
-		for rows.Next() {
-			var target string
-			var n int
-			if rows.Scan(&target, &n) == nil {
-				load[target] = n
-			}
-		}
-		rows.Close()
-	}
-	return tx.store.EscalationTarget(load)
+	return tx.store.EscalationTarget(assignee)
 }
 
 // resetRetry clears the counters, the backoff and today's budget: authority input or a retry answer.
