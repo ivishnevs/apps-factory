@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -43,7 +45,7 @@ type DriverProbe interface {
 
 func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
-	r = append(r, d.disk())
+	r = append(r, d.disk(), d.ps(ctx))
 	r = append(r, d.xcode(ctx)...)
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
 	r = append(r, d.core(ctx))
@@ -127,6 +129,25 @@ func (d Doctor) disk() CheckResult {
 		return CheckResult{Check: "disk", Status: Warn, Detail: detail, Hint: hint + "; below low the janitor prunes aggressively"}
 	}
 	return CheckResult{Check: "disk", Status: Pass, Detail: detail}
+}
+
+// PsCommand is how the node records a runtime's process group (procgroup.StartTime): the leader's start time
+// tells a reused PID from the original leader, so group kills are PID-reuse safe.
+func PsCommand(pid int) []string { return []string{"ps", "-o", "lstart=", "-p", strconv.Itoa(pid)} }
+
+// ps checks that the node can read a process's start time; without it a stopped runtime's group is not
+// recorded and only its leader is killed, which can orphan its children (tools, MCP servers).
+func (d Doctor) ps(ctx context.Context) CheckResult {
+	argv := PsCommand(os.Getpid())
+	out, err := d.Host.Output(ctx, argv[0], argv[1:]...)
+	if err == nil && out == "" {
+		err = fmt.Errorf("empty output")
+	}
+	if err != nil {
+		return CheckResult{Check: "ps", Status: Fail, Detail: strings.Join(argv[:3], " ") + ": " + err.Error(),
+			Hint: "install procps (Debian/Ubuntu: apt-get install procps; Alpine: apk add procps); without it a stopped runtime's child processes can be orphaned"}
+	}
+	return CheckResult{Check: "ps", Status: Pass, Detail: "process start times readable"}
 }
 
 func gib(b uint64) string { return fmt.Sprintf("%g GiB", float64(b)/GiB) }

@@ -183,7 +183,9 @@ func Executable(dir string, rules []policies.Rule) (string, error) {
 }
 
 // Part is one simple command of a shell command line; Unexpanded means a word holds a $VAR, ${VAR},
-// $(...) or `...` the shell would expand, so Argv is not what would run.
+// $(...) or `...` the shell would expand, or the command is ambiguous to the lexer (a heredoc or process
+// substitution in the line before it or in it, a redirection without a target, a {var} file descriptor), so
+// Argv is not known to be what would run.
 type Part struct {
 	Argv       []string
 	Unexpanded bool
@@ -191,7 +193,8 @@ type Part struct {
 
 // CommandLines splits a shell command into the argv of each simple command, unwrapping
 // `<shell> -c|-lc SCRIPT`. Leading VAR=value assignments are dropped and argv[0] is reduced to its
-// basename. It is a guardrail lexer: substitutions and redirections are not interpreted.
+// basename. Redirections ([n]>file, [n]>>file, [n]<file, &>file, &>>file, [n]>&m, [n]<&m, >|file, <>file,
+// <<<word) and their targets are not arguments. It is a guardrail lexer: substitutions are not interpreted.
 func CommandLines(command string) [][]string {
 	var out [][]string
 	for _, c := range Parts(command) {
@@ -206,7 +209,11 @@ func Parts(command string) []Part {
 	for _, cmd := range lex(command) {
 		w := cmd.words
 		if len(w) == 3 && isShell(w[0]) && (w[1] == "-c" || w[1] == "-lc") {
-			out = append(out, Parts(w[2])...)
+			inner := Parts(w[2])
+			for i := range inner {
+				inner[i].Unexpanded = inner[i].Unexpanded || cmd.ambiguous
+			}
+			out = append(out, inner...)
 			continue
 		}
 		dyn := cmd.dynamic
@@ -215,7 +222,7 @@ func Parts(command string) []Part {
 		}
 		if len(w) > 0 {
 			w[0] = filepath.Base(w[0])
-			out = append(out, Part{Argv: w, Unexpanded: slices.Contains(dyn, true)})
+			out = append(out, Part{Argv: w, Unexpanded: cmd.ambiguous || slices.Contains(dyn, true)})
 		}
 	}
 	return out
@@ -228,10 +235,12 @@ func isShell(s string) bool {
 	return false
 }
 
-// lexed is one simple command: its words and, per word, whether the shell would expand part of it.
+// lexed is one simple command: its words and, per word, whether the shell would expand part of it;
+// ambiguous means the lexer cannot tell its argv for sure.
 type lexed struct {
-	words   []string
-	dynamic []bool
+	words     []string
+	dynamic   []bool
+	ambiguous bool
 }
 
 // expands reports whether r[i] starts a parameter expansion or command substitution: $ followed
@@ -247,25 +256,62 @@ func expands(r []rune, i int) bool {
 	return n == '_' || n == '{' || n == '(' || unicode.IsLetter(n) || unicode.IsDigit(n) || strings.ContainsRune("@*#?$!-", n)
 }
 
+// at reports whether r[i] is c.
+func at(r []rune, i int, c rune) bool { return i < len(r) && r[i] == c }
+
 // lex splits s into simple commands at ; & | newline and parentheses, honouring quotes and backslashes.
+// Redirection operators and their target words are dropped; `&` in `&>` and `>&` is not a separator. A
+// heredoc (<<, <<-) or a process substitution (<(...), >(...)) makes its command and every later one in s
+// ambiguous: the lexer does not know where a heredoc's body ends or what a substitution runs.
 func lex(s string) []lexed {
 	var cmds []lexed
 	var cur lexed
 	var word strings.Builder
-	inWord, dynamic := false, false
+	inWord, dynamic, quoted := false, false, false
+	target := false  // the next word is a redirection target, not an argument
+	tainted := false // a heredoc or process substitution appeared: the rest of s is ambiguous
+	resetWord := func() {
+		word.Reset()
+		inWord, dynamic, quoted = false, false, false
+	}
 	flushWord := func() {
-		if inWord {
+		if !inWord {
+			return
+		}
+		if target {
+			target = false
+		} else {
 			cur.words = append(cur.words, word.String())
 			cur.dynamic = append(cur.dynamic, dynamic)
-			word.Reset()
-			inWord, dynamic = false, false
 		}
+		resetWord()
 	}
 	flushCmd := func() {
 		flushWord()
+		if target { // a redirection without its target
+			cur.ambiguous, target = true, false
+		}
+		cur.ambiguous = cur.ambiguous || tainted
 		if len(cur.words) > 0 {
 			cmds = append(cmds, cur)
-			cur = lexed{}
+		}
+		cur = lexed{}
+	}
+	// operator starts a redirection at r[i]: a word of digits right before it is its file descriptor
+	// (not an argument), a {name} word a variable descriptor (ambiguous).
+	operator := func() {
+		if inWord && !quoted && !dynamic {
+			w := word.String()
+			if strings.Trim(w, "0123456789") == "" {
+				resetWord()
+			} else if strings.HasPrefix(w, "{") && strings.HasSuffix(w, "}") {
+				resetWord()
+				cur.ambiguous = true
+			}
+		}
+		flushWord()
+		if target { // an operator where its predecessor's target belongs
+			cur.ambiguous, target = true, false
 		}
 	}
 	r := []rune(s)
@@ -273,12 +319,12 @@ func lex(s string) []lexed {
 		c := r[i]
 		switch {
 		case c == '\'':
-			inWord = true
+			inWord, quoted = true, true
 			for i++; i < len(r) && r[i] != '\''; i++ {
 				word.WriteRune(r[i])
 			}
 		case c == '"':
-			inWord = true
+			inWord, quoted = true, true
 			for i++; i < len(r) && r[i] != '"'; i++ {
 				if r[i] == '\\' && i+1 < len(r) && strings.ContainsRune(`"\$`+"`", r[i+1]) {
 					i++
@@ -290,9 +336,37 @@ func lex(s string) []lexed {
 		case c == '\\' && i+1 < len(r):
 			i++
 			if r[i] != '\n' {
-				inWord = true
+				inWord, quoted = true, true
 				word.WriteRune(r[i])
 			}
+		case c == '<' || c == '>':
+			operator()
+			if at(r, i+1, '(') { // process substitution; the ( then splits like a subshell
+				cur.ambiguous, tainted = true, true
+				continue
+			}
+			switch {
+			case c == '<' && at(r, i+1, '<') && at(r, i+2, '<'): // <<< here-string
+				i += 2
+			case c == '<' && at(r, i+1, '<'): // << or <<- heredoc: the delimiter is the target
+				i++
+				if at(r, i+1, '-') {
+					i++
+				}
+				cur.ambiguous, tainted = true, true
+			case c == '<' && (at(r, i+1, '&') || at(r, i+1, '>')): // <& <>
+				i++
+			case c == '>' && (at(r, i+1, '>') || at(r, i+1, '&') || at(r, i+1, '|')): // >> >& >|
+				i++
+			}
+			target = true
+		case c == '&' && at(r, i+1, '>'): // &> and &>>
+			operator()
+			i++
+			if at(r, i+1, '>') {
+				i++
+			}
+			target = true
 		case c == ';' || c == '&' || c == '|' || c == '\n' || c == '(' || c == ')':
 			flushCmd()
 		case c == ' ' || c == '\t':

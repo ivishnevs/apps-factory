@@ -246,7 +246,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	}
 	s := &session{removeSkills: removeSkills, cmd: cmd, stdin: stdin, lines: make(chan []byte), exited: make(chan struct{}), events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	// Recorded before read can reap the shim, so Close never signals a group that reused its PID.
-	s.group, _ = procgroup.Record(cmd.Process.Pid)
+	s.group = procgroup.RecordOrLeader(cmd.Process.Pid, "claude")
 	go s.read(stdout)
 	if err = s.control(line); err == nil {
 		err = s.open(ctx)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,6 +76,9 @@ func probeLine(version, account string) string {
 	return `{"event":"probe","claude_code_version":"` + version + `","sdk_version":"` + claude.SupportedSDK + `","account":` + account + "}\n"
 }
 
+// psLine is the doctor's process start time check of its own PID.
+var psLine = strings.Join(PsCommand(os.Getpid()), " ")
+
 // healthy is a macOS node with both drivers ready.
 func healthy() *fakeHost {
 	return &fakeHost{
@@ -85,6 +89,7 @@ func healthy() *fakeHost {
 			claudeShim: true, "/opt/factory/workers/claude/package.json": true},
 		cmds: map[string]reply{
 			"git --version":                          {out: "git version 2.50.1\n"},
+			psLine:                                   {out: "Wed Oct 15 09:00:00 2026\n"},
 			"git config --get user.name":             {out: "Factory\n"},
 			"git config --get user.email":            {out: "f@example.com\n"},
 			"gh auth status":                         {out: "github.com\n  ✓ Logged in to github.com account bot (keyring)\n"},
@@ -158,6 +163,8 @@ func TestChecks(t *testing.T) {
 		}, "forge.repo", Pass, "r"},
 		{"disk low", "linux", func(f *fakeHost, _ *Doctor) { f.free = 10 * GiB }, "disk", Warn, "janitor"},
 		{"disk critical", "linux", func(f *fakeHost, _ *Doctor) { f.free = 4 * GiB }, "disk", Fail, "pauses"},
+		{"ps missing", "linux", func(f *fakeHost, _ *Doctor) { delete(f.cmds, psLine) }, "ps", Fail, "install procps"},
+		{"ps empty", "linux", func(f *fakeHost, _ *Doctor) { f.cmds[psLine] = reply{} }, "ps", Fail, "install procps"},
 		{"xcode skipped off macOS", "linux", nil, "xcode", Skip, "not macOS"},
 		{"command line tools only", "darwin", func(f *fakeHost, _ *Doctor) {
 			f.cmds["xcode-select -p"] = reply{out: "/Library/Developer/CommandLineTools"}

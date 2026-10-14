@@ -228,7 +228,7 @@ func TestDecideMode(t *testing.T) {
 	if d := decide("git push origin dev"); d.Decision != "deny" || !strings.Contains(d.Reason, `"argv":["git","push","origin","dev"]`) {
 		t.Fatal(d)
 	}
-	if d := decide("/usr/bin/git push origin main"); d.Decision != "allow" {
+	if d := decide("/usr/bin/git push origin main 2>&1 | tail -3"); d.Decision != "allow" { // redirections are not argv
 		t.Fatal(d)
 	}
 	if !take(dir, []string{"git", "push", "origin", "main"}) {

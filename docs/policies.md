@@ -90,7 +90,13 @@ Codex (runtime-drivers D2) also decides commands inside the runtime. When the ca
 command, the thread starts with `approvalPolicy: untrusted`, so `codex app-server` asks before every command
 outside its known-safe read-only set (those still meet the PATH shims); without such rules it stays `never`. The
 driver splits the requested command into simple commands (unwrapping `sh|bash|zsh -c|-lc SCRIPT`, splitting at
-`;`, `&`, `|`, newlines and parentheses, dropping `VAR=value` prefixes) and decides each argv with the same rules:
+`;`, `&`, `|`, newlines and parentheses, dropping `VAR=value` prefixes) and decides each argv with the same rules.
+Redirections are not arguments: `[n]>file`, `[n]>>file`, `[n]<file`, `&>file`, `&>>file`, `[n]>&m`, `[n]<&m`,
+`>|file`, `<>file` and `<<<word` are dropped with their target, and the `&` in `2>&1` or `&>` separates nothing, so
+`git push origin main 2>&1 | tail` asks for exactly `git push origin main`. What the lexer cannot follow is treated
+like an unexpanded argument (a gated part is declined, never granted): a heredoc (`<<`, `<<-`) or process
+substitution (`<(...)`, `>(...)`) makes its command and every later one in the line ambiguous, as does a
+redirection without a target or a `{var}>` descriptor.
 - deny: `decline`, reported to Core (best effort), and the rule's instruction steered into the turn
   (`turn/steer`; the approval answer carries only the decision);
 - approval: `POST /agent/command` for the gated argv; `accept` only when Core answers 200 with a consumed grant,

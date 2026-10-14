@@ -64,7 +64,7 @@ func StartEnv(ctx context.Context, bin string, args []string, env []string) (*Cl
 	}
 	c := &Client{cmd: cmd, in: in, pending: map[string]chan Message{}, Events: make(chan Message, 1024), done: make(chan struct{}), wait: make(chan error, 1)}
 	// Recorded before Wait can reap the runtime, so Close never signals a group that reused its PID.
-	c.group, _ = procgroup.Record(cmd.Process.Pid)
+	c.group = procgroup.RecordOrLeader(cmd.Process.Pid, "rpc")
 	go c.read(out)
 	go func() { c.wait <- cmd.Wait() }()
 	return c, nil

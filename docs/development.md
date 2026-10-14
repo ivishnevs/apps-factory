@@ -66,7 +66,10 @@ STATUS/CHECK/DETAIL table with a remediation hint under every `fail`/`warn` row 
 Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, with `-repo URL`, `forge.repo`
 (`git ls-remote`); `disk` free space at `-disk-path` (default `$HOME`) against `-low-gib 20` (warn) and
 `-critical-gib 5` (fail); on macOS `xcode` (`xcode-select -p`, `xcodebuild -version`) and `xcode.simctl` (available
-simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`.
+simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DIR`, next to the binary, or `./bin`;
+`ps` (`ps -o lstart= -p <pid>` must print a start time: runtime process groups are recorded by their leader's start
+time so a stop never signals a reused PID; without it a stop kills only the runtime's leader and can orphan its
+children, and the node logs that once; hint: install procps).
 `core` (with `FACTORY_URL`): an authenticated `GET /health` with `FACTORY_TOKEN` (fails when the token is unset or
 rejected, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS). `nats` (with
 `nats.url` of `-config node.yaml` / `FACTORY_NODE_CONFIG`, else `NATS_URL`): one connection without reconnects
@@ -137,7 +140,11 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   subject (one error log), the other drivers keep claiming, running runs continue; the next passing check
   re-enables it (one info log). A run that ends on the runtime's authentication failure (`driver.AuthFailure`:
   Claude `auth_error`, Codex without a ChatGPT login; such runs end `paused_out`) disables its driver the same
-  way at once, without waiting for the next probe; the next passing probe re-enables it (runtime-drivers 3.2).
+  way at once, without waiting for the next probe, for a hold-off of 10 min, then 30 min, then 2 h (cap) for each
+  further auth failure; a passing probe re-enables it only after the hold-off (one info log when a probe passes
+  during it), so a probe that passes while runs keep failing auth does not flap the driver. Failures of runs that
+  were in flight while it is disabled do not escalate; the escalation starts over after a run on that driver
+  completes, or after it ran 2 h past its last hold-off without an auth failure (runtime-drivers 3.2).
   With no usable driver the node claims nothing; the node refuses to start when
   none is usable at start. With `protocol_version: 2` the change is declared to Core by registering the next
   epoch with the driver's `ok` updated, but only at a heartbeat where the node is idle (no busy slot, empty
@@ -334,6 +341,11 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
 - `workspace_mode: fresh_from_default` (no Core config yet): the task worktree has no task branch; every run seals
   what the previous one left, then checks out the freshly fetched `origin/<default>` detached with a clean tree.
   It is reported as mode `worktree` without a branch.
+- A turn that ends while the exit file says `pending` (factory-mcp still retrying delivery to an unreachable Core)
+  does not kill the runtime's group at once: the worker waits until the exit is `accepted` or `refused`, no
+  `factory-mcp` process is left in the group, the run is stopped (revoke, timeout, node stop: killed promptly) or
+  60 s (`ExitDeliveryWait`) pass, then stops it as usual; the terminal event's `exit_state` is read after the wait.
+  Runs without a pending exit are not delayed.
 - A runtime still running 30 s (`ExitGrace`) after its accepted exit is stopped; a run stopped after its accepted
   exit (also by its timeout or a stop) or ending without evidence reports `COMPLETED` without an outcome.
 - Git lock errors (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) are retried by the allocator; one

@@ -11,7 +11,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"appfactory/internal/node/shim"
 	"appfactory/internal/openspec"
 	"appfactory/internal/policies"
+	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
 	"appfactory/internal/storage"
@@ -111,6 +114,8 @@ type Worker struct {
 	// AuthFailed, when set, is called when a run ends on the runtime's authentication failure
 	// (driver.AuthFailure, driver.Result.Auth); the node disables the driver until its next probe passes.
 	AuthFailed func(err error)
+	// RunSucceeded, when set, is called when a run ends COMPLETED; the node resets the driver's auth hold-off.
+	RunSucceeded func()
 }
 
 // noteAuth reports a runtime authentication failure to AuthFailed.
@@ -268,6 +273,19 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			slog.Warn("worktree HEAD at the accepted exit", "run", spec.ID, "error", err)
 		}
 	}
+	// mcpName is the Factory MCP adapter's executable name; a pending exit holds the runtime while a
+	// process of that name is in its group (awaitExitDelivery).
+	var mcpName string
+	awaited := false
+	// awaitDelivery runs once, before the runtime's group is killed and before the exit file is read for
+	// the terminal event: an exit still pending delivery to Core gets up to ExitDeliveryWait.
+	awaitDelivery := func() {
+		if awaited || session == nil || exitFile == "" {
+			return
+		}
+		awaited = true
+		awaitExitDelivery(ctx, spec.ID, exitFile, session.ProcessGroup(), mcpName)
+	}
 	finished := false
 	var exitEnd exitRecord
 	// finish runs once, before the terminal event and before the exit file is removed: it stops a
@@ -277,6 +295,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return exitEnd
 		}
 		finished = true
+		awaitDelivery()
 		if wt != nil {
 			if session != nil {
 				session.Close()
@@ -320,6 +339,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 			record.Status = p.Status
 			saveRecord()
+			if p.Status == "COMPLETED" && w.RunSucceeded != nil {
+				w.RunSucceeded()
+			}
 		}
 		if kind != "started" && kind != "progress" {
 			p.Usage, p.Quota = meter.usage(), meter.quota
@@ -478,7 +500,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			// The run's exit is read (and the worktree sealed with it) before its file goes away, also
 			// when the run returns with an error and its terminal event is emitted afterwards.
 			defer func() { finish(); os.RemoveAll(dir) }()
-			exitFile = filepath.Join(dir, "exit.json")
+			exitFile, mcpName = filepath.Join(dir, "exit.json"), filepath.Base(mcp)
 			launch.Env = setEnv(launch.Env, "FACTORY_EXIT_FILE", exitFile)
 			launch.Env = setEnv(launch.Env, "FACTORY_WORKDIR", cwd)
 			launch.Env = setEnv(launch.Env, "FACTORY_DEFAULT_BRANCH", spec.DefaultBranch)
@@ -528,7 +550,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 		defer os.Remove(path)
 	}
-	defer session.Close()
+	defer func() { awaitDelivery(); session.Close() }()
 	if v2 {
 		// Phase 2 of the claim: workspace allocated and runtime launched (protocol v2 §6). Start is retry-safe.
 		if err = w.API.Retry(ctx, 8, "/runs/"+spec.ID+"/start", map[string]string{"lease": lease}, nil); err != nil {
@@ -966,6 +988,79 @@ var ExitGuardRetries = 2
 
 // ExitGrace is how long a runtime may keep running after its exit was accepted.
 var ExitGrace = 30 * time.Second
+
+// ExitDeliveryWait bounds how long a runtime whose turn ended with its exit still pending (factory-mcp
+// retrying delivery to an unreachable Core, docs/explicit-exits-contract.md §12) is kept alive before its
+// process group is killed.
+var ExitDeliveryWait = 60 * time.Second
+
+// awaitExitDelivery returns at once unless the exit file says pending. Then it waits until the exit
+// leaves pending (accepted, refused), no process named mcp is left in the runtime's group (factory-mcp
+// exited or the group is gone: killing it cannot lose the delivery), ctx ends (a revoke, timeout or
+// stop kills the runtime promptly) or ExitDeliveryWait passes. It returns the exit state it last read.
+func awaitExitDelivery(ctx context.Context, run, path string, group int, mcp string) string {
+	state := readExitState(path).State
+	if state != "pending" {
+		return state
+	}
+	if ctx.Err() != nil {
+		slog.Warn("run stopped with its exit still pending delivery; not waiting", "run", run)
+		return state
+	}
+	if !mcpRunning(group, mcp) {
+		slog.Warn("exit still pending but factory-mcp is not in the runtime's group; not waiting", "run", run)
+		return state
+	}
+	slog.Info("exit pending delivery to Core; keeping the runtime", "run", run, "wait", ExitDeliveryWait)
+	deadline := time.NewTimer(ExitDeliveryWait)
+	defer deadline.Stop()
+	tick := time.NewTicker(exitPoll)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Warn("run stopped while its exit was pending delivery", "run", run)
+			return state
+		case <-deadline.C:
+			slog.Warn("exit still pending delivery; stopping the runtime", "run", run, "waited", ExitDeliveryWait)
+			return state
+		case <-tick.C:
+			if state = readExitState(path).State; state != "pending" {
+				slog.Info("pending exit settled", "run", run, "exit_state", state)
+				return state
+			}
+			if !mcpRunning(group, mcp) {
+				slog.Warn("factory-mcp exited with the exit still pending", "run", run)
+				return state
+			}
+		}
+	}
+}
+
+// mcpRunning reports whether a process whose command line names the executable mcp is in process
+// group group. When ps fails the answer is unknown and it reports true (the wait stays bounded).
+func mcpRunning(group int, mcp string) bool {
+	if group <= 1 || mcp == "" || !procgroup.Alive(group) {
+		return false
+	}
+	out, err := exec.Command("ps", "-A", "-o", "pgid=", "-o", "args=").Output()
+	if err != nil {
+		return true
+	}
+	id := strconv.Itoa(group)
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || f[0] != id {
+			continue
+		}
+		for _, a := range f[1:] {
+			if filepath.Base(a) == mcp {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // exitPoll is how often the worker reads the exit file while the runtime runs.
 var exitPoll = 250 * time.Millisecond

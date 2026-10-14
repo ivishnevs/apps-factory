@@ -191,6 +191,7 @@ func Run(ctx context.Context, n Node) error {
 		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
 			Skills: registry, Sessions: store}
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
+		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
 		if s != nil {
 			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
 		}

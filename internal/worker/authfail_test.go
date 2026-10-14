@@ -15,7 +15,8 @@ import (
 
 // TestJetStreamAuthFailureReported (runtime-drivers 3.2): a run that ends on the runtime's authentication
 // failure (at launch, as a FAILED turn, or without terminal evidence) ends paused_out and calls AuthFailed
-// once; other failures, a quota hit included, do not.
+// once; other failures, a quota hit included, do not. Only a COMPLETED run calls RunSucceeded (the node resets
+// the driver's auth hold-off).
 func TestJetStreamAuthFailureReported(t *testing.T) {
 	url := os.Getenv("NATS_TEST_URL")
 	if url == "" {
@@ -33,12 +34,15 @@ func TestJetStreamAuthFailureReported(t *testing.T) {
 		"quota":         {script: fake.Script{Status: "FAILED", Outcome: driver.OutcomePausedOut}, event: "FAILED", outcome: "paused_out"},
 		"plain failure": {script: fake.Script{Status: "FAILED"}, event: "FAILED", outcome: "failed"},
 		"launch error":  {launch: errors.New("app-server refused the thread"), event: "FAILED", outcome: "failed"},
+		"completed":     {script: fake.Script{Status: "COMPLETED"}, event: "COMPLETED"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var mu sync.Mutex
 			var got []error
+			succeeded := 0
 			d := &fake.Driver{Script: c.script}
-			w := Worker{Driver: authLaunch{d, c.launch}, AuthFailed: func(err error) { mu.Lock(); got = append(got, err); mu.Unlock() }}
+			w := Worker{Driver: authLaunch{d, c.launch}, AuthFailed: func(err error) { mu.Lock(); got = append(got, err); mu.Unlock() },
+				RunSucceeded: func() { mu.Lock(); succeeded++; mu.Unlock() }}
 			_, events := runDriver(t, url, w, false)
 			var terminal protocol.Event
 			if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
@@ -51,6 +55,9 @@ func TestJetStreamAuthFailureReported(t *testing.T) {
 			defer mu.Unlock()
 			if c.auth && (len(got) != 1 || !driver.IsAuthFailure(got[0])) || !c.auth && len(got) != 0 {
 				t.Fatalf("AuthFailed calls %v, want auth %v", got, c.auth)
+			}
+			if want := map[bool]int{true: 1}[c.event == "COMPLETED"]; succeeded != want {
+				t.Fatalf("RunSucceeded calls %d, want %d", succeeded, want)
 			}
 		})
 	}

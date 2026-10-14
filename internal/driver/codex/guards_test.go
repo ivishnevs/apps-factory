@@ -188,6 +188,8 @@ func TestGuardsJudgeAllPartsBeforeGrants(t *testing.T) {
 		{"git push origin ${BRANCH}", "literal arguments"},
 		{"git push origin $(git branch --show-current)", "literal arguments"},
 		{"git push `echo origin` main", "literal arguments"},
+		{"git push origin main <<EOF\nx\nEOF", "literal arguments"},
+		{"git push origin main > >(tee log)", "literal arguments"},
 	} {
 		if d, note := ask(c.command); d != "decline" || !strings.Contains(note, c.note) {
 			t.Errorf("%s: %s %q", c.command, d, note)
@@ -203,7 +205,11 @@ func TestGuardsJudgeAllPartsBeforeGrants(t *testing.T) {
 	if d, note := ask(`cd app && git push origin 'v$1' \$x`); d != "accept" || note != "" {
 		t.Fatalf("%s %q", d, note)
 	}
-	if want := []string{"git push origin v$1 $x"}; !slices.Equal(asked, want) {
+	// Redirections are not part of the argv Core grants.
+	if d, note := ask(`git push origin main 2>&1 | tail -5`); d != "accept" || note != "" {
+		t.Fatalf("%s %q", d, note)
+	}
+	if want := []string{"git push origin v$1 $x", "git push origin main"}; !slices.Equal(asked, want) {
 		t.Fatalf("Core saw %q", asked)
 	}
 }
@@ -214,6 +220,26 @@ func TestCommandLines(t *testing.T) {
 		`bash -c "echo \"a b\" \\$x"`: {{"echo", "a b", "$x"}},
 		`git status`:                  {{"git", "status"}},
 		`(cliclick c:1)`:              {{"cliclick", "c:1"}},
+		// Redirections and their targets are not arguments; & in 2>&1, >& and &> separates nothing.
+		`git push origin main 2>&1`:             {{"git", "push", "origin", "main"}},
+		`git push origin main 2>&1 | tee log`:   {{"git", "push", "origin", "main"}, {"tee", "log"}},
+		`cmd > out.txt`:                         {{"cmd"}},
+		`cmd>out.txt arg`:                       {{"cmd", "arg"}},
+		`cmd 2>/dev/null`:                       {{"cmd"}},
+		`cmd &>log`:                             {{"cmd"}},
+		`cmd &>> log x`:                         {{"cmd", "x"}},
+		`cmd <in`:                               {{"cmd"}},
+		`cmd >>a 1>&2 2>&- <>rw >|clobber 0<&3`: {{"cmd"}},
+		`cmd <<< "here string" x`:               {{"cmd", "x"}},
+		`>out git push origin main`:             {{"git", "push", "origin", "main"}},
+		`echo x2>&1`:                            {{"echo", "x2"}},
+		`echo "2">x`:                            {{"echo", "2"}},
+		`echo 2 >x`:                             {{"echo", "2"}},
+		`a & b`:                                 {{"a"}, {"b"}},
+		`a |& b`:                                {{"a"}, {"b"}},
+		`bash -c 'git push origin main' 2>&1`:   {{"git", "push", "origin", "main"}},
+		`git push origin main >"$LOG"`:          {{"git", "push", "origin", "main"}},
+		`FOO=1 git push origin main 2>&1 >/dev/null`: {{"git", "push", "origin", "main"}},
 	}
 	for in, want := range cases {
 		got := shim.CommandLines(in)
@@ -229,9 +255,31 @@ func TestCommandLines(t *testing.T) {
 	for in, want := range map[string]bool{
 		`echo $HOME`: true, `echo "${HOME}/x"`: true, "echo `id`": true, `echo $?`: true,
 		`echo '$HOME'`: false, `echo \$HOME`: false, `echo "\$HOME"`: false, `echo 5$`: false, `bash -c "echo \"a b\" \\$x"`: false,
+		// Redirections: a plain or expanded target is not an argument; anything the lexer cannot follow is
+		// ambiguous (fail closed: a gated command is refused, never granted).
+		`git push origin main 2>&1`: false, `git push origin main > "$LOG"`: false,
+		`git push origin main <<EOF`: true, `git push origin main <<-'EOF'`: true,
+		`git push origin main >`: true, `git push origin main > >x`: true, `git push origin main {fd}>x`: true,
 	} {
 		if got := shim.Parts(in); len(got) != 1 || got[0].Unexpanded != want {
 			t.Errorf("%s: %+v, want unexpanded %v", in, got, want)
+		}
+	}
+	// A heredoc or process substitution makes every later command ambiguous, its body and the substituted
+	// command included; commands before it stay exact.
+	for in, want := range map[string][]bool{
+		"git status && cat <<EOF\ngit push origin main\nEOF": {false, true, true, true},
+		`git status; diff <(git push origin main) b`:         {false, true, true, true},
+		`git push origin main >(tee log)`:                    {true, true},
+	} {
+		got := shim.Parts(in)
+		if len(got) != len(want) {
+			t.Fatalf("%q: %+v", in, got)
+		}
+		for i := range got {
+			if got[i].Unexpanded != want[i] {
+				t.Errorf("%q part %d %v: unexpanded %v, want %v", in, i, got[i].Argv, got[i].Unexpanded, want[i])
+			}
 		}
 	}
 	if newGuards([]policies.Rule{{Name: "a", Type: "access", Commands: []string{"open"}, Effect: "allow"}}, nil).active() {

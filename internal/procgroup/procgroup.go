@@ -5,8 +5,10 @@ package procgroup
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -17,9 +19,12 @@ type Group struct {
 	Started string `json:"started"`
 }
 
+// psBinary is the ps the start time is read with (a test replaces it).
+var psBinary = "ps"
+
 // StartTime is the start time of a live process as `ps -o lstart=` prints it.
 func StartTime(pid int) (string, error) {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", fmt.Sprint(pid)).Output()
+	out, err := exec.Command(psBinary, "-o", "lstart=", "-p", fmt.Sprint(pid)).Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -33,6 +38,22 @@ func Record(pid int) (Group, error) {
 		return Group{}, fmt.Errorf("process %d: start time unknown: %w", pid, err)
 	}
 	return Group{pid, started}, nil
+}
+
+var recordFailed sync.Once
+
+// RecordOrLeader is Record for callers that fall back to killing only the leader (a zero Group): the first
+// failure in this process is logged with a hint, later ones are not (they share the cause, usually a missing
+// ps).
+func RecordOrLeader(pid int, who string) Group {
+	g, err := Record(pid)
+	if err != nil {
+		recordFailed.Do(func() {
+			slog.Warn("runtime process group not recorded; stopping a runtime kills only its leader and can orphan its children",
+				"component", who, "error", err, "hint", "install procps (ps); see factory-node doctor")
+		})
+	}
+	return g
 }
 
 // Alive reports whether any process group with this ID exists.
