@@ -41,10 +41,14 @@ func (d Driver) shimPath() string {
 	return filepath.Join(d.binDir(), "..", "workers", "claude", "dist", "src", "shim.js")
 }
 
-// Installed reports whether what Launch runs is present: the Node binary and the built shim.
+// Installed reports whether Claude is set up on this node: the Node binary and the built shim, or the
+// workers/claude checkout the shim is built from (Probe then fails with the "make build" hint). A node
+// without either (Codex only) skips the Claude checks.
 func (d Driver) Installed() bool {
 	h := d.host()
-	return d.nodeFound(h) && h.Exists(d.shimPath())
+	shim := d.shimPath()
+	source := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(shim))), "package.json")
+	return d.nodeFound(h) && (h.Exists(shim) || h.Exists(source))
 }
 
 func (d Driver) nodeFound(h node.Host) bool {

@@ -82,7 +82,7 @@ func healthy() *fakeHost {
 		// The Claude driver needs node and the built shim, not the standalone worker or a claude CLI.
 		paths: map[string]string{"gh": "/usr/bin/gh", "codex": "/usr/bin/codex", "node": "/usr/bin/node"},
 		files: map[string]bool{"/opt/factory/bin/factory-mcp": true, "/opt/factory/bin/factory-shim": true,
-			claudeShim: true},
+			claudeShim: true, "/opt/factory/workers/claude/package.json": true},
 		cmds: map[string]reply{
 			"git --version":                          {out: "git version 2.50.1\n"},
 			"git config --get user.name":             {out: "Factory\n"},
