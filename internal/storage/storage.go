@@ -373,9 +373,15 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 			if err != nil {
 				return err
 			}
+			var taskRun bool
+			if err = tx.QueryRowContext(ctx, "SELECT task_id IS NOT NULL FROM runs WHERE id=?", p.RunID).Scan(&taskRun); err != nil {
+				return err
+			}
 			switch {
 			case hasExit:
 				outcome = "succeeded" // an accepted exit fixes the outcome whatever happens afterwards
+			case s.ExplicitExits && next == "COMPLETED" && !taskRun:
+				// A run without a task (a message run) ends by replying; exits do not apply.
 			case s.ExplicitExits && next == "COMPLETED" && p.ExitState == "pending":
 				next, outcome = "FAILED", "lost"
 				if result == "" {

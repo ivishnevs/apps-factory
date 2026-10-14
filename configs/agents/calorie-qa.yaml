@@ -9,6 +9,7 @@ spec:
   runtime:
     provider: claude
     model: default
+    quota_key: claude-subscription  # one Claude account: a limit pauses both agents
   role: qa
   prompt:
     file: prompts/calorie-qa.md
