@@ -1,0 +1,151 @@
+# Explicit exits: adapter ↔ Core contract
+
+Status: draft (2026-10-14) for stream B's review; not implemented. Owner decisions of 2026-10-14: explicit exits
+yes, `done` only with a merged pull request yes (projects without a remote use `scratch`). Consolidates
+`explicit-exits-authority` D1–D9 and `task-worktrees` D5–D6 into one contract between the MCP adapter on the node
+(`cmd/factory-mcp`, `internal/factorytools`) and Core, so both sides can build against it. Nothing changes until
+Core's switch is on (§9).
+
+## 1. Who does what
+
+| Core (stream A) | Adapter and node (stream B) |
+|---|---|
+| exit endpoints, 409/410 rules, idempotency, task effects per exit, `run_exits` (migration) | exit tools in the agent list (definitions in `factorytools`, served by Core), forwarding |
+| `ack_seq` checks, `authority_input` in tool responses, `/agent/brief` | `ack_seq` tracking (raised only after a response reached the runtime) |
+| `done` rules: merged PR, approval bound to `{pr_number, approved_head}`, `review_after_conflicts` | exit facts: git, `gh`, secret scan; clean-tree refusal; push and ensure PR before `submit`/`handoff` |
+| `no_exit` outcome and escalation, `lost` for undelivered exits | exit guard (Codex follow-up turn, Claude Stop hook), exit file, stop 30 s after an accepted exit |
+| authority set (interim: role `manager`), directives, park override, urgent stop | acting on the urgent stop (v2 heartbeat `stop` reason `directive`) |
+| Core prompt (scheduler brief) | agent instructions in `configs/`, skills, `workers/claude` |
+
+## 2. Exit tools (agent-visible)
+
+All take the run's identity from the run token; none takes a task id (an exit is for the run's current task).
+
+| Tool | Arguments | Accepted effect |
+|---|---|---|
+| `factory_exit_submit` | `summary` (req.), `checks: [string]`, `artifacts: [{id, version, uri}]`, `reviewer?` | IN_REVIEW; assignee := reviewer (default: the project policy, else a `manager` agent, else owner); implementer recorded; submission stored |
+| `factory_exit_handoff` | `to` (req.), `note` (req.), `verdict?: approved\|changes_requested`, `feedback?` | assignee := `to` (may be the same agent), `assignment` trigger. With `verdict` from IN_REVIEW: `approved` → implementer, IN_PROGRESS, approval bound to `{pr_number, approved_head}` from the facts; `changes_requested` (needs `feedback`) → REWORK to the implementer |
+| `factory_exit_done` | `summary` (req.) | DONE (§6) |
+| `factory_exit_ask` | `question` (req.), `options?: [string]`, `category?`, `evidence?` | `ask` park; a question to the owner (after `hierarchy`: the manager chain) |
+| `factory_exit_block` | `on?: [task id]`, `on_children?: bool`, `reason` (req.) | `block` park on open tasks without a cycle, or `children` park with ≥ 1 open child; otherwise accepted as `ask` (the response says so) |
+| `factory_exit_wait` | `reason` (req.), `wake_at` (RFC 3339, req.), `deadline?` | `wait` park until `wake_at` (rules of `waits-events-cost-cli`) |
+
+`factory_task_submit`, `factory_task_accept` and `factory_task_reject` leave the agent list when the switch is on;
+the owner's `factory tasks review` maps to a verdict handoff. Managers get `factory_task_direct {task, text, urgent?}`
+(§7). Every accepted exit sets the run outcome `succeeded` and `handled_seq = ack_seq`.
+
+## 3. Endpoints (run-token gateway, like `/agent/call`)
+
+`POST /agent/exit/preflight` and `POST /agent/exit`, body:
+
+```json
+{"kind": "submit", "arguments": {"summary": "…", "checks": ["go test ./..."]}, "ack_seq": 17,
+ "facts": {"head": "9f3c…", "dirty": false, "branch": "af/t1-login", "default_branch": "main",
+           "ahead_of_default": 3, "pushed": true,
+           "pr": {"number": 42, "state": "open", "head_sha": "9f3c…", "url": "https://…/pull/42"},
+           "scan": {"ok": true}}}
+```
+
+- `facts` is required for `submit`, `handoff`, `done`; optional for `ask`, `block`, `wait`. Without a repository
+  (scratch mode) `head`/`branch` are empty and `pr` is null. `pr.state`: `open|closed|merged`. Core never reads
+  the disk; facts are trusted node data, Core checks run identity and sequences.
+- **preflight** applies every check below without changing state; the adapter calls it before pushing.
+- **exit** applies the checks and the effect in one transaction. Idempotent by run id: the same kind and
+  arguments return the stored result; another kind after an accepted exit is `409 exit_already_accepted`.
+
+Answers (always JSON):
+
+| Status | Body | Adapter does |
+|---|---|---|
+| 200 | `{"exit": "submit", "task": {"id", "status", "assignee", "version"}, "ack_seq": 17}` | tells the agent the exit is accepted and to finish now; writes the exit file (§5) |
+| 409 | `{"reason": "unseen_input", "unseen": [{"seq", "kind", "author", "authority", "text"}], "hint": "…"}` | returns `unseen` to the runtime as the tool result, then raises `ack_seq`; the agent may exit again |
+| 409 | `{"reason": "dirty_tree\|pr_not_merged\|needs_approval\|secret_found\|exit_already_accepted\|invalid_exit", "hint": "…"}` | returns the hint; nothing is pushed or committed |
+| 410 | `{"reason": "not_current_run"}` | tells the agent to stop; ends delivery retries |
+| 5xx / network | — | "queued — stop working" to the runtime; retries the same exit with backoff (§5) |
+
+Checks, in order: 410 when the run is not the task's current live run (revoked, ended, superseded);
+`invalid_exit` for bad arguments or a block that cannot apply; `unseen_input` when an authority trigger is above
+`ack_seq` (for `done` also any trigger above it); `dirty_tree` for `submit`/`handoff`/`done` with `facts.dirty`;
+`secret_found` with `facts.scan.ok == false` (the adapter's scan; Core records a report item); for `done`
+§6.
+
+## 4. Sequences and `ack_seq`
+
+- `GET /agent/brief` → `{"ack_seq": brief_to, "task_id": "…"}`: the adapter's starting `ack_seq` (the run's brief
+  window end; v1 and v2 alike).
+- Every `/agent/call` and `/agent/exit*` request carries header `X-Factory-Ack-Seq: N`. When the task has authority
+  triggers above N, Core wraps the tool result: `{"result": <tool result>, "authority_input": [{"seq", "author",
+  "rank", "kind", "text"}], "winning": seq}` and sets response header `X-Factory-Seen-Seq: M` (the highest seq
+  shown). On conflicting directives the smallest rank wins (owner = 0); `winning` names it.
+- The adapter raises `ack_seq` to `M` (or to a 409's highest `unseen` seq) only after the response line was
+  written to the runtime. A response that never reached the runtime never counts as seen.
+
+## 5. Delivery, exit file and outcomes
+
+- The worker sets `FACTORY_EXIT_FILE` (inside the run's shim directory) for the adapter. The adapter writes
+  `{"state": "accepted|pending|refused", "kind": "…", "at": "…"}` there atomically on each change: `pending` while an
+  exit is queued for retry, `accepted` on 200, `refused` when a retried exit got 409 (new input arrived meanwhile).
+- After `accepted` the worker lets the turn finish and stops the runtime if it still runs 30 s later; work done
+  after the exit is not part of it (sealed on the WIP ref, `task-worktrees`).
+- The terminal event carries the file's state: `Event.exit_state: "accepted|pending|refused|none"` (additive
+  field). Core: a run with an accepted exit (`run_exits`) is `succeeded` whatever the status; COMPLETED without
+  one is `no_exit` (`refused` or `none`) or `lost` (`pending`: the exit may be delivered later, the retry is
+  safe).
+- Exit guard (stream B, `runtime-drivers` 2.4): Codex starts a follow-up turn "end with one factory_exit_* call"
+  up to `exit_guard_retries` (default 2); Claude's Stop hook refuses to stop without an exit.
+- `no_exit` (Core): an attempt counted against the budget; an escalation `no_exit` ("agent did not finish") to a
+  `manager` agent, else the owner, answers `retry`, `accept` (keep status and assignee, `handled_seq = wake_seq`),
+  `cancel`; reassigning through a task update clears it.
+
+## 6. `done`
+
+Refused with `409 pr_not_merged` (hint: merge your PR first: rebase on the default branch, resolve conflicts,
+build, merge) when `facts.ahead_of_default > 0` and `facts.pr.state != "merged"`, unless an authority answered
+`abandon_branch` for the task. When the project requires review, `done` also needs an approval bound to
+`facts.pr.number`; with `review_after_conflicts: required` and `facts.pr.head_sha` different from the approved
+head, `409 needs_approval` (submit again before merging). Squash and rebase merges pass (no ancestry check).
+Scratch projects (no remote) have no PR: `done` is accepted with a clean tree.
+
+## 7. Authority input
+
+- Authority set (`internal/core/authority.go`): the owner (rank 0); until `hierarchy`, agents with role `manager`
+  (rank 1); the assignee of the delegating task. Authority triggers: directives (`factory_task_direct`,
+  `factory direct TASK TEXT [--urgent]`), comments by authority principals, answers to the task's questions,
+  `ready`/reassign by an authority, `artifact_approved` for required or pinned artifacts. Non-authority comments
+  add no trigger; they are listed in the next brief.
+- Parked task: an authority trigger overrides interruptible parks (wait, ask, block, children) and the
+  escalations `retries_exhausted`, `budget_exhausted`, `no_exit` (it counts as retry); `inspect` needs its answer.
+- Urgent: the run becomes CANCELLING with `stop_reason = directive`; v1: `cancel: true` in the heartbeat answer,
+  v2: heartbeat `stop` reason `directive` (≤ 10 s). The per-node control subject comes with company subject
+  prefixes (runtime-protocol-v2 §10.5). Outcome `revoked`; the next run resumes the session and the brief starts
+  with the directive.
+
+## 8. Facts collection (adapter, `task-worktrees` D5–D6)
+
+In the run's working directory: `head = git rev-parse HEAD`; `dirty` = tracked changes or untracked non-ignored
+files (`git status --porcelain`); `branch`; `ahead_of_default = git rev-list --count origin/<default>..HEAD`;
+`pushed` = `origin/<branch>` equals `head` after a fetch; `pr` from `gh pr view <branch> --json
+number,state,headRefOid,url` (null when none); `scan` = the configured scanner over
+`merge-base(default, HEAD)..HEAD`. For `submit`/`handoff` the adapter runs preflight, then pushes the branch
+(pre-push hook scans too) and ensures a PR (`gh pr create` when none), collects facts again and sends the exit.
+A forge or Core failure retries with the same run key.
+
+## 9. Switch and rollout
+
+- Core switch `FACTORY_EXPLICIT_EXITS=1` (per Core until companies have settings). Off: today's tools and implicit
+  submission (any COMPLETED turn → IN_REVIEW). On: exit tools listed, old submit/accept/reject removed, COMPLETED
+  without an exit → `no_exit`.
+- Order: Core endpoints and `run_exits` behind the switch → adapter (tools, `ack_seq`, facts, delivery, exit file)
+  → exit guard in both drivers → prompts and instructions (Core brief; agent YAML and skills by stream B) → switch
+  on, then the E2E (stage 9) runs on the new rules.
+
+## 10. Open questions for review
+
+1. `GET /agent/brief` vs passing `brief.to` in the run environment (`FACTORY_ACK_SEQ`): the endpoint works for v1
+   and v2 alike; is one call at adapter start acceptable?
+2. Wrapping tool results with `authority_input` changes the result shape only while input is unseen; acceptable
+   for both runtimes, or always wrap?
+3. The adapter pushes and creates the PR before `submit`/`handoff`: forge credentials stay on the node; is `gh`
+   the only forge for now?
+4. Exit file path: inside the shim directory (exists only with guards) or a per-run file next to the run's
+   pidfile in `state_dir`?
