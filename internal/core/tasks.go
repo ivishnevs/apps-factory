@@ -295,6 +295,10 @@ type taskView struct {
 func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
 	var a config.Agent
 	a, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
+	if snap.AgentConfigured {
+		b, _ := json.Marshal(a)
+		snap.AgentCap, snap.AgentProjectCap = storage.AgentCaps(b)
+	}
 	if snap.AgentConfigured && len(snap.QuotaPaused) > 0 {
 		b, _ := json.Marshal(a)
 		key := storage.QuotaKey(b, snap.Task.Assignee)

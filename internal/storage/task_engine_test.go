@@ -349,3 +349,45 @@ func TestLargeResultsKeepBrokerNotificationsBounded(t *testing.T) {
 		}
 	}
 }
+
+// TestConcurrencyCaps: an agent with max_concurrent_runs 2 and 1 per project runs one task per project, two
+// in all; a third waits (dispatch conflict) and the verdict says capacity.
+func TestConcurrencyCaps(t *testing.T) {
+	s := engineStore(t)
+	ctx := context.Background()
+	for _, p := range []string{"q", "r"} {
+		if _, err := s.CreateProject(ctx, DefaultCompany, tasks.ProjectCreate{ID: p, Name: p, Workspace: "/tmp/caps-" + p}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := []byte(`{"spec":{"execution":{"max_concurrent_runs":2,"max_concurrent_runs_per_project":1}}}`)
+	dispatch := func(id, project string) error {
+		v, err := s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: id, ProjectID: project, Title: id, Assignee: "dev", Ready: true, RequestID: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Dispatch(ctx, DefaultCompany, v.ID, v.Version, protocol.RunSpec{ID: "run-" + id, Project: project, Agent: "dev", Provider: protocol.RuntimeCodex, ConfigSnapshot: cfg})
+		return err
+	}
+	if err := dispatch("p1", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch("p2", "p"); !errors.Is(err, ErrConflict) {
+		t.Fatal("second run in one project:", err)
+	}
+	if err := dispatch("q1", "q"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch("r1", "r"); !errors.Is(err, ErrConflict) {
+		t.Fatal("third run of the agent:", err)
+	}
+	snap, err := s.TaskSnapshot(ctx, DefaultCompany, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.AgentConfigured = true
+	snap.AgentCap, snap.AgentProjectCap = AgentCaps(cfg)
+	if v := tasks.Evaluate(snap); v.Reason != tasks.ReasonCapacity || snap.AgentLive != 2 {
+		t.Fatalf("%+v live=%d", v, snap.AgentLive)
+	}
+}

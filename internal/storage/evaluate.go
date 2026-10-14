@@ -138,6 +138,9 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND coalesce(task_id,'')!=? ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
 			return snap, err
 		}
+		if snap.AgentLive, snap.AgentProjectLive, err = agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID); err != nil {
+			return snap, err
+		}
 	}
 	// Quota keys come from the agent catalog, which Core owns: storage passes the paused keys along.
 	if snap.Paused, err = pausedFor(ctx, tx, t.ProjectID, t.Assignee, ""); err != nil {
@@ -153,4 +156,31 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	// The project and workspace writer indexes include UNKNOWN runs, which quarantine the project.
 	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR status='UNKNOWN' AND released=0) AND coalesce(task_id,'')!=? ORDER BY status='UNKNOWN' DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
 	return snap, err
+}
+
+// agentLive counts the agent's live runs other than task's, in all projects and in project.
+func agentLive(ctx context.Context, tx *Tx, agent, project, task string) (all, inProject int, err error) {
+	err = tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs
+ WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND coalesce(task_id,'')!=?`, project, tx.company, agent, task).Scan(&all, &inProject)
+	return
+}
+
+// AgentCaps reads the concurrency caps from a captured agent config: live runs of the agent, and per
+// project (defaults 1 and the agent cap).
+func AgentCaps(agentJSON []byte) (perAgent, perProject int) {
+	var a struct {
+		Spec struct {
+			Execution struct {
+				MaxConcurrentRuns           int `json:"max_concurrent_runs"`
+				MaxConcurrentRunsPerProject int `json:"max_concurrent_runs_per_project"`
+			} `json:"execution"`
+		} `json:"spec"`
+	}
+	_ = json.Unmarshal(agentJSON, &a)
+	perAgent = max(a.Spec.Execution.MaxConcurrentRuns, 1)
+	perProject = a.Spec.Execution.MaxConcurrentRunsPerProject
+	if perProject == 0 || perProject > perAgent {
+		perProject = perAgent
+	}
+	return perAgent, perProject
 }

@@ -323,3 +323,19 @@ func mustRead(t *testing.T, root, path string) string {
 	}
 	return string(b)
 }
+
+func TestConcurrencyLimits(t *testing.T) {
+	root := fixture(t)
+	base := mustRead(t, root, "configs/profiles/base.yaml")
+	for limits, ok := range map[string]bool{
+		"max_concurrent_runs: 3\n    max_concurrent_runs_per_project: 1": true,
+		"max_concurrent_runs: 2": true,
+		"max_concurrent_runs: 9": false,
+		"max_concurrent_runs: 2\n    max_concurrent_runs_per_project: 3": false,
+	} {
+		put(t, root, "configs/profiles/base.yaml", strings.Replace(base, "max_concurrent_runs: 1", limits, 1))
+		if _, err := LoadCatalog(root); (err == nil) != ok {
+			t.Fatalf("%q: %v", limits, err)
+		}
+	}
+}

@@ -63,7 +63,9 @@ type Spec struct {
 	Execution struct {
 		Timeout           string `yaml:"timeout" json:"timeout"`
 		MaxConcurrentRuns int    `yaml:"max_concurrent_runs" json:"max_concurrent_runs"`
-		MaxRetries        int    `yaml:"max_retries" json:"max_retries"`
+		// MaxConcurrentRunsPerProject caps the agent's live runs in one project (default max_concurrent_runs).
+		MaxConcurrentRunsPerProject int `yaml:"max_concurrent_runs_per_project,omitempty" json:"max_concurrent_runs_per_project,omitempty"`
+		MaxRetries                  int `yaml:"max_retries" json:"max_retries"`
 	} `yaml:"execution" json:"execution"`
 	Policies []string `yaml:"policies" json:"policies"`
 	// Workspace.Mode: "" or shared runs in the project workspace; worktree runs each task in its own worktree;
@@ -209,7 +211,7 @@ func LoadCatalog(root string) (*Catalog, error) {
 		if err = validResources(a.Spec.Resources); err != nil {
 			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
-		if a.Spec.Execution.MaxRetries < 0 || a.Spec.Execution.MaxConcurrentRuns < 0 || a.Spec.Execution.MaxConcurrentRuns > 1 {
+		if a.Spec.Execution.MaxRetries < 0 || a.Spec.Execution.MaxConcurrentRuns < 0 || a.Spec.Execution.MaxConcurrentRuns > MaxConcurrentRuns || a.Spec.Execution.MaxConcurrentRunsPerProject < 0 {
 			return nil, fmt.Errorf("profile %s: unsupported execution limits", name)
 		}
 		for _, skill := range a.Spec.Skills.Include {
@@ -361,8 +363,10 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	if err := validResources(a.Spec.Resources); err != nil {
 		return err
 	}
-	if a.Spec.Execution.MaxConcurrentRuns != 1 {
-		return fmt.Errorf("current runtime supports max_concurrent_runs: 1")
+	// trigger-log-scheduling 2.5: caps checked at dispatch and claim; parallel runs of one agent need a node
+	// (worktree tasks hold their own workspace slot; shared-workspace runs still go one at a time).
+	if e := a.Spec.Execution; e.MaxConcurrentRuns < 1 || e.MaxConcurrentRuns > MaxConcurrentRuns || e.MaxConcurrentRunsPerProject < 0 || e.MaxConcurrentRunsPerProject > e.MaxConcurrentRuns {
+		return fmt.Errorf("max_concurrent_runs must be 1..%d and max_concurrent_runs_per_project at most max_concurrent_runs", MaxConcurrentRuns)
 	}
 	if a.Spec.Execution.MaxRetries < 0 {
 		return fmt.Errorf("negative max_retries")
@@ -597,3 +601,6 @@ func validResources(r map[string]int) error {
 	}
 	return nil
 }
+
+// MaxConcurrentRuns is the highest max_concurrent_runs an agent may declare.
+const MaxConcurrentRuns = 8

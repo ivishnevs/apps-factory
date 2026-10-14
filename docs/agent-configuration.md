@@ -21,7 +21,7 @@ context, execution and policies, plus `role` for policy applicability. Provider 
 `runtime.quota_key` (optional, a lowercase name) groups agents sharing one subscription: when a run
 hits its limit Core pauses every agent with that key until the reset; it defaults to the agent name.
 Prompt paths must resolve inside FACTORY_ROOT, including symlinks. timeout is 1s–24h.
-Current execution ceiling is max_concurrent_runs 1. max_retries must be nonnegative; Task Engine applies it only to known Worker-reported failed turns.
+`execution.max_concurrent_runs` (1..8, default 1) caps the agent's live runs and `max_concurrent_runs_per_project` (default the same) its live runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time. Keep coordinators (role manager) at 1. max_retries must be nonnegative; Task Engine applies it only to known Worker-reported failed turns.
 UNKNOWN and manually reconciled failures never retry automatically. Communication create/assign permissions are checked on named-agent task mutations; can_message
 checks explicit recipient agent names and reserved owner on scoped messaging. Capabilities
 and context selectors remain metadata for later richer context integration.

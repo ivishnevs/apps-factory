@@ -94,8 +94,12 @@ type Snapshot struct {
 	// "quota_key:<key>". QuotaPaused lists every paused quota key; Core adds the assignee's one to Paused.
 	Paused      []string
 	QuotaPaused []string
-	// AgentRun is a live run of the assignee on another task (one run per agent).
-	AgentRun *Run
+	// AgentRun is the oldest live run of the assignee on another task; AgentLive counts them and
+	// AgentProjectLive those in the task's project. AgentCap and AgentProjectCap are the assignee's limits
+	// (Core fills them from the catalog; 0 means 1 and the agent cap).
+	AgentRun                    *Run
+	AgentLive, AgentProjectLive int
+	AgentCap, AgentProjectCap   int
 	// WriterRun is a run of another task holding the project/workspace writer, including an UNKNOWN run
 	// whose runtime may still run (not released).
 	WriterRun *Run
@@ -184,7 +188,17 @@ func Evaluate(s Snapshot) Verdict {
 		}
 	}
 	if r := s.AgentRun; r != nil {
-		return v(ReasonCapacity, fmt.Sprintf("agent %s is busy with run %s (task %s)", t.Assignee, r.ID, r.TaskID), "run:"+r.ID, "wait for the agent's current run")
+		live, limit := max(s.AgentLive, 1), max(s.AgentCap, 1)
+		projectLimit := s.AgentProjectCap
+		if projectLimit == 0 {
+			projectLimit = limit
+		}
+		if live >= limit {
+			return v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs, oldest %s (task %s)", t.Assignee, live, limit, r.ID, r.TaskID), "run:"+r.ID, "wait for the agent's current run")
+		}
+		if s.AgentProjectLive >= projectLimit {
+			return v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs in this project", t.Assignee, s.AgentProjectLive, projectLimit), "run:"+r.ID, "wait for the agent's current run in this project")
+		}
 	}
 	if r := s.WriterRun; r != nil {
 		if r.Status == "UNKNOWN" {

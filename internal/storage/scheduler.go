@@ -63,10 +63,12 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if waiting > 0 {
 		return spec, ErrConflict
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", company, t.Assignee).Scan(&waiting); err != nil {
+	// Concurrency caps (trigger-log-scheduling 2.5): the agent's live runs, in all projects and in this one.
+	all, inProject, err := agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID)
+	if err != nil {
 		return spec, err
 	}
-	if waiting > 0 {
+	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); all >= perAgent || inProject >= perProject {
 		return spec, ErrConflict
 	}
 	p, err := projectTx(ctx, tx, t.ProjectID)

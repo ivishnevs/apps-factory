@@ -365,11 +365,12 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if !slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == string(spec.Provider) && d.OK }) {
 		return out, retry("capacity")
 	}
-	var busy int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('RUNNING','CANCELLING')", company, spec.Agent, id).Scan(&busy); err != nil {
+	// Concurrency caps over started runs; the run stays QUEUED and the node retries.
+	var busy, busyProject int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
 		return out, err
 	}
-	if busy > 0 {
+	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); busy >= perAgent || busyProject >= perProject {
 		return out, retry("agent_busy")
 	}
 	if ok, err := nodeHasRoom(ctx, tx, n, req.NodeID, AgentResources(spec.ConfigSnapshot)); err != nil || !ok {
