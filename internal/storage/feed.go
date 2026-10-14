@@ -80,8 +80,10 @@ func feed(ctx context.Context, tx *Tx, item FeedItem) error {
 	if err != nil {
 		return err
 	}
-	// Company-prefixed subjects (factory.<company>.feed...) arrive with the NATS subject change.
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", "feed-"+item.EventID, "factory.events.feed."+item.ProjectID+"."+item.Type, b, tx.company)
+	// Company-prefixed subjects (factory.<company>.feed...) arrive with the NATS subject change. A company-wide
+	// event (no project, e.g. a pause) uses the token _company: an empty token is not a valid subject, and the
+	// outbox publisher would stop at it.
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", "feed-"+item.EventID, feedSubject(item), b, tx.company)
 	return err
 }
 
@@ -171,4 +173,15 @@ func (s *Store) ProjectContext(ctx context.Context, company, project string) (Pr
 	}
 	out.Decisions, out.MoreDecisions, err = decisionContext(ctx, tx, project)
 	return out, err
+}
+
+// CompanyFeedToken is the project token of company-wide feed events in NATS subjects.
+const CompanyFeedToken = "_company"
+
+func feedSubject(item FeedItem) string {
+	project := item.ProjectID
+	if project == "" {
+		project = CompanyFeedToken
+	}
+	return "factory.events.feed." + project + "." + item.Type
 }

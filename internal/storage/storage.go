@@ -278,7 +278,7 @@ func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool,
 
 // Pending and Sent drive the outbox publisher, which serves every company.
 func (s *Store) Pending(ctx context.Context) ([]Outbox, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,subject,body FROM outbox WHERE sent=0 ORDER BY rowid LIMIT 100")
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,subject,body FROM outbox WHERE sent=0 AND next_at<=? ORDER BY rowid LIMIT 100", s.Now().Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +293,23 @@ func (s *Store) Pending(ctx context.Context) ([]Outbox, error) {
 	}
 	return out, rows.Err()
 }
+
+// PublishFailed records a failed publication: the message is retried after a growing backoff (1 s doubling
+// to 5 min) and the rest of the outbox is published meanwhile (eventually consistent, never stuck behind one
+// message).
+func (s *Store) PublishFailed(ctx context.Context, id string, cause error) error {
+	var attempts int
+	if err := s.DB.QueryRowContext(ctx, "SELECT attempts FROM outbox WHERE id=?", id).Scan(&attempts); err != nil {
+		return err
+	}
+	wait := time.Second << min(attempts, 9)
+	if wait > 5*time.Minute {
+		wait = 5 * time.Minute
+	}
+	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET attempts=attempts+1,next_at=?,last_error=? WHERE id=?", s.Now().Add(wait).Unix(), shortText(cause.Error(), 1024), id)
+	return err
+}
+
 func (s *Store) Sent(ctx context.Context, id string) error {
 	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET sent=1,sent_at=? WHERE id=?", s.Now().Unix(), id)
 	return err

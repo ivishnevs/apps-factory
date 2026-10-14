@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
@@ -137,5 +138,62 @@ func TestRevokeReturnsTasksToReady(t *testing.T) {
 	apply(run, lease, "CANCELLED")
 	if status("running") != "CANCELLED" {
 		t.Fatal("owner cancel lost", status("running"))
+	}
+}
+
+// TestCompanyFeedSubjects: company-wide feed events (pauses) get a valid subject; an empty project token made
+// JetStream refuse the message and stopped the outbox publisher.
+func TestCompanyFeedSubjects(t *testing.T) {
+	s, _ := clockStore(t)
+	ctx := context.Background()
+	if err := s.SetPause(ctx, DefaultCompany, Pause{Scope: "company", Actor: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearPause(ctx, DefaultCompany, "company", "", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.DB.Query("SELECT subject FROM outbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var subject string
+		_ = rows.Scan(&subject)
+		n++
+		if strings.Contains(subject, "..") || strings.HasSuffix(subject, ".") {
+			t.Errorf("invalid subject %q", subject)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no feed events")
+	}
+}
+
+// TestOutboxBackoff: a message that fails is retried later; the others stay pending and are not blocked.
+func TestOutboxBackoff(t *testing.T) {
+	s, fake := clockStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"bad", "good"} {
+		if _, err := s.DB.Exec("INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", id, "factory.events.x", "{}", DefaultCompany); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PublishFailed(ctx, "bad", errors.New("nats: no response from stream")); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.Pending(ctx)
+	if len(pending) != 1 || pending[0].ID != "good" {
+		t.Fatalf("%+v", pending)
+	}
+	fake.Advance(time.Second)
+	if pending, _ = s.Pending(ctx); len(pending) != 2 {
+		t.Fatalf("failed message not retried after its backoff: %+v", pending)
+	}
+	var lastError string
+	_ = s.DB.QueryRow("SELECT last_error FROM outbox WHERE id='bad'").Scan(&lastError)
+	if !strings.Contains(lastError, "no response") {
+		t.Fatal(lastError)
 	}
 }

@@ -270,8 +270,13 @@ func (c *Core) Run(ctx context.Context) error {
 				err = c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
 				cancel()
 				if err != nil {
-					slog.Warn("outbox publish", "error", err)
-					break
+					// One message that cannot be published (a broker outage, an invalid subject) is retried
+					// with a backoff; the rest of the queue moves on.
+					slog.Warn("outbox publish", "id", o.ID, "subject", o.Subject, "error", err)
+					if err = c.Store.PublishFailed(ctx, o.ID, err); err != nil {
+						return err
+					}
+					continue
 				}
 				if err = c.Store.Sent(ctx, o.ID); err != nil {
 					return err
