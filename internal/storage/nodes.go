@@ -64,6 +64,9 @@ type NodeRegistration struct {
 	Drivers         []NodeDriver   `json:"drivers"`
 	Resources       map[string]int `json:"resources"`
 	Labels          []string       `json:"labels"`
+	// Worktrees: the node runs worktree tasks in their own worktree (node.yaml worktrees.enabled), so
+	// tasks of one project run in parallel on it.
+	Worktrees bool `json:"worktrees,omitempty"`
 }
 
 type NodeRegistered struct {
@@ -164,11 +167,11 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	resources, _ := json.Marshal(nonNilMap(r.Resources))
 	labels, _ := json.Marshal(nonNil(r.Labels))
 	now := tx.now().Unix()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,1) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
+	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
  protocol_version=excluded.protocol_version,slots=excluded.slots,drivers=excluded.drivers,resources=excluded.resources,
- labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1`,
-		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now); err != nil {
+ labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1,worktrees=excluded.worktrees`,
+		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees); err != nil {
 		return out, err
 	}
 	if err = loseNodeRuns(ctx, tx, r.NodeID, r.Epoch, fmt.Sprintf("node %s restarted (epoch %d)", r.NodeID, r.Epoch), true); err != nil {
@@ -300,7 +303,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	defer tx.Rollback()
 	var n Node
 	var drivers, resources []byte
-	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,drivers,resources FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &drivers, &resources)
+	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,drivers,resources,worktrees FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &drivers, &resources, &n.Worktrees)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && req.Epoch != n.Epoch {
 		return out, drop("old_epoch")
 	}
@@ -393,6 +396,13 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		return out, drop("not_runnable")
 	}
 	now := tx.now()
+	// The run's writer slot follows the node: its own worktree, or the shared project workspace.
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET workspace=? WHERE id=? AND status='QUEUED'", writerSlot(spec, n.Worktrees), id); err != nil {
+		if errors.Is(constraint(err), ErrConflict) {
+			return out, retry("project_busy")
+		}
+		return out, err
+	}
 	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,
  brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0)
  WHERE id=? AND status='QUEUED'`, protocol.ID(), now.Add(NodeOffline).Unix(), now.Unix(), req.NodeID, req.Epoch, req.ClaimID, req.Slot, now.Add(StartWindow).Unix(), id)
@@ -752,7 +762,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 
 // Nodes lists the registered nodes.
 func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,epoch,protocol_version,slots,drivers,resources,labels,health,registered_at,last_seen,online FROM nodes WHERE company_id=? ORDER BY name,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,epoch,protocol_version,slots,drivers,resources,labels,health,registered_at,last_seen,online,worktrees FROM nodes WHERE company_id=? ORDER BY name,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -761,7 +771,7 @@ func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 	for rows.Next() {
 		var n Node
 		var drivers, resources, labels, health []byte
-		if err = rows.Scan(&n.NodeID, &n.Name, &n.Epoch, &n.ProtocolVersion, &n.Slots, &drivers, &resources, &labels, &health, &n.RegisteredAt, &n.LastSeen, &n.Online); err != nil {
+		if err = rows.Scan(&n.NodeID, &n.Name, &n.Epoch, &n.ProtocolVersion, &n.Slots, &drivers, &resources, &labels, &health, &n.RegisteredAt, &n.LastSeen, &n.Online, &n.Worktrees); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(drivers, &n.Drivers)

@@ -33,7 +33,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 			return out, e
 		}
 		var active int
-		e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE (project=? OR workspace=?) AND (status IN ('QUEUED','RUNNING','CANCELLING') OR status='UNKNOWN' AND released=0) AND id!=?", project, p.Workspace, runID).Scan(&active)
+		e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR status='UNKNOWN' AND released=0) AND id!=?", p.Workspace, runID).Scan(&active)
 		if e != nil {
 			return out, e
 		}

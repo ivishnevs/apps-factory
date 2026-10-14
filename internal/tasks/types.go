@@ -103,6 +103,9 @@ type Workspace struct {
 	SealedAt   int64  `json:"sealed_at,omitempty"`
 	RunID      string `json:"run_id,omitempty"`
 	UpdatedAt  int64  `json:"updated_at"`
+	// Unpushed: the node holds work of the task that is not on the remote (unpushed commits, or a WIP ref
+	// newer than the remote branch); the task is pinned to NodeID (task-worktrees D8).
+	Unpushed bool `json:"unpushed,omitempty"`
 }
 type Create struct {
 	RequiredArtifacts []Artifact `json:"required_artifacts,omitempty"`

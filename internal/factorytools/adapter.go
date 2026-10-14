@@ -38,9 +38,10 @@ type Adapter struct {
 
 	mu      sync.Mutex
 	ack     int64
-	tracked bool  // ack_seq is known (GET /agent/brief answered)
-	pending int64 // seq shown by the response being written
-	queued  bool  // an exit is being retried in the background
+	tracked bool   // ack_seq is known (GET /agent/brief answered)
+	pending int64  // seq shown by the response being written
+	queued  bool   // an exit is being retried in the background
+	head    string // HEAD of the exit being sent
 	wg      sync.WaitGroup
 }
 
@@ -173,13 +174,19 @@ type ExitState struct {
 	State string    `json:"state"` // accepted, pending, refused
 	Kind  string    `json:"kind"`
 	At    time.Time `json:"at"`
+	// Head is the exit's commit (exit_sha) when the exit carried git facts; the node resets the worktree
+	// to it after handoff, submit or done (task-worktrees 2.2).
+	Head string `json:"head,omitempty"`
 }
 
 func (a *Adapter) record(state, kind string) {
 	if a.ExitFile == "" {
 		return
 	}
-	b, _ := json.Marshal(ExitState{State: state, Kind: kind, At: time.Now().UTC()})
+	a.mu.Lock()
+	head := a.head
+	a.mu.Unlock()
+	b, _ := json.Marshal(ExitState{State: state, Kind: kind, At: time.Now().UTC(), Head: head})
 	tmp := a.ExitFile + ".tmp"
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, a.ExitFile)
@@ -230,6 +237,9 @@ func (a *Adapter) send(ctx context.Context, path, kind string, args map[string]a
 	body := map[string]any{"kind": kind, "arguments": args, "ack_seq": ack}
 	if facts != nil {
 		body["facts"] = facts.core()
+		a.mu.Lock()
+		a.head = facts.Head
+		a.mu.Unlock()
 	}
 	status, b, _, err := a.do(ctx, "POST", path, body)
 	preflight := strings.HasSuffix(path, "/preflight")

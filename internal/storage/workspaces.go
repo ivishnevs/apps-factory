@@ -86,9 +86,12 @@ func (s *Store) ReportWorkspace(ctx context.Context, company, runID, lease strin
 		return w, inputError("invalid branch or node_id")
 	}
 	w.TaskID, w.RunID, w.UpdatedAt = taskID.String, runID, tx.now().Unix()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO workspaces(company_id,task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
- ON CONFLICT(company_id,task_id) DO UPDATE SET mode=excluded.mode,branch=excluded.branch,node_id=excluded.node_id,exit_sha=excluded.exit_sha,sealed_head=excluded.sealed_head,sealed_at=excluded.sealed_at,run_id=excluded.run_id,updated_at=excluded.updated_at`,
-		company, w.TaskID, w.Mode, w.Branch, w.NodeID, w.ExitSHA, w.SealedHead, w.SealedAt, w.RunID, w.UpdatedAt); err != nil {
+	// exit_sha is set by the accepted exit (Core) or the node's report; an empty report keeps it.
+	if _, err = tx.ExecContext(ctx, `INSERT INTO workspaces(company_id,task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at,unpushed) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+ ON CONFLICT(company_id,task_id) DO UPDATE SET mode=excluded.mode,branch=excluded.branch,node_id=excluded.node_id,
+ exit_sha=CASE WHEN excluded.exit_sha!='' THEN excluded.exit_sha ELSE workspaces.exit_sha END,sealed_head=excluded.sealed_head,
+ sealed_at=excluded.sealed_at,run_id=excluded.run_id,updated_at=excluded.updated_at,unpushed=excluded.unpushed`,
+		company, w.TaskID, w.Mode, w.Branch, w.NodeID, w.ExitSHA, w.SealedHead, w.SealedAt, w.RunID, w.UpdatedAt, w.Unpushed); err != nil {
 		return w, err
 	}
 	return w, tx.Commit()
@@ -96,8 +99,8 @@ func (s *Store) ReportWorkspace(ctx context.Context, company, runID, lease strin
 
 func (s *Store) TaskWorkspace(ctx context.Context, company, task string) (tasks.Workspace, error) {
 	var w tasks.Workspace
-	err := s.DB.QueryRowContext(ctx, "SELECT task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at FROM workspaces WHERE company_id=? AND task_id=?", company, task).
-		Scan(&w.TaskID, &w.Mode, &w.Branch, &w.NodeID, &w.ExitSHA, &w.SealedHead, &w.SealedAt, &w.RunID, &w.UpdatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at,unpushed FROM workspaces WHERE company_id=? AND task_id=?", company, task).
+		Scan(&w.TaskID, &w.Mode, &w.Branch, &w.NodeID, &w.ExitSHA, &w.SealedHead, &w.SealedAt, &w.RunID, &w.UpdatedAt, &w.Unpushed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return w, ErrNotFound
 	}

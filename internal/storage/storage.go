@@ -244,6 +244,10 @@ func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
 		return "", ErrConflict
 	}
 	token := protocol.ID()
+	// A v1 worker does not declare worktrees: the run holds the project workspace (one at a time, as before).
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET workspace=? WHERE id=? AND status='QUEUED'", writerSlot(spec, false), id); err != nil {
+		return "", constraint(err)
+	}
 	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0) WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
 	if err != nil {
 		return "", err
@@ -471,7 +475,7 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	if len(b) > 900*1024 {
 		return inputError("run context exceeds broker message budget")
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id,command_at) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?,?)", r.ID, r.Project, r.Agent, r.Workspace, b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company, tx.now().Unix()); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id,command_at) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?,?)", r.ID, r.Project, r.Agent, writerSlot(*r, true), b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company, tx.now().Unix()); err != nil {
 		return fmt.Errorf("project already active or insert failed: %w", err)
 	}
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
@@ -512,4 +516,15 @@ func nullable(s string) any {
 		return nil
 	}
 	return s
+}
+
+// writerSlot is the workspace a run writes in, for the workspace_writer index: a worktree task run has its
+// own worktree, so its slot is "<project workspace>#task/<task>"; anything run in the project workspace
+// (shared or scratch mode, message runs, or a node without worktrees) holds the project workspace path and
+// runs one at a time.
+func writerSlot(r protocol.RunSpec, worktrees bool) string {
+	if worktrees && r.WorkspaceMode == "worktree" && r.TaskID != "" && r.Workspace != "" {
+		return r.Workspace + "#task/" + r.TaskID
+	}
+	return r.Workspace
 }

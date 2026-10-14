@@ -103,6 +103,8 @@ func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 var downs = map[int][]string{
 	9:  {"DROP TABLE feed_events"},
 	10: {"DROP TABLE task_triggers", "DROP TABLE task_parks", "ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq", "ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to"},
+	20: {"ALTER TABLE workspaces DROP COLUMN unpushed", "ALTER TABLE nodes DROP COLUMN worktrees",
+		"CREATE UNIQUE INDEX project_writer ON runs(project) WHERE status IN ('QUEUED','RUNNING','CANCELLING') OR (status='UNKNOWN' AND released=0)"},
 	19: {"DROP TABLE pr_approvals", "DROP TABLE run_exits"}, // the widened task_triggers CHECK stays (a superset)
 	18: {"DROP TABLE task_budget", "DROP INDEX project_writer", "DROP INDEX workspace_writer", "DROP INDEX session_turn",
 		"CREATE UNIQUE INDEX project_writer ON runs(project) WHERE status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN')",
