@@ -47,7 +47,10 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 // stored edits the spec before Core stores the run as well (Core reads the captured config).
 type stored func(*protocol.RunSpec)
 
-// mods (func(*protocol.RunSpec) or stored) change the spec the executor receives.
+// stopCause cancels the execution with cause once the run started, as a node's heartbeat stop does.
+type stopCause struct{ cause error }
+
+// mods (func(*protocol.RunSpec) or stored) change the spec the executor receives; a stopCause stops it.
 func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (storage.Run, []protocol.Envelope) {
 	t.Helper()
 	b, err := bus.Connect(url)
@@ -92,9 +95,18 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 			m(&spec)
 		}
 	}
+	// A stopCause mod cancels the execution with that cause once the run started (a node stop).
+	var cause error
+	for _, mod := range mods {
+		if c, ok := mod.(stopCause); ok {
+			cause = c.cause
+		}
+	}
+	execCtx, stopExec := context.WithCancelCause(ctx)
+	defer stopExec(nil)
 	w.Bus, w.API = b, API{URL: server.URL, Token: "test-token"}
 	done := make(chan error, 1)
-	go func() { done <- w.execute(ctx, spec, lease, "fake-command") }()
+	go func() { done <- w.execute(execCtx, spec, lease, "fake-command") }()
 	for {
 		msgs, e := consumer.Fetch(1, nats.MaxWait(15*time.Second))
 		if e != nil {
@@ -114,6 +126,9 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 			if err = s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
 				t.Fatal(err)
 			}
+		}
+		if p.SessionID != "" && cause != nil {
+			stopExec(cause)
 		}
 		if p.Status != "" {
 			break

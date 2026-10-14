@@ -224,7 +224,7 @@ func (s *session) beat(ctx context.Context) error {
 	}
 	s.inv.Ack(a.Acked)
 	for _, x := range a.Stop {
-		if s.inv.Stop(x.RunID) {
+		if s.inv.Stop(x.RunID, x.Reason) {
 			slog.Info("run stopped by Core", "run", x.RunID, "reason", x.Reason)
 		}
 	}

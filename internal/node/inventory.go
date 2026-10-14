@@ -41,7 +41,7 @@ type Inventory struct {
 type entry struct {
 	state   RunState
 	claimed time.Time
-	cancel  context.CancelFunc
+	cancel  context.CancelCauseFunc
 }
 
 func NewInventory(nodeID string, epoch int64) *Inventory {
@@ -65,6 +65,15 @@ func (v *Inventory) Claim(slot int) (int64, string) {
 
 // Add records a run claimed in epoch; false when that epoch is over or closed (the node re-registers).
 func (v *Inventory) Add(run string, epoch int64, cancel context.CancelFunc) bool {
+	var c context.CancelCauseFunc
+	if cancel != nil {
+		c = func(error) { cancel() }
+	}
+	return v.AddCause(run, epoch, c)
+}
+
+// AddCause is Add with a cancel func that receives the stop's cause (StopCause for Core's stops).
+func (v *Inventory) AddCause(run string, epoch int64, cancel context.CancelCauseFunc) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if epoch != v.epoch || v.closed {
@@ -103,12 +112,20 @@ func (v *Inventory) Ack(runs []string) {
 	}
 }
 
-// Stop cancels a run's execution (the executor interrupts the runtime and reports the end). An ended
-// run is dropped: Core asks to stop only runs it no longer expects. It reports whether run was listed.
-func (v *Inventory) Stop(run string) bool {
+// StopCause is the cancellation cause of a run Core asked to stop in the heartbeat answer; Reason is
+// Core's (revoked, terminal, timed_out, unknown_run, idle_timeout). The executor reads it with
+// context.Cause to report the run's outcome (timed_out and idle_timeout end the run FAILED).
+type StopCause struct{ Reason string }
+
+func (c *StopCause) Error() string { return "stopped by Core: " + c.Reason }
+
+// Stop cancels a run's execution with cause StopCause{reason} (the executor interrupts the runtime
+// and reports the end). An ended run is dropped: Core asks to stop only runs it no longer expects.
+// It reports whether run was listed.
+func (v *Inventory) Stop(run, reason string) bool {
 	v.mu.Lock()
 	e := v.runs[run]
-	var cancel context.CancelFunc
+	var cancel context.CancelCauseFunc
 	switch {
 	case e == nil:
 	case e.state == RunEnded:
@@ -118,15 +135,15 @@ func (v *Inventory) Stop(run string) bool {
 	}
 	v.mu.Unlock()
 	if cancel != nil {
-		cancel()
+		cancel(&StopCause{Reason: reason})
 	}
 	return e != nil
 }
 
-// StopAll cancels every unended run.
+// StopAll cancels every unended run (without a Core reason: the runs end without an outcome).
 func (v *Inventory) StopAll() {
 	v.mu.Lock()
-	var cancels []context.CancelFunc
+	var cancels []context.CancelCauseFunc
 	for _, e := range v.runs {
 		if e.cancel != nil {
 			cancels = append(cancels, e.cancel)
@@ -134,7 +151,7 @@ func (v *Inventory) StopAll() {
 	}
 	v.mu.Unlock()
 	for _, cancel := range cancels {
-		cancel()
+		cancel(nil)
 	}
 }
 

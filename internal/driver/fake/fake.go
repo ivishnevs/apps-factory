@@ -20,12 +20,14 @@ import (
 )
 
 // Script is a recorded session. Without Status the session runs until interrupted and then
-// ends CANCELLED; with Unknown it ends without terminal evidence.
+// ends CANCELLED; with Unknown it ends without terminal evidence. Outcome is the driver outcome
+// of a scripted FAILED result (driver.Result.Outcome, e.g. max_turns).
 type Script struct {
 	SessionID string     `json:"session_id"`
 	Activity  []Activity `json:"activity"`
 	Status    string     `json:"status"`
 	Text      string     `json:"text"`
+	Outcome   string     `json:"outcome,omitempty"`
 	Unknown   string     `json:"unknown"`
 	LaunchErr string     `json:"launch_error"`
 }
@@ -312,7 +314,7 @@ func (s *session) result() driver.Result {
 	case s.script.Unknown != "":
 		return driver.Result{Err: errors.New(s.script.Unknown)}
 	case s.script.Status != "":
-		return driver.Result{Status: s.script.Status, Text: s.script.Text}
+		return driver.Result{Status: s.script.Status, Text: s.script.Text, Outcome: s.script.Outcome}
 	}
 	select {
 	case <-s.interrupt:

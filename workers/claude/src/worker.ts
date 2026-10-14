@@ -2,8 +2,18 @@
 import type { Consumer } from "@nats-io/jetstream";
 import type { Bus } from "./bus.js";
 import { CoreAPI, HTTPError } from "./core.js";
-import { COMMAND_SUBJECT, DURABLE, PROVIDER, parseCommand, type EventKind, type RunEvent, type RunSpec } from "./protocol.js";
-import { RuntimeError, runClaude, type QueryFn } from "./runtime.js";
+import {
+  COMMAND_SUBJECT,
+  DURABLE,
+  PROVIDER,
+  parseCommand,
+  type EventKind,
+  type Outcome,
+  type RunEvent,
+  type RunSpec,
+  type TerminalStatus,
+} from "./protocol.js";
+import { RuntimeError, StopReason, errorEnd, runClaude, stopOutcome, type QueryFn } from "./runtime.js";
 import { acquire, WorkspaceError } from "./workspace.js";
 import { clock, type Timer } from "./clock.js";
 import { runEnvironment } from "./env.js";
@@ -65,37 +75,41 @@ export class Worker {
     const emit = (kind: EventKind, p: Omit<RunEvent, "run_id" | "lease">) =>
       this.c.bus.event(kind, cause, { ...p, run_id: spec.id, lease });
     const stop = new AbortController();
-    const onParent = () => stop.abort();
+    const onParent = () => stop.abort(new StopReason("worker stopping"));
     parent.addEventListener("abort", onParent, { once: true });
     // Both run on the sleep-excluding clock: system sleep neither expires the run nor skips beats.
     let heartbeat: Timer | undefined;
     let timeout: Timer | undefined;
     let allocation: Awaited<ReturnType<typeof acquire>> | undefined;
+    // Until runClaude starts, a failure is a setup failure: the runtime never saw the prompt.
+    let setup = true;
     try {
       if (spec.provider !== PROVIDER || !(spec.timeout_seconds >= 1)) throw new RuntimeError("invalid RunSpec");
       try {
         allocation = await acquire(this.c.workspaceHelper, spec.workspace, spec.openspec_change || undefined);
       } catch (err) {
         if (err instanceof WorkspaceError && err.kind === "openspec") {
-          await emit("failed", { status: "FAILED", result: `OpenSpec preflight failed before runtime startup: ${err.message}` });
+          await emit("failed", { status: "FAILED", result: `OpenSpec preflight failed before runtime startup: ${err.message}`, outcome: "setup_failed" });
           return;
         }
         throw err;
       }
-      void allocation.lost.then(() => stop.abort(new RuntimeError("workspace lock lost")));
-      timeout = clock.timeout(spec.timeout_seconds * 1000, () => stop.abort());
-      // Heartbeats also carry cancellation. Failure stops execution instead of running without ownership.
+      void allocation.lost.then(() => stop.abort(new StopReason("workspace lock lost", "failed")));
+      timeout = clock.timeout(spec.timeout_seconds * 1000, () => stop.abort(new StopReason("run timeout", "timed_out")));
+      // Heartbeats also carry cancellation (an owner cancel, or Core's idle stop, which Core records
+      // idle_timeout itself). Failure stops execution instead of running without ownership.
       heartbeat = clock.interval(this.c.heartbeatMs ?? 10_000, () => {
         this.c.api.heartbeat(spec.id, lease).then(
-          (res) => res.cancel && stop.abort(),
+          (res) => res.cancel && stop.abort(new StopReason("cancelled by Core")),
           (err) => {
             this.c.log("heartbeat failed", { run: spec.id, error: String(err) });
-            stop.abort();
+            stop.abort(new StopReason("heartbeat failed"));
           },
         );
       });
       const credential = await this.c.api.credential(spec.id, lease);
       if (!credential.token || !credential.instructions) throw new RuntimeError("missing run credential");
+      setup = false;
       await runClaude({
         spec,
         cwd: allocation.path,
@@ -111,9 +125,9 @@ export class Worker {
         log: (line) => this.c.log("claude stderr", { run: spec.id, line: line.trimEnd() }),
       });
     } catch (err) {
-      // Errors after claiming are conservatively unknown; only a result message is terminal evidence.
       this.c.log("runtime run", { run: spec.id, error: String(err) });
-      await emit("failed", { status: "UNKNOWN", result: err instanceof Error ? err.message : String(err) }).catch((e) =>
+      const end = failureEnd(err, setup, stop.signal);
+      await emit("failed", { ...end, result: err instanceof Error ? err.message : String(err) }).catch((e) =>
         this.c.log("terminal event publication failed; lease recovery required", { error: String(e) }),
       );
     } finally {
@@ -123,4 +137,17 @@ export class Worker {
       await allocation?.release();
     }
   }
+}
+
+// failureEnd is the terminal status and outcome of a run that ended without a result message
+// (docs/runtime-protocol.md, Run outcomes from workers). Before the runtime started (setup: RunSpec,
+// workspace, credential) it is FAILED setup_failed, or CANCELLED with the stop's outcome when the run
+// was stopped meanwhile; afterwards errorEnd decides, and only errors without any evidence stay UNKNOWN.
+export function failureEnd(err: unknown, setup: boolean, signal: AbortSignal): { status: TerminalStatus; outcome?: Outcome } {
+  const stop = stopOutcome(signal);
+  if (setup) {
+    if (signal.aborted) return { status: "CANCELLED", ...(stop ? { outcome: stop } : {}) };
+    return { status: "FAILED", outcome: "setup_failed" };
+  }
+  return errorEnd(err, stop);
 }

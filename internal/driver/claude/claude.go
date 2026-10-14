@@ -163,6 +163,20 @@ type Error struct{ Class, Message string }
 
 func (e *Error) Error() string { return "claude " + e.Class + ": " + e.Message }
 
+// RunOutcome is the known outcome of a failure without terminal evidence (driver.OutcomeError):
+// auth and a missing or unsupported Claude Code executable are paused_out; a broken shim stream
+// and failures before the prompt reached Claude Code (launch, startup, Factory MCP, session
+// mismatch) are failed. Anything else (no_result, runtime, interrupt_*) stays unknown.
+func (e *Error) RunOutcome() string {
+	switch e.Class {
+	case "auth_error", "auth", "executable":
+		return driver.OutcomePausedOut
+	case "protocol", "launch", "startup_timeout", "mcp_unavailable", "session_mismatch", "not_started":
+		return driver.OutcomeFailed
+	}
+	return ""
+}
+
 type launchLine struct {
 	Spec           protocol.RunSpec `json:"spec"`
 	Cwd            string           `json:"cwd"`
@@ -250,6 +264,8 @@ type session struct {
 	waitErr   error
 	id        string
 	failure   *Error // last classified failure, reported when the result has no status
+	auth      *Error // auth failure seen during the run: the run ends paused_out
+	maxTurns  bool   // the shim reported max_turns: a FAILED result ends max_turns
 	events    chan driver.Event
 	done      chan driver.Result
 	stop      chan struct{}
@@ -292,6 +308,9 @@ func (s *session) note(e event) {
 	switch e.Event {
 	case "auth_error":
 		s.failure = &Error{Class: "auth_error", Message: e.Reason}
+		s.auth = s.failure
+	case "max_turns":
+		s.maxTurns = true
 	case "error":
 		s.failure = &Error{Class: e.Class, Message: e.Message}
 	}
@@ -299,8 +318,20 @@ func (s *session) note(e event) {
 
 func (s *session) result(e event) driver.Result {
 	switch e.Status {
-	case "COMPLETED", "FAILED", "CANCELLED":
+	case "COMPLETED", "CANCELLED":
 		return driver.Result{Status: e.Status, Text: e.Result}
+	case "FAILED":
+		r := driver.Result{Status: e.Status, Text: e.Result}
+		switch {
+		case s.maxTurns:
+			r.Outcome = driver.OutcomeMaxTurns
+		case s.auth != nil:
+			r.Outcome = driver.OutcomePausedOut
+		}
+		return r
+	}
+	if s.auth != nil {
+		return driver.Result{Err: s.auth}
 	}
 	if s.failure != nil {
 		return driver.Result{Err: s.failure}

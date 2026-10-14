@@ -228,7 +228,7 @@ func TestRecordedInterrupt(t *testing.T) {
 
 func TestRecordedMaxTurns(t *testing.T) {
 	_, events, r, rec := run(t, "max_turns", false)
-	if r.Status != "FAILED" || events[len(events)-1].Method != "claude/shim/max_turns" {
+	if r.Status != "FAILED" || r.Outcome != driver.OutcomeMaxTurns || events[len(events)-1].Method != "claude/shim/max_turns" {
 		t.Fatalf("%+v", r)
 	}
 	o := rec.Launch.Spec.RuntimeOptions
@@ -269,7 +269,7 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 
 	d, _ := fakeDriver(t, "s", stream(t, `{"event":"auth_error","reason":"api_key_source","api_key_source":"ANTHROPIC_API_KEY"}`, `{"event":"result","status":"UNKNOWN","result":"login required"}`))
 	var e *Error
-	if _, err := launch(d); !errors.As(err, &e) || e.Class != "auth_error" {
+	if _, err := launch(d); !errors.As(err, &e) || e.Class != "auth_error" || driver.OutcomeOf(err) != driver.OutcomePausedOut {
 		t.Fatalf("auth: %v", err)
 	}
 
@@ -284,7 +284,7 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 	}
 	for range s.Events() {
 	}
-	if r := <-s.Done(); !errors.As(r.Err, &e) || e.Class != "no_result" {
+	if r := <-s.Done(); !errors.As(r.Err, &e) || e.Class != "no_result" || driver.OutcomeOf(r.Err) != "" {
 		t.Fatalf("crash: %+v", r)
 	}
 
@@ -298,8 +298,36 @@ func TestFailuresWithoutEvidence(t *testing.T) {
 	}
 	for range s.Events() {
 	}
-	if r := <-s.Done(); !errors.As(r.Err, &e) || e.Class != "interrupt_unknown" {
+	if r := <-s.Done(); !errors.As(r.Err, &e) || e.Class != "interrupt_unknown" || driver.OutcomeOf(r.Err) != "" {
 		t.Fatalf("unknown: %+v", r)
+	}
+
+	// An auth failure during the turn makes a FAILED result paused_out, and one without a result too.
+	d, _ = fakeDriver(t, "s", stream(t, `{"event":"session","id":"s1"}`, `{"event":"auth_error","reason":"authentication_failed"}`, `{"event":"error","class":"api_error"}`, `{"event":"result","status":"FAILED","result":"401","session_id":"s1"}`))
+	if s, err = launch(d); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range s.Events() {
+	}
+	if r := <-s.Done(); r.Status != "FAILED" || r.Outcome != driver.OutcomePausedOut {
+		t.Fatalf("auth during turn: %+v", r)
+	}
+	d, _ = fakeDriver(t, "s", stream(t, `{"event":"session","id":"s1"}`, `{"event":"auth_error","reason":"authentication_failed"}`, `{"event":"error","class":"runtime","message":"boom"}`, `{"event":"result","status":"UNKNOWN","result":"boom","session_id":"s1"}`))
+	if s, err = launch(d); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range s.Events() {
+	}
+	if r := <-s.Done(); driver.OutcomeOf(r.Err) != driver.OutcomePausedOut {
+		t.Fatalf("auth without result: %+v", r)
 	}
 }
 

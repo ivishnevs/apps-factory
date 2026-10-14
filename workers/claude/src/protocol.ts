@@ -34,12 +34,17 @@ export interface Envelope<T = unknown> {
 
 export type TerminalStatus = "COMPLETED" | "FAILED" | "CANCELLED" | "UNKNOWN";
 
+// How a run ended when the status alone does not say it (reliable-recovery D1); terminal events only.
+// A failure outcome on a CANCELLED event makes Core end the run FAILED instead of cancelling the task.
+export type Outcome = "failed" | "timed_out" | "idle_timeout" | "max_turns" | "setup_failed" | "paused_out";
+
 export interface RunEvent {
   run_id: string;
   lease: string;
   session_id?: string;
   status?: TerminalStatus;
   result?: string;
+  outcome?: Outcome;
   method?: string;
   data?: unknown;
 }

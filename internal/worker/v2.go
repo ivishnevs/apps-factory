@@ -112,9 +112,11 @@ func (w *Worker) processV2(ctx context.Context, m *nats.Msg, running func(run st
 	if err = m.AckSync(); err != nil {
 		return err
 	} // Core's lease and the start window now own recovery, not redelivery.
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	if !w.Inventory.Add(run, epoch, cancel) {
+	// Core's heartbeat stops cancel with a node.StopCause; execute reports timed_out and idle_timeout.
+	runCtx, cancelCause := context.WithCancelCause(ctx)
+	defer cancelCause(nil)
+	cancel := func() { cancelCause(nil) }
+	if !w.Inventory.AddCause(run, epoch, cancelCause) {
 		// Claimed under an epoch the node replaced meanwhile: Core ends it with that epoch.
 		slog.Warn("claim of a replaced epoch ignored", "run", run, "epoch", epoch)
 		return nil

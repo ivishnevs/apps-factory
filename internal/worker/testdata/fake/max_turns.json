@@ -1,0 +1,9 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"method": "claude/shim/max_turns", "data": {"event": "max_turns", "num_turns": 3}}
+  ],
+  "status": "FAILED",
+  "text": "error_max_turns",
+  "outcome": "max_turns"
+}

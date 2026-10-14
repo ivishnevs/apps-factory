@@ -6,6 +6,9 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os/exec"
 
 	"appfactory/internal/node"
 	"appfactory/internal/policies"
@@ -106,11 +109,42 @@ type Cost struct {
 	Source string
 }
 
-// Result is terminal evidence. Status is COMPLETED, FAILED or CANCELLED; Err means the
-// outcome is unknown.
+// Result is terminal evidence. Status is COMPLETED, FAILED or CANCELLED; Err means there is no
+// terminal evidence: the outcome is unknown unless OutcomeOf(Err) names it.
 type Result struct {
 	Status, Text string
-	Err          error
+	// Outcome refines a FAILED result when the runtime said why (OutcomeMaxTurns, OutcomePausedOut).
+	Outcome string
+	Err     error
+}
+
+// Run outcomes a driver may name (reliable-recovery D1; docs/runtime-protocol.md, Event.outcome).
+const (
+	OutcomeFailed    = "failed"
+	OutcomeMaxTurns  = "max_turns"
+	OutcomePausedOut = "paused_out"
+)
+
+// OutcomeError is an error whose run outcome is known although the runtime gave no terminal
+// evidence (an auth failure is paused_out, a broken runtime stream failed).
+type OutcomeError interface {
+	error
+	RunOutcome() string
+}
+
+// OutcomeOf is the known outcome of a runtime error, "" when it is unknown: the error's own
+// RunOutcome, else paused_out when the runtime executable is missing or cannot be executed.
+func OutcomeOf(err error) string {
+	var o OutcomeError
+	if errors.As(err, &o) {
+		return o.RunOutcome()
+	}
+	var missing *exec.Error
+	var path *fs.PathError
+	if errors.As(err, &missing) || errors.As(err, &path) && path.Op == "fork/exec" {
+		return OutcomePausedOut
+	}
+	return ""
 }
 
 type Session interface {

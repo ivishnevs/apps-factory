@@ -1,0 +1,8 @@
+{
+  "session_id": "recorded-thread",
+  "activity": [
+    {"quota": {"resets_at": "2026-10-13T23:00:00Z", "type": "five_hour"}}
+  ],
+  "status": "FAILED",
+  "text": "usageLimitExceeded"
+}

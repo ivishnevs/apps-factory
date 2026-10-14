@@ -2,6 +2,7 @@ package worker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -204,7 +205,7 @@ func (w *Worker) Process(ctx context.Context, m *nats.Msg, running func(run stri
 func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, cause string) (runErr error) {
 	// Timeouts and heartbeats run on Go's monotonic clock, which stops during system sleep
 	// (clock_test.go); never derive them from wall-clock time.
-	ctx, cancel := context.WithTimeout(parent, time.Duration(spec.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeoutCause(parent, time.Duration(spec.TimeoutSeconds)*time.Second, errRunTimeout)
 	defer cancel()
 	// RunStopped runs last: after the seal, the release and the terminal event.
 	var stopped string
@@ -270,17 +271,29 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer stop()
 		return w.Bus.Event(pubCtx, kind, cause, p)
 	}
-	// Errors after claiming are conservatively unknown; only an explicit turn result is terminal evidence.
+	// A run that ends without a runtime result reports what is known (docs/runtime-protocol.md, Run
+	// outcomes from workers): an endError names its outcome and ends FAILED, or CANCELLED when it
+	// failed before the runtime started because the run was being stopped; any other error after the
+	// prompt may have reached the runtime has no terminal evidence and ends UNKNOWN.
 	defer func() {
-		if runErr != nil {
-			if err := emit("failed", protocol.Event{Status: "UNKNOWN", Result: runErr.Error()}); err != nil {
-				slog.Error("terminal event publication failed; lease recovery required", "error", err)
+		if runErr == nil {
+			return
+		}
+		status, outcome := "UNKNOWN", ""
+		var end *endError
+		if errors.As(runErr, &end) {
+			status, outcome = "FAILED", end.outcome
+			if end.notStarted && ctx.Err() != nil {
+				status, outcome = "CANCELLED", stopOutcome(ctx)
 			}
+		}
+		if err := emit("failed", protocol.Event{Status: status, Result: runErr.Error(), Outcome: outcome}); err != nil {
+			slog.Error("terminal event publication failed; lease recovery required", "error", err)
 		}
 	}()
 	drv, withMCP := w.driver()
 	if spec.Provider != drv.Name() || spec.TimeoutSeconds < 1 {
-		return fmt.Errorf("invalid RunSpec")
+		return setupFailed(fmt.Errorf("invalid RunSpec"))
 	}
 	v2 := w.Inventory != nil
 	if v2 {
@@ -293,10 +306,10 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		if errors.As(err, &diverged) {
 			// Core escalates workspace_diverged; the worktree is left as it is (task-worktrees D4).
 			slog.Error("worktree start check", "run", spec.ID, "task", r.Task, "path", diverged.Path, "head", diverged.Head, "sealed_head", diverged.SealedHead, "remote", diverged.Remote, "reason", diverged.Reason)
-			return emit("failed", protocol.Event{Status: "FAILED", Result: diverged.Error()})
+			return emit("failed", protocol.Event{Status: "FAILED", Result: diverged.Error(), Outcome: outcomeSetupFailed})
 		}
 		if err != nil {
-			return fmt.Errorf("worktree: %w", err)
+			return setupFailed(fmt.Errorf("worktree: %w", err))
 		}
 		stopped = t.Path
 		wt, req, cwd = &t, r, t.Path
@@ -313,23 +326,23 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 		allocation, err := allocator.Acquire(ctx, spec.Workspace)
 		if err != nil {
-			return err
+			return setupFailed(err)
 		}
 		defer allocation.Release()
 		cwd = allocation.Path
 	}
 	if spec.OpenSpecChange != "" {
 		if _, e := (openspec.Access{}).CheckChange(cwd, spec.OpenSpecChange); e != nil {
-			return emit("failed", protocol.Event{Status: "FAILED", Result: "OpenSpec preflight failed before runtime startup: " + e.Error()})
+			return emit("failed", protocol.Event{Status: "FAILED", Result: "OpenSpec preflight failed before runtime startup: " + e.Error(), Outcome: outcomeSetupFailed})
 		}
 	}
 	skillsRoot, skillList, err := w.stageSkills(spec)
 	var skillErr *SkillError
 	if errors.As(err, &skillErr) {
-		return emit("failed", protocol.Event{Status: "FAILED", Result: skillErr.Error() + " (refused before runtime startup)"})
+		return emit("failed", protocol.Event{Status: "FAILED", Result: skillErr.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
 	}
 	if err != nil {
-		return err
+		return setupFailed(err)
 	}
 	if skillsRoot != "" {
 		defer os.RemoveAll(skillsRoot)
@@ -369,7 +382,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ())}
 	shimDir, err := w.shims(spec)
 	if err != nil {
-		return err
+		return setupFailed(err)
 	}
 	if shimDir != "" {
 		defer os.RemoveAll(shimDir)
@@ -382,16 +395,16 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			Instructions string `json:"instructions"`
 		}
 		if err := w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/credential", map[string]string{"lease": lease}, &credential); err != nil {
-			return err
+			return setupFailed(err)
 		}
 		if credential.Token == "" || credential.Instructions == "" {
-			return fmt.Errorf("missing run credential")
+			return setupFailed(fmt.Errorf("missing run credential"))
 		}
 		launch.Env = runEnvironment(os.Environ(), w.API.URL, credential.Token)
 		if withMCP {
 			mcp, e := sibling(w.MCPBinary, "factory-mcp")
 			if e != nil {
-				return e
+				return setupFailed(e)
 			}
 			launch.MCP = &driver.MCPConfig{Command: mcp, EnvVars: []string{"FACTORY_RUN_TOKEN", "FACTORY_URL"}}
 			launch.Instructions += credential.Instructions
@@ -405,7 +418,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	session, err = drv.Launch(ctx, launch)
 	if err != nil {
-		return err
+		// The prompt was not sent: a missing runtime or an auth failure is paused_out, the rest failed.
+		return notStarted(cmp.Or(driver.OutcomeOf(err), driver.OutcomeFailed), err)
 	}
 	record = sessions.Record{SessionID: session.ID(), Task: spec.TaskID, Agent: spec.Agent, Project: spec.Project, Provider: string(spec.Provider), Run: spec.ID}
 	if record.SessionID == prev.SessionID {
@@ -415,14 +429,14 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if group := session.ProcessGroup(); wt != nil && group > 0 {
 		if err = wt.Track(group); err != nil {
 			session.Close()
-			return err
+			return notStarted(driver.OutcomeFailed, err)
 		}
 	}
 	if group := session.ProcessGroup(); w.StateDir != "" && group > 0 {
 		path, e := writePidfile(w.StateDir, spec.ID, group)
 		if e != nil {
 			session.Close()
-			return e
+			return notStarted(driver.OutcomeFailed, e)
 		}
 		defer os.Remove(path)
 	}
@@ -430,14 +444,18 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if v2 {
 		// Phase 2 of the claim: workspace allocated and runtime launched (protocol v2 §6). Start is retry-safe.
 		if err = w.API.Retry(ctx, 8, "/runs/"+spec.ID+"/start", map[string]string{"lease": lease}, nil); err != nil {
-			return fmt.Errorf("start: %w", err)
+			return notStarted(driver.OutcomeFailed, fmt.Errorf("start: %w", err))
 		}
 		w.Inventory.Set(spec.ID, node.RunRunning)
 	}
 	if err = emit("started", protocol.Event{SessionID: session.ID()}); err != nil {
-		return err
+		return notStarted(driver.OutcomeFailed, err)
 	}
 	if err = session.Start(ctx); err != nil {
+		// The prompt may have reached the runtime: unknown unless the error names its outcome.
+		if o := driver.OutcomeOf(err); o != "" {
+			return &endError{outcome: o, err: err}
+		}
 		return err
 	}
 	record.Started = true
@@ -446,10 +464,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	cancelled := ctx.Done()
 	var interruptTimeout <-chan time.Time
 	var interruptFailed error
+	// stop is the outcome of the reason the executor interrupted the runtime ("" for a revoke).
+	stop := ""
 	for events != nil {
 		select {
 		case <-cancelled:
 			cancelled = nil
+			stop = stopOutcome(ctx)
 			interruptCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 			interruptErr := session.Interrupt(interruptCtx)
 			stop()
@@ -463,10 +484,12 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				interruptFailed = interruptErr
 			}
 		case <-interruptTimeout:
+			err := errors.New("interrupt result unknown")
 			if interruptFailed != nil {
-				return fmt.Errorf("interrupt: %w", interruptFailed)
+				err = fmt.Errorf("interrupt: %w", interruptFailed)
 			}
-			return fmt.Errorf("interrupt result unknown")
+			// No terminal evidence; the session is closed (its process group killed) on return.
+			return ended(driver.Result{Err: err}, stop, meter.quota != nil)
 		case e, ok := <-events:
 			if !ok {
 				events = nil
@@ -488,9 +511,110 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	result := <-session.Done()
 	if result.Err != nil {
-		return result.Err
+		return ended(result, stop, meter.quota != nil)
 	}
-	return emit("completed", protocol.Event{Status: result.Status, Result: result.Text})
+	status, outcome := runEnd(result, stop, meter.quota != nil)
+	return emit("completed", protocol.Event{Status: status, Result: result.Text, Outcome: outcome})
+}
+
+// Run outcomes the executor reports itself (reliable-recovery D1); the driver names failed,
+// max_turns and paused_out.
+const (
+	outcomeTimedOut    = "timed_out"
+	outcomeIdleTimeout = "idle_timeout"
+	outcomeSetupFailed = "setup_failed"
+)
+
+// errRunTimeout is the cancellation cause of the run's own hard timeout (RunSpec.timeout_seconds).
+var errRunTimeout = errors.New("run timeout")
+
+// stopOutcome is the outcome of the reason ctx was cancelled: timed_out for the run's own timeout or
+// Core's v2 stop timed_out, idle_timeout for Core's v2 stop idle_timeout. A revoke (owner cancel,
+// kill switch, v1 heartbeat cancel), a lost heartbeat or a node shutdown has none: the run ends
+// plainly CANCELLED. A v1 idle stop arrives as a plain heartbeat cancel; Core records it idle_timeout
+// from its own stop reason.
+func stopOutcome(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if errors.Is(cause, errRunTimeout) {
+		return outcomeTimedOut
+	}
+	var c *node.StopCause
+	if errors.As(cause, &c) {
+		switch c.Reason {
+		case outcomeTimedOut, outcomeIdleTimeout:
+			return c.Reason
+		}
+	}
+	return ""
+}
+
+// runEnd is the terminal status and outcome of a started run from the runtime's result. stop is the
+// outcome of the reason the executor interrupted the runtime ("" when it did not, or for a revoke);
+// quota tells whether the runtime hit its subscription limit during the run.
+//   - COMPLETED stays COMPLETED without an outcome, even after an interrupt.
+//   - CANCELLED carries stop: Core ends {CANCELLED, timed_out|idle_timeout} FAILED, a revoke stays CANCELLED.
+//   - FAILED carries stop, else the driver's outcome (max_turns, paused_out), else paused_out after a
+//     quota hit, else failed.
+//   - Without terminal evidence (Err) the outcome is known only when the executor stopped the runtime
+//     for a timeout (it kills the process group) or the error names it (auth, missing runtime, broken
+//     stream): FAILED with it. Otherwise UNKNOWN, also after a quota hit: an interrupt for a revoke
+//     without a result, or the shim/app-server going away mid-turn.
+func runEnd(r driver.Result, stop string, quota bool) (status, outcome string) {
+	if r.Err != nil {
+		if stop != "" {
+			return "FAILED", stop
+		}
+		if o := driver.OutcomeOf(r.Err); o != "" {
+			return "FAILED", o
+		}
+		return "UNKNOWN", ""
+	}
+	switch r.Status {
+	case "COMPLETED":
+		return r.Status, ""
+	case "CANCELLED":
+		return r.Status, stop
+	case "FAILED":
+		switch {
+		case stop != "":
+			return r.Status, stop
+		case r.Outcome != "":
+			return r.Status, r.Outcome
+		case quota:
+			return r.Status, driver.OutcomePausedOut
+		}
+		return r.Status, driver.OutcomeFailed
+	}
+	return r.Status, ""
+}
+
+// ended is the error that ends a started run without terminal evidence: an endError when runEnd
+// knows its outcome, else the error itself (UNKNOWN).
+func ended(r driver.Result, stop string, quota bool) error {
+	if status, outcome := runEnd(r, stop, quota); status == "FAILED" {
+		return &endError{outcome: outcome, err: r.Err}
+	}
+	return r.Err
+}
+
+// endError ends a run without a runtime result with a known outcome. notStarted: the prompt never
+// reached the runtime, so a run stopped meanwhile ends CANCELLED with the stop's outcome instead.
+type endError struct {
+	outcome    string
+	notStarted bool
+	err        error
+}
+
+func (e *endError) Error() string { return e.err.Error() }
+func (e *endError) Unwrap() error { return e.err }
+
+// setupFailed ends a run that failed before its runtime started: workspace, start check, OpenSpec
+// preflight, skills, shims, Factory binaries or the run credential.
+func setupFailed(err error) error { return notStarted(outcomeSetupFailed, err) }
+
+// notStarted ends a run whose prompt never reached the runtime with outcome.
+func notStarted(outcome string, err error) error {
+	return &endError{outcome: outcome, notStarted: true, err: err}
 }
 
 // meter keeps a run's latest usage per model, its total cost and its quota hit.

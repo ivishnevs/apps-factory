@@ -27,7 +27,7 @@ import {
 import { clock, type Timer } from "./clock.js";
 import { shimEnvironment } from "./env.js";
 import type { EventKind, RunEvent, RunSpec, TerminalStatus } from "./protocol.js";
-import { RuntimeError, runClaude, type QueryFn } from "./runtime.js";
+import { AUTH_ERRORS, RuntimeError, runClaude, type QueryFn } from "./runtime.js";
 
 export interface Launch {
   spec: RunSpec;
@@ -55,9 +55,6 @@ export type ShimEvent =
   | { event: "result"; status: TerminalStatus; result: string; session_id?: string }
   | { event: "probe"; claude_code_version: string; sdk_version: string; account: AccountInfo };
 
-// SDKAssistantMessage.error values that mean the account cannot be used, as opposed to a
-// retryable API or quota failure.
-const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required"]);
 
 export type Write = (e: ShimEvent) => Promise<void>;
 

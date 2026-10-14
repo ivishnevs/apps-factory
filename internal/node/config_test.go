@@ -145,9 +145,17 @@ func TestInventory(t *testing.T) {
 	if s = v.Snapshot(); len(s) != 2 || s[0].RunID != "a" {
 		t.Fatalf("%+v", s)
 	}
-	if !v.Stop("c") || !cancelled["c"] || v.Stop("unknown") {
+	if !v.Stop("c", "revoked") || !cancelled["c"] || v.Stop("unknown", "revoked") {
 		t.Fatal(cancelled)
 	}
+	var cause error
+	if !v.AddCause("d", 7, func(err error) { cause = err }) || !v.Stop("d", "idle_timeout") {
+		t.Fatal("d")
+	}
+	if c, ok := cause.(*StopCause); !ok || c.Reason != "idle_timeout" {
+		t.Fatalf("stop cause %v", cause)
+	}
+	v.End("d")
 	v.StopAll()
 	if !cancelled["a"] {
 		t.Fatal(cancelled)

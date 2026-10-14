@@ -11,7 +11,7 @@ import {
   type SDKUserMessage,
   type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { EventKind, RunEvent, RunSpec, TerminalStatus } from "./protocol.js";
+import type { EventKind, Outcome, RunEvent, RunSpec, TerminalStatus } from "./protocol.js";
 import { Redactor } from "./redact.js";
 import { clock, type Timer } from "./clock.js";
 
@@ -69,11 +69,62 @@ export interface RuntimeInput {
   interruptTimeoutMs?: number;
 }
 
-export function classify(m: SDKResultMessage, interrupted: boolean): { status: TerminalStatus; result: string } {
+// SDKAssistantMessage.error values that mean the account cannot be used, as opposed to a
+// retryable API or quota failure.
+export const AUTH_ERRORS: ReadonlySet<string> = new Set(["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required"]);
+
+// StopReason is the abort reason of a run's signal: why the run was stopped and the outcome that stop
+// gives it (timed_out for the run's own timeout; none for an owner cancel, whose CANCELLED end is a
+// revoke or, for Core's v1 idle stop, recorded idle_timeout by Core).
+export class StopReason {
+  constructor(
+    readonly why: string,
+    readonly outcome?: Outcome,
+  ) {}
+}
+
+export function stopOutcome(signal: AbortSignal): Outcome | undefined {
+  return signal.aborted && signal.reason instanceof StopReason ? signal.reason.outcome : undefined;
+}
+
+export interface End {
+  status: TerminalStatus;
+  result: string;
+  outcome?: Outcome;
+}
+
+// classify maps the result message to the terminal status and outcome. stop is the outcome of the
+// reason the run was interrupted; paused tells that the runtime hit its quota or an auth failure.
+export function classify(m: SDKResultMessage, interrupted: boolean, stop?: Outcome, paused = false): End {
   if (m.subtype === "success" && !m.is_error) return { status: "COMPLETED", result: m.result };
-  const detail = m.subtype === "success" ? m.result : [m.subtype, ...m.errors].join("\n");
-  // A requested interrupt yields CANCELLED even when triggered by the execution timeout.
-  return { status: interrupted ? "CANCELLED" : "FAILED", result: detail };
+  const result = m.subtype === "success" ? m.result : [m.subtype, ...m.errors].join("\n");
+  // A requested interrupt yields CANCELLED even when triggered by the execution timeout; the stop's
+  // outcome (timed_out) makes Core end it FAILED instead of cancelling the task.
+  if (interrupted) return { status: "CANCELLED", result, ...(stop ? { outcome: stop } : {}) };
+  const outcome: Outcome = m.subtype === "error_max_turns" ? "max_turns" : paused ? "paused_out" : "failed";
+  return { status: "FAILED", result, outcome };
+}
+
+// errorEnd is the terminal status and outcome of a run whose runtime ended without a result message.
+// Known: auth or a missing/unsupported Claude Code executable (paused_out); failures before the
+// prompt reached Claude Code or a session mismatch (failed); and any error after the run was stopped
+// with an outcome, since the query is closed (its process killed) right after. Anything else (no
+// result, interrupt without a result after a revoke, other SDK errors) stays UNKNOWN.
+export function errorEnd(err: unknown, stop?: Outcome): { status: TerminalStatus; outcome?: Outcome } {
+  const cls = err instanceof RuntimeError ? err.cls : undefined;
+  switch (cls) {
+    case "auth":
+    case "executable":
+      return { status: "FAILED", outcome: "paused_out" };
+    case "launch":
+    case "startup_timeout":
+    case "mcp_unavailable":
+    case "session_mismatch":
+    case "not_started":
+      return { status: "FAILED", outcome: "failed" };
+  }
+  if (stop) return { status: "FAILED", outcome: stop };
+  return { status: "UNKNOWN" };
 }
 
 export function methodOf(m: SDKMessage): string {
@@ -159,6 +210,8 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
     });
     let interrupted = false;
     let interruptFailed: unknown;
+    // A rejected rate limit or an auth failure during the turn: a FAILED result is paused_out.
+    let paused = false;
     let deadline: Promise<"deadline"> | undefined;
     for (;;) {
       const next = iterator.next();
@@ -186,8 +239,11 @@ export async function runClaude(input: RuntimeInput): Promise<void> {
           session_id: m.session_id,
         });
       }
+      if ((m.type === "rate_limit_event" && m.rate_limit_info.status === "rejected") || (m.type === "assistant" && m.error && AUTH_ERRORS.has(m.error))) {
+        paused = true;
+      }
       if (m.type === "result") {
-        await input.emit("completed", classify(m, interrupted));
+        await input.emit("completed", classify(m, interrupted, stopOutcome(input.signal), paused));
         // Let the CLI flush its transcript so the session can be resumed.
         endInput();
         await within(drain(iterator), 5_000, "runtime shutdown").catch((err) => input.log?.(String(err)));
