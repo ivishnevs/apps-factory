@@ -9,9 +9,9 @@
 - [ ] 2.3 Start check and `workspace_diverged` escalation; fast-forward when the remote moved and the tree is clean; recreate a missing worktree. Verify: tests for each branch of the check. Partial: node-side check in `Worktrees.Acquire` (`TestStartCheck`): fast-forward, recreate, typed `DivergedError` that the executor ends FAILED before the runtime starts. Core's `workspace_diverged` escalation pending (stream A).
 
 ## 3. Push, scan, merge
-- [ ] 3.1 Clean-tree refusal for handoff/submit/done; preflight → push → ensure PR → commit exit in the adapter. Verify: adapter test with a local bare remote and fake `gh`.
+- [ ] 3.1 Clean-tree refusal for handoff/submit/done; preflight → push → ensure PR → commit exit in the adapter. Verify: adapter test with a local bare remote and fake `gh`. Done in the adapter (dfa9ffb, TestAdapterSubmitPushesAndOpensPR) and live in the merge smoke.
 - [ ] 3.2 Pre-push hook per worktree and exit-range scan; redacted refusal. Verify: a planted test secret blocks `git push` and the exit. Partial: pre-push hook and exit-range scan verified with real gitleaks 8.30.1 (range checked first because gitleaks passes on an invalid range); redacted refusal in the adapter pending.
-- [ ] 3.3 Agent merge flow: verdict back to implementer, `review_after_conflicts` policy, merge failures as attempts. Verify: real Codex smoke: implement → submit → approve → agent merges → done accepted.
+- [ ] 3.3 Agent merge flow: verdict back to implementer, `review_after_conflicts` policy, merge failures as attempts. Verify: real Codex smoke: implement → submit → approve → agent merges → done accepted. Partial: real Codex smoke passed on a private GitHub repository (`scripts/merge-smoke.py`, 2026-10-14): implement → factory_exit_submit (branch pushed, PR opened by the adapter) → owner approval → the agent squash-merged the PR → factory_exit_done accepted with the PR merged. `review_after_conflicts` and merge failures as attempts pending.
 
 ## 4. Pinning and docs
 - [ ] 4.1 Record node and unpushed/WIP state for pinning (enforced at claim in `node-agent`). Verify: Core stores the flag from the run end report. Partial (Core): `workspaces.unpushed` stored from the run report (0e4c2ba); the node report and claim enforcement pending.
