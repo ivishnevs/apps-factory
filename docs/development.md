@@ -74,9 +74,9 @@ JetStream is off). Both are read-only, time out after 5 s, never print the token
 `skip` when their variable is unset.
 Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
 injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
-`codex-cli 0.162.1`, `codex login status`) and `claude.*` (Node 22+, built `workers/claude`, `factory-workspace`, and
-`claude auth status` of `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI; warn when no CLI is installed, since the
-SDK-bundled Claude Code is checked only at run start). By default only installed drivers are probed;
+`codex-cli 0.162.1`, `codex login status`) and `claude.*` (what the Go driver runs: Node 22+, the built
+`workers/claude/dist/src/shim.js`, and `shim.js --probe` for the Claude Code version and login it will use, without a
+model call; see [Claude runtime](claude-runtime.md)). By default only installed drivers are probed;
 `-drivers codex,claude` requires the listed ones. `drivers` fails when no driver is usable.
 Stack hooks from `NodeHooks` arrive with node registration.
 

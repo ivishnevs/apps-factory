@@ -366,7 +366,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 	}()
 	runSpec, prev := w.resumeSpec(drv, spec)
-	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot}
+	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ())}
 	shimDir, err := w.shims(spec)
 	if err != nil {
 		return err
@@ -401,11 +401,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 	}
 	if wt != nil {
-		env := launch.Env
-		if env == nil {
-			env = os.Environ()
-		}
-		launch.Env = setEnv(env, "FACTORY_SCRATCH", wt.Scratch)
+		launch.Env = setEnv(launch.Env, "FACTORY_SCRATCH", wt.Scratch)
 	}
 	session, err = drv.Launch(ctx, launch)
 	if err != nil {
@@ -656,6 +652,12 @@ func snapshotRules(spec protocol.RunSpec) ([]policies.Rule, error) {
 
 // The runtime receives only a run-scoped Factory credential. Host access remains trusted.
 func runEnvironment(env []string, base, token string) []string {
+	return append(nodeEnvironment(env), "FACTORY_URL="+base, "FACTORY_RUN_TOKEN="+token)
+}
+
+// nodeEnvironment is env without the node's credentials (owner token, NATS) and any Factory URL or
+// run token: the base of every runtime environment, with or without a run credential.
+func nodeEnvironment(env []string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, v := range env {
 		k, _, _ := strings.Cut(v, "=")
@@ -665,5 +667,5 @@ func runEnvironment(env []string, base, token string) []string {
 		}
 		out = append(out, v)
 	}
-	return append(out, "FACTORY_URL="+base, "FACTORY_RUN_TOKEN="+token)
+	return out
 }

@@ -65,13 +65,24 @@ func (f *fakeHost) host(goos string) Host {
 		}}
 }
 
+const (
+	claudeShim  = "/opt/factory/workers/claude/dist/src/shim.js"
+	claudeProbe = "node " + claudeShim + " --probe"
+)
+
+// probeLine is what `shim.js --probe` prints for Claude Code version and accountInfo.
+func probeLine(version, account string) string {
+	return `{"event":"probe","claude_code_version":"` + version + `","sdk_version":"` + claude.SupportedSDK + `","account":` + account + "}\n"
+}
+
 // healthy is a macOS node with both drivers ready.
 func healthy() *fakeHost {
 	return &fakeHost{
-		env:   map[string]string{},
-		paths: map[string]string{"gh": "/usr/bin/gh", "codex": "/usr/bin/codex", "claude": "/usr/bin/claude"},
-		files: map[string]bool{"/opt/factory/bin/factory-mcp": true, "/opt/factory/bin/factory-shim": true, "/opt/factory/bin/factory-workspace": true,
-			"/opt/factory/workers/claude/dist/src/main.js": true},
+		env: map[string]string{},
+		// The Claude driver needs node and the built shim, not the standalone worker or a claude CLI.
+		paths: map[string]string{"gh": "/usr/bin/gh", "codex": "/usr/bin/codex", "node": "/usr/bin/node"},
+		files: map[string]bool{"/opt/factory/bin/factory-mcp": true, "/opt/factory/bin/factory-shim": true,
+			claudeShim: true},
 		cmds: map[string]reply{
 			"git --version":                          {out: "git version 2.50.1\n"},
 			"git config --get user.name":             {out: "Factory\n"},
@@ -83,8 +94,7 @@ func healthy() *fakeHost {
 			"/usr/bin/codex --version":               {out: "codex-cli 0.162.1\n"},
 			"/usr/bin/codex login status":            {errOut: "Logged in using ChatGPT\n"},
 			"node --version":                         {out: "v22.4.0\n"},
-			"/usr/bin/claude --version":              {out: "2.1.284 (Claude Code)\n"},
-			"/usr/bin/claude auth status":            {out: `{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","email":"secret@example.com"}`},
+			claudeProbe:                              {out: probeLine("2.1.284", `{"email":"secret@example.com","subscriptionType":"max","tokenSource":"claude.ai","apiKeySource":"none","apiProvider":"firstParty"}`)},
 		},
 		free: 100 * GiB,
 	}
@@ -172,26 +182,26 @@ func TestChecks(t *testing.T) {
 			delete(f.paths, "codex")
 		}, "codex.version", Pass, "0.162.1"},
 		{"old node", "linux", func(f *fakeHost, _ *Doctor) { f.cmds["node --version"] = reply{out: "v20.1.0"} }, "claude.node", Fail, "Node.js 22"},
-		{"claude worker not built", "linux", func(f *fakeHost, _ *Doctor) {
-			delete(f.files, "/opt/factory/workers/claude/dist/src/main.js")
-		}, "claude.worker", Fail, "make build"},
+		{"claude shim not built", "linux", func(f *fakeHost, _ *Doctor) { delete(f.files, claudeShim) }, "claude.shim", Fail, "make build"},
 		{"claude logged out", "linux", func(f *fakeHost, _ *Doctor) {
-			f.cmds["/usr/bin/claude auth status"] = reply{out: `{"loggedIn":false}`, err: errors.New("exit 1")}
+			f.cmds[claudeProbe] = reply{out: probeLine("2.1.284", `{"apiKeySource":"none"}`)}
 		}, "claude.auth", Fail, "/login"},
 		{"claude api key refused", "linux", func(f *fakeHost, _ *Doctor) {
-			f.cmds["/usr/bin/claude auth status"] = reply{out: `{"loggedIn":true,"authMethod":"api_key"}`}
+			f.cmds[claudeProbe] = reply{out: probeLine("2.1.284", `{"apiKeySource":"apiKeyHelper"}`)}
 		}, "claude.auth", Fail, "CLAUDE_ALLOW_API_KEY"},
 		{"claude api key allowed", "linux", func(f *fakeHost, _ *Doctor) {
 			f.env["CLAUDE_ALLOW_API_KEY"] = "1"
-			f.cmds["/usr/bin/claude auth status"] = reply{out: `{"loggedIn":true,"authMethod":"api_key"}`}
-		}, "claude.auth", Pass, "api_key"},
-		{"claude auth status unsupported", "linux", func(f *fakeHost, _ *Doctor) { delete(f.cmds, "/usr/bin/claude auth status") }, "claude.auth", Warn, "run start"},
-		{"claude cli absent", "linux", func(f *fakeHost, _ *Doctor) { delete(f.paths, "claude") }, "claude.auth", Warn, "only at run start"},
-		{"claude executable override off version", "linux", func(f *fakeHost, _ *Doctor) {
-			f.env["CLAUDE_CODE_EXECUTABLE"] = "/x/claude"
-			f.cmds["/x/claude --version"] = reply{out: "2.2.0 (Claude Code)"}
-			f.cmds["/x/claude auth status"] = reply{out: `{"loggedIn":true,"authMethod":"claude.ai"}`}
-		}, "claude.version", Warn, "verified: 2.1.284"},
+			f.cmds[claudeProbe] = reply{out: probeLine("2.1.284", `{"apiKeySource":"apiKeyHelper"}`)}
+		}, "claude.auth", Pass, "apiKeyHelper"},
+		{"claude env api key removed by runs", "linux", func(f *fakeHost, _ *Doctor) {
+			f.cmds[claudeProbe] = reply{out: probeLine("2.1.284", `{"apiKeySource":"ANTHROPIC_API_KEY"}`)}
+		}, "claude.auth", Warn, "runs remove it"},
+		{"claude probe error", "linux", func(f *fakeHost, _ *Doctor) {
+			f.cmds[claudeProbe] = reply{out: `{"event":"error","class":"executable","message":"ENOENT"}` + "\n", err: errors.New("exit 1")}
+		}, "claude.version", Fail, "ENOENT"},
+		{"claude off version", "linux", func(f *fakeHost, _ *Doctor) {
+			f.cmds[claudeProbe] = reply{out: probeLine("2.2.0", `{"subscriptionType":"max"}`)}
+		}, "claude.version", Fail, "expected SDK"},
 		{"codex not installed is skipped", "linux", func(f *fakeHost, _ *Doctor) { delete(f.paths, "codex") }, "codex", Skip, "driver disabled"},
 		{"required codex missing", "linux", func(f *fakeHost, d *Doctor) {
 			delete(f.paths, "codex")
@@ -202,8 +212,7 @@ func TestChecks(t *testing.T) {
 		}, "drivers", Pass, "usable: claude"},
 		{"no driver usable", "linux", func(f *fakeHost, _ *Doctor) {
 			delete(f.paths, "codex")
-			delete(f.paths, "claude")
-			delete(f.files, "/opt/factory/workers/claude/dist/src/main.js")
+			delete(f.files, claudeShim)
 		}, "drivers", Fail, "no usable runtime driver"},
 	}
 	for _, c := range cases {

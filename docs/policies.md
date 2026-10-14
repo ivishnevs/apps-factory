@@ -93,9 +93,12 @@ driver splits the requested command into simple commands (unwrapping `sh|bash|zs
 `;`, `&`, `|`, newlines and parentheses, dropping `VAR=value` prefixes) and decides each argv with the same rules:
 - deny: `decline`, reported to Core (best effort), and the rule's instruction steered into the turn
   (`turn/steer`; the approval answer carries only the decision);
-- approval: `POST /agent/command` per gated argv; `accept` only when Core answers 200 with a consumed grant,
+- approval: `POST /agent/command` for the gated argv; `accept` only when Core answers 200 with a consumed grant,
   otherwise `decline` with the same approval hint as the shim. The consumed grant is handed to the shim
-  (`$FACTORY_SHIM_DIR/grants/`, single use, 2 minutes) so the shimmed binary runs once without asking Core again;
+  (`$FACTORY_SHIM_DIR/grants/`, single use, 2 minutes) so the shimmed binary runs once without asking Core again.
+  All parts are judged before Core is asked, since asking consumes a grant: a command with two or more gated parts,
+  or a gated part with `$VAR`, `${VAR}`, `$(...)` or backquotes (not an exact argv), is declined without asking
+  Core, telling the agent to run each gated command separately with literal arguments;
 - allow: `accept`. File change requests and input to a running terminal are accepted (no rules cover them).
 
 `factory agents authorize AGENT OPERATION` previews the decision without executing an operation.

@@ -122,8 +122,12 @@ killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Comma
 - `ResumePolicy` resumes only a session whose prompt this node delivered (`driver.ResumeSameNode`); the
   executor clears `session_id` and prepends the fresh-session note otherwise.
 - `CheckVersion` runs `shim.js --probe` and accepts SDK 0.3.284 with Claude Code 2.1.284.
-- `Probe` (`factory-node doctor`, fields `Host`, `BinDir`) checks Node 22+, the built worker,
-  `factory-workspace` and `claude auth status` of `Executable`, `CLAUDE_CODE_EXECUTABLE` or the `claude` CLI.
+- `Probe` (`factory-node doctor` and the node's periodic driver checks; fields `Host`, `Node`, `Shim`,
+  `BinDir`, `Executable`) checks what `Launch` runs: Node 22+ (`claude.node`), the built shim
+  (`claude.shim`, default `BinDir/../workers/claude/dist/src/shim.js`) and, through `shim.js --probe` (no
+  model call), the supported SDK/Claude Code pair (`claude.version`) and the login from `accountInfo`
+  (`claude.auth`: an API-key source fails unless API keys are allowed; `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`
+  only warn, runs remove them). `Installed` is Node plus the shim.
 
 Tests replay the recorded `.events.jsonl` streams through a fake shim process
 (`claudetest.Serve`, re-executed test binary): start, resume, interrupt, max turns, rate limit,

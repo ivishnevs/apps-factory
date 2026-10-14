@@ -144,10 +144,33 @@ func TestJetStreamFakeDriverOutcomes(t *testing.T) {
 				t.Fatalf("%+v", r)
 			}
 			l := d.Launches()
-			if len(l) != 1 || l[0].Instructions != "base" || l[0].MCP != nil || l[0].Env != nil {
+			if len(l) != 1 || l[0].Instructions != "base" || l[0].MCP != nil || len(l[0].Env) == 0 {
 				t.Fatalf("launch %+v", l)
 			}
 		})
+	}
+}
+
+// TestJetStreamRuntimeEnvWithoutCredential: a driver without MCP and without command shims gets no
+// run credential, yet its runtime still must not inherit the node's FACTORY_TOKEN or NATS settings.
+func TestJetStreamRuntimeEnvWithoutCredential(t *testing.T) {
+	t.Setenv("FACTORY_TOKEN", "owner-secret")
+	t.Setenv("NATS_URL", "nats://user:nats-secret@nats:4222")
+	t.Setenv("NATS_PASSWORD", "nats-secret")
+	t.Setenv("FACTORY_RUN_TOKEN", "stale-run-token")
+	_, d := runFake(t, "completed.json", false)
+	l := d.Launches()
+	if len(l) != 1 || l[0].MCP != nil {
+		t.Fatalf("launch %+v", l)
+	}
+	joined := strings.Join(l[0].Env, "\n")
+	for _, secret := range []string{"owner-secret", "nats-secret", "stale-run-token", "FACTORY_TOKEN=", "NATS_URL=", "FACTORY_RUN_TOKEN="} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("runtime env inherits %q:\n%s", secret, joined)
+		}
+	}
+	if !strings.Contains(joined, "PATH=") {
+		t.Fatalf("runtime env lost the host environment:\n%s", joined)
 	}
 }
 

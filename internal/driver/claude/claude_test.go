@@ -18,6 +18,7 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/claude/claudetest"
+	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 )
 
@@ -127,8 +128,8 @@ func run(t *testing.T, name string, interrupt bool) (driver.Session, []driver.Ev
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	if s.ProcessGroup() <= 0 {
-		t.Fatal("no process group")
+	if g := s.(*session).group; s.ProcessGroup() <= 0 || g.ID != s.ProcessGroup() || g.Started == "" {
+		t.Fatalf("process group %d not recorded: %+v", s.ProcessGroup(), g)
 	}
 	if err = s.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -367,5 +368,57 @@ func TestOptionsMatchConfigRegistry(t *testing.T) {
 		if !slices.Contains(keys, k) {
 			t.Fatalf("driver reads %q but config.RuntimeOptions[claude] = %v", k, keys)
 		}
+	}
+}
+
+// foreignGroup starts a process group the session does not own; exited closes when it ends.
+func foreignGroup(t *testing.T) (pid int, exited <-chan struct{}) {
+	t.Helper()
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); <-done })
+	return cmd.Process.Pid, done
+}
+
+// TestCloseSparesReusedGroup: when the shim was reaped and its PID now leads another group (a
+// different start time), Close must not kill that group; the recorded group itself is killed.
+func TestCloseSparesReusedGroup(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 0")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid, foreignDone := foreignGroup(t)
+	s := &session{removeSkills: func() {}, cmd: cmd, stdin: stdin, lines: make(chan []byte), exited: make(chan struct{}), stop: make(chan struct{}),
+		group: procgroup.Group{ID: pid, Started: "Thu Jan  1 00:00:00 1970"}}
+	go s.read(stdout)
+	<-s.exited // the shim is reaped before Close
+	s.Close()
+	select {
+	case <-foreignDone:
+		t.Fatal("Close killed a group that reused the shim's PID")
+	case <-time.After(300 * time.Millisecond):
+	}
+	g, err := procgroup.Record(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	killGroup(g, nil)
+	select {
+	case <-foreignDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the recorded group survived killGroup")
 	}
 }

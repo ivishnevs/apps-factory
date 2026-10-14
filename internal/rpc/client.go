@@ -13,6 +13,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
+
+	"appfactory/internal/procgroup"
 )
 
 type Message struct {
@@ -23,7 +26,9 @@ type Message struct {
 	Error  json.RawMessage `json:"error,omitempty"`
 }
 type Client struct {
-	cmd     *exec.Cmd
+	cmd *exec.Cmd
+	// group is the runtime's process group (leader start time); zero when it could not be recorded.
+	group   procgroup.Group
 	in      io.WriteCloser
 	write   sync.Mutex
 	mu      sync.Mutex
@@ -58,6 +63,8 @@ func StartEnv(ctx context.Context, bin string, args []string, env []string) (*Cl
 		return nil, err
 	}
 	c := &Client{cmd: cmd, in: in, pending: map[string]chan Message{}, Events: make(chan Message, 1024), done: make(chan struct{}), wait: make(chan error, 1)}
+	// Recorded before Wait can reap the runtime, so Close never signals a group that reused its PID.
+	c.group, _ = procgroup.Record(cmd.Process.Pid)
 	go c.read(out)
 	go func() { c.wait <- cmd.Wait() }()
 	return c, nil
@@ -147,10 +154,19 @@ func (c *Client) Done() <-chan struct{} { return c.done }
 // Pid is the runtime process ID, which is also its process group ID.
 func (c *Client) Pid() int   { return c.cmd.Process.Pid }
 func (c *Client) Err() error { c.mu.Lock(); defer c.mu.Unlock(); return c.err }
+
+// killLimit bounds how long Close waits for the killed runtime group to disappear.
+const killLimit = 5 * time.Second
+
+// Close kills the runtime's group only while it is still the recorded one: the leader may already be
+// reaped and its PID reused by another group. Without a record it kills just the leader, which
+// os.Process never signals after reaping.
 func (c *Client) Close() {
 	_ = c.in.Close()
-	if c.cmd.Process != nil {
-		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+	if c.group.ID > 1 {
+		_ = c.group.Stop(0, killLimit)
+	} else if c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
 	}
 	<-c.wait
 	c.fail(io.EOF)

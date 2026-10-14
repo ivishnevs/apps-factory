@@ -21,6 +21,7 @@ import (
 
 	"appfactory/internal/driver"
 	"appfactory/internal/node"
+	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 )
 
@@ -35,7 +36,8 @@ const (
 type Driver struct {
 	// Node runs the shim; default "node".
 	Node string
-	// Shim is the built shim script; default DefaultShim, relative to the working directory.
+	// Shim is the built shim script; default BinDir/../workers/claude/dist/src/shim.js (DefaultShim,
+	// relative to the working directory, when BinDir is unset).
 	Shim string
 	// Args replace [Shim] (tests use a fake shim).
 	Args []string
@@ -43,8 +45,8 @@ type Driver struct {
 	Executable     string
 	AllowAPIKey    bool
 	SettingSources []string
-	// Host runs Probe; nil is the local machine. BinDir holds factory-workspace (default "bin";
-	// the built worker is BinDir/../workers/claude).
+	// Host runs Probe; nil is the local machine. BinDir is the Factory bin directory (default "bin";
+	// the built shim is BinDir/../workers/claude/dist/src/shim.js).
 	Host   *node.Host
 	BinDir string
 }
@@ -59,18 +61,11 @@ func (d Driver) ResumePolicy(prev driver.Outcome, sameNode bool) bool {
 	return driver.ResumeSameNode(prev, sameNode)
 }
 func (d Driver) command(extra ...string) *exec.Cmd {
-	node, args := d.Node, d.Args
-	if node == "" {
-		node = "node"
-	}
+	args := d.Args
 	if args == nil {
-		shim := d.Shim
-		if shim == "" {
-			shim = DefaultShim
-		}
-		args = []string{shim}
+		args = []string{d.shimPath()}
 	}
-	return exec.Command(node, append(append([]string{}, args...), extra...)...)
+	return exec.Command(d.nodeBinary(), append(append([]string{}, args...), extra...)...)
 }
 
 // CheckVersion runs `shim.js --probe`: Claude Code version and account, no model call.
@@ -86,18 +81,42 @@ func (d Driver) CheckVersion(ctx context.Context) (string, error) {
 	})
 	defer stop()
 	out, runErr := cmd.Output()
-	var p struct {
-		Event, Class, Message string
-		ClaudeCodeVersion     string `json:"claude_code_version"`
-		SDKVersion            string `json:"sdk_version"`
+	p, err := parseProbe(string(out), runErr)
+	if err != nil {
+		return "", err
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return p.version()
+}
+
+// probeLine is the last line of `shim.js --probe`: a probe event, or an error event.
+type probeLine struct {
+	Event, Class, Message string
+	ClaudeCodeVersion     string `json:"claude_code_version"`
+	SDKVersion            string `json:"sdk_version"`
+	Account               struct {
+		Email            string `json:"email"`
+		Organization     string `json:"organization"`
+		SubscriptionType string `json:"subscriptionType"`
+		TokenSource      string `json:"tokenSource"`
+		APIKeySource     string `json:"apiKeySource"`
+		APIProvider      string `json:"apiProvider"`
+	} `json:"account"`
+}
+
+func parseProbe(out string, runErr error) (probeLine, error) {
+	var p probeLine
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &p); err != nil {
-		return "", fmt.Errorf("claude probe: %w (%v)", err, runErr)
+		return p, fmt.Errorf("claude probe: %w (%v)", err, runErr)
 	}
 	if p.Event != "probe" {
-		return "", &Error{Class: p.Class, Message: p.Message}
+		return p, &Error{Class: p.Class, Message: p.Message}
 	}
+	return p, nil
+}
+
+// version is the probed runtime, with an error outside the supported pair.
+func (p probeLine) version() (string, error) {
 	v := "claude-agent-sdk " + p.SDKVersion + " (Claude Code " + p.ClaudeCodeVersion + ")"
 	if p.SDKVersion != SupportedSDK || p.ClaudeCodeVersion != SupportedClaudeCode {
 		return v, fmt.Errorf("unsupported %s: expected SDK %s with Claude Code %s; rerecord streams before upgrade", v, SupportedSDK, SupportedClaudeCode)
@@ -193,6 +212,8 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		return nil, err
 	}
 	s := &session{removeSkills: removeSkills, cmd: cmd, stdin: stdin, lines: make(chan []byte), exited: make(chan struct{}), events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	// Recorded before read can reap the shim, so Close never signals a group that reused its PID.
+	s.group, _ = procgroup.Record(cmd.Process.Pid)
 	go s.read(stdout)
 	if err = s.control(line); err == nil {
 		err = s.open(ctx)
@@ -220,17 +241,19 @@ type session struct {
 	// removeSkills removes the skills materialized in the workspace for this run (Close).
 	removeSkills func()
 	cmd          *exec.Cmd
-	stdin        io.WriteCloser
-	write        sync.Mutex
-	lines        chan []byte // closed at stdout EOF
-	exited       chan struct{}
-	waitErr      error
-	id           string
-	failure      *Error // last classified failure, reported when the result has no status
-	events       chan driver.Event
-	done         chan driver.Result
-	stop         chan struct{}
-	closeOnce    sync.Once
+	// group is the shim's process group (leader start time); zero when it could not be recorded.
+	group     procgroup.Group
+	stdin     io.WriteCloser
+	write     sync.Mutex
+	lines     chan []byte // closed at stdout EOF
+	exited    chan struct{}
+	waitErr   error
+	id        string
+	failure   *Error // last classified failure, reported when the result has no status
+	events    chan driver.Event
+	done      chan driver.Result
+	stop      chan struct{}
+	closeOnce sync.Once
 }
 
 func (s *session) read(out io.Reader) {
@@ -349,11 +372,26 @@ func (s *session) Close() {
 	s.closeOnce.Do(func() {
 		close(s.stop)
 		_ = s.stdin.Close()
-		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		killGroup(s.group, s.cmd.Process)
 		<-s.exited
 		s.removeSkills()
 	})
 }
+
+// killLimit bounds how long Close waits for the killed shim group to disappear.
+const killLimit = 5 * time.Second
+
+// killGroup kills the shim's group only while it is still the recorded one (its leader may already
+// be reaped and its PID reused). Without a record it kills just the leader, which os.Process never
+// signals after reaping.
+func killGroup(g procgroup.Group, leader *os.Process) {
+	if g.ID > 1 {
+		_ = g.Stop(0, killLimit)
+		return
+	}
+	_ = leader.Kill()
+}
+
 func (s *session) send(e driver.Event) bool {
 	select {
 	case s.events <- e:

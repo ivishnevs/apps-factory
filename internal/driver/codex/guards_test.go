@@ -160,6 +160,54 @@ func TestCommandGuards(t *testing.T) {
 	}
 }
 
+// TestGuardsJudgeAllPartsBeforeGrants: a compound command with two approval-gated parts, or a gated
+// part with unexpanded variables, is declined without asking Core, so no single-use grant is consumed;
+// a single gated part with a grant is still accepted.
+func TestGuardsJudgeAllPartsBeforeGrants(t *testing.T) {
+	var mu sync.Mutex
+	var asked []string
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p struct{ Argv []string }
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		mu.Lock()
+		asked = append(asked, strings.Join(p.Argv, " "))
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(shim.Check{Effect: "allow", Rule: "push", ApprovalID: "ap1"}) // every grant exists
+	}))
+	defer core.Close()
+	dir := t.TempDir()
+	g := newGuards(guardRules, []string{"FACTORY_URL=" + core.URL, "FACTORY_RUN_TOKEN=run.tok", shim.EnvDir + "=" + dir})
+	ask := func(command string) (string, string) {
+		params, _ := json.Marshal(map[string]string{"command": command})
+		return g.decide(context.Background(), "item/commandExecution/requestApproval", params)
+	}
+	for _, c := range []struct{ command, note string }{
+		{"/bin/zsh -lc 'git push origin main && git push origin dev'", "Run each of them as a separate command"},
+		{"git push origin main; git push origin main", "Run each of them as a separate command"},
+		{`/bin/zsh -lc 'git push origin "$BRANCH"'`, "literal arguments"},
+		{"git push origin ${BRANCH}", "literal arguments"},
+		{"git push origin $(git branch --show-current)", "literal arguments"},
+		{"git push `echo origin` main", "literal arguments"},
+	} {
+		if d, note := ask(c.command); d != "decline" || !strings.Contains(note, c.note) {
+			t.Errorf("%s: %s %q", c.command, d, note)
+		}
+	}
+	if len(asked) != 0 {
+		t.Fatalf("Core asked (grants consumed) for declined commands: %q", asked)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, shim.GrantsDir)); len(entries) != 0 {
+		t.Fatalf("grants handed over for declined commands: %v", entries)
+	}
+	// Literal (single-quoted or escaped) dollars are exact arguments.
+	if d, note := ask(`cd app && git push origin 'v$1' \$x`); d != "accept" || note != "" {
+		t.Fatalf("%s %q", d, note)
+	}
+	if want := []string{"git push origin v$1 $x"}; !slices.Equal(asked, want) {
+		t.Fatalf("Core saw %q", asked)
+	}
+}
+
 func TestCommandLines(t *testing.T) {
 	cases := map[string][][]string{
 		`/bin/zsh -lc 'cd app && FOO=1 /usr/bin/git push origin "main branch"; ls|wc -l'`: {{"cd", "app"}, {"git", "push", "origin", "main branch"}, {"ls"}, {"wc", "-l"}},
@@ -176,6 +224,14 @@ func TestCommandLines(t *testing.T) {
 			if !slices.Equal(got[i], want[i]) {
 				t.Fatalf("%s: %q", in, got)
 			}
+		}
+	}
+	for in, want := range map[string]bool{
+		`echo $HOME`: true, `echo "${HOME}/x"`: true, "echo `id`": true, `echo $?`: true,
+		`echo '$HOME'`: false, `echo \$HOME`: false, `echo "\$HOME"`: false, `echo 5$`: false, `bash -c "echo \"a b\" \\$x"`: false,
+	} {
+		if got := commands(in); len(got) != 1 || got[0].unexpanded != want {
+			t.Errorf("%s: %+v, want unexpanded %v", in, got, want)
 		}
 	}
 	if newGuards([]policies.Rule{{Name: "a", Type: "access", Commands: []string{"open"}, Effect: "allow"}}, nil).active() {
