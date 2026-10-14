@@ -9,6 +9,7 @@ import (
 
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
+	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
 
@@ -83,7 +84,30 @@ func (c *Core) exitRoute(w http.ResponseWriter, r *http.Request, run storage.Run
 	p.Preflight = r.URL.Path == "/agent/exit/preflight"
 	c.approvalMu.Lock() // serialized with tool calls, like /agent/call
 	defer c.approvalMu.Unlock()
-	c.serveExit(w, r, run, p)
+	if p.Preflight {
+		c.serveExit(w, r, run, p)
+		return
+	}
+	// Audited like a tool call (factory_exit_<kind>), so the run's tool calls show its exit.
+	auditID := protocol.ID()
+	if _, err := c.Store.DB.ExecContext(r.Context(), "INSERT INTO tool_calls(id,run_id,agent,project_id,tool,request_id,status,created_at,company_id) VALUES(?,?,?,?,?,?,0,?,?)", auditID, run.Spec.ID, run.Spec.Agent, run.Spec.Project, factorytools.ExitPrefix+p.Kind, "", c.Store.Now().Unix(), company); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	response := &toolResponse{header: http.Header{}}
+	c.serveExit(response, r, run, p)
+	if response.status == 0 {
+		response.status = 200
+	}
+	if _, err := c.Store.DB.ExecContext(r.Context(), "UPDATE tool_calls SET status=? WHERE id=?", response.status, auditID); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	for k, vs := range response.header {
+		w.Header()[k] = vs
+	}
+	w.WriteHeader(response.status)
+	_, _ = w.Write(response.body.Bytes())
 }
 
 // serveExit runs under approvalMu.

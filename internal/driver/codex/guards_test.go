@@ -238,3 +238,17 @@ func TestCommandLines(t *testing.T) {
 		t.Fatal("allow-only rules need no approval requests")
 	}
 }
+
+// TestElicitationAnswer: Factory MCP tool calls are approved, anything else is declined.
+func TestElicitationAnswer(t *testing.T) {
+	for params, want := range map[string]string{
+		`{"serverName":"factory","mode":"form","_meta":{"codex_approval_kind":"mcp_tool_call"},"message":"Allow?"}`: "accept",
+		`{"serverName":"other","_meta":{"codex_approval_kind":"mcp_tool_call"}}`:                                    "decline",
+		`{"serverName":"factory","mode":"form","message":"Your name?","requestedSchema":{}}`:                        "decline",
+		`not json`: "decline",
+	} {
+		if got := elicitationAnswer(json.RawMessage(params))["action"]; got != want {
+			t.Errorf("%s: %v, want %s", params, got, want)
+		}
+	}
+}

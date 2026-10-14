@@ -262,9 +262,12 @@ func (s *session) loop() driver.Result {
 					if err = s.client.Respond(m.ID, map[string]string{"decision": decision}, nil); err == nil && note != "" {
 						s.steer(note)
 					}
+				case "mcpServer/elicitation/request":
+					err = s.client.Respond(m.ID, elicitationAnswer(m.Params), nil)
 				default:
 					_ = s.client.Respond(m.ID, nil, map[string]any{"code": -32601, "message": "Foundation cannot service this request; owner intervention required"})
-					return driver.Result{Err: fmt.Errorf("server request requires owner: %s", m.Method)}
+					// A known failure: the runtime asked for something no run can answer (retry is safe).
+					return driver.Result{Err: unservedRequest{m.Method}}
 				}
 				if err != nil {
 					return driver.Result{Err: err}
@@ -291,6 +294,23 @@ func (s *session) loop() driver.Result {
 			}
 		}
 	}
+}
+
+// elicitationAnswer answers an MCP elicitation. With approvalPolicy untrusted (command rules), Codex asks
+// before every MCP tool call; calls of Factory MCP are accepted, since Core authorizes each one with the
+// run credential and the agent's policies. Any other elicitation (another server, a form for the user) is
+// declined: there is nobody to answer it during a run.
+func elicitationAnswer(params json.RawMessage) map[string]any {
+	var p struct {
+		ServerName string `json:"serverName"`
+		Meta       struct {
+			Kind string `json:"codex_approval_kind"`
+		} `json:"_meta"`
+	}
+	if json.Unmarshal(params, &p) == nil && p.ServerName == "factory" && p.Meta.Kind == "mcp_tool_call" {
+		return map[string]any{"action": "accept", "content": map[string]any{}}
+	}
+	return map[string]any{"action": "decline", "content": nil}
 }
 
 // followUp starts the exit guard's turn in the same thread (one of guardLeft).
@@ -438,3 +458,9 @@ func (s *session) quota(method string, params json.RawMessage) *protocol.Quota {
 	}
 	return q
 }
+
+// unservedRequest is a server request the driver cannot answer; the run fails (outcome failed).
+type unservedRequest struct{ method string }
+
+func (e unservedRequest) Error() string      { return "server request requires owner: " + e.method }
+func (e unservedRequest) RunOutcome() string { return driver.OutcomeFailed }

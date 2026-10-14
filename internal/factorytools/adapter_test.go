@@ -253,10 +253,19 @@ func TestAdapterQueuesExitWhileCoreIsDown(t *testing.T) {
 
 func must(b []byte, _ error) []byte { return b }
 
-// TestAdapterFactsOutsideARepository: scratch work has no facts.
+// TestAdapterFactsOutsideARepository: scratch work has no facts, also inside another repository's tree.
 func TestAdapterFactsOutsideARepository(t *testing.T) {
 	a := &Adapter{Workdir: t.TempDir()}
 	if f, err := a.Facts(context.Background()); err != nil || f != nil {
 		t.Fatal(f, err)
+	}
+	work, _ := repo(t)
+	nested := filepath.Join(work, ".cache", "scratch-project")
+	_ = os.MkdirAll(nested, 0o755)
+	if f, err := (&Adapter{Workdir: nested}).Facts(context.Background()); err != nil || f != nil {
+		t.Fatal("facts of the enclosing repository", f, err)
+	}
+	if f, err := (&Adapter{Workdir: work}).Facts(context.Background()); err != nil || f == nil {
+		t.Fatal("no facts at the repository root", f, err)
 	}
 }

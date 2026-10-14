@@ -91,6 +91,14 @@ exit 1
 	if !strings.Contains(facts, `"number":9`) || !strings.Contains(facts, `"pushed":true`) {
 		t.Fatal(facts)
 	}
+	calls, _ := h.s.ToolCalls(ctx, storage.DefaultCompany, r.id)
+	audited := false
+	for _, call := range calls {
+		audited = audited || call.Tool == "factory_exit_submit" && call.Status == 200
+	}
+	if !audited {
+		t.Fatalf("exit not audited: %+v", calls)
+	}
 	h.end(r, "COMPLETED", "accepted")
 
 	rv := h.start("t")

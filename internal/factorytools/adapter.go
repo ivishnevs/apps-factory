@@ -339,9 +339,15 @@ func (a *Adapter) Facts(ctx context.Context) (*Facts, error) {
 	if a.Workdir == "" {
 		return nil, nil
 	}
+	// Only the workspace's own repository counts: a scratch workspace inside another checkout (for example
+	// under a factory checkout's .cache) has no facts of its own.
+	top, err := a.git(ctx, "rev-parse", "--show-toplevel")
+	if err != nil || !sameDir(top, a.Workdir) {
+		return nil, nil
+	}
 	head, err := a.git(ctx, "rev-parse", "--verify", "HEAD")
 	if err != nil {
-		return nil, nil // not a repository, or no commit yet
+		return nil, nil // no commit yet
 	}
 	f := &Facts{Head: head}
 	status, err := a.git(ctx, "status", "--porcelain", "--untracked-files=normal")
@@ -462,4 +468,13 @@ func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	}
 	a.Workdir, _ = filepath.Abs(a.Workdir)
 	return a, nil
+}
+
+func sameDir(a, b string) bool {
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	if err1 != nil || err2 != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return ra == rb
 }
