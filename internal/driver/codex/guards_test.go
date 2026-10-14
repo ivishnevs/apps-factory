@@ -263,6 +263,12 @@ func TestRetryAt(t *testing.T) {
 	if got := retryAt("try again at 9:15 AM.", now); !got.Equal(time.Date(2026, 10, 15, 9, 15, 0, 0, loc)) {
 		t.Fatal("past time is tomorrow", got)
 	}
+	if got := retryAt("try again at 10:45 PM.", now); !got.Equal(time.Date(2026, 10, 14, 22, 45, 0, 0, loc)) {
+		t.Fatal("narrow no-break space", got)
+	}
+	if got := retryAt("try again at 10:45PM.", now); !got.Equal(time.Date(2026, 10, 14, 22, 45, 0, 0, loc)) {
+		t.Fatal("no space", got)
+	}
 	if !retryAt("no time here", now).IsZero() {
 		t.Fatal("parsed nothing")
 	}

@@ -555,3 +555,49 @@ func TestV2Reset(t *testing.T) {
 		t.Fatal(reset)
 	}
 }
+
+// TestV2ResetListedAgain: Core lists a reset in every heartbeat until the node confirms it; a listing that
+// arrives while the reset runs, or before its confirmation was delivered, does not reset the worktree again
+// (a second reset could stop and reset a run Core started after the confirmation).
+func TestV2ResetListedAgain(t *testing.T) {
+	dir := t.TempDir()
+	f, api := newFakeCore(t, dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, err := newSession(ctx, v2Node(t, api, dir), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var reset []string
+	release := make(chan struct{})
+	s.reset = func(_ context.Context, task string) error {
+		mu.Lock()
+		reset = append(reset, task)
+		mu.Unlock()
+		<-release
+		return nil
+	}
+	go s.resetter(ctx)
+	// Core clears the reset when the confirmation arrives, so the third answer no longer lists it.
+	f.answers = []HeartbeatAnswer{{Reset: []string{"t1"}}, {Reset: []string{"t1"}}, {}}
+	if err = s.beat(ctx); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "reset started", func() bool { mu.Lock(); defer mu.Unlock(); return len(reset) == 1 })
+	if err = s.beat(ctx); err != nil { // listed again while the reset runs
+		t.Fatal(err)
+	}
+	close(release)
+	eventually(t, "reset done", func() bool { s.resetMu.Lock(); defer s.resetMu.Unlock(); return len(s.resetDone) == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if err = s.beat(ctx); err != nil || len(f.lastBeat().ResetDone) != 1 { // the confirmation
+		t.Fatal(err, f.lastBeat())
+	}
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reset) != 1 {
+		t.Fatal("reset again:", reset)
+	}
+}

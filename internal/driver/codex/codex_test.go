@@ -292,3 +292,85 @@ func TestExitGuard(t *testing.T) {
 		t.Fatalf("bounded follow-ups: %+v %v", r, g)
 	}
 }
+
+// TestFakeSlowFollowUpServer completes the first turn at once; a later turn/start answers after 300 ms and
+// its turn ends only when turn/interrupt names it.
+func TestFakeSlowFollowUpServer(t *testing.T) {
+	if os.Getenv("FACTORY_FAKE_CODEX") != "slow-follow-up" {
+		return
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	enc := json.NewEncoder(os.Stdout)
+	turns := 0
+	for sc.Scan() {
+		var m rpc.Message
+		if json.Unmarshal(sc.Bytes(), &m) != nil || len(m.ID) == 0 {
+			continue
+		}
+		var result any = map[string]any{}
+		switch m.Method {
+		case "account/read":
+			result = map[string]any{"account": map[string]string{"type": "chatgpt"}}
+		case "thread/start":
+			result = map[string]any{"thread": map[string]string{"id": "thread-1"}}
+		case "turn/start":
+			turns++
+			if turns > 1 {
+				time.Sleep(300 * time.Millisecond)
+			}
+			result = map[string]any{"turn": map[string]string{"id": fmt.Sprint("turn-", turns)}}
+		}
+		_ = enc.Encode(map[string]any{"id": m.ID, "result": result})
+		switch {
+		case m.Method == "turn/start" && turns == 1:
+			_ = enc.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]string{"id": "turn-1", "status": "completed"}}})
+		case m.Method == "turn/interrupt":
+			var p struct {
+				TurnID string `json:"turnId"`
+			}
+			if json.Unmarshal(m.Params, &p) == nil && p.TurnID == fmt.Sprint("turn-", turns) {
+				_ = enc.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]string{"id": p.TurnID, "status": "interrupted"}}})
+			}
+		}
+	}
+	os.Exit(0)
+}
+
+// TestExitGuardInterrupt: an interrupt that arrives while the exit guard starts its follow-up turn
+// interrupts that turn (not the finished one): the run ends CANCELLED instead of running on.
+func TestExitGuardInterrupt(t *testing.T) {
+	t.Setenv("FACTORY_FAKE_CODEX", "slow-follow-up")
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	guarding := make(chan struct{}, 1)
+	s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeSlowFollowUpServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work"}, Cwd: t.TempDir(),
+		ExitGuard: func() bool { guarding <- struct{}{}; return false }, ExitGuardRetries: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for range s.Events() {
+		}
+	}()
+	<-guarding // the follow-up's turn/start is on its way
+	time.Sleep(100 * time.Millisecond)
+	if err = s.Interrupt(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-s.Done():
+		if r.Status != "CANCELLED" {
+			t.Fatalf("result %+v", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the follow-up turn was not interrupted")
+	}
+}

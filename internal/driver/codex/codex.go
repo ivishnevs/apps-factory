@@ -96,18 +96,20 @@ type session struct {
 	stopRuntime      context.CancelFunc
 	prompt           string
 	threadID, turnID string
-	events           chan driver.Event
-	done             chan driver.Result
-	stop             chan struct{}
-	closeOnce        sync.Once
-	interrupted      atomic.Bool
-	guards           *guards
-	exitGuard        func() bool // see driver.Launch.ExitGuard
-	guardLeft        int
-	model            string
-	base             *tokens // thread total before this run's turn
-	limits           rateLimits
-	quotaSent        bool
+	// turnMu orders a follow-up turn's turnID with Interrupt, which runs outside the loop.
+	turnMu      sync.Mutex
+	events      chan driver.Event
+	done        chan driver.Result
+	stop        chan struct{}
+	closeOnce   sync.Once
+	interrupted atomic.Bool
+	guards      *guards
+	exitGuard   func() bool // see driver.Launch.ExitGuard
+	guardLeft   int
+	model       string
+	base        *tokens // thread total before this run's turn
+	limits      rateLimits
+	quotaSent   bool
 }
 
 func (s *session) call(ctx context.Context, method string, params, result any) error {
@@ -202,8 +204,11 @@ func (s *session) Start(ctx context.Context) error {
 }
 func (s *session) Interrupt(ctx context.Context) error {
 	s.interrupted.Store(true)
+	s.turnMu.Lock()
+	turn := s.turnID
+	s.turnMu.Unlock()
 	// Acknowledgement only means interruption requested; terminal evidence follows.
-	return s.client.Call(ctx, "turn/interrupt", map[string]string{"threadId": s.threadID, "turnId": s.turnID}, nil)
+	return s.client.Call(ctx, "turn/interrupt", map[string]string{"threadId": s.threadID, "turnId": turn}, nil)
 }
 func (s *session) Close() {
 	s.closeOnce.Do(func() {
@@ -326,7 +331,13 @@ func (s *session) followUp() bool {
 	if err := s.call(context.Background(), "turn/start", map[string]any{"threadId": s.threadID, "input": input}, &turn); err != nil || turn.Turn.ID == "" {
 		return false
 	}
+	s.turnMu.Lock()
 	s.turnID = turn.Turn.ID
+	s.turnMu.Unlock()
+	if s.interrupted.Load() {
+		// Interrupt ran while this turn was starting and named the finished one: interrupt this one too.
+		_ = s.call(context.Background(), "turn/interrupt", map[string]string{"threadId": s.threadID, "turnId": turn.Turn.ID}, nil)
+	}
 	_ = s.send(driver.Event{Kind: driver.EventActivity, Method: "factory/exit_guard", Data: json.RawMessage(`{"turn":"` + turn.Turn.ID + `"}`)})
 	return true
 }
@@ -466,7 +477,8 @@ func (s *session) quota(method string, params json.RawMessage) *protocol.Quota {
 	return q
 }
 
-var tryAgainAt = regexp.MustCompile(`try again at (\d{1,2}:\d{2}\s?[AP]M)`)
+// The time may be formatted with a narrow no-break space before AM/PM, which \s does not match.
+var tryAgainAt = regexp.MustCompile(`try again at (\d{1,2}:\d{2}[\s\x{202f}]?[AP]M)`)
 
 // retryAt is the next local time named by "try again at H:MM AM|PM" after now, zero when absent.
 func retryAt(message string, now time.Time) time.Time {

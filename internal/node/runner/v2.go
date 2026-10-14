@@ -109,6 +109,9 @@ type session struct {
 	resets    chan string
 	resetMu   sync.Mutex
 	resetDone []string
+	// resetting: tasks queued, being reset, or reset with the confirmation not yet delivered; Core lists
+	// a reset again until it gets the confirmation, and those listings must not reset the worktree again.
+	resetting map[string]bool
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -133,7 +136,7 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 		h.check(ctx, true)
 	}
 	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
-		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64)}
+		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{}}
 	if err = s.register(ctx); err != nil {
 		return nil, err
 	}
@@ -243,13 +246,23 @@ func (s *session) beat(ctx context.Context) error {
 	if len(done) > 0 { // delivered
 		s.resetMu.Lock()
 		s.resetDone = s.resetDone[len(done):]
+		for _, task := range done {
+			delete(s.resetting, task)
+		}
 		s.resetMu.Unlock()
 	}
 	for _, task := range a.Reset {
+		s.resetMu.Lock()
+		if s.resetting[task] {
+			s.resetMu.Unlock()
+			continue // queued, running, or done and confirmed with the next heartbeat
+		}
 		select {
 		case s.resets <- task:
+			s.resetting[task] = true
 		default: // full: Core lists it again
 		}
+		s.resetMu.Unlock()
 	}
 	s.inv.Ack(a.Acked)
 	for _, x := range a.Stop {
@@ -342,28 +355,30 @@ func sameOK(a, b []DriverInfo) bool {
 }
 
 // resetter resets worktrees Core listed under reset, one at a time; a busy worktree is retried from the next
-// listing.
+// listing. A task stays in resetting until its confirmation is delivered (beat), or is dropped from it
+// when the reset failed, so Core's next listing retries it.
 func (s *session) resetter(ctx context.Context) {
-	pending := map[string]bool{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case task := <-s.resets:
-			if pending[task] || s.reset == nil {
-				continue
+			err := errors.New("no reset on this node")
+			if s.reset != nil {
+				err = s.reset(ctx, task)
 			}
-			pending[task] = true
-			err := s.reset(ctx, task)
-			delete(pending, task)
+			s.resetMu.Lock()
+			if err != nil {
+				delete(s.resetting, task)
+			} else {
+				s.resetDone = append(s.resetDone, task)
+			}
+			s.resetMu.Unlock()
 			if err != nil {
 				slog.Warn("worktree reset postponed", "task", task, "error", err)
 				continue
 			}
 			slog.Info("worktree reset from the remote branch", "task", task)
-			s.resetMu.Lock()
-			s.resetDone = append(s.resetDone, task)
-			s.resetMu.Unlock()
 		}
 	}
 }
