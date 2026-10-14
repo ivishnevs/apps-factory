@@ -445,6 +445,27 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 			fmt.Fprintf(&prompt, "Directive from %s (%s): %s\n", d.Author, d.Kind, contextExcerpt(d.Text, 4*1024))
 		}
 	}
+	// Why this run: the triggers since the task was last handled (brief, trigger-log-scheduling D8).
+	if pending, err := c.Store.PendingTriggers(ctx, company, t.ID); err == nil && len(pending) > 0 {
+		prompt.WriteString("Since your last run:\n")
+		for _, g := range pending {
+			who := g.Author
+			if g.Authority {
+				who += " (authority)"
+			}
+			line := "- " + g.Kind + " by " + who
+			if g.Text != "" {
+				line += ": " + contextExcerpt(g.Text, 1024)
+			}
+			prompt.WriteString(line + "\n")
+		}
+	}
+	if created, err := c.Store.CreatedBy(ctx, company, t.ID); err == nil && len(created) > 0 {
+		prompt.WriteString("Tasks your earlier runs created:\n")
+		for _, ct := range created {
+			fmt.Fprintf(&prompt, "- %s [%s] %s (assignee %s)\n", ct.ID, ct.Status, ct.Title, ct.Assignee)
+		}
+	}
 	if review {
 		b, _ := json.Marshal(t.Submission)
 		fmt.Fprintf(&prompt, "You review this task, submitted by %s: %s\nInspect the changes (the branch and its pull request), then end with factory_exit_handoff to %s with verdict approved, or changes_requested with feedback.\n", t.Implementer, b, t.Implementer)

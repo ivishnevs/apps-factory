@@ -468,8 +468,10 @@ func TestCommentsInBrief(t *testing.T) {
 	}
 	r := h.start("c")
 	run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id)
-	if !strings.Contains(run.Spec.Prompt, "Comment by calorie-qa: note from calorie-qa") {
-		t.Fatal(run.Spec.Prompt)
+	for _, want := range []string{"Comment by calorie-qa: note from calorie-qa", "Since your last run:", "owner_comment by calorie-manager (authority): note from calorie-manager"} {
+		if !strings.Contains(run.Spec.Prompt, want) {
+			t.Fatal(want, "\n", run.Spec.Prompt)
+		}
 	}
 }
 

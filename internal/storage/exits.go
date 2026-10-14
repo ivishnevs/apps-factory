@@ -677,3 +677,28 @@ func (s *Store) AbandonBranch(ctx context.Context, company, task, actor string) 
 	}
 	return tx.Commit()
 }
+
+// PendingTriggers are the task's triggers above handled_seq, oldest first, with author and authority (the
+// trigger part of the brief, trigger-log-scheduling D8).
+func (s *Store) PendingTriggers(ctx context.Context, company, task string) ([]UnseenTrigger, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT g.seq,g.kind,g.actor,g.authority,g.body FROM task_triggers g JOIN tasks t ON t.company_id=g.company_id AND t.id=g.task_id
+ WHERE g.company_id=? AND g.task_id=? AND g.seq>t.handled_seq ORDER BY g.seq LIMIT 20`, company, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UnseenTrigger{}
+	for rows.Next() {
+		var u UnseenTrigger
+		if err = rows.Scan(&u.Seq, &u.Kind, &u.Author, &u.Authority, &u.Text); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// CreatedBy lists the tasks created by runs of task (origin_task), with their status.
+func (s *Store) CreatedBy(ctx context.Context, company, task string) ([]tasks.Task, error) {
+	return listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND json_extract(body,'$.origin_task')=? ORDER BY created_at,id", company, task)
+}
