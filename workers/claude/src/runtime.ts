@@ -72,6 +72,40 @@ export interface RuntimeInput {
   // Exit guard (explicit-exits-authority D5): a Stop hook refuses to end a turn without a factory_exit_*
   // call, at most `retries` times; `file` is the MCP adapter's exit file.
   exitGuard?: { file: string; retries: number };
+  // Command guard (runtime-drivers D2): a PreToolUse hook decides every shell command line of the
+  // Bash and Monitor tools with the run's command rules (factory-shim --decide, see shim.ts).
+  commandGuard?: CommandDecider;
+}
+
+export type CommandDecision = { decision: "allow" | "deny"; reason?: string };
+export type CommandDecider = (command: string) => Promise<CommandDecision>;
+
+// The tools whose input runs a shell command line.
+export const COMMAND_TOOLS = ["Bash", "Monitor"] as const;
+
+// commandGuardHook denies a shell tool call the command rules refuse, with the rule's instruction as the
+// reason the model sees; allowed calls pass unchanged. A failing decider denies (fail closed).
+export function commandGuardHook(decide: CommandDecider, log?: (line: string) => void): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== "PreToolUse" || !(COMMAND_TOOLS as readonly string[]).includes(input.tool_name)) return {};
+    const command = (input.tool_input as { command?: unknown } | undefined)?.command;
+    if (typeof command !== "string") return {}; // Monitor on a WebSocket runs no command
+    let d: CommandDecision;
+    try {
+      d = await decide(command);
+    } catch (err) {
+      log?.(`command guard failed: ${String(err)}`);
+      d = { decision: "deny", reason: `Factory command guard failed (${err instanceof Error ? err.message : String(err)}); the command was not run.` };
+    }
+    if (d.decision === "allow") return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: d.reason || "Factory command policy refused this command.",
+      },
+    };
+  };
 }
 
 // The follow-up instruction of the exit guard (internal/driver.ExitGuardPrompt).
@@ -183,7 +217,15 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     ...(input.spec.session_id ? { resume: input.spec.session_id } : { sessionId }),
     ...(input.executable ? { pathToClaudeCodeExecutable: input.executable } : {}),
     ...(input.log ? { stderr: input.log } : {}),
-    ...(input.exitGuard ? { hooks: { Stop: [{ hooks: [exitStopHook(input.exitGuard, readExitFile)] }] } } : {}),
+    ...(input.exitGuard || input.commandGuard ? { hooks: runtimeHooks(input) } : {}),
+  };
+}
+
+function runtimeHooks(input: RuntimeInput): NonNullable<Options["hooks"]> {
+  return {
+    ...(input.exitGuard ? { Stop: [{ hooks: [exitStopHook(input.exitGuard, readExitFile)] }] } : {}),
+    // The hook timeout covers Core's approval check (10 s) with margin.
+    ...(input.commandGuard ? { PreToolUse: [{ matcher: COMMAND_TOOLS.join("|"), hooks: [commandGuardHook(input.commandGuard, input.log)], timeout: 60 }] } : {}),
   };
 }
 

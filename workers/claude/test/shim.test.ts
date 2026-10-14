@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { AccountInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -316,4 +318,75 @@ test("probe reports version and account without a prompt", async () => {
   const failed = await probe({ output: out, env: {}, executable: "/missing/claude", query, version: async () => Promise.reject(new Error("ENOENT")) });
   assert.equal(failed, false);
   assert.deepEqual(jsonl(text), [{ event: "error", class: "executable", message: "ENOENT" }]);
+});
+
+test("command guard: shell tool calls are decided by factory-shim --decide before they run", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "guard-"));
+  // A fake factory-shim (CommonJS, no package.json around it): denies cliclick, fails on "crash" and
+  // records each request with the environment it ran with.
+  const fake = join(dir, "factory-shim");
+  writeFileSync(
+    fake,
+    `#!/usr/bin/env node
+let input = "";
+process.stdin.on("data", (d) => (input += d)).on("end", () => {
+  const { command } = JSON.parse(input);
+  require("node:fs").appendFileSync(${JSON.stringify(join(dir, "seen"))}, JSON.stringify([process.argv[2], process.env.FACTORY_SHIM_DIR, process.env.FACTORY_RUN_TOKEN, command]) + "\\n");
+  if (command === "crash") process.exit(3);
+  console.log(JSON.stringify(command.includes("cliclick") ? { decision: "deny", reason: "cliclick is denied by policy rule host-ui-input." } : { decision: "allow" }));
+});
+`,
+  );
+  chmodSync(fake, 0o755);
+
+  const answers: unknown[] = [];
+  const query: QueryFn = ({ prompt, options }) => {
+    async function* stream(): AsyncGenerator<SDKMessage> {
+      for await (const _ of prompt) break;
+      const matcher = options.hooks!.PreToolUse![0]!;
+      assert.equal(matcher.matcher, "Bash|Monitor");
+      const signal = new AbortController().signal;
+      const calls = [
+        ["Bash", "cd app && cliclick c:1"],
+        ["Bash", "git status"],
+        ["Monitor", "tail -f log"],
+        ["Read", "cliclick"],
+        ["Bash", "crash"],
+      ];
+      for (const [tool, command] of calls) {
+        const input = { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command }, tool_use_id: "t" };
+        answers.push(await matcher.hooks[0]!(input as never, "t", { signal }));
+      }
+      yield { type: "result", subtype: "success", is_error: false, result: "ok", num_turns: 1, total_cost_usd: 0, modelUsage: {}, session_id: "s" } as unknown as SDKMessage;
+    }
+    return Object.assign(stream(), { accountInfo: async () => account, interrupt: async () => {}, close: () => {} }) as unknown as Query;
+  };
+  const env = { FACTORY_SHIM_DIR: dir, FACTORY_RUN_TOKEN: "frt", PATH: process.env["PATH"] ?? "" };
+  const launch = JSON.stringify({ ...baseLaunch(), guard_command: fake });
+  const events = await shim(launch, query, env, undefined, "s");
+  assert.equal(last(events).status, "COMPLETED");
+  const denied = (a: unknown, reason: RegExp) => {
+    const o = (a as { hookSpecificOutput: { hookEventName: string; permissionDecision: string; permissionDecisionReason: string } }).hookSpecificOutput;
+    assert.equal(o.hookEventName, "PreToolUse");
+    assert.equal(o.permissionDecision, "deny");
+    assert.match(o.permissionDecisionReason, reason);
+  };
+  denied(answers[0], /host-ui-input/);
+  assert.deepEqual(answers.slice(1, 4), [{}, {}, {}]);
+  denied(answers[4], /command guard failed/);
+  // Read is not a shell tool: factory-shim saw only the shell command lines, with the shim's env.
+  assert.deepEqual(
+    readFileSync(join(dir, "seen"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as string[]),
+    ["cd app && cliclick c:1", "git status", "tail -f log", "crash"].map((c) => ["--decide", dir, "frt", c]),
+  );
+
+  // The guard needs the run's shim directory.
+  const noDir = await shim(launch, query, {}, undefined, "s");
+  assert.deepEqual(
+    noDir.map((e) => e.event),
+    ["error", "result"],
+  );
 });

@@ -8,7 +8,7 @@
 //   --probe: one `probe` line with the Claude Code version and accountInfo, no model call.
 // The run token reaches the shim and factory-mcp only through the environment
 // (FACTORY_URL, FACTORY_RUN_TOKEN), never through the launch line. Diagnostics go to stderr.
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -27,7 +27,7 @@ import {
 import { clock, type Timer } from "./clock.js";
 import { shimEnvironment } from "./env.js";
 import type { EventKind, RunEvent, RunSpec, TerminalStatus } from "./protocol.js";
-import { AUTH_ERRORS, RuntimeError, runClaude, type QueryFn } from "./runtime.js";
+import { AUTH_ERRORS, RuntimeError, runClaude, type CommandDecider, type CommandDecision, type QueryFn } from "./runtime.js";
 
 export interface Launch {
   spec: RunSpec;
@@ -41,6 +41,34 @@ export interface Launch {
   // Exit guard: the MCP adapter's exit file and the number of refused stops (explicit exits).
   exit_file?: string;
   exit_guard_retries?: number;
+  // Command guard: factory-shim, run as `<guard_command> --decide` for every shell command line.
+  guard_command?: string;
+}
+
+// factoryShimDecider decides a command line with `factory-shim --decide` (one matcher for the PATH
+// shims, Codex and Claude): stdin {"command"}, stdout {"decision","reason"}. env must carry
+// FACTORY_SHIM_DIR, FACTORY_URL and FACTORY_RUN_TOKEN; an approved grant is handed to the PATH shim.
+export function factoryShimDecider(binary: string, env: NodeJS.ProcessEnv, timeoutMs = 30_000): CommandDecider {
+  return (command) =>
+    new Promise<CommandDecision>((resolve, reject) => {
+      const child = spawn(binary, ["--decide"], { env, stdio: ["pipe", "pipe", "pipe"], timeout: timeoutMs });
+      let out = "";
+      let err = "";
+      child.stdout.setEncoding("utf8").on("data", (d: string) => (out += d));
+      child.stderr.setEncoding("utf8").on("data", (d: string) => (err += d));
+      child.once("error", reject);
+      child.once("close", (code, signal) => {
+        try {
+          const d = JSON.parse(out) as CommandDecision;
+          if (d.decision !== "allow" && d.decision !== "deny") throw new Error("no decision");
+          resolve(d);
+        } catch {
+          reject(new Error(`factory-shim --decide exited ${code ?? signal}: ${(err || out).trim().slice(0, 500)}`));
+        }
+      });
+      child.stdin.on("error", () => {}); // a child that exits early reports through close
+      child.stdin.end(JSON.stringify({ command }));
+    });
 }
 
 // Normalized events (design D1). usage (per model) and cost (total) are cumulative for the query:
@@ -196,6 +224,8 @@ export interface ShimIO {
   // External interruption (signals).
   signal?: AbortSignal;
   query?: QueryFn;
+  // Replaces factoryShimDecider for the launch's guard_command (tests).
+  decider?: (guardCommand: string) => CommandDecider;
   newSessionId?: () => string;
   log?: (line: string) => void;
   startupTimeoutMs?: number;
@@ -243,6 +273,9 @@ export async function runShim(io: ShimIO): Promise<void> {
     if (launch.mcp_command && !io.env["FACTORY_RUN_TOKEN"]) {
       throw new RuntimeError("FACTORY_RUN_TOKEN must be set in the environment for factory-mcp", "launch");
     }
+    if (launch.guard_command && !io.env["FACTORY_SHIM_DIR"]) {
+      throw new RuntimeError("FACTORY_SHIM_DIR must be set in the environment for the command guard", "launch");
+    }
     await runClaude({
       spec: launch.spec,
       cwd: launch.cwd,
@@ -259,6 +292,8 @@ export async function runShim(io: ShimIO): Promise<void> {
       allowApiKey: launch.allow_api_key,
       settingSources: launch.setting_sources,
       ...(launch.exit_file ? { exitGuard: { file: launch.exit_file, retries: launch.exit_guard_retries ?? 2 } } : {}),
+      // The decider runs with the shim's own environment (run token, shim directory), not Claude's.
+      ...(launch.guard_command ? { commandGuard: io.decider?.(launch.guard_command) ?? factoryShimDecider(launch.guard_command, io.env) } : {}),
       log: io.log,
       startupTimeoutMs: io.startupTimeoutMs,
       interruptTimeoutMs: io.interruptTimeoutMs,

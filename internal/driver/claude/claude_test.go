@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,8 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/claude/claudetest"
+	"appfactory/internal/node/shim"
+	"appfactory/internal/policies"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 )
@@ -250,6 +254,42 @@ func TestRecordedRateLimit(t *testing.T) {
 	}
 }
 
+// Command rules reach the shim as guard_command: the factory-shim binary behind the run's shim directory.
+func TestGuardCommandLaunch(t *testing.T) {
+	rules := policies.HostUI().Spec.Rules
+	dir := t.TempDir()
+	if _, err := shim.Install(dir, "/opt/factory/bin/factory-shim", rules); err != nil {
+		t.Fatal(err)
+	}
+	d, rec := fakeDriver(t, "start", claudetest.Dir())
+	l, _ := scenarioLaunch(t, "start")
+	l.Guards = rules
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := d.Launch(ctx, l); err == nil || !strings.Contains(err.Error(), shim.EnvDir) {
+		t.Fatal("guards without a shim directory must not launch", err)
+	}
+	l.Env = append(l.Env, shim.EnvDir+"="+dir)
+	s, err := d.Launch(ctx, l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var got struct {
+		Launch launchLine `json:"launch"`
+	}
+	b, err := os.ReadFile(rec)
+	if err == nil {
+		err = json.Unmarshal(b, &got)
+	}
+	if err != nil || got.Launch.GuardCommand != "/opt/factory/bin/factory-shim" {
+		t.Fatalf("%v %s", err, b)
+	}
+	if g, err := guardCommand([]policies.Rule{{Name: "a", Type: "access", Commands: []string{"open"}, Effect: "allow"}}, nil); g != "" || err != nil {
+		t.Fatal("allow-only rules need no guard", g, err)
+	}
+}
+
 func stream(t *testing.T, lines ...string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -381,6 +421,66 @@ func TestBuiltShimLaunchError(t *testing.T) {
 	var e *Error
 	if _, err := (Driver{Shim: shim}).Launch(ctx, l); !errors.As(err, &e) || e.Class != "launch" {
 		t.Fatal(err)
+	}
+}
+
+// The built shim's PreToolUse decider runs the real factory-shim --decide: deny with the rule's
+// instruction, an approval-gated command once with Core's grant (handed to the PATH shim), then refused.
+func TestBuiltShimDecider(t *testing.T) {
+	built, err := filepath.Abs(filepath.Join("..", "..", "..", DefaultShim))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(built); err != nil {
+		t.Skip("workers/claude not built")
+	}
+	if _, err = exec.LookPath("node"); err != nil {
+		t.Skip("node not installed")
+	}
+	bin := filepath.Join(t.TempDir(), "factory-shim")
+	if out, err := exec.Command("go", "build", "-o", bin, "appfactory/cmd/factory-shim").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	rules := append(policies.HostUI().Spec.Rules, policies.Rule{Name: "push", Type: "access", Commands: []string{"git push *"}, Effect: "approval", Instruction: "Ask first."})
+	dir := t.TempDir()
+	if _, err = shim.Install(dir, bin, rules); err != nil {
+		t.Fatal(err)
+	}
+	granted := false
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p struct{ Argv []string }
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		switch d := policies.Command(rules, p.Argv); {
+		case d.Effect == "deny":
+			w.WriteHeader(403)
+			_ = json.NewEncoder(w).Encode(shim.Check{Effect: "deny", Rule: d.Rule, Instruction: d.Instruction})
+		case !granted && strings.Join(p.Argv, " ") == "git push origin main" && r.Header.Get("Authorization") == "Bearer frt":
+			granted = true
+			_ = json.NewEncoder(w).Encode(shim.Check{Effect: "allow", Rule: d.Rule, ApprovalID: "ap1"})
+		default:
+			w.WriteHeader(423)
+			_ = json.NewEncoder(w).Encode(shim.Check{Effect: "approval", Rule: d.Rule})
+		}
+	}))
+	defer core.Close()
+	script := `const { factoryShimDecider } = await import(process.env.SHIM_JS);
+const decide = factoryShimDecider(process.argv[1], process.env);
+for (const c of ["cliclick c:1", "git status", "git push origin main", "git push origin main"]) console.log(JSON.stringify(await decide(c)));`
+	cmd := exec.Command("node", "--input-type=module", "-e", script, bin)
+	cmd.Env = append(os.Environ(), "SHIM_JS="+built, shim.EnvDir+"="+dir, "FACTORY_URL="+core.URL, "FACTORY_RUN_TOKEN=frt")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[0], `"decision":"deny"`) || !strings.Contains(lines[0], "accessibility identifier") ||
+		lines[1] != `{"decision":"allow"}` || lines[2] != `{"decision":"allow"}` ||
+		!strings.Contains(lines[3], `"decision":"deny"`) || !strings.Contains(lines[3], "factory_owner_request_approval") {
+		t.Fatalf("%s", out)
+	}
+	// The consumed grant waits for the PATH shim.
+	if entries, _ := os.ReadDir(filepath.Join(dir, shim.GrantsDir)); len(entries) != 1 {
+		t.Fatalf("grants %v", entries)
 	}
 }
 

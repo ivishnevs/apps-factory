@@ -101,6 +101,13 @@ driver splits the requested command into simple commands (unwrapping `sh|bash|zs
   Core, telling the agent to run each gated command separately with literal arguments;
 - allow: `accept`. File change requests and input to a running terminal are accepted (no rules cover them).
 
+The line judgment lives in one place, `shim.Guard` (`internal/node/shim`), used by the Codex driver in process and
+by Claude through `factory-shim --decide` (stdin `{"command": "<shell line>"}`, stdout `{"decision": "allow"|"deny",
+"reason"?}`, with `FACTORY_SHIM_DIR`, `FACTORY_URL`, `FACTORY_RUN_TOKEN` from its environment; any failure is a
+deny). Claude (runtime-drivers D2, [claude-runtime](claude-runtime.md#per-run-shim-srcshimts)) runs it from a
+`PreToolUse` hook for every `Bash` and `Monitor` command: deny blocks the tool call with the reason, approval passes
+only with a consumed grant handed to the PATH shim, allow passes.
+
 `factory agents authorize AGENT OPERATION` previews the decision without executing an operation.
 The API exposes POST /agents/{agent}/authorize with {"operation":"..."}. This is an owner-level
 inspection endpoint, not an agent capability grant. Actual skill reads/lists/searches enforce

@@ -187,7 +187,10 @@ func ApprovalHint(argv []string, instruction string) string {
 
 // Shim runs one shimmed command. Exec replaces the process with the real binary (syscall.Exec).
 type Shim struct {
-	Getenv  func(string) string
+	Getenv func(string) string
+	// Stdin and Stdout carry the line mode (DecideFlag) of factory-shim run by its own name.
+	Stdin   io.Reader
+	Stdout  io.Writer
 	Stderr  io.Writer
 	Client  *http.Client
 	Exec    func(path string, argv, env []string) error
@@ -204,23 +207,25 @@ func (s Shim) Main(ctx context.Context, args []string) int {
 		fmt.Fprintf(s.Stderr, "factory-shim: "+format+"\n", v...)
 		return Refused
 	}
-	dir := s.Getenv(EnvDir)
-	if dir == "" {
-		return fail("%s is unset; refusing %s", EnvDir, name)
-	}
-	var rules []policies.Rule
-	b, err := os.ReadFile(filepath.Join(dir, RulesFile))
-	if err == nil {
-		err = json.Unmarshal(b, &rules)
-	}
-	if err != nil {
-		return fail("command rules unreadable (%v); refusing %s", err, name)
-	}
-	argv := append([]string{name}, args[1:]...)
 	client := s.Client
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
+	if name == Binary {
+		if len(args) == 2 && args[1] == DecideFlag && s.Stdin != nil && s.Stdout != nil {
+			return Decide(ctx, s.Getenv, client, s.Stdin, s.Stdout)
+		}
+		return fail("usage: %s %s < {\"command\": \"...\"}", Binary, DecideFlag)
+	}
+	dir := s.Getenv(EnvDir)
+	if dir == "" {
+		return fail("%s is unset; refusing %s", EnvDir, name)
+	}
+	rules, err := readRules(dir)
+	if err != nil {
+		return fail("command rules unreadable (%v); refusing %s", err, name)
+	}
+	argv := append([]string{name}, args[1:]...)
 	ask := func() (Check, int, error) {
 		return Ask(ctx, client, s.Getenv("FACTORY_URL"), s.Getenv("FACTORY_RUN_TOKEN"), argv)
 	}

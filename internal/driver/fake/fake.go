@@ -74,6 +74,8 @@ type ToolCall struct {
 const (
 	ToolMethod = "fake/mcp/tool_call"
 	ExecMethod = "fake/exec"
+	// ExitGuardMethod is one refused stop without an exit (Driver.ExitGuard); Data {"refusal": n}.
+	ExitGuardMethod = "fake/exit_guard"
 )
 
 // ExecEvent is the Data of a scripted command.
@@ -114,6 +116,10 @@ type Driver struct {
 	Files map[string]string
 	// Command, when set, is started in the launch Cwd as the session's process group and killed by Close.
 	Command []string
+	// ExitGuard gives the driver capability ExitGuard: a COMPLETED script is not ended while
+	// Launch.ExitGuard reports no exit; each of up to Launch.ExitGuardRetries refusals is an ExitGuardMethod
+	// event (the follow-up turn or blocked stop of a real runtime, which still does not exit).
+	ExitGuard bool
 
 	mu       sync.Mutex
 	launches []driver.Launch
@@ -126,7 +132,7 @@ func (d *Driver) Name() protocol.RuntimeProvider {
 	return d.Provider
 }
 func (d *Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: d.MCP, Activity: true}
+	return driver.Capabilities{Resume: true, MCP: d.MCP, Activity: true, ExitGuard: d.ExitGuard}
 }
 
 // ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
@@ -166,7 +172,7 @@ func (d *Driver) Launch(_ context.Context, l driver.Launch) (driver.Session, err
 	if call == nil {
 		call = StdioCall
 	}
-	s := &session{script: d.Script, launch: l, call: call, id: id, files: d.Files, events: make(chan driver.Event, len(d.Script.Activity)), done: make(chan driver.Result, 1), interrupt: make(chan struct{}), stop: make(chan struct{})}
+	s := &session{script: d.Script, launch: l, call: call, id: id, files: d.Files, exitGuard: d.ExitGuard, events: make(chan driver.Event, len(d.Script.Activity)), done: make(chan driver.Result, 1), interrupt: make(chan struct{}), stop: make(chan struct{})}
 	if len(d.Command) > 0 {
 		s.cmd = exec.Command(d.Command[0], d.Command[1:]...)
 		s.cmd.Dir, s.cmd.Env = l.Cwd, l.Env
@@ -245,6 +251,7 @@ type session struct {
 	files                   map[string]string
 	cmd                     *exec.Cmd
 	exited                  chan struct{}
+	exitGuard               bool
 }
 
 func (s *session) ID() string                  { return s.id }
@@ -275,6 +282,11 @@ func (s *session) Start(ctx context.Context) error {
 				}
 			}
 			s.events <- a.event()
+		}
+		if s.exitGuard && s.script.Status == "COMPLETED" && s.launch.ExitGuard != nil {
+			for n := 1; n <= s.launch.ExitGuardRetries && !s.launch.ExitGuard(); n++ {
+				s.events <- driver.Event{Kind: driver.EventActivity, Method: ExitGuardMethod, Data: json.RawMessage(fmt.Sprintf(`{"refusal":%d}`, n))}
+			}
 		}
 		r := s.result()
 		close(s.events)

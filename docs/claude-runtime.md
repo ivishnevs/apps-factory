@@ -57,8 +57,20 @@ It runs the same `src/runtime.ts` as the standalone Worker, without bus, claim a
 standalone service keeps its own lifecycle until `node-agent` lands.
 
 - stdin, first line: launch parameters `{"spec": RunSpec, "cwd", "instructions", "mcp_command"?,
-  "executable"?, "allow_api_key"?, "setting_sources"?}`. `instructions` is the full appended system
-  prompt (agent instructions plus Factory MCP instructions).
+  "executable"?, "allow_api_key"?, "setting_sources"?, "exit_file"?, "exit_guard_retries"?,
+  "guard_command"?}`. `instructions` is the full appended system prompt (agent instructions plus Factory
+  MCP instructions). `exit_file`/`exit_guard_retries` turn on the exit guard (a `Stop` hook refuses a stop
+  without an accepted or pending exit at most that many times); `guard_command` turns on the command guard.
+- Command guard (runtime-drivers D2): with `guard_command` (the run's `factory-shim`) a `PreToolUse` hook
+  (matcher `Bash|Monitor`) sends every shell command line to `guard_command --decide` (stdin
+  `{"command"}`, stdout `{"decision": "allow"|"deny", "reason"?}`) with the shim's own environment
+  (`FACTORY_SHIM_DIR`, `FACTORY_URL`, `FACTORY_RUN_TOKEN`; a missing `FACTORY_SHIM_DIR` is a launch error).
+  `factory-shim` judges the line exactly like the Codex driver (see [policies](policies.md#command-guards)):
+  deny → the tool call is denied (`permissionDecision: deny`) with the rule's instruction as the reason the
+  model sees; approval → allowed only after Core consumed a single-use grant for that exact argv, which is
+  handed to the PATH shim (`$FACTORY_SHIM_DIR/grants`) so the shimmed binary runs once without asking again;
+  allow → the call passes unchanged. A failing or timed-out decision (30 s) denies. The PATH shims stay in
+  place as the backstop (an absolute path or another tool bypasses the hook, not the shim).
 - stdin, then: `{"start": true}` delivers the prompt. The shim writes `session` after the startup
   gate and waits for it, so the driver persists the session before the turn executes.
   `{"interrupt": true}` requests `interrupt()`. EOF on stdin (driver gone) and SIGINT/SIGTERM
@@ -100,7 +112,10 @@ standalone service still serves `factory.commands.agent.run.claude`). Fields: `N
 `node`), `Shim` (default `workers/claude/dist/src/shim.js`), `Executable`, `AllowAPIKey`,
 `SettingSources` (launch line fields). The shim runs in its own process group (`ProcessGroup()`,
 killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Command` becomes
-`mcp_command` and `MCP.EnvVars` reach `factory-mcp` by inheritance.
+`mcp_command` and `MCP.EnvVars` reach `factory-mcp` by inheritance. Capabilities include `ToolPolicy` and
+`ExitGuard`: `Launch.ExitFile`/`ExitGuardRetries` become `exit_file`/`exit_guard_retries`, and when
+`Launch.Guards` deny or gate a command the factory-shim behind the run's `FACTORY_SHIM_DIR` (the target of its
+command links, `shim.Executable`) becomes `guard_command`; guards without a shim directory refuse the launch.
 
 - `Launch` validates `runtime_options` (`model`, `effort`, `max_turns`; anything else is refused),
   writes the launch line and returns at `session`. A failure before it is a `*claude.Error` with the
@@ -132,8 +147,12 @@ killed by `Close`) with `Launch.Env` as its whole environment; `Launch.MCP.Comma
 Tests replay the recorded `.events.jsonl` streams through a fake shim process
 (`claudetest.Serve`, re-executed test binary): start, resume, interrupt, max turns, rate limit,
 failures without evidence, and the built shim's launch refusal when `workers/claude` is built.
-`internal/worker` runs Claude runs end to end through the executor against a fake Core
-(`NATS_TEST_URL`): completed and owner-cancelled.
+`TestBuiltShimDecider` runs the built shim's decider against a real `factory-shim --decide` and a fake Core
+(deny, allow, one grant consumed and handed over, then refused). `internal/worker` runs Claude runs end to
+end through the executor against a fake Core (`NATS_TEST_URL`): completed and owner-cancelled.
+`internal/node/runner` (`NATS_TEST_URL`, real Core and node) verifies with the fake driver that a session
+refused `ExitGuardRetries` stops without an exit ends with Core recording `no_exit` and a `no_exit`
+escalation, and that an approval-gated command runs through `factory-shim` once after the owner's grant.
 
 ## Clock
 

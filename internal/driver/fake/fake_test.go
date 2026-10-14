@@ -45,6 +45,30 @@ func TestScriptedToolCalls(t *testing.T) {
 	}
 }
 
+// The exit guard refuses a stop without an exit at most ExitGuardRetries times; an exit ends it.
+func TestExitGuard(t *testing.T) {
+	for _, c := range []struct {
+		exitAfter, want int
+	}{{exitAfter: 99, want: 2}, {exitAfter: 1, want: 1}, {exitAfter: 0, want: 0}} {
+		checks := 0
+		d := &Driver{ExitGuard: true, Script: Script{Status: "COMPLETED"}}
+		s, err := d.Launch(context.Background(), driver.Launch{ExitGuardRetries: 2, ExitGuard: func() bool { checks++; return checks > c.exitAfter }})
+		if err != nil || !d.Capabilities().ExitGuard {
+			t.Fatal(err)
+		}
+		_ = s.Start(context.Background())
+		refusals := 0
+		for e := range s.Events() {
+			if e.Method == ExitGuardMethod {
+				refusals++
+			}
+		}
+		if r := <-s.Done(); r.Status != "COMPLETED" || refusals != c.want {
+			t.Fatalf("exit after %d checks: %d refusals, %+v", c.exitAfter, refusals, r)
+		}
+	}
+}
+
 func TestStdioCallWithoutServer(t *testing.T) {
 	if _, err := StdioCall(context.Background(), driver.Launch{}, ToolCall{Name: "factory_project_get"}); err == nil {
 		t.Fatal("call without MCP config succeeded")

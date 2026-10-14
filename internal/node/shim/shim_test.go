@@ -181,3 +181,68 @@ func TestShimDecisions(t *testing.T) {
 		t.Fatal(code)
 	}
 }
+
+// TestDecideMode: `factory-shim --decide` judges whole command lines with the same rules, consumes a
+// Core grant only for a single literal gated part and hands it to the PATH shim; failures deny.
+func TestDecideMode(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Install(dir, "/x/factory-shim", rules); err != nil {
+		t.Fatal(err)
+	}
+	if bin, err := Executable(dir, rules); err != nil || bin != "/x/factory-shim" {
+		t.Fatal(bin, err)
+	}
+	fake := &core{grant: "git\x00push\x00origin\x00main"}
+	server := httptest.NewServer(fake)
+	defer server.Close()
+	vars := map[string]string{EnvDir: dir, "FACTORY_URL": server.URL, "FACTORY_RUN_TOKEN": "run.tok"}
+	decide := func(command string) Decision {
+		t.Helper()
+		in, _ := json.Marshal(DecideRequest{Command: command})
+		var out, stderr bytes.Buffer
+		s := Shim{Getenv: func(k string) string { return vars[k] }, Stdin: bytes.NewReader(in), Stdout: &out, Stderr: &stderr}
+		if code := s.Main(context.Background(), []string{"/x/" + Binary, DecideFlag}); code != 0 {
+			t.Fatal(code, stderr.String())
+		}
+		var d Decision
+		if err := json.Unmarshal(out.Bytes(), &d); err != nil {
+			t.Fatal(out.String())
+		}
+		return d
+	}
+	if d := decide("cd app && cliclick c:1"); d.Decision != "deny" || !strings.Contains(d.Reason, "denied by policy rule host-ui-input. Use UI tests.") {
+		t.Fatal(d)
+	}
+	if d := decide("git status && ls | wc -l"); d.Decision != "allow" {
+		t.Fatal(d)
+	}
+	if d := decide("git push origin main && git push origin dev"); d.Decision != "deny" || !strings.Contains(d.Reason, "separate command") {
+		t.Fatal(d)
+	}
+	if d := decide(`git push origin "$BRANCH"`); d.Decision != "deny" || !strings.Contains(d.Reason, "literal arguments") {
+		t.Fatal(d)
+	}
+	if len(fake.seen) != 1 { // only the denied cliclick was reported
+		t.Fatal(fake.seen)
+	}
+	if d := decide("git push origin dev"); d.Decision != "deny" || !strings.Contains(d.Reason, `"argv":["git","push","origin","dev"]`) {
+		t.Fatal(d)
+	}
+	if d := decide("/usr/bin/git push origin main"); d.Decision != "allow" {
+		t.Fatal(d)
+	}
+	if !take(dir, []string{"git", "push", "origin", "main"}) {
+		t.Fatal("consumed grant not handed to the PATH shim")
+	}
+	if d := decide("git push origin main"); d.Decision != "deny" {
+		t.Fatal("grant used twice", d)
+	}
+	vars[EnvDir] = ""
+	if d := decide("ls"); d.Decision != "deny" || !strings.Contains(d.Reason, EnvDir) {
+		t.Fatal(d)
+	}
+	var stderr bytes.Buffer
+	if code := (Shim{Getenv: func(string) string { return "" }, Stderr: &stderr}).Main(context.Background(), []string{Binary}); code != Refused {
+		t.Fatal(code)
+	}
+}

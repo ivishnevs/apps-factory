@@ -21,6 +21,8 @@ import (
 
 	"appfactory/internal/driver"
 	"appfactory/internal/node"
+	"appfactory/internal/node/shim"
+	"appfactory/internal/policies"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 )
@@ -53,7 +55,7 @@ type Driver struct {
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }
 func (d Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true, ExitGuard: true}
+	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true, ToolPolicy: true, ExitGuard: true}
 }
 
 // ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
@@ -188,6 +190,9 @@ type launchLine struct {
 	// ExitFile and ExitGuardRetries turn on the Stop-hook exit guard (driver.Launch.ExitGuard).
 	ExitFile         string `json:"exit_file,omitempty"`
 	ExitGuardRetries int    `json:"exit_guard_retries,omitempty"`
+	// GuardCommand is factory-shim: a PreToolUse hook runs `GuardCommand --decide` for every Bash
+	// command (driver.Launch.Guards; the PATH shims stay in place).
+	GuardCommand string `json:"guard_command,omitempty"`
 }
 
 // Launch starts the shim and returns once it reported the session, before the prompt. The run
@@ -204,6 +209,11 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	if l.MCP != nil {
 		launch.MCPCommand = l.MCP.Command
 	}
+	guard, err := guardCommand(l.Guards, l.Env)
+	if err != nil {
+		return nil, err
+	}
+	launch.GuardCommand = guard
 	line, err := json.Marshal(launch)
 	if err != nil {
 		return nil, err
@@ -243,6 +253,27 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		return nil, err
 	}
 	return s, nil
+}
+
+// guardCommand is the factory-shim binary behind the run's shim directory when the rules deny or gate
+// a command; "" when nothing is guarded.
+func guardCommand(rules []policies.Rule, env []string) (string, error) {
+	if len(policies.Guarded(rules)) == 0 {
+		return "", nil
+	}
+	dir := os.Getenv(shim.EnvDir)
+	if env != nil {
+		dir = ""
+		for _, v := range env {
+			if k, val, _ := strings.Cut(v, "="); k == shim.EnvDir {
+				dir = val
+			}
+		}
+	}
+	if dir == "" {
+		return "", fmt.Errorf("command guards need %s (the run's shim directory)", shim.EnvDir)
+	}
+	return shim.Executable(dir, rules)
 }
 
 type event struct {

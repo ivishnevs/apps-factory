@@ -216,7 +216,7 @@ func TestCommandLines(t *testing.T) {
 		`(cliclick c:1)`:              {{"cliclick", "c:1"}},
 	}
 	for in, want := range cases {
-		got := commandLines(in)
+		got := shim.CommandLines(in)
 		if len(got) != len(want) {
 			t.Fatalf("%s: %q", in, got)
 		}
@@ -230,7 +230,7 @@ func TestCommandLines(t *testing.T) {
 		`echo $HOME`: true, `echo "${HOME}/x"`: true, "echo `id`": true, `echo $?`: true,
 		`echo '$HOME'`: false, `echo \$HOME`: false, `echo "\$HOME"`: false, `echo 5$`: false, `bash -c "echo \"a b\" \\$x"`: false,
 	} {
-		if got := commands(in); len(got) != 1 || got[0].unexpanded != want {
+		if got := shim.Parts(in); len(got) != 1 || got[0].Unexpanded != want {
 			t.Errorf("%s: %+v, want unexpanded %v", in, got, want)
 		}
 	}
