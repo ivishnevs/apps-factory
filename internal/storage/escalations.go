@@ -103,7 +103,7 @@ func openEscalation(ctx context.Context, tx *Tx, reason string, answers []string
 	body := fmt.Sprintf("Escalation %s on task %s (%s): %s\nAnswer with one of: %s.", reason, t.ID, t.Title, w.Summary, strings.Join(answers, ", "))
 	m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: "factory", Recipient: w.Target, MessageType: "question", Body: body,
 		Questions:      []messaging.Question{{ID: EscalationAnswerID, Type: "single_choice", Question: "How should task " + t.ID + " continue?", Options: answers}},
-		TimeoutSeconds: escalationTimeout, RequestID: "escalation-" + id})
+		TimeoutSeconds: escalationTimeout, RequestID: "escalation-" + id, UpChain: true})
 	if err != nil {
 		return err
 	}

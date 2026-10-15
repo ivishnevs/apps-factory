@@ -656,3 +656,34 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 		t.Fatalf("manager answer is not authority: %+v", snap.Pending)
 	}
 }
+
+// TestUnansweredQuestionMovesUp (hierarchy 2.3): a question the manager leaves unanswered for escalate_after
+// moves to the next level (here the owner), with a feed note for the skipped manager.
+func TestUnansweredQuestionMovesUp(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	h.create("q", "notes", "calorie-ios")
+	r := h.start("q")
+	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: map[string]any{"question": "Which store region first?"}}, nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.end(r, "COMPLETED", "accepted")
+	id := h.task("q").WaitMessageID
+	h.fake.Advance(storage.EscalateAfter - time.Minute)
+	if n, err := h.s.AutoForward(ctx, co); err != nil || n != 0 {
+		t.Fatal("forwarded early", n, err)
+	}
+	h.fake.Advance(2 * time.Minute)
+	if n, err := h.s.AutoForward(ctx, co); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	m, _ := h.s.Message(ctx, co, id)
+	if m.Recipient != "owner" || len(m.Route) != 1 || m.Route[0] != "calorie-manager" || !strings.Contains(m.Body, "did not answer") {
+		t.Fatalf("%+v", m)
+	}
+	h.fake.Advance(24 * time.Hour)
+	if n, _ := h.s.AutoForward(ctx, co); n != 0 {
+		t.Fatal("moved past the owner")
+	}
+}

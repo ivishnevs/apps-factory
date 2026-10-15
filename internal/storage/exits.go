@@ -420,7 +420,7 @@ func exitAsk(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, qu
 	if evidence != "" {
 		body += "\n\nEvidence: " + evidence
 	}
-	in := messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: agent, Recipient: routeUp(tx, agent, category), MessageType: "question", Body: body, Blocking: true, RunID: runID, RequestID: "exit-ask-" + runID, Category: category}
+	in := messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: agent, Recipient: routeUp(tx, agent, category), MessageType: "question", Body: body, Blocking: true, RunID: runID, RequestID: "exit-ask-" + runID, Category: category, UpChain: true}
 	if len(options) > 1 {
 		in.Questions = []messaging.Question{{ID: "answer", Type: "single_choice", Question: question, Options: options}}
 	}

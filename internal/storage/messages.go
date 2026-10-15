@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
@@ -102,7 +103,7 @@ func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Se
 	})
 }
 func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Message, error) {
-	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: tx.now().Unix(), Category: in.Category}
+	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: tx.now().Unix(), Category: in.Category, UpChain: in.UpChain, RoutedAt: tx.now().Unix()}
 	if in.RequestID == "" || in.Sender == "" || in.Recipient == "" || in.Sender == in.Recipient || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id, distinct sender/recipient and body up to 16 KiB required")
 	}
@@ -632,25 +633,66 @@ func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, v
 		if m.MessageType != "question" || m.Recipient != from || m.Version != version || m.Status != "PENDING" && m.Status != "UNREAD" {
 			return m, ErrConflict
 		}
-		to := routeUp(tx, from, m.Category)
-		m.Route = append(m.Route, from)
-		m.Recipient, m.DeliveryRunID, m.DeliveryStatus = to, "", "PENDING"
-		if to == "owner" {
-			m.DeliveryStatus = "NONE"
-		}
-		if strings.TrimSpace(note) != "" {
-			m.Body += "\n\nForwarded by " + from + ": " + note
-		}
-		if _, err = tx.ExecContext(ctx, "UPDATE messages SET recipient=? WHERE id=?", to, m.ID); err != nil {
-			return m, err
-		}
-		if m.TaskID != "" {
-			if _, err = tx.ExecContext(ctx, "UPDATE task_parks SET reason=? WHERE company_id=? AND task_id=? AND kind=? AND ref_id=? AND status='active'", "waiting for the answer to question "+m.ID+" from "+to+" (forwarded by "+from+")", tx.company, m.TaskID, tasks.ParkAsk, m.ID); err != nil {
-				return m, err
-			}
-		}
-		return m, saveMessage(ctx, tx, &m, "message.forwarded")
+		return m, forwardTx(ctx, tx, &m, from, "Forwarded by "+from, note)
 	})
+}
+
+// forwardTx moves a question from its recipient to the recipient's manager.
+func forwardTx(ctx context.Context, tx *Tx, m *messaging.Message, from, label, note string) error {
+	to := routeUp(tx, from, m.Category)
+	m.Route = append(m.Route, from)
+	m.Recipient, m.DeliveryRunID, m.DeliveryStatus, m.RoutedAt = to, "", "PENDING", tx.now().Unix()
+	if to == "owner" {
+		m.DeliveryStatus = "NONE"
+	}
+	if strings.TrimSpace(note) != "" {
+		m.Body += "\n\n" + label + ": " + note
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE messages SET recipient=? WHERE id=?", to, m.ID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE escalations SET target=? WHERE company_id=? AND message_id=? AND status='open'", to, tx.company, m.ID); err != nil {
+		return err
+	}
+	if m.TaskID != "" {
+		if _, err := tx.ExecContext(ctx, "UPDATE task_parks SET reason=? WHERE company_id=? AND task_id=? AND kind=? AND ref_id=? AND status='active'", "waiting for the answer to question "+m.ID+" from "+to+" (forwarded by "+from+")", tx.company, m.TaskID, tasks.ParkAsk, m.ID); err != nil {
+			return err
+		}
+	}
+	return saveMessage(ctx, tx, m, "message.forwarded")
+}
+
+// EscalateAfter is how long a question routed up the chain waits for an agent's answer before it moves one
+// level up (hierarchy D4); at the owner it stays.
+const EscalateAfter = 4 * time.Hour
+
+// AutoForward moves every up-chain question an agent left unanswered for EscalateAfter (and is not handling
+// in a delivery run right now) to that agent's manager, with a feed note for the skipped manager.
+func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	pending, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND recipient!='owner' AND status IN ('PENDING','UNREAD') AND delivery_status!='RUNNING' AND json_extract(body,'$.up_chain')=1", company)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, m := range pending {
+		if tx.now().Sub(time.Unix(m.RoutedAt, 0)) < EscalateAfter {
+			continue
+		}
+		skipped := m.Recipient
+		if err = forwardTx(ctx, tx, &m, skipped, "Forwarded automatically", skipped+" did not answer within "+EscalateAfter.String()); err != nil {
+			return n, err
+		}
+		if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "message.auto_forwarded", EntityID: m.ID, ProjectID: m.ProjectID, CreatedAt: tx.now(), TaskID: m.TaskID, Agent: skipped, Summary: "question " + m.ID + " moved from " + skipped + " to " + m.Recipient + " after " + EscalateAfter.String() + " without an answer", Ref: m.ID}); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, tx.Commit()
 }
 
 // inChain tells whether principal is one of agent's managers (an answer from the chain is authority input).

@@ -25,6 +25,9 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	}
 	c.lastStallSweep = now
 	company := c.company()
+	if _, err := c.Store.AutoForward(ctx, company); err != nil {
+		return err
+	}
 	snaps, err := c.Store.TaskSnapshots(ctx, company, "")
 	if err != nil {
 		return err

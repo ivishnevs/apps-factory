@@ -69,3 +69,5 @@ allowed in its policy; questions without a category it may always answer), other
 `factory_question_forward {message_id, version, note}` to its own manager; the question keeps its route. The
 locked categories `release`, `money`, `deletion` and `legal` go straight to the owner, and a policy that delegates
 them fails validation. The answer wakes the asking task (as authority input when it comes from the chain).
+A question or escalation an agent leaves unanswered for 4 hours moves one level up automatically (feed event
+`message.auto_forwarded` names the skipped manager); at the owner it stays.

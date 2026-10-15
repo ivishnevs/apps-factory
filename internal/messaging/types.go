@@ -49,6 +49,10 @@ type Message struct {
 	// Category is a routed question's decision category; Route lists its earlier recipients (hierarchy D3).
 	Category string   `json:"category,omitempty"`
 	Route    []string `json:"route,omitempty"`
+	// UpChain marks a question routed up the reports_to chain (asks, escalations): unanswered by an agent
+	// for escalate_after since RoutedAt, it moves one level up (hierarchy D4).
+	UpChain  bool  `json:"up_chain,omitempty"`
+	RoutedAt int64 `json:"routed_at,omitempty"`
 }
 type Send struct {
 	ReportID       string     `json:"-"`
@@ -66,6 +70,7 @@ type Send struct {
 	RequestID      string     `json:"request_id"`
 	RunID          string     `json:"run_id,omitempty"`
 	Category       string     `json:"category,omitempty"`
+	UpChain        bool       `json:"up_chain,omitempty"`
 }
 type Reply struct {
 	Version   int            `json:"version"`
