@@ -1,11 +1,13 @@
 package storage
 
 import (
+	"appfactory/internal/config"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"appfactory/internal/messaging"
@@ -100,7 +102,7 @@ func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Se
 	})
 }
 func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Message, error) {
-	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
+	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: tx.now().Unix(), Category: in.Category}
 	if in.RequestID == "" || in.Sender == "" || in.Recipient == "" || in.Sender == in.Recipient || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id, distinct sender/recipient and body up to 16 KiB required")
 	}
@@ -380,7 +382,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		if err = clearParks(ctx, tx, t, tasks.ParkAsk, m.ID, "cleared"); err != nil {
 			return answer, err
 		}
-		if err = addTrigger(ctx, tx, t, "answer", isOwner(in.Sender), in.Sender, m.ID, in.Body); err != nil {
+		if err = addTrigger(ctx, tx, t, "answer", isOwner(in.Sender) || inChain(tx, m.Sender, in.Sender), in.Sender, m.ID, in.Body); err != nil {
 			return answer, err
 		}
 	}
@@ -601,4 +603,65 @@ func (s *Store) EscalateMessage(ctx context.Context, company, id string, version
 		return m, saveMessage(ctx, tx, &m, "message.escalated")
 	})
 	return err
+}
+
+// routeUp is the next principal for a question of agent: its manager, the owner for locked categories or
+// without a catalog.
+func routeUp(tx *Tx, agent, category string) string {
+	if slices.Contains(config.LockedCategories, category) || tx.store.ManagerOf == nil || agent == "owner" {
+		return "owner"
+	}
+	return tx.store.ManagerOf(agent)
+}
+
+// ForwardQuestion passes a pending question its recipient cannot decide one level up the chain (hierarchy
+// D3, factory_question_forward); the asking task keeps waiting.
+func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, version int, note, key string) (messaging.Message, error) {
+	input := struct {
+		From, Note string
+		Version    int
+	}{from, note, version}
+	return mutate(ctx, s, company, "message.forward:"+id, key, input, func(tx *Tx) (messaging.Message, error) {
+		m, err := messageTx(ctx, tx, id)
+		if err != nil {
+			return m, err
+		}
+		if key == "" {
+			return m, inputError("request_id required")
+		}
+		if m.MessageType != "question" || m.Recipient != from || m.Version != version || m.Status != "PENDING" && m.Status != "UNREAD" {
+			return m, ErrConflict
+		}
+		to := routeUp(tx, from, m.Category)
+		m.Route = append(m.Route, from)
+		m.Recipient, m.DeliveryRunID, m.DeliveryStatus = to, "", "PENDING"
+		if to == "owner" {
+			m.DeliveryStatus = "NONE"
+		}
+		if strings.TrimSpace(note) != "" {
+			m.Body += "\n\nForwarded by " + from + ": " + note
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE messages SET recipient=? WHERE id=?", to, m.ID); err != nil {
+			return m, err
+		}
+		if m.TaskID != "" {
+			if _, err = tx.ExecContext(ctx, "UPDATE task_parks SET reason=? WHERE company_id=? AND task_id=? AND kind=? AND ref_id=? AND status='active'", "waiting for the answer to question "+m.ID+" from "+to+" (forwarded by "+from+")", tx.company, m.TaskID, tasks.ParkAsk, m.ID); err != nil {
+				return m, err
+			}
+		}
+		return m, saveMessage(ctx, tx, &m, "message.forwarded")
+	})
+}
+
+// inChain tells whether principal is one of agent's managers (an answer from the chain is authority input).
+func inChain(tx *Tx, agent, principal string) bool {
+	if tx.store.ManagerOf == nil {
+		return false
+	}
+	for i, m := 0, tx.store.ManagerOf(agent); i < 32 && m != "owner"; i, m = i+1, tx.store.ManagerOf(m) {
+		if m == principal {
+			return true
+		}
+	}
+	return false
 }

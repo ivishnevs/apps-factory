@@ -62,3 +62,10 @@ Authority over a task belongs to the owner, the agents in its assignee's chain a
 delegated from (`origin_task`). Their comments and `factory_task_direct` directives wake the task; other agents'
 comments only reach its next brief. Recovery and stall escalations go to the assignee's manager (`reports_to`),
 the owner for agents at the top.
+
+Questions go up the chain. `factory_exit_ask {question, options, category}` goes to the asker's manager. The
+manager answers it (`factory_message_reply`) when the category is delegated to it (`factory.decision.decide.<category>`
+allowed in its policy; questions without a category it may always answer), otherwise forwards it with
+`factory_question_forward {message_id, version, note}` to its own manager; the question keeps its route. The
+locked categories `release`, `money`, `deletion` and `legal` go straight to the owner, and a policy that delegates
+them fails validation. The answer wakes the asking task (as authority input when it comes from the chain).

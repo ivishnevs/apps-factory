@@ -299,7 +299,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		c.artifactTool(w, r, p, run, snapshot, current)
 		return
 	}
-	if strings.HasPrefix(p.Name, "factory_message_") || p.Name == "factory_owner_ask" {
+	if strings.HasPrefix(p.Name, "factory_message_") || p.Name == "factory_owner_ask" || p.Name == "factory_question_forward" {
 		c.messageTool(w, r, p.Name, args, run, snapshot, current)
 		return
 	}

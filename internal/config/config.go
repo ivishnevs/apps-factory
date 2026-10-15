@@ -131,6 +131,13 @@ func LoadCatalog(root string) (*Catalog, error) {
 		if _, ok := rawPolicies[v.Metadata.Name]; ok {
 			return nil, fmt.Errorf("duplicate/reserved policy %s", v.Metadata.Name)
 		}
+		for _, r := range v.Spec.Rules {
+			for _, locked := range LockedCategories {
+				if r.Type == "access" && r.Effect == "allow" && policies.Match(r.Operations, "factory.decision.decide."+locked) {
+					return nil, fmt.Errorf("policy %s rule %s: category %s is decided by the owner only and cannot be delegated", v.Metadata.Name, r.Name, locked)
+				}
+			}
+		}
 		rawPolicies[v.Metadata.Name] = v
 	}
 	c.Policies, err = policies.Resolve(rawPolicies)
@@ -690,3 +697,7 @@ func deriveCommunication(agents map[string]Agent) {
 		agents[name] = a
 	}
 }
+
+// LockedCategories are decided by the owner only (hierarchy D3): questions in them go straight to the owner
+// and no policy may delegate them.
+var LockedCategories = []string{"release", "money", "deletion", "legal"}

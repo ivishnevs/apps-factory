@@ -51,6 +51,7 @@ func Definitions() []Tool {
 	}
 	sendProps := map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "message_type": s(), "request_id": s()}
 	add("message_send", "message.send", "Send an asynchronous notification/review request/escalation. Core schedules the recipient after this project's writer is released.", sendProps, "recipient", "body", "message_type", "request_id")
+	add("question_forward", "question.forward", "Forward a question you cannot decide (its category is not delegated to you) to your manager, with a note; the asker keeps waiting.", map[string]any{"message_id": s(), "version": n, "note": s(), "request_id": s()}, "message_id", "version", "request_id")
 	add("message_ask", "message.ask", "Ask another agent. A blocking question must concern your current task. After asking, finish the turn immediately; Core resumes the task after an explicit answer, never by polling inside a turn.", messageProps(), "recipient", "body", "request_id")
 	ownerProps := messageProps()
 	delete(ownerProps, "recipient")

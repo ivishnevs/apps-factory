@@ -46,6 +46,9 @@ type Message struct {
 	DeliveryRunID    string         `json:"delivery_run_id,omitempty"`
 	DeliveryStatus   string         `json:"delivery_status"`
 	EscalationReason string         `json:"escalation_reason,omitempty"`
+	// Category is a routed question's decision category; Route lists its earlier recipients (hierarchy D3).
+	Category string   `json:"category,omitempty"`
+	Route    []string `json:"route,omitempty"`
 }
 type Send struct {
 	ReportID       string     `json:"-"`
@@ -62,6 +65,7 @@ type Send struct {
 	TimeoutSeconds int        `json:"timeout_seconds,omitempty"`
 	RequestID      string     `json:"request_id"`
 	RunID          string     `json:"run_id,omitempty"`
+	Category       string     `json:"category,omitempty"`
 }
 type Reply struct {
 	Version   int            `json:"version"`

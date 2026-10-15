@@ -378,3 +378,17 @@ func TestReportsTo(t *testing.T) {
 		t.Fatal("unknown:", err)
 	}
 }
+
+func TestLockedCategoriesCannotBeDelegated(t *testing.T) {
+	root := fixture(t)
+	for _, ops := range []string{"[factory.decision.decide.release]", "[factory.decision.decide.*]"} {
+		put(t, root, "configs/policies/delegate.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: delegate\nspec:\n  rules:\n    - name: all\n      type: access\n      operations: "+ops+"\n      effect: allow\n      instruction: Decide.\n")
+		if _, err := LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "owner only") {
+			t.Fatal(ops, err)
+		}
+	}
+	put(t, root, "configs/policies/delegate.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: delegate\nspec:\n  rules:\n    - name: product\n      type: access\n      operations: [factory.decision.decide.product]\n      effect: allow\n      instruction: Decide.\n")
+	if _, err := LoadCatalog(root); err != nil {
+		t.Fatal(err)
+	}
+}

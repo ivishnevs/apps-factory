@@ -66,6 +66,7 @@ func (c *Core) companyFrom(r *http.Request) string {
 func (c *Core) Handler() http.Handler {
 	if c.Store != nil {
 		c.Store.EscalationTarget = c.escalationTarget
+		c.Store.ManagerOf = c.escalationTarget
 		c.Store.ExplicitExits = c.ExplicitExits
 	}
 	m := http.NewServeMux()
@@ -239,6 +240,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 }
 func (c *Core) Run(ctx context.Context) error {
 	c.Store.EscalationTarget = c.escalationTarget
+	c.Store.ManagerOf = c.escalationTarget
 	c.Store.ExplicitExits = c.ExplicitExits
 	sub, err := c.Bus.Subscribe("factory.events.>", "core-events-v1")
 	if err != nil {

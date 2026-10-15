@@ -4,8 +4,8 @@
 - [ ] 1.3 Authority actions pause/resume/reassign/cancel/reprioritize (MCP + owner API/CLI) with subtree checks and `pauses` table in `Evaluate`; only direct/comment/answer/ready/reassign/artifact approval add authority triggers. Verify: a manager cannot reassign into another subtree (403); pause shows reason `paused:task`; reprioritize and pause leave a wait park active.
 
 ## 2. Questions up the chain
-- [ ] 2.1 Route `ask` to `reports_to`, `factory_question_forward`, answer permission by delegated category. Verify: developer → lead (not delegated) → top manager (delegated) answers; the developer's task wakes with the answer.
-- [ ] 2.2 Locked categories in the `system` policy; delegation of them fails validation. Verify: config test; a `release` question goes straight to the owner inbox.
+- [x] 2.1 Route `ask` to `reports_to`, `factory_question_forward`, answer permission by delegated category. Verify: developer → lead (not delegated) → top manager (delegated) answers; the developer's task wakes with the answer. Done: `factory_exit_ask` routes to `reports_to` (owner at the top), `factory_question_forward` passes it up with a note and route history, a categorized question needs the category delegated to answer, an answer from the chain is authority input (`TestQuestionsGoUpTheChain`).
+- [x] 2.2 Locked categories in the `system` policy; delegation of them fails validation. Verify: config test; a `release` question goes straight to the owner inbox. Done: `config.LockedCategories` (release, money, deletion, legal) go straight to the owner; a policy delegating them (also by wildcard) fails validation (`TestLockedCategoriesCannotBeDelegated`).
 - [ ] 2.3 `escalate_after` auto-forward for questions and recovery escalations. Verify: fake-clock test forwards after 4 h and leaves a note on the skipped manager's conversation.
 - [ ] 2.4 Decision answers: free text always accepted, first answer wins (CAS on question version), "may be outdated" by task state version, questions of closed tasks cancelled. Verify: concurrent answers → one applied, one 409; closing the task cancels its question.
 

@@ -568,3 +568,91 @@ func TestAuthorityFollowsTheTree(t *testing.T) {
 		t.Error("escalation to", got)
 	}
 }
+
+// TestQuestionsGoUpTheChain (hierarchy 2.1): ask reaches the asker's manager; a categorized question the
+// manager may not decide is forwarded to the owner, whose answer wakes the task; locked categories go
+// straight to the owner; an uncategorized question the manager answers itself, as authority input.
+func TestQuestionsGoUpTheChain(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	ask := func(task string, args map[string]any) messaging.Message {
+		t.Helper()
+		h.create(task, "notes", "calorie-ios")
+		r := h.start(task)
+		if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: args}, nil); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		h.end(r, "COMPLETED", "accepted")
+		m, err := h.s.Message(ctx, co, h.task(task).WaitMessageID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	// The recipient's delivery run and its credential.
+	deliver := func(id string) exitRun {
+		t.Helper()
+		if err := h.c.ScheduleMessages(ctx); err != nil {
+			t.Fatal(err)
+		}
+		m, _ := h.s.Message(ctx, co, id)
+		lease, err := h.s.Claim(ctx, co, m.DeliveryRunID)
+		if err != nil {
+			t.Fatalf("claim delivery %q: %v", m.DeliveryRunID, err)
+		}
+		var cred struct{ Token string }
+		_ = json.Unmarshal(h.do(h.c.Token, "POST", "/runs/"+m.DeliveryRunID+"/credential", map[string]string{"lease": lease}, nil).Body.Bytes(), &cred)
+		return exitRun{m.DeliveryRunID, lease, cred.Token}
+	}
+
+	// calorie-manager decides product, design, quality and technical questions; marketing is not delegated.
+	q := ask("pricing", map[string]any{"question": "Charge for export?", "options": []any{"yes", "no"}, "category": "marketing"})
+	if q.Recipient != "calorie-manager" || q.Category != "marketing" {
+		t.Fatalf("%+v", q)
+	}
+	delivery := deliver(q.ID)
+	token := delivery.token
+	q, _ = h.s.Message(ctx, co, q.ID)
+	if w := h.do(token, "POST", "/agent/call", factorytools.Call{Name: "factory_message_reply", Arguments: map[string]any{"message_id": q.ID, "version": float64(q.Version), "body": "yes", "answers": map[string]any{"answer": "yes"}, "request_id": "r1"}}, nil); w.Code != 403 || !strings.Contains(w.Body.String(), "factory_question_forward") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	q, _ = h.s.Message(ctx, co, q.ID)
+	if w := h.do(token, "POST", "/agent/call", factorytools.Call{Name: "factory_question_forward", Arguments: map[string]any{"message_id": q.ID, "version": float64(q.Version), "note": "product call", "request_id": "f1"}}, nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	q, _ = h.s.Message(ctx, co, q.ID)
+	if q.Recipient != "owner" || len(q.Route) != 1 || q.Route[0] != "calorie-manager" {
+		t.Fatalf("%+v", q)
+	}
+	h.end(delivery, "COMPLETED", "")
+	if _, err := h.s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "no", Answers: map[string]any{"answer": "no"}, RequestID: "owner-answer"}); err != nil {
+		t.Fatal(err)
+	}
+	if snap, _ := h.s.TaskSnapshot(ctx, co, "pricing"); len(snap.Pending) == 0 || snap.Pending[len(snap.Pending)-1].Kind != "answer" {
+		t.Fatalf("%+v", snap.Pending)
+	}
+	// One run per agent: close the woken task before the next ask.
+	closeTask := func(id string) {
+		t.Helper()
+		if _, err := h.s.TaskAction(ctx, co, id, tasks.Action{Version: h.task(id).Version, Action: "cancel"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	closeTask("pricing")
+
+	if q = ask("ship", map[string]any{"question": "Submit to the App Store?", "category": "release"}); q.Recipient != "owner" {
+		t.Fatal("locked category routed to", q.Recipient)
+	}
+	closeTask("ship")
+
+	q = ask("naming", map[string]any{"question": "Call it Diary or Log?"})
+	token = deliver(q.ID).token
+	q, _ = h.s.Message(ctx, co, q.ID)
+	if w := h.do(token, "POST", "/agent/call", factorytools.Call{Name: "factory_message_reply", Arguments: map[string]any{"message_id": q.ID, "version": float64(q.Version), "body": "Diary", "request_id": "r2"}}, nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if snap, _ := h.s.TaskSnapshot(ctx, co, "naming"); len(snap.Pending) == 0 || !snap.Pending[len(snap.Pending)-1].Authority {
+		t.Fatalf("manager answer is not authority: %+v", snap.Pending)
+	}
+}

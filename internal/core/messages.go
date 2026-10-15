@@ -153,6 +153,22 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		v, err := c.Store.Messages(ctx, c.companyFrom(r), conversationID)
 		reply(w, v, err)
 		return
+	case "factory_question_forward":
+		target, err := c.Store.Message(ctx, c.companyFrom(r), messageID)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if target.Recipient != run.Spec.Agent {
+			http.Error(w, "question is not pending for this recipient", 403)
+			return
+		}
+		version, _ := args["version"].(float64)
+		note, _ := args["note"].(string)
+		key, _ := args["request_id"].(string)
+		v, err := c.Store.ForwardQuestion(ctx, c.companyFrom(r), messageID, run.Spec.Agent, int(version), note, key)
+		reply(w, v, err)
+		return
 	case "factory_message_reply":
 		target, err := c.Store.Message(ctx, c.companyFrom(r), messageID)
 		if err != nil {
@@ -161,6 +177,12 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		}
 		if target.Recipient != run.Spec.Agent || target.Status == "ESCALATED" {
 			http.Error(w, "question is not pending for this recipient", 403)
+			return
+		}
+		// A categorized question is answered only with that category delegated (captured and current
+		// policy); otherwise it goes up the chain (hierarchy D3).
+		if target.MessageType == "question" && target.Category != "" && (len(snapshot.DecisionAuthority(target.Category)) == 0 || len(current.DecisionAuthority(target.Category)) == 0) {
+			http.Error(w, "decisions in category "+target.Category+" are not delegated to you: forward the question with factory_question_forward", 403)
 			return
 		}
 		v, err := c.Store.ReplyMessage(ctx, c.companyFrom(r), messageID, messaging.Reply{Version: int(args["version"].(float64)), Sender: run.Spec.Agent, Body: args["body"].(string), Answers: asAnswers(args["answers"]), RequestID: args["request_id"].(string)})
@@ -268,7 +290,7 @@ func (c *Core) ScheduleMessages(ctx context.Context) error {
 		if m.MessageType == "review_result" && m.DecisionID != "" && m.Sender == "owner" {
 			prompt += "This is an owner decision rejection. Read factory_decision_get using decision_id and the related task/current task list. Reconsider affected plans and tasks, preserving previous approved choices. Propose an alternative when owner review is required; never bypass rejection through another category or treat it as approval. If no permitted path remains, block affected unfinished tasks with concrete reasons and report the problem. Do not blindly retry, roll back completed effects, accept your own work, or poll. Record a significant-action report explaining the resulting plan and finish.\n"
 		} else if m.MessageType == "question" {
-			prompt += "Read the latest question with factory_message_get and explicitly answer using factory_message_reply with its current version and a stable request_id. For a structured form, provide every answer ID in answers. A final-text answer alone is not delivered. If you cannot resolve it, ask the owner with factory_owner_ask in this conversation and explain what remains unresolved. Do not poll or wait within a turn. Finish after sending your reply or escalation.\n"
+			prompt += "Read the latest question with factory_message_get and explicitly answer using factory_message_reply with its current version and a stable request_id. For a structured form, provide every answer ID in answers. A final-text answer alone is not delivered. If you cannot decide it (its category is not delegated to you, or it is beyond your role), forward it to your manager with factory_question_forward and a note on what remains unresolved. Do not poll or wait within a turn. Finish after sending your reply or escalation.\n"
 		} else if m.MessageType == "answer" {
 			prompt += "An explicit answer has arrived. Read the conversation via factory_message_list. Use this answer to resolve any pending questions addressed to you through factory_message_reply. Do not reply to the answer itself. Finish instead of polling.\n"
 		} else {

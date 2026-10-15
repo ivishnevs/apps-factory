@@ -38,6 +38,8 @@ type Store struct {
 	// EscalationTarget routes an escalation of a task with this assignee (hierarchy: its manager); Core
 	// sets it from the agent catalog, nil routes to the owner.
 	EscalationTarget func(assignee string) string
+	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
+	ManagerOf func(agent string) string
 	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a COMPLETED
 	// turn without an accepted exit is no_exit instead of an implicit submission.
 	ExplicitExits bool
