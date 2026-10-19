@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"appfactory/internal/protocol"
 )
 
 const GiB = 1 << 30
@@ -29,6 +31,12 @@ type Doctor struct {
 	NATS NATS
 	// HTTP is the client of the Core check; nil uses one with RemoteTimeout.
 	HTTP *http.Client
+	// Token is the credential the Core check presents (Config.Token); empty reads FACTORY_TOKEN.
+	Token, TokenSource string
+	// Stack are the stack checks of the company catalog's NodeHooks document (as last delivered by Core, see
+	// LoadHooks); Labels are the node's labels that select them.
+	Stack  []protocol.NodeStackCheck
+	Labels []string
 }
 
 // Runtime is a driver probe as the doctor runs it; the driver owns the probe (runtime-drivers D4).
@@ -47,6 +55,7 @@ func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
 	r = append(r, d.disk(), d.ps(ctx))
 	r = append(r, d.xcode(ctx)...)
+	r = append(r, StackChecks(ctx, d.Host, d.Labels, d.Stack)...)
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
 	r = append(r, d.core(ctx))
 	r = append(r, d.natsCheck(ctx)...)

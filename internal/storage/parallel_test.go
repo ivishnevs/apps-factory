@@ -106,14 +106,14 @@ func TestPinnedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	refused(t, func() error { _, err := claimV2(s, second.ID, "n2", 1, "1-0-2"); return err }(), true, "pinned")
-	if want, _ := s.PinnedUnavailable(ctx, co); len(want) != 0 {
+	if want, _ := s.PinnedUnavailable(ctx, co, nil); len(want) != 0 {
 		t.Fatal("n1 is online", want)
 	}
 	// n1 goes silent.
 	fake.Advance(NodeOffline + time.Second)
 	_ = s.ExpireNodes(ctx, co)
 	fake.Advance(PinTimeout)
-	want, err := s.PinnedUnavailable(ctx, co)
+	want, err := s.PinnedUnavailable(ctx, co, nil)
 	if err != nil || len(want) != 1 || want[0].TaskID != "t" || want[0].RefID != "n1" {
 		t.Fatal(want, err)
 	}

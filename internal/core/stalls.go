@@ -72,7 +72,7 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	if err = c.Store.SyncAlerts(ctx, company, "stalled", nil); err != nil {
 		return err
 	}
-	pinned, err := c.Store.PinnedUnavailable(ctx, company)
+	pinned, err := c.Store.PinnedUnavailable(ctx, company, c.needs)
 	if err != nil {
 		return err
 	}
@@ -85,6 +85,21 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 		return err
 	}
 	return c.Store.SyncAlerts(ctx, company, "idle", idle)
+}
+
+// unmergedCheckEvery is the period of the unmerged-branch check (task-worktrees D9).
+const unmergedCheckEvery = 24 * time.Hour
+
+// checkUnmerged runs the unmerged-branch check once a day (and at the first tick after a start; the check
+// records at most one event per task, so a restart repeats nothing).
+func (c *Core) checkUnmerged(ctx context.Context) error {
+	now := c.Store.Now()
+	if !c.lastUnmergedCheck.IsZero() && now.Sub(c.lastUnmergedCheck) < unmergedCheckEvery {
+		return nil
+	}
+	c.lastUnmergedCheck = now
+	_, err := c.Store.ReportUnmergedBranches(ctx, c.company())
+	return err
 }
 
 // escalationTarget routes an escalation of a task to its assignee's manager (hierarchy: reports_to;

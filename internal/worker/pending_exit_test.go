@@ -49,7 +49,12 @@ func startMCPGroup(t *testing.T, script, exitFile string) int {
 // run is stopped or ExitDeliveryWait passes; any other exit state returns at once.
 func TestAwaitExitDelivery(t *testing.T) {
 	defer func(w time.Duration) { ExitDeliveryWait = w }(ExitDeliveryWait)
-	const settle = `sleep 0.3; printf '{"state":"accepted","kind":"submit"}' > "$FACTORY_EXIT_FILE"; sleep 30`
+	// The scripted changes come 1 s after the group is up: a loaded host must not make them happen before
+	// awaitExitDelivery starts. Upper bounds only separate the right behaviour from the wrong one, which waits
+	// ExitDeliveryWait (a minute): on a loaded host (-race, parallel packages) each poll runs ps and a scripted
+	// shell can take seconds, so "at once" is bounded by 10 s and a settle by 30 s.
+	const settle = `sleep 1; printf '{"state":"accepted","kind":"submit"}' > "$FACTORY_EXIT_FILE"; sleep 30`
+	const now, later = 10 * time.Second, 30 * time.Second
 	for name, c := range map[string]struct {
 		state    string // initial exit file state ("" = no file)
 		script   string // fake factory-mcp body; "" = no group
@@ -59,16 +64,16 @@ func TestAwaitExitDelivery(t *testing.T) {
 		want     string
 		min, max time.Duration
 	}{
-		"no exit":          {"", "sleep 30", "factory-mcp", false, time.Minute, "none", 0, 200 * time.Millisecond},
-		"accepted":         {"accepted", "sleep 30", "factory-mcp", false, time.Minute, "accepted", 0, 200 * time.Millisecond},
-		"refused":          {"refused", "sleep 30", "factory-mcp", false, time.Minute, "refused", 0, 200 * time.Millisecond},
-		"settles":          {"pending", settle, "factory-mcp", false, time.Minute, "accepted", 200 * time.Millisecond, 5 * time.Second},
-		"refused later":    {"pending", `sleep 0.3; printf '{"state":"refused"}' > "$FACTORY_EXIT_FILE"; sleep 30`, "factory-mcp", false, time.Minute, "refused", 200 * time.Millisecond, 5 * time.Second},
-		"mcp exits":        {"pending", "sleep 0.3", "factory-mcp", false, time.Minute, "pending", 200 * time.Millisecond, 5 * time.Second},
-		"mcp not in group": {"pending", "sleep 30", "other-mcp", false, time.Minute, "pending", 0, 200 * time.Millisecond},
-		"no group":         {"pending", "", "factory-mcp", false, time.Minute, "pending", 0, 200 * time.Millisecond},
-		"revoked":          {"pending", "sleep 30", "factory-mcp", true, time.Minute, "pending", 150 * time.Millisecond, 5 * time.Second},
-		"bounded":          {"pending", "sleep 30", "factory-mcp", false, 400 * time.Millisecond, "pending", 400 * time.Millisecond, 5 * time.Second},
+		"no exit":          {"", "sleep 30", "factory-mcp", false, time.Minute, "none", 0, now},
+		"accepted":         {"accepted", "sleep 30", "factory-mcp", false, time.Minute, "accepted", 0, now},
+		"refused":          {"refused", "sleep 30", "factory-mcp", false, time.Minute, "refused", 0, now},
+		"settles":          {"pending", settle, "factory-mcp", false, time.Minute, "accepted", 200 * time.Millisecond, later},
+		"refused later":    {"pending", `sleep 1; printf '{"state":"refused"}' > "$FACTORY_EXIT_FILE"; sleep 30`, "factory-mcp", false, time.Minute, "refused", 200 * time.Millisecond, later},
+		"mcp exits":        {"pending", "sleep 1", "factory-mcp", false, time.Minute, "pending", 200 * time.Millisecond, later},
+		"mcp not in group": {"pending", "sleep 30", "other-mcp", false, time.Minute, "pending", 0, now},
+		"no group":         {"pending", "", "factory-mcp", false, time.Minute, "pending", 0, now},
+		"revoked":          {"pending", "sleep 30", "factory-mcp", true, time.Minute, "pending", 150 * time.Millisecond, later},
+		"bounded":          {"pending", "sleep 30", "factory-mcp", false, 400 * time.Millisecond, "pending", 400 * time.Millisecond, later},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ExitDeliveryWait = c.bound
@@ -81,14 +86,18 @@ func TestAwaitExitDelivery(t *testing.T) {
 			group := 0
 			if c.script != "" {
 				group = startMCPGroup(t, mcpScript(t, c.script), file)
-				time.Sleep(100 * time.Millisecond) // the shell is running
+				for deadline := time.Now().Add(5 * time.Second); !mcpRunning(group, "factory-mcp"); time.Sleep(10 * time.Millisecond) {
+					if time.Now().After(deadline) {
+						t.Fatal("the fake factory-mcp does not show up in its group")
+					}
+				}
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			start := time.Now()
 			if c.cancel {
 				time.AfterFunc(150*time.Millisecond, cancel)
 			}
-			start := time.Now()
 			got := awaitExitDelivery(ctx, "r", file, group, c.mcp)
 			el := time.Since(start)
 			if got != c.want || el < c.min || el > c.max {

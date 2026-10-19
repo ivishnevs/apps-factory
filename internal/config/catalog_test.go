@@ -188,6 +188,12 @@ func TestInvalidCatalog(t *testing.T) {
 		"bad-resource-name": func(t *testing.T, r string) {
 			put(t, r, "configs/profiles/base.yaml", mustRead(t, r, "configs/profiles/base.yaml")+"  resources: {Simulator: 1}\n")
 		},
+		"bad-label": func(t *testing.T, r string) {
+			put(t, r, "configs/agents/agent.yaml", mustRead(t, r, "configs/agents/agent.yaml")+"  labels: [\"mac os\"]\n")
+		},
+		"bad-profile-label": func(t *testing.T, r string) {
+			put(t, r, "configs/profiles/base.yaml", mustRead(t, r, "configs/profiles/base.yaml")+"  labels: [\"-x\"]\n")
+		},
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -295,6 +301,59 @@ func TestWorkspaceMode(t *testing.T) {
 	if c, err = LoadCatalog(root); err != nil || c.Agents["agent"].Spec.Workspace.Mode != "scratch" {
 		t.Fatalf("scratch mode: %v", err)
 	}
+	// task-worktrees 2.2: fresh_from_default is an agent mode (a task worktree reset to the default branch).
+	put(t, root, "configs/agents/agent.yaml", strings.Replace(mustRead(t, root, "configs/agents/agent.yaml"), "mode: scratch", "mode: fresh_from_default", 1))
+	if c, err = LoadCatalog(root); err != nil || c.Agents["agent"].Spec.Workspace.Mode != "fresh_from_default" {
+		t.Fatalf("fresh_from_default mode: %v", err)
+	}
+}
+
+// TestQuotaKeys: with configs/quota_keys.yaml an agent's quota_key must be declared for its provider; without
+// the file any valid key is accepted.
+func TestQuotaKeys(t *testing.T) {
+	root := fixture(t)
+	c, err := LoadCatalog(root)
+	if err != nil || len(c.QuotaKeys) != 0 || c.Agents["agent"].Spec.Runtime.QuotaKey != "codex-team" {
+		t.Fatalf("no declaration file: %v %+v", err, c)
+	}
+	put(t, root, "configs/quota_keys.yaml", "quota_keys:\n  codex-team:\n    provider: codex\n    description: one ChatGPT account\n  claude-team:\n    provider: claude\n")
+	if c, err = LoadCatalog(root); err != nil || c.QuotaKeys["codex-team"].Provider != "codex" || len(c.QuotaKeys) != 2 {
+		t.Fatalf("declared keys: %v %+v", err, c)
+	}
+	put(t, root, "configs/agents/agent.yaml", mustRead(t, root, "configs/agents/agent.yaml")+"  runtime:\n    provider: codex\n    quota_key: claude-team\n")
+	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), `quota_key "claude-team" belongs to provider claude`) {
+		t.Fatal("a key of another provider accepted:", err)
+	}
+	put(t, root, "configs/agents/agent.yaml", strings.Replace(mustRead(t, root, "configs/agents/agent.yaml"), "quota_key: claude-team", "quota_key: undeclared", 1))
+	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "not declared in configs/quota_keys.yaml") {
+		t.Fatal("an undeclared key accepted:", err)
+	}
+	put(t, root, "configs/quota_keys.yaml", "quota_keys:\n  codex-team:\n    provider: gemini\n")
+	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "unsupported provider") {
+		t.Fatal("an unknown provider accepted:", err)
+	}
+}
+
+// TestDefaultQuotaKey (runtime-drivers D5): an agent without quota_key uses the provider's only declared key,
+// else <provider>-default; an explicit key resolves no default.
+func TestDefaultQuotaKey(t *testing.T) {
+	c := &Catalog{QuotaKeys: map[string]QuotaKey{"codex-team": {Provider: "codex"}, "claude-a": {Provider: "claude"}, "claude-b": {Provider: "claude"}}}
+	if c.DefaultQuotaKey("codex") != "codex-team" || c.DefaultQuotaKey("claude") != "claude-default" || (&Catalog{}).DefaultQuotaKey("codex") != "codex-default" {
+		t.Fatal(c.DefaultQuotaKey("codex"), c.DefaultQuotaKey("claude"))
+	}
+	root := fixture(t)
+	put(t, root, "configs/profiles/base.yaml", strings.Replace(mustRead(t, root, "configs/profiles/base.yaml"), "quota_key: codex-team", "", 1))
+	cat, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := cat.Agents["agent"].Spec.Runtime; r.QuotaKey != "" || r.DefaultQuotaKey != r.Provider+"-default" {
+		t.Fatalf("no declaration file: %+v", r)
+	}
+	put(t, root, "configs/quota_keys.yaml", "quota_keys:\n  codex-team:\n    provider: codex\n  claude-team:\n    provider: claude\n")
+	if cat, err = LoadCatalog(root); err != nil || cat.Agents["agent"].Spec.Runtime.DefaultQuotaKey != "codex-team" {
+		t.Fatalf("one declared codex key: %v %+v", err, cat.Agents["agent"].Spec.Runtime)
+	}
 }
 
 func TestResources(t *testing.T) {
@@ -313,6 +372,24 @@ func TestResources(t *testing.T) {
 	}
 	if r := c.Agents["agent"].Spec.Resources; len(r) != 2 || r["simulator"] != 1 || r["build"] != 2 {
 		t.Fatalf("merged resources %v", r)
+	}
+}
+
+// TestLabels: spec.labels (node labels a run needs) merge as a set from profile and agent and reach the
+// config snapshot Core checks at claim.
+func TestLabels(t *testing.T) {
+	root := fixture(t)
+	put(t, root, "configs/profiles/base.yaml", mustRead(t, root, "configs/profiles/base.yaml")+"  labels: [macos]\n")
+	put(t, root, "configs/agents/agent.yaml", mustRead(t, root, "configs/agents/agent.yaml")+"  labels: [xcode, macos]\n")
+	c, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := c.Agents["agent"].Spec.Labels; len(l) != 2 || l[0] != "macos" || l[1] != "xcode" {
+		t.Fatalf("merged labels %v", l)
+	}
+	if b, _ := json.Marshal(c.Agents["agent"]); !strings.Contains(string(b), `"labels":["macos","xcode"]`) {
+		t.Fatalf("labels missing from the snapshot: %s", b)
 	}
 }
 

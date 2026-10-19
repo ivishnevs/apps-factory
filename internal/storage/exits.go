@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -143,6 +144,16 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err = validExit(req, t, agent); err != nil {
 		return out, err
 	}
+	if str(req.Arguments, "merge_failed") != "" {
+		// A failed merge is reported by the implementer of an approved task (task-worktrees D7).
+		var approvals int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM pr_approvals WHERE company_id=? AND task_id=?", company, t.ID).Scan(&approvals); err != nil {
+			return out, err
+		}
+		if approvals == 0 || t.Implementer != agent {
+			return out, refuse("invalid_exit", "merge_failed is for the implementer of an approved task; otherwise hand off, ask or block")
+		}
+	}
 	if unseen, err := unseenTriggers(ctx, tx, t.ID, req.AckSeq, req.Kind == "done"); err != nil {
 		return out, err
 	} else if len(unseen) > 0 {
@@ -261,6 +272,9 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 		if str(a, "note") == "" {
 			return refuse("invalid_exit", "note required")
 		}
+		if str(a, "merge_failed") != "" && (verdict != "" || str(a, "to") != agent) {
+			return refuse("invalid_exit", "merge_failed hands the task back to yourself (to: "+agent+"), without a verdict")
+		}
 	case "ask":
 		if str(a, "question") == "" {
 			return refuse("invalid_exit", "question required")
@@ -329,6 +343,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 	now := tx.now()
 	t.NotBefore = 0
 	event := "task.updated"
+	escalate := "" // a failed merge that exhausted the attempts
 	switch req.Kind {
 	case "submit":
 		sub := tasks.Submission{Summary: str(a, "summary"), Checks: strs(a, "checks")}
@@ -367,6 +382,21 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 				t.Assignee, t.AttemptsNoProgress, t.FailStreak = to, 0, 0
 			}
 			t.Status = "READY"
+			if why := str(a, "merge_failed"); why != "" {
+				// A failed merge is an ordinary attempt (task-worktrees D7): backoff, and the third in a row
+				// without a merge escalates retries_exhausted.
+				t.AttemptsNoProgress++
+				t.FailStreak++
+				t.NotBefore = now.Add(backoff(t.FailStreak)).Unix()
+				t.Result = "merge failed: " + why
+				if t.AttemptsNoProgress >= RetryAttempts {
+					t.Status, t.NotBefore = "FAILED", 0
+					escalate = fmt.Sprintf("%d merge attempts in a row failed; last: %s", t.AttemptsNoProgress, excerpt512(why))
+				}
+				if err := comment(ctx, tx, t.ID, agent, "merge failed: "+why); err != nil {
+					return out, err
+				}
+			}
 		}
 		if err := comment(ctx, tx, t.ID, agent, "handoff: "+str(a, "note")); err != nil {
 			return out, err
@@ -400,6 +430,10 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		}
 	case req.Kind == "submit" && t.Reviewer != "":
 		if err := addTrigger(ctx, tx, t, "assignment", false, agent, runID, "review requested by "+agent); err != nil {
+			return out, err
+		}
+	case escalate != "":
+		if err := openEscalation(ctx, tx, "retries_exhausted", escalationAnswers["retries_exhausted"], EscalationWant{TaskID: t.ID, Summary: escalate, Target: retryTarget(tx, t.Assignee)}); err != nil {
 			return out, err
 		}
 	case req.Kind == "handoff":
@@ -526,6 +560,16 @@ func (s *Store) ExpireWaits(ctx context.Context, company string) error {
 }
 
 // runHasExit reports whether the run ended its turn with an accepted exit.
+// exitMergeFailed tells whether the run's accepted exit reported a failed merge (handoff merge_failed).
+func exitMergeFailed(ctx context.Context, tx *Tx, runID string) (bool, error) {
+	var why string
+	err := tx.QueryRowContext(ctx, "SELECT coalesce(json_extract(arguments,'$.merge_failed'),'') FROM run_exits WHERE run_id=?", runID).Scan(&why)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return strings.TrimSpace(why) != "", err
+}
+
 func runHasExit(ctx context.Context, tx *Tx, runID string) (bool, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, "SELECT count(*) FROM run_exits WHERE run_id=?", runID).Scan(&n)

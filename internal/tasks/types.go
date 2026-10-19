@@ -77,6 +77,12 @@ type Task struct {
 	// its assignee while the task is IN_REVIEW.
 	Implementer string `json:"implementer,omitempty"`
 	Reviewer    string `json:"reviewer,omitempty"`
+	// FreshSession: the next run starts a new runtime session (reset_workspace moved the task off its node).
+	FreshSession bool `json:"fresh_session,omitempty"`
+	// Model overrides the assignee's spec.runtime.model for this task's runs (runtime-drivers D1): set by an
+	// authority and validated against the assignee's provider then; a run whose assignee's provider does not
+	// fit it (after a reassignment) uses the agent's model and records a task.model_ignored event.
+	Model string `json:"model,omitempty"`
 }
 type ProjectCreate struct {
 	ID                   string `json:"id"`
@@ -149,8 +155,10 @@ type Update struct {
 	OpenSpecChange    *string     `json:"openspec_change,omitempty"`
 	Dependencies      *[]string   `json:"dependencies,omitempty"`
 	SideEffects       *bool       `json:"side_effects,omitempty"`
-	RequestID         string      `json:"request_id,omitempty"`
-	Actor             string      `json:"actor,omitempty"`
+	// Model sets the task's model override ("" clears it); only an authority over the task may set it.
+	Model     *string `json:"model,omitempty"`
+	RequestID string  `json:"request_id,omitempty"`
+	Actor     string  `json:"actor,omitempty"`
 }
 type Action struct {
 	Version   int    `json:"version"`

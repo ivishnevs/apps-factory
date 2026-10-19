@@ -1,6 +1,7 @@
 # Agent configuration
 
-Core loads configs/agents/*.yaml, configs/profiles/*.yaml, configs/policies/*.yaml and
+Core loads configs/agents/*.yaml, configs/profiles/*.yaml, configs/policies/*.yaml,
+configs/node-hooks/*.yaml (`NodeHooks`, served to nodes; see [development](development.md#nodehooks-company-catalog)) and
 configs/skills.yaml relative to FACTORY_ROOT. Unknown YAML fields, multiple documents,
 null agent/profile values, duplicate names, missing references and inheritance cycles fail loading.
 Run `factory config validate`, `factory agents get demo`, or
@@ -19,7 +20,18 @@ See configs/profiles/developer.yaml and configs/agents/demo.yaml. Supported fiel
 specification's runtime, prompt, capabilities, skills/discover, tools, approvals, communication,
 context, execution and policies, plus `role` for policy applicability. Provider is currently codex.
 `runtime.quota_key` (optional, a lowercase name) groups agents sharing one subscription: when a run
-hits its limit Core pauses every agent with that key until the reset; it defaults to the agent name.
+hits its limit Core pauses every agent with that key until the reset. Without it the agent uses its
+provider's key: the one key `configs/quota_keys.yaml` declares for that provider, otherwise
+`<provider>-default` (`codex-default`, `claude-default`), so agents of one provider without explicit keys pause
+together and agents of the other provider keep running (runtime-drivers D5; the resolved key travels in the run's
+config snapshot as `spec.runtime.default_quota_key`). While `configs/quota_keys.yaml` exists
+(`quota_keys: {NAME: {provider, description}}`), an explicit key must be declared there for the agent's provider
+(`factory config validate` refuses others).
+`runtime.model` is the agent's model; a task may override it (`model` on the task, set by an authority over
+the task through `PATCH /tasks/{id}`, `factory tasks model ID VERSION MODEL|-` or `factory_task_update`). The
+override must fit the assignee's provider (Claude: `opus`, `sonnet`, `haiku`, `opusplan`, `claude-*`, optional
+`[1m]`; Codex: `gpt-*`, `codex-*`, `o<digit>…`; `default` fits both) or it is refused; one left behind by a
+reassignment to another provider is ignored (the agent's model runs) with a `task.model_ignored` feed event.
 Prompt paths must resolve inside FACTORY_ROOT, including symlinks. timeout is 1s–24h.
 `execution.max_concurrent_runs` (1..8, default 1) caps the agent's live runs and `max_concurrent_runs_per_project` (default the same) its live runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time. Keep coordinators (role manager) at 1. max_retries must be nonnegative; Task Engine applies it only to known Worker-reported failed turns.
 UNKNOWN and manually reconciled failures never retry automatically. Communication create/assign permissions are checked on named-agent task mutations; can_message
@@ -33,14 +45,21 @@ Approvals support never/selective/always/inherit. Explicit require patterns and 
 approval rules cannot be bypassed by never. Policy approvals express requirements; [exact owner grants](approvals.md) satisfy them at the MCP gateway without overriding deny.
 
 `workspace.mode` selects where runs execute: `shared` (default) uses the project workspace; `worktree` gives each
-task its own git worktree and branch on the node (see development.md, Task worktrees); `scratch` is for agents
-that need no repository and runs in the project workspace. It is inherited from profiles like other scalars.
+task its own git worktree and branch on the node (see development.md, Task worktrees); `fresh_from_default` gives
+each task its own worktree without a task branch, reset to the freshly fetched default branch at every run
+(release-type agents; it holds its own writer slot like `worktree` and never pins the task to a node); `scratch`
+is for agents that need no repository and runs in the project workspace. It is inherited from profiles like other scalars.
 Nodes without worktrees enabled, and runs without a task or repository, fall back to the project workspace.
 
 `resources` declares what one run of the agent needs on a node, per resource class, e.g. `resources: {simulator: 1}`.
 Class names are lowercase like agent names; needs are at least 1. Profiles' and agents' maps merge per class. Nodes
 declare capacity in node.yaml `resources` (see development.md, Runtime protocol v2); Core grants a v2 claim only
 when the node's free capacity covers the needs and otherwise answers retry (capacity). Nodes do not enforce it.
+A run holds its classes until it has ended and the node has sealed it.
+
+`labels` lists node labels one run needs, e.g. `labels: [macos, xcode]`; profiles' and agents' lists merge as a
+set. Core claims the run only on a node whose node.yaml `labels` include them all (otherwise retry, capacity);
+`factory tasks why` says `no_capable_node` while no online node has the driver, labels and resources.
 
 ## Runtime context
 

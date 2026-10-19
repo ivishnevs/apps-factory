@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"appfactory/internal/node"
+	"appfactory/internal/protocol"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
 )
@@ -31,19 +32,29 @@ type Register struct {
 	// Worktrees: worktree tasks run in their own worktree here, so Core lets tasks of one project run in
 	// parallel on this node (runtime-protocol-v2 §11).
 	Worktrees bool `json:"worktrees,omitempty"`
+	// Hooks names the catalog's NodeHooks document (node.yaml hooks; empty is default).
+	Hooks string `json:"hooks,omitempty"`
+	// Reason: start (process start, counted for node.restart_loop) or reregister (Core lost the node or its
+	// incarnation changed). Driver changes ride the heartbeat's drivers and never re-register.
+	Reason string `json:"reason,omitempty"`
 }
 
-// DriverInfo is a driver as probed at register: Version from CheckVersion, OK when no probe failed.
+// DriverInfo is a driver as last checked: Version from CheckVersion, OK when no check failed; Check names the
+// failing check (version, probe, auth) and Detail says why (Core's driver_unsupported event).
 type DriverInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	OK      bool   `json:"ok"`
+	Check   string `json:"check,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 type Registered struct {
 	Incarnation        string `json:"incarnation"`
 	HeartbeatSeconds   int    `json:"heartbeat_seconds"`
 	StartWindowSeconds int    `json:"start_window_seconds"`
+	// Hooks is the catalog's NodeHooks document for this node.
+	Hooks *protocol.NodeHooksDelivery `json:"hooks,omitempty"`
 }
 
 // Heartbeat is the body of POST /nodes/{node_id}/heartbeat.
@@ -53,6 +64,13 @@ type Heartbeat struct {
 	Health    Health              `json:"health"`
 	// ResetDone confirms the worktree resets Core asked for (answer reset).
 	ResetDone []string `json:"reset_done,omitempty"`
+	// Drivers is the current driver list: a driver that failed or passed its checks again reaches Core with
+	// the next heartbeat, without a new epoch (runtime-drivers D4).
+	Drivers []DriverInfo `json:"drivers"`
+	// Hooks and HooksHash: the NodeHooks document this node uses and the hash it applied; Core answers hooks
+	// when the document changed.
+	Hooks     string `json:"hooks,omitempty"`
+	HooksHash string `json:"hooks_hash,omitempty"`
 }
 
 type Health struct {
@@ -61,7 +79,15 @@ type Health struct {
 	FreeDiskBytes uint64  `json:"free_disk_bytes"`
 	BusySlots     int     `json:"busy_slots"`
 	Disk          string  `json:"disk,omitempty"` // ok, low or critical; omitted when free space is unreadable
+	// Checks are the failing node self-checks (node.check_failed{check} on Core); [] when none fails. Driver
+	// probes are reported in the heartbeat's drivers instead (driver_unsupported).
+	Checks []node.CheckResult `json:"checks"`
+	// StalledSeconds: no heartbeat succeeded for that long (more than StallReport); sent until one is delivered.
+	StalledSeconds int64 `json:"stalled_seconds,omitempty"`
 }
+
+// StallReport is how long heartbeats must fail before the node reports node.heartbeat_stalled (node-agent D7).
+var StallReport = 5 * time.Minute
 
 type HeartbeatAnswer struct {
 	Incarnation string `json:"incarnation"`
@@ -74,6 +100,8 @@ type HeartbeatAnswer struct {
 	Pause   bool     `json:"pause"`
 	// Reset: tasks whose worktree must be reset from the remote branch (workspace_diverged, reset_workspace).
 	Reset []string `json:"reset"`
+	// Hooks: the NodeHooks document changed since the hash the node sent.
+	Hooks *protocol.NodeHooksDelivery `json:"hooks,omitempty"`
 }
 
 // ErrStaleEpoch: Core knows a newer epoch of this node_id, so another process uses this state_dir's identity.
@@ -98,11 +126,10 @@ type session struct {
 	incarnation string
 	paused      atomic.Bool // Core's pause
 	switching   atomic.Bool // re-registering: no claims
-	// redeclare: a driver was disabled or re-enabled since register; Core learns it from the next register.
-	redeclare atomic.Bool
-	declared  []DriverInfo // drivers of the last successful register
-	cleanups  chan string
-	cleaned   map[string]bool // janitor's
+	// kick asks for a heartbeat now: a driver was disabled or re-enabled (the heartbeat carries the drivers).
+	kick     chan struct{}
+	cleanups chan string
+	cleaned  map[string]bool // janitor's
 	// reset resets a task's worktree from the remote branch (janitor.ResetWorkspace); resetDone holds the
 	// confirmations until a heartbeat delivered them.
 	reset     func(ctx context.Context, task string) error
@@ -112,6 +139,15 @@ type session struct {
 	// resetting: tasks queued, being reset, or reset with the confirmation not yet delivered; Core lists
 	// a reset again until it gets the confirmation, and those listings must not reset the worktree again.
 	resetting map[string]bool
+
+	// hooks is the last NodeHooks document Core delivered (register, heartbeat); onHooks applies it.
+	hooks   *protocol.NodeHooksDelivery
+	onHooks func(protocol.NodeHooksDelivery)
+	// checks returns the failing node self-checks for health.checks (git, git.user, forge.auth, ps, stack.*);
+	// nil reports none. Driver probes are not among them: drivers carries them.
+	checks func() []node.CheckResult
+	// lastBeat is the last delivered heartbeat (or register); a longer gap than StallReport is reported once.
+	lastBeat time.Time
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -136,8 +172,8 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 		h.check(ctx, true)
 	}
 	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
-		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{}}
-	if err = s.register(ctx); err != nil {
+		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{}}
+	if err = s.register(ctx, "start"); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -145,9 +181,9 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 
 // register registers the current epoch with the drivers as last checked, retrying while Core is
 // unreachable; a refusal is final.
-func (s *session) register(ctx context.Context) error {
+func (s *session) register(ctx context.Context, reason string) error {
 	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots,
-		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels, Worktrees: s.trees != nil}
+		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}
 	}
@@ -161,9 +197,15 @@ func (s *session) register(ctx context.Context) error {
 		var h *worker.HTTPError
 		switch {
 		case err == nil:
-			s.incarnation, s.interval, s.declared = r.Incarnation, time.Duration(r.HeartbeatSeconds)*time.Second, req.Drivers
+			s.incarnation, s.interval = r.Incarnation, time.Duration(r.HeartbeatSeconds)*time.Second
 			if s.interval <= 0 {
 				s.interval = defaultHeartbeat
+			}
+			if s.lastBeat.IsZero() { // a re-register keeps a stall for the next heartbeat to report
+				s.lastBeat = time.Now()
+			}
+			if r.Hooks != nil {
+				s.deliverHooks(*r.Hooks)
 			}
 			slog.Info("node registered", "node_id", req.NodeID, "name", req.Name, "epoch", req.Epoch, "incarnation", r.Incarnation, "heartbeat_seconds", r.HeartbeatSeconds)
 			return nil
@@ -196,19 +238,44 @@ func (s *session) run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			if err := s.beat(ctx); err != nil {
-				return err
-			}
-			if err := s.declareDrivers(ctx); err != nil {
-				return err
-			}
-			t.Reset(s.interval)
+		case <-s.kick:
 		}
+		if err := s.beat(ctx); err != nil {
+			return err
+		}
+		t.Reset(s.interval)
 	}
 }
 
+// deliverHooks keeps the NodeHooks document Core delivered and applies it when it changed.
+func (s *session) deliverHooks(d protocol.NodeHooksDelivery) {
+	if s.hooks != nil && s.hooks.Hash == d.Hash {
+		return
+	}
+	s.hooks = &d
+	slog.Info("NodeHooks document from Core", "name", d.Name, "hash", d.Hash, "missing", d.Missing, "on_run_stop", len(d.Spec.OnRunStop),
+		"on_task_closed", len(d.Spec.OnTaskClosed), "prune", len(d.Spec.Prune), "checks", len(d.Spec.Checks))
+	if s.onHooks != nil {
+		s.onHooks(d)
+	}
+}
+
+func (s *session) hooksHash() string {
+	if s.hooks == nil {
+		return ""
+	}
+	return s.hooks.Hash
+}
+
 func (s *session) health() Health {
-	h := Health{CPUs: runtime.NumCPU(), BusySlots: s.busy()}
+	// Driver probes are not health checks: a failing driver reaches Core in drivers (driver_unsupported).
+	h := Health{CPUs: runtime.NumCPU(), BusySlots: s.busy(), Checks: []node.CheckResult{}}
+	if s.checks != nil {
+		h.Checks = append(h.Checks, s.checks()...)
+	}
+	if gap := time.Since(s.lastBeat); !s.lastBeat.IsZero() && gap > StallReport {
+		h.StalledSeconds = int64(gap.Seconds())
+	}
 	if s.host.Load1 != nil {
 		if l, err := s.host.Load1(); err == nil {
 			h.Load1 = l
@@ -228,7 +295,15 @@ func (s *session) beat(ctx context.Context) error {
 	s.resetMu.Lock()
 	done := append([]string(nil), s.resetDone...)
 	s.resetMu.Unlock()
-	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: s.health(), ResetDone: done}, &a)
+	health := s.health()
+	if health.StalledSeconds > 0 {
+		slog.Warn("heartbeat stalled; reporting it", "seconds", health.StalledSeconds)
+	}
+	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: health, ResetDone: done,
+		Drivers: s.drivers.infos(), Hooks: s.cfg.Hooks, HooksHash: s.hooksHash()}, &a)
+	if err == nil {
+		s.lastBeat = time.Now()
+	}
 	var h *worker.HTTPError
 	switch {
 	case errors.As(err, &h) && h.Status == 409:
@@ -263,6 +338,9 @@ func (s *session) beat(ctx context.Context) error {
 		default: // full: Core lists it again
 		}
 		s.resetMu.Unlock()
+	}
+	if a.Hooks != nil {
+		s.deliverHooks(*a.Hooks)
 	}
 	s.inv.Ack(a.Acked)
 	for _, x := range a.Stop {
@@ -303,55 +381,18 @@ func (s *session) reregister(ctx context.Context, why string) error {
 	}
 	s.inv.Reset(epoch)
 	s.paused.Store(false)
-	s.redeclare.Store(false) // register carries the current drivers
-	if err = s.register(ctx); ctx.Err() != nil {
+	if err = s.register(ctx, "reregister"); ctx.Err() != nil {
 		return nil
 	}
 	return err
 }
 
-// declareDrivers re-registers a new epoch carrying the changed driver list (runtime-drivers D4), but only
-// while the node holds nothing Core could lose: no busy slot and an empty inventory (ended runs acked).
-// Register is the only place the protocol carries drivers, and a new epoch loses every unended run of the
-// older one, so a busy node keeps the change local (its slots already skip the disabled driver) and
-// declares it at the first idle heartbeat. Claims pause only for the register itself.
-func (s *session) declareDrivers(ctx context.Context) error {
-	if !s.redeclare.Load() {
-		return nil
+// driversChanged asks for a heartbeat now: it carries the changed driver list to Core.
+func (s *session) driversChanged() {
+	select {
+	case s.kick <- struct{}{}:
+	default: // one is pending
 	}
-	s.switching.Store(true)
-	defer s.switching.Store(false)
-	if s.busy() > 0 || len(s.inv.Snapshot()) > 0 {
-		return nil
-	}
-	s.redeclare.Store(false)
-	if sameOK(s.declared, s.drivers.infos()) { // flipped back meanwhile: Core's view is current
-		return nil
-	}
-	slog.Info("re-registering: driver availability changed", "drivers", s.drivers.infos(), "epoch", s.inv.Epoch())
-	epoch, err := node.NextEpoch(s.cfg.StateDir)
-	if err != nil {
-		return err
-	}
-	s.inv.Reset(epoch)
-	s.paused.Store(false)
-	if err = s.register(ctx); ctx.Err() != nil {
-		return nil
-	}
-	return err
-}
-
-// sameOK reports whether a and b list the same drivers with the same ok.
-func sameOK(a, b []DriverInfo) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Name != b[i].Name || a[i].OK != b[i].OK {
-			return false
-		}
-	}
-	return true
 }
 
 // resetter resets worktrees Core listed under reset, one at a time; a busy worktree is retried from the next

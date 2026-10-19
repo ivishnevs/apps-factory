@@ -44,7 +44,8 @@ type RunSpec struct {
 
 	// Task worktrees (task-worktrees): set by Core from the project and the agent's
 	// spec.workspace.mode. Empty WorkspaceMode or "shared" keeps today's project workspace;
-	// "worktree" asks the worker for a worktree of RepoURL per task.
+	// "worktree" asks the worker for a worktree of RepoURL per task; "fresh_from_default" for a task
+	// worktree reset to the freshly fetched default branch at every run (no task branch).
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
 	WorkspaceMode string `json:"workspace_mode,omitempty"`

@@ -23,7 +23,13 @@ func (s *Store) TaskSnapshot(ctx context.Context, company, id string) (tasks.Sna
 	if err != nil {
 		return tasks.Snapshot{}, err
 	}
-	return snapshotTx(ctx, tx, t)
+	nodes, err := nodesTx(ctx, tx)
+	if err != nil {
+		return tasks.Snapshot{}, err
+	}
+	snap, err := snapshotTx(ctx, tx, t)
+	snap.Nodes = nodes
+	return snap, err
 }
 
 // TaskSnapshots loads snapshots of every non-terminal task, optionally of one project.
@@ -37,19 +43,70 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 	if err != nil {
 		return nil, err
 	}
+	nodes, err := nodesTx(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]tasks.Snapshot, 0, len(ts))
 	for _, t := range ts {
 		snap, err := snapshotTx(ctx, tx, t)
 		if err != nil {
 			return nil, err
 		}
+		snap.Nodes = nodes
 		out = append(out, snap)
 	}
 	return out, nil
 }
 
+// nodesTx loads the company's registered nodes with what their runs hold (node-agent D3).
+func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
+	if err != nil {
+		return nil, err
+	}
+	var out []tasks.Node
+	var epochs []int64
+	for rows.Next() {
+		var n tasks.Node
+		var epoch int64
+		var drivers, labels, resources, health []byte
+		if err = rows.Scan(&n.ID, &n.Name, &epoch, &n.Online, &n.LastSeen, &n.Slots, &drivers, &labels, &resources, &health); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		var ds []NodeDriver
+		_ = json.Unmarshal(drivers, &ds)
+		for _, d := range ds {
+			n.Drivers = append(n.Drivers, tasks.NodeDriver{Name: d.Name, OK: d.OK})
+		}
+		_ = json.Unmarshal(labels, &n.Labels)
+		_ = json.Unmarshal(resources, &n.Resources)
+		var h struct {
+			Disk string `json:"disk"`
+		}
+		_ = json.Unmarshal(health, &h)
+		n.Paused = h.Disk == "critical"
+		out = append(out, n)
+		epochs = append(epochs, epoch)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		l, err := nodeLoad(ctx, tx, out[i].ID, epochs[i])
+		if err != nil {
+			return nil, err
+		}
+		out[i].Held, out[i].Used = l.Held, l.Used
+	}
+	return out, nil
+}
+
 func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, error) {
-	snap := tasks.Snapshot{Task: t, Now: tx.now()}
+	snap := tasks.Snapshot{Task: t, Now: tx.now(), PinTimeout: PinTimeout}
 	run := func(query string, args ...any) (*tasks.Run, error) {
 		var r tasks.Run
 		err := tx.QueryRowContext(ctx, query, args...).Scan(&r.ID, &r.Status, &r.TaskID)
@@ -73,6 +130,10 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		}
 	}
 	if err = tx.QueryRowContext(ctx, "SELECT wake_seq,handled_seq FROM tasks WHERE company_id=? AND id=?", tx.company, t.ID).Scan(&snap.WakeSeq, &snap.HandledSeq); err != nil {
+		return snap, err
+	}
+	// Unpushed work pins the task to its node (task-worktrees D8).
+	if err = tx.QueryRowContext(ctx, "SELECT node_id FROM workspaces WHERE company_id=? AND task_id=? AND unpushed=1 AND node_id!=''", tx.company, t.ID).Scan(&snap.PinnedNode); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return snap, err
 	}
 	parks, err := tx.QueryContext(ctx, "SELECT p.id,p.kind,p.ref_id,p.reason,coalesce(m.recipient,'') FROM task_parks p LEFT JOIN messages m ON p.kind IN ('ask','escalation') AND m.id=p.ref_id WHERE p.company_id=? AND p.task_id=? AND p.status='active' ORDER BY p.created_at,p.id", tx.company, t.ID)
@@ -153,7 +214,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	if err != nil {
 		return snap, err
 	}
-	// The project and workspace writer indexes include UNKNOWN runs, which quarantine the project.
+	// The workspace_writer index includes unreleased UNKNOWN runs: they keep the project workspace slot.
 	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR status='UNKNOWN' AND released=0) AND coalesce(task_id,'')!=? ORDER BY status='UNKNOWN' DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
 	return snap, err
 }

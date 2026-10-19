@@ -22,7 +22,7 @@ import (
 type driverHealth struct {
 	drivers []driver.Driver
 	probes  node.Probes
-	// changed is called after a check flipped at least one driver; in v2 the session re-registers.
+	// changed is called after a check flipped at least one driver; in v2 the next heartbeat declares it.
 	changed func()
 	// now is the clock of the auth hold-off; nil is time.Now.
 	now func() time.Time
@@ -188,14 +188,24 @@ func (h *driverHealth) anyUsable() bool {
 	return false
 }
 
-// infos is the register body's drivers: the last version and whether the driver is usable.
+// infos is the drivers of register and heartbeat: the last version, whether the driver is usable and, when
+// not, the failing check (version, probe or auth) with its detail.
 func (h *driverHealth) infos() []DriverInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	r := make([]DriverInfo, 0, len(h.drivers))
 	for _, d := range h.drivers {
 		s := h.state[string(d.Name())]
-		r = append(r, DriverInfo{Name: string(d.Name()), Version: s.version, OK: s.ok()})
+		i := DriverInfo{Name: string(d.Name()), Version: s.version, OK: s.ok()}
+		switch {
+		case s.versionErr != "":
+			i.Check, i.Detail = "version", s.versionErr
+		case s.probeFail != "":
+			i.Check, i.Detail = "probe", s.probeFail
+		case s.authFail != "":
+			i.Check, i.Detail = "auth", s.authFail
+		}
+		r = append(r, i)
 	}
 	return r
 }

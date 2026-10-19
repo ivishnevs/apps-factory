@@ -301,3 +301,43 @@ func TestLaunchdPlist(t *testing.T) {
 		}
 	}
 }
+
+// TestNodeToken: FACTORY_NODE_TOKEN wins over node.yaml token_file (first line), which wins over the shared
+// FACTORY_TOKEN; an unreadable or empty token_file is an error.
+func TestNodeToken(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "token")
+	if err := os.WriteFile(file, []byte("fnt_from_file\nsecond line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadConfig(writeConfig(t, "token_file: "+file+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"FACTORY_TOKEN": "shared", TokenEnv: "fnt_from_env"}
+	getenv := func(k string) string { return env[k] }
+	for _, want := range [][2]string{{"fnt_from_env", TokenEnv}, {"fnt_from_file", "token_file"}, {"shared", "FACTORY_TOKEN"}, {"", ""}} {
+		switch want[1] {
+		case "token_file":
+			delete(env, TokenEnv)
+		case "FACTORY_TOKEN":
+			c.TokenFile = ""
+		case "":
+			delete(env, "FACTORY_TOKEN")
+		}
+		if token, source, err := c.Token(getenv); err != nil || token != want[0] || source != want[1] {
+			t.Fatal(want, token, source, err)
+		}
+	}
+	for _, body := range []string{"", "\n"} {
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := (Config{TokenFile: file}).Token(getenv); err == nil {
+			t.Fatalf("empty token_file %q accepted", body)
+		}
+	}
+	if _, _, err := (Config{TokenFile: filepath.Join(dir, "missing")}).Token(getenv); err == nil {
+		t.Fatal("missing token_file accepted")
+	}
+}

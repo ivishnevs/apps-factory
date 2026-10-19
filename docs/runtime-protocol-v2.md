@@ -27,7 +27,9 @@ changes the current (v1) behaviour until a node registers with `protocol_version
 | `lease` | per-run secret returned by claim | Core |
 | `incarnation` | Core database identity; changes when a backup is restored | Core |
 
-Authentication stays the shared worker token until node tokens exist; every request carries `node_id`.
+Nodes authenticate with a per-machine **node token** (`Authorization: Bearer fnt_…`, issued by the owner,
+company-scoped, bound to one `node_id`; §11); the shared worker token keeps working during the transition. Every
+request carries `node_id`.
 
 ## 3. Register
 
@@ -35,14 +37,22 @@ Authentication stays the shared worker token until node tokens exist; every requ
 
 ```json
 {"node_id": "6f0c…", "name": "mini-1", "epoch": 7, "protocol_version": 2, "slots": 3,
- "drivers": [{"name": "codex", "version": "codex-cli 0.162.1", "ok": true}],
- "resources": {"simulator": 2, "build": 2}, "labels": ["macos", "xcode"]}
+ "drivers": [{"name": "codex", "version": "codex-cli 0.162.1", "ok": true},
+             {"name": "claude", "version": "2.1.284", "ok": false, "check": "auth", "detail": "not logged in"}],
+ "resources": {"simulator": 2, "build": 2}, "labels": ["macos", "xcode"],
+ "hooks": "ios", "reason": "start|reregister"}
 ```
 
-Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 60}`.
+Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 60, "hooks": {"name": "ios", "hash": "…", "missing": false, "spec": {…}}}`.
 
-`drivers` come from each driver's `Probe`; `name` is exactly the provider (`codex`, `claude`). `resources` is the
-capacity from `node.yaml`.
+`drivers` come from each driver's `Probe`; `name` is exactly the provider (`codex`, `claude`); a driver that is not
+`ok` names the failing `check` (`version`, `probe`, `auth`) and its `detail`. `resources` is the capacity from
+`node.yaml`. `hooks` (optional, node.yaml `hooks`, default `default`) names the company catalog's `NodeHooks`
+document; the answer's `hooks` carries it (`spec`: `on_run_stop`, `on_task_closed`, `prune`
+`[{command, older_than}]`, `checks` `[{name, command, hint, labels}]`; `missing: true` with an empty spec when the
+catalog has no such document). `reason` (optional, default `start`) says why the node registers: `start` (a process
+start) or `reregister` (Core lost the node or changed incarnation); only `start` counts towards
+`node.restart_loop`. A driver change never re-registers: the heartbeat's `drivers` declare it (§3).
 
 Effects: the node is online; every unended run of an older epoch of this node is lost (until the outcome model: see
 §10 "Lost runs"). A lower or equal epoch than
@@ -75,7 +85,8 @@ and of the current epoch; node has the agent's driver and labels; resource capac
 - `200 {"lease": "…", "start_by": "2026-10-14T10:00:30Z", "run_spec": {…}, "brief": {"from": 12, "to": 15}}` — run
   CLAIMED. The RunSpec (with the brief built now) replaces `GET /runs/{id}`. Retrying the same
   `(node_id, epoch, claim_id)` returns the same answer; Core does not order claim ids.
-- `409 {"retry": true, "reason": "capacity|agent_busy|project_busy"}` — run stays QUEUED; nak with delay.
+- `409 {"retry": true, "reason": "capacity|agent_busy|project_busy", "detail": "…"}` — run stays QUEUED; nak with
+  delay. `detail` (optional) says what the node lacks: a usable driver, labels, a slot, a resource class.
 - `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch"}` — ack and drop the command; Core
   has already recorded the run's end (`stale`) where applicable.
 
@@ -94,8 +105,23 @@ not started in its window ends as "not started" (§10). `session_id` keeps arriv
 ```json
 {"epoch": 7,
  "inventory": [{"run_id": "…", "state": "claimed|starting|running|ended_unacked", "elapsed_ms": 81234}],
- "health": {"load1": 2.1, "cpus": 10, "free_disk_bytes": 123456789, "busy_slots": 2, "disk": "ok|low|critical"}}
+ "health": {"load1": 2.1, "cpus": 10, "free_disk_bytes": 123456789, "busy_slots": 2, "disk": "ok|low|critical",
+            "checks": [{"check": "codex.auth", "status": "fail", "detail": "…", "hint": "…"}], "stalled_seconds": 420},
+ "drivers": [{"name": "codex", "version": "codex-cli 0.162.1", "ok": true}],
+ "hooks": "ios", "hooks_hash": "…"}
 ```
+
+- `drivers` (optional; the node sends it in every heartbeat) replaces the node's driver list as in register: a
+  driver that failed or passed its checks again is declared without a new epoch, and claims use it from then on.
+- `health.checks` lists the node's failing self-checks (`git`, `git.user`, `forge.auth`, `ps`, `stack.<name>` from
+  the `NodeHooks` checks); `[]` when none fails, absent when the node does not report checks (Core keeps the last
+  known ones). Each check that starts failing is one `node.check_failed{check}` event. Driver probes are not in
+  it: a failing driver is reported only through `drivers` (its `check` and `detail`), one `driver_unsupported`
+  event (§11), so one failure raises one alert.
+- `health.stalled_seconds` (optional): no heartbeat succeeded for that long (more than 5 minutes); the node sends
+  it until a heartbeat is delivered, which is one `node.heartbeat_stalled` event.
+- `hooks`/`hooks_hash`: the `NodeHooks` document the node uses and the hash it applied; when the catalog's document
+  hashes differently, the answer carries `hooks` again.
 
 Renews the leases of every listed run (the per-run heartbeat is not used for v2 runs). `elapsed_ms` is measured on
 the sleep-excluding clock. A run stays listed until Core acknowledged its end (its terminal event was applied).
@@ -104,8 +130,11 @@ Answer `200`:
 
 ```json
 {"incarnation": "…", "stop": [{"run_id": "…", "reason": "revoked|terminal|timed_out|unknown_run"}],
- "acked": ["run-id"], "cleanup": ["task-id"], "pause": false}
+ "acked": ["run-id"], "cleanup": ["task-id"], "pause": false, "reset": ["task-id"],
+ "hooks": {"name": "ios", "hash": "…", "spec": {…}}}
 ```
+
+`hooks` is present only when the node's `hooks_hash` differs from the catalog document's hash.
 
 - `acked` lists the `ended_unacked` runs whose terminal event Core has applied; the node drops them from its
   inventory. A JetStream publish acknowledgement does not mean Core applied the event.
@@ -169,10 +198,11 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   order: node registered with this epoch (else `drop/old_epoch`); same `(node_id, epoch, claim_id)` → the
   same answer; revoked → `drop/revoked`; claimed by another claim → `drop/duplicate`; not QUEUED →
   `drop/stale`; task's live run is another run, assignee changed or cancel requested → `drop/not_runnable`;
-  paused (company, project, agent, quota key) → `retry/paused`; no `ok` driver for the provider, no free
-  slot, or resource classes short (`spec.resources` of the run's agent snapshot against node.yaml
-  `resources` minus the needs of the node's unended runs; an undeclared class has capacity 0) →
-  `retry/capacity`; the agent has another live run → `retry/agent_busy`; OpenSpec or approved-artifact
+  paused (company, project, agent, quota key) → `retry/paused`; no `ok` driver for the provider or a missing
+  agent label → `retry/capacity`; the agent has another live run → `retry/agent_busy`; no free slot or
+  resource classes short (`spec.resources` of the run's agent snapshot against node.yaml `resources` minus the
+  needs of the runs the node holds, see "Capacity until the seal"; an undeclared class has capacity 0) →
+  `retry/capacity`; OpenSpec or approved-artifact
   checks fail (recorded on the task as in v1) → `drop/not_runnable`. Refusals are JSON:
   `409 {"retry":true,"reason":…}` / `409 {"drop":true,"reason":…}`.
 - **Claim answer**: `run_spec` is the stored RunSpec plus `company`; `brief` is `{from, to}` of the run's
@@ -187,7 +217,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   the runtime may still have acted). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
   records `end_applied`). Started runs of this epoch missing from the inventory for more than 30 s after
   `/start` end UNKNOWN (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
-  `critical`. `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
+  `critical` (a heartbeat without `health.disk` keeps the last answer). `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
   Idle stop). `timed_out` is judged on the entry's `elapsed_ms` (the node's sleep-excluding clock since the
   claim), never on Core's wall clock. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
   most 30 answers (the node retries a busy worktree from the next listing).
@@ -203,7 +233,41 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   worktree tasks in their own worktree lets tasks of one project run in parallel. A worktree run holds its own
   writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees (or by
   a v1 worker) it holds the project workspace instead, and a collision answers `409 retry/project_busy`.
-- `GET /nodes` lists registered nodes (epoch, drivers, resources, health, `online`, `last_seen`).
+- `GET /nodes` lists registered nodes (epoch, drivers, resources, health, `online`, `last_seen`, and `in_use`
+  `{runs, resources}`: what the current epoch's unended runs hold); `factory status` prints them as its node section.
+- **Node tokens** (node-agent 1.1): the owner issues them (`POST /node-tokens {name, node_id?}` → `{id, token}`,
+  shown once; `GET /node-tokens`; `POST /node-tokens/{id}/revoke`; CLI `factory nodes token create|list|revoke`).
+  Core stores only the SHA-256. A token issued without `node_id` is bound by its first register. A node token
+  reaches only `POST /nodes/register` (its `node_id`), `POST /nodes/{its id}/heartbeat`, v2 `POST /runs/{id}/claim`
+  naming its node, `POST /runs/{id}/start|workspace|credential|heartbeat` of runs its node claimed, and
+  `GET /health`; anything else is `403`, an unknown or revoked token `401`. `DELETE /nodes/{id}` (`factory nodes
+  remove`) forgets an offline node: its unended runs are lost, its tokens revoked.
+- **Labels**: agent `spec.labels` must all be in the node's register `labels`, else `retry/capacity` with
+  `detail: "node lacks labels …"`.
+- **Capacity until the seal**: a run holds its slot and resource classes from the claim while it is unended in
+  Core **or** the node's last inventory listed it `claimed`, `starting` or `running` (`runs.node_held`); the node
+  lists a run `ended_unacked` only after its seal and run-stop hooks, so an ended but unsealed run still holds its
+  class. A new epoch releases what the older process held.
+- **Drivers**: register and heartbeat `drivers` update the node's drivers. Each change of a driver between usable
+  and not usable is one feed event: `driver_unsupported` (attention; summary names the driver, the node, the
+  failing `check` and `detail`) or `driver_restored`. A driver not seen before counts as usable, so a first
+  register with a failing driver reports it; a new epoch declaring the same failure does not.
+- **Offline and continuity**: node silence and v2 leases are judged only over 60 s of continuous Core ticking (v1
+  leases keep their 45 s window): after a Core host sleep, a node and its runs get a full 60 s from the wake.
+- **Evaluate** (`GET /tasks/{id}/why`, `factory tasks why`) with registered nodes: `pinned_node_unavailable` (the
+  node holding the task's unpushed work was removed, is offline past 30 min, or cannot run the assignee; the
+  stalled sweep opens one escalation answered by `reset_workspace`, which unpins and makes the next run start a new
+  session), `no_capable_node` (no online node without disk pause has the assignee's driver, labels and resources),
+  `capacity` (capable nodes are full, or the pinned node is offline for less than the pin timeout). A QUEUED run
+  nobody can claim reports these instead of `live_run`.
+- **Node health events** (node-agent D5; company-wide feed rows, entity `node:<id>`, written in the transaction of
+  the register, heartbeat or expiry that saw the change; the episode state is in the `nodes` row):
+  `node.registered` (every register), `node.online` (a node that was offline is seen again), `node.offline` (silent
+  for 60 s; again with attention after 10 more minutes, once), `node.low_disk` (attention; `health.disk` low or
+  critical, once until it is `ok` again, then `node.disk_ok`), `node.disk_critical` (attention; once per episode),
+  `node.paused`/`node.resumed` (Core's `pause` answer changes), `node.restart_loop` (attention; 4 process restarts
+  — registers with reason `start` after the node's first — within 15 minutes, once until a window without a
+  restart), `node.check_failed` (attention, `ref` = the check; once per failure, `node.check_passed` when it passes
+  again, kept across restarts), `node.heartbeat_stalled` (attention; from `health.stalled_seconds`).
 
-Not yet: agent `labels` matching node labels, a per-node owner pause, node health events, declaring driver
-changes without a new epoch (a `drivers` field in the heartbeat is the proposed addition).
+Not yet: a per-node owner pause.

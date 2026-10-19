@@ -132,7 +132,9 @@ func TestQuotaPausesTheKeyUntilReset(t *testing.T) {
 	if _, ok := kinds["owner.resumed"]; !ok {
 		t.Fatal("expiry not in the feed", kinds)
 	}
-	if QuotaKey([]byte(`{}`), "dev") != "dev" || QuotaKey(maxKey, "dev") != "claude-max-1" {
+	if QuotaKey([]byte(`{}`), "dev") != "dev" || QuotaKey(maxKey, "dev") != "claude-max-1" ||
+		QuotaKey([]byte(`{"spec":{"runtime":{"provider":"codex","default_quota_key":"codex-team"}}}`), "dev") != "codex-team" ||
+		QuotaKey([]byte(`{"spec":{"runtime":{"provider":"codex"}}}`), "dev") != "codex-default" {
 		t.Fatal("quota key default")
 	}
 }

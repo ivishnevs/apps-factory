@@ -42,7 +42,17 @@ func consoleCommand(ctx context.Context, api worker.API, args []string) error {
 		if asJSON {
 			return printJSON(projects)
 		}
-		return renderStatus(projects)
+		if err := renderStatus(projects); err != nil {
+			return err
+		}
+		if len(args) == 2 { // one project: no node section
+			return nil
+		}
+		var nodes []nodeStatus
+		if err := api.Do(ctx, "GET", "/nodes", nil, &nodes); err != nil {
+			return err
+		}
+		return renderNodes(nodes, time.Now())
 	case args[0] == "watch":
 		q := url.Values{}
 		for _, a := range args[1:] {
@@ -209,6 +219,80 @@ func renderStatus(projects []core.ProjectStatus) error {
 		}
 	}
 	return nil
+}
+
+// nodeStatus is one entry of GET /nodes.
+type nodeStatus struct {
+	storage.Node
+	InUse storage.NodeUse `json:"in_use"`
+}
+
+// renderNodes is the status's node section (node-agent D5): state, epoch, held/total slots and resources (Core's
+// claims), drivers, and disk, load and failing self-checks from the last inventory heartbeat.
+func renderNodes(nodes []nodeStatus, now time.Time) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	fmt.Println()
+	fmt.Println("nodes:")
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "  NODE\tSTATE\tEPOCH\tSLOTS\tRESOURCES\tDRIVERS\tDISK\tLOAD\tFAILING CHECKS")
+	for _, n := range nodes {
+		classes := make([]string, 0, len(n.Resources))
+		for k := range n.Resources {
+			classes = append(classes, k)
+		}
+		sort.Strings(classes)
+		resources := make([]string, 0, len(classes))
+		for _, k := range classes {
+			resources = append(resources, fmt.Sprintf("%s %d/%d", k, n.InUse.Resources[k], n.Resources[k]))
+		}
+		if len(resources) == 0 {
+			resources = append(resources, "-")
+		}
+		var h struct {
+			Load1         float64 `json:"load1"`
+			FreeDiskBytes uint64  `json:"free_disk_bytes"`
+			Disk          string  `json:"disk"`
+			Checks        []struct {
+				Check  string `json:"check"`
+				Status string `json:"status"`
+			} `json:"checks"`
+		}
+		_ = json.Unmarshal(n.Health, &h)
+		state := "online"
+		if !n.Online {
+			state = "offline " + now.Sub(time.Unix(n.LastSeen, 0)).Round(time.Minute).String()
+		}
+		drivers := make([]string, 0, len(n.Drivers))
+		for _, d := range n.Drivers {
+			ok := "ok"
+			if !d.OK {
+				ok = "off"
+			}
+			drivers = append(drivers, d.Name+" "+ok)
+		}
+		disk := "-"
+		if h.Disk != "" {
+			disk = fmt.Sprintf("%s %.1f GiB", h.Disk, float64(h.FreeDiskBytes)/(1<<30))
+		}
+		failing := []string{}
+		for _, c := range h.Checks {
+			if c.Status == "fail" {
+				failing = append(failing, c.Check)
+			}
+		}
+		if len(failing) == 0 {
+			failing = append(failing, "-")
+		}
+		name := n.Name
+		if name == "" {
+			name = n.NodeID
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%d\t%d/%d\t%s\t%s\t%s\t%.2f\t%s\n", name, state, n.Epoch, n.InUse.Runs, n.Slots, strings.Join(resources, ", "),
+			strings.Join(drivers, ", "), disk, h.Load1, strings.Join(failing, ", "))
+	}
+	return tw.Flush()
 }
 
 // feedAll reads the feed after a cursor; keep > 0 returns only the last keep items.

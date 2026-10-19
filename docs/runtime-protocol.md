@@ -68,8 +68,14 @@ Optional fields; workers and Cores that do not know them ignore them.
   timed-out run reports usage on its terminal event. `cost_usd`/`cost_source` only when the runtime prices it
   (Claude: `claude_estimate`).
 - `Event.quota`: `{resets_at, type}` when the runtime hits its subscription limit. Core pauses the agent's
-  quota key (`spec.runtime.quota_key`, default the agent name) until `resets_at` (unknown: a default period);
-  the run's own outcome is reported as usual.
+  quota key (`spec.runtime.quota_key`; without one the provider's key from the snapshot's
+  `spec.runtime.default_quota_key`: the provider's only declared key, else `<provider>-default`) until
+  `resets_at` (unknown: a default period)
+  and opens one `quota_paused` escalation for the key; the run's own outcome is reported as usual.
+- RunSpec: `config_snapshot.skill_hashes` (`{name: "sha256:…"}`) pins the content of the offered skills
+  (`skills.Hash` over Core's registry at dispatch); the node refuses the run before the runtime starts when its
+  copy differs. `runtime_options.model` is the task's model override when it fits the provider, else the
+  agent's. `workspace_mode` is `shared`, `worktree`, `fresh_from_default` or `scratch`.
 - `POST /runs/{id}/workspace` `{lease, mode, branch, node_id, exit_sha, sealed_head, sealed_at}`: the worker reports
   a task run's workspace (`mode` shared|worktree|scratch; SHAs are full object IDs). The run's lease authenticates
   it, also after the run ended, so the seal that follows the end can be reported. Core keeps one row per task

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"appfactory/internal/bus"
@@ -39,10 +40,43 @@ type Config struct {
 	Disk   Disk   `yaml:"disk"`
 	// Worktrees serves runs with workspace_mode worktree (task-worktrees); off by default.
 	Worktrees Worktrees `yaml:"worktrees"`
-	// Janitor: run-stop and task-closed hooks, worktree removal after seal, prune (node-agent D4).
+	// Hooks names the company catalog's NodeHooks document Core delivers (empty: default). Its hooks feed the
+	// janitor and its stack checks the self-checks and doctor.
+	Hooks string `yaml:"hooks"`
+	// Janitor: run-stop and task-closed hooks, worktree removal after seal, prune (node-agent D4). A hook list
+	// set here overrides the NodeHooks document's.
 	Janitor janitor.Config `yaml:"janitor"`
 	// NATS is the outbound connection (node-agent D1, task 1.5); without url, NATS_URL, else nats://127.0.0.1:4222.
 	NATS NATS `yaml:"nats"`
+	// TokenFile holds this machine's node token (`factory nodes token create`, node-agent 1.1); FACTORY_NODE_TOKEN
+	// overrides it, and without either the node uses the shared FACTORY_TOKEN (transition).
+	TokenFile string `yaml:"token_file"`
+}
+
+// TokenEnv carries the node token in the environment (a 0600 systemd EnvironmentFile or launchd plist).
+const TokenEnv = "FACTORY_NODE_TOKEN"
+
+// Token is the credential the node presents to Core: FACTORY_NODE_TOKEN, else the first line of token_file,
+// else the shared FACTORY_TOKEN. source names where it came from ("" when none is set).
+func (c Config) Token(getenv func(string) string) (token, source string, err error) {
+	if v := strings.TrimSpace(getenv(TokenEnv)); v != "" {
+		return v, TokenEnv, nil
+	}
+	if c.TokenFile != "" {
+		b, err := os.ReadFile(c.TokenFile)
+		if err != nil {
+			return "", "", fmt.Errorf("token_file: %w", err)
+		}
+		line, _, _ := strings.Cut(string(b), "\n")
+		if line = strings.TrimSpace(line); line == "" {
+			return "", "", fmt.Errorf("token_file %s is empty", c.TokenFile)
+		}
+		return line, "token_file", nil
+	}
+	if v := getenv("FACTORY_TOKEN"); v != "" {
+		return v, "FACTORY_TOKEN", nil
+	}
+	return "", "", nil
 }
 
 // NATS: url is nats://, tls://, ws:// or wss:// (a comma-separated list is allowed) without user info: the
@@ -197,6 +231,9 @@ func (c *Config) Validate() error {
 		if !nodeName.MatchString(l) {
 			errs = append(errs, fmt.Errorf("label %q: letters, digits, '.', '_' or '-', at most 63", l))
 		}
+	}
+	if c.Hooks != "" && !resourceName.MatchString(c.Hooks) {
+		errs = append(errs, fmt.Errorf("hooks %q: lowercase NodeHooks document name", c.Hooks))
 	}
 	if !c.Drivers.Codex.On() && !c.Drivers.Claude.On() {
 		errs = append(errs, errors.New("drivers: enable codex or claude"))

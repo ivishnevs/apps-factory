@@ -31,8 +31,11 @@ type Spec struct {
 		Provider string `yaml:"provider" json:"provider"`
 		Model    string `yaml:"model" json:"model"`
 		// QuotaKey names the subscription whose limit this agent consumes; agents sharing it pause
-		// together when one hits the limit. Empty means the agent's name.
+		// together when one hits the limit. Empty means the provider's key (DefaultQuotaKey).
 		QuotaKey string `yaml:"quota_key" json:"quota_key,omitempty"`
+		// DefaultQuotaKey is the provider's key the catalog resolved for an agent without quota_key
+		// (runtime-drivers D5); it travels in run config snapshots, where Core reads it (storage.QuotaKey).
+		DefaultQuotaKey string `yaml:"-" json:"default_quota_key,omitempty"`
 	} `yaml:"runtime" json:"runtime"`
 	Prompt struct {
 		File string `yaml:"file" json:"file"`
@@ -78,6 +81,9 @@ type Spec struct {
 	// Resources are a run's needs per node resource class (e.g. simulator: 1); Core checks them against the
 	// node's node.yaml resources at claim (runtime protocol v2).
 	Resources map[string]int `yaml:"resources" json:"resources,omitempty"`
+	// Labels are node labels a run needs (e.g. macos, xcode); Core claims it only on a node whose node.yaml
+	// labels include them all (node-agent D3).
+	Labels []string `yaml:"labels" json:"labels,omitempty"`
 }
 type Agent struct {
 	APIVersion      string          `yaml:"apiVersion" json:"apiVersion"`
@@ -88,12 +94,25 @@ type Agent struct {
 	Timeout         time.Duration   `yaml:"-" json:"-"`
 	Rules           []policies.Rule `yaml:"-" json:"rules"`
 	AvailableSkills []string        `yaml:"-" json:"available_skills"`
+	// SkillHashes pins the content of the offered skills on a run ({name: "sha256:…"}, skills.Hash over
+	// Core's registry at dispatch); set only in a run's config snapshot, the node verifies its copies.
+	SkillHashes map[string]string `yaml:"-" json:"skill_hashes,omitempty"`
 }
 type Catalog struct {
 	Agents   map[string]Agent
 	Profiles map[string]Agent
 	Policies map[string]policies.Policy
 	Skills   *skills.Registry
+	// NodeHooks are the catalog's NodeHooks documents by name (configs/node-hooks/*.yaml), served to nodes.
+	NodeHooks map[string]protocol.NodeHooks
+	// QuotaKeys are the declared subscriptions (configs/quota_keys.yaml); empty when the file is absent.
+	QuotaKeys map[string]QuotaKey
+}
+
+// QuotaKey is one declared subscription whose limit pauses every agent using it (runtime-drivers D5).
+type QuotaKey struct {
+	Provider    string `yaml:"provider" json:"provider"`
+	Description string `yaml:"description" json:"description,omitempty"`
 }
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -110,6 +129,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 	var err error
 	c.Skills, err = skills.Load(root)
 	if err != nil {
+		return nil, err
+	}
+	if c.QuotaKeys, err = loadQuotaKeys(root); err != nil {
 		return nil, err
 	}
 	rawPolicies := map[string]policies.Policy{}
@@ -142,6 +164,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 	}
 	c.Policies, err = policies.Resolve(rawPolicies)
 	if err != nil {
+		return nil, err
+	}
+	if c.NodeHooks, err = loadNodeHooks(root); err != nil {
 		return nil, err
 	}
 	profiles, err := documents(root, "profiles", "AgentProfile")
@@ -218,6 +243,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
 		if err = validResources(a.Spec.Resources); err != nil {
+			return nil, fmt.Errorf("profile %s: %w", name, err)
+		}
+		if err = validLabels(a.Spec.Labels); err != nil {
 			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
 		if a.Spec.Execution.MaxRetries < 0 || a.Spec.Execution.MaxConcurrentRuns < 0 || a.Spec.Execution.MaxConcurrentRuns > MaxConcurrentRuns || a.Spec.Execution.MaxConcurrentRunsPerProject < 0 {
@@ -329,7 +357,7 @@ func merge(parent, child map[string]any, prefix string) map[string]any {
 				continue
 			}
 		}
-		if key == "skills.include" || key == "policies" || key == "tools.deny" || key == "approvals.require" {
+		if key == "skills.include" || key == "policies" || key == "tools.deny" || key == "approvals.require" || key == "labels" {
 			if a, ok := v.([]any); ok {
 				b, _ := out[k].([]any)
 				set := map[any]bool{}
@@ -367,6 +395,19 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	if q := a.Spec.Runtime.QuotaKey; q != "" && !namePattern.MatchString(q) {
 		return fmt.Errorf("invalid runtime quota_key %q", q)
 	}
+	a.Spec.Runtime.DefaultQuotaKey = ""
+	if a.Spec.Runtime.QuotaKey == "" {
+		a.Spec.Runtime.DefaultQuotaKey = c.DefaultQuotaKey(a.Spec.Runtime.Provider)
+	}
+	if q := a.Spec.Runtime.QuotaKey; q != "" && len(c.QuotaKeys) > 0 {
+		k, ok := c.QuotaKeys[q]
+		if !ok {
+			return fmt.Errorf("runtime quota_key %q is not declared in configs/quota_keys.yaml", q)
+		}
+		if k.Provider != a.Spec.Runtime.Provider {
+			return fmt.Errorf("runtime quota_key %q belongs to provider %s, the agent runs %s", q, k.Provider, a.Spec.Runtime.Provider)
+		}
+	}
 	if err := ValidateRuntimeOptions(protocol.RuntimeProvider(a.Spec.Runtime.Provider), a.RuntimeOptions()); err != nil {
 		return err
 	}
@@ -374,6 +415,9 @@ func (c *Catalog) finish(root string, a *Agent) error {
 		return err
 	}
 	if err := validResources(a.Spec.Resources); err != nil {
+		return err
+	}
+	if err := validLabels(a.Spec.Labels); err != nil {
 		return err
 	}
 	// trigger-log-scheduling 2.5: caps checked at dispatch and claim; parallel runs of one agent need a node
@@ -593,13 +637,92 @@ func (a Agent) DecisionAuthority(category string) []string {
 	return rules
 }
 
-// validWorkspaceMode accepts RunSpec.workspace_mode values; empty is shared.
+// validWorkspaceMode accepts RunSpec.workspace_mode values; empty is shared. fresh_from_default is a task
+// worktree reset to the freshly fetched default branch at every run, without a task branch (task-worktrees D4).
 func validWorkspaceMode(m string) error {
 	switch m {
-	case "", "shared", "worktree", "scratch":
+	case "", "shared", "worktree", "scratch", "fresh_from_default":
 		return nil
 	}
-	return fmt.Errorf("invalid workspace mode %q: expected shared, worktree or scratch", m)
+	return fmt.Errorf("invalid workspace mode %q: expected shared, worktree, fresh_from_default or scratch", m)
+}
+
+// DefaultQuotaKey is the quota key of an agent of provider without spec.runtime.quota_key (runtime-drivers
+// D5): the one key configs/quota_keys.yaml declares for the provider, otherwise <provider>-default. Agents of
+// one provider without explicit keys therefore pause together; other providers' agents keep running.
+func (c *Catalog) DefaultQuotaKey(provider string) string {
+	only := ""
+	for name, k := range c.QuotaKeys {
+		if k.Provider != provider {
+			continue
+		}
+		if only != "" {
+			return provider + "-default"
+		}
+		only = name
+	}
+	if only != "" {
+		return only
+	}
+	return provider + "-default"
+}
+
+// loadQuotaKeys reads configs/quota_keys.yaml (optional): the company's subscriptions, each with the
+// provider whose runs consume it. When the file exists, every agent's explicit quota_key must be declared.
+func loadQuotaKeys(root string) (map[string]QuotaKey, error) {
+	p := filepath.Join(root, "configs/quota_keys.yaml")
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		return map[string]QuotaKey{}, nil
+	}
+	var doc struct {
+		QuotaKeys map[string]QuotaKey `yaml:"quota_keys"`
+	}
+	if err := configfile.Read(p, &doc); err != nil {
+		return nil, err
+	}
+	for name, k := range doc.QuotaKeys {
+		if !namePattern.MatchString(name) {
+			return nil, fmt.Errorf("quota_keys: invalid name %q", name)
+		}
+		if !protocol.RuntimeProvider(k.Provider).Valid() {
+			return nil, fmt.Errorf("quota_keys: %s: unsupported provider %q", name, k.Provider)
+		}
+	}
+	if doc.QuotaKeys == nil {
+		doc.QuotaKeys = map[string]QuotaKey{}
+	}
+	return doc.QuotaKeys, nil
+}
+
+// modelName is the accepted shape of a model name or alias.
+var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(\[1m\])?$`)
+
+// ModelFits reports whether model can be passed to provider's runtime (runtime-drivers D1: a task's model
+// override is validated against the assignee's provider). "default" fits every provider. Claude takes its
+// aliases (opus, sonnet, haiku, opusplan) and claude-* model IDs, optionally with the [1m] context suffix;
+// Codex takes OpenAI model IDs (gpt-*, codex-*, o<digit>…).
+func ModelFits(provider protocol.RuntimeProvider, model string) bool {
+	if !modelName.MatchString(model) {
+		return false
+	}
+	if model == "default" {
+		return true
+	}
+	switch provider {
+	case protocol.RuntimeClaude:
+		base := strings.TrimSuffix(model, "[1m]")
+		switch base {
+		case "opus", "sonnet", "haiku", "opusplan":
+			return true
+		}
+		return strings.HasPrefix(base, "claude-")
+	case protocol.RuntimeCodex:
+		if strings.HasSuffix(model, "[1m]") {
+			return false
+		}
+		return strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "codex-") || len(model) > 1 && model[0] == 'o' && model[1] >= '0' && model[1] <= '9'
+	}
+	return false
 }
 
 // validResources: resource classes are lowercase names, needs at least 1 (Core enforces them at claim).
@@ -610,6 +733,21 @@ func validResources(r map[string]int) error {
 		}
 		if r[k] < 1 {
 			return fmt.Errorf("resources.%s: need must be at least 1", k)
+		}
+	}
+	return nil
+}
+
+var labelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// validLabels: node labels as node.yaml accepts them, each at most once.
+func validLabels(labels []string) error {
+	for i, l := range labels {
+		if !labelPattern.MatchString(l) {
+			return fmt.Errorf("invalid label %q: letters, digits, '.', '_' or '-', at most 63", l)
+		}
+		if slices.Contains(labels[:i], l) {
+			return fmt.Errorf("duplicate label %q", l)
 		}
 	}
 	return nil

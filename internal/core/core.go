@@ -2,9 +2,7 @@ package core
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,13 +31,17 @@ type Core struct {
 	Store      *storage.Store
 	Bus        *bus.Bus
 	Agents     map[string]config.Agent
-	Token      string
+	// NodeHooks are the catalog's NodeHooks documents, served to nodes in the register and heartbeat answers.
+	NodeHooks map[string]protocol.NodeHooks
+	Token     string
 	// Company is the tenant this Core serves; empty means storage.DefaultCompany.
 	Company string
 	// ExplicitExits switches runs to factory_exit_* (docs/explicit-exits-contract.md, FACTORY_EXPLICIT_EXITS).
 	ExplicitExits bool
 	// lastStallSweep is touched only by the tick goroutine.
 	lastStallSweep time.Time
+	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
+	lastUnmergedCheck time.Time
 }
 
 type companyKey struct{}
@@ -151,11 +153,17 @@ func (c *Core) Handler() http.Handler {
 			c.agentGateway(w, r, m)
 			return
 		}
-		if c.Token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+c.Token)) != 1 {
-			http.Error(w, "unauthorized", 401)
+		auth := r.Header.Get("Authorization")
+		if c.Token != "" && subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+c.Token)) == 1 {
+			m.ServeHTTP(w, r)
 			return
 		}
-		m.ServeHTTP(w, r)
+		// A per-machine node token (node-agent 1.1) reaches only the node routes, for its own node.
+		if token, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(token, storage.NodeTokenPrefix) && c.Store != nil {
+			c.nodeGateway(w, r, m, token)
+			return
+		}
+		http.Error(w, "unauthorized", 401)
 	})
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -218,14 +226,13 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, err)
 		return
 	}
-	snapshot, err := json.Marshal(a)
+	snapshot, hash, err := c.RunSnapshot(a)
 	if err != nil {
 		reply(w, nil, err)
 		return
 	}
-	hash := sha256.Sum256(snapshot)
 	// Workspace is a host path: Core in Docker must not attempt to resolve it.
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hex.EncodeToString(hash[:]), Skills: append([]string{}, a.AvailableSkills...)}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hash, Skills: append([]string{}, a.AvailableSkills...)}
 	if err := c.Store.Create(r.Context(), c.companyFrom(r), spec); err != nil {
 		http.Error(w, err.Error(), 409)
 		return
@@ -238,7 +245,18 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	write(w, persisted.Spec)
 }
+
+// Run consumes events and runs the Core tick until ctx ends; an error is fatal. Stopping ctx is a clean
+// stop: an operation it interrupts (a tick's query, a publish) does not turn into an error.
 func (c *Core) Run(ctx context.Context) error {
+	err := c.run(ctx)
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+func (c *Core) run(ctx context.Context) error {
 	c.Store.EscalationTarget = c.escalationTarget
 	c.Store.ManagerOf = c.escalationTarget
 	c.Store.ExplicitExits = c.ExplicitExits
@@ -323,7 +341,10 @@ func (c *Core) maintain(ctx context.Context) error {
 	if _, err := c.Store.RedeliverQueued(ctx, c.company()); err != nil {
 		return err
 	}
-	return c.sweepStalls(ctx)
+	if err := c.sweepStalls(ctx); err != nil {
+		return err
+	}
+	return c.checkUnmerged(ctx)
 }
 func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 	for ctx.Err() == nil {

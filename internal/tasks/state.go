@@ -20,8 +20,12 @@ const (
 	ReasonPaused       = "paused:" // + scope
 	ReasonBackoff      = "backoff"
 	ReasonIdle         = "idle"
-	ReasonCapacity     = "capacity"
-	ReasonRunnable     = "runnable"
+	// ReasonPinnedNode: the node holding the task's unpushed work cannot continue it (task-worktrees D8).
+	ReasonPinnedNode = "pinned_node_unavailable"
+	// ReasonNoCapableNode: no online, unpaused node has the assignee's driver, labels and resources.
+	ReasonNoCapableNode = "no_capable_node"
+	ReasonCapacity      = "capacity"
+	ReasonRunnable      = "runnable"
 )
 
 // Park kinds, ordered so that what a human must act on comes first.
@@ -100,9 +104,17 @@ type Snapshot struct {
 	AgentRun                    *Run
 	AgentLive, AgentProjectLive int
 	AgentCap, AgentProjectCap   int
-	// WriterRun is a run of another task holding the project/workspace writer, including an UNKNOWN run
+	// WriterRun is a run of another task holding the project workspace writer slot, including an UNKNOWN run
 	// whose runtime may still run (not released).
 	WriterRun *Run
+	// Nodes are the company's registered (protocol v2) nodes; none means v1 workers only and no node
+	// reasons. Needs is what the assignee's runs need from a node (Core fills it from the catalog).
+	Nodes []Node
+	Needs NodeNeeds
+	// PinnedNode holds the task's unpushed work ("" when not pinned); PinTimeout is how long it may be
+	// offline before the task reports pinned_node_unavailable.
+	PinnedNode string
+	PinTimeout time.Duration
 }
 
 // Clearer names who or what removes the reason and how.
@@ -140,6 +152,10 @@ func Evaluate(s Snapshot) Verdict {
 		return v(ReasonUnassigned, "assignee "+t.Assignee+" is not a configured agent", "owner", "assign a configured agent or add its config")
 	}
 	if r := s.CurrentRun; r != nil && r.Live() {
+		// A queued run nobody can claim: the node reason says why it waits (trigger-log-scheduling D4).
+		if n := s.nodeReason(true); r.Status == "QUEUED" && n.Reason != "" {
+			return v(n.Reason, n.Detail+" (run "+r.ID+" is QUEUED)", n.Clearer.Who, n.Clearer.Action)
+		}
 		return v(ReasonLiveRun, "run "+r.ID+" is "+r.Status, "run:"+r.ID, "wait for it to finish or factory runs cancel "+r.ID)
 	}
 	for _, kind := range parkOrder {
@@ -187,6 +203,9 @@ func Evaluate(s Snapshot) Verdict {
 			return v(ReasonIdle, "no unhandled trigger", "owner", "factory tasks ready "+t.ID+" VERSION")
 		}
 	}
+	if n := s.nodeReason(false); n.Reason != "" {
+		return v(n.Reason, n.Detail, n.Clearer.Who, n.Clearer.Action)
+	}
 	if r := s.AgentRun; r != nil {
 		live, limit := max(s.AgentLive, 1), max(s.AgentCap, 1)
 		projectLimit := s.AgentProjectCap
@@ -202,9 +221,12 @@ func Evaluate(s Snapshot) Verdict {
 	}
 	if r := s.WriterRun; r != nil {
 		if r.Status == "UNKNOWN" {
-			return v(ReasonCapacity, fmt.Sprintf("project writer held by run %s with unknown outcome (task %s)", r.ID, r.TaskID), "owner", "inspect the workspace, then factory runs resolve "+r.ID+" STATUS EVIDENCE")
+			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s with unknown outcome (task %s)", r.ID, r.TaskID), "owner", "inspect the workspace, then factory runs resolve "+r.ID+" STATUS EVIDENCE")
 		}
-		return v(ReasonCapacity, fmt.Sprintf("project writer held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the project's current run")
+		return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the run in the project workspace")
+	}
+	if n := s.nodeReason(true); n.Reason != "" {
+		return v(n.Reason, n.Detail, n.Clearer.Who, n.Clearer.Action)
 	}
 	return v(ReasonRunnable, "", "scheduler", "dispatch on the next tick")
 }

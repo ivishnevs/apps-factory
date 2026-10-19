@@ -21,6 +21,35 @@ func TestRuntimeOptions(t *testing.T) {
 	}
 }
 
+// TestModelFits: a task's model override must fit the assignee's runtime provider (runtime-drivers 2.7).
+func TestModelFits(t *testing.T) {
+	for _, c := range []struct {
+		provider protocol.RuntimeProvider
+		model    string
+		fits     bool
+	}{
+		{protocol.RuntimeClaude, "default", true},
+		{protocol.RuntimeClaude, "opus", true},
+		{protocol.RuntimeClaude, "sonnet[1m]", true},
+		{protocol.RuntimeClaude, "claude-opus-4-1", true},
+		{protocol.RuntimeClaude, "gpt-5-codex", false},
+		{protocol.RuntimeClaude, "o3", false},
+		{protocol.RuntimeCodex, "default", true},
+		{protocol.RuntimeCodex, "gpt-5-codex", true},
+		{protocol.RuntimeCodex, "o4-mini", true},
+		{protocol.RuntimeCodex, "opus", false},
+		{protocol.RuntimeCodex, "claude-sonnet-4-5", false},
+		{protocol.RuntimeCodex, "gpt-5[1m]", false},
+		{protocol.RuntimeCodex, "", false},
+		{protocol.RuntimeCodex, "gpt 5; rm", false},
+		{"imaginary", "gpt-5", false},
+	} {
+		if got := ModelFits(c.provider, c.model); got != c.fits {
+			t.Errorf("ModelFits(%s, %q) = %v", c.provider, c.model, got)
+		}
+	}
+}
+
 func TestLoad(t *testing.T) {
 	agents, err := Load("../..")
 	if err != nil {

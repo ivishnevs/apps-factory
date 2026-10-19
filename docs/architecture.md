@@ -72,8 +72,16 @@ whose probe or version check fails, or whose run ended on an auth failure, stops
 With [runtime protocol v2](runtime-protocol-v2.md) the node registers with a stable `node_id` and a new epoch on
 every start, claims command pointers with `{node_id, epoch, claim_id, slot}` and renews every lease with one
 inventory heartbeat; the answer carries Core's incarnation (a change makes the node stop, seal and re-register),
-`stop`, `acked`, `cleanup`, `reset` and `pause`. Core enforces declared `resources` and `labels` at claim. The
-janitor runs `on_run_stop`/`on_task_closed` hooks, removes closed tasks' worktrees and prunes caches. Command
+`stop`, `acked`, `cleanup`, `reset` and `pause`. The node authenticates with its own node token; its heartbeat also
+carries the drivers' state (a driver becoming unusable is one `driver_unsupported` event, without a new epoch).
+Core enforces declared `resources` (held until the run is sealed) and `labels` at claim. The
+janitor runs `on_run_stop`/`on_task_closed` hooks, removes closed tasks' worktrees and prunes caches; its hooks and
+the stack checks come from the company catalog's `NodeHooks` document, which Core delivers in the register and
+heartbeat answers (node.yaml `janitor` overrides per list). The heartbeat's health (disk level, failing self-checks,
+a stalled heartbeat) and the registers (restarts) become node health events in the feed
+(`node.low_disk`, `node.disk_critical`, `node.restart_loop`, `node.check_failed`, `node.heartbeat_stalled` and
+`node.offline` after 10 minutes carry attention; `node.registered`, `node.online`, `node.paused`/`resumed` do not),
+one per episode; `factory status` lists the nodes. Command
 guards put refusing or approval-checking shims first on each run's `PATH` (Claude also checks shell commands in a
 `PreToolUse` hook; see [policies](policies.md#command-guards)); they are guardrails, not isolation. A disk gate
 stops claiming below the critical watermark, and a watchdog reaps runtime groups that belong to no slot.

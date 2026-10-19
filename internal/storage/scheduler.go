@@ -95,6 +95,9 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		}
 		spec.SessionID = session
 	}
+	if t.FreshSession { // reset_workspace: the old session stays with the old node and worktree
+		spec.SessionID, t.FreshSession = "", false
+	}
 	spec.TaskID = t.ID
 	spec.Attempt = t.Attempt + 1
 	if err = insertRun(ctx, tx, &spec); err != nil {
@@ -338,7 +341,8 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND lease_until<?", company, s.leaseCutoff())
+	// v2 leases last NodeOffline and are judged over as much continuous ticking, like the node's silence.
+	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND (protocol=2 AND lease_until<? OR protocol!=2 AND lease_until<?)", company, s.windowCutoff(NodeOffline), s.leaseCutoff())
 	if err != nil {
 		return err
 	}

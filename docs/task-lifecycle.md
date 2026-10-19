@@ -3,8 +3,17 @@
 Core owns persistent projects, tasks, dependencies, attempts, comments, artifact references and
 review decisions. Plans remain dynamic; there is no Manager -> Developer -> QA sequence in code.
 A project has a unique ID, immutable canonical macOS workspace, name/description and version.
-Project updates change name/description with an expected version. Workspace allocation remains
-one active writer; use a single canonical path per physical directory (Core cannot resolve host aliases).
+Project updates change name/description with an expected version. Use a single canonical path per physical
+directory (Core cannot resolve host aliases).
+
+Runs hold writer slots, not the project (task-worktrees D1). A run in the project workspace (agent
+`spec.workspace.mode` shared or scratch, a project without `repo_url`, message runs, or a node without
+`worktrees`) holds the project workspace path, so such runs of one project go one at a time. A task run in mode
+`worktree` (its own branch `af/<task>…`) or `fresh_from_default` (reset to the freshly fetched default branch
+at every run, no task branch) on a node with worktrees holds its own slot `<workspace>#task/<task>` and runs in
+that task's worktree on the node, so tasks of one project run in parallel; the node serializes runs of one task
+on its worktree (flock, process group, seal onto `refs/factory/wip/<task>`). Unpushed work of a `worktree` task
+pins it to its node; a `fresh_from_default` worktree never pins.
 
 ## Lifecycle
 
@@ -36,9 +45,10 @@ tool arguments). Creation is deduplicated: when an open task with the same origi
 Scheduler selects by descending priority, then creation time/ID. It atomically verifies the task
 version, dependencies and slots, inserts the run and attempt, marks IN_PROGRESS and enqueues a
 durable command. A unique active task-run index prevents duplicate dispatch. Queued/running runs
-reserve the agent for scheduling; existing project/workspace/session indexes protect writers.
-There is currently one active run per configured agent. Different projects/agents may run concurrently
-using separate Worker processes. A task may be IN_PROGRESS while its run is still QUEUED for a Worker.
+hold their writer slot (the `workspace_writer` index over the run's slot above) and their session
+(`session_turn`); an agent runs at most `max_concurrent_runs` (and `max_concurrent_runs_per_project`) runs at
+once. Different tasks, projects and agents run concurrently on node slots. A task may be IN_PROGRESS while its
+run is still QUEUED for a node.
 
 ## Submission and review
 
@@ -73,6 +83,18 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
 - `paused_out` (quota, auth, missing runtime) counts nothing: the task is READY again and runs when the pause
   lifts. `revoked` and `stale` keep today's behaviour (cancel → CANCELLED, kill switch → READY).
 - `succeeded` resets the counters and the backoff.
+- A failed merge is an ordinary attempt (task-worktrees D7): the implementer of an approved task whose merge
+  failed (checks, branch protection, conflicts) exits `factory_exit_handoff` to itself with `merge_failed`
+  (why). It counts an attempt with backoff (1, 5, 15 minutes) and the task runs again after `not_before`; the
+  third failed merge in a row without progress leaves the task FAILED with a `retries_exhausted` escalation.
+  `merge_failed` before an approval, by another agent or to another agent is refused `invalid_exit`.
+- Unmerged branches: once a day (and at Core start) Core lists tasks closed (DONE or CANCELLED) in the last 30
+  days whose last exit facts show their branch ahead of the default branch with a pull request not merged and
+  no `abandon_branch` answer; each gets exactly one `task.unmerged_branch` feed event (attention) addressed to
+  the manager of its last assignee (`agent`), naming the PR and `factory abandon-branch TASK`.
+- A task's `model` override (runtime-drivers D1, agent-configuration.md) reaches the run's `runtime_options`
+  when it fits the assignee's provider; otherwise the run uses the agent's model and records
+  `task.model_ignored`.
 - Budget: every budget outcome (all of the above except `revoked`, `paused_out`, `stale`, and losses caused by
   a node restart) counts in `task_budget` per task and UTC day.
 - Three attempts in a row without progress open a `retries_exhausted` escalation, 30 budget runs in a day a
@@ -81,11 +103,11 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
   `retry` and clears the escalation; reassigning it resets the counters for the new assignee.
 - Lost runs: a v1 run whose lease expired is released at once (the worker stops a run whose heartbeat fails).
   A v2 run lost to a new node epoch, or missing from the node's inventory, is released too. A v2 run lost
-  because the node went silent (or stopped past its timeout) may still be running: it keeps its project,
-  workspace and session writer slots and its task stays BLOCKED (`parked:inspect`) until the node proves it
+  because the node went silent (or stopped past its timeout) may still be running: it keeps its writer slot
+  (the project workspace or its task worktree) and its session, and its task stays BLOCKED (`parked:inspect`) until the node proves it
   gone — it registers a newer epoch, sends a heartbeat without it, or reports the stop of a run Core declared
   lost (that CANCELLED is a confirmation, not an owner cancel). Then the task retries as above. Only an
-  unreleased UNKNOWN run holds its project.
+  unreleased UNKNOWN run holds its writer slot.
 - `side_effects: true` (task create/update JSON) marks a task whose runs act outside the workspace (publish,
   deploy): it is never retried automatically. A failure leaves it FAILED for the owner; an unknown outcome
   parks it for inspection (`runs resolve`, required even when the runtime is known to be gone).
@@ -147,7 +169,8 @@ JSON
 ```
 
 Other commands: tasks update/submit ID JSON_FILE (or - for stdin), tasks block/cancel ID VERSION
-[REASON], tasks review ID VERSION reject FEEDBACK, tasks events/comments ID,
+[REASON], tasks review ID VERSION reject FEEDBACK, tasks model ID VERSION MODEL|- (the task's model override,
+authority only), tasks events/comments ID,
 projects get/list/events and projects update ID JSON_FILE. IDs are globally unique; use fresh IDs for
 another demonstration. A native Worker must be running to execute scheduled runs.
 
@@ -174,7 +197,7 @@ rather than stranding an unpublishable broker command. Event feeds are not pagin
 
 
 Factory MCP extension: structured submit also accepts IN_PROGRESS for the current run, saving
-only a draft. It preserves the writer lock; known runtime completion alone enables IN_REVIEW.
+only a draft. It keeps the run's writer slot; known runtime completion alone enables IN_REVIEW.
 A successful completed run preserves an explicit draft instead of replacing it with final text.
 See factory-mcp.md for run credentials, agent review and the audit endpoint. The legacy owner API
 still permits caller-supplied actor labels; MCP derives identity exclusively from credentials.
@@ -201,7 +224,8 @@ Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agen
 `parked:ask` — unanswered blocking question; `parked:block` — manual or OpenSpec block), `dependencies`,
 `artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK, a READY task without an
 unhandled trigger, and other states that wait for an explicit action), `capacity` (the agent is busy on another
-task, or another run — including an UNKNOWN one — holds the project writer), else `runnable`. The verdict also
+task, or another task's run — including an UNKNOWN one — holds the project workspace's writer slot; runs in
+other tasks' worktrees never do), else `runnable`. The verdict also
 lists the pending triggers the next run will be briefed on.
 
 ## Trigger log and parks (shadow mode)
@@ -283,7 +307,12 @@ cancellation.
 - Quota pauses: a worker event with `quota` pauses the agent's quota key (`spec.runtime.quota_key`, default the
   agent name; every agent sharing the key) until `resets_at` (unknown: 1 hour); a later reset extends it, an
   earlier one never shortens it. The tick ends expired pauses. `why` shows `paused:quota_key:<key>` cleared by
-  `time`; `factory resume quota_key KEY` ends it early. Event `quota.paused` carries attention.
+  `time`; `factory resume quota_key KEY` ends it early. Event `quota.paused` carries attention. Agents on other
+  keys keep running. A new pause opens one `quota_paused` escalation whose scope is the key (no task, no task
+  triggers; migration 0027 makes `escalations.task_id` nullable): a question to the owner with answers `wait`
+  (claims resume at the reset) and `resume` (lift the pause now). It clears itself, withdrawing the question,
+  when the pause ends (reset reached or `factory resume quota_key KEY`). Declared keys:
+  `configs/quota_keys.yaml`.
 - `factory stop [REASON]` (`POST /stop`) is the kill switch: it pauses the company and revokes every live run.
   A QUEUED run ends at once; a RUNNING run is asked to stop through its heartbeat. A revoked run that ends
   CANCELLED returns its task to READY instead of cancelling it (a turn that completes first is submitted as

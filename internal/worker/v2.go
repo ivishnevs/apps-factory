@@ -38,6 +38,8 @@ type Refusal struct {
 	Retry  bool   `json:"retry"`
 	Drop   bool   `json:"drop"`
 	Reason string `json:"reason"`
+	// Detail says what the node lacks for a capacity refusal (driver, labels, slots, a resource class).
+	Detail string `json:"detail,omitempty"`
 }
 
 // pointer is the run id of a run command: the v2 pointer's run_id, else the id of a full RunSpec
@@ -84,6 +86,9 @@ func (w *Worker) ClaimV2(ctx context.Context, run string, slot int) (int64, Clai
 func (r *Refusal) Error() string {
 	if r.Drop {
 		return "claim dropped: " + r.Reason
+	}
+	if r.Detail != "" {
+		return "claim refused, retry: " + r.Reason + " (" + r.Detail + ")"
 	}
 	return "claim refused, retry: " + r.Reason
 }

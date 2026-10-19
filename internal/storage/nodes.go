@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"appfactory/internal/protocol"
+	"appfactory/internal/tasks"
 )
 
 // Runtime protocol v2, Core side (docs/runtime-protocol-v2.md): node registration with epochs, the
@@ -53,6 +54,9 @@ type NodeDriver struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	OK      bool   `json:"ok"`
+	// Check names the failing check of a driver that is not ok (version, probe, auth); Detail says why.
+	Check  string `json:"check,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type NodeRegistration struct {
@@ -67,6 +71,8 @@ type NodeRegistration struct {
 	// Worktrees: the node runs worktree tasks in their own worktree (node.yaml worktrees.enabled), so
 	// tasks of one project run in parallel on it.
 	Worktrees bool `json:"worktrees,omitempty"`
+	// Reason is why the node registers: start (default; counts towards node.restart_loop) or reregister.
+	Reason string `json:"reason,omitempty"`
 }
 
 type NodeRegistered struct {
@@ -140,6 +146,8 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 		return out, inputError("protocol_version 2 required")
 	case r.Epoch < 1 || r.Slots < 1 || r.Slots > 64:
 		return out, inputError("epoch >= 1 and slots 1..64 required")
+	case !slices.Contains([]string{"", RegisterStart, RegisterReregister}, r.Reason):
+		return out, inputError("reason start or reregister required")
 	}
 	for k, n := range r.Resources {
 		if k == "" || n < 0 {
@@ -156,12 +164,19 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	}
 	defer tx.Rollback()
 	var epoch int64
-	err = tx.QueryRowContext(ctx, "SELECT epoch FROM nodes WHERE company_id=? AND id=?", company, r.NodeID).Scan(&epoch)
+	var before []byte
+	err = tx.QueryRowContext(ctx, "SELECT epoch,drivers FROM nodes WHERE company_id=? AND id=?", company, r.NodeID).Scan(&epoch, &before)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return out, err
 	}
 	if err == nil && r.Epoch <= epoch {
 		return out, ErrStaleEpoch
+	}
+	var known []NodeDriver
+	_ = json.Unmarshal(before, &known)
+	prior, err := readNodePrior(ctx, tx, r.NodeID)
+	if err != nil {
+		return out, err
 	}
 	drivers, _ := json.Marshal(nonNil(r.Drivers))
 	resources, _ := json.Marshal(nonNilMap(r.Resources))
@@ -174,7 +189,17 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees); err != nil {
 		return out, err
 	}
+	if err = nodeRegistered(ctx, tx, r, prior); err != nil {
+		return out, err
+	}
 	if err = loseNodeRuns(ctx, tx, r.NodeID, r.Epoch, fmt.Sprintf("node %s restarted (epoch %d)", r.NodeID, r.Epoch), true); err != nil {
+		return out, err
+	}
+	// The older epoch's process is gone (the new one killed and sealed what it left): its runs hold nothing.
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET node_held=0 WHERE company_id=? AND node_id=? AND epoch<? AND node_held=1", company, r.NodeID, r.Epoch); err != nil {
+		return out, err
+	}
+	if err = driverTransitions(ctx, tx, r.NodeID, r.Name, known, r.Drivers); err != nil {
 		return out, err
 	}
 	// Runs lost earlier while the node was silent are gone too: the new process killed their groups.
@@ -192,6 +217,38 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 		return out, err
 	}
 	return NodeRegistered{Incarnation: inc, HeartbeatSeconds: HeartbeatSeconds, StartWindowSeconds: int(StartWindow.Seconds())}, nil
+}
+
+// driverTransitions records one feed event per driver that changed between usable and not usable on a
+// node (runtime-drivers D4): driver_unsupported{driver, check} needs attention, driver_restored does not.
+// A driver Core has not seen on the node before counts as usable, so a first register with a failing
+// driver reports it; a new epoch that declares the same failure again does not.
+func driverTransitions(ctx context.Context, tx *Tx, node, name string, before, after []NodeDriver) error {
+	for _, d := range after {
+		i := slices.IndexFunc(before, func(b NodeDriver) bool { return b.Name == d.Name })
+		was := i < 0 || before[i].OK
+		if was == d.OK {
+			continue
+		}
+		item := FeedItem{EventID: protocol.ID(), Type: "driver_restored", EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "node:" + node, Ref: d.Name,
+			Summary: fmt.Sprintf("driver %s usable again on node %s (%s)", d.Name, name, d.Version)}
+		if !d.OK {
+			check := d.Check
+			if check == "" {
+				check = "probe"
+			}
+			item.Type, item.Attention = "driver_unsupported", true
+			item.Summary = fmt.Sprintf("driver %s disabled on node %s: %s check failed", d.Name, name, check)
+			if d.Detail != "" {
+				item.Summary += ": " + d.Detail
+			}
+			slog.Warn("driver unsupported on node", "node_id", node, "driver", d.Name, "check", check, "detail", d.Detail)
+		}
+		if err := feed(ctx, tx, item); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // loseNodeRuns ends the unended runs of node claimed before epoch (every epoch when epoch is 0).
@@ -276,11 +333,13 @@ type Claimed struct {
 	Brief   Brief            `json:"brief"`
 }
 
-// Refusal is a 409 answer of a v2 claim: Retry keeps the run QUEUED, Drop ends the command.
+// Refusal is a 409 answer of a v2 claim: Retry keeps the run QUEUED, Drop ends the command. Detail says
+// what is short for a capacity refusal (driver, labels, slots, a resource class).
 type Refusal struct {
 	Retry  bool   `json:"retry,omitempty"`
 	Drop   bool   `json:"drop,omitempty"`
 	Reason string `json:"reason"`
+	Detail string `json:"detail,omitempty"`
 }
 
 func (r *Refusal) Error() string { return "claim refused: " + r.Reason }
@@ -302,8 +361,8 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	}
 	defer tx.Rollback()
 	var n Node
-	var drivers, resources []byte
-	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,drivers,resources,worktrees FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &drivers, &resources, &n.Worktrees)
+	var drivers, resources, labels []byte
+	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,drivers,resources,labels,worktrees FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &drivers, &resources, &labels, &n.Worktrees)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && req.Epoch != n.Epoch {
 		return out, drop("old_epoch")
 	}
@@ -312,6 +371,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	}
 	_ = json.Unmarshal(drivers, &n.Drivers)
 	_ = json.Unmarshal(resources, &n.Resources)
+	_ = json.Unmarshal(labels, &n.Labels)
 	var status, node, claim, taskID string
 	var epoch int64
 	var revoked bool
@@ -363,7 +423,10 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		return out, retry("paused")
 	}
 	if !slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == string(spec.Provider) && d.OK }) {
-		return out, retry("capacity")
+		return out, &Refusal{Retry: true, Reason: "capacity", Detail: "driver " + string(spec.Provider) + " not usable on this node"}
+	}
+	if missing := tasks.MissingLabels(n.Labels, AgentLabels(spec.ConfigSnapshot)); len(missing) > 0 {
+		return out, &Refusal{Retry: true, Reason: "capacity", Detail: "node lacks labels " + strings.Join(missing, ", ")}
 	}
 	// Concurrency caps over started runs; the run stays QUEUED and the node retries.
 	var busy, busyProject int
@@ -373,11 +436,10 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); busy >= perAgent || busyProject >= perProject {
 		return out, retry("agent_busy")
 	}
-	if ok, err := nodeHasRoom(ctx, tx, n, req.NodeID, AgentResources(spec.ConfigSnapshot)); err != nil || !ok {
-		if err == nil {
-			err = retry("capacity")
-		}
+	if short, err := nodeShort(ctx, tx, n, req.NodeID, AgentResources(spec.ConfigSnapshot)); err != nil {
 		return out, err
+	} else if short != "" {
+		return out, &Refusal{Retry: true, Reason: "capacity", Detail: short}
 	}
 	// OpenSpec and approved artifacts as in v1; a failed check is recorded on the task.
 	if spec.OpenSpecChange != "" {
@@ -412,7 +474,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		}
 		return out, err
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,
+	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,node_held=1,
  brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0)
  WHERE id=? AND status='QUEUED'`, protocol.ID(), now.Add(NodeOffline).Unix(), now.Unix(), req.NodeID, req.Epoch, req.ClaimID, req.Slot, now.Add(StartWindow).Unix(), id)
 	if err != nil {
@@ -421,7 +483,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if n, _ := res.RowsAffected(); n != 1 {
 		return out, drop("stale")
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE nodes SET last_seen=?,online=1 WHERE company_id=? AND id=?", now.Unix(), company, req.NodeID); err != nil {
+	if err = markNodeSeen(ctx, tx, req.NodeID); err != nil {
 		return out, err
 	}
 	if out, err = claimedAnswer(ctx, tx, company, id); err != nil {
@@ -445,41 +507,57 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 	return out, nil
 }
 
-// nodeHasRoom: a free slot and, per resource class, the node's capacity covers what its unended runs
-// and this one need. A class the node does not declare has capacity 0.
-func nodeHasRoom(ctx context.Context, tx *Tx, n Node, node string, need map[string]int) (bool, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND status IN ('RUNNING','CANCELLING')", tx.company, node, n.Epoch)
+// NodeLoad is what a node's runs hold: Held runs (slots) and the resource classes they use. A run holds
+// from its claim until it has ended in Core and the node no longer lists it unended (node_held: the node
+// lists a run as ended_unacked only after its seal and run-stop hooks), so an ended but unsealed run
+// still holds its slot and classes (node-agent D3).
+type NodeLoad struct {
+	Held int            `json:"held"`
+	Used map[string]int `json:"used,omitempty"`
+}
+
+func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64) (NodeLoad, error) {
+	l := NodeLoad{Used: map[string]int{}}
+	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('RUNNING','CANCELLING') OR node_held=1)", tx.company, node, epoch)
 	if err != nil {
-		return false, err
+		return l, err
 	}
 	defer rows.Close()
-	used, held := map[string]int{}, 0
 	for rows.Next() {
 		var b []byte
 		if err = rows.Scan(&b); err != nil {
-			return false, err
+			return l, err
 		}
 		var spec protocol.RunSpec
 		if err = json.Unmarshal(b, &spec); err != nil {
-			return false, err
+			return l, err
 		}
-		held++
+		l.Held++
 		for k, v := range AgentResources(spec.ConfigSnapshot) {
-			used[k] += v
+			l.Used[k] += v
 		}
 	}
-	if err = rows.Err(); err != nil {
-		return false, err
+	return l, rows.Err()
+}
+
+// nodeShort says what the node lacks for a run needing need ("" when it has room).
+func nodeShort(ctx context.Context, tx *Tx, n Node, node string, need map[string]int) (string, error) {
+	l, err := nodeLoad(ctx, tx, node, n.Epoch)
+	if err != nil {
+		return "", err
 	}
-	if held >= n.Slots {
-		return false, nil
+	return tasks.NodeShort(l.Held, n.Slots, l.Used, n.Resources, need), nil
+}
+
+// AgentLabels reads spec.labels (node labels a run needs) from an agent snapshot.
+func AgentLabels(agentJSON []byte) []string {
+	var a struct {
+		Spec struct {
+			Labels []string `json:"labels"`
+		} `json:"spec"`
 	}
-	for k, v := range need {
-		if used[k]+v > n.Resources[k] {
-			return false, nil
-		}
-	}
-	return true, nil
+	_ = json.Unmarshal(agentJSON, &a)
+	return a.Spec.Labels
 }
 
 // AgentResources reads spec.resources (a run's needs per node resource class) from an agent snapshot.
@@ -535,6 +613,9 @@ type NodeHeartbeat struct {
 	Health    json.RawMessage `json:"health"`
 	// ResetDone lists tasks whose worktree the node reset after a reset answer.
 	ResetDone []string `json:"reset_done,omitempty"`
+	// Drivers, when present, replaces the node's driver list (runtime-drivers D4): a driver that failed or
+	// passed its checks again is declared without a new epoch.
+	Drivers []NodeDriver `json:"drivers,omitempty"`
 }
 
 type Stop struct {
@@ -576,7 +657,9 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	}
 	defer tx.Rollback()
 	var epoch int64
-	err = tx.QueryRowContext(ctx, "SELECT epoch FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&epoch)
+	var name string
+	var before []byte
+	err = tx.QueryRowContext(ctx, "SELECT epoch,name,drivers FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&epoch, &name, &before)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && hb.Epoch > epoch {
 		return out, ErrUnknownNode
 	}
@@ -591,14 +674,39 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	if len(health) == 0 {
 		health = json.RawMessage("{}")
 	}
+	if err = markNodeSeen(ctx, tx, node); err != nil {
+		return out, err
+	}
 	if _, err = tx.ExecContext(ctx, "UPDATE nodes SET last_seen=?,online=1,health=? WHERE company_id=? AND id=?", now.Unix(), string(health), company, node); err != nil {
 		return out, err
 	}
-	var h struct {
-		Disk string `json:"disk"`
+	if hb.Drivers != nil {
+		var known []NodeDriver
+		_ = json.Unmarshal(before, &known)
+		drivers, _ := json.Marshal(hb.Drivers)
+		if _, err = tx.ExecContext(ctx, "UPDATE nodes SET drivers=? WHERE company_id=? AND id=?", string(drivers), company, node); err != nil {
+			return out, err
+		}
+		if err = driverTransitions(ctx, tx, node, name, known, hb.Drivers); err != nil {
+			return out, err
+		}
 	}
-	_ = json.Unmarshal(health, &h)
-	out.Pause = h.Disk == "critical"
+	// What the node lists unended holds its capacity (node_held); everything else of the node is released.
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET node_held=0 WHERE company_id=? AND node_id=? AND node_held=1", company, node); err != nil {
+		return out, err
+	}
+	for _, x := range hb.Inventory {
+		if x.State == "ended_unacked" {
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET node_held=1 WHERE company_id=? AND id=? AND node_id=? AND epoch=?", company, x.RunID, node, hb.Epoch); err != nil {
+			return out, err
+		}
+	}
+	// Health events (node.low_disk, node.check_failed, ...) and the pause answer at critical disk.
+	if out.Pause, err = nodeHealthEvents(ctx, tx, node, health); err != nil {
+		return out, err
+	}
 	listed := map[string]bool{}
 	for _, x := range hb.Inventory {
 		listed[x.RunID] = true
@@ -752,7 +860,9 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 // ExpireNodes marks nodes silent for NodeOffline offline (judged like leases, after one window of
 // continuous ticking) and ends their unended runs as lost; CLAIMED runs past start_by end FAILED.
 func (s *Store) ExpireNodes(ctx context.Context, company string) error {
-	cutoff := s.leaseCutoff()
+	// Both windows are 60 s: a node (or a CLAIMED run) is judged only after 60 s of continuous ticking,
+	// so a Core host that slept judges nothing until then (runtime protocol v2 §7).
+	cutoff := s.windowCutoff(NodeOffline)
 	if cutoff == 0 {
 		return nil
 	}
@@ -807,9 +917,15 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 			return err
 		}
 		slog.Warn("node offline", "node_id", id)
+		if err = nodeWentOffline(ctx, tx, id); err != nil {
+			return err
+		}
 		if err = loseNodeRuns(ctx, tx, id, 0, "node "+id+" offline", false); err != nil {
 			return err
 		}
+	}
+	if err = alertLongOffline(ctx, tx, cutoff); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -855,23 +971,59 @@ func nonNilMap(m map[string]int) map[string]int {
 // pinned_node_unavailable.
 var PinTimeout = 30 * time.Minute
 
-// PinnedUnavailable lists open tasks pinned to a node that has been offline longer than PinTimeout (the
-// stalled-sweep escalates them).
-func (s *Store) PinnedUnavailable(ctx context.Context, company string) ([]EscalationWant, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT w.task_id,w.node_id,n.name FROM workspaces w JOIN nodes n ON n.company_id=w.company_id AND n.id=w.node_id
- JOIN tasks t ON t.company_id=w.company_id AND t.id=w.task_id
- WHERE w.company_id=? AND w.unpushed=1 AND n.online=0 AND n.last_seen<? AND t.status NOT IN ('DONE','CANCELLED')`, company, s.Now().Add(-PinTimeout).Unix())
+// PinnedUnavailable lists open tasks whose pinned node cannot continue them (tasks.PinnedUnavailable: removed,
+// offline longer than PinTimeout, or unable to run the assignee); the stalled-sweep escalates them. fill,
+// when set, adds what Core knows from the catalog (the assignee's needs) to each snapshot.
+func (s *Store) PinnedUnavailable(ctx context.Context, company string, fill func(*tasks.Snapshot)) ([]EscalationWant, error) {
+	snaps, err := s.TaskSnapshots(ctx, company, "")
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []EscalationWant{}
-	for rows.Next() {
-		var task, node, name string
-		if err = rows.Scan(&task, &node, &name); err != nil {
-			return nil, err
+	for _, snap := range snaps {
+		if fill != nil {
+			fill(&snap)
 		}
-		out = append(out, EscalationWant{TaskID: task, RefID: node, Summary: "unpushed work of this task is on node " + name + " (" + node + "), offline for more than " + PinTimeout.String() + "; reset_workspace continues from the remote branch on any node (the unpushed work stays on that node's WIP ref)"})
+		if why := tasks.PinnedUnavailable(snap); why != "" {
+			out = append(out, EscalationWant{TaskID: snap.Task.ID, RefID: snap.PinnedNode, Summary: why + "; reset_workspace continues from the remote branch on any node (the unpushed work stays on that node's WIP ref)"})
+		}
 	}
-	return out, rows.Err()
+	return out, nil
+}
+
+// RemoveNode forgets an offline node (a replaced machine): its row goes, its tokens are revoked, and its
+// unended runs are lost as after a restart. Tasks pinned to it report pinned_node_unavailable.
+func (s *Store) RemoveNode(ctx context.Context, company, node string) error {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var online bool
+	err = tx.QueryRowContext(ctx, "SELECT online FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&online)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if online {
+		return fmt.Errorf("%w: node %s is online; stop it first", ErrConflict, node)
+	}
+	if err = loseNodeRuns(ctx, tx, node, 0, "node "+node+" removed", true); err != nil {
+		return err
+	}
+	if err = releaseNodeRuns(ctx, tx, node, 1<<62, nil, 0); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET node_held=0 WHERE company_id=? AND node_id=?", company, node); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE node_tokens SET revoked_at=? WHERE company_id=? AND node_id=? AND revoked_at=0", tx.now().Unix(), company, node); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM nodes WHERE company_id=? AND id=?", company, node); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

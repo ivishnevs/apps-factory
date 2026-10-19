@@ -70,7 +70,8 @@ simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DI
 `ps` (`ps -o lstart= -p <pid>` must print a start time: runtime process groups are recorded by their leader's start
 time so a stop never signals a reused PID; without it a stop kills only the runtime's leader and can orphan its
 children, and the node logs that once; hint: install procps).
-`core` (with `FACTORY_URL`): an authenticated `GET /health` with `FACTORY_TOKEN` (fails when the token is unset or
+`core` (with `FACTORY_URL`): an authenticated `GET /health` with the node token as `run` resolves it
+(`FACTORY_NODE_TOKEN`, node.yaml `token_file` of `-config`, else `FACTORY_TOKEN`; fails when no token is set or it is
 rejected, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS). `nats` (with
 `nats.url` of `-config node.yaml` / `FACTORY_NODE_CONFIG`, else `NATS_URL`): one connection without reconnects
 with the node's own NATS settings (credentials, nkey, TLS; see [Outbound NATS](#outbound-nats-tls-websocket-per-node-user))
@@ -84,7 +85,20 @@ injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`
 `workers/claude/dist/src/shim.js`, and `shim.js --probe` for the Claude Code version and login it will use, without a
 model call; see [Claude runtime](claude-runtime.md)). By default only installed drivers are probed;
 `-drivers codex,claude` requires the listed ones. `drivers` fails when no driver is usable.
-Stack hooks from `NodeHooks` arrive with node registration.
+Stack checks: the `checks` of the company catalog's `NodeHooks` document (below) as Core last delivered it to
+this node (`<state_dir>/node-hooks.json`, written by `factory-node run`; `-config` gives the state_dir and labels),
+each as `stack.<name>` (command exits 0 = pass), `skip` on a node lacking one of the check's labels.
+
+### NodeHooks (company catalog)
+
+`configs/node-hooks/<name>.yaml`, `kind: NodeHooks` (node-agent D4, D7; `factory config validate` loads them):
+`spec.on_run_stop`, `spec.on_task_closed`, `spec.prune` (`[{command, older_than: 72h}]`) with the shape of
+node.yaml `janitor`, and `spec.checks` (`[{name, command, hint, labels}]`). A node names its document with
+node.yaml `hooks` (default `default`). Core delivers it in the register answer and again in a heartbeat answer when
+the hash the node applied differs (runtime protocol v2 §3, §7). The node hands the hooks to its janitor (a list
+node.yaml `janitor` sets overrides the catalog's: local override and fallback), runs the stack checks with its
+self-checks, and keeps a copy in `<state_dir>/node-hooks.json` for the doctor. A name without a document is
+delivered `missing` with an empty spec. Hooks and checks are trusted template data run with `/bin/sh -c`.
 
 ## Node process
 
@@ -94,7 +108,9 @@ yet). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack,
 v1); the slots share one pull
 subscription per enabled driver on `factory.commands.agent.run.<driver>` with the durable `<driver>-worker-v1`, so they
 compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
-Environment as for the Worker: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL`, `FACTORY_TOKEN` (required), `CODEX_BIN`. At least one
+Environment as for the Worker: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL`, `CODEX_BIN`, and the node's
+credential (required): `FACTORY_NODE_TOKEN`, else node.yaml `token_file`, else the shared `FACTORY_TOKEN` (see
+Node tokens below). At least one
 enabled driver must pass its version check and probe at start (see Driver checks below). SIGINT/SIGTERM interrupt running runs (as the Codex Worker does) and wait
 for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
 
@@ -106,7 +122,8 @@ name: mini-1                 # default: host name; a label only (v2 identifies t
 slots: 2                     # 1..64
 protocol_version: 1          # 1 (default): per-run claim and heartbeat; 2: registered node (below)
 resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
-labels: [macos, xcode]       # sent in register
+labels: [macos, xcode]       # sent in register; Core claims an agent's run only where all its spec.labels are
+token_file: /etc/factory/node.token  # node token (factory nodes token create); FACTORY_NODE_TOKEN overrides
 state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
 skills_root: /opt/factory    # configs/skills.yaml + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
@@ -120,7 +137,8 @@ nats:                        # outbound connection (below); without url: NATS_UR
   url: wss://nats.example.com:443  # nats://, tls://, ws:// or wss://, comma list allowed; no user info here
   creds_file: /etc/factory/node.creds    # or nkey_seed_file: /etc/factory/node.nk (exclusive)
   tls: {ca_file: /etc/factory/nats-ca.pem, server_name: nats.example.com}  # cert_file + key_file for mutual TLS
-janitor:                     # trusted node configuration; each command runs with /bin/sh -c
+hooks: default               # NodeHooks document of the company catalog (protocol v2; default: default)
+janitor:                     # local override of the NodeHooks lists it sets; each command runs with /bin/sh -c
   interval: 10m              # prune period (default 10m)
   hook_timeout: 5m           # per command (default 5m)
   on_run_stop: ['xcrun simctl delete "af-$FACTORY_TASK_ID" || true']    # FACTORY_RUN_ID, FACTORY_TASK_ID, FACTORY_WORKTREE
@@ -146,14 +164,24 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   were in flight while it is disabled do not escalate; the escalation starts over after a run on that driver
   completes, or after it ran 2 h past its last hold-off without an auth failure (runtime-drivers 3.2).
   With no usable driver the node claims nothing; the node refuses to start when
-  none is usable at start. With `protocol_version: 2` the change is declared to Core by registering the next
-  epoch with the driver's `ok` updated, but only at a heartbeat where the node is idle (no busy slot, empty
-  inventory), since a new epoch loses every unended run of the older one; a busy node keeps the change local
-  until then, and a driver that flipped back meanwhile is not re-registered.
+  none is usable at start. With `protocol_version: 2` every inventory heartbeat carries the drivers (`ok`, and for
+  a disabled one the failing `check` — `version`, `probe` or `auth` — with its `detail`), and a flip sends a
+  heartbeat at once: Core updates the node's drivers without a new epoch, claims follow them, and Core records one
+  `driver_unsupported` attention event per driver that becomes unusable (`driver_restored` when it is usable again).
 - Disk: before each claim a free slot reads free space on `disk.path`. Below the critical watermark claiming
   pauses (one error log), below the low watermark one warning is logged; both clear with a log line when space
-  returns. Running runs continue. `node.low_disk`/`node.disk_critical` events come later.
-- Janitor (node-agent D4; hooks live in `node.yaml` until Core serves the catalog's `NodeHooks` to nodes):
+  returns. Running runs continue. With protocol v2 the heartbeat's `health.disk` makes Core raise one
+  `node.low_disk` per low episode and one `node.disk_critical` (and answer `pause`) per critical one.
+- Self-checks (node-agent D7, protocol v2): at start, every `probes.interval` and when the `NodeHooks` checks change,
+  the node runs `git`, `git.user`, `forge.auth`, `ps` and the stack checks; the failing ones go into the heartbeat's
+  `health.checks` (driver probes do not: a failing driver is one `driver_unsupported` through `drivers`), and Core raises one `node.check_failed{check}` per failure (and
+  `node.check_passed` when it passes again). A failing `git` also stops claiming until it passes; the other checks
+  only report. A heartbeat that has not succeeded for 5 minutes is reported as `node.heartbeat_stalled` with the
+  first heartbeat that gets through. Every register says why (`start` or `reregister`; driver changes ride the heartbeat); Core counts process
+  starts and raises one `node.restart_loop` at 4 restarts within 15 minutes. `factory status` ends with the nodes
+  (online/offline, epoch, held/total slots and resources, drivers, disk, load, failing checks); `factory watch --attention` shows
+  the health alerts.
+- Janitor (node-agent D4; hooks from the catalog's `NodeHooks` document, node.yaml `janitor` lists override them):
   `on_run_stop` runs after every run (after the seal and the terminal event, before the slot claims again).
   `prune` runs every `interval` with `FACTORY_OLDER_THAN_MINUTES` from `older_than`, and at once with 0 when free
   space on `disk.path` falls below the low watermark (again every interval while it stays low). For each task in
@@ -254,8 +282,8 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
   Core refuses the older epoch (`409 stale_epoch`) and that process exits.
 - Start: orphaned runtime groups are killed, worktrees whose run pidfile outlived the previous process are stopped
   and sealed locally (not reported), then `POST /nodes/register` sends `node_id`, `name`, `epoch`, `slots`,
-  `drivers` (`CheckVersion` version, `ok` when no driver probe fails), `resources` and `labels`. Unreachable Core is
-  retried (up to 30 s apart); a refusal stops the node.
+  `drivers` (`CheckVersion` version, `ok` when no driver check fails, else `check` and `detail`), `resources`
+  and `labels`. Unreachable Core is retried (up to 30 s apart); a refusal stops the node.
 - Commands are pointers: only the run id is read (`run_id`, or `id` of a full RunSpec during the transition). A
   free slot claims with `{node_id, epoch, claim_id, slot}`; `claim_id` is `<epoch>-<slot>-<n>`, an idempotency key
   reused when a transient failure (network, 5xx) is retried. `409 retry` naks the command with a 5 s delay,
@@ -265,13 +293,38 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
 - Every `heartbeat_seconds` (register answer, default 10): `POST /nodes/{node_id}/heartbeat` with the inventory
   (`claimed`, `starting`, `running`, `ended_unacked` with `elapsed_ms` since the claim on the monotonic clock)
   and health (`load1`, `cpus`, `free_disk_bytes` and `disk` ok/low/critical on `disk.path` by the node.yaml
-  watermarks, `busy_slots`). The answer's `acked` drops ended runs, `stop` cancels runs through the executor
+  watermarks, `busy_slots`) and the current `drivers`. The answer's `acked` drops ended runs, `stop` cancels runs through the executor
   (which interrupts, seals and reports them; a stopped ended run is dropped), `pause` stops claiming on top of the
   local disk gate, `cleanup` task ids have their worktrees sealed and removed (`git worktree remove`; branch, WIP ref
   and clone stay; a worktree in use is retried on a later listing) or are logged when worktrees are off. A failed
   heartbeat is logged; runs continue.
 - A changed `incarnation` (or `404` for the node) stops claiming, stops every run, waits for them to end, then
   registers the next epoch with an empty inventory. `409` on a heartbeat stops the node.
+- Capacity (Core): a run holds its slot and resource classes from the claim until it has ended in Core **and** the
+  node no longer lists it unended; the node lists a run `ended_unacked` only after its seal and run-stop hooks, so
+  an ended but unsealed run still holds its class. A new epoch releases what the old process held. Agents'
+  `spec.labels` must all be node labels; a shortfall answers `409 {"retry":true,"reason":"capacity","detail":…}`.
+  `factory tasks why` shows `no_capable_node` (no online, unpaused node has the assignee's driver, labels and
+  resources), `capacity` (capable nodes are full, or the pinned node is briefly offline) and
+  `pinned_node_unavailable` (the node holding the task's unpushed work was removed, is offline past 30 min, or
+  cannot run the assignee); a QUEUED run nobody can claim shows the node reason instead of `live_run`.
+
+#### Node tokens
+
+Each machine gets its own token (node-agent 1.1), issued by the owner and shown once:
+
+```sh
+factory nodes token create mini-1 [--node-id NODE_ID]   # {id, token: fnt_…}; Core keeps only its SHA-256
+factory nodes token list                                # ids, names, bound node_id, last use (no secrets)
+factory nodes token revoke TOKEN_ID                     # the node gets 401 from the next request
+factory nodes list | factory nodes remove NODE_ID       # remove: an offline, replaced machine (revokes its tokens)
+```
+
+Put it in a 0600 file named by node.yaml `token_file` (or `FACTORY_NODE_TOKEN` in the systemd `EnvironmentFile` /
+launchd plist). A token without `--node-id` is bound to the `node_id` of its first register; afterwards it
+authenticates only that node's routes: register, its own heartbeat, v2 claims naming it, and `start`,
+`workspace`, `credential` of runs it claimed (`GET /health` too); every other route answers 403. The shared
+`FACTORY_TOKEN` keeps working for nodes during the transition.
 
 ### Restoring Core's database
 
@@ -379,8 +432,8 @@ with `worktrees.enabled` (it registers `worktrees: true`); elsewhere they share 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as
 `WorkingDirectory`, logs in `~/Library/Logs/factory-node.log`, a 30 s `ExitTimeOut` for interruption, and the
-current `PATH`, `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN`, `CODEX_BIN` and `CLAUDE_CODE_EXECUTABLE` (the token is a
-placeholder when unset). The plist then holds the token: `chmod 600` it. Load with
+current `PATH`, `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN`, `FACTORY_NODE_TOKEN`, `CODEX_BIN` and
+`CLAUDE_CODE_EXECUTABLE` (`FACTORY_TOKEN` is a placeholder when neither token is set). The plist then holds the token: `chmod 600` it. Load with
 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.appfactory.node.plist`, stop with
 `launchctl bootout gui/$(id -u)/com.appfactory.node`. Run only one of the node or a standalone `codex-worker` per
 state directory.
@@ -395,11 +448,12 @@ never gives up; Core counts the epochs), the current directory as `WorkingDirect
 cgroup is killed after 30 s), logs to journald (`SyslogIdentifier=factory-node`), and the current `PATH`,
 `FACTORY_URL`, `CODEX_BIN` and `CLAUDE_CODE_EXECUTABLE` as `Environment=`. Secrets are never written into the unit:
 `EnvironmentFile=` names an owner-only file (default `~/.config/factory-node/env`, `/etc/factory-node/env` with
-`-system`) holding `FACTORY_TOKEN=…` and `NATS_URL=…` (it may carry the NATS password):
+`-system`) holding `FACTORY_NODE_TOKEN=…` (or the shared `FACTORY_TOKEN=…`) and `NATS_URL=…` (it may carry the
+NATS password):
 
 ```sh
 install -d -m 700 ~/.config/factory-node
-install -m 600 /dev/null ~/.config/factory-node/env   # then add FACTORY_TOKEN=... and NATS_URL=...
+install -m 600 /dev/null ~/.config/factory-node/env   # then add FACTORY_NODE_TOKEN=... and NATS_URL=...
 ./bin/factory-node systemd -config /etc/factory/node.yaml > ~/.config/systemd/user/factory-node.service
 systemctl --user daemon-reload && systemctl --user enable --now factory-node
 loginctl enable-linger "$USER"   # a user unit then runs without a login session

@@ -38,23 +38,29 @@ func TestCoreCheck(t *testing.T) {
 	closed.Close()
 
 	for _, c := range []struct {
-		name, url, token string
-		status           int
-		want             Status
-		detail           string
+		name, url, token, nodeToken string
+		status                      int
+		want                        Status
+		detail                      string
 	}{
-		{"healthy", srv.URL + "/", "good-token", 200, Pass, "healthy"},
-		{"bad token", srv.URL, "bad-token", 200, Fail, "FACTORY_TOKEN rejected"},
-		{"no token", srv.URL, "", 200, Fail, "FACTORY_TOKEN not set"},
-		{"unhealthy", srv.URL, "good-token", 503, Fail, "503"},
-		{"down", closed.URL, "good-token", 200, Fail, "unreachable"},
-		{"not a url", "core:8080", "good-token", 200, Fail, "not an http(s) URL"},
+		{"healthy", srv.URL + "/", "good-token", "", 200, Pass, "healthy"},
+		{"bad token", srv.URL, "bad-token", "", 200, Fail, "FACTORY_TOKEN rejected"},
+		{"no token", srv.URL, "", "", 200, Fail, "no node token"},
+		{"node token wins", srv.URL, "bad-token", "good-token", 200, Pass, "healthy"},
+		{"bad node token", srv.URL, "good-token", "bad-token", 200, Fail, "FACTORY_NODE_TOKEN rejected"},
+		{"unhealthy", srv.URL, "good-token", "", 503, Fail, "503"},
+		{"down", closed.URL, "good-token", "", 200, Fail, "unreachable"},
+		{"not a url", "core:8080", "good-token", "", 200, Fail, "not an http(s) URL"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := healthy()
 			f.env["FACTORY_URL"], f.env["FACTORY_TOKEN"] = c.url, c.token
 			status = c.status
-			r := byCheck(doctor(f, "darwin").Run(context.Background()))["core"]
+			d := doctor(f, "darwin")
+			if c.nodeToken != "" {
+				d.Token, d.TokenSource = c.nodeToken, TokenEnv
+			}
+			r := byCheck(d.Run(context.Background()))["core"]
 			if r.Status != c.want || !strings.Contains(r.Detail, c.detail) || c.token != "" && strings.Contains(r.Detail, c.token) {
 				t.Fatalf("%+v", r)
 			}

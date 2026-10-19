@@ -427,6 +427,10 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		if in.SideEffects != nil {
 			t.SideEffects = *in.SideEffects
 		}
+		if in.Model != nil {
+			// Core checked the authority and the assignee's provider.
+			t.Model = strings.TrimSpace(*in.Model)
+		}
 		if t.Assignee != previousAssignee {
 			// A new assignee starts its own attempt count (reliable-recovery D2).
 			t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0

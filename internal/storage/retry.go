@@ -71,6 +71,10 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		// exits every success counts as progress.
 		progress := true
 		if hasExit {
+			// A failed merge already counted its attempt and backoff at the exit (task-worktrees D7).
+			if failed, err := exitMergeFailed(ctx, tx, runID); err != nil || failed {
+				return err
+			}
 			if progress, err = exitProgress(ctx, tx, runID, t.ID); err != nil {
 				return err
 			}

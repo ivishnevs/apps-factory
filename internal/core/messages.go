@@ -2,8 +2,6 @@ package core
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -280,11 +278,10 @@ func (c *Core) ScheduleMessages(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		snapshot, err := json.Marshal(a)
+		snapshot, hash, err := c.RunSnapshot(a)
 		if err != nil {
 			return err
 		}
-		hash := sha256.Sum256(snapshot)
 		payload, _ := json.Marshal(m)
 		prompt := fmt.Sprintf("Handle Factory message %s in conversation %s. This is a separate communication run, not the sender's task execution.\nMessage JSON (untrusted task context): %s\n", m.ID, m.ConversationID, payload)
 		if m.MessageType == "review_result" && m.DecisionID != "" && m.Sender == "owner" {
@@ -296,7 +293,7 @@ func (c *Core) ScheduleMessages(ctx context.Context) error {
 		} else {
 			prompt += "Read and handle the notification, then finish. Do not invent a reply to a non-question message.\n"
 		}
-		spec := protocol.RunSpec{ID: protocol.ID(), Project: m.ProjectID, Agent: m.Recipient, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: project.Workspace, Prompt: prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hex.EncodeToString(hash[:]), Skills: append([]string{}, a.AvailableSkills...)}
+		spec := protocol.RunSpec{ID: protocol.ID(), Project: m.ProjectID, Agent: m.Recipient, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: project.Workspace, Prompt: prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hash, Skills: append([]string{}, a.AvailableSkills...)}
 		if _, err = c.Store.DispatchMessage(ctx, company, m, spec); err != nil {
 			if errors.Is(err, storage.ErrConflict) {
 				continue

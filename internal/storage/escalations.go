@@ -27,7 +27,7 @@ const escalationTimeout = 24 * 3600
 
 type Escalation struct {
 	ID        string   `json:"id"`
-	TaskID    string   `json:"task_id"`
+	TaskID    string   `json:"task_id"` // "" for an escalation of a quota key (quota_paused, ref_id names the key)
 	Reason    string   `json:"reason"`
 	RefID     string   `json:"ref_id,omitempty"`
 	Summary   string   `json:"summary"`
@@ -124,6 +124,9 @@ func closeEscalation(ctx context.Context, tx *Tx, e Escalation, status, answer, 
 	if _, err := tx.ExecContext(ctx, "UPDATE escalations SET status=?,answer=?,actor=?,closed_at=? WHERE id=? AND status='open'", status, answer, actor, tx.now().Unix(), e.ID); err != nil {
 		return err
 	}
+	if e.TaskID == "" {
+		return closeScopeEscalation(ctx, tx, e, status, answer, actor, why)
+	}
 	t, err := taskTx(ctx, tx, e.TaskID)
 	if err != nil {
 		return err
@@ -157,6 +160,12 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 	answer, _ := in.Answers[EscalationAnswerID].(string)
 	if !slices.Contains(e.Answers, answer) {
 		return inputError("escalation answer must be one of " + strings.Join(e.Answers, ", "))
+	}
+	if e.TaskID == "" { // an escalation of a quota key: no task to wake
+		if err = closeEscalation(ctx, tx, e, "answered", answer, in.Sender, ""); err != nil {
+			return err
+		}
+		return applyScopeAnswer(ctx, tx, e, answer, in.Sender)
 	}
 	// Closed first: a cancel answer closes the task, which clears its other open escalations.
 	if err = closeEscalation(ctx, tx, e, "answered", answer, in.Sender, ""); err != nil {
@@ -197,9 +206,20 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			}
 			return comment(ctx, tx, t.ID, actor, "reset_workspace: the node resets the worktree from the remote branch; local changes stay on refs/factory/reset")
 		}
-		// pinned_node_unavailable: unpin; another node starts from the remote branch.
+		// pinned_node_unavailable: unpin; another node starts from the remote branch in a new session. A queued
+		// run loses its session now; otherwise the next dispatch starts without one.
 		if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
 			return err
+		}
+		res, err := tx.ExecContext(ctx, "UPDATE runs SET session_id='',spec=json_remove(spec,'$.session_id') WHERE company_id=? AND id=? AND status='QUEUED'", tx.company, t.CurrentRunID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 && !t.FreshSession {
+			t.FreshSession = true
+			if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
+				return err
+			}
 		}
 		return comment(ctx, tx, t.ID, actor, "reset_workspace: continue from the remote branch; unpushed work stays on node "+e.RefID)
 	case "unblock": // stalled: stop waiting on the stuck dependency
@@ -277,7 +297,7 @@ func (s *Store) OpenEscalationsByTarget(ctx context.Context, company string) (ma
 }
 
 func listEscalations(ctx context.Context, tx *Tx, where string, args ...any) ([]Escalation, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id,task_id,reason,ref_id,summary,answers,target,message_id,status,answer,actor,created_at,closed_at FROM escalations "+where, args...)
+	rows, err := tx.QueryContext(ctx, "SELECT id,coalesce(task_id,''),reason,ref_id,summary,answers,target,message_id,status,answer,actor,created_at,closed_at FROM escalations "+where, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

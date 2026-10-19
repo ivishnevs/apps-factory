@@ -139,3 +139,22 @@ func Copy(src, dst string) (string, error) {
 
 // ValidName reports whether name is a valid skill name (lowercase letters, digits and '-').
 func ValidName(name string) bool { return namePattern.MatchString(name) }
+
+// Pins are the content hashes (Hash) of the named skills in this registry, as Core records them on a run
+// (agent snapshot "skill_hashes"); the node verifies its materialized copies against them.
+func (r *Registry) Pins(names []string) (map[string]string, error) {
+	if r == nil || len(names) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(names))
+	for _, name := range names {
+		dir, err := r.Dir(name)
+		if err != nil {
+			return nil, err
+		}
+		if out[name], err = Hash(dir); err != nil {
+			return nil, fmt.Errorf("skill %s: %w", name, err)
+		}
+	}
+	return out, nil
+}

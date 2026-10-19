@@ -62,13 +62,16 @@ func TestDriverHealthDisablesOnlyFailingDriver(t *testing.T) {
 	if !h.check(ctx, true) || h.usable("codex") || h.anyUsable() {
 		t.Fatalf("both failing: %+v", h.infos())
 	}
-	if got := h.infos(); got[0] != (DriverInfo{Name: "codex", Version: "9.9.9", OK: false}) || got[1].OK {
+	if got := h.infos(); got[0] != (DriverInfo{Name: "codex", Version: "9.9.9", OK: false, Check: "version", Detail: "unsupported version 9.9.9"}) || got[1].OK || got[1].Check != "probe" {
 		t.Fatalf("%+v", got)
 	}
 	codex.versionFails.Store(false)
 	claude.probeFails.Store(false)
 	if !h.check(ctx, true) || !h.usable("codex") || !h.usable("claude") {
 		t.Fatalf("re-enable: %+v", h.infos())
+	}
+	if got := h.infos(); got[0].Check != "" || got[1].Check != "" {
+		t.Fatalf("%+v", got)
 	}
 }
 
@@ -131,9 +134,9 @@ func TestRunNeedsAUsableDriver(t *testing.T) {
 	}
 }
 
-// TestV2DeclaresDriverChanges: a disabled driver is declared with ok:false by registering a new epoch once the
-// node holds no run; a busy node keeps the change local; re-enabling is declared the same way, and a driver
-// that flipped back before the node was idle causes no register.
+// TestV2DeclaresDriverChanges: a disabled or re-enabled driver reaches Core in the next heartbeat's drivers
+// (with the failing check), without a new epoch and also while the node holds a run; a flip asks for a
+// heartbeat at once.
 func TestV2DeclaresDriverChanges(t *testing.T) {
 	dir := t.TempDir()
 	f, api := newFakeCore(t, dir)
@@ -146,50 +149,49 @@ func TestV2DeclaresDriverChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := s.drivers
-	h.changed = func() { s.redeclare.Store(true) }
+	h.changed = s.driversChanged
 	flip := func() {
-		if h.check(ctx, true) {
-			h.changed()
+		t.Helper()
+		if !h.check(ctx, true) {
+			t.Fatal("no flip")
+		}
+		h.changed()
+		select {
+		case <-s.kick:
+		default:
+			t.Fatal("a driver flip did not ask for a heartbeat")
 		}
 	}
-	registers := func() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.registers) }
+	declared := func() []DriverInfo {
+		t.Helper()
+		if err := s.beat(ctx); err != nil {
+			t.Fatal(err)
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if len(f.registers) != 1 {
+			t.Fatal("re-registered", len(f.registers))
+		}
+		b := f.beats[len(f.beats)-1]
+		if b.Epoch != 1 || len(b.Drivers) != 2 {
+			t.Fatalf("%+v", b)
+		}
+		return b.Drivers
+	}
 
-	s.inv.Add("r1", s.inv.Epoch(), func() {})
+	s.inv.Add("r1", s.inv.Epoch(), func() {}) // busy: declared all the same
 	claude.probeFails.Store(true)
 	flip()
-	if err = s.declareDrivers(ctx); err != nil || registers() != 1 || !s.claimable() {
-		t.Fatal("busy node re-registered", err, registers())
+	d := declared()
+	if !d[0].OK || d[1].OK || d[1].Check != "probe" || d[1].Detail == "" || d[1].Name != "claude" {
+		t.Fatalf("%+v", d)
 	}
-	s.inv.End("r1")
-	if err = s.declareDrivers(ctx); err != nil || registers() != 1 {
-		t.Fatal("unacked run: re-registered", err)
+	if !s.claimable() {
+		t.Fatal("a driver change paused claiming")
 	}
-	s.inv.Ack([]string{"r1"})
-	if err = s.declareDrivers(ctx); err != nil || registers() != 2 {
-		t.Fatal("idle node did not re-register", err, registers())
-	}
-	r := f.registers[1]
-	if r.Epoch != 2 || len(r.Drivers) != 2 || !r.Drivers[0].OK || r.Drivers[1] != (DriverInfo{Name: "claude", Version: "1.0.0", OK: false}) {
-		t.Fatalf("%+v", r)
-	}
-	if err = s.declareDrivers(ctx); err != nil || registers() != 2 {
-		t.Fatal("declared twice", err)
-	}
-
 	claude.probeFails.Store(false)
 	flip()
-	if err = s.declareDrivers(ctx); err != nil || registers() != 3 || !f.registers[2].Drivers[1].OK || f.registers[2].Epoch != 3 {
-		t.Fatal("re-enable not declared", err, f.registers)
-	}
-
-	codex.probeFails.Store(true) // flips and flips back while busy
-	flip()
-	s.busy = func() int { return 1 }
-	_ = s.declareDrivers(ctx)
-	codex.probeFails.Store(false)
-	flip()
-	s.busy = func() int { return 0 }
-	if err = s.declareDrivers(ctx); err != nil || registers() != 3 || s.redeclare.Load() {
-		t.Fatal("unchanged drivers re-registered", err, registers())
+	if d = declared(); !d[1].OK || d[1].Check != "" {
+		t.Fatalf("%+v", d)
 	}
 }

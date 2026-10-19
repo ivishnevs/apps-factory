@@ -31,7 +31,7 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE")
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -42,7 +42,7 @@ func run() error {
 			return err
 		}
 		if len(args) == 2 && args[0] == "config" && args[1] == "validate" {
-			return printJSON(map[string]any{"agents": config.Names(c.Agents), "profiles": len(c.Profiles), "policies": len(c.Policies), "skills": len(c.Skills.Skills)})
+			return printJSON(map[string]any{"agents": config.Names(c.Agents), "profiles": len(c.Profiles), "policies": len(c.Policies), "skills": len(c.Skills.Skills), "node_hooks": len(c.NodeHooks)})
 		}
 		if len(args) == 2 && args[0] == "agents" && args[1] == "list" {
 			return printJSON(config.Names(c.Agents))
@@ -79,6 +79,9 @@ func run() error {
 	}
 	if args[0] == "artifacts" {
 		return artifactCommand(ctx, api, args)
+	}
+	if args[0] == "nodes" {
+		return nodesCommand(ctx, api, args)
 	}
 	switch args[0] {
 	case "pause", "resume", "pauses", "stop", "start", "pending", "answer", "approve", "reject", "escalations", "direct", "abandon-branch", "rules":
@@ -199,7 +202,7 @@ func run() error {
 		return err
 	}
 	defer b.NC.Close()
-	c := core.Core{Store: s, Bus: b, Agents: catalog.Agents, Skills: catalog.Skills, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1"}
+	c := core.Core{Store: s, Bus: b, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1"}
 	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()

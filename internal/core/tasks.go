@@ -2,8 +2,6 @@ package core
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,7 +196,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		operation := "factory.task.update"
-		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Dependencies == nil && p.RequiredArtifacts == nil {
+		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil {
 			operation = "factory.task.assign"
 		}
 		if !c.taskPermit(w, r, p.Actor, operation, false, false) {
@@ -211,6 +209,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			if !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
 				return
 			}
+		}
+		if p.Model != nil && !c.modelOverride(w, r, p) {
+			return
 		}
 		v, err := c.Store.UpdateTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
@@ -307,9 +308,17 @@ type taskView struct {
 	Clearer tasks.Clearer `json:"clearer"`
 }
 
+// needs fills what the assignee's runs need from a node (node-agent D3) from the agent catalog.
+func (c *Core) needs(snap *tasks.Snapshot) {
+	if a, ok := c.Agents[snap.Task.Assignee]; ok {
+		snap.Needs = tasks.NodeNeeds{Provider: a.Spec.Runtime.Provider, Labels: a.Spec.Labels, Resources: a.Spec.Resources}
+	}
+}
+
 func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
 	var a config.Agent
 	a, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
+	c.needs(&snap)
 	if snap.AgentConfigured {
 		b, _ := json.Marshal(a)
 		snap.AgentCap, snap.AgentProjectCap = storage.AgentCaps(b)
@@ -445,11 +454,10 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	if err != nil {
 		return err
 	}
-	snapshot, err := json.Marshal(a)
+	snapshot, hash, err := c.RunSnapshot(a)
 	if err != nil {
 		return err
 	}
-	hash := sha256.Sum256(snapshot)
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
 	if t.OpenSpecChange != "" {
@@ -542,8 +550,23 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	} else {
 		prompt.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")
 	}
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: p.Workspace, Prompt: prompt.String(), Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigHash: hex.EncodeToString(hash[:]), ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
-	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err != nil {
+	provider := protocol.RuntimeProvider(a.Spec.Runtime.Provider)
+	// A task's model override (set by an authority, validated against the assignee's provider then) applies
+	// while it fits the current assignee's provider; one left by a reassignment is ignored with a feed event.
+	model, ignoredModel := a.Spec.Runtime.Model, ""
+	if t.Model != "" {
+		if config.ModelFits(provider, t.Model) {
+			model = t.Model
+		} else {
+			ignoredModel = t.Model
+		}
+	}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Prompt: prompt.String(), Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": model}, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
+	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err == nil && ignoredModel != "" {
+		return c.Store.AddFeed(ctx, company, storage.FeedItem{EventID: protocol.ID(), Type: "task.model_ignored", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: c.Store.Now(), TaskID: t.ID, RunID: spec.ID, Agent: t.Assignee, Actor: "system",
+			Summary: fmt.Sprintf("model override %s does not fit %s's provider %s; run %s uses %s", ignoredModel, t.Assignee, provider, spec.ID, a.Spec.Runtime.Model), Ref: ignoredModel})
+	}
+	if err != nil {
 		if errors.Is(err, storage.ErrConflict) {
 			return nil
 		}

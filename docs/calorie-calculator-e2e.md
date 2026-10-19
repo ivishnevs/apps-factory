@@ -61,7 +61,8 @@ JSON
 ## Execution and acceptance
 
 Core and authenticated NATS run in Docker. Native Worker logs/PID are under .cache/calorie-e2e;
-Worker remains running for this project. Single writer and single run per agent remain unchanged.
+Worker remains running for this project. Runs in the shared project workspace go one at a time (one writer slot);
+worktree tasks hold their own slots. Agent caps (max_concurrent_runs) apply.
 Each specialist submits and notifies the manager; manager reviews and creates/makes-ready the next
 work. Communication runs drive orchestration without requiring the owner to manually advance stages.
 A real unresolved developer question may exercise explicit answer/resume; no fabricated questions

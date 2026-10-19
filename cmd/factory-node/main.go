@@ -114,12 +114,12 @@ func launchd(args []string) (int, error) {
 	home, _ := os.UserHomeDir()
 	l.Log = filepath.Join(home, "Library", "Logs", "factory-node.log")
 	// launchd starts agents with a minimal PATH; runtimes need node, codex and git.
-	for _, k := range []string{"PATH", "NATS_URL", "FACTORY_URL", "FACTORY_TOKEN", "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
+	for _, k := range []string{"PATH", "NATS_URL", "FACTORY_URL", "FACTORY_TOKEN", node.TokenEnv, "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
 		if v := os.Getenv(k); v != "" {
 			l.Env[k] = v
 		}
 	}
-	if l.Env["FACTORY_TOKEN"] == "" {
+	if l.Env["FACTORY_TOKEN"] == "" && l.Env[node.TokenEnv] == "" {
 		l.Env["FACTORY_TOKEN"] = "REPLACE_WITH_FACTORY_TOKEN"
 	}
 	if err = l.Render(os.Stdout); err != nil {
@@ -196,7 +196,7 @@ func systemd(args []string) (int, error) {
 	if *system {
 		ctl = "sudo systemctl"
 	}
-	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put FACTORY_TOKEN=... and NATS_URL=... in %s (chmod 600); then %s daemon-reload && %s enable --now %s\n",
+	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put FACTORY_NODE_TOKEN=... (factory nodes token create; or the shared FACTORY_TOKEN=...) and NATS_URL=... in %s (chmod 600); then %s daemon-reload && %s enable --now %s\n",
 		unitDir, *name, s.EnvFile, ctl, ctl, *name)
 	return 0, nil
 }
@@ -215,12 +215,19 @@ func doctor(args []string) (int, error) {
 	}
 	h := node.LocalHost(runtime.GOOS)
 	d := node.Doctor{Host: h, DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo}
-	if p := node.ConfigPath(*path); p != "" {
-		c, err := node.LoadConfig(p)
-		if err != nil {
-			return 2, err
-		}
-		d.NATS = c.NATS
+	c, err := node.LoadConfig(node.ConfigPath(*path))
+	if err != nil {
+		return 2, err
+	}
+	d.NATS, d.Labels = c.NATS, c.Labels
+	if d.Token, d.TokenSource, err = c.Token(os.Getenv); err != nil {
+		return 2, err
+	}
+	// Stack checks of the catalog's NodeHooks document, as Core last delivered it to this node.
+	if hooks, ok, err := node.LoadHooks(c.StateDir); err != nil {
+		fmt.Fprintf(os.Stderr, "stack checks skipped: %s: %v\n", filepath.Join(c.StateDir, node.HooksFile), err)
+	} else if ok {
+		d.Stack = hooks.Spec.Checks
 	}
 	// Each driver owns its probe (runtime-drivers D4).
 	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: os.Getenv("CODEX_BIN"), Host: &h}},

@@ -48,7 +48,7 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 	return r
 }
 
-// Main checks the environment (FACTORY_TOKEN, FACTORY_URL; NATS_URL when node.yaml has no nats.url), connects and runs the node until
+// Main checks the environment (the node token: FACTORY_NODE_TOKEN, token_file or FACTORY_TOKEN; FACTORY_URL; NATS_URL when node.yaml has no nats.url), connects and runs the node until
 // ctx ends; Run checks the drivers. codex-worker is Main with one slot and the Codex driver.
 func Main(ctx context.Context, c node.Config, getenv func(string) string) error {
 	env := func(k, d string) string {
@@ -58,9 +58,14 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return d
 	}
 	drivers := Drivers(c, getenv)
-	if getenv("FACTORY_TOKEN") == "" {
-		return fmt.Errorf("FACTORY_TOKEN required")
+	token, source, err := c.Token(getenv)
+	if err != nil {
+		return err
 	}
+	if token == "" {
+		return fmt.Errorf("node token required: %s, node.yaml token_file, or the shared FACTORY_TOKEN", node.TokenEnv)
+	}
+	slog.Info("authenticating to Core", "with", source)
 	natsURL := c.NATS.ResolveURL(getenv)
 	slog.Info("connecting to NATS", "url", bus.Redact(natsURL), "auth", c.NATS.Auth(natsURL), "tls", c.NATS.TLS.Enabled())
 	b, err := bus.ConnectWith(natsURL, c.NATS.Options)
@@ -68,7 +73,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return fmt.Errorf("nats %s: %w", bus.Redact(natsURL), err)
 	}
 	defer b.NC.Close()
-	return Run(ctx, Node{Config: c, Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: getenv("FACTORY_TOKEN")}, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
+	return Run(ctx, Node{Config: c, Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: token}, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
 }
 
 // SkillsRoot is the directory whose configs/skills.yaml is the node's skills registry.
@@ -172,6 +177,7 @@ func Run(ctx context.Context, n Node) error {
 		jan.RunStopped(hookCtx, spec.ID, spec.TaskID, worktree)
 	}
 	var s *session // protocol v2
+	var checks *selfChecks
 	if c.ProtocolVersion == 2 {
 		var err error
 		if s, err = newSession(ctx, n, trees); err != nil {
@@ -184,6 +190,21 @@ func Run(ctx context.Context, n Node) error {
 			_, err := jan.ResetWorkspace(resetCtx, task, "")
 			return err
 		}
+		// The catalog's NodeHooks document (register answer, then heartbeat answers when it changes): janitor
+		// hooks under node.yaml's, stack checks for the self-checks, a copy in state_dir for the doctor.
+		checks = newSelfChecks(n.Host, c.Labels)
+		s.checks = checks.failed
+		s.onHooks = func(d protocol.NodeHooksDelivery) {
+			jan.SetCatalog(d.Spec)
+			checks.setStack(d.Spec.Checks)
+			if err := node.SaveHooks(c.StateDir, d); err != nil {
+				slog.Warn("keeping the NodeHooks document for the doctor", "error", err)
+			}
+		}
+		if s.hooks != nil {
+			s.onHooks(*s.hooks)
+		}
+		go checks.run(ctx, c.Probes.Interval)
 	}
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
@@ -212,7 +233,7 @@ func Run(ctx context.Context, n Node) error {
 		pool.Claimable = func() bool { return usable() && disk() }
 	}
 	if s != nil {
-		n.health.changed = func() { s.redeclare.Store(true) }
+		n.health.changed = s.driversChanged
 	}
 	go n.health.run(ctx)
 	wd := node.Watchdog{}
@@ -225,7 +246,7 @@ func Run(ctx context.Context, n Node) error {
 	done := make(chan struct{})
 	if s != nil {
 		local := pool.Claimable
-		pool.Claimable = func() bool { return s.claimable() && local() }
+		pool.Claimable = func() bool { return s.claimable() && local() && !checks.blocked() }
 		s.busy = func() int { return busySlots(pool) }
 		go func() {
 			defer close(done)

@@ -34,7 +34,9 @@ An `approved` verdict brings the task back to you, bound to the pull request and
 - `pr_not_merged` on done: the pull request is still open; finish the steps above.
 - `needs_approval` on done: the head changed after approval under `review_after_conflicts: required`; submit again.
 - A failed merge (checks failing, branch protection, conflicts you cannot resolve) is not a reason to exit done:
-  fix what you can, otherwise exit `ask` or `block` with the reason. A failed merge counts as an attempt.
+  fix what you can. To try again later, call `factory_exit_handoff` to yourself with `merge_failed` (what failed):
+  the task comes back to you after a backoff; it counts as an attempt, and the third failed merge in a row
+  escalates to your manager. When you need a decision instead, exit `ask` or `block` with the reason.
 - Work that should not be merged at all ends only with an authority's `abandon_branch` answer; ask for it, do not
   close the pull request yourself.
 

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"appfactory/internal/node/sessions"
+	"appfactory/internal/protocol"
 	"appfactory/internal/workspace"
 )
 
@@ -75,6 +76,46 @@ type Janitor struct {
 
 	mu     sync.Mutex // one cleanup or prune pass at a time
 	closed map[string]time.Time
+
+	catMu   sync.RWMutex
+	catalog Config // hooks of the company catalog's NodeHooks document (SetCatalog)
+}
+
+// SetCatalog installs the hooks of the catalog's NodeHooks document Core delivered. node.yaml janitor stays a
+// local override: each of on_run_stop, on_task_closed and prune that node.yaml sets replaces the catalog's.
+func (j *Janitor) SetCatalog(h protocol.NodeHooks) {
+	c := FromCatalog(h)
+	j.catMu.Lock()
+	j.catalog = c
+	j.catMu.Unlock()
+}
+
+// FromCatalog converts a NodeHooks spec (validated by Core) to janitor hooks; a bad older_than is 0.
+func FromCatalog(h protocol.NodeHooks) Config {
+	c := Config{OnRunStop: h.OnRunStop, OnTaskClosed: h.OnTaskClosed}
+	for _, p := range h.Prune {
+		d, _ := time.ParseDuration(p.OlderThan)
+		c.Prune = append(c.Prune, Prune{Command: p.Command, OlderThan: max(d, 0)})
+	}
+	return c
+}
+
+// hooks are the effective hooks: node.yaml's where set, else the catalog's.
+func (j *Janitor) hooks() Config {
+	j.catMu.RLock()
+	cat := j.catalog
+	j.catMu.RUnlock()
+	c := j.Config
+	if len(c.OnRunStop) == 0 {
+		c.OnRunStop = cat.OnRunStop
+	}
+	if len(c.OnTaskClosed) == 0 {
+		c.OnTaskClosed = cat.OnTaskClosed
+	}
+	if len(c.Prune) == 0 {
+		c.Prune = cat.Prune
+	}
+	return c
 }
 
 func (j *Janitor) log() *slog.Logger {
@@ -86,7 +127,7 @@ func (j *Janitor) log() *slog.Logger {
 
 // RunStopped runs the on_run_stop hooks for a run that has ended.
 func (j *Janitor) RunStopped(ctx context.Context, run, task, worktree string) {
-	for _, h := range j.Config.OnRunStop {
+	for _, h := range j.hooks().OnRunStop {
 		j.hook(ctx, "on_run_stop", h, "FACTORY_RUN_ID="+run, "FACTORY_TASK_ID="+task, "FACTORY_WORKTREE="+worktree)
 	}
 }
@@ -122,7 +163,7 @@ func (j *Janitor) closeTask(ctx context.Context, task string) bool {
 		if _, ok := j.closed[task]; ok {
 			return
 		}
-		for _, h := range j.Config.OnTaskClosed {
+		for _, h := range j.hooks().OnTaskClosed {
 			j.hook(ctx, "on_task_closed", h, "FACTORY_TASK_ID="+task, "FACTORY_WORKTREE="+path)
 		}
 		j.closed[task] = time.Now()
@@ -160,7 +201,7 @@ func (j *Janitor) closeTask(ctx context.Context, task string) bool {
 func (j *Janitor) Prune(ctx context.Context, aggressive bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	for _, p := range j.Config.Prune {
+	for _, p := range j.hooks().Prune {
 		older := p.OlderThan
 		if aggressive {
 			older = 0

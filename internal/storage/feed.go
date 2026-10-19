@@ -94,6 +94,22 @@ type FeedFilter struct {
 	Attention bool
 }
 
+// AddFeed records one feed event Core decides outside a storage transaction (e.g. an ignored model override).
+func (s *Store) AddFeed(ctx context.Context, company string, item FeedItem) error {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = tx.now()
+	}
+	if err = feed(ctx, tx, item); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ProjectFeed(ctx context.Context, company, project string, after int64, limit int) (Page[FeedItem], error) {
 	return s.Feed(ctx, company, FeedFilter{Project: project}, after, limit)
 }

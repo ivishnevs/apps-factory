@@ -54,11 +54,15 @@ func (s *Store) Now() time.Time {
 
 // leaseCutoff is the lease_until below which a lease counts as expired: now, or 0 while the
 // current continuity window is younger than one TTL (every lease still gets its full TTL).
-func (s *Store) leaseCutoff() int64 {
+func (s *Store) leaseCutoff() int64 { return s.windowCutoff(LeaseTTL) }
+
+// windowCutoff is now, or 0 while the current continuity window is younger than d: silence is judged only
+// over d of continuous ticking, so a sleeping Core host judges nothing right after it wakes.
+func (s *Store) windowCutoff(d time.Duration) int64 {
 	now := s.Now()
 	if s.Continuity != nil {
 		start := s.Continuity.Start()
-		if start.IsZero() || !start.Add(LeaseTTL).Before(now) {
+		if start.IsZero() || !start.Add(d).Before(now) {
 			return 0
 		}
 	}
@@ -543,12 +547,12 @@ func nullable(s string) any {
 	return s
 }
 
-// writerSlot is the workspace a run writes in, for the workspace_writer index: a worktree task run has its
-// own worktree, so its slot is "<project workspace>#task/<task>"; anything run in the project workspace
-// (shared or scratch mode, message runs, or a node without worktrees) holds the project workspace path and
-// runs one at a time.
+// writerSlot is the workspace a run writes in, for the workspace_writer index: a worktree or
+// fresh_from_default task run has its own task worktree, so its slot is "<project workspace>#task/<task>";
+// anything run in the project workspace (shared or scratch mode, message runs, or a node without worktrees)
+// holds the project workspace path and runs one at a time.
 func writerSlot(r protocol.RunSpec, worktrees bool) string {
-	if worktrees && r.WorkspaceMode == "worktree" && r.TaskID != "" && r.Workspace != "" {
+	if worktrees && (r.WorkspaceMode == "worktree" || r.WorkspaceMode == "fresh_from_default") && r.TaskID != "" && r.Workspace != "" {
 		return r.Workspace + "#task/" + r.TaskID
 	}
 	return r.Workspace

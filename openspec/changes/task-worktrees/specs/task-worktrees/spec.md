@@ -39,6 +39,17 @@ After a reviewer's approval the implementing agent SHALL merge its own pull requ
 - **WHEN** the implementer cannot merge because of conflicts three times in a row
 - **THEN** the task SHALL be escalated to the implementer's manager with `retries_exhausted`
 
+### Requirement: Failed merge reported by the implementer
+The implementer SHALL report a failed merge with a handoff to itself carrying `merge_failed` (the reason). Core SHALL accept `merge_failed` only from the implementer of an approved task and without a verdict, and SHALL count it as one attempt with the ordinary backoff (1, 5, 15 minutes).
+
+#### Scenario: Failed merge reported
+- **WHEN** the implementer of an approved task hands the task to itself with `merge_failed`
+- **THEN** the task SHALL return to READY after the backoff of its failure streak (1, 5, then 15 minutes), and the third such handoff in a row SHALL make it FAILED with `retries_exhausted`
+
+#### Scenario: merge_failed from another agent
+- **WHEN** an agent that is not the implementer of an approved task, or a reviewer giving a verdict, sends `merge_failed`
+- **THEN** the exit SHALL be refused as `invalid_exit`
+
 ### Requirement: Pinned node unavailable
 A task pinned to a node that is offline beyond the pin timeout, removed, or unable to run the current assignee SHALL report reason `pinned_node_unavailable` and SHALL get one escalation whose answers include `reset-workspace`. `reset-workspace` SHALL remove the pin, recreate the worktree from the remote branch and start a new session.
 
