@@ -4,7 +4,8 @@ OpenSpec remains the source for product requirements and change history. Since c
 the project's OpenSpec tree lives in Core: every document version in Postgres (`spec_documents`: path,
 version, sha256, size, who and when; the current version flagged, deletions kept as versions) with the
 contents in Core's blob store by digest. Core never reads a node's disk, so Core and the nodes need no
-shared filesystem. Nodes materialize the tree into each run's worktree, agents use ordinary files and the
+shared filesystem; the project's `workspace` path is a node-side setting only (the nodes' shared-workspace
+directory and writer-slot key) that Core never opens. Nodes materialize the tree into each run's worktree, agents use ordinary files and the
 official OpenSpec CLI there, and the MCP adapter uploads their edits with compare-and-set on digests. Factory
 stores task status, dependencies, attempts, messages and review in its database, plus a task's active
 `openspec_change` name. This follows the official
@@ -32,7 +33,14 @@ only blobs of the run's project), verifies and caches them per node by digest (`
 them into the worktree, removes documents Core no longer has (other files of the directory stay), creates
 `specs/` and `changes/archive/`, adds `/<dir>/` and `/.factory/` to the repository's `info/exclude` and
 keeps the manifest in `.factory/manifest.json`. A blob that cannot be downloaded ends the run
-`setup_failed` before the runtime starts. Local edits a previous run left unsynced are overwritten.
+`setup_failed` before the runtime starts.
+
+Local edits a previous run left unsynced (it ended without an exit or `factory_openspec_sync`) are kept: a
+document whose content differs from the digest the worktree's previous `.factory/manifest.json` recorded
+(edited, deleted locally, or added locally) stays as it is, and the new manifest keeps that digest as its
+base. Unmodified documents take Core's current version. The next exit uploads the kept edits with
+compare-and-set against those bases, so a document Core changed meanwhile is refused as a conflict below.
+Without a previous manifest for the same directory the worktree takes Core's tree.
 
 Writes reach Core only with compare-and-set on the document's digest:
 
@@ -135,7 +143,8 @@ filter again before storing runtime events; this is not general DLP.
 `make check` covers storage-backed list/read/check/pagination and path rules, concurrent writes from one base
 (one wins, the other gets 409 with the current digest), moves and deletes, the claim manifest and lease-bound
 blob downloads, node materialization (tree, stale document removal, pinned artifact input, git exclude,
-digest cache, a missing blob ending `setup_failed`), the adapter's sync at exits with an edited, an added and
+digest cache, a missing blob ending `setup_failed`, unsynced edits of a previous run kept and synced at the
+next exit or refused as a conflict when Core changed the document), the adapter's sync at exits with an edited, an added and
 a removed document and a conflict refusal, import of this repository's `openspec/` round-tripping digests,
 archive task creation once per change and one orphan event per change.
 

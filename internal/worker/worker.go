@@ -467,7 +467,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		cwd = allocation.Path
 	}
 	// Project data from Core (OpenSpec tree, artifact inputs) before anything reads the worktree.
-	if err := w.materialize(ctx, spec, lease, cwd); err != nil {
+	if err := w.Materialize(ctx, spec, lease, cwd); err != nil {
 		return emit("failed", protocol.Event{Status: ended, Result: "materializing project data failed before runtime startup: " + err.Error(), Outcome: outcomeSetupFailed})
 	}
 	if spec.OpenSpecChange != "" {

@@ -13,6 +13,7 @@ import (
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/worker"
 )
 
 // materializeAt writes the project's current OpenSpec tree and its manifest into dir, as the node does.
@@ -145,4 +146,113 @@ func TestAdapterSyncsOpenSpecAtExit(t *testing.T) {
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// TestMaterializationKeepsUnsyncedOpenSpecEdits (core-owned-project-data, owner decision 2026-10-20): a run
+// that edited OpenSpec documents and ended without an exit leaves them unsynced. The node's next
+// materialization of that worktree keeps them (an edit, a local deletion and a local addition) while
+// unmodified documents take Core's newer version; the next run's exit uploads them against the digests they
+// started from. If Core changed the edited document meanwhile, that exit is refused as a conflict.
+func TestMaterializationKeepsUnsyncedOpenSpecEdits(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	server := httptest.NewServer(h.c.Handler())
+	defer server.Close()
+	ownerWrite(t, h.s, "changes/feature/proposal.md", "# Feature\nv0\n")
+	ownerWrite(t, h.s, "specs/a/spec.md", "# A\nv0\n")
+	ownerWrite(t, h.s, "specs/b/spec.md", "# B\n")
+	node := &worker.Worker{API: worker.API{URL: server.URL, Token: h.c.Token}, BlobCache: t.TempDir()}
+	materialize := func(r exitRun, dir string) {
+		t.Helper()
+		docs, err := h.s.OpenSpecManifest(ctx, storage.DefaultCompany, "notes")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := &protocol.Manifest{OpenSpecDir: "openspec", Files: []protocol.ManifestFile{}}
+		for _, d := range docs {
+			m.Files = append(m.Files, protocol.ManifestFile{Path: "openspec/" + d.Path, SHA256: d.SHA256, Size: d.Size})
+		}
+		if err = node.Materialize(ctx, protocol.RunSpec{ID: r.id, Materialize: m}, r.lease, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(name string) (string, bool) {
+		b, err := os.ReadFile(name)
+		return string(b), err == nil
+	}
+
+	// Run 1 edits, deletes and adds documents, then ends without an exit.
+	work := t.TempDir()
+	h.create("one", "notes", "demo")
+	r := h.start("one")
+	materialize(r, work)
+	writeFile(t, filepath.Join(work, "openspec/changes/feature/proposal.md"), "# Feature\nv1 unsynced\n")
+	if err := os.Remove(filepath.Join(work, "openspec/specs/b/spec.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(work, "openspec/specs/c/spec.md"), "# C\n")
+	h.end(r, "succeeded", "none")
+	ownerWrite(t, h.s, "specs/a/spec.md", "# A\nv1 by owner\n") // unmodified in the worktree
+
+	// Run 2 materializes the same worktree: the unsynced state stays, the untouched document updates.
+	h.create("two", "notes", "demo")
+	r = h.start("two")
+	materialize(r, work)
+	if v, _ := read(filepath.Join(work, "openspec/changes/feature/proposal.md")); v != "# Feature\nv1 unsynced\n" {
+		t.Fatal("unsynced edit overwritten:", v)
+	}
+	if _, ok := read(filepath.Join(work, "openspec/specs/b/spec.md")); ok {
+		t.Fatal("local deletion undone")
+	}
+	if v, _ := read(filepath.Join(work, "openspec/specs/c/spec.md")); v != "# C\n" {
+		t.Fatal("local addition removed:", v)
+	}
+	if v, _ := read(filepath.Join(work, "openspec/specs/a/spec.md")); v != "# A\nv1 by owner\n" {
+		t.Fatal("unmodified document not updated:", v)
+	}
+	a := &factorytools.Adapter{URL: server.URL, Token: r.token, Workdir: work}
+	if _, err := a.Call(ctx, factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "spec updated"}}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := current(t, h.s, "changes/feature/proposal.md"); v != "# Feature\nv1 unsynced\n" {
+		t.Fatal("Core missed the unsynced edit:", v)
+	}
+	if _, ok := current(t, h.s, "specs/b/spec.md"); ok {
+		t.Fatal("Core missed the local deletion")
+	}
+	if v, _ := current(t, h.s, "specs/c/spec.md"); v != "# C\n" {
+		t.Fatal("Core missed the local addition:", v)
+	}
+	if v, _ := current(t, h.s, "specs/a/spec.md"); v != "# A\nv1 by owner\n" {
+		t.Fatal(v)
+	}
+	h.end(r, "succeeded", "accepted")
+
+	// Core changes the document between the run that edited it and the next one: the edit is still kept,
+	// and the exit meets the conflict.
+	work = t.TempDir()
+	h.create("three", "notes", "demo")
+	r = h.start("three")
+	materialize(r, work)
+	writeFile(t, filepath.Join(work, "openspec/changes/feature/proposal.md"), "# Feature\nv2 unsynced\n")
+	h.end(r, "succeeded", "none")
+	ownerWrite(t, h.s, "changes/feature/proposal.md", "# Feature\nv2 by owner\n")
+	h.create("four", "notes", "demo")
+	r = h.start("four")
+	materialize(r, work)
+	if v, _ := read(filepath.Join(work, "openspec/changes/feature/proposal.md")); v != "# Feature\nv2 unsynced\n" {
+		t.Fatal("unsynced edit overwritten:", v)
+	}
+	a = &factorytools.Adapter{URL: server.URL, Token: r.token, Workdir: work}
+	_, err := a.Call(ctx, factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "spec updated"}})
+	want := openspec.Digest([]byte("# Feature\nv2 by owner\n"))
+	if err == nil || !strings.Contains(err.Error(), "openspec_conflict") || !strings.Contains(err.Error(), "changes/feature/proposal.md") || !strings.Contains(err.Error(), want) {
+		t.Fatal(err)
+	}
+	if v, _ := current(t, h.s, "changes/feature/proposal.md"); v != "# Feature\nv2 by owner\n" {
+		t.Fatal("refused exit stored its version:", v)
+	}
+	if v, _ := read(filepath.Join(work, "openspec/changes/feature/proposal.md"+factorytools.ConflictSuffix)); v != "# Feature\nv2 by owner\n" {
+		t.Fatal("Core's version not saved beside the file:", v)
+	}
 }

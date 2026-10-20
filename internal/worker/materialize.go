@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,12 @@ import (
 // manifest in the worktree: the project's current OpenSpec tree (stale documents removed) and the pinned
 // approved artifact inputs. Blobs come from Core with the run's lease (GET /runs/{id}/blobs/{sha256}) and are
 // cached per node by digest; Core never reads the node's disk.
+//
+// Unsynced edits survive: a run that edited OpenSpec documents and ended without an exit (or sync) left them
+// in the worktree with the previous .factory/manifest.json. A document whose content differs from the digest
+// that manifest recorded (edited, added or deleted locally) is kept as it is, and the new manifest keeps that
+// digest as its base, so the next exit uploads it with compare-and-set and a document Core changed meanwhile
+// takes the usual conflict path. Unmodified documents take Core's current version.
 
 // validManifestPath: a path below the manifest's OpenSpec directory that OpenSpec accepts, or below
 // .factory/inputs/; relative and without traversal.
@@ -42,8 +49,9 @@ func validManifestPath(m *protocol.Manifest, p string) bool {
 	return ok && openspec.ValidPath(rest)
 }
 
-// materialize writes spec.Materialize into cwd; an error ends the run setup_failed.
-func (w *Worker) materialize(ctx context.Context, spec protocol.RunSpec, lease, cwd string) error {
+// Materialize writes spec.Materialize into cwd, keeping unsynced OpenSpec edits; an error ends the run
+// setup_failed.
+func (w *Worker) Materialize(ctx context.Context, spec protocol.RunSpec, lease, cwd string) error {
 	m := spec.Materialize
 	if m == nil {
 		return nil
@@ -81,7 +89,13 @@ func (w *Worker) materialize(ctx context.Context, spec protocol.RunSpec, lease, 
 		return err
 	}
 	defer root.Close()
+	// keep: tree paths whose local state the previous run left unsynced (the file as it is, or its absence),
+	// with the base digest they started from ("" for a document added locally).
+	keep := map[string]protocol.ManifestFile{}
 	if m.OpenSpecDir != "" {
+		if keep, err = unsynced(root, m); err != nil {
+			return err
+		}
 		for _, d := range append([]string{""}, openspec.Directories...) {
 			if err = mkdirAll(root, path.Join(m.OpenSpecDir, d)); err != nil {
 				return err
@@ -95,7 +109,8 @@ func (w *Worker) materialize(ctx context.Context, spec protocol.RunSpec, lease, 
 			}
 			rel, _ := filepath.Rel(base, p)
 			rel = filepath.ToSlash(rel)
-			if openspec.ValidPath(rel) && d.Type().IsRegular() && !want[m.OpenSpecDir+"/"+rel] {
+			_, kept := keep[m.OpenSpecDir+"/"+rel]
+			if openspec.ValidPath(rel) && d.Type().IsRegular() && !want[m.OpenSpecDir+"/"+rel] && !kept {
 				return root.Remove(filepath.FromSlash(m.OpenSpecDir + "/" + rel))
 			}
 			return nil
@@ -107,15 +122,35 @@ func (w *Worker) materialize(ctx context.Context, spec protocol.RunSpec, lease, 
 	if err = os.RemoveAll(filepath.Join(cwd, filepath.FromSlash(protocol.InputsDir))); err != nil {
 		return err
 	}
+	saved := protocol.Manifest{OpenSpecDir: m.OpenSpecDir, Files: []protocol.ManifestFile{}}
 	for _, f := range m.Files {
+		if old, ok := keep[f.Path]; ok {
+			if old.SHA256 != "" {
+				saved.Files = append(saved.Files, old)
+			}
+			continue
+		}
 		if err = mkdirAll(root, path.Dir(f.Path)); err != nil {
 			return err
 		}
 		if err = copyInto(root, f.Path, filepath.Join(cache, f.SHA256)); err != nil {
 			return err
 		}
+		saved.Files = append(saved.Files, f)
 	}
-	b, _ := json.MarshalIndent(m, "", "  ")
+	// Kept documents Core no longer has: an edit still needs its base (the sync then meets Core's deletion
+	// as a conflict); a local deletion of a document Core deleted too is settled.
+	for p, old := range keep {
+		if !want[p] && old.SHA256 != "" {
+			if _, exists, err := localDigest(root, p); err != nil {
+				return err
+			} else if exists {
+				saved.Files = append(saved.Files, old)
+			}
+		}
+	}
+	sort.Slice(saved.Files, func(i, j int) bool { return saved.Files[i].Path < saved.Files[j].Path })
+	b, _ := json.MarshalIndent(saved, "", "  ")
 	if err = mkdirAll(root, path.Dir(protocol.ManifestPath)); err != nil {
 		return err
 	}
@@ -123,6 +158,83 @@ func (w *Worker) materialize(ctx context.Context, spec protocol.RunSpec, lease, 
 		return err
 	}
 	return excludeFromGit(ctx, cwd, m.OpenSpecDir)
+}
+
+// unsynced compares the worktree's OpenSpec documents with the manifest the previous materialization (or sync)
+// left: every tree path whose local content differs from its recorded digest (changed, deleted, or added
+// without an entry), mapped to that entry (empty SHA256 for an added document). Without a previous manifest
+// for the same directory nothing is kept: the worktree takes Core's tree.
+func unsynced(root *os.Root, m *protocol.Manifest) (map[string]protocol.ManifestFile, error) {
+	keep := map[string]protocol.ManifestFile{}
+	b, err := fs.ReadFile(root.FS(), protocol.ManifestPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return keep, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var prev protocol.Manifest
+	if json.Unmarshal(b, &prev) != nil || prev.OpenSpecDir != m.OpenSpecDir {
+		return keep, nil
+	}
+	prefix := m.OpenSpecDir + "/"
+	recorded := map[string]protocol.ManifestFile{}
+	for _, f := range prev.Files {
+		if rel, ok := strings.CutPrefix(f.Path, prefix); ok && openspec.ValidPath(rel) && len(f.SHA256) == 64 {
+			recorded[f.Path] = f
+		}
+	}
+	for p, f := range recorded {
+		sum, exists, err := localDigest(root, p)
+		if err != nil {
+			return nil, err
+		}
+		// A file of another kind (sum "" while it exists) is not an edit: Core's version replaces it.
+		if sum != f.SHA256 && (sum != "" || !exists) {
+			keep[p] = f
+		}
+	}
+	// Documents added locally (no recorded digest).
+	err = fs.WalkDir(root.FS(), m.OpenSpecDir, func(name string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) && name == m.OpenSpecDir {
+			return fs.SkipDir
+		}
+		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+			return err
+		}
+		rel := strings.TrimPrefix(name, prefix)
+		if _, ok := recorded[name]; ok || !openspec.ValidPath(rel) {
+			return nil
+		}
+		keep[name] = protocol.ManifestFile{Path: name}
+		return nil
+	})
+	return keep, err
+}
+
+// localDigest is the digest of a regular file in root ("" for another kind of file); exists is false when
+// nothing is there.
+func localDigest(root *os.Root, name string) (sum string, exists bool, err error) {
+	info, err := root.Lstat(filepath.FromSlash(name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", true, nil
+	}
+	f, err := root.Open(filepath.FromSlash(name))
+	if err != nil {
+		return "", true, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return "", true, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), true, nil
 }
 
 // cacheBlob makes cache/<sha256> hold f's verified content, downloading it when absent or corrupt.
