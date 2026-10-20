@@ -281,29 +281,37 @@ func (c *Core) run(ctx context.Context) error {
 			if err = c.maintain(ctx); err != nil {
 				return err
 			}
-			out, err := c.Store.Pending(ctx)
-			if err != nil {
+			if err = c.publishOutbox(ctx); err != nil {
 				return err
-			}
-			for _, o := range out {
-				pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				err = c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
-				cancel()
-				if err != nil {
-					// One message that cannot be published (a broker outage, an invalid subject) is retried
-					// with a backoff; the rest of the queue moves on.
-					slog.Warn("outbox publish", "id", o.ID, "subject", o.Subject, "error", err)
-					if err = c.Store.PublishFailed(ctx, o.ID, err); err != nil {
-						return err
-					}
-					continue
-				}
-				if err = c.Store.Sent(ctx, o.ID); err != nil {
-					return err
-				}
 			}
 		}
 	}
+}
+
+// publishOutbox publishes the pending outbox messages of every company.
+func (c *Core) publishOutbox(ctx context.Context) error {
+	out, err := c.Store.Pending(ctx)
+	if err != nil {
+		return err
+	}
+	for _, o := range out {
+		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err = c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
+		cancel()
+		if err != nil {
+			// One message that cannot be published (a broker outage, an invalid subject) is retried
+			// with a backoff; the rest of the queue moves on.
+			slog.Warn("outbox publish", "id", o.ID, "subject", o.Subject, "error", err)
+			if err = c.Store.PublishFailed(ctx, o.ID, err); err != nil {
+				return err
+			}
+			continue
+		}
+		if err = c.Store.Sent(ctx, o.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 const tickInterval = time.Second
@@ -333,6 +341,11 @@ func (c *Core) maintain(ctx context.Context) error {
 		return err
 	}
 	if err := c.ScheduleMessages(ctx); err != nil {
+		return err
+	}
+	// Reconciler (trigger-log-scheduling D5): a task run nobody claimed within the queue TTL ends unclaimed,
+	// so Schedule dispatches its task again; younger queued runs get their command resent below.
+	if _, err := c.Store.ExpireQueued(ctx, c.company()); err != nil {
 		return err
 	}
 	if err := c.Schedule(ctx); err != nil {
