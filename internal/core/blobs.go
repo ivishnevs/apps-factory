@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"appfactory/internal/storage"
 )
@@ -19,6 +20,7 @@ func (c *Core) blobRoutes(m *http.ServeMux) {
 	})
 	// Run logs: the node uploads redacted chunks with the run's lease; the owner lists and reads them.
 	m.HandleFunc("PUT /runs/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		blobTransfer(w)
 		q := r.URL.Query()
 		seq, err := strconv.ParseInt(q.Get("seq"), 10, 64)
 		if err != nil {
@@ -66,10 +68,23 @@ func sendBlob(w http.ResponseWriter, rc io.ReadCloser, b storage.Blob, err error
 		return
 	}
 	defer rc.Close()
+	blobTransfer(w)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.FormatInt(b.Size, 10))
 	w.Header().Set("X-Factory-SHA256", b.SHA256)
 	_, _ = io.Copy(w, rc)
+}
+
+// blobTransferTime bounds one blob upload or download; the server's read and write timeouts are sized for
+// JSON calls, too short for storage.MaxBlob over a slow link.
+const blobTransferTime = 10 * time.Minute
+
+// blobTransfer extends the request's read and write deadlines to blobTransferTime.
+func blobTransfer(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	deadline := time.Now().Add(blobTransferTime)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline)
 }
 
 // agentBlob serves /agent/blobs for a run credential: PUT stores a blob (at most storage.MaxBlob) and answers
@@ -78,6 +93,7 @@ func sendBlob(w http.ResponseWriter, rc io.ReadCloser, b storage.Blob, err error
 func (c *Core) agentBlob(w http.ResponseWriter, r *http.Request, run storage.Run) {
 	switch {
 	case r.Method == http.MethodPut && r.URL.Path == "/agent/blobs":
+		blobTransfer(w)
 		b, err := c.Store.PutBlob(r.Context(), c.companyFrom(r), http.MaxBytesReader(w, r.Body, storage.MaxBlob+1), storage.MaxBlob)
 		reply(w, b, err)
 	case r.Method == http.MethodGet && len(r.URL.Path) == len("/agent/blobs/")+64:
