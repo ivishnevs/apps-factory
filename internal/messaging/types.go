@@ -8,6 +8,8 @@ type Conversation struct {
 	Title     string `json:"title"`
 	Kind      string `json:"kind"`
 	SessionID string `json:"session_id,omitempty"`
+	// TaskID is the agent's conversation task that handles this conversation's messages (hierarchy D5); set on reads.
+	TaskID    string `json:"task_id,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 }
 type ConversationCreate struct {
@@ -53,6 +55,11 @@ type Message struct {
 	// for escalate_after since RoutedAt, it moves one level up (hierarchy D4).
 	UpChain  bool  `json:"up_chain,omitempty"`
 	RoutedAt int64 `json:"routed_at,omitempty"`
+	// TaskWakeSeq and TaskAssignee are the asking task's state when a question was asked (hierarchy D3); a task
+	// changed since (new triggers or another assignee) presents the question MayBeOutdated (set on reads).
+	TaskWakeSeq   int64  `json:"task_wake_seq,omitempty"`
+	TaskAssignee  string `json:"task_assignee,omitempty"`
+	MayBeOutdated bool   `json:"may_be_outdated,omitempty"`
 }
 type Send struct {
 	ReportID       string     `json:"-"`

@@ -20,3 +20,9 @@ spec:
       agents: [calorie-designer, calorie-ios, calorie-qa]
       target: manager
       instruction: Route meaningful product/design uncertainty to calorie-manager using Factory questions. Never wait inside a turn; blocking questions require finishing the turn so the manager can run. Do not ask the owner directly.
+    - name: calorie-manager-answers-marketing-fast
+      type: escalation
+      agents: [calorie-manager]
+      escalate_after: 2h
+      categories: [marketing]
+      instruction: Marketing questions are not delegated to you; forward them to the owner promptly with your recommendation. Unanswered for 2 hours they move to the owner by themselves.

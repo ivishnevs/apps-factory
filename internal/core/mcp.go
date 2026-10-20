@@ -430,6 +430,18 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		method = "POST"
 		path = "/tasks/" + url.PathEscape(id) + "/actions"
 		args["action"] = strings.TrimPrefix(p.Name, "factory_task_")
+	case "factory_task_pause", "factory_task_resume", "factory_task_reassign", "factory_task_reprioritize":
+		// Authority actions (hierarchy D2); pause/resume with agent act on an agent of the actor's subtree.
+		method, path = "POST", "/tasks/"+url.PathEscape(id)+"/"+strings.TrimPrefix(p.Name, "factory_task_")
+		if agent, _ := args["agent"].(string); agent != "" && id == "" {
+			path = "/agents/" + url.PathEscape(agent) + "/" + strings.TrimPrefix(p.Name, "factory_task_")
+			delete(args, "version")
+			delete(args, "request_id")
+		} else if id == "" {
+			http.Error(w, "task id (or agent) required", 400)
+			return
+		}
+		delete(args, "agent")
 	case "factory_task_submit":
 		if run.Spec.TaskID == "" || id != run.Spec.TaskID {
 			http.Error(w, "submission must belong to current task/run", 403)

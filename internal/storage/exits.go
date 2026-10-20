@@ -244,6 +244,9 @@ func strs(args map[string]any, k string) []string {
 func validExit(req ExitRequest, t tasks.Task, agent string) error {
 	a := req.Arguments
 	known := func(name string) bool { return req.Known == nil || req.Known(name) }
+	if t.Kind == tasks.KindConversation && req.Kind != "done" && req.Kind != "ask" && req.Kind != "wait" {
+		return refuse("invalid_exit", "a conversation run ends with factory_exit_done (input handled; the conversation stays open) or ask")
+	}
 	switch req.Kind {
 	case "submit", "done":
 		if str(a, "summary") == "" {
@@ -403,6 +406,9 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		}
 	case "done":
 		t.Status, t.Result = "DONE", str(a, "summary")
+		if t.Kind == tasks.KindConversation {
+			t.Status = "READY" // input handled up to ack_seq; the conversation stays open (hierarchy D5)
+		}
 	case "ask":
 		if err := exitAsk(ctx, tx, runID, agent, &t, str(a, "question"), strs(a, "options"), str(a, "evidence"), str(a, "category")); err != nil {
 			return out, err

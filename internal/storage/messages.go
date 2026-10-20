@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -17,13 +18,19 @@ import (
 )
 
 func (s *Store) Conversation(ctx context.Context, company, id string) (messaging.Conversation, error) {
-	return getDoc[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND id=?", company, id)
+	v, err := getDoc[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND id=?", company, id)
+	v.TaskID = ConversationID(v.ProjectID, v.Agent)
+	return v, err
 }
 func conversationTx(ctx context.Context, tx *Tx, id string) (messaging.Conversation, error) {
 	return getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE company_id=? AND id=?", tx.company, id)
 }
 func (s *Store) Conversations(ctx context.Context, company, project string) ([]messaging.Conversation, error) {
-	return listDocs[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND project_id=? ORDER BY rowid", company, project)
+	vs, err := listDocs[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND project_id=? ORDER BY rowid", company, project)
+	for i := range vs {
+		vs[i].TaskID = ConversationID(vs[i].ProjectID, vs[i].Agent)
+	}
+	return vs, err
 }
 func (s *Store) CreateConversation(ctx context.Context, company string, in messaging.ConversationCreate) (messaging.Conversation, error) {
 	return mutate(ctx, s, company, "conversation.create", in.RequestID, in, func(tx *Tx) (messaging.Conversation, error) {
@@ -51,20 +58,53 @@ func createConversation(ctx context.Context, tx *Tx, in messaging.ConversationCr
 	return v, entityEvent(ctx, tx, "conversation.created", v.ProjectID, v.ID, v)
 }
 func (s *Store) Message(ctx context.Context, company, id string) (messaging.Message, error) {
-	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND id=?", company, id)
+	m, err := getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND id=?", company, id)
+	if err == nil {
+		err = presentMessage(ctx, s.DB, company, &m)
+	}
+	return m, err
 }
 func messageTx(ctx context.Context, tx *Tx, id string) (messaging.Message, error) {
 	return getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND id=?", tx.company, id)
 }
 func (s *Store) Messages(ctx context.Context, company, conversation string) ([]messaging.Message, error) {
-	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND conversation_id=? ORDER BY rowid", company, conversation)
+	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND conversation_id=? ORDER BY rowid", company, conversation)
 }
 func (s *Store) Inbox(ctx context.Context, company, project string) ([]messaging.Message, error) {
-	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,rowid", company, project, project)
+	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,rowid", company, project, project)
 }
-func (s *Store) PendingMessages(ctx context.Context, company string) ([]messaging.Message, error) {
-	return listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND delivery_status='PENDING' AND recipient!='owner' AND status IN ('PENDING','UNREAD') ORDER BY created_at,rowid", company)
+
+func (s *Store) presentMessages(ctx context.Context, company, query string, args ...any) ([]messaging.Message, error) {
+	ms, err := listDocs[messaging.Message](ctx, s.DB, query, args...)
+	for i := range ms {
+		if err == nil {
+			err = presentMessage(ctx, s.DB, company, &ms[i])
+		}
+	}
+	return ms, err
 }
+
+// presentMessage flags an open question whose asking task changed since it was asked (new triggers or another
+// assignee) as possibly outdated (hierarchy D3), so the answerer looks at the task first.
+func presentMessage(ctx context.Context, q querier, company string, m *messaging.Message) error {
+	if m.MessageType != "question" || m.TaskID == "" || m.TaskWakeSeq == 0 && m.TaskAssignee == "" || m.Status != "PENDING" && m.Status != "ESCALATED" {
+		return nil
+	}
+	var wake int64
+	var assignee string
+	err := q.QueryRowContext(ctx, "SELECT wake_seq,assignee FROM tasks WHERE company_id=? AND id=?", company, m.TaskID).Scan(&wake, &assignee)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	m.MayBeOutdated = err == nil && (wake != m.TaskWakeSeq || assignee != m.TaskAssignee)
+	return err
+}
+
+// AnsweredError refuses a later answer to an answered question (first answer wins) with the recorded answer.
+type AnsweredError struct{ Answer messaging.Message }
+
+func (e *AnsweredError) Error() string { return "question already answered by " + e.Answer.Sender }
+func (e *AnsweredError) Unwrap() error { return ErrConflict }
 func validQuestions(questions []messaging.Question) error {
 	if len(questions) > 16 {
 		return inputError("maximum 16 structured questions")
@@ -167,6 +207,12 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if t.ProjectID != m.ProjectID {
 			return m, inputError("task outside project")
 		}
+		if m.MessageType == "question" {
+			if err = tx.QueryRowContext(ctx, "SELECT wake_seq FROM tasks WHERE company_id=? AND id=?", tx.company, t.ID).Scan(&m.TaskWakeSeq); err != nil {
+				return m, err
+			}
+			m.TaskAssignee = t.Assignee
+		}
 	}
 	if in.Blocking {
 		if in.TaskID == "" || in.RunID == "" {
@@ -216,6 +262,10 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	}
 	if m.Recipient == "owner" {
 		m.DeliveryStatus = "NONE"
+	}
+	// An agent recipient gets the message as a trigger on its conversation task (hierarchy D5).
+	if err = deliverTx(ctx, tx, &m); err != nil {
+		return m, err
 	}
 	canonical, _ := json.Marshal(m.Questions)
 	fingerprint := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.ToLower(m.Body)), " ") + "\x00" + m.Sender + "\x00" + m.Recipient + "\x00" + m.TaskID + "\x00" + string(canonical)))
@@ -305,6 +355,14 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if err != nil {
 		return m, err
 	}
+	if m.MessageType == "question" && m.Status == "ANSWERED" {
+		// First answer wins (hierarchy D3): the later one learns the recorded answer.
+		answer, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", tx.company, m.ID)
+		if err != nil {
+			return m, ErrConflict
+		}
+		return m, &AnsweredError{Answer: answer}
+	}
 	if m.MessageType != "question" || m.Status != "PENDING" && m.Status != "ESCALATED" || m.Version != in.Version {
 		return m, ErrConflict
 	}
@@ -317,8 +375,11 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if in.RequestID == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id and answer body up to 16 KiB required")
 	}
-	if err = validAnswers(m.Questions, in.Answers); err != nil {
-		return m, err
+	// Options are suggestions: a free-text body without form answers is always an answer (hierarchy D3).
+	if len(in.Answers) > 0 {
+		if err = validAnswers(m.Questions, in.Answers); err != nil {
+			return m, err
+		}
 	}
 	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE"}
 	if !m.Blocking && m.Sender != "owner" && m.Sender != "factory" {
@@ -361,6 +422,9 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 			}
 		}
 	}
+	if err = deliverTx(ctx, tx, &answer); err != nil {
+		return answer, err
+	}
 	b, _ := json.Marshal(answer)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", answer.ID, answer.ProjectID, answer.ConversationID, nullable(answer.TaskID), answer.Sender, answer.Recipient, answer.MessageType, answer.Status, answer.DeliveryStatus, answer.Version, b, answer.CreatedAt, "", tx.company); err != nil {
 		return answer, err
@@ -391,112 +455,6 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		}
 	}
 	return answer, nil
-}
-func (s *Store) DispatchMessage(ctx context.Context, company string, m messaging.Message, spec protocol.RunSpec) (protocol.RunSpec, error) {
-	tx, err := s.begin(ctx, company)
-	if err != nil {
-		return spec, err
-	}
-	defer tx.Rollback()
-	saved, err := messageTx(ctx, tx, m.ID)
-	if err != nil {
-		return spec, err
-	}
-	if saved.Version != m.Version || saved.DeliveryStatus != "PENDING" || saved.Recipient != spec.Agent || saved.ProjectID != spec.Project || saved.Status != "PENDING" && saved.Status != "UNREAD" {
-		return spec, ErrConflict
-	}
-	if paused, err := pausedFor(ctx, tx, saved.ProjectID, spec.Agent, QuotaKey(spec.ConfigSnapshot, spec.Agent)); err != nil || len(paused) > 0 {
-		if err == nil {
-			err = ErrConflict
-		}
-		return spec, err
-	}
-	var busy int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status!='ENDED'", company, spec.Agent).Scan(&busy); err != nil {
-		return spec, err
-	}
-	if busy > 0 {
-		return spec, ErrConflict
-	}
-	conv, err := getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE id=?", m.ConversationID)
-	if err != nil {
-		return spec, err
-	}
-	if conv.Kind == "owner" && m.Sender == "owner" && spec.Agent == conv.Agent {
-		spec.SessionID = conv.SessionID
-	}
-	spec.MessageID = m.ID
-	spec.TaskID = ""
-	if err = insertRun(ctx, tx, &spec); err != nil {
-		return spec, constraint(err)
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO message_runs VALUES(?,?,?)", spec.ID, m.ID, company); err != nil {
-		return spec, err
-	}
-	saved.DeliveryRunID = spec.ID
-	saved.DeliveryStatus = "RUNNING"
-	if err = saveMessage(ctx, tx, &saved, "message.dispatched"); err != nil {
-		return spec, err
-	}
-	return spec, tx.Commit()
-}
-func syncMessageRun(ctx context.Context, tx *Tx, runID string) error {
-	var id string
-	if err := tx.QueryRowContext(ctx, "SELECT message_id FROM message_runs WHERE run_id=?", runID).Scan(&id); err == sql.ErrNoRows {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	m, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE id=?", id)
-	if err != nil {
-		return err
-	}
-	r, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=?", runID)
-	if err != nil {
-		return err
-	}
-	var phase, outcome, session string
-	if err = tx.QueryRowContext(ctx, "SELECT status,outcome,session_id FROM runs WHERE id=?", runID).Scan(&phase, &outcome, &session); err != nil {
-		return err
-	}
-	if phase != "ENDED" {
-		return nil
-	}
-	// The message's delivery status: COMPLETED for a completed turn, CANCELLED for a stopped or never
-	// claimed run, FAILED otherwise.
-	status := "FAILED"
-	switch outcome {
-	case "succeeded", "no_exit":
-		status = "COMPLETED"
-	case "revoked", "stale", "unclaimed":
-		status = "CANCELLED"
-	}
-	// Only the first known terminal result projects delivery; late events don't invent an answer.
-	if m.DeliveryStatus != "RUNNING" {
-		return nil
-	}
-	m.DeliveryStatus = status
-	if m.MessageType == "question" && m.Status == "PENDING" {
-		m.Status = "ESCALATED"
-		m.EscalationReason = "recipient run ended without an explicit answer: " + outcome
-	}
-	if m.MessageType != "question" && status == "COMPLETED" {
-		m.Status = "READ"
-	}
-	if status == "COMPLETED" && session != "" {
-		conv, err := getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE id=?", m.ConversationID)
-		if err != nil {
-			return err
-		}
-		if conv.Kind == "owner" && m.Sender == "owner" && r.Agent == conv.Agent {
-			conv.SessionID = session
-			b, _ := json.Marshal(conv)
-			if _, err = tx.ExecContext(ctx, "UPDATE conversations SET body=? WHERE id=?", b, conv.ID); err != nil {
-				return err
-			}
-		}
-	}
-	return saveMessage(ctx, tx, &m, "message.delivery_completed")
 }
 func (s *Store) ExpireMessages(ctx context.Context, company string) error {
 	tx, err := s.begin(ctx, company)
@@ -632,6 +590,9 @@ func forwardTx(ctx context.Context, tx *Tx, m *messaging.Message, from, label, n
 	if strings.TrimSpace(note) != "" {
 		m.Body += "\n\n" + label + ": " + note
 	}
+	if err := deliverTx(ctx, tx, m); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, "UPDATE messages SET recipient=? WHERE id=?", to, m.ID); err != nil {
 		return err
 	}
@@ -664,14 +625,23 @@ func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
 	}
 	n := 0
 	for _, m := range pending {
-		if tx.now().Sub(time.Unix(m.RoutedAt, 0)) < EscalateAfter {
+		after := EscalateAfter
+		if f := tx.store.EscalateAfterFor; f != nil {
+			if d := f(m.Recipient, m.Category); d > 0 {
+				after = d
+			}
+		}
+		if tx.now().Sub(time.Unix(m.RoutedAt, 0)) < after {
 			continue
 		}
 		skipped := m.Recipient
-		if err = forwardTx(ctx, tx, &m, skipped, "Forwarded automatically", skipped+" did not answer within "+EscalateAfter.String()); err != nil {
+		if err = forwardTx(ctx, tx, &m, skipped, "Forwarded automatically", skipped+" did not answer within "+after.String()); err != nil {
 			return n, err
 		}
-		if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "message.auto_forwarded", EntityID: m.ID, ProjectID: m.ProjectID, CreatedAt: tx.now(), TaskID: m.TaskID, Agent: skipped, Summary: "question " + m.ID + " moved from " + skipped + " to " + m.Recipient + " after " + EscalateAfter.String() + " without an answer", Ref: m.ID}); err != nil {
+		if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "message.auto_forwarded", EntityID: m.ID, ProjectID: m.ProjectID, CreatedAt: tx.now(), TaskID: m.TaskID, Agent: skipped, Summary: "question " + m.ID + " moved from " + skipped + " to " + m.Recipient + " after " + after.String() + " without an answer", Ref: m.ID}); err != nil {
+			return n, err
+		}
+		if err = noteSkipped(ctx, tx, m, skipped); err != nil {
 			return n, err
 		}
 		n++

@@ -97,7 +97,8 @@ func TestAnswerAfterAFailedOrCancelledRun(t *testing.T) {
 			ctx := context.Background()
 			task, run, lease, m := askOnTask(t, s, "owner")
 			applyMessageRun(t, s, run, lease, outcome)
-			if _, err := s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Pros", Answers: map[string]any{"audience": "Pros"}, RequestID: "answer"}); err != nil {
+			// The question of a cancelled task is cancelled with it (hierarchy D3).
+			if _, err := s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Pros", Answers: map[string]any{"audience": "Pros"}, RequestID: "answer"}); (err != nil) != (outcome == "revoked") {
 				t.Fatal(err)
 			}
 			task, _ = s.Task(ctx, DefaultCompany, task.ID)
@@ -123,7 +124,7 @@ func TestPendingQuestionAndReplyValidation(t *testing.T) {
 		{Version: m.Version, Sender: "stranger", Body: "bad", Answers: map[string]any{"audience": "Pros"}, RequestID: "bad-sender"},
 		{Version: 0, Sender: "owner", Body: "bad", Answers: map[string]any{"audience": "Pros"}, RequestID: "bad-version"},
 		{Version: m.Version, Sender: "owner", Body: "bad", Answers: map[string]any{"audience": "Unknown"}, RequestID: "bad-choice"},
-		{Version: m.Version, Sender: "owner", Body: "bad", RequestID: "missing-form"},
+		{Version: m.Version, Sender: "owner", Body: "bad", Answers: map[string]any{"other": "x"}, RequestID: "wrong-form"},
 	} {
 		if _, err := s.ReplyMessage(ctx, DefaultCompany, m.ID, input); err == nil {
 			t.Fatal("bad answer accepted", input)
@@ -188,52 +189,6 @@ func TestQuestionLoopGuardTimeoutAndTransactionalOutbox(t *testing.T) {
 		t.Fatal(count, err)
 	}
 }
-func TestConversationSessionAndUnansweredDeliveryEscalation(t *testing.T) {
-	s := engineStore(t)
-	ctx := context.Background()
-	conv, err := s.CreateConversation(ctx, DefaultCompany, messaging.ConversationCreate{ProjectID: "p", Agent: "manager", Title: "Owner dialog", RequestID: "conv"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := s.SendMessage(ctx, DefaultCompany, messaging.Send{ProjectID: "p", Sender: "owner", Recipient: "manager", ConversationID: conv.ID, MessageType: "question", Body: "First", RequestID: "first"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec, err := s.DispatchMessage(ctx, DefaultCompany, m, protocol.RunSpec{ID: "manager-1", Project: "p", Agent: "manager", Workspace: "/tmp/task-engine-p"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := s.Claim(ctx, DefaultCompany, spec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, _ = s.Message(ctx, DefaultCompany, m.ID)
-	if _, err = s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "manager", Body: "Explicit answer", RequestID: "reply"}); err != nil {
-		t.Fatal(err)
-	}
-	applyMessageRun(t, s, spec, lease, "succeeded")
-	conv, _ = s.Conversation(ctx, DefaultCompany, conv.ID)
-	if conv.SessionID != "thread-manager-1" {
-		t.Fatal(conv)
-	}
-	m, err = s.SendMessage(ctx, DefaultCompany, messaging.Send{ProjectID: "p", Sender: "owner", Recipient: "manager", ConversationID: conv.ID, MessageType: "question", Body: "Second", RequestID: "second"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec, err = s.DispatchMessage(ctx, DefaultCompany, m, protocol.RunSpec{ID: "manager-2", Project: "p", Agent: "manager", Workspace: "/tmp/task-engine-p"})
-	if err != nil || spec.SessionID != "thread-manager-1" {
-		t.Fatal(spec, err)
-	}
-	lease, err = s.Claim(ctx, DefaultCompany, spec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applyMessageRun(t, s, spec, lease, "succeeded")
-	m, _ = s.Message(ctx, DefaultCompany, m.ID)
-	if m.Status != "ESCALATED" {
-		t.Fatal("final text was treated as answer", m)
-	}
-}
 func TestStructuredAnswerTypes(t *testing.T) {
 	qs := []messaging.Question{{ID: "text", Type: "text", Question: "Text?"}, {ID: "confirm", Type: "confirmation", Question: "Confirm?"}, {ID: "multi", Type: "multiple_choice", Question: "Which?", Options: []string{"A", "B"}}}
 	if err := validQuestions(qs); err != nil {
@@ -247,60 +202,6 @@ func TestStructuredAnswerTypes(t *testing.T) {
 	}
 }
 
-func TestOwnerEscalationReturnsToManagerAndResumesOrigin(t *testing.T) {
-	s := engineStore(t)
-	ctx := context.Background()
-	task, developer, devLease, original := askOnTask(t, s, "manager")
-	applyMessageRun(t, s, developer, devLease, "succeeded")
-	original, _ = s.Message(ctx, DefaultCompany, original.ID)
-	manager, err := s.DispatchMessage(ctx, DefaultCompany, original, protocol.RunSpec{ID: "manager-escalate", Project: "p", Agent: "manager", Workspace: "/tmp/task-engine-p"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	managerLease, err := s.Claim(ctx, DefaultCompany, manager.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	escalation, err := s.SendMessage(ctx, DefaultCompany, messaging.Send{ProjectID: "p", TaskID: task.ID, Sender: "manager", Recipient: "owner", ConversationID: original.ConversationID, MessageType: "question", Body: "Owner advice needed", RequestID: "owner-ask", RunID: manager.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	applyMessageRun(t, s, manager, managerLease, "succeeded")
-	original, _ = s.Message(ctx, DefaultCompany, original.ID)
-	if original.Status != "ESCALATED" {
-		t.Fatal(original)
-	}
-	ownerAnswer, err := s.ReplyMessage(ctx, DefaultCompany, escalation.ID, messaging.Reply{Version: escalation.Version, Sender: "owner", Body: "Choose Pros", RequestID: "owner-answer"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	original, _ = s.Message(ctx, DefaultCompany, original.ID)
-	if original.Status != "PENDING" {
-		t.Fatal("manager question not reopened", original)
-	}
-	continuation, err := s.DispatchMessage(ctx, DefaultCompany, ownerAnswer, protocol.RunSpec{ID: "manager-continue", Project: "p", Agent: "manager", Workspace: "/tmp/task-engine-p"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	continuationLease, err := s.Claim(ctx, DefaultCompany, continuation.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ReplyMessage(ctx, DefaultCompany, original.ID, messaging.Reply{Version: original.Version, Sender: "manager", Body: "Pros", Answers: map[string]any{"audience": "Pros"}, RequestID: "final-answer"}); err != nil {
-		t.Fatal(err)
-	}
-	task, _ = s.Task(ctx, DefaultCompany, task.ID)
-	if task.Status != "READY" {
-		t.Fatal(task)
-	}
-	if _, err = s.Dispatch(ctx, DefaultCompany, task.ID, task.Version, protocol.RunSpec{ID: "too-early", Project: "p", Agent: "demo"}); !errors.Is(err, ErrConflict) {
-		t.Fatal("manager writer not held", err)
-	}
-	applyMessageRun(t, s, continuation, continuationLease, "succeeded")
-	if _, err = s.Dispatch(ctx, DefaultCompany, task.ID, task.Version, protocol.RunSpec{ID: "safe-resume", Project: "p", Agent: "demo"}); err != nil {
-		t.Fatal(err)
-	}
-}
 func TestOwnerNotificationInboxRead(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
@@ -356,40 +257,5 @@ func TestMessageEventsShareConversationCorrelation(t *testing.T) {
 	}
 	if err = rows.Err(); err != nil || count != 3 {
 		t.Fatal(count, err)
-	}
-}
-
-func TestOwnerConversationDoesNotLeakThreadToAnotherRecipient(t *testing.T) {
-	s := engineStore(t)
-	ctx := context.Background()
-	conv, err := s.CreateConversation(ctx, DefaultCompany, messaging.ConversationCreate{ProjectID: "p", Agent: "manager", Title: "Owner", RequestID: "conv"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	conv.SessionID = "manager-private-thread"
-	b, _ := json.Marshal(conv)
-	if _, err = s.DB.Exec("UPDATE conversations SET body=? WHERE id=?", b, conv.ID); err != nil {
-		t.Fatal(err)
-	}
-	question, err := s.SendMessage(ctx, DefaultCompany, messaging.Send{ProjectID: "p", Sender: "demo", Recipient: "owner", ConversationID: conv.ID, MessageType: "question", Body: "Advice", RequestID: "advice"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	answer, err := s.ReplyMessage(ctx, DefaultCompany, question.ID, messaging.Reply{Version: question.Version, Sender: "owner", Body: "Proceed", RequestID: "answer"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := s.DispatchMessage(ctx, DefaultCompany, answer, protocol.RunSpec{ID: "demo-answer", Project: "p", Agent: "demo", Workspace: "/tmp/task-engine-p"})
-	if err != nil || run.SessionID != "" {
-		t.Fatal("conversation thread leaked", run, err)
-	}
-	lease, err := s.Claim(ctx, DefaultCompany, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applyMessageRun(t, s, run, lease, "succeeded")
-	conv, _ = s.Conversation(ctx, DefaultCompany, conv.ID)
-	if conv.SessionID != "manager-private-thread" {
-		t.Fatal(conv)
 	}
 }

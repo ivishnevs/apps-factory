@@ -99,6 +99,8 @@ type Snapshot struct {
 	// "quota_key:<key>". QuotaPaused lists every paused quota key; Core adds the assignee's one to Paused.
 	Paused      []string
 	QuotaPaused []string
+	// TaskPause is an authority's pause of the task itself ("task" in Paused); nil when none.
+	TaskPause *TaskPause
 	// AgentRun is the oldest live run of the assignee on another task; AgentLive counts them and
 	// AgentProjectLive those in the task's project. AgentCap and AgentProjectCap are the assignee's limits
 	// (Core fills them from the catalog; 0 means 1 and the agent cap).
@@ -116,6 +118,13 @@ type Snapshot struct {
 	// offline before the task reports pinned_node_unavailable.
 	PinnedNode string
 	PinTimeout time.Duration
+}
+
+// TaskPause is an authority's pause of one task (hierarchy D2).
+type TaskPause struct {
+	Actor  string `json:"actor"`
+	Rank   int    `json:"rank"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // Clearer names who or what removes the reason and how.
@@ -181,6 +190,13 @@ func Evaluate(s Snapshot) Verdict {
 		target := strings.Replace(scope, ":", " ", 1)
 		if scope == "company" {
 			target = "--all"
+		}
+		if scope == "task" && s.TaskPause != nil {
+			detail := "paused by " + s.TaskPause.Actor
+			if s.TaskPause.Reason != "" {
+				detail += ": " + s.TaskPause.Reason
+			}
+			return v(ReasonPaused+scope, detail, s.TaskPause.Actor, "factory tasks resume "+t.ID+" VERSION (the pauser or a higher authority)")
 		}
 		if strings.HasPrefix(scope, "quota_key:") {
 			return v(ReasonPaused+scope, "subscription limit reached", "time", "the pause ends when the limit resets (or factory resume "+target+")")

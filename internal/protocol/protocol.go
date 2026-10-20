@@ -49,6 +49,9 @@ type RunSpec struct {
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
 	WorkspaceMode string `json:"workspace_mode,omitempty"`
+	// Conversation marks a run of an agent's conversation task (hierarchy D5): it reads the project workspace
+	// but does not hold its writer slot.
+	Conversation bool `json:"conversation,omitempty"`
 
 	// Company is set in the v2 claim answer (runtime protocol v2 §5); Core does not store it in the spec.
 	Company string `json:"company,omitempty"`

@@ -43,6 +43,11 @@ func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) 
 	if t.Status == "DONE" || t.Status == "CANCELLED" {
 		return nil
 	}
+	if p, err := taskPause(ctx, q, company, t.ID); err != nil {
+		return err
+	} else if p != nil {
+		t.PausedBy = p.Actor
+	}
 	ref, err := askPark(ctx, q, company, t.ID)
 	if err != nil {
 		return err

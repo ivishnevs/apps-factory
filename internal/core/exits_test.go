@@ -590,20 +590,11 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 		}
 		return m
 	}
-	// The recipient's delivery run and its credential.
+	// The recipient's conversation run (the question is a trigger on its conversation task) and its credential.
 	deliver := func(id string) exitRun {
 		t.Helper()
-		if err := h.c.ScheduleMessages(ctx); err != nil {
-			t.Fatal(err)
-		}
 		m, _ := h.s.Message(ctx, co, id)
-		lease, err := h.s.Claim(ctx, co, m.DeliveryRunID)
-		if err != nil {
-			t.Fatalf("claim delivery %q: %v", m.DeliveryRunID, err)
-		}
-		var cred struct{ Token string }
-		_ = json.Unmarshal(h.do(h.c.Token, "POST", "/runs/"+m.DeliveryRunID+"/credential", map[string]string{"lease": lease}, nil).Body.Bytes(), &cred)
-		return exitRun{m.DeliveryRunID, lease, cred.Token}
+		return h.start(storage.ConversationID(m.ProjectID, m.Recipient))
 	}
 
 	// calorie-manager decides product, design, quality and technical questions; marketing is not delegated.

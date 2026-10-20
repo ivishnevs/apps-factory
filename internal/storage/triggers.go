@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
@@ -89,6 +90,20 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 		if err = closeEscalation(ctx, tx, e, "cleared", "", "system", "task "+t.Status); err != nil {
 			return err
 		}
+	}
+	// Open questions of a closed task are cancelled (hierarchy D3); approval requests keep their own lifecycle.
+	questions, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND task_id=? AND message_type='question' AND status IN ('PENDING','UNREAD','ESCALATED') AND id NOT IN (SELECT message_id FROM approvals WHERE company_id=? AND message_id IS NOT NULL)", tx.company, t.ID, tx.company)
+	if err != nil {
+		return err
+	}
+	for _, m := range questions {
+		m.Status, m.DeliveryStatus, m.EscalationReason = "CANCELLED", "NONE", "task "+t.ID+" is "+t.Status
+		if err = saveMessage(ctx, tx, &m, "message.cancelled"); err != nil {
+			return err
+		}
+	}
+	if err = closedConversationEffects(ctx, tx, t); err != nil {
+		return err
 	}
 	if t.Status == "DONE" {
 		if err := dependencyDone(ctx, tx, t); err != nil {

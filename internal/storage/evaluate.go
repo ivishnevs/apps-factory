@@ -206,9 +206,15 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	if snap.QuotaPaused, err = activeQuotaKeys(ctx, tx); err != nil {
 		return snap, err
 	}
-	p, err := projectTx(ctx, tx, t.ProjectID)
-	if err != nil {
+	// An authority's pause of the task itself (hierarchy D2), the most specific scope.
+	if snap.TaskPause, err = taskPause(ctx, tx, tx.company, t.ID); err != nil {
 		return snap, err
+	} else if snap.TaskPause != nil {
+		snap.Paused = append(snap.Paused, "task")
+	}
+	p, err := projectTx(ctx, tx, t.ProjectID)
+	if err != nil || t.Kind == tasks.KindConversation {
+		return snap, err // a conversation run does not take the project writer slot
 	}
 	// The workspace_writer index includes unreleased lost runs: they keep the project workspace slot.
 	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND workspace=? AND (status!='ENDED' OR unreleased=1) AND coalesce(task_id,'')!=? ORDER BY unreleased DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)

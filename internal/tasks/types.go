@@ -85,7 +85,18 @@ type Task struct {
 	// authority and validated against the assignee's provider then; a run whose assignee's provider does not
 	// fit it (after a reassignment) uses the agent's model and records a task.model_ignored event.
 	Model string `json:"model,omitempty"`
+	// Kind "conversation" marks an agent's long-lived conversation task with its boss (hierarchy D5): messages,
+	// questions and escalations addressed to the agent are its triggers; done marks them handled, it stays open.
+	Kind string `json:"kind,omitempty"`
+	// Counterpart is a conversation task's other side: the agent's reports_to (an agent or owner).
+	Counterpart string `json:"counterpart,omitempty"`
+	// PausedBy is the authority whose pause holds the task (hierarchy D2); set on reads.
+	PausedBy string `json:"paused_by,omitempty"`
 }
+
+// KindConversation is the kind of an agent's conversation task.
+const KindConversation = "conversation"
+
 type ProjectCreate struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
@@ -168,6 +179,21 @@ type Action struct {
 	Reason    string `json:"reason,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
 	Actor     string `json:"actor,omitempty"`
+	// Cascade cancels the task's open children with it; cancelling a task with open children needs it.
+	Cascade bool `json:"cascade,omitempty"`
+}
+
+// Authority is an authority action on a task (hierarchy D2): pause, resume, reassign or reprioritize. Actor is
+// the agent acting ("" for the owner); Core checks the authority and sets Rank.
+type Authority struct {
+	Version   int    `json:"version"`
+	Reason    string `json:"reason,omitempty"`
+	Assignee  string `json:"assignee,omitempty"`
+	Priority  *int   `json:"priority,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+	// Rank of the actor: 0 the owner, otherwise its depth in the tree (1 reports to the owner).
+	Rank int `json:"-"`
 }
 type Submit struct {
 	Version    int        `json:"version"`

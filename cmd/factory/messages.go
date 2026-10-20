@@ -1,6 +1,7 @@
 package main
 
 import (
+	"appfactory/internal/protocol"
 	"appfactory/internal/worker"
 	"context"
 	"fmt"
@@ -14,7 +15,7 @@ func communicationCommand(ctx context.Context, api worker.API, args []string) er
 	switch args[0] {
 	case "conversations":
 		if len(args) < 2 {
-			return fmt.Errorf("conversations create JSON_FILE | list PROJECT | get/messages ID | send ID JSON_FILE")
+			return fmt.Errorf("conversations create JSON_FILE | list PROJECT | get/messages ID | send ID JSON_FILE | say PROJECT TEXT")
 		}
 		switch args[1] {
 		case "create":
@@ -44,6 +45,14 @@ func communicationCommand(ctx context.Context, api worker.API, args []string) er
 			method = "POST"
 			path = "/conversations/" + url.PathEscape(args[2]) + "/messages"
 			body, err = jsonBody(args[3])
+		case "say":
+			// To the owner's default direct report, or "@name ..." to another (hierarchy D5).
+			if len(args) != 4 {
+				return fmt.Errorf("conversations say PROJECT TEXT")
+			}
+			method = "POST"
+			path = "/messages"
+			body = map[string]any{"project_id": args[2], "body": args[3], "request_id": protocol.ID()}
 		default:
 			return fmt.Errorf("unknown conversations command")
 		}

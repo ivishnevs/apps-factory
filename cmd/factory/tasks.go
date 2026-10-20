@@ -16,7 +16,7 @@ import (
 
 func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] | tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
+		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
 	}
 	if args[0] == "tasks" && args[1] == "why" {
 		return whyCommand(ctx, api, args[2:])
@@ -143,8 +143,12 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 			path = idPath(args[2]) + "/comments"
 			body = map[string]any{"text": args[3], "request_id": protocol.ID()}
 		case "ready", "block", "cancel":
+			cascade := args[1] == "cancel" && args[len(args)-1] == "--cascade"
+			if cascade {
+				args = args[:len(args)-1]
+			}
 			if len(args) < 4 || len(args) > 5 {
-				return fmt.Errorf("tasks ready|block|cancel ID VERSION [REASON]")
+				return fmt.Errorf("tasks ready|block|cancel ID VERSION [REASON] (cancel: [--cascade])")
 			}
 			version, e := strconv.Atoi(args[3])
 			if e != nil {
@@ -155,6 +159,44 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 			p := map[string]any{"version": version, "action": args[1], "request_id": protocol.ID()}
 			if len(args) == 5 {
 				p["reason"] = args[4]
+			}
+			if cascade {
+				p["cascade"] = true
+			}
+			body = p
+		case "pause", "resume", "reassign", "reprioritize":
+			// Authority actions (hierarchy D2): pause|resume ID VERSION [REASON], reassign ID VERSION AGENT [REASON],
+			// reprioritize ID VERSION PRIORITY.
+			lo, hi := 4, 5
+			if args[1] == "reassign" {
+				lo, hi = 5, 6
+			}
+			if args[1] == "reprioritize" {
+				lo, hi = 5, 5
+			}
+			if len(args) < lo || len(args) > hi {
+				return fmt.Errorf("tasks pause|resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY")
+			}
+			version, e := strconv.Atoi(args[3])
+			if e != nil {
+				return e
+			}
+			method = "POST"
+			path = idPath(args[2]) + "/" + args[1]
+			p := map[string]any{"version": version, "request_id": protocol.ID()}
+			rest := args[4:]
+			switch args[1] {
+			case "reassign":
+				p["assignee"], rest = rest[0], rest[1:]
+			case "reprioritize":
+				priority, e := strconv.Atoi(rest[0])
+				if e != nil {
+					return e
+				}
+				p["priority"], rest = priority, nil
+			}
+			if len(rest) == 1 {
+				p["reason"] = rest[0]
 			}
 			body = p
 		case "review":

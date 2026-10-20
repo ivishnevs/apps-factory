@@ -166,22 +166,18 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	if e != nil || repeated.ReactionMessageID != rejected.ReactionMessageID {
 		t.Fatal("rejection replay", repeated, e)
 	}
-	pending, e := s.PendingMessages(ctx, storage.DefaultCompany)
-	if e != nil || len(pending) != 1 || pending[0].DecisionID != proposal.ID || pending[0].Recipient != "manager" {
-		t.Fatal("reaction", pending, e)
+	// The reaction is a trigger on the manager's conversation task (hierarchy D5).
+	conv := storage.ConversationID("p", "manager")
+	snap, e := s.TaskSnapshot(ctx, storage.DefaultCompany, conv)
+	if e != nil || len(snap.Pending) != 1 || snap.Pending[0].Kind != "message" || snap.Pending[0].RefID != rejected.ReactionMessageID || !snap.Pending[0].Authority {
+		t.Fatal("reaction", snap.Pending, e)
 	}
 	args["request_id"] = "rejected-takeover"
 	if w = call("decision_decide", args); w.Code != 409 {
 		t.Fatal("rejection bypass", w.Code)
 	}
-	if e = c.ScheduleMessages(ctx); e != nil {
-		t.Fatal(e)
-	}
-	m, _ := s.Message(ctx, storage.DefaultCompany, rejected.ReactionMessageID)
-	if m.DeliveryRunID != "" {
-		t.Fatal("overlapping writer", m)
-	}
-	// Restart before dispatch: the revision remains durable and is scheduled once after writer release.
+	// Restart before dispatch: the revision remains durable and is scheduled once (a conversation run does not
+	// wait for the project writer, which another agent's run holds here).
 	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded"})); e != nil {
 		t.Fatal(e)
 	}
@@ -191,18 +187,22 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 		t.Fatal(e)
 	}
 	c.Store = s
-	if e = c.ScheduleMessages(ctx); e != nil {
+	c.Handler()
+	if e = c.Schedule(ctx); e != nil {
 		t.Fatal(e)
 	}
-	m, _ = s.Message(ctx, storage.DefaultCompany, rejected.ReactionMessageID)
-	if m.DeliveryRunID == "" {
-		t.Fatal("no revision run", m)
+	ct, _ := s.Task(ctx, storage.DefaultCompany, conv)
+	if ct.CurrentRunID == "" {
+		t.Fatal("no revision run", ct)
 	}
-	revision, e := s.Get(ctx, storage.DefaultCompany, m.DeliveryRunID)
-	if e != nil || revision.Spec.Agent != "manager" || revision.Spec.TaskID != "" || !strings.Contains(revision.Spec.Prompt, "owner decision rejection") || !strings.Contains(revision.Spec.Prompt, "Free offline app only") {
+	if _, e = s.Claim(ctx, storage.DefaultCompany, ct.CurrentRunID); e != nil {
+		t.Fatal(e)
+	}
+	revision, e := s.Get(ctx, storage.DefaultCompany, ct.CurrentRunID)
+	if e != nil || revision.Spec.Agent != "manager" || revision.Spec.TaskID != conv || !strings.Contains(revision.Spec.Prompt, "owner decision rejection") || !strings.Contains(revision.Spec.Prompt, "Free offline app only") {
 		t.Fatal(revision, e)
 	}
-	if e = c.ScheduleMessages(ctx); e != nil {
+	if e = c.Schedule(ctx); e != nil {
 		t.Fatal(e)
 	}
 	runs, _ := s.List(ctx, storage.DefaultCompany)
