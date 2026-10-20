@@ -31,6 +31,11 @@ type Spec struct {
 	Runtime   struct {
 		Provider string `yaml:"provider" json:"provider"`
 		Model    string `yaml:"model" json:"model"`
+		// Effort is the reasoning effort (runtime_options effort; codex and claude): low, medium, high, xhigh,
+		// max. Empty keeps the runtime's default.
+		Effort string `yaml:"effort" json:"effort,omitempty"`
+		// MaxTurns caps the agentic turns of one run (runtime_options max_turns; claude only); 0 means no cap.
+		MaxTurns int `yaml:"max_turns" json:"max_turns,omitempty"`
 		// QuotaKey names the subscription whose limit this agent consumes; agents sharing it pause
 		// together when one hits the limit. Empty means the provider's key (DefaultQuotaKey).
 		QuotaKey string `yaml:"quota_key" json:"quota_key,omitempty"`
@@ -577,16 +582,28 @@ func (c *Catalog) finish(root string, a *Agent) error {
 // RuntimeOptions are the runtime_options keys each driver reads (runtime-drivers D1). Drivers declare
 // their own list (e.g. codex.Options) and test it against this registry; config stays free of driver imports.
 var RuntimeOptions = map[protocol.RuntimeProvider][]string{
-	protocol.RuntimeCodex:  {"model"},
+	protocol.RuntimeCodex:  {"model", "effort"},
 	protocol.RuntimeClaude: {"model", "effort", "max_turns"},
 }
 
-// RuntimeOptions are the run's runtime_options derived from the agent's runtime section.
+// Efforts are the reasoning efforts an agent may set (spec.runtime.effort), common to both runtimes.
+var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+// RuntimeOptions are the run's runtime_options derived from the agent's runtime section: model always,
+// effort and max_turns when set.
 func (a Agent) RuntimeOptions() map[string]any {
-	return map[string]any{"model": a.Spec.Runtime.Model}
+	o := map[string]any{"model": a.Spec.Runtime.Model}
+	if a.Spec.Runtime.Effort != "" {
+		o["effort"] = a.Spec.Runtime.Effort
+	}
+	if a.Spec.Runtime.MaxTurns != 0 {
+		o["max_turns"] = a.Spec.Runtime.MaxTurns
+	}
+	return o
 }
 
-// ValidateRuntimeOptions rejects an option the provider's driver does not read: never silently dropped.
+// ValidateRuntimeOptions rejects an option the provider's driver does not read (never silently dropped) and
+// an effort or max_turns value no driver accepts.
 func ValidateRuntimeOptions(p protocol.RuntimeProvider, opts map[string]any) error {
 	known, ok := RuntimeOptions[p]
 	if !ok {
@@ -596,6 +613,12 @@ func ValidateRuntimeOptions(p protocol.RuntimeProvider, opts map[string]any) err
 		if !slices.Contains(known, k) {
 			return fmt.Errorf("runtime option %q is not supported by %s (supported: %s)", k, p, strings.Join(known, ", "))
 		}
+	}
+	if e, ok := opts["effort"]; ok && !slices.Contains(Efforts, fmt.Sprint(e)) {
+		return fmt.Errorf("runtime effort %v: expected one of %s", e, strings.Join(Efforts, ", "))
+	}
+	if n, ok := opts["max_turns"].(int); ok && n < 1 {
+		return fmt.Errorf("runtime max_turns %d: expected at least 1 (omit it for no cap)", n)
 	}
 	return nil
 }

@@ -1,0 +1,17 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: claude-demo
+  description: Claude developer of the live smokes (cheapest model)
+spec:
+  reports_to: manager
+  extends: developer
+  runtime:
+    provider: claude
+    # Claude Haiku 5.5 by its full id: the pinned Claude Code (2.1.284) predates it and names only
+    # claude-haiku-4-5 (pricier) for the alias haiku. Effort low (inherited) and a turn cap keep a run small.
+    model: claude-haiku-5-5
+    max_turns: 10
+    quota_key: claude-subscription
+  prompt:
+    file: prompts/demo.md

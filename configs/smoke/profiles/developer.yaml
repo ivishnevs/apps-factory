@@ -1,0 +1,28 @@
+apiVersion: factory/v1
+kind: AgentProfile
+metadata:
+  name: developer
+  description: Cheapest defaults for live smoke runs (company smoke; production stays in configs/)
+spec:
+  role: developer
+  runtime:
+    provider: codex
+    # The cheapest model of the local Codex catalog (~/.codex/models_cache.json, codex-cli 0.162.x:
+    # "Fast and affordable model for easier tasks"), at the lowest reasoning effort it supports.
+    model: gpt-6-luna
+    effort: low
+    quota_key: codex-subscription
+  tools:
+    mode: denylist
+  approvals:
+    mode: selective
+  execution:
+    max_concurrent_runs: 1
+    # Smoke scripts wait 330 s per step: a stuck run fails before that instead of burning a full budget.
+    timeout: 4m
+    max_retries: 0
+  skills:
+    include: [openspec]
+  communication:
+    can_message: [manager, owner]
+  policies: [engineering]

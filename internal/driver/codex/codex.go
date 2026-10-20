@@ -27,7 +27,7 @@ import (
 const SupportedVersion = "codex-cli 0.162.1"
 
 // Options are the runtime_options keys the driver reads; config.RuntimeOptions must match.
-var Options = []string{"model"}
+var Options = []string{"model", "effort"}
 
 type Driver struct {
 	Binary string
@@ -107,6 +107,7 @@ type session struct {
 	exitGuard   func() bool // see driver.Launch.ExitGuard
 	guardLeft   int
 	model       string
+	effort      string  // runtime_options effort: reasoning effort sent with the run's first turn/start
 	base        *tokens // thread total before this run's turn
 	limits      rateLimits
 	quotaSent   bool
@@ -156,6 +157,9 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 	if model, ok := l.Spec.RuntimeOptions["model"].(string); ok && model != "" && model != "default" {
 		params["model"] = model
 	}
+	if effort, ok := l.Spec.RuntimeOptions["effort"].(string); ok && effort != "" {
+		s.effort = effort
+	}
 	method := "thread/start"
 	if l.Spec.SessionID != "" {
 		method = "thread/resume"
@@ -188,7 +192,11 @@ func (s *session) Start(ctx context.Context) error {
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	if err := s.call(ctx, "turn/start", map[string]any{"threadId": s.threadID, "input": []any{map[string]any{"type": "text", "text": s.prompt, "text_elements": []any{}}}}, &turn); err != nil {
+	params := map[string]any{"threadId": s.threadID, "input": []any{map[string]any{"type": "text", "text": s.prompt, "text_elements": []any{}}}}
+	if s.effort != "" {
+		params["effort"] = s.effort // this turn and the thread's later ones (exit guard follow-ups)
+	}
+	if err := s.call(ctx, "turn/start", params, &turn); err != nil {
 		return err
 	}
 	if turn.Turn.ID == "" {

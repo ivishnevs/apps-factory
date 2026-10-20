@@ -1,0 +1,4 @@
+# Company settings (hierarchy D5). The owner has several direct reports (agents without reports_to or with
+# reports_to: owner); unaddressed owner messages (CLI, Telegram) go to this one, "@name ..." to another.
+owner:
+  default_report: manager

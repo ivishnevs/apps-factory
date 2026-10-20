@@ -3,7 +3,11 @@
 
 The OpenSpec tree lives in Core (core-owned-project-data): the node materializes it into the run's
 workspace and uploads the run's edits at its exit. This script runs on the node's machine, reads the
-tree only through the owner API and validates a downloaded copy with the official CLI."""
+tree only through the owner API and validates a downloaded copy with the official CLI.
+
+Runs against a Core serving the smoke company (FACTORY_COMPANY=smoke, configs/smoke/: cheapest models) with
+FACTORY_EXPLICIT_EXITS=0; see docs/development.md, Live smokes. Three model runs (plan, implement, review); the
+first failed step stops the script, and --resume PROJECT continues after the plan and implementation."""
 import hashlib
 import json
 import os
@@ -22,7 +26,6 @@ resume = sys.argv[sys.argv.index('--resume') + 1] if '--resume' in sys.argv else
 project = resume or ('openspec-smoke-' + uuid.uuid4().hex[:10])
 progress_path = Path('.cache/' + project + '-verification-progress.json')
 workspace = Path('.cache/' + project).resolve()
-workspace.mkdir(parents=True, exist_ok=True)
 change = 'add-greeting'
 root = '/projects/' + project
 
@@ -32,6 +35,13 @@ def api(method, path, body=None):
         headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
+
+def preflight(exits):
+    """Refuses to start (no model run) unless Core serves the smoke company with the expected exits switch."""
+    health = api('GET', '/health')
+    company = os.environ.get('SMOKE_COMPANY', 'smoke')
+    assert company == 'any' or health.get('company') == company, f"Core serves company {health.get('company')!r}, not {company!r}: start it with FACTORY_COMPANY={company} (or SMOKE_COMPANY=any)"
+    assert health.get('explicit_exits') == exits, f"Core explicit_exits={health.get('explicit_exits')!r}; this smoke needs FACTORY_EXPLICIT_EXITS={'1' if exits == 'on' else '0'}"
 
 def wait(path, predicate):
     deadline = time.monotonic() + 330
@@ -76,6 +86,8 @@ def accept(t):
         return t
     return api('POST', '/tasks/' + t['id'] + '/review', {'version': t['version'], 'accept': True})
 
+preflight('off')  # the prompts use factory_task_accept and implicit submission
+workspace.mkdir(parents=True, exist_ok=True)
 if not resume:
     api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
     init_body = {'request_id': 'bootstrap'}

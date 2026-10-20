@@ -1,0 +1,13 @@
+# Quota keys (runtime-drivers D5): the company's subscriptions. Agents name one with spec.runtime.quota_key;
+# a usage limit reported by any run on a key pauses claims for every agent on that key until the limit resets
+# (Core opens one quota_paused escalation to the owner), while agents on other keys keep running.
+# While this file exists, an agent's quota_key must be declared here with the agent's provider.
+# Agents without quota_key use their provider's key: the one key declared here for that provider, otherwise
+# <provider>-default (codex-default, claude-default).
+quota_keys:
+  codex-subscription:
+    provider: codex
+    description: One ChatGPT account for every Codex agent.
+  claude-subscription:
+    provider: claude
+    description: One Claude account for every Claude agent.

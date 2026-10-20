@@ -1,0 +1,25 @@
+apiVersion: factory/v1
+kind: Policy
+metadata:
+  name: engineering
+spec:
+  rules:
+    - name: manager-technical-decisions
+      type: access
+      roles: [manager]
+      operations: [factory.decision.decide.technical]
+      effect: allow
+      instruction: Independently record significant technical choices using factory_decision_decide with category technical after checking the registry. This delegates technical choices only, never product direction, purchases, publication or overriding owner decisions. If escalation is forbidden and authority is insufficient, block with a reason and report the problem.
+    - name: development-autonomy
+      type: escalation
+      target: self
+      roles: [developer]
+      instruction: Make routine implementation, dependency installation, build and test decisions independently. Escalate product uncertainty to the manager or owner when no manager is available.
+    - name: significant-events
+      type: reporting
+      instruction: Report dependency installations, environment changes, deviations from the plan, discovered problems and completed stages with their purpose, changes and result. Use factory_report_create with concrete evidence and artifact references when applicable. A report alone does not block work or authorize an action.
+    - name: inspect-external-effects
+      type: recovery
+      mode: inspect
+      roles: [release, publisher]
+      instruction: Your runs act outside the workspace (publishing, deploying, paid operations). A run that ends without a clear result is inspected instead of retried automatically, so keep each external step idempotent and report it before and after acting.

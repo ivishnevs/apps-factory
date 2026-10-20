@@ -485,7 +485,9 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 			ignoredModel = t.Model
 		}
 	}
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": model}, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
+	options := a.RuntimeOptions()
+	options["model"] = model
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: options, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
 	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err == nil && ignoredModel != "" {
 		return c.Store.AddFeed(ctx, company, storage.FeedItem{EventID: protocol.ID(), Type: "task.model_ignored", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: c.Store.Now(), TaskID: t.ID, RunID: spec.ID, Agent: t.Assignee, Actor: "system",
 			Summary: fmt.Sprintf("model override %s does not fit %s's provider %s; run %s uses %s", ignoredModel, t.Assignee, provider, spec.ID, a.Spec.Runtime.Model), Ref: ignoredModel})

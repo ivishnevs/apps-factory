@@ -10,8 +10,27 @@ heartbeat, workspace, credential and events. The standalone TypeScript service (
 
 Agents select it with `spec.runtime.provider: claude` (see `configs/agents/claude-demo.yaml`).
 `runtime.model: default` leaves the model to Claude Code; any other value is passed as `model`.
-`runtime_options.effort` (`low|medium|high|xhigh|max`) and `runtime_options.max_turns` (positive
-integer, SDK `maxTurns`) are forwarded when present.
+`runtime.effort` (`low|medium|high|xhigh|max`) and `runtime.max_turns` (positive integer, SDK `maxTurns`)
+travel as `runtime_options.effort` / `runtime_options.max_turns` and are forwarded when set. A model newer than
+the pinned Claude Code (e.g. `claude-haiku-5-5`) is passed by its full id; the aliases (`haiku`, …) resolve to
+what that Claude Code version knows.
+
+### Personal subscription (`CLAUDE_CONFIG_DIR`)
+
+Claude Code keeps its login, settings and sessions in `CLAUDE_CONFIG_DIR` (default `~/.claude`). To run the
+node's Claude agents on another account, such as the owner's personal subscription kept in
+`~/.claude-personal`, start the node (and its doctor) with that variable:
+
+```sh
+CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node doctor -config data/node.yaml -drivers claude
+CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node run -config data/node.yaml
+```
+
+`CLAUDE_*` is on the runtime environment allowlist (`worker.RuntimeEnv`), and the shim's environment scrub keeps
+it, so the probe (`shim.js --probe`, which inherits the node's environment) and every run's Claude Code use the
+same directory: `claude.auth` in `doctor` reports that account's login, and sessions are stored (and resumed)
+under `$CLAUDE_CONFIG_DIR/projects`. Log in once with `CLAUDE_CONFIG_DIR=$HOME/.claude-personal claude` (`/login`).
+Changing the variable between node starts makes earlier sessions unavailable for resume (they start fresh).
 
 ## Running
 
@@ -187,7 +206,7 @@ Owner/broker secrets are removed from the runtime env; `FACTORY_RUN_TOKEN` reach
 inheritance and is not part of the MCP configuration. Same-user processes can still read process
 environments on macOS; this is the trusted host model, not a boundary.
 
-Sessions are stored by Claude Code under `~/.claude/projects` per workspace path, so a session can
+Sessions are stored by Claude Code under `$CLAUDE_CONFIG_DIR/projects` (default `~/.claude/projects`) per workspace path, so a session can
 only be resumed on the node (and workspace path) that ran it; the Go executor resumes only sessions it
 recorded in `<state_dir>/sessions` and starts others fresh. Core refuses an
 explicit resume of a session created by another provider; scheduled task/conversation continuations

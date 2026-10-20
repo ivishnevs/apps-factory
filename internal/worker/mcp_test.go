@@ -17,7 +17,7 @@ func init() {
 func TestRuntimeCredentialEnvironment(t *testing.T) {
 	node := []string{"PATH=/bin", "HOME=/tmp", "LC_ALL=C", "GH_TOKEN=forge", "OPENAI_API_KEY=model", "FACTORY_TOKEN=owner", "FACTORY_NODE_TOKEN=owner",
 		"FACTORY_RUN_TOKEN=old", "FACTORY_URL=old", "FACTORY_NODE_CONFIG=/etc/owner", "NATS_URL=secret", "NATS_PASSWORD=secret", "NATS_CREDS=secret",
-		"DATABASE_URL=private", "XCODE_TEAM=team"}
+		"DATABASE_URL=private", "XCODE_TEAM=team", "CLAUDE_CONFIG_DIR=/home/o/.claude-personal"}
 	env := runEnvironment(node, []string{"XCODE_*", "NATS_*", "FACTORY_TOKEN"}, "http://localhost:8080", "scoped")
 	joined := strings.Join(env, "\n")
 	for _, secret := range []string{"owner", "secret", "old", "private"} {
@@ -25,7 +25,7 @@ func TestRuntimeCredentialEnvironment(t *testing.T) {
 			t.Fatal("not allowlisted or credential inherited", joined)
 		}
 	}
-	for _, required := range []string{"PATH=/bin", "HOME=/tmp", "LC_ALL=C", "GH_TOKEN=forge", "OPENAI_API_KEY=model", "XCODE_TEAM=team",
+	for _, required := range []string{"PATH=/bin", "HOME=/tmp", "LC_ALL=C", "GH_TOKEN=forge", "OPENAI_API_KEY=model", "XCODE_TEAM=team", "CLAUDE_CONFIG_DIR=/home/o/.claude-personal",
 		"FACTORY_URL=http://localhost:8080", "FACTORY_RUN_TOKEN=scoped"} {
 		if !strings.Contains(joined, required) {
 			t.Fatal(required, joined)

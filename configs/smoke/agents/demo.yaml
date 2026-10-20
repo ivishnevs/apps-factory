@@ -1,0 +1,10 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: demo
+  description: Codex executor and reviewer of the live smokes (cheapest model)
+spec:
+  reports_to: manager
+  extends: developer
+  prompt:
+    file: prompts/demo.md

@@ -272,8 +272,11 @@ test("runtime environment drops owner secrets and API keys", () => {
     NATS_PASSWORD: "secret",
     FACTORY_RUN_TOKEN: "scoped",
     ANTHROPIC_API_KEY: "key",
+    CLAUDE_CONFIG_DIR: "/home/o/.claude-personal",
   });
   const joined = JSON.stringify(env);
+  // A node started with CLAUDE_CONFIG_DIR (another Claude account) keeps it for the run's Claude Code.
+  assert.equal(env.CLAUDE_CONFIG_DIR, "/home/o/.claude-personal");
   for (const secret of ["owner", "secret", "key"]) assert.ok(!joined.includes(`"${secret}"`), secret);
   assert.equal(env.FACTORY_RUN_TOKEN, "scoped");
   assert.equal(env.PATH, "/bin");

@@ -1,0 +1,15 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: manager
+  description: Codex manager of the live smokes (cheapest model)
+spec:
+  extends: developer
+  role: manager
+  reports_to: owner
+  prompt:
+    file: prompts/manager.md
+  communication:
+    can_message: [demo, claude-demo, owner]
+    can_create_tasks: true
+    can_assign_tasks: true

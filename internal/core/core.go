@@ -117,7 +117,11 @@ func (c *Core) Handler() http.Handler {
 			http.Error(w, "unavailable", 503)
 			return
 		}
-		write(w, map[string]string{"status": "ok", "database": database, "company": c.company()})
+		exits := "off"
+		if c.ExplicitExits {
+			exits = "on"
+		}
+		write(w, map[string]string{"status": "ok", "database": database, "company": c.company(), "explicit_exits": exits})
 	})
 	m.HandleFunc("GET /agents", func(w http.ResponseWriter, r *http.Request) { write(w, config.Names(c.Agents)) })
 	m.HandleFunc("POST /runs", c.create)
@@ -273,7 +277,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Workspace is a host path: Core in Docker must not attempt to resolve it.
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: map[string]any{"model": a.Spec.Runtime.Model}, ConfigSnapshot: snapshot, ConfigHash: hash, Skills: append([]string{}, a.AvailableSkills...)}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: a.RuntimeOptions(), ConfigSnapshot: snapshot, ConfigHash: hash, Skills: append([]string{}, a.AvailableSkills...)}
 	if err := c.Store.Create(r.Context(), c.companyFrom(r), spec); err != nil {
 		http.Error(w, err.Error(), 409)
 		return

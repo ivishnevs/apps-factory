@@ -32,6 +32,10 @@ the task through `PATCH /tasks/{id}`, `factory tasks model ID VERSION MODEL|-` o
 override must fit the assignee's provider (Claude: `opus`, `sonnet`, `haiku`, `opusplan`, `claude-*`, optional
 `[1m]`; Codex: `gpt-*`, `codex-*`, `o<digit>…`; `default` fits both) or it is refused; one left behind by a
 reassignment to another provider is ignored (the agent's model runs) with a `task.model_ignored` feed event.
+`runtime.effort` (`low|medium|high|xhigh|max`; Codex and Claude) is the reasoning effort (Codex `turn/start`
+`effort`, Claude SDK `effort`); `runtime.max_turns` (Claude only, at least 1) caps one run's agentic turns (SDK
+`maxTurns`; hitting it ends the run `max_turns`). Both are omitted from the run when unset (runtime default);
+`factory config validate` refuses another value or `max_turns` on Codex.
 Prompt paths must resolve inside FACTORY_ROOT, including symlinks. timeout is 1s–24h.
 `execution.max_concurrent_runs` (1..8, default 1) caps the agent's live runs and `max_concurrent_runs_per_project` (default the same) its live runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time. Keep coordinators (role manager) at 1. max_retries must be nonnegative; it is a deprecated alias kept for compatibility: automatic retry follows the
 outcome table (three attempts without progress, a daily budget; task-lifecycle.md). A `type: recovery, mode:

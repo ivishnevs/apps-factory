@@ -223,6 +223,58 @@ func TestSkillsExtraRoot(t *testing.T) {
 	}
 }
 
+// TestModelAndEffort: runtime_options model goes to thread/start, effort to the run's turn/start (the
+// app-server keeps it for the thread's later turns); without effort none is sent.
+func TestModelAndEffort(t *testing.T) {
+	t.Setenv("FACTORY_FAKE_CODEX", "1")
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effort := range []string{"low", ""} {
+		log := filepath.Join(t.TempDir(), "calls.jsonl")
+		t.Setenv("FACTORY_FAKE_CODEX_LOG", log)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		options := map[string]any{"model": "gpt-6-luna"}
+		if effort != "" {
+			options["effort"] = effort
+		}
+		s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work", RuntimeOptions: options}, Cwd: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = s.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		for range s.Events() {
+		}
+		<-s.Done()
+		s.Close()
+		cancel()
+		b, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]map[string]any{}
+		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			var c struct {
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			}
+			if err = json.Unmarshal([]byte(line), &c); err != nil {
+				t.Fatal(err)
+			}
+			got[c.Method] = c.Params
+		}
+		if got["thread/start"]["model"] != "gpt-6-luna" {
+			t.Fatal("thread/start", got["thread/start"])
+		}
+		if e, ok := got["turn/start"]["effort"]; effort == "" && ok || effort != "" && e != effort {
+			t.Fatalf("effort %q: turn/start %v", effort, got["turn/start"])
+		}
+	}
+}
+
 // TestFakeTurnsServer completes every turn at once and reports how many turns it saw.
 func TestFakeTurnsServer(t *testing.T) {
 	if os.Getenv("FACTORY_FAKE_CODEX") != "turns" {

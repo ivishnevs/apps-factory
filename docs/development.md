@@ -115,6 +115,53 @@ Reports and decisions: `scripts/journal-smoke.py --restart-core` verifies three 
 
 OpenSpec documents live in Core (migration `0002_project_data`: `spec_documents`, blobs); nodes materialize them and the MCP adapter syncs edits back at exits. `factory openspec import PROJECT DIR` uploads an existing tree. `scripts/openspec-smoke.py --restart-core` exercises the native official CLI on a downloaded copy, owner compare-and-set writes and linked tasks. See [OpenSpec](openspec.md).
 
+### Live smokes (cheap)
+
+Live smokes spend subscription usage; run them against the **smoke company** (`configs/smoke/`), never the
+production catalog. It has only the agents the smokes use, on the cheapest models at `effort: low`, with a 4 min run
+timeout and no retries: `demo` and `manager` on Codex `gpt-6-luna` (the cheapest entry of the Codex model catalog,
+`~/.codex/models_cache.json`), `claude-demo` on Claude `claude-haiku-5-5` with `max_turns: 10`
+(`TestSmokeCatalog` pins this). If a step fails because the model is too weak, raise that one agent (e.g.
+`gpt-6.1-sol`) rather than the whole catalog. `messaging-smoke.py`, `openspec-smoke.py` and `drivers-smoke.py`
+check `GET /health` first (`company`, `explicit_exits`) and refuse to start a model run against the wrong Core
+(`SMOKE_COMPANY=any` skips the company check); each stops at its first failed step.
+
+```sh
+# .env: FACTORY_TOKEN, POSTGRES_PASSWORD, NATS_PASSWORD as usual. Core for the smoke company:
+FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=0 docker compose up -d --build core
+./bin/factory config validate --company smoke
+cat > data/node-smoke.yaml <<'EOF'
+company: smoke
+state_dir: data/factory-node-smoke
+drivers:
+  codex: {enabled: true}
+  claude: {enabled: true}
+EOF
+# Node environment as usual (FACTORY_TOKEN, FACTORY_URL, NATS_URL); Claude on the personal subscription
+# (claude-runtime.md, Personal subscription):
+CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node doctor -config data/node-smoke.yaml
+CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node run -config data/node-smoke.yaml
+
+# hierarchy 3.2 (Codex only, 7 runs in all):
+scripts/messaging-smoke.py --only owner --restart-core     # the restart part first: 2 demo runs
+scripts/messaging-smoke.py --only agent,dialog              # 2 demo + 3 manager conversation runs
+# core-owned-project-data 3.4 (Codex only; plan, implement, review + Core's archive task, cancelled):
+scripts/openspec-smoke.py --restart-core                    # after a failure past the plan: --resume PROJECT
+# runtime-drivers 4.2 (Claude developer + Codex reviewer; needs explicit exits on):
+FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d core
+scripts/drivers-smoke.py                                    # 3 runs: Claude submit, Codex approve, Claude done
+```
+
+`messaging-smoke.py --only agent,owner,dialog` (comma list) runs a subset; `--restart-core` applies to `owner`.
+`messaging-smoke.py` and `openspec-smoke.py` were written for implicit submission (`FACTORY_EXPLICIT_EXITS=0`,
+`factory_task_accept`); `drivers-smoke.py` (and `exits-smoke.py`, `SMOKE_AGENT=claude-demo`) need exits on, so
+switch Core between them (`docker compose up -d core` with the other value; the node keeps running). Overlap:
+`messaging-smoke.py --only agent` and the manager runs of `openspec-smoke.py` both exercise the manager's
+conversation task; `drivers-smoke.py` repeats the explicit exits of `exits-smoke.py` across two runtimes, so a
+passing `drivers-smoke.py` makes a separate `exits-smoke.py` run unnecessary. Results land in
+`.cache/messaging-verification.json`, `.cache/openspec-verification.json` and `.cache/drivers-verification.json`
+(run ids, sessions, exits, `GET /tasks/{id}/costs`).
+
 ## Node doctor
 
 `./bin/factory-node doctor` runs the node self-checks locally (node-agent D7); Core and NATS are checked only when
