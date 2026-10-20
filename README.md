@@ -144,7 +144,7 @@ The workspace is an absolute path on the node's machine, not inside a container.
 ```
 
 Telegram is enabled by `FACTORY_TELEGRAM_TOKEN` (plus `FACTORY_TELEGRAM_PROJECT`, `FACTORY_TELEGRAM_DIGEST_AT`) in
-Core's environment (with `make up`, add them to the `core` service in `compose.yaml`). Details: [owner controls](docs/task-lifecycle.md#owner-controls),
+Core's environment (with `make up`, set them in `.env`; `compose.yaml` passes them to Core). Details: [owner controls](docs/task-lifecycle.md#owner-controls),
 [messaging and Telegram](docs/messaging.md#telegram), [event feed and costs](docs/reports-decisions.md#event-feed-and-costs).
 
 Owner TUI: see branch `tui` / [docs/owner-ui.md](docs/owner-ui.md) once merged.

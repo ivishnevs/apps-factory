@@ -39,6 +39,10 @@ services:
       NATS_URL: nats://factory:${NATS_PASSWORD}@nats:4222
       # Runs end with factory_exit_* (docs/explicit-exits-contract.md); set 0 in .env for the old rules.
       FACTORY_EXPLICIT_EXITS: ${FACTORY_EXPLICIT_EXITS:-1}
+      # Telegram (docs/messaging.md#telegram): off while FACTORY_TELEGRAM_TOKEN is empty.
+      FACTORY_TELEGRAM_TOKEN: ${FACTORY_TELEGRAM_TOKEN:-}
+      FACTORY_TELEGRAM_PROJECT: ${FACTORY_TELEGRAM_PROJECT:-}
+      FACTORY_TELEGRAM_DIGEST_AT: ${FACTORY_TELEGRAM_DIGEST_AT:-}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
