@@ -1,4 +1,6 @@
-// Package openspec provides file-based integration, not an OpenSpec workflow engine.
+// Package openspec holds the OpenSpec path rules and document views over a project's tree in Core storage
+// (core-owned-project-data D2); it is not an OpenSpec workflow engine. Storage supplies the documents, nodes
+// materialize them as files and the official OpenSpec CLI works on those files.
 package openspec
 
 import (
@@ -6,14 +8,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 	"unicode/utf8"
 )
 
@@ -22,7 +20,9 @@ var changeName = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 const MaxDocument = 1 << 20
 
-type Access struct{ HostRoot, LocalRoot string }
+// DefaultDir is the tree's directory in a worktree when the project does not set openspec.dir.
+const DefaultDir = "openspec"
+
 type Entry struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
@@ -56,89 +56,51 @@ type Initialized struct {
 	Directories []string `json:"directories"`
 }
 
-// Open the mapped root first so resolution cannot escape it, even through symlinks.
-func (a Access) workspace(workspace string) (*os.Root, error) {
-	if !filepath.IsAbs(workspace) {
-		return nil, fmt.Errorf("absolute host workspace required")
-	}
-	if a.HostRoot == "" && a.LocalRoot == "" {
-		return os.OpenRoot(workspace)
-	}
-	if !filepath.IsAbs(a.HostRoot) || !filepath.IsAbs(a.LocalRoot) {
-		return nil, fmt.Errorf("both workspace roots must be absolute")
-	}
-	rel, e := filepath.Rel(filepath.Clean(a.HostRoot), filepath.Clean(workspace))
-	if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("workspace outside configured host root")
-	}
-	root, e := os.OpenRoot(a.LocalRoot)
-	if e != nil {
-		return nil, fmt.Errorf("workspace mount unavailable: %w", e)
-	}
-	defer root.Close()
-	return root.OpenRoot(rel)
-}
-func directory(root *os.Root, name string) (*os.Root, error) {
-	info, e := root.Lstat(name)
-	if e != nil {
-		return nil, e
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("regular directory required: %s", name)
-	}
-	return root.OpenRoot(name)
-}
-func (a Access) tree(workspace string) (*os.Root, error) {
-	root, e := a.workspace(workspace)
-	if e != nil {
-		return nil, e
-	}
-	defer root.Close()
-	return directory(root, "openspec")
-}
-func mkdir(root *os.Root, name string) error {
-	if e := root.Mkdir(name, 0755); e != nil && !errors.Is(e, os.ErrExist) {
-		return e
-	}
-	dir, e := directory(root, name)
-	if e != nil {
-		return e
-	}
-	return dir.Close()
+// Doc is one current document of a project's tree: its path relative to the tree, digest and size.
+type Doc struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
 }
 
-// Init only bootstraps directories. No configuration, prompts or documents are overwritten.
-func (a Access) Init(workspace string) (Initialized, error) {
-	out := Initialized{Directories: []string{"openspec", "openspec/specs", "openspec/changes", "openspec/changes/archive"}}
-	root, e := a.workspace(workspace)
-	if e != nil {
-		return out, e
-	}
-	defer root.Close()
-	if e = mkdir(root, "openspec"); e != nil {
-		return out, e
-	}
-	tree, e := directory(root, "openspec")
-	if e != nil {
-		return out, e
-	}
-	defer tree.Close()
-	for _, name := range []string{"specs", "changes"} {
-		if e = mkdir(tree, name); e != nil {
-			return out, e
-		}
-	}
-	changes, e := directory(tree, "changes")
-	if e != nil {
-		return out, e
-	}
-	defer changes.Close()
-	return out, mkdir(changes, "archive")
+// Written is the answer of a write, move or delete: the document's new current digest ("" once deleted).
+type Written struct {
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	Version int64  `json:"version"`
+	Deleted bool   `json:"deleted,omitempty"`
+	// From is the source of a move.
+	From string `json:"from,omitempty"`
+	// Unchanged: the document already had this content (a retried write), no version was added.
+	Unchanged bool `json:"unchanged,omitempty"`
 }
+
+// ConflictError is a compare-and-set failure (HTTP 409): the document's current digest is not the caller's
+// base ("" when the document does not exist).
+type ConflictError struct {
+	Path    string `json:"path"`
+	Current string `json:"current_sha256"`
+}
+
+func (e *ConflictError) Error() string {
+	if e.Current == "" {
+		return "openspec: " + e.Path + " does not exist (base_sha256 must be empty)"
+	}
+	return "openspec: " + e.Path + " changed; current sha256 " + e.Current
+}
+func (e *ConflictError) Is(target error) bool { return target == ErrConflict }
+
+// Directories are the tree's fixed directories: every initialized tree lists them, even when empty.
+var Directories = []string{"specs", "changes", "changes/archive"}
+
 func ValidChange(name string) bool {
 	return len(name) <= 96 && changeName.MatchString(name) && name != "archive"
 }
-func validPath(name string) bool {
+
+// ValidPath: config.yaml, or Markdown and .openspec.yaml under specs/ and changes/ (archive included),
+// relative, without traversal.
+func ValidPath(name string) bool {
 	if name == "" || len(name) > 512 || strings.Contains(name, "\\") || path.Clean(name) != name || strings.HasPrefix(name, "/") {
 		return false
 	}
@@ -157,49 +119,75 @@ func validPath(name string) bool {
 	base := bits[len(bits)-1]
 	return strings.HasSuffix(base, ".md") || base == ".openspec.yaml"
 }
-func read(root *os.Root, name string) ([]byte, error) {
-	info, e := root.Lstat(name)
-	if e != nil {
-		return nil, e
+
+// ValidDir is a directory of the tree: "." (the root), specs, changes or below them.
+func ValidDir(dir string) (string, error) {
+	if dir == "" {
+		dir = "."
 	}
-	if !info.Mode().IsRegular() || info.Size() > MaxDocument {
-		return nil, fmt.Errorf("regular document <= 1 MiB required")
+	if dir != "." && (strings.HasPrefix(dir, "/") || path.Clean(dir) != dir || strings.Contains(dir, "\\") || len(dir) > 512 || !(dir == "changes" || dir == "specs" || strings.HasPrefix(dir, "changes/") || strings.HasPrefix(dir, "specs/"))) {
+		return dir, fmt.Errorf("valid OpenSpec directory required")
 	}
-	// A nonblocking open avoids hanging if a trusted local edit races a file into a FIFO.
-	f, e := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if e != nil {
-		return nil, e
+	for _, b := range strings.Split(dir, "/") {
+		if b == ".." {
+			return dir, fmt.Errorf("invalid directory")
+		}
 	}
-	defer f.Close()
-	info, e = f.Stat()
-	if e != nil || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("regular document required")
-	}
-	b, e := io.ReadAll(io.LimitReader(f, MaxDocument+1))
-	if e != nil {
-		return nil, e
-	}
-	if len(b) > MaxDocument || !utf8.Valid(b) {
-		return nil, fmt.Errorf("UTF-8 document <= 1 MiB required")
-	}
-	return b, nil
+	return dir, nil
 }
-func (a Access) Read(workspace, name string, offset, limit int, digest string) (Document, error) {
-	out := Document{Path: name, Offset: offset}
-	if !validPath(name) || offset < 0 || limit < 4 || limit > 32768 || offset > 0 && len(digest) != 64 {
-		return out, fmt.Errorf("valid OpenSpec path, offset >= 0, limit 4..32768 and SHA256 for continuation required")
+
+// ValidSubdir is a directory below specs/ or changes/ (a moved change or capability).
+func ValidSubdir(dir string) bool {
+	d, err := ValidDir(dir)
+	return err == nil && d != "." && d != "specs" && d != "changes" && !ValidPath(d)
+}
+
+// ValidTreeDir is a project's openspec.dir: a relative directory of the worktree outside .factory and .git.
+func ValidTreeDir(dir string) bool {
+	if dir == "" || len(dir) > 128 || strings.Contains(dir, "\\") || path.Clean(dir) != dir || strings.HasPrefix(dir, "/") {
+		return false
 	}
-	root, e := a.tree(workspace)
-	if e != nil {
-		return out, e
+	for _, b := range strings.Split(dir, "/") {
+		if b == "." || b == ".." || b == "" {
+			return false
+		}
 	}
-	defer root.Close()
-	b, e := read(root, name)
-	if e != nil {
-		return out, e
+	first := strings.Split(dir, "/")[0]
+	return first != ".factory" && first != ".git"
+}
+
+// ValidContent: a UTF-8 document of at most 1 MiB.
+func ValidContent(b []byte) error {
+	if len(b) > MaxDocument || !utf8.Valid(b) {
+		return fmt.Errorf("UTF-8 document <= 1 MiB required")
 	}
+	return nil
+}
+
+func Digest(b []byte) string {
 	sum := sha256.Sum256(b)
-	out.SHA256 = hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
+}
+
+// ValidRead checks read arguments before the document is loaded.
+func ValidRead(name string, offset, limit int, digest string) error {
+	if !ValidPath(name) || offset < 0 || limit < 4 || limit > 32768 || offset > 0 && len(digest) != 64 {
+		return fmt.Errorf("valid OpenSpec path, offset >= 0, limit 4..32768 and SHA256 for continuation required")
+	}
+	return nil
+}
+
+// Read pages a document: up to limit bytes from offset on UTF-8 boundaries. A continuation (digest set)
+// fails with ErrConflict once the document changed.
+func Read(name string, b []byte, offset, limit int, digest string) (Document, error) {
+	out := Document{Path: name, Offset: offset}
+	if err := ValidRead(name, offset, limit, digest); err != nil {
+		return out, err
+	}
+	if err := ValidContent(b); err != nil {
+		return out, err
+	}
+	out.SHA256 = Digest(b)
 	if digest != "" && digest != out.SHA256 {
 		return out, ErrConflict
 	}
@@ -216,96 +204,98 @@ func (a Access) Read(workspace, name string, offset, limit int, digest string) (
 	out.Content = string(b[offset:end])
 	return out, nil
 }
-func (a Access) CheckChange(workspace, name string) (Check, error) {
+
+// ProposalPath is the proposal of an active change, relative to the tree.
+func ProposalPath(change string) string { return "changes/" + change + "/proposal.md" }
+
+// CheckChange validates an active change reference from its proposal's content (found reports whether the
+// proposal exists).
+func CheckChange(name string, proposal []byte, found bool) (Check, error) {
 	out := Check{Change: name, Path: "openspec/changes/" + name, Scope: "reference", Note: "Checks an active change and nonempty proposal only; use official OpenSpec tools for schema/semantic validation."}
 	if !ValidChange(name) {
 		return out, fmt.Errorf("invalid active OpenSpec change name")
 	}
-	root, e := a.tree(workspace)
-	if e != nil {
-		return out, e
+	if !found {
+		return out, fmt.Errorf("change %s has no proposal (%s)", name, ProposalPath(name))
 	}
-	defer root.Close()
-	change, e := directory(root, "changes/"+name)
-	if e != nil {
-		return out, e
+	if err := ValidContent(proposal); err != nil {
+		return out, err
 	}
-	defer change.Close()
-	b, e := read(change, "proposal.md")
-	if e != nil {
-		return out, e
-	}
-	if strings.TrimSpace(string(b)) == "" {
+	if strings.TrimSpace(string(proposal)) == "" {
 		return out, fmt.Errorf("nonempty change proposal required")
 	}
-	sum := sha256.Sum256(b)
-	out.ProposalSHA256 = hex.EncodeToString(sum[:])
+	out.ProposalSHA256 = Digest(proposal)
 	out.Valid = true
 	return out, nil
 }
 
-// List one OpenSpec directory at a time; bounded scans avoid recursively loading project text.
-func (a Access) List(workspace, dir, after string, limit int) (Page, error) {
+// List one directory of the tree from its documents (all current documents under dir): the documents directly
+// in it and the subdirectories that hold documents, plus the fixed directories. Names are sorted; after is the
+// previous page's next_after.
+func List(docs []Doc, dir, after string, limit int) (Page, error) {
 	out := Page{Items: []Entry{}, NextAfter: after}
-	if dir == "" {
-		dir = "."
-	}
-	if dir != "." && (strings.HasPrefix(dir, "/") || path.Clean(dir) != dir || strings.Contains(dir, "\\") || len(dir) > 512 || !(dir == "changes" || dir == "specs" || strings.HasPrefix(dir, "changes/") || strings.HasPrefix(dir, "specs/"))) {
-		return out, fmt.Errorf("valid OpenSpec directory required")
-	}
-	for _, b := range strings.Split(dir, "/") {
-		if b == ".." {
-			return out, fmt.Errorf("invalid directory")
-		}
+	dir, err := ValidDir(dir)
+	if err != nil {
+		return out, err
 	}
 	if limit < 1 || limit > 100 || len(after) > 255 {
 		return out, fmt.Errorf("limit 1..100 and bounded after required")
 	}
-	root, e := a.tree(workspace)
-	if e != nil {
-		return out, e
+	prefix := dir + "/"
+	if dir == "." {
+		prefix = ""
 	}
-	defer root.Close()
-	d, e := directory(root, dir)
-	if e != nil {
-		return out, e
+	entries := map[string]Entry{}
+	for _, d := range Directories {
+		if rest, ok := strings.CutPrefix(d, prefix); ok && rest != "" && !strings.Contains(rest, "/") {
+			entries[rest] = Entry{Name: rest, Path: d, Directory: true}
+		}
 	}
-	defer d.Close()
-	f, e := d.Open(".")
-	if e != nil {
-		return out, e
-	}
-	defer f.Close()
-	entries, e := f.ReadDir(2001)
-	if e != nil && !errors.Is(e, io.EOF) {
-		return out, e
+	for _, d := range docs {
+		rest, ok := strings.CutPrefix(d.Path, prefix)
+		if !ok || rest == "" {
+			continue
+		}
+		name, sub, nested := strings.Cut(rest, "/")
+		if nested && sub != "" {
+			entries[name] = Entry{Name: name, Path: path.Join(dir, name), Directory: true}
+		} else if !nested {
+			entries[name] = Entry{Name: name, Path: d.Path, Bytes: d.Size}
+		}
 	}
 	if len(entries) > 2000 {
 		return out, fmt.Errorf("directory exceeds 2000 entries; use native OpenSpec tools")
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	for _, entry := range entries {
-		name := entry.Name()
-		if name <= after || entry.Type()&os.ModeSymlink != 0 {
-			continue
-		}
-		p := path.Join(dir, name)
-		if !entry.IsDir() && !validPath(p) {
-			continue
-		}
-		info, e := d.Lstat(name)
-		if e != nil {
-			return out, e
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
+	names := make([]string, 0, len(entries))
+	for n := range entries {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name <= after {
 			continue
 		}
 		if len(out.Items) == limit {
 			out.HasMore = true
 			break
 		}
-		out.Items = append(out.Items, Entry{Name: name, Path: p, Directory: info.IsDir(), Bytes: info.Size()})
+		out.Items = append(out.Items, entries[name])
 		out.NextAfter = name
 	}
 	return out, nil
+}
+
+// Changes are the active changes named by documents (changes/<name>/..., archive excluded).
+func Changes(docs []Doc) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range docs {
+		bits := strings.Split(d.Path, "/")
+		if len(bits) >= 3 && bits[0] == "changes" && ValidChange(bits[1]) && !seen[bits[1]] {
+			seen[bits[1]] = true
+			out = append(out, bits[1])
+		}
+	}
+	sort.Strings(out)
+	return out
 }

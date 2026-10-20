@@ -145,7 +145,10 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, OpenSpec: in.OpenSpec, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		if err := validOpenSpecSetting(p.OpenSpec); err != nil {
+			return p, err
+		}
 		if err := validReviewPolicy(p.ReviewAfterConflicts); err != nil {
 			return p, err
 		}
@@ -196,6 +199,12 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 				return p, err
 			}
 			p.ReviewAfterConflicts = *in.ReviewAfterConflicts
+		}
+		if in.OpenSpec != nil {
+			if err = validOpenSpecSetting(in.OpenSpec); err != nil {
+				return p, err
+			}
+			p.OpenSpec = in.OpenSpec
 		}
 		if err = validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err

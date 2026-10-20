@@ -18,11 +18,41 @@ type Project struct {
 	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
 	// Rules are the project's standing conventions, facts and fixed decisions, carried by every brief.
 	Rules string `json:"rules,omitempty"`
+	// OpenSpec is the project's OpenSpec setting (core-owned-project-data D2); nil means enabled in openspec/.
+	OpenSpec *ProjectOpenSpec `json:"openspec,omitempty"`
 }
+
+// ProjectOpenSpec: Enabled (default true) keeps the project's OpenSpec tree in Core and materializes it into
+// every run's worktree at Dir (default openspec); ArchiveAssignee receives the archive task of a finished
+// change (default: the manager of its last implementer).
+type ProjectOpenSpec struct {
+	Enabled         *bool  `json:"enabled,omitempty"`
+	Dir             string `json:"dir,omitempty"`
+	ArchiveAssignee string `json:"archive_assignee,omitempty"`
+}
+
+// OpenSpecEnabled is the project's openspec.enabled, true by default.
+func (p Project) OpenSpecEnabled() bool {
+	return p.OpenSpec == nil || p.OpenSpec.Enabled == nil || *p.OpenSpec.Enabled
+}
+
+// OpenSpecDir is the project's openspec.dir, "openspec" by default.
+func (p Project) OpenSpecDir() string {
+	if p.OpenSpec == nil || p.OpenSpec.Dir == "" {
+		return "openspec"
+	}
+	return p.OpenSpec.Dir
+}
+
 type Artifact struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
 	URI     string `json:"uri"`
+	// SHA256 and Size are the content of an uploaded version (URI factory://artifacts/<id>/<version>);
+	// approval binds to the digest. Name is the uploaded file's name. External URIs carry none of them.
+	SHA256 string `json:"sha256,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+	Name   string `json:"name,omitempty"`
 }
 type ApprovedArtifact struct {
 	Artifact        Artifact `json:"artifact"`
@@ -101,15 +131,16 @@ type Task struct {
 const KindConversation = "conversation"
 
 type ProjectCreate struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	Description          string `json:"description"`
-	Workspace            string `json:"workspace"`
-	RequestID            string `json:"request_id,omitempty"`
-	RepoURL              string `json:"repo_url,omitempty"`
-	DefaultBranch        string `json:"default_branch,omitempty"`
-	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
-	Rules                string `json:"rules,omitempty"`
+	ID                   string           `json:"id"`
+	Name                 string           `json:"name"`
+	Description          string           `json:"description"`
+	Workspace            string           `json:"workspace"`
+	RequestID            string           `json:"request_id,omitempty"`
+	RepoURL              string           `json:"repo_url,omitempty"`
+	DefaultBranch        string           `json:"default_branch,omitempty"`
+	ReviewAfterConflicts string           `json:"review_after_conflicts,omitempty"`
+	Rules                string           `json:"rules,omitempty"`
+	OpenSpec             *ProjectOpenSpec `json:"openspec,omitempty"`
 }
 type ProjectUpdate struct {
 	Version     int    `json:"version"`
@@ -121,6 +152,8 @@ type ProjectUpdate struct {
 	DefaultBranch        *string `json:"default_branch,omitempty"`
 	ReviewAfterConflicts *string `json:"review_after_conflicts,omitempty"`
 	Rules                *string `json:"rules,omitempty"`
+	// OpenSpec replaces the whole OpenSpec setting.
+	OpenSpec *ProjectOpenSpec `json:"openspec,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

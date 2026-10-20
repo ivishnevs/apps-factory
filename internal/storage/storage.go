@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"appfactory/internal/blobstore"
 	"appfactory/internal/clock"
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
@@ -28,8 +29,9 @@ const DefaultCompany = "default"
 const LeaseTTL = 45 * time.Second
 
 type Store struct {
-	DB       *DB
-	OpenSpec openspec.Access
+	DB *DB
+	// Blobs holds OpenSpec documents, artifact contents, attachments and run logs by digest (Options.Blobs).
+	Blobs blobstore.Store
 	// Clock is the source of every timestamp Store writes or compares; nil means wall time.
 	Clock clock.Clock
 	// Continuity, when set by Core's tick, defers lease expiry until one TTL of continuous
@@ -124,6 +126,9 @@ type Options struct {
 	// directory), so a database restored from a backup is recognized and gets a new incarnation; empty skips
 	// the check.
 	IncarnationFile string
+	// Blobs keeps project contents (core-owned-project-data D1); nil keeps them in memory (tests, tools), so
+	// Core passes its blob volume (blobstore.LocalFS).
+	Blobs blobstore.Store
 }
 
 // Open connects to the Postgres database at url (postgres://...) and applies the pending migrations.
@@ -143,7 +148,10 @@ func OpenWith(url string, o Options) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{DB: &DB{db}}
+	s := &Store{DB: &DB{db}, Blobs: o.Blobs}
+	if s.Blobs == nil {
+		s.Blobs = &blobstore.Memory{}
+	}
 	if err = s.checkIncarnation(ctx, o.IncarnationFile); err != nil {
 		db.Close()
 		return nil, err

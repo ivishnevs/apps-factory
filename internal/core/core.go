@@ -102,6 +102,7 @@ func (c *Core) Handler() http.Handler {
 	c.artifactRoutes(m)
 	c.journalRoutes(m)
 	c.openSpecRoutes(m)
+	c.blobRoutes(m)
 	c.consoleRoutes(m)
 	c.ownerRoutes(m)
 	c.nodeRoutes(m)
@@ -177,7 +178,7 @@ func (c *Core) Handler() http.Handler {
 		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Answer, p.Result))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" || exitPath(r.URL.Path) {
+		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" || exitPath(r.URL.Path) || strings.HasPrefix(r.URL.Path, "/agent/blobs") {
 			c.agentGateway(w, r, m)
 			return
 		}
@@ -194,8 +195,11 @@ func (c *Core) Handler() http.Handler {
 		http.Error(w, "unauthorized", 401)
 	})
 }
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+func decode(w http.ResponseWriter, r *http.Request, v any) bool { return decodeMax(w, r, v, 1<<20) }
+
+// decodeMax is decode of a body up to max bytes (documents and tool calls carrying them).
+func decodeMax(w http.ResponseWriter, r *http.Request, v any, max int64) bool {
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, max))
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
 		http.Error(w, err.Error(), 400)

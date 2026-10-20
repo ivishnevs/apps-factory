@@ -181,7 +181,7 @@ func (s *Store) ClaimRun(ctx context.Context, company, id string) (Claimed, erro
 		return out, claimStale(ctx, tx, id, why)
 	}
 	if spec.OpenSpecChange != "" {
-		if _, e := s.OpenSpec.CheckChange(spec.Workspace, spec.OpenSpecChange); e != nil {
+		if e := s.runChangeCheck(ctx, tx, spec.Project, spec.OpenSpecChange); e != nil {
 			if err = blockOpenSpecRun(ctx, tx, id, spec.TaskID, e.Error()); err != nil {
 				return out, err
 			}

@@ -448,7 +448,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	}
 	// OpenSpec and approved artifacts as in v1; a failed check is recorded on the task.
 	if spec.OpenSpecChange != "" {
-		if _, e := s.OpenSpec.CheckChange(spec.Workspace, spec.OpenSpecChange); e != nil {
+		if e := s.runChangeCheck(ctx, tx, spec.Project, spec.OpenSpecChange); e != nil {
 			if err = blockOpenSpecRun(ctx, tx, id, spec.TaskID, e.Error()); err != nil {
 				return out, err
 			}
@@ -512,7 +512,39 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 	}
 	out.RunSpec.Company = company
 	out.StartBy = time.Unix(startBy, 0).UTC()
-	return out, nil
+	m, err := runManifest(ctx, tx, out.RunSpec)
+	out.RunSpec.Materialize = m
+	return out, err
+}
+
+// runManifest is what the node materializes for the run (core-owned-project-data D3): the project's current
+// OpenSpec tree (when enabled) and the uploaded contents of the run's pinned approved artifact inputs. A run
+// outside a registered project gets none.
+func runManifest(ctx context.Context, tx *Tx, spec protocol.RunSpec) (*protocol.Manifest, error) {
+	p, err := projectTx(ctx, tx, spec.Project)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m := &protocol.Manifest{Files: []protocol.ManifestFile{}}
+	if p.OpenSpecEnabled() {
+		m.OpenSpecDir = p.OpenSpecDir()
+		docs, err := specDocs(ctx, tx, tx.company, p.ID, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range docs {
+			m.Files = append(m.Files, protocol.ManifestFile{Path: m.OpenSpecDir + "/" + d.Path, SHA256: d.SHA256, Size: d.Size})
+		}
+	}
+	for _, in := range spec.ApprovedArtifacts {
+		if a := in.Artifact; a.SHA256 != "" {
+			m.Files = append(m.Files, protocol.ManifestFile{Path: protocol.InputPath(a), SHA256: a.SHA256, Size: a.Size})
+		}
+	}
+	return m, nil
 }
 
 // NodeLoad is what a node's runs hold: Held runs (slots) and the resource classes they use. A run holds

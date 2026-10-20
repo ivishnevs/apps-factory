@@ -1,11 +1,11 @@
 package main
 
 import (
+	"appfactory/internal/blobstore"
 	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/notify/telegram"
-	"appfactory/internal/openspec"
 	"appfactory/internal/policies"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
@@ -215,7 +215,13 @@ func run() error {
 	if err = os.MkdirAll(dataDir, 0700); err != nil {
 		return err
 	}
-	s, err := storage.OpenWith(databaseURL, storage.Options{IncarnationFile: filepath.Join(dataDir, "core.incarnation")})
+	// Project contents (OpenSpec documents, artifact versions, attachments, run logs) live in the blob volume
+	// (core-owned-project-data D1); Core reads no node's files and needs no workspace mount.
+	blobDir := env("FACTORY_BLOB_DIR", filepath.Join(dataDir, "blobs"))
+	if err = os.MkdirAll(blobDir, 0700); err != nil {
+		return err
+	}
+	s, err := storage.OpenWith(databaseURL, storage.Options{IncarnationFile: filepath.Join(dataDir, "core.incarnation"), Blobs: blobstore.LocalFS{Root: blobDir}})
 	if err != nil {
 		return err
 	}
@@ -223,7 +229,6 @@ func run() error {
 		return fmt.Errorf("company %s: %w", company, err)
 	}
 	defer s.DB.Close()
-	s.OpenSpec = openspec.Access{HostRoot: os.Getenv("FACTORY_WORKSPACE_HOST_ROOT"), LocalRoot: os.Getenv("FACTORY_WORKSPACE_LOCAL_ROOT")}
 	b, err := bus.Connect(env("NATS_URL", "nats://127.0.0.1:4222"))
 	if err != nil {
 		return err

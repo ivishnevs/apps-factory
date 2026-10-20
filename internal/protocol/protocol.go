@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -56,6 +57,46 @@ type RunSpec struct {
 
 	// Company is set in the v2 claim answer (runtime protocol v2 §5); Core does not store it in the spec.
 	Company string `json:"company,omitempty"`
+	// Materialize is set in the claim answer, not stored (core-owned-project-data D3): the files the node
+	// places in the worktree before the runtime starts.
+	Materialize *Manifest `json:"materialize,omitempty"`
+}
+
+// Manifest lists the project data a run gets as files: the project's current OpenSpec tree under OpenSpecDir
+// (empty when the project disabled OpenSpec) and the run's pinned approved artifact inputs under
+// .factory/inputs/<id>/<version>/. Paths are relative to the worktree. The node keeps it in
+// .factory/manifest.json; the MCP adapter syncs the OpenSpec tree back against its digests.
+type Manifest struct {
+	OpenSpecDir string         `json:"openspec_dir,omitempty"`
+	Files       []ManifestFile `json:"files"`
+}
+
+type ManifestFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+}
+
+// ManifestPath is where the node keeps a run's manifest, relative to the worktree.
+const ManifestPath = ".factory/manifest.json"
+
+// InputsDir holds the materialized artifact inputs, relative to the worktree.
+const InputsDir = ".factory/inputs"
+
+// InputPath is where an uploaded artifact input is materialized: .factory/inputs/<id>/<version>/<name>, each
+// segment escaped so it stays one path element.
+func InputPath(a tasks.Artifact) string {
+	segment := func(s, def string) string {
+		if s == "" {
+			s = def
+		}
+		s = url.PathEscape(s)
+		if strings.Trim(s, ".") == "" {
+			s = strings.ReplaceAll(s, ".", "%2E")
+		}
+		return s
+	}
+	return InputsDir + "/" + segment(a.ID, "artifact") + "/" + segment(a.Version, "version") + "/" + segment(a.Name, "content")
 }
 
 type Envelope struct {

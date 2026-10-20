@@ -130,6 +130,10 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		c.commandCheck(w, r, run, snapshot, current)
 		return
 	}
+	if r.URL.Path == "/agent/blobs" || strings.HasPrefix(r.URL.Path, "/agent/blobs/") {
+		c.agentBlob(w, r, run)
+		return
+	}
 	if r.URL.Path == "/agent/tools" && r.Method == "GET" {
 		write(w, c.agentTools(current, allowed))
 		return
@@ -139,7 +143,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		return
 	}
 	var p factorytools.Call
-	if !decode(w, r, &p) {
+	if !decodeMax(w, r, &p, maxDocumentBody) { // factory_openspec_write carries a whole document
 		return
 	}
 	// Audit before dispatch. Store only identity/tool/key/status, never tokens or model arguments.

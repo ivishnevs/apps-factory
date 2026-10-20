@@ -120,6 +120,9 @@ type Worker struct {
 	AuthFailed func(err error)
 	// RunSucceeded, when set, is called when a run ends succeeded; the node resets the driver's auth hold-off.
 	RunSucceeded func()
+	// BlobCache keeps downloaded project blobs by digest across runs (core-owned-project-data D3); empty
+	// downloads into a temporary directory per run.
+	BlobCache string
 	// EnvAllow adds variable names (NAME_* for a prefix) to the runtime environment's allowlist RuntimeEnv
 	// (node.yaml runtime_env); credentials stay out regardless.
 	EnvAllow []string
@@ -457,8 +460,12 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer allocation.Release()
 		cwd = allocation.Path
 	}
+	// Project data from Core (OpenSpec tree, artifact inputs) before anything reads the worktree.
+	if err := w.materialize(ctx, spec, lease, cwd); err != nil {
+		return emit("failed", protocol.Event{Status: ended, Result: "materializing project data failed before runtime startup: " + err.Error(), Outcome: outcomeSetupFailed})
+	}
 	if spec.OpenSpecChange != "" {
-		if _, e := (openspec.Access{}).CheckChange(cwd, spec.OpenSpecChange); e != nil {
+		if e := preflightChange(cwd, spec); e != nil {
 			return emit("failed", protocol.Event{Status: ended, Result: "OpenSpec preflight failed before runtime startup: " + e.Error(), Outcome: outcomeSetupFailed})
 		}
 	}
