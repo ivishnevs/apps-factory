@@ -208,66 +208,6 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 	}
 	return rs, rows.Err()
 }
-func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
-	tx, err := s.begin(ctx, company)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", company, id)
-	if err != nil {
-		return "", err
-	}
-	if spec.OpenSpecChange != "" {
-		var status string
-		if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", id).Scan(&status); err != nil {
-			return "", err
-		}
-		if status != "QUEUED" {
-			return "", ErrConflict
-		}
-		if _, e := s.OpenSpec.CheckChange(spec.Workspace, spec.OpenSpecChange); e != nil {
-			if err = blockOpenSpecRun(ctx, tx, id, spec.TaskID, e.Error()); err != nil {
-				return "", err
-			}
-			if err = tx.Commit(); err != nil {
-				return "", err
-			}
-			return "", ErrConflict
-		}
-	}
-	valid, err := approvedRunArtifacts(ctx, tx, spec)
-	if err != nil {
-		return "", err
-	}
-	if !valid {
-		if err = reconcileArtifactTasks(ctx, tx); err != nil {
-			return "", err
-		}
-		if err = tx.Commit(); err != nil {
-			return "", err
-		}
-		return "", ErrConflict
-	}
-	token := protocol.ID()
-	// A v1 worker does not declare worktrees: the run holds the project workspace (one at a time, as before).
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET workspace=? WHERE id=? AND status='QUEUED'", writerSlot(spec, false), id); err != nil {
-		return "", constraint(err)
-	}
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0) WHERE id=? AND status='QUEUED'", token, s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
-	if err != nil {
-		return "", err
-	}
-	n, _ := res.RowsAffected()
-	if n != 1 {
-		return "", ErrConflict
-	}
-	if err = tx.Commit(); err != nil {
-		return "", err
-	}
-	return token, nil
-}
-
 func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool, error) {
 	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND protocol=1 AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
 	if err != nil {

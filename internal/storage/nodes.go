@@ -401,12 +401,11 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		return out, err
 	}
 	if taskID != "" {
-		t, err := taskTx(ctx, tx, taskID)
-		if err != nil {
+		// The task no longer wants the run (reassigned, cancelled, parked, a dependency reopened): it ends stale.
+		if why, err := recheckTask(ctx, tx, id, spec); err != nil {
 			return out, err
-		}
-		if t.CurrentRunID != id || t.Assignee != spec.Agent || t.CancelRequested {
-			return out, drop("not_runnable")
+		} else if why != "" {
+			return out, claimStale(ctx, tx, id, why)
 		}
 		// Pinning (task-worktrees D8): unpushed work of the task lives on one node; only that node continues it.
 		var pinned string
@@ -465,6 +464,9 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 			return out, err
 		}
 		return out, drop("not_runnable")
+	}
+	if err = briefClaim(ctx, tx, id, &spec); err != nil {
+		return out, err
 	}
 	now := tx.now()
 	// The run's writer slot follows the node: its own worktree, or the shared project workspace.

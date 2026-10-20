@@ -198,8 +198,8 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 	m.ServeHTTP(w, r)
 }
 
-// claim serves both protocols: a v1 worker sends no body and gets {lease}; a v2 node sends
-// {node_id, epoch, claim_id, slot} and gets the claim answer or a JSON refusal.
+// claim serves both protocols: a v1 worker sends no body, a v2 node sends {node_id, epoch, claim_id, slot};
+// both get the claim answer (lease, RunSpec with the brief, brief window) or a JSON refusal.
 func (c *Core) claim(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
@@ -207,8 +207,8 @@ func (c *Core) claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
-		token, err := c.Store.Claim(r.Context(), c.companyFrom(r), r.PathValue("id"))
-		reply(w, map[string]string{"lease": token}, err)
+		v, err := c.Store.ClaimRun(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		nodeReply(w, v, err)
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))

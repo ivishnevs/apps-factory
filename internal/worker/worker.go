@@ -176,34 +176,42 @@ func (w *Worker) Process(ctx context.Context, m *nats.Msg, running func(run stri
 	if w.Inventory != nil {
 		return w.processV2(ctx, m, running)
 	}
-	var e protocol.Envelope
-	var spec protocol.RunSpec
-	if json.Unmarshal(m.Data, &e) != nil || e.Version != 1 || e.Type != "agent.run.requested" || json.Unmarshal(e.Payload, &spec) != nil || spec.ID == "" || spec.ID != e.CorrelationID {
+	e, run := pointer(m.Data)
+	if run == "" {
 		_ = m.Term()
 		slog.Error("invalid run command")
 		return nil
 	}
-	// Fetch authoritative input from Core, then atomically claim before runtime startup.
-	var saved storage.Run
-	if err := w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &saved); err != nil {
-		_ = m.NakWithDelay(time.Second)
-		return nil
-	}
-	spec = saved.Spec
-	var claim struct {
-		Lease string `json:"lease"`
-	}
-	if err := w.API.Do(ctx, "POST", "/runs/"+spec.ID+"/claim", nil, &claim); err != nil {
+	// Claim before runtime startup: the answer carries the authoritative RunSpec with the brief Core built at
+	// claim (trigger-log-scheduling D6), so nothing else is taken from the command.
+	var claim Claim
+	if err := w.API.Do(ctx, "POST", "/runs/"+run+"/claim", nil, &claim); err != nil {
 		var h *HTTPError
 		if errors.As(err, &h) && h.Status == 409 {
-			var r storage.Run
-			if w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &r) == nil && r.Status != "QUEUED" {
-				_ = m.AckSync()
+			var r Refusal
+			switch {
+			case json.Unmarshal([]byte(h.Message), &r) == nil && r.Drop:
+				// Stale, duplicate or revoked: the run never starts here (Core ended a stale one).
+				slog.Info("run command dropped", "run", run, "reason", r.Reason)
+				return m.AckSync()
+			case r.Retry:
+				_ = m.NakWithDelay(RetryDelay)
 				return nil
 			}
 		}
 		_ = m.NakWithDelay(time.Second)
 		return nil
+	}
+	spec := claim.RunSpec
+	if spec.ID != run {
+		// A Core whose v1 claim answers only the lease: read the run it claimed.
+		var saved storage.Run
+		if err := w.API.Do(ctx, "GET", "/runs/"+run, nil, &saved); err != nil || saved.Spec.ID != run {
+			slog.Error("claimed run unreadable", "run", run, "error", err)
+			_ = m.NakWithDelay(time.Second)
+			return nil
+		}
+		spec = saved.Spec
 	}
 	if err := m.AckSync(); err != nil {
 		return err

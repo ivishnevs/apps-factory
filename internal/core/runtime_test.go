@@ -286,12 +286,13 @@ func TestQuotaKeyPausesOnlyItsAgents(t *testing.T) {
 	if err = h.c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if h.task("a2").Status != "IN_PROGRESS" {
-		t.Fatal("key A not resumed at the reset:", h.task("a2").Status)
+	// hit's trigger is older than a2's, so it runs first (trigger-log-scheduling D4).
+	if h.task("hit").Status != "IN_PROGRESS" || h.task("a2").Status != "READY" {
+		t.Fatal("key A not resumed at the reset:", h.task("hit").Status, h.task("a2").Status)
 	}
 
 	// A second limit opens a new escalation; the owner answers resume: the pause ends now.
-	run = h.run("a2")
+	run = h.run("hit")
 	if lease, err = h.s.Claim(ctx, co, run.Spec.ID); err != nil {
 		t.Fatal(err)
 	}

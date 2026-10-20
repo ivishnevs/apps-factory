@@ -1,0 +1,20 @@
+Project: Project (p)
+Task: golden — golden
+
+
+Previous run golden-1: failed. Inspect the workspace before continuing: the previous run may have changed files or completed part of the work. Do not repeat completed side effects.
+Its last result: tests failed: 3 of 120
+Directive from owner (directive): fix the tests before the refactor
+Since your last run:
+- ready by owner (authority)
+- directive by owner (authority): fix the tests before the refactor
+Comment by qa: flaky on CI, see run 812
+Tasks your earlier runs created:
+- follow-up [BACKLOG] Remove the old client (assignee demo)
+Branch af/golden: 2 commit(s) ahead of main, head abc123, pushed, pull request #7 (open) at the last exit.
+Dependency spec [DONE]: API spec v2 at docs/api.md
+Company rules:
+Prices in EUR.
+Project rules:
+Metric units only.
+End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.

@@ -405,6 +405,19 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		if t.Version != in.Version {
 			return t, ErrConflict
 		}
+		// A reassignment while the task's run is still QUEUED (D7): the run was dispatched to the previous
+		// assignee, so it ends stale and the task is READY again for the new one.
+		if in.Assignee != nil && *in.Assignee != t.Assignee && t.Status == "IN_PROGRESS" && t.CurrentRunID != "" {
+			ended, err := endQueued(ctx, tx, t.CurrentRunID, "stale", "task reassigned to "+*in.Assignee)
+			if err != nil {
+				return t, err
+			}
+			if ended {
+				if t, err = taskTx(ctx, tx, id); err != nil {
+					return t, err
+				}
+			}
+		}
 		if t.Status != "BACKLOG" && t.Status != "READY" && t.Status != "REWORK" && t.Status != "BLOCKED" && t.Status != "FAILED" {
 			return t, ErrConflict
 		}

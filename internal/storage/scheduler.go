@@ -51,11 +51,7 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if reason != "" {
 		return spec, ErrConflict
 	}
-	spec.ApprovedArtifacts = inputs
-	if len(inputs) > 0 {
-		b, _ := json.Marshal(inputs)
-		spec.Prompt += "\nOwner-approved artifact inputs (use these exact versions and URIs): " + string(b) + "\n"
-	}
+	spec.ApprovedArtifacts = inputs // the brief lists them at claim
 	var waiting int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM task_dependencies d JOIN tasks t ON t.id=d.depends_on WHERE d.task_id=? AND t.status!='DONE'", id).Scan(&waiting); err != nil {
 		return spec, err
@@ -270,7 +266,17 @@ type Comment struct {
 }
 
 func (s *Store) Comments(ctx context.Context, company, id string) ([]Comment, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,author,text,created_at FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,rowid", company, id)
+	return comments(ctx, s.DB, company, id)
+}
+
+func listComments(ctx context.Context, tx *Tx, id string) ([]Comment, error) {
+	return comments(ctx, tx, tx.company, id)
+}
+
+func comments(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, company, id string) ([]Comment, error) {
+	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,rowid", company, id)
 	if err != nil {
 		return nil, err
 	}

@@ -42,6 +42,10 @@ func TestMCPTaskCreateRecordsOriginAndDeduplicates(t *testing.T) {
 	if err = s.Create(ctx, storage.DefaultCompany, run); err != nil {
 		t.Fatal(err)
 	}
+	// The claim re-check wants the run to be the task's current run of its assignee.
+	if _, err = s.DB.Exec(`UPDATE tasks SET status='IN_PROGRESS',assignee='demo',body=json_set(body,'$.status','IN_PROGRESS','$.assignee','demo','$.current_run_id','planner') WHERE id=?`, origin.ID); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := s.Claim(ctx, storage.DefaultCompany, run.ID)
 	if err != nil {
 		t.Fatal(err)

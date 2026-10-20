@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -403,16 +404,24 @@ func (c *Core) Schedule(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The dispatcher and why share one decision (trigger-log-scheduling D3): only a runnable verdict
+	// dispatches (backoff, pauses, parks, dependencies, capacity and an idle task without new input wait).
+	var runnable []tasks.Snapshot
 	for _, t := range ready {
-		// The dispatcher and why share one decision (trigger-log-scheduling D3): only a runnable verdict
-		// dispatches (backoff, pauses, parks, dependencies, capacity and an idle task without new input wait).
 		snap, err := c.Store.TaskSnapshot(ctx, company, t.ID)
 		if err != nil {
 			return err
 		}
-		if v := c.evaluate(snap); v.Reason != tasks.ReasonRunnable {
-			continue
+		if v := c.evaluate(snap); v.Reason == tasks.ReasonRunnable {
+			runnable = append(runnable, snap)
 		}
+	}
+	// D4 order: priority, then the oldest unhandled trigger (the work waiting longest), then id. Dispatch
+	// re-checks capacity, so a later task of a busy agent waits for the next tick.
+	slices.SortStableFunc(runnable, func(a, b tasks.Snapshot) int {
+		return cmp.Or(cmp.Compare(b.Task.Priority, a.Task.Priority), cmp.Compare(oldestTrigger(a), oldestTrigger(b)), strings.Compare(a.Task.ID, b.Task.ID))
+	})
+	for _, snap := range runnable {
 		if err = c.dispatchTask(ctx, company, snap.Task, false); err != nil {
 			return err
 		}
@@ -444,7 +453,16 @@ func (c *Core) Schedule(ctx context.Context) error {
 	return nil
 }
 
-// dispatchTask builds the run of a READY task (or a review run of a task in review) and dispatches it.
+// oldestTrigger is the sequence of the task's oldest unhandled trigger (sequences grow with time).
+func oldestTrigger(s tasks.Snapshot) int64 {
+	if len(s.Pending) == 0 {
+		return s.WakeSeq
+	}
+	return s.Pending[0].Seq
+}
+
+// dispatchTask dispatches the run of a READY task (or a review run of a task in review). Its brief is built
+// at claim (trigger-log-scheduling D8), so the prompt stays empty here.
 func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, review bool) error {
 	a, ok := c.Agents[t.Assignee]
 	if !ok {
@@ -458,98 +476,6 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	if err != nil {
 		return err
 	}
-	var prompt strings.Builder
-	fmt.Fprintf(&prompt, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
-	if t.OpenSpecChange != "" {
-		fmt.Fprintf(&prompt, "OpenSpec change: %s (openspec/changes/%s). Read proposal and relevant specs with factory_openspec_read before implementation; list current openspec/specs as needed. Documents remain current in files; this is a reference, not a copied snapshot.\n", t.OpenSpecChange, t.OpenSpecChange)
-	}
-	if c.ExplicitExits {
-		directives, err := c.Store.PendingDirectives(ctx, company, t.ID)
-		if err != nil {
-			return err
-		}
-		for _, d := range directives {
-			fmt.Fprintf(&prompt, "Directive from %s (%s): %s\n", d.Author, d.Kind, contextExcerpt(d.Text, 4*1024))
-		}
-	}
-	// Why this run: the triggers since the task was last handled (brief, trigger-log-scheduling D8).
-	if pending, err := c.Store.PendingTriggers(ctx, company, t.ID); err == nil && len(pending) > 0 {
-		prompt.WriteString("Since your last run:\n")
-		for _, g := range pending {
-			who := g.Author
-			if g.Authority {
-				who += " (authority)"
-			}
-			line := "- " + g.Kind + " by " + who
-			if g.Text != "" {
-				line += ": " + contextExcerpt(g.Text, 1024)
-			}
-			prompt.WriteString(line + "\n")
-		}
-	}
-	if created, err := c.Store.CreatedBy(ctx, company, t.ID); err == nil && len(created) > 0 {
-		prompt.WriteString("Tasks your earlier runs created:\n")
-		for _, ct := range created {
-			fmt.Fprintf(&prompt, "- %s [%s] %s (assignee %s)\n", ct.ID, ct.Status, ct.Title, ct.Assignee)
-		}
-	}
-	if review {
-		b, _ := json.Marshal(t.Submission)
-		fmt.Fprintf(&prompt, "You review this task, submitted by %s: %s\nInspect the changes (the branch and its pull request), then end with factory_exit_handoff to %s with verdict approved, or changes_requested with feedback.\n", t.Implementer, b, t.Implementer)
-	}
-	if t.Attempt > 0 && !review {
-		if prev, err := c.Store.Get(ctx, company, t.CurrentRunID); err == nil && prev.Outcome != "" && prev.Outcome != "succeeded" {
-			fmt.Fprintf(&prompt, "Previous run: %s (automatic retry). Inspect the workspace before continuing: the previous run may have changed files or completed part of the work.\n", prev.Outcome)
-		}
-		fmt.Fprintf(&prompt, "Previous attempt result: %s\nInspect the workspace and previous changes before continuing. Do not repeat completed side effects.\n", contextExcerpt(t.Result, 16*1024))
-	}
-	if t.WaitMessageID != "" {
-		answer, err := c.Store.AnswerFor(ctx, company, t.WaitMessageID)
-		if err != nil {
-			return err
-		}
-		b, err := json.Marshal(answer)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(&prompt, "Answer to your blocking question %s: %s\nContinue the original task using this explicit answer. Do not ask the same question again.\n", t.WaitMessageID, b)
-	}
-	if t.ReviewFeedback != "" {
-		fmt.Fprintf(&prompt, "Previous review feedback: %s\n", t.ReviewFeedback)
-	}
-	// Standing rules: conventions, facts and fixed decisions (factory_settings_get reads them again).
-	if rules, err := c.Store.CompanyRules(ctx, company); err == nil && strings.TrimSpace(rules) != "" {
-		fmt.Fprintf(&prompt, "Company rules:\n%s\n", strings.TrimSpace(rules))
-	}
-	if p, err := c.Store.Project(ctx, company, t.ProjectID); err == nil && strings.TrimSpace(p.Rules) != "" {
-		fmt.Fprintf(&prompt, "Project rules:\n%s\n", strings.TrimSpace(p.Rules))
-	}
-	// Comments since the task's last run (non-authority comments wake nothing; the brief carries them).
-	var since int64
-	if t.CurrentRunID != "" {
-		if prev, err := c.Store.Get(ctx, company, t.CurrentRunID); err == nil {
-			since = prev.StartedAt
-		}
-	}
-	if comments, err := c.Store.Comments(ctx, company, t.ID); err == nil {
-		for _, cm := range comments {
-			if cm.CreatedAt > since && cm.Author != t.Assignee {
-				fmt.Fprintf(&prompt, "Comment by %s: %s\n", cm.Author, contextExcerpt(cm.Text, 2*1024))
-			}
-		}
-	}
-	for _, dep := range t.Dependencies {
-		d, err := c.Store.Task(ctx, company, dep)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(&prompt, "Dependency %s [%s]: %s\n", d.ID, d.Status, contextExcerpt(d.Result, 4*1024))
-	}
-	if c.ExplicitExits {
-		prompt.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.\n")
-	} else {
-		prompt.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")
-	}
 	provider := protocol.RuntimeProvider(a.Spec.Runtime.Provider)
 	// A task's model override (set by an authority, validated against the assignee's provider then) applies
 	// while it fits the current assignee's provider; one left by a reassignment is ignored with a feed event.
@@ -561,7 +487,7 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 			ignoredModel = t.Model
 		}
 	}
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Prompt: prompt.String(), Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": model}, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: map[string]any{"model": model}, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
 	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err == nil && ignoredModel != "" {
 		return c.Store.AddFeed(ctx, company, storage.FeedItem{EventID: protocol.ID(), Type: "task.model_ignored", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: c.Store.Now(), TaskID: t.ID, RunID: spec.ID, Agent: t.Assignee, Actor: "system",
 			Summary: fmt.Sprintf("model override %s does not fit %s's provider %s; run %s uses %s", ignoredModel, t.Assignee, provider, spec.ID, a.Spec.Runtime.Model), Ref: ignoredModel})
@@ -580,11 +506,4 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 		return err
 	}
 	return nil
-}
-
-func contextExcerpt(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	return s[:limit] + "\n[truncated; read the full task/attempt through Factory CLI when needed]"
 }
