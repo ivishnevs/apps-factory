@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"appfactory/internal/clock"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 	"context"
@@ -63,6 +64,7 @@ func finishEngineRun(t *testing.T, s *Store, r protocol.RunSpec, outcome string)
 }
 func TestDependenciesReviewAndRework(t *testing.T) {
 	s := engineStore(t)
+	s.Clock = clock.NewFake(time.Now()) // the version count must not depend on crossing a second boundary
 	ctx := context.Background()
 	a := readyEngineTask(t, s, createEngineTask(t, s, "a"))
 	b := readyEngineTask(t, s, createEngineTask(t, s, "b", "a"))

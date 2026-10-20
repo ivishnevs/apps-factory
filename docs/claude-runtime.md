@@ -32,8 +32,8 @@ Environment as for every node: `FACTORY_TOKEN`, `FACTORY_URL`, `NATS_URL` (see
 `<bin_dir>/../workers/claude/dist/src/shim.js`), `executable` (another Claude Code binary; else
 `CLAUDE_CODE_EXECUTABLE`), `allow_api_key` (otherwise API-key auth is refused and
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are removed from the runtime environment). The driver is off by
-default: enable it on nodes logged in to Claude. The node fetches `factory.commands.agent.run.claude`
-(durable `claude-worker-v1` in protocol v1; v2 per-node pointers) like any driver subject.
+default: enable it on nodes logged in to Claude. The node fetches `factory.<company>.commands.agent.run.claude`
+(durable `claude-worker-<company>`) like any driver subject.
 
 ## Lifecycle
 

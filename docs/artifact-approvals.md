@@ -116,8 +116,8 @@ QUEUED run и возвращает его задачу к ожиданию. Но
 HTTP: `GET/POST /projects/PROJECT/artifacts`,
 `GET /projects/PROJECT/artifacts/ID/VERSION`,
 `POST /projects/PROJECT/artifacts/approval`; все требуют owner token.
-События: `factory.events.artifact.registered` и существующие `approval.*`,
-`task.artifact_waiting`. История и outbox сохраняются в SQLite schema v6.
+События: `factory.<company>.events.artifact.registered` и существующие `approval.*`,
+`task.artifact_waiting`. История и outbox сохраняются в базе Core.
 
 ## Границы и проверка
 

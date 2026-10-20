@@ -1,6 +1,6 @@
 # Reports and Decision Registry
 
-Core stores significant reports and versioned project decisions in SQLite schema 7. No additional
+Core stores significant reports and versioned project decisions in its database. No additional
 agent runtime loop is introduced. The same APIs work for developer, manager, designer and QA roles;
 access still depends on each agent's captured and current tools/policies/communication permissions.
 
@@ -66,11 +66,10 @@ Owner endpoints use FACTORY_TOKEN:
 
 The feed is the `feed_events` table (migration 0009): one row per entity event, written in the
 transaction of its cause, with `task_id`, `run_id`, `agent`, `actor`, `status`, `summary` and
-reserved `attention`/`ref`. Each row is also published as `factory.events.feed.<project>.<kind>`
-(outbox ID `feed-<event_id>`). The migration backfills older entity events with their original
-sequences, so `after` cursors issued before the upgrade stay valid.
+reserved `attention`/`ref`. Each row is also published as `factory.<company>.feed.<project>.<kind>`
+(outbox ID `feed-<event_id>`, carrying the row's `seq`; `TestJetStreamFeedDeliversEachRowWithItsSeq`).
 
-Lists return items, next_after, has_more. after is a stable SQLite row/event sequence; default limit
+Lists return items, next_after, has_more. after is a stable row/event sequence (`seq`); default limit
 20, maximum 100. Report filters: kind/task_id/run_id; decision filters: status/topic (owner list
 without status includes all statuses). Feed items are short event pointers; full immutable snapshots
 remain available through /projects/{project}/events. Status-filtered lists reflect current state and
@@ -194,7 +193,7 @@ transaction of their cause:
 their cause: a question or escalation routed to the owner (an escalation to a manager has none), `node.offline`
 after 10 minutes, a report with `needs_owner_action`, owner pauses, parks that wait on the owner.
 
-Delivery: each row is also an outbox message on `factory.events.feed.<project>.<kind>`; `GET /feed` and
+Delivery: each row is also an outbox message on `factory.<company>.feed.<project>.<kind>`; `GET /feed` and
 `GET /feed/stream` (SSE) filter by `project`, `task`, `attention` and `subtree=AGENT` (the agent and everyone
 reporting to it). Agents read their own subtree with `factory_feed_list` (tasks assigned within the subtree or
 delegated by it, through `origin_task`); a lead never sees a sibling team's events.

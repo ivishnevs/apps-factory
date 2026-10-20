@@ -1,8 +1,8 @@
 .PHONY: build test check fmt hooks up down worker node schema test-services test-services-down
-# Disposable Postgres and NATS for the tests (make test-services); tests needing them skip when unset.
+# Disposable Postgres for the tests (make test-services); the JetStream tests also need NATS_TEST_URL
+# (nats://127.0.0.1:14231), run them with -p 1: they share the streams.
 FACTORY_TEST_DATABASE_URL ?= postgres://postgres:factory@127.0.0.1:15432/postgres?sslmode=disable
-NATS_TEST_URL ?= nats://127.0.0.1:14231
-export FACTORY_TEST_DATABASE_URL NATS_TEST_URL
+export FACTORY_TEST_DATABASE_URL
 build:
 	mkdir -p bin
 	go build -o bin/factory ./cmd/factory

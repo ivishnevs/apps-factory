@@ -2,8 +2,8 @@
 `internal/storage` opens SQLite with `SetMaxOpenConns(1)`, applies `schema.sql` + `migration2..7.sql` by `PRAGMA user_version`, and relies on the single connection for mutual exclusion (scheduling, claim, writer reservation). Entities are stored as JSON `body` blobs with a few indexed columns. Outbox rows are written in the mutation transaction and published by `Core.Run` after a JetStream ack.
 
 ## Goals / Non-Goals
-Goals: Postgres as the only store; a tenant key on every row; explicit locking that replaces the implicit single-connection lock; same API/CLI/MCP behaviour for one default company; lossless import of an existing database.
-Non-goals: multi-region, RLS, sharding, billing, per-company NATS accounts (subjects are prefixed now so accounts can be added later without renaming).
+Goals: Postgres as the only store; a tenant key on every row; explicit locking that replaces the implicit single-connection lock; same API/CLI/MCP behaviour for one default company.
+Non-goals: multi-region, RLS, sharding, billing, per-company NATS accounts (subjects are prefixed now so accounts can be added later without renaming); importing an existing SQLite database (owner decision: no database is kept, SQLite is removed entirely).
 
 ## Decisions
 
@@ -29,13 +29,19 @@ Every domain table gets `company_id NOT NULL REFERENCES companies(id)` and a com
 Scheduling, claim, expiry and any transaction that reads a snapshot and decides on it take `pg_advisory_xact_lock(hashtext(company_id))` first. Different companies never block each other. Ordinary reads use no lock. Unique partial indexes remain the last line of defence; a unique violation maps to `ErrConflict` exactly as today (`constraint()` in `tasks.go`).
 
 ### D5. Migrations
-`internal/storage/migrations/NNNN_name.sql`, embedded with `embed.FS`, applied in order inside one transaction each and recorded in `schema_migrations(version, applied_at)`. Startup takes `pg_advisory_lock(<fixed key>)` so two Core processes cannot migrate concurrently. Core refuses to start on a database whose highest version is newer than it knows (as today with `user_version > 7`). `0001_baseline.sql` is the Postgres equivalent of the current schema v7 plus tenancy.
+`internal/storage/migrations/NNNN_name.sql`, embedded with `embed.FS`, applied in order inside one transaction each and recorded in `schema_migrations(version, applied_at)`. Startup takes `pg_advisory_lock(<fixed key>)` so two Core processes cannot migrate concurrently. Core refuses to start on a database whose highest version is newer than it knows (as today with `user_version > 7`). `0001_baseline.sql` is the whole current schema on Postgres plus tenancy (owner decision: the SQLite migration history collapses into it, no database is kept; later changes are `0002_...`).
 
 ### D6. Outbox semantics kept
 Outbox rows are inserted in the mutation transaction (unchanged). The publisher selects `... WHERE sent_at IS NULL ORDER BY seq LIMIT 100 FOR UPDATE SKIP LOCKED` in a short transaction, publishes with `nats.MsgId(id)`, and marks sent; a crash between publish and mark republishes the same message ID (deduplicated by JetStream within its window, and idempotent at consumers as today). Several Core replicas may run the publisher safely.
 
-### D7. Import
-`factory admin import-sqlite --db factory.db --company default` reads the v7 SQLite file read-only and inserts all rows with the given `company_id` in one Postgres transaction, preserving IDs, versions, sequences and outbox `sent` flags. Runs that are QUEUED/RUNNING/CANCELLING at import time are imported as UNKNOWN (later mapped to `lost` by `reliable-recovery`).
+### D7. Import (dropped)
+Dropped by owner decision: no SQLite database is kept, so there is nothing to import; SQLite (driver, `FACTORY_DB`, SQLite-specific code and the old migrations with their upgrade tests) is removed.
+
+### Implementation notes
+- Queries keep `?` placeholders; `storage.DB`/`storage.Tx` number them for pgx. Flags stay 0/1 `bigint` columns (Go booleans are passed as 0/1) instead of `boolean`, and entity documents are `json` (stored byte for byte, read with `->>`) rather than `jsonb`, so replayed responses and snapshots are unchanged.
+- Row IDs stay globally unique (`UNIQUE(id)` beside the composite key), so every existing lookup by a Core-issued ID stays correct; per-company ID namespaces would need every such lookup scoped first.
+- Every Store transaction takes the company lock (a superset of D4's list), which reproduces the single-connection serialization per company.
+- Core serves one company (`FACTORY_COMPANY`); its catalog is loaded once at start, so no per-company cache is needed yet.
 
 ## Risks / Trade-offs
 - Postgres adds a service to run locally → one more container in `compose.yaml`, healthcheck before Core starts.

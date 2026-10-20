@@ -46,9 +46,6 @@ Core SHALL apply embedded numbered migrations exactly once under a startup lock 
 - **WHEN** two Core processes start against an empty database
 - **THEN** each migration SHALL be applied exactly once
 
-### Requirement: SQLite import
-The factory SHALL provide a one-shot import of an existing SQLite database into one company, preserving identifiers, versions and history, and marking runs that were active at import time as having an unknown outcome.
-
-#### Scenario: Import with a running run
-- **WHEN** the source database contains a RUNNING run
-- **THEN** the imported run SHALL have an unknown outcome and no run SHALL be considered live after import
+#### Scenario: Newer database
+- **WHEN** the database has a migration version newer than Core knows
+- **THEN** Core SHALL refuse to start

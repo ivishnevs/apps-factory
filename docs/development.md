@@ -1,24 +1,68 @@
 # Development
 
-Go 1.24.1; nats.go 1.41.2 (compatible with this Go baseline), modernc SQLite 1.36.3,
-yaml.v3 3.0.1. SQLite is pure Go; no CGO toolchain is needed in the Core container.
-Embedded migrations are internal/storage/migrations/NNNN_name.sql, applied in order, each in its own
-transaction, and recorded in schema_migrations; add a migration as the next numbered file. A database
-from before schema_migrations is adopted at its PRAGMA user_version, which stays equal to the latest
-version so older binaries refuse a newer schema. Core refuses to start on a version it does not know.
+Go 1.24.1; nats.go 1.41.2 (compatible with this Go baseline), pgx 5.7.5 (`pgx/v5/stdlib` behind
+`database/sql`), yaml.v3 3.0.1. pgx is pure Go; no CGO toolchain is needed in the Core container.
 
-Tenancy: every domain table has `company_id` (migration 0008; existing rows belong to `default`), every
-`Store` method takes the company right after `ctx`, and transactions carry it in `storage.Tx` so each insert
-and each lookup by a caller-supplied ID is scoped. Idempotency keys (`mutation_results`) and agent slots are
-per company. Row IDs stay globally unique on SQLite; composite `(company_id, id)` keys come with Postgres.
-Core serves one company (`Core.Company`, default `default`); `companyFrom(r)` resolves it per request, and run
-credentials bind the company into their HMAC, so a token for another company's run is rejected.
-Back up a stopped Core data directory before upgrading; downgrade requires restoring its compatible backup.
+Storage is Postgres only (postgres-tenancy). `FACTORY_DATABASE_URL` (`postgres://user:password@host:5432/factory`)
+names Core's database; Core keeps no database file. Queries are written with `?` placeholders: `storage.DB`
+and `storage.Tx` number them (`$1`, `$2`, ...) and pass Go booleans as the 0/1 integers of the flag columns.
+Entity documents (`body`, `spec`) are `json` (kept byte for byte as written; `->>` reads fields), times Unix
+seconds (`bigint`), and every table that is read in
+insertion order has a `seq` identity column. An integrity violation (SQLSTATE class 23: unique, foreign key,
+check) maps to `ErrConflict` (409), as before.
 
-`make build`, `make check`, `make up`, `make down`, `make schema`.
+Migrations: `internal/storage/migrations/NNNN_name.sql`, embedded, applied in order, each in its own transaction,
+recorded in `schema_migrations(version, name, applied_at)`. Core takes a session advisory lock while migrating,
+so Core processes starting together apply each migration once; Core refuses to start on a database whose highest
+version is newer than it knows. `0001_baseline.sql` is the whole current schema (no database was kept from the
+SQLite era: nothing is imported); add a change as the next numbered file (`0002_...`).
+
+Tenancy: accounts own companies and users; `memberships` give a user a role (`owner`, `member`) in companies of
+its own account (the composite foreign keys refuse anything else). Every domain table has `company_id`
+(referencing `companies`), its key is `(company_id, id)` and every foreign key includes `company_id`, so a row
+can never reference another company's row (the database refuses the write; Core answers 409 without partial
+effects). Row IDs also stay globally unique, so a lookup by a Core-issued ID cannot reach another company.
+Unique partial indexes (one live run per task, session, workspace writer and agent; open questions, parks,
+alerts, escalations) start with `company_id`. Every `Store` method takes the company right after `ctx`, and
+transactions carry it in `storage.Tx` so each insert and each lookup by a caller-supplied ID is scoped. Core
+serves one company (`FACTORY_COMPANY`, `Core.Company`, default `default`); `companyFrom(r)` resolves it per
+request, and run credentials bind the company into their HMAC, so a token for another company's run is rejected.
+
+Locking: every Store transaction (`Store.begin`) takes `pg_advisory_xact_lock(<class>, hashtext(company))` first.
+Transactions that read state and decide on it (dispatch, claim, lease expiry, approval expiry, message scheduling,
+every mutation) therefore run one at a time per company, as they did on the single SQLite connection, while
+different companies never wait for each other; plain reads take no lock. Unique partial indexes remain the last
+line of defence. The outbox publisher (`Store.PublishOutbox`) takes up to 100 due rows `FOR UPDATE SKIP LOCKED`
+in a short transaction, publishes each with its outbox ID as the JetStream message ID and marks it sent in the
+same transaction: several Core processes publish in parallel, each row once; a crash before the commit republishes
+the same IDs (deduplicated by JetStream, idempotent at consumers).
+
+Catalog per company: `configs/` is the `default` company's catalog; another company's lives in
+`configs/<company>/` with the same layout (`agents/`, `profiles/`, `policies/`, `node-hooks/`, `quota_keys.yaml`,
+`company.yaml`). `configs/skills.yaml` and `configs/prices.yaml` are shared, prompt files are paths relative to
+the root. `factory config validate --company X` (or `FACTORY_COMPANY=X`) checks one company's catalog; agents of
+the same name in two companies are independent.
+
+NATS subjects carry the company: `factory.<company>.commands.agent.run.<driver>` (stream `FACTORY_COMMANDS`,
+`factory.*.commands.>`), `factory.<company>.events.<kind>` and `factory.<company>.feed.<project>.<kind>` (stream
+`FACTORY_EVENTS`, `factory.*.events.>` and `factory.*.feed.>`), and the plain control subject
+`factory.<company>.nodes.<node_id>.control`. Core consumes its company's events with the durable
+`core-events-<company>`; executors share `<driver>-worker-<company>` per driver. Core updates the streams' subjects
+at start; consumers of the old unprefixed subjects are not reused (upgrade workers, nodes and Core together).
+
+Backups: back up the Postgres database (`pg_dump`, below) and the NATS volume; Core's data directory
+(`FACTORY_DATA_DIR`, default `data`, the `core-data` volume) holds only `core.incarnation`. Back up before
+upgrading; a downgrade requires restoring a compatible backup (an older Core refuses a newer schema).
+
+```sh
+docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.dump   # online, consistent
+```
+
+`make build`, `make check`, `make up`, `make down`, `make schema`, `make test-services`, `make test-services-down`.
 `make hooks` (once per clone) enables `.githooks/pre-commit`, which refuses a commit whose staged Go files are not
 gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
-FACTORY_ROOT selects config root; FACTORY_DB selects SQLite file; FACTORY_LISTEN selects HTTP bind.
+FACTORY_ROOT selects config root; FACTORY_DATABASE_URL the database; FACTORY_COMPANY the company Core serves;
+FACTORY_DATA_DIR Core's data directory; FACTORY_LISTEN selects HTTP bind.
 FACTORY_URL is the native CLI/Worker endpoint. NATS_URL is the authenticated broker URL.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required.
 FACTORY_WORKER_STATE (default data/codex-worker) keeps pidfiles of running runtimes; on start the
@@ -27,13 +71,24 @@ Codex Worker kills process groups left there by its previous runs. Do not share 
 Core uses signal cancellation, HTTP shutdown deadlines and structured JSON logs.
 Worker handles SIGTERM/SIGINT by requesting turn interruption before closing its process group.
 
+Tests: every test that touches storage needs Postgres, like the JetStream tests need NATS. `make test-services`
+starts both in tmpfs containers (Postgres on 127.0.0.1:15432, NATS on 127.0.0.1:14231); the Makefile exports
+`FACTORY_TEST_DATABASE_URL=postgres://postgres:factory@127.0.0.1:15432/postgres?sslmode=disable` (export it yourself
+for a plain `go test`); set `NATS_TEST_URL=nats://127.0.0.1:14231` for the JetStream tests and run them with
+`-p 1` (packages share the streams). Without these variables those tests are
+skipped with a message. Each test gets its own database cloned from a template database built once per schema
+(`ft_<schema hash>`, kept on the server; `internal/storage/pgtest`, `storagetest.Open(t)`), and dropped at the
+end. Use a server you can throw away: tests create and drop databases on it. Full suite:
+`go test -p 1 -count=1 ./...`.
+
 Normal tests use fake RPC subprocesses or the internal/driver/fake scripted driver, with no model/network. NATS_TEST_URL enables the integration
 test on an isolated broker; the test deletes its streams. scripts/smoke.py is a separately invoked
 real ChatGPT smoke test and consumes subscription usage. It verifies start, streaming, completion
 and thread resume, and prints only run metadata and requested final text.
 
-Logs: `docker compose logs core`, `docker compose logs nats`; Worker logs to stderr.
-Do not print .env or authenticated NATS URLs in reports. Back up both SQLite and the broker volume.
+Logs: `docker compose logs core`, `docker compose logs postgres`, `docker compose logs nats`; Worker logs to stderr.
+Do not print .env, database URLs with passwords or authenticated NATS URLs in reports. Back up both Postgres and
+the broker volume.
 `docker compose down -v` deletes durable state and is not the normal stop command.
 
 Foundation limitations: no automatic worker registration/heartbeat dashboard, no remote machine
@@ -41,7 +96,7 @@ path mapping, no event pagination/retention policy, no approval grants yet. Fact
 Do not proceed to later stages until Foundation checks pass.
 
 Task Engine adds scripts/task-smoke.py (opt-in real model chain; --restart-core tests persistence),
-SQLite migration/DAG/version/idempotency/review/retry tests and a JetStream fake-runtime restart test.
+migration/DAG/version/idempotency/review/retry tests and a JetStream fake-runtime restart test.
 See task-lifecycle.md for the supported API/CLI and retry constraints.
 
 Factory MCP builds a native sibling factory-mcp executable. See factory-mcp.md for scoped auth,
@@ -56,7 +111,7 @@ Versioned artifact verification: `scripts/artifact-approvals-smoke.py --restart-
 
 Reports and decisions: `scripts/journal-smoke.py --restart-core` verifies three real Codex tasks, pending proposal persistence, independent inbox/task review, explicit replacement and captured run contexts. See [reports and decisions](reports-decisions.md).
 
-OpenSpec uses Go 1.24 os.Root for confined file access, with no new dependency or migration (SQLite remains v7). `scripts/openspec-smoke.py --restart-core` exercises the native official CLI plus the Docker Core gateway and linked tasks. See [OpenSpec](openspec.md).
+OpenSpec uses Go 1.24 os.Root for confined file access, with no new dependency or migration (no migration). `scripts/openspec-smoke.py --restart-core` exercises the native official CLI plus the Docker Core gateway and linked tasks. See [OpenSpec](openspec.md).
 
 ## Node doctor
 
@@ -103,10 +158,12 @@ delivered `missing` with an empty spec. Hooks and checks are trusted template da
 ## Node process
 
 `./bin/factory-node run [-config node.yaml] [-slots N]` (`make node`) is one process with N slot goroutines
-(node-agent 1.1; registration and the inventory heartbeat with `protocol_version: 2`, below; no control subject
-yet). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats in
+(node-agent 1.1; registration and the inventory heartbeat with `protocol_version: 2`, below; v2 nodes also
+subscribe to their control subject `factory.<company>.nodes.<node_id>.control`). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats in
 v1); the slots share one pull
-subscription per enabled driver on `factory.commands.agent.run.<driver>` with the durable `<driver>-worker-v1`, so they
+subscription per enabled driver on `factory.<company>.commands.agent.run.<driver>` with the durable
+`<driver>-worker-<company>` (node.yaml `company`, default `default`; a v2 node refuses to run when the register answer names another
+company for its node token), so they
 compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
 Environment as for the Worker: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL`, `CODEX_BIN`, and the node's
 credential (required): `FACTORY_NODE_TOKEN`, else node.yaml `token_file`, else the shared `FACTORY_TOKEN` (see
@@ -232,15 +289,15 @@ auth kind (`creds`, `nkey`, `url`, `none`) and whether TLS is on. Keep the files
 `tls` with `ws://` is refused (use `wss://`). Core keeps `NATS_URL` (`bus.Connect`); nodes and `codex-worker` use
 `bus.ConnectWith(url, bus.Options)`.
 
-The node's user needs (runtime protocol v1/v2 on today's subjects): publish `$JS.API.INFO`,
+The node's user needs (runtime protocol v1/v2, company `<company>`): publish `$JS.API.INFO`,
 `$JS.API.STREAM.NAMES`, `$JS.API.STREAM.INFO.FACTORY_COMMANDS`, `$JS.API.STREAM.INFO.FACTORY_EVENTS`,
 `$JS.API.CONSUMER.CREATE.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.DURABLE.CREATE.FACTORY_COMMANDS.>`,
 `$JS.API.CONSUMER.INFO.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.MSG.NEXT.FACTORY_COMMANDS.>`,
-`$JS.ACK.FACTORY_COMMANDS.>`, `factory.events.agent.>`; subscribe `_INBOX.>`. The streams must exist (Core creates
-them); a node user cannot create streams or publish commands. Issuing per-node users, narrowing them to one
-company's command subjects and the node's own control subject (`factory.<company>.nodes.<node_id>.control`, not
-implemented yet: it waits for company subject prefixes, runtime protocol v2 §10.5) and a per-node inbox prefix are
-Core/infra work. Example server configuration for a TLS client port and a TLS WebSocket listener with nkey users
+`$JS.ACK.FACTORY_COMMANDS.>`, `factory.<company>.events.agent.>`; subscribe `_INBOX.>` and its own control subject
+`factory.<company>.nodes.<node_id>.control` only. The streams must exist (Core creates them); a node user cannot
+create streams, publish commands or subscribe to another node's control subject (`scripts/nats-secure-test.sh`
+issues two such node users; `TestNodeControlSubjectIsPerNode`). Narrowing the consumer API to one company's
+durables and a per-node inbox prefix are infra work. Example server configuration for a TLS client port and a TLS WebSocket listener with nkey users
 (the local `compose.yaml` is unchanged):
 
 ```
@@ -252,7 +309,7 @@ authorization {
   users = [
     { nkey: UCORE... }                      # Core: all subjects
     { nkey: UNODE..., permissions: { publish: { allow: [ "$JS.API.INFO", ... the list above ... ] }
-                                    subscribe: { allow: [ "_INBOX.>" ] } } }
+                                    subscribe: { allow: [ "_INBOX.>", "factory.default.nodes.<node_id>.control" ] } } }
   ]
 }
 ```
@@ -330,27 +387,27 @@ authenticates only that node's routes: register, its own heartbeat, v2 claims na
 
 ### Restoring Core's database
 
-Core's database identity is its incarnation (`core_meta` row `incarnation`, copy in `<db>.incarnation` next to the
-SQLite file, `/data/factory.db.incarnation` in the compose volume). At start Core compares the two; when they
+Core's database identity is its incarnation (`core_meta` row `incarnation`, copy in `core.incarnation` in Core's
+data directory, `/data/core.incarnation` in the `core-data` volume). At start Core compares the two; when they
 differ (a restored or copied database) it creates a new incarnation and logs `database incarnation differs from
 its file: restored backup; new incarnation`. Nodes see it in the next heartbeat answer and drop everything that
 belongs to the old one. Runbook (protocol v2 nodes keep running throughout; v1 workers such as `codex-worker` have
 no incarnation: stop them first and start them after step 5):
 
-1. Stop Core: `docker compose stop core` (NATS keeps running). Nodes log failed heartbeats and keep their runs.
-2. Restore the database file only: replace `factory.db` and delete `factory.db-wal` and `factory.db-shm` (a WAL
-   file of the newer database must not be replayed onto the backup), keeping the current
-   `factory.db.incarnation`. In compose the files live in the `core-data` volume
-   (`docker volume ls | grep core-data`) and belong to uid 65532:
+1. Stop Core: `docker compose stop core` (Postgres and NATS keep running). Nodes log failed heartbeats and keep
+   their runs.
+2. Restore the database from a `pg_dump -Fc` backup into an empty database, keeping Core's current
+   `core.incarnation`:
 
    ```sh
-   docker run --rm -v <project>_core-data:/data -v "$PWD/backup:/backup:ro" busybox sh -c \
-     'cp /backup/factory.db /data/factory.db && rm -f /data/factory.db-wal /data/factory.db-shm && chown 65532:65532 /data/factory.db'
+   docker compose exec -T postgres dropdb -U factory --force factory
+   docker compose exec -T postgres createdb -U factory factory
+   docker compose exec -T postgres pg_restore -U factory -d factory --no-owner <backup/factory.dump
    ```
 
-3. When the backup also brought back its own `factory.db.incarnation` (a copy of the whole data directory), the
-   two match and the restore is not detected: write any other value into the file, e.g.
-   `echo restored > /data/factory.db.incarnation`, in the same helper container.
+3. When the backup also brought back its own `core.incarnation` (a copy of the whole data directory), the two
+   match and the restore is not detected: write any other value into the file, e.g.
+   `docker run --rm -v <project>_core-data:/data busybox sh -c 'echo restored > /data/core.incarnation'`.
 4. Start Core: `docker compose start core`; check its log for the `restored backup; new incarnation` line.
    Migrations run as usual when the backup is older than the binary.
 5. Nodes: the next heartbeat answer carries the new incarnation (or `404` when the backup predates the node's
@@ -367,7 +424,7 @@ no incarnation: stop them first and start them after step 5):
      `side_effects` tasks (or `./bin/factory runs resolve`) after inspecting the workspace.
    - Work done after the backup point is not in the database: tasks may run again, and their worktrees keep the
      newer commits (sealed WIP refs and branches stay on the node), so a re-run may start from `workspace_diverged`.
-   - `./bin/factory doctor` for Core, SQLite and NATS.
+   - `./bin/factory doctor` for Core, its Postgres (`"database": "postgres 17.x"`) and NATS.
 
 ### Task worktrees
 
