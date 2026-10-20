@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"appfactory/internal/messaging"
@@ -15,8 +16,9 @@ import (
 
 func isOwner(actor string) bool { return actor == "" || actor == "owner" }
 
-// addTrigger appends a trigger and raises the task's wake_seq.
-func addTrigger(ctx context.Context, tx *Tx, t tasks.Task, kind string, authority bool, actor, ref, body string) error {
+// addTrigger appends a trigger and raises the task's wake_seq. Authority input also overrides the task's
+// interruptible parks and counts as progress (overrideParks); *t is then the saved task.
+func addTrigger(ctx context.Context, tx *Tx, t *tasks.Task, kind string, authority bool, actor, ref, body string) error {
 	if actor == "" {
 		actor = "owner"
 	}
@@ -36,11 +38,100 @@ func addTrigger(ctx context.Context, tx *Tx, t tasks.Task, kind string, authorit
 	// Authority input ends an active wait early (waits-events-cost-cli D1); so does any new input on a
 	// conversation task (a message or a closed delegated task waits for no timer, hierarchy D5).
 	if authority || t.Kind == tasks.KindConversation && kind != "wait_ended" {
-		if err = interruptWait(ctx, tx, t, actor, kind); err != nil {
+		if err = interruptWait(ctx, tx, *t, actor, kind); err != nil {
 			return err
 		}
 	}
-	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.trigger." + kind, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: body, Ref: ref})
+	if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.trigger." + kind, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: body, Ref: ref}); err != nil || !authority {
+		return err
+	}
+	return overrideParks(ctx, tx, t, actor, kind)
+}
+
+// overrideParks applies authority input to a parked task in the trigger's transaction
+// (explicit-exits-authority D7): an ask's question is superseded, a block's dependencies and a children
+// park are overridden, the retries_exhausted, budget_exhausted and no_exit escalations clear (the input
+// counts as a retry), and the retry counters, backoff and today's budget reset (progress). addTrigger
+// interrupts the wait. inspect, the owner's manual block and system blocks (openspec, a workspace reset)
+// keep their parks: they need their own answer.
+func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind string) error {
+	if t.Status == "DONE" || t.Status == "CANCELLED" {
+		return nil
+	}
+	why := kind + " from " + actor
+	if err := clearParks(ctx, tx, *t, tasks.ParkChildren, anyRef, "overridden"); err != nil {
+		return err
+	}
+	waiting, err := askPark(ctx, tx, tx.company, t.ID)
+	if err != nil {
+		return err
+	}
+	if waiting != "" && t.Status == "READY" { // the question of an ended run; a live run's own question stays
+		m, err := messageTx(ctx, tx, waiting)
+		if err != nil {
+			return err
+		}
+		if m.Status == "PENDING" || m.Status == "UNREAD" || m.Status == "ESCALATED" {
+			m.Status, m.DeliveryStatus, m.EscalationReason = "WITHDRAWN", "NONE", "superseded by "+why
+			if err = saveMessage(ctx, tx, &m, "message.withdrawn"); err != nil {
+				return err
+			}
+		}
+		if err = clearParks(ctx, tx, *t, tasks.ParkAsk, anyRef, "overridden"); err != nil {
+			return err
+		}
+	}
+	if err = clearRetryEscalations(ctx, tx, *t, why); err != nil {
+		return err
+	}
+	if err = clearOpenEscalation(ctx, tx, *t, "no_exit", why); err != nil {
+		return err
+	}
+	fresh, err := taskTx(ctx, tx, t.ID) // the cleared escalations may have saved the task
+	if err != nil {
+		return err
+	}
+	*t = fresh
+	changed := t.AttemptsNoProgress > 0 || t.FailStreak > 0 || t.NotBefore > 0
+	if len(t.BlockedOn) > 0 {
+		// The block's own dependencies go; the task's other dependencies stay.
+		t.Dependencies = slices.DeleteFunc(slices.Clone(t.Dependencies), func(d string) bool { return slices.Contains(t.BlockedOn, d) })
+		t.BlockedOn = nil
+		if err = dependencies(ctx, tx, *t); err != nil {
+			return err
+		}
+		if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.unparked.block", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: "overridden by " + why}); err != nil {
+			return err
+		}
+		changed = true
+	}
+	if t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "children:") {
+		t.Status, t.BlockReason = "READY", ""
+		changed = true
+	}
+	if t.Status == "IN_PROGRESS" && t.CurrentRunID != "" {
+		// A run that ended without moving the task (no_exit) left it IN_PROGRESS: the input lets it run again.
+		var live bool
+		if err = tx.QueryRowContext(ctx, "SELECT status!='ENDED' OR unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			t.Status, changed = "READY", true
+		}
+	}
+	// Progress: the counters, the backoff and today's budget reset. The task is saved when its body changes;
+	// otherwise progress_at is stamped in place (no new version for a plain comment on a running task).
+	if err = resetRetry(ctx, tx, t); err != nil {
+		return err
+	}
+	if changed {
+		return saveTask(ctx, tx, t, "task.updated")
+	}
+	if t.CurrentRunID == "" {
+		return nil // a task that never ran has no progress to record
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE tasks SET body=json_set(body,'$.progress_at',?) WHERE company_id=? AND id=?", t.ProgressAt, tx.company, t.ID)
+	return err
 }
 
 // addPark holds the task; an identical active park (task, kind, ref) is kept as is. attention marks
@@ -131,7 +222,17 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND json_extract(body,'$.parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, parent.ID).Scan(&open); err != nil || open > 0 {
 		return err
 	}
-	return addTrigger(ctx, tx, parent, "last_child_closed", false, "system", t.ID, "last open child "+t.ID+" is "+t.Status)
+	// A parent that blocked on its children (factory_exit_block on_children) continues.
+	if err = clearParks(ctx, tx, parent, tasks.ParkChildren, anyRef, "cleared"); err != nil {
+		return err
+	}
+	if parent.Status == "BLOCKED" && strings.HasPrefix(parent.BlockReason, "children:") {
+		parent.Status, parent.BlockReason = "READY", ""
+		if err = saveTask(ctx, tx, &parent, "task.updated"); err != nil {
+			return err
+		}
+	}
+	return addTrigger(ctx, tx, &parent, "last_child_closed", false, "system", t.ID, "last open child "+t.ID+" is "+t.Status)
 }
 
 // dependencyDone fires dependency_done once on each dependent whose last open dependency just
@@ -144,26 +245,42 @@ func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 		return err
 	}
 	for _, t := range dependents {
-		if err = addTrigger(ctx, tx, t, "dependency_done", false, "system", done.ID, "last open dependency "+done.ID+" is DONE"); err != nil {
+		if err = addTrigger(ctx, tx, &t, "dependency_done", false, "system", done.ID, "last open dependency "+done.ID+" is DONE"); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// artifactApproved fires artifact_approved on open tasks of the project that require the version.
-func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID string) error {
+// artifactApproved fires the authority trigger artifact_approved on open tasks of the project that require
+// the version or are pinned to the artifact (they require, and their runs pin, another version of it: a new
+// approved version is input for them, explicit-exits-authority D6). urgent stops their live runs like an
+// urgent directive.
+func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID string, urgent bool) error {
 	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED')", tx.company, project)
 	if err != nil {
 		return err
 	}
 	for _, t := range open {
+		text := ""
 		for _, ref := range t.RequiredArtifacts {
 			if ref == a {
-				if err = addTrigger(ctx, tx, t, "artifact_approved", true, "owner", approvalID, "artifact "+a.ID+"@"+a.Version+" approved"); err != nil {
-					return err
-				}
+				text = "artifact " + a.ID + "@" + a.Version + " approved"
 				break
+			}
+			if ref.ID == a.ID {
+				text = "artifact " + a.ID + "@" + a.Version + " approved (a new version of " + ref.ID + "@" + ref.Version + ", which this task uses)"
+			}
+		}
+		if text == "" {
+			continue
+		}
+		if err = addTrigger(ctx, tx, &t, "artifact_approved", true, "owner", approvalID, text); err != nil {
+			return err
+		}
+		if urgent {
+			if err = stopUrgently(ctx, tx, t, "artifact_approved"); err != nil {
+				return err
 			}
 		}
 	}
@@ -193,6 +310,6 @@ func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Co
 		if t.Status == "DONE" || t.Status == "CANCELLED" || actor == t.Assignee || !authority {
 			return t, feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.commented", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: in.Text})
 		}
-		return t, addTrigger(ctx, tx, t, "owner_comment", true, actor, "", in.Text)
+		return t, addTrigger(ctx, tx, &t, "owner_comment", true, actor, "", in.Text)
 	})
 }

@@ -251,6 +251,38 @@ func TestAdapterQueuesExitWhileCoreIsDown(t *testing.T) {
 	}
 }
 
+// TestAdapterQueuedExitRefused (explicit-exits-authority 2.3): a queued exit that Core refuses when it is
+// back, with 409 (new input arrived meanwhile) or 410 (the run was stopped), ends the retries and records
+// refused, which the worker reports as no_exit.
+func TestAdapterQueuedExitRefused(t *testing.T) {
+	for _, status := range []int{409, 410} {
+		f, srv := newFakeCore(t)
+		f.handlers["/agent/exit"] = func(n int) (int, string, string) {
+			if n < 2 {
+				return 503, "busy", ""
+			}
+			if status == 409 {
+				return 409, `{"reason":"unseen_input","unseen":[{"seq":9,"kind":"directive","author":"owner","authority":true,"text":"stop"}]}`, ""
+			}
+			return 410, `{"reason":"not_current_run"}`, ""
+		}
+		exitFile := filepath.Join(t.TempDir(), "exit.json")
+		a := &Adapter{URL: srv.URL, Token: "run.tok", ExitFile: exitFile, RetryBase: 10 * time.Millisecond}
+		if v, err := a.Call(context.Background(), Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "s"}}); err != nil || !strings.Contains(mustJSON(v), "queued") {
+			t.Fatal(status, v, err)
+		}
+		a.Wait()
+		var st ExitState
+		_ = json.Unmarshal(must(os.ReadFile(exitFile)), &st)
+		f.mu.Lock()
+		posts := len(f.bodies["/agent/exit"])
+		f.mu.Unlock()
+		if st.State != "refused" || st.Kind != "done" || posts != 2 {
+			t.Fatal(status, st, posts)
+		}
+	}
+}
+
 func must(b []byte, _ error) []byte { return b }
 
 // TestAdapterFactsOutsideARepository: scratch work has no facts, also inside another repository's tree.

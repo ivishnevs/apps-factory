@@ -81,6 +81,9 @@ type Task struct {
 	Reviewer    string `json:"reviewer,omitempty"`
 	// FreshSession: the next run starts a new runtime session (reset_workspace moved the task off its node).
 	FreshSession bool `json:"fresh_session,omitempty"`
+	// BlockedOn are the dependencies a factory_exit_block added (explicit-exits-authority D1): authority input
+	// removes them again (the block is overridden); the task's next exit forgets them.
+	BlockedOn []string `json:"blocked_on,omitempty"`
 	// Model overrides the assignee's spec.runtime.model for this task's runs (runtime-drivers D1): set by an
 	// authority and validated against the assignee's provider then; a run whose assignee's provider does not
 	// fit it (after a reassignment) uses the agent's model and records a task.model_ignored event.

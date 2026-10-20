@@ -330,7 +330,7 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			return t, err
 		}
 		if in.Ready {
-			return t, addTrigger(ctx, tx, t, "created_ready", isOwner(in.Actor), in.Actor, "", "created ready")
+			return t, addTrigger(ctx, tx, &t, "created_ready", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", "created ready")
 		}
 		return t, nil
 	})
@@ -520,7 +520,7 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 			return t, err
 		}
 		if t.Assignee != "" && t.Assignee != previousAssignee {
-			err = addTrigger(ctx, tx, t, "assignment", isOwner(in.Actor), in.Actor, "", "assigned to "+t.Assignee)
+			err = addTrigger(ctx, tx, &t, "assignment", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", "assigned to "+t.Assignee)
 		}
 		return t, err
 	})
@@ -624,7 +624,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 		switch in.Action {
 		case "ready":
 			if err = clearParks(ctx, tx, t, tasks.ParkBlock, anyRef, "cleared"); err == nil {
-				err = addTrigger(ctx, tx, t, "ready", isOwner(in.Actor), in.Actor, "", in.Reason)
+				err = addTrigger(ctx, tx, &t, "ready", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", in.Reason)
 			}
 		case "block":
 			err = addPark(ctx, tx, t, tasks.ParkBlock, "", t.BlockReason, false)
@@ -692,7 +692,7 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 				if err = saveTask(ctx, tx, &t, "task.reviewed"); err != nil {
 					return t, err
 				}
-				return t, addTrigger(ctx, tx, t, "review_result", isOwner(in.Actor), in.Actor, "", text)
+				return t, addTrigger(ctx, tx, &t, "review_result", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", text)
 			}
 		}
 		if in.Accept {
@@ -710,7 +710,7 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 		if in.Accept {
 			err = closedTask(ctx, tx, t)
 		} else {
-			err = addTrigger(ctx, tx, t, "review_result", isOwner(in.Actor), in.Actor, "", in.Feedback)
+			err = addTrigger(ctx, tx, &t, "review_result", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", in.Feedback)
 		}
 		return t, err
 	})

@@ -51,6 +51,9 @@ type Config struct {
 	// TokenFile holds this machine's node token (`factory nodes token create`, node-agent 1.1); FACTORY_NODE_TOKEN
 	// overrides it, and without either the node uses the shared FACTORY_TOKEN (transition).
 	TokenFile string `yaml:"token_file"`
+	// RuntimeEnv adds environment variable names (NAME_* for a prefix) to the allowlist of what agent runtimes
+	// inherit from the node (worker.RuntimeEnv); the node's and the owner's credentials never pass.
+	RuntimeEnv []string `yaml:"runtime_env"`
 }
 
 // TokenEnv carries the node token in the environment (a 0600 systemd EnvironmentFile or launchd plist).

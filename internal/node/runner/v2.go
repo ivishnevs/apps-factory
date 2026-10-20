@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -452,5 +453,19 @@ func (s *session) janitor(ctx context.Context) {
 			}
 			s.cleaned[task] = true
 		}
+	}
+}
+
+// control acts on a message of the node's control subject (protocol.NodeControlSubject; explicit-exits-authority
+// D7): run.stop stops the run at once instead of at the next heartbeat answer, which stays the guarantee.
+func (s *session) control(data []byte) {
+	var e protocol.Envelope
+	var stop protocol.RunStop
+	if json.Unmarshal(data, &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID == "" {
+		slog.Warn("invalid control message")
+		return
+	}
+	if s.inv.Stop(stop.RunID, stop.Reason) {
+		slog.Info("run stopped by Core over the control subject", "run", stop.RunID, "reason", stop.Reason)
 	}
 }

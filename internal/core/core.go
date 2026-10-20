@@ -49,6 +49,24 @@ type Core struct {
 	Prices config.Prices
 	// Telegram routes owner messages from the Telegram channel (waits-events-cost-cli D4).
 	Telegram TelegramConfig
+	// outboxKick makes the tick loop publish the outbox at once (urgent stops, kickOutbox).
+	outboxKick     chan struct{}
+	outboxKickOnce sync.Once
+}
+
+// kickOutbox asks the tick loop to publish the outbox now instead of at the next tick, so an urgent stop
+// reaches its node's control subject without waiting (explicit-exits-authority D7). Without a running loop it
+// does nothing.
+func (c *Core) kickOutbox() {
+	select {
+	case c.kick() <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Core) kick() chan struct{} {
+	c.outboxKickOnce.Do(func() { c.outboxKick = make(chan struct{}, 1) })
+	return c.outboxKick
 }
 
 type companyKey struct{}
@@ -303,6 +321,10 @@ func (c *Core) run(ctx context.Context) error {
 			if err = c.publishOutbox(ctx); err != nil {
 				return err
 			}
+		case <-c.kick():
+			if err = c.publishOutbox(ctx); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -315,7 +337,11 @@ func (c *Core) publishOutbox(ctx context.Context) error {
 	}
 	for _, o := range out {
 		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err = c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
+		if strings.HasPrefix(o.Subject, protocol.NodeControlPrefix) {
+			err = c.Bus.Notify(pubCtx, o.Subject, o.Body) // control subjects are not in a stream
+		} else {
+			err = c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
+		}
 		cancel()
 		if err != nil {
 			// One message that cannot be published (a broker outage, an invalid subject) is retried

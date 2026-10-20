@@ -450,7 +450,10 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		if err = clearParks(ctx, tx, t, tasks.ParkAsk, m.ID, "cleared"); err != nil {
 			return answer, err
 		}
-		if err = addTrigger(ctx, tx, t, "answer", isOwner(in.Sender) || inChain(tx, m.Sender, in.Sender), in.Sender, m.ID, in.Body); err != nil {
+		// An answer to the task's decision from its authority set is authority input; an approval decision
+		// grants a permission and redirects nothing (the run's backoff, e.g. after a lost run, stays).
+		authority := m.ApprovalID == "" && (hasAuthorityTx(ctx, tx, t, in.Sender) || inChain(tx, m.Sender, in.Sender))
+		if err = addTrigger(ctx, tx, &t, "answer", authority, in.Sender, m.ID, in.Body); err != nil {
 			return answer, err
 		}
 	}

@@ -37,4 +37,7 @@ type Decision struct {
 	Action    string `json:"action"`
 	Reason    string `json:"reason"`
 	RequestID string `json:"request_id"`
+	// Urgent delivers an approved artifact version like an urgent directive (explicit-exits-authority D6):
+	// live runs of the tasks it wakes are stopped and resume with it.
+	Urgent bool `json:"urgent,omitempty"`
 }

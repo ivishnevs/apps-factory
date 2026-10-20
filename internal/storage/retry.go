@@ -42,7 +42,7 @@ func backoff(streak int) time.Duration {
 func init() {
 	escalationAnswers["retries_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
-	escalationAnswers["no_exit"] = []string{"retry", "accept", "cancel"}
+	escalationAnswers["no_exit"] = []string{"retry", "reassign", "accept", "cancel"}
 	escalationAnswers["inspect"] = []string{"retry", "continue", "cancel"}
 }
 

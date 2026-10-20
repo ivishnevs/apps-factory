@@ -11,6 +11,7 @@ import (
 
 	"appfactory/internal/factorytools"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 func gitIn(t *testing.T, dir string, args ...string) string {
@@ -24,21 +25,17 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestAdapterAgainstCore runs the real MCP adapter against Core with explicit exits on: a dirty tree is
-// refused on the node, a clean submit pushes the branch and opens the pull request (fake gh), Core records
-// the facts and the commit; the reviewer's approval returns it; done is refused until the PR is merged.
-func TestAdapterAgainstCore(t *testing.T) {
-	h := newExitHarness(t)
-	ctx := context.Background()
-	server := httptest.NewServer(h.c.Handler())
-	defer server.Close()
-
-	base, _ := filepath.EvalSymlinks(t.TempDir())
+// adapterRepo is a clone of a bare remote with task branch af/t one commit ahead of main, and a fake gh on
+// PATH whose pull request 9 (head: the clone's HEAD) appears with `gh pr create`; its state is in the
+// returned file (OPEN, MERGED).
+func adapterRepo(t *testing.T) (base, remote, work, state string) {
+	t.Helper()
+	base, _ = filepath.EvalSymlinks(t.TempDir())
 	gc := filepath.Join(base, "gitconfig")
 	_ = os.WriteFile(gc, []byte("[user]\n\tname = T\n\temail = t@example.com\n[init]\n\tdefaultBranch = main\n"), 0o644)
 	t.Setenv("GIT_CONFIG_GLOBAL", gc)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	remote, work := filepath.Join(base, "remote.git"), filepath.Join(base, "work")
+	remote, work = filepath.Join(base, "remote.git"), filepath.Join(base, "work")
 	gitIn(t, base, "init", "--bare", "-q", remote)
 	gitIn(t, base, "clone", "-q", remote, work)
 	_ = os.WriteFile(filepath.Join(work, "a.txt"), []byte("a\n"), 0o644)
@@ -51,7 +48,7 @@ func TestAdapterAgainstCore(t *testing.T) {
 	gitIn(t, work, "commit", "-qm", "login screen")
 	bin := filepath.Join(base, "bin")
 	_ = os.MkdirAll(bin, 0o755)
-	state := filepath.Join(base, "pr-state")
+	state = filepath.Join(base, "pr-state")
 	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte(`#!/bin/sh
 if [ "$1 $2" = "pr view" ]; then
   [ -f `+state+` ] || exit 1
@@ -62,6 +59,19 @@ if [ "$1 $2" = "pr create" ]; then echo OPEN > `+state+`; exit 0; fi
 exit 1
 `), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return base, remote, work, state
+}
+
+// TestAdapterAgainstCore runs the real MCP adapter against Core with explicit exits on: a dirty tree is
+// refused on the node, a clean submit pushes the branch and opens the pull request (fake gh), Core records
+// the facts and the commit; the reviewer's approval returns it; done is refused until the PR is merged, and
+// a squash merge (the branch's commits never reach main) passes.
+func TestAdapterAgainstCore(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	server := httptest.NewServer(h.c.Handler())
+	defer server.Close()
+	base, remote, work, state := adapterRepo(t)
 
 	h.create("t", "code", "demo")
 	r := h.start("t")
@@ -117,6 +127,14 @@ exit 1
 	if _, err := a.Call(ctx, factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "shipped"}}); err == nil || !strings.Contains(err.Error(), "pr_not_merged") {
 		t.Fatal(err)
 	}
+	// Squash merge: main gets one new commit with the branch's content; the branch's commit is not on main.
+	squash := filepath.Join(base, "squash")
+	gitIn(t, base, "clone", "-q", remote, squash)
+	gitIn(t, squash, "checkout", "-q", "main")
+	_ = os.WriteFile(filepath.Join(squash, "login.swift"), []byte("// login\n"), 0o644)
+	gitIn(t, squash, "add", "-A")
+	gitIn(t, squash, "commit", "-qm", "login screen (#9)")
+	gitIn(t, squash, "push", "-q", "origin", "main")
 	_ = os.WriteFile(state, []byte("MERGED"), 0o644)
 	if _, err := a.Call(ctx, factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "shipped"}}); err != nil {
 		t.Fatal(err)
@@ -124,5 +142,65 @@ exit 1
 	if h.task("t").Status != "DONE" {
 		t.Fatal(h.task("t"))
 	}
-	_ = storage.DefaultCompany
+	_ = h.s.DB.QueryRow("SELECT facts FROM run_exits WHERE run_id=?", r.id).Scan(&facts)
+	if !strings.Contains(facts, `"ahead_of_default":1`) || !strings.Contains(facts, `"state":"merged"`) {
+		t.Fatal("not a squash merge:", facts)
+	}
+}
+
+// TestAdapterReviewAfterConflictsRequired (1.5): with review_after_conflicts required, a PR head that changed
+// after the approval (a rebase that resolved conflicts) makes done refused through the adapter; a new
+// submit and approval of the new head lets done pass.
+func TestAdapterReviewAfterConflictsRequired(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	server := httptest.NewServer(h.c.Handler())
+	defer server.Close()
+	_, _, work, state := adapterRepo(t)
+	if _, err := h.s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "strict", Name: "strict", Workspace: "/tmp/exits-strict", RepoURL: "https://example.com/s.git", ReviewAfterConflicts: "required"}); err != nil {
+		t.Fatal(err)
+	}
+	h.create("s", "strict", "demo")
+	call := func(r exitRun, name string, args map[string]any) error {
+		_, err := (&factorytools.Adapter{URL: server.URL, Token: r.token, Workdir: work, DefaultBranch: "main"}).Call(ctx, factorytools.Call{Name: name, Arguments: args})
+		return err
+	}
+	review := func() {
+		t.Helper()
+		r := h.start("s")
+		if err := call(r, "factory_exit_submit", map[string]any{"summary": "login", "reviewer": "reviewer"}); err != nil {
+			t.Fatal(err)
+		}
+		h.end(r, "succeeded", "accepted")
+		rv := h.start("s")
+		if err := call(rv, "factory_exit_handoff", map[string]any{"to": "demo", "note": "ok", "verdict": "approved"}); err != nil {
+			t.Fatal(err)
+		}
+		h.end(rv, "succeeded", "accepted")
+	}
+	review()
+	// The implementer resolves conflicts after the approval: a new head, pushed, then merged.
+	r := h.start("s")
+	_ = os.WriteFile(filepath.Join(work, "login.swift"), []byte("// login, rebased\n"), 0o644)
+	gitIn(t, work, "add", "-A")
+	gitIn(t, work, "commit", "-qm", "resolve conflicts")
+	gitIn(t, work, "push", "-q", "origin", "HEAD:refs/heads/af/t")
+	_ = os.WriteFile(state, []byte("MERGED"), 0o644)
+	if err := call(r, "factory_exit_done", map[string]any{"summary": "shipped"}); err == nil || !strings.Contains(err.Error(), "needs_approval") {
+		t.Fatal(err)
+	}
+	if err := call(r, "factory_exit_handoff", map[string]any{"to": "demo", "note": "re-review the conflict resolution"}); err != nil {
+		t.Fatal(err)
+	}
+	h.end(r, "succeeded", "accepted")
+	_ = os.WriteFile(state, []byte("OPEN"), 0o644)
+	review()
+	r = h.start("s")
+	_ = os.WriteFile(state, []byte("MERGED"), 0o644)
+	if err := call(r, "factory_exit_done", map[string]any{"summary": "shipped"}); err != nil {
+		t.Fatal(err)
+	}
+	if h.task("s").Status != "DONE" {
+		t.Fatal(h.task("s"))
+	}
 }

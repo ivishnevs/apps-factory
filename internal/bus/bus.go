@@ -46,6 +46,15 @@ func (b *Bus) Publish(ctx context.Context, subject, id string, body []byte) erro
 	_, err := b.JS.Publish(subject, body, nats.MsgId(id), nats.Context(ctx))
 	return err
 }
+
+// Notify publishes body on a plain subject outside the streams (a node's control subject): fan-out to the
+// current subscribers, nothing is stored. The flush returns once the server has it.
+func (b *Bus) Notify(ctx context.Context, subject string, body []byte) error {
+	if err := b.NC.Publish(subject, body); err != nil {
+		return err
+	}
+	return b.NC.FlushWithContext(ctx)
+}
 func (b *Bus) Event(ctx context.Context, kind, cause string, p protocol.Event) error {
 	e := protocol.Wrap("agent."+kind, p.RunID, cause, p)
 	body, err := json.Marshal(e)

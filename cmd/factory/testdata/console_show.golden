@@ -1,5 +1,5 @@
 a — Build screen  [IN_PROGRESS]
-project p  assignee demo  priority 0  version 5
+project p  assignee demo  priority 0  version 6
 why: live_run — run <id> is RUNNING
   run:<id>: wait for it to finish or factory runs cancel <id>
 pending triggers: created_ready by owner, owner_comment by owner
@@ -10,7 +10,6 @@ cost: $0.23 over 1 ended runs (price_table 1)
 comments:
   10-20 09:03 owner: keep it simple
 recent events:
-  09:00:00   task.created                 a                        demo by owner — Build screen
   09:00:00   task.trigger.created_ready   a                        demo by owner — created ready
   09:01:00   task.started                 a                        demo by owner — Build screen
   09:01:30   report.created               a                        by system — Runtime <id> ended failed
@@ -20,3 +19,4 @@ recent events:
   09:03:40 ! task.parked.ask              a                        demo — waiting for the answer to question <id> from owner
   09:03:40 ! message.created              a                        by demo
   09:03:40   task.trigger.owner_comment   a                        demo by owner — keep it simple
+  09:03:40   task.updated                 a                        demo by owner — Build screen

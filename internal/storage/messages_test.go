@@ -89,7 +89,8 @@ func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 }
 
 // TestAnswerAfterAFailedOrCancelledRun: an answer does not resume a run that ended without completing; a
-// cancelled task stays cancelled, a failed run retries after its backoff as any failed run (reliable-recovery).
+// cancelled task stays cancelled; after a failed run the owner's answer is authority input, which counts as
+// progress: the task runs again without the backoff (explicit-exits-authority D7).
 func TestAnswerAfterAFailedOrCancelledRun(t *testing.T) {
 	for _, outcome := range []string{"revoked", "failed"} {
 		t.Run(outcome, func(t *testing.T) {
@@ -102,7 +103,7 @@ func TestAnswerAfterAFailedOrCancelledRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			task, _ = s.Task(ctx, DefaultCompany, task.ID)
-			if outcome == "revoked" && task.Status != "CANCELLED" || outcome == "failed" && (task.Status != "READY" || task.FailStreak != 1 || task.NotBefore == 0) {
+			if outcome == "revoked" && task.Status != "CANCELLED" || outcome == "failed" && (task.Status != "READY" || task.FailStreak != 0 || task.NotBefore != 0) {
 				t.Fatal("unsafe resume", task)
 			}
 		})

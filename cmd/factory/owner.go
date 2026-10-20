@@ -172,6 +172,12 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 			return err
 		}
 	case "approve", "reject":
+		// factory approve APPROVAL_ID REASON... [--urgent]: an urgent artifact approval stops the live runs of
+		// the tasks it wakes, which resume with it.
+		urgent := args[0] == "approve" && args[len(args)-1] == "--urgent"
+		if urgent {
+			args = args[:len(args)-1]
+		}
 		if len(args) < 3 {
 			return fmt.Errorf("%s APPROVAL_ID REASON", args[0])
 		}
@@ -181,7 +187,7 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		if err := api.Do(ctx, "GET", "/approvals/"+url.PathEscape(args[1]), nil, &a); err != nil {
 			return err
 		}
-		body := map[string]any{"version": a.Version, "action": args[0], "reason": strings.Join(args[2:], " "), "request_id": protocol.ID()}
+		body := map[string]any{"version": a.Version, "action": args[0], "reason": strings.Join(args[2:], " "), "urgent": urgent, "request_id": protocol.ID()}
 		if err := api.Do(ctx, "POST", "/approvals/"+url.PathEscape(args[1])+"/decision", body, &result); err != nil {
 			return err
 		}

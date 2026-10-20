@@ -116,6 +116,9 @@ type Worker struct {
 	AuthFailed func(err error)
 	// RunSucceeded, when set, is called when a run ends succeeded; the node resets the driver's auth hold-off.
 	RunSucceeded func()
+	// EnvAllow adds variable names (NAME_* for a prefix) to the runtime environment's allowlist RuntimeEnv
+	// (node.yaml runtime_env); credentials stay out regardless.
+	EnvAllow []string
 }
 
 // noteAuth reports a runtime authentication failure to AuthFailed.
@@ -486,7 +489,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 	}()
 	runSpec, prev := w.resumeSpec(drv, spec)
-	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ())}
+	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ(), w.EnvAllow)}
 	shimDir, err := w.shims(spec)
 	if err != nil {
 		return setupFailed(err)
@@ -508,7 +511,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		if credential.Token == "" || credential.Instructions == "" {
 			return setupFailed(fmt.Errorf("missing run credential"))
 		}
-		launch.Env = runEnvironment(os.Environ(), w.API.URL, credential.Token)
+		launch.Env = runEnvironment(os.Environ(), w.EnvAllow, w.API.URL, credential.Token)
 		if withMCP {
 			mcp, e := sibling(w.MCPBinary, "factory-mcp")
 			if e != nil {
@@ -979,19 +982,49 @@ func snapshotRules(spec protocol.RunSpec) ([]policies.Rule, error) {
 	return agent.Rules, nil
 }
 
-// The runtime receives only a run-scoped Factory credential. Host access remains trusted.
-func runEnvironment(env []string, base, token string) []string {
-	return append(nodeEnvironment(env), "FACTORY_URL="+base, "FACTORY_RUN_TOKEN="+token)
+// RuntimeEnv is the allowlist of an agent runtime's environment (explicit-exits-authority D9): only these
+// variables of the node's environment reach the runtime, its tools and its shell; a trailing * matches a
+// prefix. Nodes add names with node.yaml runtime_env (Worker.EnvAllow).
+var RuntimeEnv = []string{
+	// the user's session
+	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "TERM", "COLORTERM", "LANG", "LC_*", "TZ",
+	"XDG_*", "SSH_AUTH_SOCK", "EDITOR", "VISUAL", "__CF_USER_TEXT_ENCODING",
+	// runtimes and their providers
+	"CODEX_*", "OPENAI_*", "ANTHROPIC_*", "CLAUDE_*", "AWS_*", "GOOGLE_APPLICATION_CREDENTIALS", "CLOUD_ML_REGION",
+	// git, forges, certificates and proxies
+	"GIT_*", "GH_*", "GITHUB_TOKEN", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	// toolchains
+	"DEVELOPER_DIR", "SDKROOT", "JAVA_HOME", "ANDROID_HOME", "ANDROID_SDK_ROOT", "GOPATH", "GOROOT", "GOCACHE",
+	"GOMODCACHE", "GOFLAGS", "GOPROXY", "GOPRIVATE", "NVM_DIR", "HOMEBREW_PREFIX", "CARGO_HOME", "RUSTUP_HOME",
+	"PYENV_ROOT", "VIRTUAL_ENV",
 }
 
-// nodeEnvironment is env without the node's credentials (owner token, NATS) and any Factory URL or
-// run token: the base of every runtime environment, with or without a run credential.
-func nodeEnvironment(env []string) []string {
+// runtimeDenied never reaches a runtime, whatever an allowlist says: the owner's and the node's credentials,
+// the owner CLI's configuration (FACTORY_URL with FACTORY_TOKEN) and NATS. The run's own URL and token are
+// added by runEnvironment.
+var runtimeDenied = []string{"FACTORY_TOKEN", "FACTORY_NODE_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_TELEGRAM_TOKEN", "FACTORY_NODE_CONFIG", "NATS_*"}
+
+// The runtime receives only a run-scoped Factory credential. Host access remains trusted.
+func runEnvironment(env, allow []string, base, token string) []string {
+	return append(nodeEnvironment(env, allow), "FACTORY_URL="+base, "FACTORY_RUN_TOKEN="+token)
+}
+
+// nodeEnvironment is the allowed part of env (RuntimeEnv and allow, never runtimeDenied): the base of every
+// runtime environment, with or without a run credential.
+func nodeEnvironment(env, allow []string) []string {
+	match := func(list []string, k string) bool {
+		for _, p := range list {
+			if p == k || strings.HasSuffix(p, "*") && strings.HasPrefix(k, strings.TrimSuffix(p, "*")) {
+				return true
+			}
+		}
+		return false
+	}
 	out := make([]string, 0, len(env)+2)
 	for _, v := range env {
 		k, _, _ := strings.Cut(v, "=")
-		switch k {
-		case "FACTORY_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "NATS_URL", "NATS_PASSWORD":
+		if match(runtimeDenied, k) || !match(RuntimeEnv, k) && !match(allow, k) {
 			continue
 		}
 		out = append(out, v)

@@ -149,6 +149,9 @@ func (c *Core) directiveCall(w http.ResponseWriter, r *http.Request, p factoryto
 	urgent, _ := p.Arguments["urgent"].(bool)
 	key, _ := p.Arguments["request_id"].(string)
 	v, err := c.Store.Directive(r.Context(), c.companyFrom(r), task, run.Spec.Agent, text, urgent, run.Spec.Agent+":"+key)
+	if err == nil && urgent {
+		c.kickOutbox()
+	}
 	reply(w, v, err)
 }
 
@@ -170,10 +173,17 @@ func (c *Core) withAuthorityInput(r *http.Request, run storage.Run, response *to
 	if json.Unmarshal(response.body.Bytes(), &result) != nil {
 		return
 	}
-	winning := input[0]
-	for _, a := range input[1:] {
-		if a.Rank <= winning.Rank { // the smallest rank wins; later input of the same rank overrides
-			winning = a
+	// Conflicting directives: the smallest rank (depth, owner 0) wins; later input of the same rank overrides.
+	// Without directives the winner is chosen the same way among all the input.
+	var winning *storage.AuthorityInput
+	for _, directives := range []bool{true, false} {
+		for i, a := range input {
+			if (a.Kind == "directive" || !directives) && (winning == nil || a.Rank <= winning.Rank) {
+				winning = &input[i]
+			}
+		}
+		if winning != nil {
+			break
 		}
 	}
 	b, err := json.Marshal(map[string]any{"result": result, "authority_input": input, "winning": winning.Seq})
@@ -200,6 +210,9 @@ func (c *Core) directiveRoutes(m *http.ServeMux) {
 			return
 		}
 		v, err := c.Store.Directive(r.Context(), c.companyFrom(r), r.PathValue("id"), "owner", p.Text, p.Urgent, p.RequestID)
+		if err == nil && p.Urgent {
+			c.kickOutbox()
+		}
 		reply(w, v, err)
 	})
 }

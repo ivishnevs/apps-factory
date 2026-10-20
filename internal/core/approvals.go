@@ -40,6 +40,9 @@ func (c *Core) approvalRoutes(m *http.ServeMux) {
 		c.approvalMu.Lock()
 		defer c.approvalMu.Unlock()
 		v, err := c.Store.DecideApproval(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
+		if err == nil && p.Urgent {
+			c.kickOutbox()
+		}
 		reply(w, v, err)
 	})
 }

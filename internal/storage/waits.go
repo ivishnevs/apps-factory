@@ -223,7 +223,7 @@ func (s *Store) ExpireWaits(ctx context.Context, company string) error {
 			}
 			continue
 		}
-		if err = addTrigger(ctx, tx, t, "wait_ended", false, "system", d.ref, "wait time reached: check the outside world, then continue or wait again"); err != nil {
+		if err = addTrigger(ctx, tx, &t, "wait_ended", false, "system", d.ref, "wait time reached: check the outside world, then continue or wait again"); err != nil {
 			return err
 		}
 	}
@@ -243,20 +243,28 @@ func waitAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answer,
 	case "extend":
 		return true, comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": extend — continue; a new wait may set a new deadline")
 	case "reassign":
-		// An agent's answer is a reassignment to that manager, as with the reassign action (hierarchy D2); the
-		// owner's leaves the task unassigned until factory tasks reassign names the new assignee.
-		if isOwner(actor) {
-			t.Assignee, t.AttemptsNoProgress, t.FailStreak, t.NotBefore = "", 0, 0, 0
-			if err := comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign; choose the new assignee with factory tasks reassign"); err != nil {
-				return true, err
-			}
-			return true, saveTask(ctx, tx, &t, "task.updated")
-		}
-		if actor == t.Assignee {
-			return true, comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign — kept by "+actor)
-		}
-		_, err := reassignTx(ctx, tx, t, actor, actor, "escalation "+e.Reason+": reassign")
-		return true, err
+		return true, reassignAnswer(ctx, tx, t, e, actor)
 	}
 	return false, nil
+}
+
+// reassignAnswer is the reassign answer of an escalation (wait deadlines, no_exit): an agent's answer is a
+// reassignment to that manager, as with the reassign action (hierarchy D2); the owner's leaves the task
+// unassigned until factory tasks reassign names the new assignee.
+func reassignAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, actor string) error {
+	if isOwner(actor) {
+		t.Assignee, t.AttemptsNoProgress, t.FailStreak, t.NotBefore = "", 0, 0, 0
+		if t.Status == "IN_PROGRESS" {
+			t.Status = "READY"
+		}
+		if err := comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign; choose the new assignee with factory tasks reassign"); err != nil {
+			return err
+		}
+		return saveTask(ctx, tx, &t, "task.updated")
+	}
+	if actor == t.Assignee {
+		return comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign — kept by "+actor)
+	}
+	_, err := reassignTx(ctx, tx, t, actor, actor, "escalation "+e.Reason+": reassign")
+	return err
 }

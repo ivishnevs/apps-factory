@@ -431,7 +431,7 @@ func (s *Store) Resolve(ctx context.Context, company, id, answer, result string)
 		if t, err := taskTx(ctx, tx, e.TaskID); err != nil {
 			return err
 		} else if t.Status != "DONE" && t.Status != "CANCELLED" {
-			if err = addTrigger(ctx, tx, t, "answer", true, "owner", e.MessageID, "escalation inspect: "+answer); err != nil {
+			if err = addTrigger(ctx, tx, &t, "answer", true, "owner", e.MessageID, "escalation inspect: "+answer); err != nil {
 				return err
 			}
 		}

@@ -244,9 +244,13 @@ func TestDecisionAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The task changed after the question (an owner comment): the question may be outdated.
+	// The task changed after the question (its last child closed): the question may be outdated. (Authority
+	// input would supersede it: explicit-exits-authority D7.)
 	q = ask("colors", "Green or blue?")
-	if _, err := h.s.CommentTask(ctx, co, "colors", tasks.Comment{Text: "the brand is orange now", RequestID: "comment"}); err != nil {
+	if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: "colors-sub", ProjectID: "notes", Title: "sub", ParentTaskID: "colors", RequestID: "sub"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.s.TaskAction(ctx, co, "colors-sub", tasks.Action{Version: h.task("colors-sub").Version, Action: "cancel"}); err != nil {
 		t.Fatal(err)
 	}
 	if q, _ = h.s.Message(ctx, co, q.ID); !q.MayBeOutdated {

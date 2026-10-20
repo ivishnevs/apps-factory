@@ -106,7 +106,7 @@ func deliverTx(ctx context.Context, tx *Tx, m *messaging.Message) error {
 	if len(m.Route) > 0 {
 		text += " (forwarded by " + strings.Join(m.Route, ", ") + ")"
 	}
-	if err = addTrigger(ctx, tx, t, "message", authority, m.Sender, m.ID, text+": "+shortText(m.Body, 1024)); err != nil {
+	if err = addTrigger(ctx, tx, &t, "message", authority, m.Sender, m.ID, text+": "+shortText(m.Body, 1024)); err != nil {
 		return err
 	}
 	m.DeliveryStatus = "TRIGGERED"
@@ -165,7 +165,7 @@ func closedConversationEffects(ctx context.Context, tx *Tx, t tasks.Task) error 
 	if err != nil {
 		return err
 	}
-	return addTrigger(ctx, tx, c, "delegated_closed", false, "system", t.ID, "task "+t.ID+" ("+t.Title+") you delegated to "+t.Assignee+" is "+t.Status+": "+shortText(t.Result, 512))
+	return addTrigger(ctx, tx, &c, "delegated_closed", false, "system", t.ID, "task "+t.ID+" ("+t.Title+") you delegated to "+t.Assignee+" is "+t.Status+": "+shortText(t.Result, 512))
 }
 
 // subtreeSummary is the manager brief's "under you since your last run" (hierarchy D6): tasks of the agent's

@@ -11,6 +11,7 @@ import (
 
 	"appfactory/internal/artifacts"
 	"appfactory/internal/messaging"
+	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
 
@@ -348,7 +349,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 	a := req.Arguments
 	out := ExitResult{Exit: req.Kind, AckSeq: req.AckSeq}
 	now := tx.now()
-	t.NotBefore = 0
+	t.NotBefore, t.BlockedOn = 0, nil // an earlier block is over: its dependencies stay ordinary ones
 	event := "task.updated"
 	escalate := "" // a failed merge that exhausted the attempts
 	switch req.Kind {
@@ -443,7 +444,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			return out, err
 		}
 	case req.Kind == "submit" && t.Reviewer != "":
-		if err := addTrigger(ctx, tx, t, "assignment", false, agent, runID, "review requested by "+agent); err != nil {
+		if err := addTrigger(ctx, tx, &t, "assignment", false, agent, runID, "review requested by "+agent); err != nil {
 			return out, err
 		}
 	case escalate != "":
@@ -451,7 +452,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			return out, err
 		}
 	case req.Kind == "handoff":
-		if err := addTrigger(ctx, tx, t, "assignment", false, agent, runID, "handoff from "+agent+": "+str(a, "note")); err != nil {
+		if err := addTrigger(ctx, tx, &t, "assignment", false, agent, runID, "handoff from "+agent+": "+str(a, "note")); err != nil {
 			return out, err
 		}
 	case req.Kind == "wait":
@@ -511,13 +512,14 @@ func exitBlock(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, 
 		return fallback("no tasks named")
 	}
 	deps := slices.Clone(t.Dependencies)
+	var added []string
 	for _, id := range on {
 		d, err := taskTx(ctx, tx, id)
 		if err != nil || d.ProjectID != t.ProjectID || d.Status == "DONE" || d.Status == "CANCELLED" || d.ID == t.ID {
 			return fallback("task " + id + " is not an open task of this project")
 		}
 		if !slices.Contains(deps, id) {
-			deps = append(deps, id)
+			deps, added = append(deps, id), append(added, id)
 		}
 	}
 	candidate := *t
@@ -530,7 +532,7 @@ func exitBlock(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, 
 	} else if err != nil {
 		return "", err
 	}
-	t.Dependencies, t.Status = deps, "READY"
+	t.Dependencies, t.BlockedOn, t.Status = deps, added, "READY"
 	return "", nil
 }
 
@@ -560,8 +562,7 @@ type AuthorityInput struct {
 	Text   string `json:"text"`
 }
 
-// AuthorityInputSince lists the task's authority triggers above ackSeq (rank: owner 0, others 1 until the
-// hierarchy gives depths).
+// AuthorityInputSince lists the task's authority triggers above ackSeq with the author's rank (principalRank).
 func (s *Store) AuthorityInputSince(ctx context.Context, company, task string, ackSeq int64) ([]AuthorityInput, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT seq,actor,kind,body FROM task_triggers WHERE company_id=? AND task_id=? AND seq>? AND authority=1 ORDER BY seq LIMIT 20", company, task, ackSeq)
 	if err != nil {
@@ -574,9 +575,7 @@ func (s *Store) AuthorityInputSince(ctx context.Context, company, task string, a
 		if err = rows.Scan(&a.Seq, &a.Author, &a.Kind, &a.Text); err != nil {
 			return nil, err
 		}
-		if a.Author != "owner" {
-			a.Rank = 1
-		}
+		a.Rank = s.principalRank(a.Author)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -608,52 +607,43 @@ func (s *Store) Directive(ctx context.Context, company, task, actor, text string
 		if t.Status == "DONE" || t.Status == "CANCELLED" {
 			return t, ErrConflict
 		}
-		if err = addTrigger(ctx, tx, t, "directive", true, actor, "", text); err != nil {
+		// The trigger overrides the task's interruptible parks and retry escalations and counts as progress.
+		if err = addTrigger(ctx, tx, &t, "directive", true, actor, "", text); err != nil {
 			return t, err
 		}
-		// Authority input counts as a retry answer and as progress.
-		if err = resetRetry(ctx, tx, &t); err != nil {
-			return t, err
+		if urgent {
+			err = stopUrgently(ctx, tx, t, "directive")
 		}
-		if err = clearRetryEscalations(ctx, tx, t, "directive from "+actor); err != nil {
-			return t, err
-		}
-		if err = clearOpenEscalation(ctx, tx, t, "no_exit", "directive from "+actor); err != nil {
-			return t, err
-		}
-		if err = clearParks(ctx, tx, t, tasks.ParkWait, anyRef, "overridden"); err != nil {
-			return t, err
-		}
-		if err = clearParks(ctx, tx, t, tasks.ParkChildren, anyRef, "overridden"); err != nil {
-			return t, err
-		}
-		waiting, err := askPark(ctx, tx, tx.company, t.ID)
-		if err != nil {
-			return t, err
-		}
-		switch {
-		case t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "children:"):
-			t.Status, t.BlockReason = "READY", ""
-		case waiting != "" && t.Status == "READY":
-			// The question of an ended run is superseded by the directive.
-			if m, err := messageTx(ctx, tx, waiting); err == nil && m.Status == "PENDING" {
-				m.Status, m.DeliveryStatus, m.EscalationReason = "WITHDRAWN", "NONE", "superseded by a directive from "+actor
-				if err = saveMessage(ctx, tx, &m, "message.withdrawn"); err != nil {
-					return t, err
-				}
-			}
-			if err = clearParks(ctx, tx, t, tasks.ParkAsk, anyRef, "overridden"); err != nil {
-				return t, err
-			}
-			t.BlockReason = ""
-		}
-		if urgent && t.CurrentRunID != "" {
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='directive' WHERE id=? AND status IN ('CLAIMED','RUNNING')", t.CurrentRunID); err != nil {
-				return t, err
-			}
-		}
-		return t, saveTask(ctx, tx, &t, "task.updated")
+		return t, err
 	})
+}
+
+// stopUrgently revokes the task's live run for urgent authority input (D7): the run becomes CANCELLING with
+// the stop reason, and a v2 node holding it gets run.stop on its control subject at once; the heartbeat
+// answer stays the guarantee (a v1 worker learns it there only). The revoked run ends revoked and the next
+// run starts with the input.
+func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) error {
+	if t.CurrentRunID == "" {
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason=? WHERE company_id=? AND id=? AND status IN ('CLAIMED','RUNNING')", reason, tx.company, t.CurrentRunID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
+	}
+	var node string
+	if err = tx.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&node); err != nil || node == "" {
+		return err
+	}
+	e := protocol.Wrap("run.stop", t.CurrentRunID, "", protocol.RunStop{RunID: t.CurrentRunID, Reason: "revoked"})
+	b, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.NodeControlSubject(node), b, tx.company)
+	return err
 }
 
 // PendingDirectives are the task's directives above handled_seq, oldest first (for the next brief).
@@ -697,7 +687,7 @@ func (s *Store) AbandonBranch(ctx context.Context, company, task, actor string) 
 	if err = comment(ctx, tx, t.ID, actor, "abandon_branch: the task's branch will not be merged"); err != nil {
 		return err
 	}
-	if err = addTrigger(ctx, tx, t, "answer", isOwner(actor), actor, "", "abandon_branch"); err != nil {
+	if err = addTrigger(ctx, tx, &t, "answer", hasAuthorityTx(ctx, tx, t, actor), actor, "", "abandon_branch"); err != nil {
 		return err
 	}
 	return tx.Commit()

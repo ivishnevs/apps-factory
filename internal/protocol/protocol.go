@@ -111,6 +111,20 @@ type Quota struct {
 	Type string `json:"type,omitempty"`
 }
 
+// NodeControlPrefix starts every node's control subject: a plain fan-out NATS subject outside the JetStream
+// streams, so a stop never waits behind queued run commands (explicit-exits-authority D7, node-agent D2).
+// The company prefix (factory.<company>.nodes...) comes with postgres-tenancy's subject prefixes.
+const NodeControlPrefix = "factory.nodes."
+
+// NodeControlSubject is the control subject of a node; Core publishes RunStop there.
+func NodeControlSubject(nodeID string) string { return NodeControlPrefix + nodeID + ".control" }
+
+// RunStop is the payload of a "run.stop" control message: the node stops the run if it still has it.
+type RunStop struct {
+	RunID  string `json:"run_id"`
+	Reason string `json:"reason"`
+}
+
 func ID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

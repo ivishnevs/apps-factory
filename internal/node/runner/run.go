@@ -205,12 +205,19 @@ func Run(ctx context.Context, n Node) error {
 			s.onHooks(*s.hooks)
 		}
 		go checks.run(ctx, c.Probes.Interval)
+		// Core's urgent stops arrive on the node's control subject, outside the command stream (a plain
+		// subscription: missed while disconnected, then the heartbeat answer stops the run).
+		control, err := n.Bus.NC.Subscribe(protocol.NodeControlSubject(s.inv.NodeID), func(m *nats.Msg) { s.control(m.Data) })
+		if err != nil {
+			return err
+		}
+		defer control.Unsubscribe()
 	}
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
-			Skills: registry, Sessions: store}
+			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv}
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
 		if s != nil {

@@ -42,6 +42,41 @@ func authorityTask(ctx context.Context, tx *Tx, id string, version int) (tasks.T
 	return t, nil
 }
 
+// principalRank is an authority principal's rank (explicit-exits-authority D6): 0 the owner, otherwise its
+// depth in the reporting tree (1 reports to the owner); 1 for any agent without a catalog.
+func (s *Store) principalRank(actor string) int {
+	if isOwner(actor) {
+		return 0
+	}
+	depth := 1
+	if s.ManagerOf == nil {
+		return depth
+	}
+	for m := s.ManagerOf(actor); m != "owner" && depth < 32; m = s.ManagerOf(m) {
+		depth++
+	}
+	return depth
+}
+
+// hasAuthorityTx tells whether actor has authority over t (D6, hierarchy D2): the owner, a manager up the
+// assignee's chain, or the assignee of the task t was delegated from. Its input is authority input.
+func hasAuthorityTx(ctx context.Context, tx *Tx, t tasks.Task, actor string) bool {
+	if isOwner(actor) {
+		return true
+	}
+	if actor == t.Assignee {
+		return false
+	}
+	if inChain(tx, t.Assignee, actor) {
+		return true
+	}
+	if t.OriginTask == "" {
+		return false
+	}
+	o, err := taskTx(ctx, tx, t.OriginTask)
+	return err == nil && o.Assignee == actor
+}
+
 func actorName(actor string) string {
 	if actor == "" {
 		return "owner"
@@ -200,7 +235,7 @@ func reassignTx(ctx context.Context, tx *Tx, t tasks.Task, assignee, actor, reas
 	if err = endEpisode(ctx, tx, t.ID); err != nil {
 		return t, err
 	}
-	return t, addTrigger(ctx, tx, t, "assignment", true, actor, "", strings.TrimSpace("assigned to "+t.Assignee+" by "+actor+". "+reason))
+	return t, addTrigger(ctx, tx, &t, "assignment", true, actor, "", strings.TrimSpace("assigned to "+t.Assignee+" by "+actor+". "+reason))
 }
 
 // openChildren lists the task's open children.

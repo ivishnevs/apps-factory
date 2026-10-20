@@ -167,6 +167,13 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 		}
 		return applyScopeAnswer(ctx, tx, e, answer, in.Sender)
 	}
+	// The answer is authority input when the answerer has authority over the task as it was escalated (the
+	// assignee's manager, whom escalations reach, or the owner), also when the answer reassigns it to them.
+	escalated, err := taskTx(ctx, tx, e.TaskID)
+	if err != nil {
+		return err
+	}
+	authority := hasAuthorityTx(ctx, tx, escalated, in.Sender)
 	// Closed first: a cancel answer closes the task, which clears its other open escalations.
 	if err = closeEscalation(ctx, tx, e, "answered", answer, in.Sender, ""); err != nil {
 		return err
@@ -178,7 +185,7 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 	if err != nil || t.Status == "DONE" || t.Status == "CANCELLED" || answer == "accept" {
 		return err // accept leaves the task idle until new input
 	}
-	return addTrigger(ctx, tx, t, "answer", isOwner(in.Sender), in.Sender, m.ID, "escalation "+e.Reason+": "+answer)
+	return addTrigger(ctx, tx, &t, "answer", authority, in.Sender, m.ID, "escalation "+e.Reason+": "+answer)
 }
 
 // resetRef is the ref of the block park that holds a task until its node reset the worktree.
@@ -203,6 +210,8 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		return retryAnswer(ctx, tx, t)
 	case "accept": // no_exit: take the work as it is
 		return acceptAnswer(ctx, tx, t)
+	case "reassign": // no_exit: to the answering manager (the owner chooses later)
+		return reassignAnswer(ctx, tx, t, e, actor)
 	case "reset_workspace":
 		if e.Reason == "workspace_diverged" {
 			// The node resets the worktree from the remote branch (heartbeat reset); the task runs again on

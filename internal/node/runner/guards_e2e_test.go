@@ -37,6 +37,9 @@ type e2e struct {
 	done   chan error
 }
 
+// e2eHeartbeat is the inventory heartbeat period of startE2E's node, in seconds.
+var e2eHeartbeat = 1
+
 func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, d *fake.Driver) *e2e {
 	t.Helper()
 	url := os.Getenv("NATS_TEST_URL")
@@ -59,7 +62,7 @@ func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, 
 		b.NC.Close()
 	})
 	beat := storage.HeartbeatSeconds
-	storage.HeartbeatSeconds = 1
+	storage.HeartbeatSeconds = e2eHeartbeat
 	t.Cleanup(func() { storage.HeartbeatSeconds = beat })
 	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
 	if err != nil {

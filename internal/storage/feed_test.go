@@ -69,7 +69,7 @@ func TestRolledBackCauseLeavesNoFeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = addTrigger(ctx, tx, task, "ready", true, "owner", "", "run now"); err != nil {
+	if err = addTrigger(ctx, tx, &task, "ready", true, "owner", "", "run now"); err != nil {
 		t.Fatal(err)
 	}
 	spec := protocol.RunSpec{ID: "rolled-back", Project: "p", Agent: "demo", Provider: protocol.RuntimeCodex, TaskID: "a", Workspace: "/tmp/task-engine-p"}
