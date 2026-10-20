@@ -295,7 +295,7 @@ func TestArtifactWaitersPreserveManualBlocksQuarantineAndDeadlines(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknown, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "unknown", Assignee: "demo", RequiredArtifacts: []tasks.Artifact{ref}, SideEffects: true}) // inspected, not retried
+	unknown, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "unknown", Assignee: "demo", Priority: 1, RequiredArtifacts: []tasks.Artifact{ref}, SideEffects: true}) // inspected, not retried; before demo's conversation (the approval notice)
 	if err != nil {
 		t.Fatal(err)
 	}

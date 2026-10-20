@@ -254,6 +254,18 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, p.Actor, "factory.task."+p.Action, false, false) {
 			return
 		}
+		if p.Action == "cancel" && p.Actor != "" {
+			// An agent cancels a task it has authority over (hierarchy D2) or one it created.
+			t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
+			if err != nil {
+				reply(w, nil, err)
+				return
+			}
+			if t.CreatedBy != p.Actor && !c.hasAuthority(r.Context(), c.companyFrom(r), p.Actor, t) {
+				http.Error(w, "authority over the task required to cancel it", 403)
+				return
+			}
+		}
 		if p.Action == "ready" {
 			t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
 			if err != nil {

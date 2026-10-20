@@ -173,8 +173,8 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return saveTask(ctx, tx, &t, "task.updated")
 	}
 	rule, ok := Outcomes[outcome]
-	if !ok || t.CancelRequested {
-		return nil
+	if !ok || t.CancelRequested || outcome == "no_exit" && t.Kind == tasks.KindConversation {
+		return nil // a conversation turn without an exit handled its input (syncTaskStatus)
 	}
 	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
 	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer

@@ -38,6 +38,12 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		}
 		return spec, err
 	}
+	if p, err := taskPause(ctx, tx, company, t.ID); err != nil || p != nil {
+		if err == nil {
+			err = ErrConflict
+		}
+		return spec, err
+	}
 	if err = s.checkTaskChange(ctx, tx, t); err != nil {
 		return spec, err
 	}
@@ -74,6 +80,10 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	spec.RepoURL, spec.DefaultBranch, spec.WorkspaceMode = p.RepoURL, p.DefaultBranch, ""
 	if p.RepoURL != "" {
 		spec.WorkspaceMode = WorkspaceMode(spec.ConfigSnapshot)
+	}
+	if t.Kind == tasks.KindConversation {
+		// A conversation runs in the project workspace without its writer slot or a task worktree.
+		spec.Conversation, spec.WorkspaceMode = true, ""
 	}
 	if t.CurrentRunID != "" {
 		var status, session string
@@ -126,9 +136,6 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 	if err := autoRuntimeReport(ctx, tx, runID); err != nil {
 		return err
 	}
-	if err := syncMessageRun(ctx, tx, runID); err != nil {
-		return err
-	}
 	var taskID sql.NullString
 	var outcome, result string
 	if err := tx.QueryRowContext(ctx, "SELECT task_id,outcome,result FROM runs WHERE id=?", runID).Scan(&taskID, &outcome, &result); err != nil {
@@ -158,6 +165,19 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 	}
 	// A completed turn: succeeded, or no_exit (a turn ended without an exit under explicit exits).
 	completed := outcome == "succeeded" || outcome == "no_exit"
+	if t.Kind == tasks.KindConversation && completed {
+		// A conversation task stays open (hierarchy D5): a completed turn handled what it was briefed on.
+		if !hasExit {
+			if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
+				return err
+			}
+		}
+		if t.Status != "IN_PROGRESS" {
+			return nil
+		}
+		t.Status, t.Result, t.Submission = "READY", result, nil
+		return saveTask(ctx, tx, &t, "task.updated")
+	}
 	if hasExit && !(completed && asked) {
 		return nil // the accepted exit already moved the task (an ask still waits for its answer below)
 	}
@@ -316,9 +336,6 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 	}
 	if next == "ENDED" {
 		if err = autoRuntimeReport(ctx, tx, id); err != nil {
-			return err
-		}
-		if err = syncMessageRun(ctx, tx, id); err != nil {
 			return err
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func put(t *testing.T, root, path, text string) {
@@ -430,9 +431,18 @@ func TestReportsTo(t *testing.T) {
 	agent("cto", "")
 	agent("lead", "cto")
 	agent("dev", "lead")
+	// Two agents report to the owner (the fixture's agent and cto): owner.default_report is required.
+	if _, err := LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "default_report") {
+		t.Fatal("two direct reports without a default:", err)
+	}
+	put(t, root, "configs/company.yaml", "owner:\n  default_report: lead\n")
+	if _, err := LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "not an agent reporting to the owner") {
+		t.Fatal("default report below the top:", err)
+	}
+	put(t, root, "configs/company.yaml", "owner:\n  default_report: cto\n")
 	c, err := LoadCatalog(root)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || c.DefaultReport != "cto" {
+		t.Fatal(c, err)
 	}
 	if got := Chain(c.Agents, "dev"); !slices.Equal(got, []string{"lead", "cto"}) {
 		t.Fatal(got)
@@ -453,6 +463,34 @@ func TestReportsTo(t *testing.T) {
 	agent("cto", "ghost")
 	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatal("unknown:", err)
+	}
+}
+
+// TestEscalateAfterPolicy (hierarchy 2.3): escalation rules set per-category escalate_after; the shortest one
+// covering a category applies, others use the default; invalid durations fail validation.
+func TestEscalateAfterPolicy(t *testing.T) {
+	root := fixture(t)
+	rule := func(name, after, categories string) string {
+		return "    - name: " + name + "\n      type: escalation\n      escalate_after: " + after + "\n" + categories + "      instruction: Answer in time.\n"
+	}
+	put(t, root, "configs/policies/timing.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: timing\nspec:\n  rules:\n"+rule("all", "6h", "")+rule("money-ish", "1h", "      categories: [marketing]\n"))
+	b, _ := os.ReadFile(filepath.Join(root, "configs/profiles/base.yaml"))
+	put(t, root, "configs/profiles/base.yaml", strings.Replace(string(b), "policies: [restricted]", "policies: [restricted, timing]", 1))
+	c, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Agents["agent"].EscalateAfter("marketing"); got != time.Hour {
+		t.Fatal(got)
+	}
+	if got := c.Agents["agent"].EscalateAfter("technical"); got != 6*time.Hour {
+		t.Fatal(got)
+	}
+	for _, bad := range []string{rule("x", "10s", ""), rule("x", "soon", ""), "    - name: x\n      type: escalation\n      target: manager\n      categories: [a]\n      instruction: x\n"} {
+		put(t, root, "configs/policies/timing.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: timing\nspec:\n  rules:\n"+bad)
+		if _, err := LoadCatalog(root); err == nil {
+			t.Fatal("accepted", bad)
+		}
 	}
 }
 

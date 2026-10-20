@@ -29,7 +29,19 @@ type Rule struct {
 	ReportKinds []string `yaml:"report_kinds" json:"report_kinds,omitempty"`
 	Roles       []string `yaml:"roles" json:"roles,omitempty"`
 	Agents      []string `yaml:"agents" json:"agents,omitempty"`
+	// EscalateAfter (an escalation rule, hierarchy D4) is how long the agents it applies to may leave a question
+	// routed to them unanswered before it moves one level up (Go duration, 1m..168h; default 4h). Categories
+	// limits it to questions of these decision categories (all when empty).
+	EscalateAfter string   `yaml:"escalate_after" json:"escalate_after,omitempty"`
+	Categories    []string `yaml:"categories" json:"categories,omitempty"`
 }
+
+// EscalateAfterDuration parses an escalation rule's escalate_after (0 when unset).
+func (r Rule) EscalateAfterDuration() time.Duration {
+	d, _ := time.ParseDuration(r.EscalateAfter)
+	return d
+}
+
 type Policy struct {
 	APIVersion string `yaml:"apiVersion" json:"apiVersion"`
 	Kind       string `yaml:"kind" json:"kind"`
@@ -75,6 +87,16 @@ func Validate(p Policy) error {
 		if len(r.Exits)+len(r.ReportKinds) > 0 && r.Type != "reporting" {
 			return fmt.Errorf("rule %s: exits and report_kinds only apply to reporting rules", r.Name)
 		}
+		if (r.EscalateAfter != "" || len(r.Categories) > 0) && r.Type != "escalation" {
+			return fmt.Errorf("rule %s: escalate_after and categories only apply to escalation rules", r.Name)
+		}
+		if r.EscalateAfter != "" {
+			if d, err := time.ParseDuration(r.EscalateAfter); err != nil || d < time.Minute || d > 7*24*time.Hour {
+				return fmt.Errorf("rule %s: escalate_after must be a duration from 1m to 168h", r.Name)
+			}
+		} else if len(r.Categories) > 0 {
+			return fmt.Errorf("rule %s: categories need escalate_after", r.Name)
+		}
 		switch r.Type {
 		case "access":
 			if len(r.Operations)+len(r.Commands) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval") || r.Target != "" {
@@ -84,7 +106,7 @@ func Validate(p Policy) error {
 			if len(r.Commands) > 0 {
 				return fmt.Errorf("commands only apply to access rules")
 			}
-			if r.Target != "self" && r.Target != "manager" && r.Target != "owner" {
+			if r.Target != "self" && r.Target != "manager" && r.Target != "owner" && !(r.Target == "" && r.EscalateAfter != "") {
 				return fmt.Errorf("invalid escalation target")
 			}
 			if r.Effect != "" {

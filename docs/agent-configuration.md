@@ -89,5 +89,43 @@ allowed in its policy; questions without a category it may always answer), other
 `factory_question_forward {message_id, version, note}` to its own manager; the question keeps its route. The
 locked categories `release`, `money`, `deletion` and `legal` go straight to the owner, and a policy that delegates
 them fails validation. The answer wakes the asking task (as authority input when it comes from the chain).
-A question or escalation an agent leaves unanswered for 4 hours moves one level up automatically (feed event
-`message.auto_forwarded` names the skipped manager); at the owner it stays.
+A question or escalation an agent leaves unanswered for `escalate_after` moves one level up automatically (feed
+event `message.auto_forwarded` names the skipped manager, and a comment on the skipped manager's conversation task
+records the forward); at the owner it stays. The interval is 4 hours unless an escalation rule applying to the
+recipient sets one, optionally per category (the shortest covering rule wins; 1m..168h):
+
+```yaml
+- name: lead-answers-marketing-fast
+  type: escalation
+  agents: [calorie-manager]
+  escalate_after: 2h
+  categories: [marketing]   # all categories when omitted
+  instruction: Forward marketing questions promptly.
+```
+
+Authority actions (owner API/CLI, agents through Factory MCP with authority over the task; others get 403):
+`factory_task_pause` / `factory_task_resume` (`POST /tasks/{id}/pause|resume`, `factory tasks pause|resume ID
+VERSION [REASON]`) hold a task from new runs (`why`: `paused:task`, cleared by the pauser); with `agent` instead
+of `id` they pause an agent of the actor's subtree (`POST /agents/{name}/pause|resume`). Only the pauser or a
+higher authority (the owner rank 0, then depth in the tree) resumes. `factory_task_reassign` (`POST
+/tasks/{id}/reassign`, `factory tasks reassign ID VERSION AGENT [REASON]`) moves a task within the actor's subtree
+(the owner: anywhere); a queued run ends stale, a running one is revoked, and the new assignee gets an authority
+`assignment` trigger. `factory_task_reprioritize` (`factory tasks reprioritize ID VERSION PRIORITY`) changes the
+priority (-1000..1000). `factory_task_cancel` (`factory tasks cancel ID VERSION [REASON] [--cascade]`) cancels a
+task the actor has authority over or created; open children need `cascade: true` (otherwise 409
+`needs_cascade`). Pause, resume and reprioritize are not triggers: they wake nothing and leave parks (a wait, a
+question) as they are. Every action is a feed event (`task.paused`, `task.resumed`, `task.reassigned`,
+`task.reprioritized`) for the assignee's chain.
+
+Each agent talks to its boss through its conversation task ([messaging](messaging.md#conversation-tasks)). With
+more than one agent reporting to the owner, `configs/company.yaml` must name the default one, which gets the
+owner's unaddressed messages (`@name …` reaches another):
+
+```yaml
+owner:
+  default_report: manager
+```
+
+Managers are not woken by every event under them: a manager's brief lists its subtree's tasks that closed,
+escalated or had a failed run since its last run, and its conversation wakes only for messages, questions and
+escalations to it and for closed tasks it delegated.

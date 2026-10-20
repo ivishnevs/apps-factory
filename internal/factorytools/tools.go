@@ -91,7 +91,13 @@ func Definitions() []Tool {
 	add("openspec_list", "openspec.list", "List a project OpenSpec directory lazily; dir is relative to openspec (default .). after is previous next_after; limit 1..20.", map[string]any{"dir": s(), "after": s(), "limit": n})
 	add("openspec_read", "openspec.read", "Read a current OpenSpec document relative to openspec, up to 8192 UTF-8 bytes. Continue using next_offset and the returned sha256; changed content conflicts. Documents remain in workspace files.", map[string]any{"path": s(), "offset": n, "limit": n, "sha256": s()}, "path")
 	add("openspec_check", "openspec.check", "Check an active change reference and nonempty proposal. This is not semantic/schema validation; use official OpenSpec tools for that.", map[string]any{"change": s()}, "change")
-	return out
+	for i := range out {
+		if out[i].Name == "factory_task_cancel" {
+			out[i].Description = "Factory: Cancel a task you have authority over (or created) with its current version; cascade: true also cancels its open children (required when it has any)."
+			out[i].InputSchema["properties"].(map[string]any)["cascade"] = map[string]any{"type": "boolean"}
+		}
+	}
+	return append(out, authorityDefinitions()...)
 }
 
 // Validate checks required fields, unknown keys and nested JSON types before routing.

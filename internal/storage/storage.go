@@ -21,6 +21,9 @@ var ErrInvalid = errors.New("invalid event")
 var ErrConflict = errors.New("state or version conflict")
 var ErrNotFound = errors.New("not found")
 
+// ErrForbidden: the actor may not do this (403).
+var ErrForbidden = errors.New("forbidden")
+
 // DefaultCompany owns every row created before tenancy and all work of a single-company Core.
 const DefaultCompany = "default"
 
@@ -40,6 +43,11 @@ type Store struct {
 	EscalationTarget func(assignee string) string
 	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
 	ManagerOf func(agent string) string
+	// SubtreeOf lists the agents under agent (hierarchy D6, manager briefs); nil means none.
+	SubtreeOf func(agent string) []string
+	// EscalateAfterFor is how long agent may leave a question of category unanswered before it moves up
+	// (hierarchy D4, policy escalate_after); nil or 0 means EscalateAfter.
+	EscalateAfterFor func(agent, category string) time.Duration
 	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a succeeded
 	// turn without an accepted exit is no_exit instead of an implicit submission.
 	ExplicitExits bool
@@ -486,6 +494,9 @@ func nullable(s string) any {
 // anything run in the project workspace (shared or scratch mode, message runs, or a node without worktrees)
 // holds the project workspace path and runs one at a time.
 func writerSlot(r protocol.RunSpec, worktrees bool) string {
+	if r.Conversation && r.Workspace != "" {
+		return r.Workspace + "#conversation/" + r.Agent // a conversation run talks; it does not write the project
+	}
 	if worktrees && (r.WorkspaceMode == "worktree" || r.WorkspaceMode == "fresh_from_default") && r.TaskID != "" && r.Workspace != "" {
 		return r.Workspace + "#task/" + r.TaskID
 	}

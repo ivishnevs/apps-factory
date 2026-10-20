@@ -55,7 +55,10 @@ func TestRunPhaseMigration(t *testing.T) {
 			t.Fatal(q, err)
 		}
 	}
-	held := taskOf(t, s, "held")
+	var held tasks.Task // read raw: the schema is the old one here
+	if err = s.DB.QueryRow("SELECT version FROM tasks WHERE id='held'").Scan(&held.Version); err != nil {
+		t.Fatal(err)
+	}
 	s.DB.Close()
 	if s, err = Open(path); err != nil {
 		t.Fatal(err)

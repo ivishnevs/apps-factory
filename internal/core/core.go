@@ -38,6 +38,9 @@ type Core struct {
 	Company string
 	// ExplicitExits switches runs to factory_exit_* (docs/explicit-exits-contract.md, FACTORY_EXPLICIT_EXITS).
 	ExplicitExits bool
+	// DefaultReport is the owner's default direct report (owner.default_report, hierarchy D5): unaddressed owner
+	// messages go to its conversation; empty means the only direct report.
+	DefaultReport string
 	// lastStallSweep is touched only by the tick goroutine.
 	lastStallSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
@@ -71,9 +74,7 @@ func (c *Core) companyFrom(r *http.Request) string {
 
 func (c *Core) Handler() http.Handler {
 	if c.Store != nil {
-		c.Store.EscalationTarget = c.escalationTarget
-		c.Store.ManagerOf = c.escalationTarget
-		c.Store.ExplicitExits = c.ExplicitExits
+		c.hierarchyHooks()
 	}
 	m := http.NewServeMux()
 	c.configRoutes(m)
@@ -89,6 +90,8 @@ func (c *Core) Handler() http.Handler {
 	c.directiveRoutes(m)
 	c.costRoutes(m)
 	c.telegramRoutes(m)
+	c.authorityRoutes(m)
+	c.conversationRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := c.Store.DB.PingContext(r.Context()); err != nil || !c.Bus.NC.IsConnected() {
 			http.Error(w, "unavailable", 503)
@@ -202,6 +205,15 @@ func reply(w http.ResponseWriter, v any, err error) {
 		if errors.Is(err, storage.ErrNotFound) {
 			status = 404
 		}
+		if errors.Is(err, storage.ErrForbidden) {
+			status = 403
+		}
+		var answered *storage.AnsweredError
+		if errors.As(err, &answered) {
+			// First answer wins (hierarchy D3): a later answer gets 409 with the recorded one.
+			jsonStatus(w, 409, map[string]any{"reason": "already_answered", "answer": answered.Answer})
+			return
+		}
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -263,9 +275,10 @@ func (c *Core) Run(ctx context.Context) error {
 }
 
 func (c *Core) run(ctx context.Context) error {
-	c.Store.EscalationTarget = c.escalationTarget
-	c.Store.ManagerOf = c.escalationTarget
-	c.Store.ExplicitExits = c.ExplicitExits
+	c.hierarchyHooks()
+	if err := c.EnsureConversations(ctx); err != nil {
+		return err
+	}
 	sub, err := c.Bus.Subscribe("factory.events.>", "core-events-v1")
 	if err != nil {
 		return err

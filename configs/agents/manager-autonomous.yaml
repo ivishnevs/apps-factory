@@ -6,6 +6,7 @@ metadata:
 spec:
   extends: developer
   role: manager
+  reports_to: owner
   prompt:
     file: prompts/manager.md
   communication:

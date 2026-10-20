@@ -608,36 +608,8 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			t.Status = "BLOCKED"
 			t.BlockReason = "manual: " + in.Reason
 		case "cancel":
-			if t.Status == "DONE" || t.Status == "CANCELLED" {
-				return t, ErrConflict
-			}
-			if t.CurrentRunID != "" {
-				var status string
-				var unreleased bool
-				if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
-					return t, err
-				}
-				if unreleased {
-					return t, ErrConflict
-				}
-				if status == "CLAIMED" || status == "RUNNING" || status == "CANCELLING" {
-					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING' WHERE id=?", t.CurrentRunID); err != nil {
-						return t, err
-					}
-					t.CancelRequested = true
-					break
-				}
-				if status == "QUEUED" {
-					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='ENDED',outcome='revoked',finished_at=? WHERE id=?", tx.now().Unix(), t.CurrentRunID); err != nil {
-						return t, err
-					}
-					if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {
-						return t, err
-					}
-				}
-			}
-			t.CancelRequested = true
-			t.Status = "CANCELLED"
+			// Open children need cascade (hierarchy D2); the reason is the cancel's comment.
+			return cancelTx(ctx, tx, t, in.Actor, in.Reason, in.Cascade)
 		default:
 			return t, inputError("unknown task action")
 		}
@@ -656,8 +628,6 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			}
 		case "block":
 			err = addPark(ctx, tx, t, tasks.ParkBlock, "", t.BlockReason, false)
-		case "cancel":
-			err = closedTask(ctx, tx, t)
 		}
 		return t, err
 	})

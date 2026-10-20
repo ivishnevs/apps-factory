@@ -107,6 +107,9 @@ type Catalog struct {
 	NodeHooks map[string]protocol.NodeHooks
 	// QuotaKeys are the declared subscriptions (configs/quota_keys.yaml); empty when the file is absent.
 	QuotaKeys map[string]QuotaKey
+	// DefaultReport is the owner's default direct report (configs/company.yaml owner.default_report): unaddressed
+	// owner messages go to its conversation (hierarchy D5). Required with more than one direct report.
+	DefaultReport string
 }
 
 // QuotaKey is one declared subscription whose limit pauses every agent using it (runtime-drivers D5).
@@ -286,6 +289,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 		return nil, fmt.Errorf("no agents in %s/configs/agents", root)
 	}
 	if err := validTree(c.Agents); err != nil {
+		return nil, err
+	}
+	if c.DefaultReport, err = loadDefaultReport(root, c.Agents); err != nil {
 		return nil, err
 	}
 	deriveCommunication(c.Agents)
@@ -633,6 +639,23 @@ func nonNull(v any) error {
 	return nil
 }
 
+// EscalateAfter is how long the agent may leave a question of category routed to it unanswered before it moves
+// one level up (hierarchy D4): the shortest escalate_after of its escalation rules covering the category, 0 for
+// the default.
+func (a Agent) EscalateAfter(category string) time.Duration {
+	var out time.Duration
+	for _, r := range a.Rules {
+		d := r.EscalateAfterDuration()
+		if r.Type != "escalation" || d == 0 || !policies.Applies(r, a.Spec.Role, a.Metadata.Name) || len(r.Categories) > 0 && !slices.Contains(r.Categories, category) {
+			continue
+		}
+		if out == 0 || d < out {
+			out = d
+		}
+	}
+	return out
+}
+
 // DecisionAuthority requires explicit delegation; the ordinary default allow is insufficient.
 func (a Agent) DecisionAuthority(category string) []string {
 	if !namePattern.MatchString(category) {
@@ -706,6 +729,31 @@ func loadQuotaKeys(root string) (map[string]QuotaKey, error) {
 		doc.QuotaKeys = map[string]QuotaKey{}
 	}
 	return doc.QuotaKeys, nil
+}
+
+// loadDefaultReport reads owner.default_report from configs/company.yaml (optional) and checks it: a direct
+// report of the owner, required when the owner has more than one (hierarchy D5).
+func loadDefaultReport(root string, agents map[string]Agent) (string, error) {
+	var doc struct {
+		Owner struct {
+			DefaultReport string `yaml:"default_report"`
+		} `yaml:"owner"`
+	}
+	p := filepath.Join(root, "configs/company.yaml")
+	if _, err := os.Stat(p); err == nil {
+		if err = configfile.Read(p, &doc); err != nil {
+			return "", err
+		}
+	}
+	top := DirectReports(agents, Owner)
+	d := doc.Owner.DefaultReport
+	switch {
+	case d != "" && !slices.Contains(top, d):
+		return "", fmt.Errorf("company: owner.default_report %s is not an agent reporting to the owner", d)
+	case d == "" && len(top) > 1:
+		return "", fmt.Errorf("company: the owner has %d direct reports (%s): set owner.default_report in configs/company.yaml", len(top), strings.Join(top, ", "))
+	}
+	return d, nil
 }
 
 // modelName is the accepted shape of a model name or alias.

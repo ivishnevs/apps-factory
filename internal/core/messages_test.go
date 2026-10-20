@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"appfactory/internal/config"
@@ -94,30 +95,28 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	if m.Sender != "demo" || m.ProjectID != "p" {
 		t.Fatal(m)
 	}
-	if err = c.ScheduleMessages(ctx); err != nil {
+	// The question is a trigger on the recipient's conversation task (hierarchy D5), scheduled like any task;
+	// it does not wait for the sender's run or take the project writer slot.
+	if m.DeliveryStatus != "TRIGGERED" {
+		t.Fatal(m)
+	}
+	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
-	m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
-	if m.DeliveryRunID != "" {
-		t.Fatal("writer overlap", m)
+	conv, _ := s.Task(ctx, storage.DefaultCompany, storage.ConversationID("p", "manager"))
+	if conv.CurrentRunID == "" || conv.Kind != tasks.KindConversation {
+		t.Fatal("no recipient work", conv)
 	}
-	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded", SessionID: "developer-thread"})); err != nil {
-		t.Fatal(err)
-	}
-	if err = c.ScheduleMessages(ctx); err != nil {
-		t.Fatal(err)
-	}
-	m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
-	if m.DeliveryRunID == "" {
-		t.Fatal("no recipient work", m)
-	}
-	responder, err := s.Get(ctx, storage.DefaultCompany, m.DeliveryRunID)
-	if err != nil || responder.Spec.MessageID != m.ID || responder.Spec.SessionID != "" || responder.Spec.TaskID != "" {
+	responder, err := s.Get(ctx, storage.DefaultCompany, conv.CurrentRunID)
+	if err != nil || responder.Spec.TaskID != conv.ID || responder.Spec.SessionID != "" || !responder.Spec.Conversation {
 		t.Fatal("mixed sessions/tasks", responder, err)
 	}
 	managerLease, err := s.Claim(ctx, storage.DefaultCompany, responder.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if responder, _ = s.Get(ctx, storage.DefaultCompany, conv.CurrentRunID); !strings.Contains(responder.Spec.Prompt, m.ID) || !strings.Contains(responder.Spec.Prompt, "factory_message_reply") {
+		t.Fatal(responder.Spec.Prompt)
 	}
 	// Sender cannot forge recipient identity to answer; real recipient can.
 	run = responder.Spec
@@ -132,48 +131,5 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
 	if m.Status != "ANSWERED" {
 		t.Fatal(m)
-	}
-}
-
-func TestUndispatchableMessageEscalatesWithoutStoppingCore(t *testing.T) {
-	for _, scenario := range []string{"missing-agent", "oversized-context"} {
-		t.Run(scenario, func(t *testing.T) {
-			ctx := context.Background()
-			s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer s.DB.Close()
-			agents, err := config.Load("../..")
-			if err != nil {
-				t.Fatal(err)
-			}
-			c := &Core{Store: s, Agents: agents}
-			if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/undispatchable"}); err != nil {
-				t.Fatal(err)
-			}
-			m, err := s.SendMessage(ctx, storage.DefaultCompany, messaging.Send{ProjectID: "p", Sender: "demo", Recipient: "manager", MessageType: "question", Body: "Cannot dispatch", RequestID: "ask"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if scenario == "missing-agent" {
-				delete(agents, "manager")
-			} else {
-				a := agents["manager"]
-				a.Instructions = string(bytes.Repeat([]byte("x"), 1<<20))
-				agents["manager"] = a
-			}
-			if err = c.ScheduleMessages(ctx); err != nil {
-				t.Fatal("scheduler stopped", err)
-			}
-			m, _ = s.Message(ctx, storage.DefaultCompany, m.ID)
-			if m.Status != "ESCALATED" || m.DeliveryRunID != "" {
-				t.Fatal(m)
-			}
-			inbox, err := s.Inbox(ctx, storage.DefaultCompany, "p")
-			if err != nil || len(inbox) != 1 {
-				t.Fatal(inbox, err)
-			}
-		})
 	}
 }

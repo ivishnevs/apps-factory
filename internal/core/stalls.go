@@ -41,8 +41,8 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	stalled, idle := []storage.EscalationWant{}, []storage.Alert{}
 	for _, s := range snaps {
 		t := s.Task
-		if t.Status == "BACKLOG" {
-			continue // not released: nobody waits on it yet
+		if t.Status == "BACKLOG" || t.Kind == tasks.KindConversation { // a conversation waits for input by design
+			continue
 		}
 		for _, d := range s.Dependencies {
 			why := ""

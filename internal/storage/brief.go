@@ -120,6 +120,24 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 		a, _ := json.Marshal(answer)
 		fmt.Fprintf(&b, "Answer to your blocking question %s: %s\nContinue the original task using this explicit answer. Do not ask the same question again.\n", g.ref, a)
 	}
+	// Messages addressed to the agent (conversation task triggers, hierarchy D5).
+	var messages []string
+	for _, g := range triggers {
+		if g.kind == "message" && g.ref != "" {
+			messages = append(messages, g.ref)
+		}
+	}
+	if err = conversationBrief(ctx, tx, &b, messages); err != nil {
+		return "", err
+	}
+	// A manager sees its subtree's closed, escalated and failed tasks since its last run (hierarchy D6).
+	since := prev.started
+	if since == 0 {
+		since = t.CreatedAt
+	}
+	if err = subtreeSummary(ctx, tx, &b, t.ProjectID, spec.Agent, since); err != nil {
+		return "", err
+	}
 	if t.ReviewFeedback != "" {
 		fmt.Fprintf(&b, "Previous review feedback: %s\n", t.ReviewFeedback)
 	}
@@ -191,7 +209,9 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 		s, _ := json.Marshal(t.Submission)
 		fmt.Fprintf(&b, "You review this task, submitted by %s: %s\nInspect the changes (the branch and its pull request), then end with factory_exit_handoff to %s with verdict approved, or changes_requested with feedback.\n", t.Implementer, s, t.Implementer)
 	}
-	if tx.store.ExplicitExits {
+	if t.Kind == tasks.KindConversation {
+		b.WriteString("This is your conversation task: it stays open. Handle the input above, then end with factory_exit_done (handled; summarize what you did). Do not poll or wait within a turn.\n")
+	} else if tx.store.ExplicitExits {
 		b.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.\n")
 	} else {
 		b.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")

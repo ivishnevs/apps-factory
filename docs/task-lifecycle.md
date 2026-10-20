@@ -379,11 +379,16 @@ cancellation.
 - `factory pause --all | --project ID | --agent NAME | --quota-key KEY | --node NODE_ID [REASON]` (the positional
   forms `project ID` … still work), `factory resume …`, `factory pauses`
   (`POST /pauses`, `POST /pauses/resume`, `GET /pauses`; migration 0013): no new task or message run is
-  dispatched in a paused scope; live runs continue. `why` shows `paused:company|project:<id>|agent:<name>`
+  dispatched in a paused scope; live runs continue. `why` shows `paused:company|project:<id>|agent:<name>|task`
   (after `artifacts`, before `backoff`) with the resume command. Pauses and resumes are feed events
   (`owner.paused` with attention, `owner.resumed`). A node pause (scope `node`, migration 0031) stops claims on
   that node only: its claims answer `{"retry": true, "reason": "paused"}`, its heartbeat answers `pause`, its live
   runs continue and other nodes keep claiming.
+- Authority actions on one task (hierarchy): `factory tasks pause|resume ID VERSION [REASON]`, `factory tasks
+  reassign ID VERSION AGENT [REASON]`, `factory tasks reprioritize ID VERSION PRIORITY`, `factory tasks cancel ID
+  VERSION [REASON] --cascade` (owner; agents through Factory MCP with authority over the task, see
+  agent-configuration.md#hierarchy). A task pause (`task_pauses`, migration 0032) shows `paused:task` and
+  `paused_by`; pause and reprioritize leave parks active.
 - Quota pauses: a worker event with `quota` pauses the agent's quota key (`spec.runtime.quota_key`, default the
   agent name; every agent sharing the key) until `resets_at` (unknown: 1 hour); a later reset extends it, an
   earlier one never shortens it. The tick ends expired pauses. `why` shows `paused:quota_key:<key>` cleared by
