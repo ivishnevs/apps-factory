@@ -24,3 +24,4 @@
 
 - 2026-10-20: `runtime.effort` / `runtime.max_turns` in agent YAML reach `runtime_options`; Codex sends effort (20483a4, `TestModelAndEffort`).
 - 2026-10-20: (task, agent) session on dispatch, across providers (0355740, `TestReviewKeepsImplementerSession`).
+- 2026-10-21: Factory MCP server `alwaysLoad: true` in the Claude shim, so its tools are not deferred behind ToolSearch (shim test `mcpServers` assertion).

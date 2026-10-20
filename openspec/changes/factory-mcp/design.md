@@ -33,3 +33,7 @@ Migration 3 adds tool_calls. Insert status=0 before dispatch; finalize HTTP stat
 A crash may leave status=0 (unknown call outcome); domain mutation replay keys remain authoritative.
 Audit records tool, request key, run/agent/project and status, not secrets or arbitrary arguments.
 Owner can inspect GET /runs/{id}/tool-calls. Failed authentication isn't attributed to a trusted run.
+
+## Amendments
+
+- 2026-10-21: `factorytools.Validate` collects problems instead of stopping at the first: `missing required arguments: a, b; unknown arguments: x (accepted arguments: ...); invalid arguments: k: string required`, nested as `parent.child` / `list[0].field`. Live Claude runs paid one retry per missing field (`artifact_id`, then `artifact_version`; `reason`, then `request_id`). The same validator serves `dispatchTool` and approval targets.

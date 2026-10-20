@@ -131,7 +131,9 @@ async function scenario(name: string) {
   const token = s.env["FACTORY_RUN_TOKEN"]!;
   assert.ok(!launchLine.includes(token));
   assert.equal(seen.options!.env!["FACTORY_RUN_TOKEN"], token);
-  assert.deepEqual(seen.options!.mcpServers, { factory: { type: "stdio", command: s.launch.mcp_command } });
+  assert.deepEqual(seen.options!.mcpServers, { factory: { type: "stdio", command: s.launch.mcp_command, alwaysLoad: true } });
+  // The factory server is exempt from MCP tool search, without forcing ENABLE_TOOL_SEARCH off.
+  assert.equal(seen.options!.env?.["ENABLE_TOOL_SEARCH"], undefined);
   assert.equal(seen.options!.env!["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"], "1");
   return { events, seen, s };
 }

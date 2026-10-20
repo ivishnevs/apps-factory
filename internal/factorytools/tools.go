@@ -1,7 +1,12 @@
 // Package factorytools defines the shared, bounded Factory MCP contract.
 package factorytools
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+)
 
 type Tool struct {
 	Name        string         `json:"name"`
@@ -106,58 +111,119 @@ func Definitions() []Tool {
 	return append(out, authorityDefinitions()...)
 }
 
-// Validate checks required fields, unknown keys and nested JSON types before routing.
-func Validate(t Tool, args map[string]any) error { return validate(t.InputSchema, args) }
-func validate(schema map[string]any, value any) error {
+// Validate checks required fields, unknown keys and nested JSON types before routing. It reports
+// every problem at once (all missing required arguments, all unknown arguments with the accepted
+// names, all type errors), so a model that guessed the arguments fixes them in one retry.
+func Validate(t Tool, args map[string]any) error {
+	var p problems
+	validate(t.InputSchema, args, "", &p)
+	return p.err()
+}
+
+type problems struct {
+	missing, unknown, invalid []string
+	accepted                  []string // "<object>: a, b" for each object with unknown arguments
+}
+
+func (p *problems) err() error {
+	var parts []string
+	if len(p.missing) > 0 {
+		parts = append(parts, "missing required arguments: "+strings.Join(p.missing, ", "))
+	}
+	if len(p.unknown) > 0 {
+		parts = append(parts, "unknown arguments: "+strings.Join(p.unknown, ", ")+" (accepted "+strings.Join(p.accepted, "; ")+")")
+	}
+	if len(p.invalid) > 0 {
+		parts = append(parts, "invalid arguments: "+strings.Join(p.invalid, "; "))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(parts, "; "))
+}
+
+func validate(schema map[string]any, value any, path string, p *problems) {
+	bad := func(msg string) {
+		if path == "" {
+			p.invalid = append(p.invalid, msg)
+		} else {
+			p.invalid = append(p.invalid, path+": "+msg)
+		}
+	}
+	join := func(k string) string {
+		if path == "" {
+			return k
+		}
+		return path + "." + k
+	}
 	switch schema["type"] {
 	case "object":
 		obj, ok := value.(map[string]any)
 		if !ok {
-			return fmt.Errorf("object required")
+			bad("object required")
+			return
 		}
 		props, _ := schema["properties"].(map[string]any)
 		if req, ok := schema["required"].([]string); ok {
 			for _, k := range req {
 				if _, ok := obj[k]; !ok {
-					return fmt.Errorf("%s required", k)
+					p.missing = append(p.missing, join(k))
 				}
 			}
 		}
-		for k, v := range obj {
-			p, ok := props[k]
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		unknown := false
+		for _, k := range keys {
+			sub, ok := props[k]
 			if !ok {
-				if schema["additionalProperties"] == true {
-					continue
+				if schema["additionalProperties"] != true {
+					p.unknown = append(p.unknown, join(k))
+					unknown = true
 				}
-				return fmt.Errorf("unknown argument %s", k)
+				continue
 			}
-			if err := validate(p.(map[string]any), v); err != nil {
-				return fmt.Errorf("%s: %w", k, err)
+			validate(sub.(map[string]any), obj[k], join(k), p)
+		}
+		if unknown {
+			names := make([]string, 0, len(props))
+			for k := range props {
+				names = append(names, k)
 			}
+			sort.Strings(names)
+			where, list := "arguments", strings.Join(names, ", ")
+			if path != "" {
+				where = path
+			}
+			if list == "" {
+				list = "none"
+			}
+			p.accepted = append(p.accepted, where+": "+list)
 		}
 	case "boolean":
 		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("boolean required")
+			bad("boolean required")
 		}
 	case "string":
 		if _, ok := value.(string); !ok {
-			return fmt.Errorf("string required")
+			bad("string required")
 		}
 	case "integer":
 		v, ok := value.(float64)
 		if !ok || v != float64(int(v)) {
-			return fmt.Errorf("integer required")
+			bad("integer required")
 		}
 	case "array":
 		a, ok := value.([]any)
 		if !ok {
-			return fmt.Errorf("array required")
+			bad("array required")
+			return
 		}
-		for _, v := range a {
-			if err := validate(schema["items"].(map[string]any), v); err != nil {
-				return err
-			}
+		for i, v := range a {
+			validate(schema["items"].(map[string]any), v, fmt.Sprintf("%s[%d]", path, i), p)
 		}
 	}
-	return nil
 }

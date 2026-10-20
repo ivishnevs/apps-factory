@@ -10,3 +10,4 @@
 - [x] Verify policy denial, scope, replay, stale versions, review rules and restart.
 - [x] Verify real Codex manager/executor/reviewer smoke.
 - [x] Complete final validation and verification report.
+- [x] Report all missing/unknown/invalid arguments in one 400 (`TestValidateReportsAllProblemsAtOnce`).

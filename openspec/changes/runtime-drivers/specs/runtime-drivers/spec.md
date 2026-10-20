@@ -64,3 +64,10 @@ Agents SHALL reference a quota key of their company. A quota limit SHALL end the
 #### Scenario: Limit reached on one subscription
 - **WHEN** a run on quota key A reports a usage limit with a reset time
 - **THEN** agents on key A SHALL show `paused:quota_key` until the reset, and agents on key B SHALL keep running
+
+### Requirement: Factory MCP tools load with their schemas
+The Claude driver SHALL configure the Factory MCP server so its tools reach the model with their full input schemas from the first turn, never deferred behind Claude Code's MCP tool search. It SHALL NOT disable tool search for the whole run: other deferrable tools keep Claude Code's default behaviour, which `ENABLE_TOOL_SEARCH` in the run environment still governs.
+
+#### Scenario: Claude run starts
+- **WHEN** the shim starts a Claude run with Factory MCP
+- **THEN** the SDK options SHALL declare the `factory` stdio server with `alwaysLoad: true`, and the shim SHALL NOT set `ENABLE_TOOL_SEARCH`
