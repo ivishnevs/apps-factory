@@ -13,8 +13,9 @@ import (
 
 // Authority actions (hierarchy D2): the owner and the managers up an assignee's chain pause, resume, reassign,
 // reprioritize and cancel the assignee's tasks; Core checks who may act and passes the actor's rank. Pause,
-// resume and reprioritize are actions, not triggers: they never wake a task or override its parks. A reassignment
-// is an authority trigger (assignment); cancel ends the task.
+// resume and reprioritize are actions, not triggers: they never wake a task or override its parks (an active wait
+// keeps its timer and episode). A reassignment is an authority trigger (assignment) and ends the wait episode;
+// cancel ends the task (its parks and wait episode with it).
 
 // ErrResumeRank refuses a resume by an actor below the pauser.
 var ErrResumeRank = fmt.Errorf("%w: only the pauser or a higher authority resumes the task", ErrForbidden)
@@ -143,49 +144,63 @@ func (s *Store) ReassignTask(ctx context.Context, company, id string, in tasks.A
 		if in.Assignee == t.Assignee {
 			return t, nil
 		}
-		if t.CurrentRunID != "" {
-			var status string
-			var unreleased bool
-			if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
+		return reassignTx(ctx, tx, t, in.Assignee, actorName(in.Actor), in.Reason)
+	})
+}
+
+// reassignTx gives the open task t to assignee (the checks are the caller's): a queued run ends stale, a running
+// one is revoked, counters and retry escalations reset, the wait episode ends, and the new assignee gets an
+// authority assignment trigger (which also ends an active wait). Shared by the reassign action and a wait
+// escalation's reassign answer.
+func reassignTx(ctx context.Context, tx *Tx, t tasks.Task, assignee, actor, reason string) (tasks.Task, error) {
+	id := t.ID
+	var err error
+	if t.CurrentRunID != "" {
+		var status string
+		var unreleased bool
+		if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
+			return t, err
+		}
+		switch {
+		case unreleased:
+			return t, fmt.Errorf("%w: the task's lost run may still run; resolve it first (factory runs resolve)", ErrConflict)
+		case status == "QUEUED":
+			if _, err = endQueued(ctx, tx, t.CurrentRunID, "stale", "task reassigned to "+assignee); err != nil {
 				return t, err
 			}
-			switch {
-			case unreleased:
-				return t, fmt.Errorf("%w: the task's lost run may still run; resolve it first (factory runs resolve)", ErrConflict)
-			case status == "QUEUED":
-				if _, err = endQueued(ctx, tx, t.CurrentRunID, "stale", "task reassigned to "+in.Assignee); err != nil {
-					return t, err
-				}
-				if t, err = taskTx(ctx, tx, id); err != nil {
-					return t, err
-				}
-			case status == "CLAIMED" || status == "RUNNING":
-				// The revoked run returns the task to READY when it ends (a revoked run stops the run, not the task).
-				if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='reassigned' WHERE id=?", t.CurrentRunID); err != nil {
-					return t, err
-				}
+			if t, err = taskTx(ctx, tx, id); err != nil {
+				return t, err
+			}
+		case status == "CLAIMED" || status == "RUNNING":
+			// The revoked run returns the task to READY when it ends (a revoked run stops the run, not the task).
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='reassigned' WHERE id=?", t.CurrentRunID); err != nil {
+				return t, err
 			}
 		}
-		previous := t.Assignee
-		t.Assignee = in.Assignee
-		t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0
-		if t.Status == "IN_REVIEW" {
-			t.Reviewer = ""
-		}
-		if err = clearRetryEscalations(ctx, tx, t, "reassigned to "+t.Assignee); err != nil {
-			return t, err
-		}
-		if err = comment(ctx, tx, t.ID, actorName(in.Actor), strings.TrimSpace("reassigned from "+previous+" to "+t.Assignee+". "+in.Reason)); err != nil {
-			return t, err
-		}
-		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
-			return t, err
-		}
-		if err = authorityFeed(ctx, tx, t, "reassigned", in.Actor, "reassigned from "+previous+" to "+t.Assignee+" by "+actorName(in.Actor)); err != nil {
-			return t, err
-		}
-		return t, addTrigger(ctx, tx, t, "assignment", true, actorName(in.Actor), "", strings.TrimSpace("assigned to "+t.Assignee+" by "+actorName(in.Actor)+". "+in.Reason))
-	})
+	}
+	previous := t.Assignee
+	t.Assignee = assignee
+	t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0
+	if t.Status == "IN_REVIEW" {
+		t.Reviewer = ""
+	}
+	if err = clearRetryEscalations(ctx, tx, t, "reassigned to "+t.Assignee); err != nil {
+		return t, err
+	}
+	if err = comment(ctx, tx, t.ID, actor, strings.TrimSpace("reassigned from "+previous+" to "+t.Assignee+". "+reason)); err != nil {
+		return t, err
+	}
+	if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
+		return t, err
+	}
+	if err = authorityFeed(ctx, tx, t, "reassigned", actor, "reassigned from "+previous+" to "+t.Assignee+" by "+actor); err != nil {
+		return t, err
+	}
+	// A new assignee starts without the previous one's wait episode (waits-events-cost-cli D1).
+	if err = endEpisode(ctx, tx, t.ID); err != nil {
+		return t, err
+	}
+	return t, addTrigger(ctx, tx, t, "assignment", true, actor, "", strings.TrimSpace("assigned to "+t.Assignee+" by "+actor+". "+reason))
 }
 
 // openChildren lists the task's open children.

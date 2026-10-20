@@ -108,11 +108,20 @@ func TestAuthorityActions(t *testing.T) {
 	}
 	h.end(lead, "succeeded", "")
 
-	// A task waiting on its wait exit: reprioritize and pause change nothing about the wait.
+	// A task waiting on its wait exit: reprioritize and pause change nothing about the wait (its park and its
+	// episode stay); a reassignment ends both.
+	episodes := func() int {
+		t.Helper()
+		var n int
+		if err := h.s.DB.QueryRowContext(ctx, "SELECT count(*) FROM wait_episodes WHERE task_id='waits'").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
 	h.create("waits", "notes", "calorie-ios")
 	r := h.start("waits")
 	wake := h.fake.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
-	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_wait", Arguments: map[string]any{"reason": "store review", "wake_at": wake}}, nil); w.Code != 200 {
+	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_wait", Arguments: map[string]any{"reason": "store review", "wake_at": wake, "deadline": h.at(24 * time.Hour)}}, nil); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	h.end(r, "succeeded", "accepted")
@@ -123,15 +132,22 @@ func TestAuthorityActions(t *testing.T) {
 		t.Fatal(code, body)
 	}
 	snap, _ := h.s.TaskSnapshot(ctx, co, "waits")
-	if snap.Task.Priority != 50 || len(snap.Parks) != 1 || snap.Parks[0].Kind != tasks.ParkWait {
+	if snap.Task.Priority != 50 || len(snap.Parks) != 1 || snap.Parks[0].Kind != tasks.ParkWait || episodes() != 1 {
 		t.Fatalf("%+v %+v", snap.Task, snap.Parks)
 	}
-	feed, _ := h.s.Feed(ctx, co, storage.FeedFilter{Task: "waits"}, 0, 100)
+	if code, body := owner("/tasks/waits/reassign", map[string]any{"version": h.task("waits").Version, "actor": "calorie-manager", "assignee": "calorie-qa", "request_id": "rw"}); code != 200 {
+		t.Fatal(code, body)
+	}
+	if snap, _ = h.s.TaskSnapshot(ctx, co, "waits"); len(snap.Parks) != 0 || episodes() != 0 || snap.Task.Assignee != "calorie-qa" {
+		t.Fatalf("%+v %+v", snap.Task, snap.Parks)
+	}
+	// Every action is in the one feed, visible in the lead's subtree view (factory_feed_list, ?subtree=).
+	feed, _ := h.s.Feed(ctx, co, storage.FeedFilter{Task: "waits", Agents: h.c.subtree("calorie-manager")}, 0, 100)
 	kinds := map[string]bool{}
 	for _, f := range feed.Items {
 		kinds[f.Type] = true
 	}
-	if !kinds["task.reprioritized"] || !kinds["task.paused"] {
+	if !kinds["task.reprioritized"] || !kinds["task.paused"] || !kinds["task.reassigned"] || !kinds["task.wait_interrupted"] {
 		t.Fatal("authority actions are events", kinds)
 	}
 

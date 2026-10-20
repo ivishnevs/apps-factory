@@ -251,7 +251,7 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 	a := req.Arguments
 	known := func(name string) bool { return req.Known == nil || req.Known(name) }
 	if t.Kind == tasks.KindConversation && req.Kind != "done" && req.Kind != "ask" && req.Kind != "wait" {
-		return refuse("invalid_exit", "a conversation run ends with factory_exit_done (input handled; the conversation stays open) or ask")
+		return refuse("invalid_exit", "a conversation run ends with factory_exit_done (input handled; the conversation stays open), ask or wait")
 	}
 	switch req.Kind {
 	case "submit", "done":

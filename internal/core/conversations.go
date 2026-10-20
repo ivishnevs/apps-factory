@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -73,21 +74,31 @@ func (c *Core) conversationRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		agent, ok := c.ownerAddressee(strings.TrimSpace(p.Body))
-		if !ok {
-			http.Error(w, "address a direct report with @name, or set owner.default_report", 400)
+		v, err := c.ownerMessage(r.Context(), c.companyFrom(r), p.ProjectID, p.Body, p.MessageType, p.RequestID)
+		if errors.Is(err, errNoAddressee) {
+			http.Error(w, err.Error(), 400)
 			return
 		}
-		ctx, company := r.Context(), c.companyFrom(r)
-		conv, err := c.Store.CreateConversation(ctx, company, messaging.ConversationCreate{ID: "owner-" + agent + "-" + p.ProjectID, ProjectID: p.ProjectID, Agent: agent, Title: "Owner and " + agent, RequestID: "owner-conversation-" + agent + "-" + p.ProjectID})
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		if p.MessageType == "" {
-			p.MessageType = "question"
-		}
-		v, err := c.Store.SendMessage(ctx, company, messaging.Send{ProjectID: p.ProjectID, Sender: "owner", Recipient: agent, ConversationID: conv.ID, MessageType: p.MessageType, Body: p.Body, RequestID: p.RequestID})
 		reply(w, v, err)
 	})
+}
+
+var errNoAddressee = errors.New("address a direct report with @name, or set owner.default_report")
+
+// ownerMessage sends an owner message without a conversation (CLI, Telegram) to the default direct report or
+// @name, on the owner conversation with that agent in project; delivery is a trigger on the agent's
+// conversation task there.
+func (c *Core) ownerMessage(ctx context.Context, company, project, body, messageType, requestID string) (messaging.Message, error) {
+	agent, ok := c.ownerAddressee(strings.TrimSpace(body))
+	if !ok {
+		return messaging.Message{}, errNoAddressee
+	}
+	conv, err := c.Store.CreateConversation(ctx, company, messaging.ConversationCreate{ID: "owner-" + agent + "-" + project, ProjectID: project, Agent: agent, Title: "Owner and " + agent, RequestID: "owner-conversation-" + agent + "-" + project})
+	if err != nil {
+		return messaging.Message{}, err
+	}
+	if messageType == "" {
+		messageType = "question"
+	}
+	return c.Store.SendMessage(ctx, company, messaging.Send{ProjectID: project, Sender: "owner", Recipient: agent, ConversationID: conv.ID, MessageType: messageType, Body: body, RequestID: requestID})
 }

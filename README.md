@@ -152,7 +152,8 @@ Persistent significant-action reports, the versioned Decision Registry, project 
 Агент ждёт внешний мир только таймером: `factory_exit_wait {reason, wake_at|after, deadline}` (минимум 15 минут,
 срок не дальше 14 дней, подряд не дальше первого срока, не больше `max_waits`), затем эскалация менеджеру. Каждый
 закончившийся run получает строку стоимости (`run_costs`; цены — `configs/prices.yaml`). Telegram
-(`FACTORY_TELEGRAM_TOKEN`, `FACTORY_TELEGRAM_PROJECT`, `FACTORY_TELEGRAM_DEFAULT_REPORT`, `FACTORY_TELEGRAM_DIGEST_AT`)
+(`FACTORY_TELEGRAM_TOKEN`, `FACTORY_TELEGRAM_PROJECT`, `FACTORY_TELEGRAM_DIGEST_AT`; свободный текст идёт как
+`factory conversations say` — `owner.default_report` или `@name`)
 присылает только то, что требует внимания, напоминания и дневную сводку. Подробности:
 [docs/task-lifecycle.md](docs/task-lifecycle.md#owner-controls), [docs/messaging.md](docs/messaging.md#telegram),
 [docs/reports-decisions.md](docs/reports-decisions.md#event-feed-and-costs).

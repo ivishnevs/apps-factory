@@ -34,7 +34,8 @@ run limit applies, but it does not take the project writer slot (it runs in the 
 worktree). Its brief lists each message with how to handle it; its runs resume one runtime session. The agent
 answers with factory_message_reply (message_id/version/body/request_id, answers optional), forwards with
 factory_question_forward, and ends with `factory_exit_done`, which marks the input handled up to its ack_seq
-and keeps the task open (a turn without an exit does the same; ask and wait are also accepted). An
+and keeps the task open (a turn without an exit does the same; ask and wait are also accepted; any new input on a
+conversation task, authority or not, ends its active wait). An
 unanswered question does not escalate when a run ends: it moves up after `escalate_after` (questions routed up
 the chain) or escalates at its deadline. Tasks an agent delegated that close wake its conversation with
 `delegated_closed` when none of its open tasks waits on them (a dependency or the parent wake by themselves).
@@ -169,9 +170,11 @@ Inbound:
 - `/status` returns the status snapshot in short form;
 - `/stop` asks for confirmation (a button or `/stop confirm` within 5 minutes) and then runs the kill switch;
   `/stop` alone does nothing;
-- any other text is owner input to a direct report of the owner: `@name text` addresses one, other text goes to
-  `FACTORY_TELEGRAM_DEFAULT_REPORT` (else the first direct report). It is sent as an owner message in the
-  conversation `telegram-<agent>` of `FACTORY_TELEGRAM_PROJECT` (hierarchy's conversation tasks replace this).
+- any other text is owner input exactly as `factory conversations say` (`POST /messages`): `@name text` addresses
+  a direct report, other text goes to `owner.default_report` (see
+  [agent configuration](agent-configuration.md#hierarchy)). It is an owner question on the owner conversation
+  `owner-<agent>-<project>`, delivered as an authority `message` trigger on the agent's conversation task
+  (`conv-<agent>-<project>`). The project is `FACTORY_TELEGRAM_PROJECT`, or the company's only project when unset.
 
 Every update is applied once: Core records applied `update_id`s (`notify_updates`, migration 0031) and the answer
 carries the update as its idempotency key. The notifier's state (bound chat, feed cursor, reminders, digest day)

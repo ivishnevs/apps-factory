@@ -109,13 +109,16 @@ VERSION [REASON]`) hold a task from new runs (`why`: `paused:task`, cleared by t
 of `id` they pause an agent of the actor's subtree (`POST /agents/{name}/pause|resume`). Only the pauser or a
 higher authority (the owner rank 0, then depth in the tree) resumes. `factory_task_reassign` (`POST
 /tasks/{id}/reassign`, `factory tasks reassign ID VERSION AGENT [REASON]`) moves a task within the actor's subtree
-(the owner: anywhere); a queued run ends stale, a running one is revoked, and the new assignee gets an authority
-`assignment` trigger. `factory_task_reprioritize` (`factory tasks reprioritize ID VERSION PRIORITY`) changes the
+(the owner: anywhere); a queued run ends stale, a running one is revoked, the wait episode ends (with an active
+wait), and the new assignee gets an authority `assignment` trigger. A manager's `reassign` answer to a wait
+escalation is the same reassignment, to that manager. `factory_task_reprioritize` (`factory tasks reprioritize ID VERSION PRIORITY`) changes the
 priority (-1000..1000). `factory_task_cancel` (`factory tasks cancel ID VERSION [REASON] [--cascade]`) cancels a
 task the actor has authority over or created; open children need `cascade: true` (otherwise 409
-`needs_cascade`). Pause, resume and reprioritize are not triggers: they wake nothing and leave parks (a wait, a
-question) as they are. Every action is a feed event (`task.paused`, `task.resumed`, `task.reassigned`,
-`task.reprioritized`) for the assignee's chain.
+`needs_cascade`). Pause, resume and reprioritize are not triggers: they wake nothing and leave parks (a wait with its
+timer and episode, a question) as they are; cancel overrides the parks and ends the wait episode. Every action is a feed event (`task.paused`, `task.resumed`, `task.reassigned`,
+`task.reprioritized`; cancelled questions are `message.cancelled`) in the one event feed: `factory watch`, the
+SSE stream and `factory_feed_list` filter them like any other row (project, task, `subtree`); they carry no
+attention.
 
 Each agent talks to its boss through its conversation task ([messaging](messaging.md#conversation-tasks)). With
 more than one agent reporting to the owner, `configs/company.yaml` must name the default one, which gets the

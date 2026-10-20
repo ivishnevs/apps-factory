@@ -34,7 +34,7 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] (scopes; one task: tasks pause|resume ID VERSION) | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -220,7 +220,7 @@ func run() error {
 		return err
 	}
 	c := core.Core{Store: s, Bus: b, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), DefaultReport: catalog.DefaultReport, ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
-		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT"), DefaultReport: os.Getenv("FACTORY_TELEGRAM_DEFAULT_REPORT")}}
+		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
 	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()

@@ -23,8 +23,8 @@ import (
 const MaxWaitAhead = 14 * 24 * time.Hour
 
 // Wait escalations and their answers: extend (a new episode: the agent runs and may wait again with a new
-// deadline), retry (counters reset, run now), reassign (to the answering manager; the owner's answer leaves
-// the task unassigned for factory tasks update), cancel.
+// deadline), retry (counters reset, run now), reassign (a reassignment to the answering manager, as the reassign
+// action; the owner's answer leaves the task unassigned for factory tasks reassign), cancel.
 const (
 	WaitDeadlineReason  = "wait_deadline"
 	WaitExhaustedReason = "wait_exhausted"
@@ -243,19 +243,20 @@ func waitAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answer,
 	case "extend":
 		return true, comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": extend — continue; a new wait may set a new deadline")
 	case "reassign":
-		to := actor
+		// An agent's answer is a reassignment to that manager, as with the reassign action (hierarchy D2); the
+		// owner's leaves the task unassigned until factory tasks reassign names the new assignee.
 		if isOwner(actor) {
-			to = ""
+			t.Assignee, t.AttemptsNoProgress, t.FailStreak, t.NotBefore = "", 0, 0, 0
+			if err := comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign; choose the new assignee with factory tasks reassign"); err != nil {
+				return true, err
+			}
+			return true, saveTask(ctx, tx, &t, "task.updated")
 		}
-		who := to
-		if to == "" {
-			who = "a new assignee (factory tasks update)"
+		if actor == t.Assignee {
+			return true, comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign — kept by "+actor)
 		}
-		t.Assignee, t.AttemptsNoProgress, t.FailStreak, t.NotBefore = to, 0, 0, 0
-		if err := comment(ctx, tx, t.ID, actor, "escalation "+e.Reason+": reassign to "+who); err != nil {
-			return true, err
-		}
-		return true, saveTask(ctx, tx, &t, "task.updated")
+		_, err := reassignTx(ctx, tx, t, actor, actor, "escalation "+e.Reason+": reassign")
+		return true, err
 	}
 	return false, nil
 }

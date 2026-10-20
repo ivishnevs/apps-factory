@@ -90,7 +90,7 @@ type telegramHarness struct {
 
 func newTelegramHarness(t *testing.T) *telegramHarness {
 	h := newExitHarness(t)
-	h.c.Telegram = TelegramConfig{Project: "notes", DefaultReport: "manager"}
+	h.c.Telegram, h.c.DefaultReport = TelegramConfig{Project: "notes"}, "manager"
 	bot := &fakeBot{}
 	srv := httptest.NewServer(bot)
 	t.Cleanup(srv.Close)
@@ -213,10 +213,16 @@ func TestTelegramInbound(t *testing.T) {
 		t.Fatal(err)
 	}
 	th.tick()
-	for conv, want := range map[string]string{"telegram-manager": "please plan the release", "telegram-calorie-manager": "please re-check the release notes"} {
-		ms, err := th.s.Messages(ctx, co, conv)
-		if err != nil || len(ms) != 1 || ms[0].Body != want || ms[0].Sender != "owner" {
-			t.Fatalf("%s: %+v %v", conv, ms, err)
+	// They are owner messages like POST /messages: the owner conversation with the agent, delivered as a
+	// trigger on the agent's conversation task (hierarchy D5).
+	for agent, want := range map[string]string{"manager": "please plan the release", "calorie-manager": "@calorie-manager please re-check the release notes"} {
+		ms, err := th.s.Messages(ctx, co, "owner-"+agent+"-notes")
+		if err != nil || len(ms) != 1 || ms[0].Body != want || ms[0].Sender != "owner" || ms[0].Recipient != agent {
+			t.Fatalf("%s: %+v %v", agent, ms, err)
+		}
+		trs, err := th.s.PendingTriggers(ctx, co, storage.ConversationID("notes", agent))
+		if err != nil || len(trs) != 1 || trs[0].Kind != "message" || !strings.Contains(trs[0].Text, ms[0].ID) || !trs[0].Authority {
+			t.Fatalf("%s: %+v %v", agent, trs, err)
 		}
 	}
 	th.bot.push(text(13, "@demo hi"))
@@ -226,7 +232,7 @@ func TestTelegramInbound(t *testing.T) {
 	}
 
 	// /stop asks first; nothing stops without the confirmation.
-	th.create("live", "code", "reviewer") // demo runs s; notes is busy with the message runs to the managers
+	th.create("live", "code", "reviewer") // demo runs s; notes is busy with the managers' conversation runs
 	r := th.start("live")
 	th.bot.push(text(14, "/stop"))
 	th.tick()

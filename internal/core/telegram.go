@@ -17,17 +17,16 @@ import (
 	"appfactory/internal/storage"
 )
 
-// Telegram (waits-events-cost-cli D4): Core is the notifier's backend. Free owner messages go to a direct
-// report through an owner conversation in TelegramProject (conversation tasks of hierarchy D5 replace it).
+// Telegram (waits-events-cost-cli D4): Core is the notifier's backend. Free owner messages are owner messages
+// like POST /messages (hierarchy D5): to owner.default_report or @name, delivered on that agent's conversation
+// task in the Telegram project.
 
 const telegramChannel = "telegram"
 
 // TelegramConfig routes owner messages from Telegram.
 type TelegramConfig struct {
-	// Project holds the owner conversations ("telegram-<agent>").
+	// Project receives owner messages from Telegram; empty means the company's only project.
 	Project string
-	// DefaultReport receives unaddressed messages; empty means the first direct report of the owner.
-	DefaultReport string
 }
 
 // telegramBackend implements telegram.Backend for the company.
@@ -200,32 +199,39 @@ func (b telegramBackend) Stop(ctx context.Context) (string, error) {
 }
 
 func (b telegramBackend) OwnerInput(ctx context.Context, agent, text, key string) (string, error) {
-	reports := config.DirectReports(b.c.Agents, config.Owner)
-	if agent == "" {
-		agent = b.c.Telegram.DefaultReport
-		if agent == "" && len(reports) > 0 {
-			agent = reports[0]
-		}
-	}
-	if !slices.Contains(reports, agent) {
-		return "", fmt.Errorf("@%s is not one of your direct reports (%s)", agent, strings.Join(reports, ", "))
-	}
-	if b.c.Telegram.Project == "" {
-		return "", fmt.Errorf("no project for Telegram conversations (FACTORY_TELEGRAM_PROJECT)")
-	}
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("empty message")
 	}
-	id := "telegram-" + agent
-	if _, err := b.c.Store.Conversation(ctx, b.company, id); err != nil {
-		if _, err = b.c.Store.CreateConversation(ctx, b.company, messaging.ConversationCreate{ID: id, ProjectID: b.c.Telegram.Project, Agent: agent, Title: "Owner via Telegram", RequestID: "create-" + id}); err != nil {
-			return "", err
+	if agent != "" {
+		if reports := config.DirectReports(b.c.Agents, config.Owner); !slices.Contains(reports, agent) {
+			return "", fmt.Errorf("@%s is not one of your direct reports (%s)", agent, strings.Join(reports, ", "))
 		}
+		text = "@" + agent + " " + text // the address stays in the body, as with factory conversations say
 	}
-	if _, err := b.c.Store.SendMessage(ctx, b.company, messaging.Send{ProjectID: b.c.Telegram.Project, Sender: "owner", Recipient: agent, ConversationID: id, MessageType: "question", Body: text, RequestID: key}); err != nil {
+	project, err := b.project(ctx)
+	if err != nil {
 		return "", err
 	}
-	return "Sent to " + agent + ".", nil
+	m, err := b.c.ownerMessage(ctx, b.company, project, text, "question", key)
+	if err != nil {
+		return "", err
+	}
+	return "Sent to " + m.Recipient + ".", nil
+}
+
+// project is where Telegram owner messages go: TelegramConfig.Project, else the company's only project.
+func (b telegramBackend) project(ctx context.Context) (string, error) {
+	if b.c.Telegram.Project != "" {
+		return b.c.Telegram.Project, nil
+	}
+	projects, err := b.c.Store.Projects(ctx, b.company)
+	if err != nil {
+		return "", err
+	}
+	if len(projects) != 1 {
+		return "", fmt.Errorf("several projects: set FACTORY_TELEGRAM_PROJECT for Telegram messages")
+	}
+	return projects[0].ID, nil
 }
 
 // Digest: done, in progress, waiting for the owner, failures and retries, nodes and the cost of the last day.

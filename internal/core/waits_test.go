@@ -268,3 +268,53 @@ func slicesContains(items []storage.FeedItem, kind string) bool {
 	}
 	return false
 }
+
+// TestWaitReassignAnswerAndConversationWait (integration of waits and hierarchy): a manager's reassign answer
+// to a wait escalation is the reassign action (the task moves to the manager with an assignment trigger and a
+// task.reassigned event); a wait on a conversation task ends with the next message, authority or not.
+func TestWaitReassignAnswerAndConversationWait(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	h.create("y", "notes", "demo")
+	r := h.start("y")
+	if code, ref := h.wait(r, map[string]any{"reason": "deploy", "after": "1h", "deadline": h.at(time.Hour)}); code != 200 {
+		t.Fatal(code, ref)
+	}
+	h.end(r, "succeeded", "accepted")
+	h.fake.Advance(time.Hour)
+	if err := h.s.ExpireWaits(ctx, co); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := h.s.Escalations(ctx, co, true)
+	if len(open) != 1 || open[0].Reason != storage.WaitDeadlineReason || open[0].Target != "manager" {
+		t.Fatalf("%+v", open)
+	}
+	m, _ := h.s.Message(ctx, co, open[0].MessageID)
+	if _, err := h.s.ReplyMessage(ctx, co, m.ID, messaging.Reply{Version: m.Version, Sender: "manager", Body: "reassign", Answers: map[string]any{"answer": "reassign"}, RequestID: "ra"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.task("y"); got.Assignee != "manager" || count(h.triggers("y"), "assignment") != 1 || !slicesContains(h.feedOf("y"), "task.reassigned") {
+		t.Fatalf("%+v %v", got, h.triggers("y"))
+	}
+
+	// A conversation run waits; a report's question (no authority) ends the wait.
+	if _, err := h.s.SendMessage(ctx, co, messaging.Send{ProjectID: "notes", Sender: "demo", Recipient: "manager", MessageType: "notification", Body: "deploy started", RequestID: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	conv := storage.ConversationID("notes", "manager")
+	cr := h.start(conv)
+	if code, ref := h.wait(cr, map[string]any{"reason": "deploy in progress", "after": "1h", "deadline": h.at(4 * time.Hour)}); code != 200 {
+		t.Fatal(code, ref)
+	}
+	h.end(cr, "succeeded", "accepted")
+	if v := h.why(conv); v.Reason != tasks.ReasonParked+tasks.ParkWait {
+		t.Fatalf("%+v", v)
+	}
+	if _, err := h.s.SendMessage(ctx, co, messaging.Send{ProjectID: "notes", Sender: "demo", Recipient: "manager", MessageType: "question", Body: "may I roll back?", RequestID: "q1"}); err != nil {
+		t.Fatal(err)
+	}
+	if v := h.why(conv); v.Reason != tasks.ReasonRunnable || !slicesContains(h.feedOf(conv), "task.wait_interrupted") {
+		t.Fatalf("%+v", v)
+	}
+}

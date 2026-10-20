@@ -33,7 +33,9 @@ func addTrigger(ctx context.Context, tx *Tx, t tasks.Task, kind string, authorit
 	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET wake_seq=? WHERE company_id=? AND id=?", seq, tx.company, t.ID); err != nil {
 		return err
 	}
-	if authority { // authority input ends an active wait early (waits-events-cost-cli D1)
+	// Authority input ends an active wait early (waits-events-cost-cli D1); so does any new input on a
+	// conversation task (a message or a closed delegated task waits for no timer, hierarchy D5).
+	if authority || t.Kind == tasks.KindConversation && kind != "wait_ended" {
 		if err = interruptWait(ctx, tx, t, actor, kind); err != nil {
 			return err
 		}
@@ -85,6 +87,9 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 		return nil
 	}
 	if err := clearParks(ctx, tx, t, anyKind, anyRef, "overridden"); err != nil {
+		return err
+	}
+	if err := endEpisode(ctx, tx, t.ID); err != nil {
 		return err
 	}
 	escalations, err := listEscalations(ctx, tx, "WHERE company_id=? AND task_id=? AND status='open'", tx.company, t.ID)

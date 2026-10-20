@@ -336,10 +336,12 @@ the wake time and adds a `wait_ended` trigger: the next run is briefed on it, ch
 continues or waits again. A timer that came due while Core was not running fires once on the first tick after.
 When the deadline has passed at the wake, Core opens a `wait_deadline` escalation instead; a wait beyond
 `max_waits` (policy, default 12) opens `wait_exhausted`. Both go to the assignee's manager with the answers
-`extend` (a new episode: the task runs and may wait with a new deadline), `retry`, `reassign` (to the answering
-manager; the owner's answer leaves the task unassigned for `factory tasks update`) and `cancel`. Authority input
-(a directive, an authority comment, an owner `ready`) ends an active wait at once (`task.wait_interrupted`) and
-the task runs. Wait wakes are ordinary runs and count against the daily budget.
+`extend` (a new episode: the task runs and may wait with a new deadline), `retry`, `reassign` (a manager's answer is
+the hierarchy reassign action to that manager, with `task.reassigned` and an `assignment` trigger; the owner's
+answer leaves the task unassigned for `factory tasks reassign`) and `cancel`. Authority input (a directive, an
+authority comment, an owner `ready`, a reassignment, an owner or manager message on a conversation task) ends an
+active wait at once (`task.wait_interrupted`) and the task runs; on a conversation task any new message does.
+Task pause and reprioritize keep the wait (its timer and episode); a closed task ends its episode. Wait wakes are ordinary runs and count against the daily budget.
 
 ## Stall detection and escalations
 
@@ -376,14 +378,16 @@ cancellation.
 
 ## Owner controls
 
-- `factory pause --all | --project ID | --agent NAME | --quota-key KEY | --node NODE_ID [REASON]` (the positional
+- Scope pauses (`factory pause`; one task is `factory tasks pause`, below): `factory pause --all | --project ID |
+  --agent NAME | --quota-key KEY | --node NODE_ID [REASON]` (the positional
   forms `project ID` … still work), `factory resume …`, `factory pauses`
   (`POST /pauses`, `POST /pauses/resume`, `GET /pauses`; migration 0013): no new task or message run is
   dispatched in a paused scope; live runs continue. `why` shows `paused:company|project:<id>|agent:<name>|task`
   (after `artifacts`, before `backoff`) with the resume command. Pauses and resumes are feed events
   (`owner.paused` with attention, `owner.resumed`). A node pause (scope `node`, migration 0031) stops claims on
   that node only: its claims answer `{"retry": true, "reason": "paused"}`, its heartbeat answers `pause`, its live
-  runs continue and other nodes keep claiming.
+  runs continue and other nodes keep claiming. A manager pauses an agent of its subtree into the same `agent`
+  scope (`factory_task_pause {agent}`, `POST /agents/{name}/pause`); the owner's `factory resume --agent` ends it.
 - Authority actions on one task (hierarchy): `factory tasks pause|resume ID VERSION [REASON]`, `factory tasks
   reassign ID VERSION AGENT [REASON]`, `factory tasks reprioritize ID VERSION PRIORITY`, `factory tasks cancel ID
   VERSION [REASON] --cascade` (owner; agents through Factory MCP with authority over the task, see
