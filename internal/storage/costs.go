@@ -96,7 +96,7 @@ func priceUsage(usage []protocol.Usage, prices config.Prices) (float64, string) 
 	return total, "reported"
 }
 
-// CostFilter narrows cost queries; By groups them (task, agent, day, model; empty lists runs).
+// CostFilter narrows cost queries; By groups them (task, agent, day, model, project; empty lists runs).
 type CostFilter struct {
 	Task, Agent, Model, By string
 	Since                  int64
@@ -124,9 +124,9 @@ type CostReport struct {
 func (s *Store) Costs(ctx context.Context, company string, f CostFilter) (CostReport, error) {
 	out := CostReport{Total: CostGroup{Key: "total", Sources: map[string]int{}}}
 	switch f.By {
-	case "", "task", "agent", "day", "model":
+	case "", "task", "agent", "day", "model", "project":
 	default:
-		return out, inputError("by must be task, agent, day or model")
+		return out, inputError("by must be task, agent, day, model or project")
 	}
 	zone, err := s.CompanyTimeZone(ctx, company)
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -170,6 +170,8 @@ func (s *Store) Costs(ctx context.Context, company string, f CostFilter) (CostRe
 			key = r.Agent
 		case "model":
 			key = r.Model
+		case "project":
+			key = r.ProjectID
 		case "day":
 			key = time.Unix(r.RecordedAt, 0).In(loc).Format("2006-01-02")
 		}

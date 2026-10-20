@@ -212,6 +212,6 @@ a resumed session (Claude, Codex) reports usage cumulative over its runs, so the
 session had used before the run, and a task's runs sum to the session totals. The ledger is the authoritative
 figure: its tokens match the session transcripts exactly, and a `reported` cost is the runtime's own estimate
 (Claude: the SDK's per-model `costUSD`), which may differ from a recomputation with other prices.
-`GET /costs?by=task|agent|day|model`
+`GET /costs?by=task|agent|day|model|project`
 (filters `task`, `agent`, `model`, `since`) and `GET /tasks/{id}/costs` (a task's runs and total, the cost of a
 closed task) answer `factory costs`; `factory show` lists each attempt's cost.

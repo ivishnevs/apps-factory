@@ -295,7 +295,10 @@ func (h *driverHealth) infos() []DriverInfo {
 	r := make([]DriverInfo, 0, len(h.drivers))
 	for _, d := range h.drivers {
 		s := h.state[string(d.Name())]
-		i := DriverInfo{Name: string(d.Name()), Version: s.version, OK: s.ok()}
+		i := DriverInfo{Name: string(d.Name()), Version: s.version, OK: s.ok(), TransientFailures: s.transients}
+		if s.authFail != "" && !s.authUntil.IsZero() {
+			i.Until = s.authUntil.Unix()
+		}
 		switch {
 		case s.versionErr != "":
 			i.Check, i.Detail = "version", s.versionErr

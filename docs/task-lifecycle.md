@@ -354,7 +354,7 @@ task's total.
   urgent directive that stops the running run.
 - `factory run TASK` / `factory retry TASK`: the owner's `ready` at the task's current version (a BACKLOG,
   REWORK or held task runs now; counters and backoff reset).
-- `factory costs [--task T | --agent A | --model [M]] [--by task|agent|day|model | --day] [--since 24h]`.
+- `factory costs [--task T | --agent A | --model [M]] [--by task|agent|day|model|project | --day] [--since 24h]`.
 - Task pause/resume/reassign/cancel are authority actions of `factory tasks …` (hierarchy); `reopen` and
   `reset-workspace` have no owner endpoint yet (a workspace reset is the `reset_workspace` escalation answer).
 

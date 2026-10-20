@@ -48,6 +48,11 @@ type DriverInfo struct {
 	OK      bool   `json:"ok"`
 	Check   string `json:"check,omitempty"`
 	Detail  string `json:"detail,omitempty"`
+	// TransientFailures counts the checks in a row that failed only transiently (the driver stays as it
+	// was until probes.transient_failures of them); Until is when a run's auth failure hold-off ends (Unix
+	// seconds, 0 when none), before which a passing probe does not re-enable the driver.
+	TransientFailures int   `json:"transient_failures,omitempty"`
+	Until             int64 `json:"until,omitempty"`
 }
 
 type Registered struct {
@@ -82,6 +87,9 @@ type Health struct {
 	FreeDiskBytes uint64  `json:"free_disk_bytes"`
 	BusySlots     int     `json:"busy_slots"`
 	Disk          string  `json:"disk,omitempty"` // ok, low or critical; omitted when free space is unreadable
+	// DiskLowBytes and DiskCriticalBytes are the watermarks Disk is judged by (node.yaml disk).
+	DiskLowBytes      uint64 `json:"disk_low_bytes,omitempty"`
+	DiskCriticalBytes uint64 `json:"disk_critical_bytes,omitempty"`
 	// Checks are the failing node self-checks (node.check_failed{check} on Core); [] when none fails. Driver
 	// probes are reported in the heartbeat's drivers instead (driver_unsupported).
 	Checks []node.CheckResult `json:"checks"`
@@ -291,6 +299,7 @@ func (s *session) health() Health {
 	if s.host.FreeBytes != nil {
 		if free, err := s.host.FreeBytes(s.cfg.Disk.Path); err == nil {
 			h.FreeDiskBytes, h.Disk = free, s.gate.Level(free)
+			h.DiskLowBytes, h.DiskCriticalBytes = s.gate.Low, s.gate.Critical
 		}
 	}
 	return h

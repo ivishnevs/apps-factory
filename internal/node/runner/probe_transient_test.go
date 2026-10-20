@@ -93,6 +93,9 @@ func TestTransientProbeDisablesOnlyWhenRepeated(t *testing.T) {
 	if h.check(ctx, false) || !h.usable("claude") {
 		t.Fatal("second transient check disabled")
 	}
+	if got := h.infos()[0]; got.TransientFailures != 2 || !got.OK {
+		t.Fatalf("transient failures reported: %+v", got)
+	}
 	d.set("ok")
 	h.check(ctx, false)
 	d.set("timeout")

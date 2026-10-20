@@ -131,7 +131,16 @@ func (c *Core) Handler() http.Handler {
 	})
 	m.HandleFunc("GET /runs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.Get(r.Context(), c.companyFrom(r), r.PathValue("id"))
-		reply(w, v, err)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		// A QUEUED run says why no node claims it yet (owner-ui 6.1).
+		q, err := c.Store.QueuedWhy(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		reply(w, struct {
+			storage.Run
+			Queued *storage.QueuedReason `json:"queued,omitempty"`
+		}{v, q}, err)
 	})
 	m.HandleFunc("GET /runs/{id}/tool-calls", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.ToolCalls(r.Context(), c.companyFrom(r), r.PathValue("id"))

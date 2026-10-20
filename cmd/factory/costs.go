@@ -65,7 +65,7 @@ func ownerTaskCommand(ctx context.Context, api worker.API, args []string) error 
 	return printJSON(result)
 }
 
-// costsCommand: costs [--task T] [--agent A] [--model M] [--by task|agent|day|model | --day | --model] [--since 24h]
+// costsCommand: costs [--task T] [--agent A] [--model M] [--by task|agent|day|model|project | --day | --model] [--since 24h]
 // [--json]. A task alone lists its runs with their sources and the total.
 func costsCommand(ctx context.Context, api worker.API, args []string) error {
 	q := url.Values{}
@@ -98,7 +98,7 @@ func costsCommand(ctx context.Context, api worker.API, args []string) error {
 			v, err = value()
 			q.Set(strings.TrimPrefix(a, "--"), v)
 		default:
-			return fmt.Errorf("costs [--task T] [--agent A] [--model [M]] [--by task|agent|day|model] [--day] [--since 24h] [--json]")
+			return fmt.Errorf("costs [--task T] [--agent A] [--model [M]] [--by task|agent|day|model|project] [--day] [--since 24h] [--json]")
 		}
 		if err != nil {
 			return err
