@@ -134,3 +134,25 @@ Persistent significant-action reports, the versioned Decision Registry, project 
 Файловая интеграция OpenSpec: [API/CLI/MCP, workspace mapping и проверки](docs/openspec.md). Документы остаются в workspace; задачи привязываются к проверенным active changes.
 
 Автономность менеджера: категория `technical` делегирована политикой; `manager-autonomous` работает без обращений к owner. Отказ владельца создаёт сохраняемое поручение автору предложения пересмотреть план. [Полномочия и ограничения](docs/reports-decisions.md#delegated-autonomy-and-owner-rejection), [сквозная проверка](docs/decision-autonomy-verification.md).
+
+## Консоль владельца, ожидания, стоимость и Telegram
+
+```sh
+./bin/factory status | watch [PROJECT] [--attention] | log TASK | show TASK      # --json для скриптов
+./bin/factory answer MSG OPTION|TEXT
+./bin/factory comment TASK 'текст' [--urgent]     # ввод владельца; --urgent останавливает текущий run
+./bin/factory run|retry TASK                       # отпустить задачу сейчас
+./bin/factory pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON]
+./bin/factory stop [REASON] / start                # аварийная остановка компании и её снятие
+./bin/factory pending                              # вопросы и эскалации для владельца (GET /pending/count)
+./bin/factory costs [--task T|--agent A] [--by task|agent|day|model|--day|--model] [--since 24h]
+./bin/factory telegram bind                        # одноразовый код: отправьте боту /start КОД
+```
+
+Агент ждёт внешний мир только таймером: `factory_exit_wait {reason, wake_at|after, deadline}` (минимум 15 минут,
+срок не дальше 14 дней, подряд не дальше первого срока, не больше `max_waits`), затем эскалация менеджеру. Каждый
+закончившийся run получает строку стоимости (`run_costs`; цены — `configs/prices.yaml`). Telegram
+(`FACTORY_TELEGRAM_TOKEN`, `FACTORY_TELEGRAM_PROJECT`, `FACTORY_TELEGRAM_DEFAULT_REPORT`, `FACTORY_TELEGRAM_DIGEST_AT`)
+присылает только то, что требует внимания, напоминания и дневную сводку. Подробности:
+[docs/task-lifecycle.md](docs/task-lifecycle.md#owner-controls), [docs/messaging.md](docs/messaging.md#telegram),
+[docs/reports-decisions.md](docs/reports-decisions.md#event-feed-and-costs).

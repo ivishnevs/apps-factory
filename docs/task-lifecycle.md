@@ -269,8 +269,8 @@ OpenSpec, children and UNKNOWN-run blocks are still stored.
   `owner_comment` (`POST /tasks/{id}/comments`, `factory tasks comment ID TEXT`, by the owner with authority or
   by another agent; the assignee's own comment never wakes its task), `review_result` (rejection), `answer`
   (a blocking question answered), `dependency_done` (once, when the last open dependency becomes DONE),
-  `last_child_closed` (once, when the last open child becomes DONE or CANCELLED by any path) and
-  `artifact_approved`.
+  `last_child_closed` (once, when the last open child becomes DONE or CANCELLED by any path),
+  `artifact_approved` and `wait_ended` (a wait's timer; see Waits).
 - Claim records the run's brief window `brief_from = handled_seq`, `brief_to = wake_seq` and builds the brief
   in the same transaction; a `succeeded` run sets `handled_seq = brief_to` (explicit exits replace this later).
 - Claim re-checks the task (D6): a run that is no longer the task's current run, whose task was reassigned or
@@ -308,10 +308,38 @@ OpenSpec, children and UNKNOWN-run blocks are still stored.
 
 Every console command takes `--json` (`watch --json` prints one JSON object per event).
 
-`GET /feed` filters by `project`, `task` and `attention=1` and pages with `after`/`limit`. Attention is set for
-approval requests, questions to the owner and escalated messages, reports that need owner action, `ask` parks
-answered by the owner, `inspect` parks and OpenSpec blocks; fuller rules (digest, Telegram) arrive with
-waits-events-cost-cli.
+`GET /feed` filters by `project`, `task`, `attention=1` and `subtree=AGENT` and pages with `after`/`limit`. The
+feed kinds and attention rules are in [reports and decisions](reports-decisions.md#event-feed-and-costs); the
+Telegram channel in [messaging](messaging.md#telegram). `factory show` also lists each attempt's cost and the
+task's total.
+
+- `factory comment TASK TEXT [--urgent]`: an owner comment (authority input, `owner_comment`); `--urgent` sends an
+  urgent directive that stops the running run.
+- `factory run TASK` / `factory retry TASK`: the owner's `ready` at the task's current version (a BACKLOG,
+  REWORK or held task runs now; counters and backoff reset).
+- `factory costs [--task T | --agent A | --model [M]] [--by task|agent|day|model | --day] [--since 24h]`.
+- Task pause/resume/reassign/cancel are authority actions of `factory tasks …` (hierarchy); `reopen` and
+  `reset-workspace` have no owner endpoint yet (a workspace reset is the `reset_workspace` escalation answer).
+
+## Waits
+
+`factory_exit_wait {reason, wake_at | after, deadline}` (waits-events-cost-cli D1) is the only way an agent
+waits for the outside world. The wake time is at least `min_wait_interval` ahead (a `type: wait` policy rule,
+15m..30m, default 15m), the deadline is required, not before the wake time and at most 14 days ahead; refusals are
+409 `wait_too_short`, `deadline_required`, `wait_too_long`, `invalid_exit` with a hint. Consecutive waits without
+progress form an episode (`wait_episodes`): a later wait cannot pass the first deadline (`past_episode_deadline`)
+and the episode counts its waits. Progress (submit, done, a handoff), authority input and an answered wait
+escalation end it.
+
+The accepted wait parks the task (`parked:wait`, cleared by `time`; no run exists). The tick clears the park at
+the wake time and adds a `wait_ended` trigger: the next run is briefed on it, checks the outside world itself and
+continues or waits again. A timer that came due while Core was not running fires once on the first tick after.
+When the deadline has passed at the wake, Core opens a `wait_deadline` escalation instead; a wait beyond
+`max_waits` (policy, default 12) opens `wait_exhausted`. Both go to the assignee's manager with the answers
+`extend` (a new episode: the task runs and may wait with a new deadline), `retry`, `reassign` (to the answering
+manager; the owner's answer leaves the task unassigned for `factory tasks update`) and `cancel`. Authority input
+(a directive, an authority comment, an owner `ready`) ends an active wait at once (`task.wait_interrupted`) and
+the task runs. Wait wakes are ordinary runs and count against the daily budget.
 
 ## Stall detection and escalations
 
@@ -348,11 +376,14 @@ cancellation.
 
 ## Owner controls
 
-- `factory pause --all | project ID | agent NAME [REASON]`, `factory resume …`, `factory pauses`
+- `factory pause --all | --project ID | --agent NAME | --quota-key KEY | --node NODE_ID [REASON]` (the positional
+  forms `project ID` … still work), `factory resume …`, `factory pauses`
   (`POST /pauses`, `POST /pauses/resume`, `GET /pauses`; migration 0013): no new task or message run is
   dispatched in a paused scope; live runs continue. `why` shows `paused:company|project:<id>|agent:<name>`
   (after `artifacts`, before `backoff`) with the resume command. Pauses and resumes are feed events
-  (`owner.paused` with attention, `owner.resumed`).
+  (`owner.paused` with attention, `owner.resumed`). A node pause (scope `node`, migration 0031) stops claims on
+  that node only: its claims answer `{"retry": true, "reason": "paused"}`, its heartbeat answers `pause`, its live
+  runs continue and other nodes keep claiming.
 - Quota pauses: a worker event with `quota` pauses the agent's quota key (`spec.runtime.quota_key`, default the
   agent name; every agent sharing the key) until `resets_at` (unknown: 1 hour); a later reset extends it, an
   earlier one never shortens it. The tick ends expired pauses. `why` shows `paused:quota_key:<key>` cleared by

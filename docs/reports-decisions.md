@@ -156,3 +156,42 @@ agent behavior, not a deterministic replanning algorithm.
 
 Native Codex is a trusted host process with shell access: these permissions govern Factory gateway
 calls, not OS/network isolation. Real verification: [decision-autonomy-verification.md](decision-autonomy-verification.md).
+
+## Event feed and costs
+
+The feed (`feed_events`) is the one record of what happens (waits-events-cost-cli D2). Rows are written in the
+transaction of their cause:
+
+- exits: `task.exit.submitted|handoff|done|asked|blocked|waiting` ("demo → reviewer (handoff): note");
+- authority input and triggers: `task.trigger.<kind>` (directive, owner_comment, answer, wait_ended, …),
+  `task.wait_interrupted`;
+- escalations: `task.escalation.<reason>`, `task.escalation_answered|cleared.<reason>`; message escalations and
+  forwards;
+- run outcomes: `task.retry` names the task, the run's outcome and the retry time ("a: run R ended failed; retry
+  in 5m0s: …"), `run.stale`, `run.unclaimed`, runtime reports;
+- questions and approvals for the owner, node health, `owner.paused|resumed` (scopes company, project, agent,
+  quota key, node), `quota.paused`, reports (`report.created`) and missing reports (`report.missing`).
+
+`attention = true` marks what needs the owner: the kinds in `storage.AttentionKinds` always (`node.low_disk`,
+`node.disk_critical`, `node.restart_loop`, `node.check_failed`, `node.heartbeat_stalled`, `driver_unsupported`,
+`quota.paused`, `task.alert.no_progress`, `task.alert.idle`, `approval.requested`, `task.unmerged_branch`), and by
+their cause: a question or escalation routed to the owner (an escalation to a manager has none), `node.offline`
+after 10 minutes, a report with `needs_owner_action`, owner pauses, parks that wait on the owner.
+
+Delivery: each row is also an outbox message on `factory.events.feed.<project>.<kind>`; `GET /feed` and
+`GET /feed/stream` (SSE) filter by `project`, `task`, `attention` and `subtree=AGENT` (the agent and everyone
+reporting to it). Agents read their own subtree with `factory_feed_list` (tasks assigned within the subtree or
+delegated by it, through `origin_task`); a lead never sees a sibling team's events.
+
+**Reporting policy.** A policy rule `type: reporting` with `exits: [submit, done]` and optional
+`report_kinds: [stage_completed]` makes a report mandatory on those exits. It never blocks: an exit without the
+report is accepted, writes `report.missing` (for the agent's manager, in its subtree feed) and a reminder that the
+agent's next brief carries once ("Reporting reminders").
+
+**Costs** (D5). `run_costs` has exactly one row per ended run — revoked, failed, timed-out and lost runs included
+— written by a database trigger from the usage stored on the run (late usage updates it): provider, model (the
+one with most tokens), input/output/cache tokens, `cost_usd` and `cost_source`: `reported` (the runtime priced
+every model), `price_table` (from `configs/prices.yaml`, USD per million tokens by model) or `none` (tokens only).
+Figures are API-equivalent, for comparison and waste detection, not billing. `GET /costs?by=task|agent|day|model`
+(filters `task`, `agent`, `model`, `since`) and `GET /tasks/{id}/costs` (a task's runs and total, the cost of a
+closed task) answer `factory costs`; `factory show` lists each attempt's cost.
