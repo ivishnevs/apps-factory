@@ -113,7 +113,10 @@ Optional fields; workers and Cores that do not know them ignore them.
   snapshots, unknown without one. `rateLimitExceeded` is a transient API limit, not a quota hit.
 - Claude: the shim reports running usage per model after each assistant message (the last report per
   message id, `<synthetic>` skipped), so a killed or timed-out run still has usage; the result's `modelUsage`
-  gives final usage with per-model `cost_usd` (`claude_estimate`), then the total cost. A rate-limit event
+  gives final usage with per-model `cost_usd` (`claude_estimate`), then the total cost. On a resumed session
+  Claude Code restores the session's cost state (the transcript's last `cost-state` entry), so `modelUsage`
+  and `total_cost_usd` include earlier runs; the shim reads that entry before the prompt and reports the
+  difference (a model unchanged since it is left out). A rate-limit event
   that rejects the request is a quota hit with the limit's reset time and type (e.g. `five_hour`).
 
 ### Run outcomes from workers

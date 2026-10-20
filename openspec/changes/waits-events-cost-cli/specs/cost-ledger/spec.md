@@ -7,6 +7,14 @@ Core SHALL record exactly one cost row per ended run with provider, model and to
 - **WHEN** a run is revoked by an urgent directive after consuming tokens
 - **THEN** its cost row SHALL contain the tokens last reported for it
 
+#### Scenario: Run of a resumed session
+- **WHEN** a run resumes a runtime session whose earlier runs already have cost rows, and the runtime reports usage and cost cumulative over the session
+- **THEN** the run's cost row SHALL contain only the tokens and cost of that run, so the rows of the session's runs sum to the session's totals
+
+#### Scenario: Running and final usage
+- **WHEN** a run reports running usage during the turn and final usage with its result
+- **THEN** its cost row SHALL contain the final usage, not the sum of both
+
 ### Requirement: Cost queries
 The owner SHALL be able to query costs by task, agent, day and model, and the total cost of a closed task.
 

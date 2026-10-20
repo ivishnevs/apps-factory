@@ -10,7 +10,9 @@
 // (FACTORY_URL, FACTORY_RUN_TOKEN), never through the launch line. Diagnostics go to stderr.
 import { execFile, spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
@@ -71,9 +73,9 @@ export function factoryShimDecider(binary: string, env: NodeJS.ProcessEnv, timeo
     });
 }
 
-// Normalized events (design D1). usage (per model) and cost (total) are cumulative for the query:
+// Normalized events (design D1). usage (per model) and cost (total) are cumulative for the run:
 // the last line wins. Running usage after each assistant message has no cost; the result's
-// modelUsage then gives the final usage with each model's cost.
+// modelUsage then gives the final usage with each model's cost, less a resumed session's baseline.
 export type ShimEvent =
   | { event: "session"; id: string }
   | { event: "activity"; kind: string; data: unknown }
@@ -91,6 +93,65 @@ export type Write = (e: ShimEvent) => Promise<void>;
 
 type Tokens = { input: number; output: number; cache_read: number; cache_write: number };
 
+// What a resumed session already cost. Claude Code appends a `cost-state` entry to the session
+// transcript when its process ends and restores it on resume, so result.modelUsage and
+// total_cost_usd cover every run of the session; the shim subtracts the last entry written before
+// the run to report the run's own usage (as the Codex driver subtracts the thread total).
+export interface CostBaseline {
+  total_cost_usd: number;
+  models: Record<string, Tokens & { cost_usd: number }>;
+}
+
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+// costBaseline reads the last cost-state entry of the session transcript
+// (<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<project>/<session>.jsonl); undefined without one, in
+// which case the runtime restores nothing either.
+export async function costBaseline(env: NodeJS.ProcessEnv, sessionId: string): Promise<CostBaseline | undefined> {
+  const root = join(env["CLAUDE_CONFIG_DIR"] || join(env["HOME"] || homedir(), ".claude"), "projects");
+  let dirs: string[];
+  try {
+    dirs = await readdir(root);
+  } catch {
+    return undefined;
+  }
+  for (const d of dirs) {
+    let text: string;
+    try {
+      text = await readFile(join(root, d, `${sessionId}.jsonl`), "utf8");
+    } catch {
+      continue;
+    }
+    let last: CostBaseline | undefined;
+    for (const line of text.split("\n")) {
+      if (!line.includes('"cost-state"')) continue;
+      let e: { type?: unknown; sessionId?: unknown; totalCostUSD?: unknown; modelUsage?: Record<string, Record<string, unknown>> };
+      try {
+        e = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (e.type !== "cost-state" || (e.sessionId !== undefined && e.sessionId !== sessionId)) continue;
+      const models: CostBaseline["models"] = {};
+      for (const [model, u] of Object.entries(e.modelUsage ?? {})) {
+        models[model] = {
+          input: num(u["inputTokens"]),
+          output: num(u["outputTokens"]),
+          cache_read: num(u["cacheReadInputTokens"]),
+          cache_write: num(u["cacheCreationInputTokens"]),
+          cost_usd: num(u["costUSD"]),
+        };
+      }
+      last = { total_cost_usd: num(e.totalCostUSD), models };
+    }
+    return last;
+  }
+  return undefined;
+}
+
+// A difference of dollar figures without float noise, never negative.
+const usdMinus = (a: number, b: number): number => Math.max(0, Math.round((a - b) * 1e10) / 1e10);
+
 export function lineWriter(out: Writable): Write {
   return (e) => new Promise((resolve, reject) => out.write(JSON.stringify(e) + "\n", (err) => (err ? reject(err) : resolve())));
 }
@@ -105,6 +166,8 @@ export class Normalizer {
   // assistant messages (one per content block), so the last one per id counts.
   private readonly running = new Map<string, Map<string, Tokens>>();
   finished = false;
+  // A resumed session's cost before this run (costBaseline), set before the prompt.
+  baseline: CostBaseline | undefined;
 
   constructor(private readonly write: Write) {}
 
@@ -133,18 +196,21 @@ export class Normalizer {
       await this.write({ event: "auth_error", reason: m.error });
     } else if (m.type === "result") {
       this.lastResult = m;
+      const base = this.baseline;
       for (const [model, u] of Object.entries(m.modelUsage ?? {})) {
-        await this.write({
-          event: "usage",
-          model,
-          input: u.inputTokens,
-          output: u.outputTokens,
-          cache_read: u.cacheReadInputTokens,
-          cache_write: u.cacheCreationInputTokens,
-          cost_usd: u.costUSD,
-        });
+        const b = base?.models[model];
+        const t: Tokens = {
+          input: Math.max(0, u.inputTokens - (b?.input ?? 0)),
+          output: Math.max(0, u.outputTokens - (b?.output ?? 0)),
+          cache_read: Math.max(0, u.cacheReadInputTokens - (b?.cache_read ?? 0)),
+          cache_write: Math.max(0, u.cacheCreationInputTokens - (b?.cache_write ?? 0)),
+        };
+        // A model only earlier runs of the session used is not this run's.
+        if (b && !t.input && !t.output && !t.cache_read && !t.cache_write) continue;
+        await this.write({ event: "usage", model, ...t, cost_usd: b ? usdMinus(u.costUSD, b.cost_usd) : u.costUSD });
       }
-      await this.write({ event: "cost", usd: m.total_cost_usd, source: "claude_estimate" });
+      const usd = base ? usdMinus(m.total_cost_usd, base.total_cost_usd) : m.total_cost_usd;
+      await this.write({ event: "cost", usd, source: "claude_estimate" });
     }
   };
 
@@ -275,6 +341,10 @@ export async function runShim(io: ShimIO): Promise<void> {
     }
     if (launch.guard_command && !io.env["FACTORY_SHIM_DIR"]) {
       throw new RuntimeError("FACTORY_SHIM_DIR must be set in the environment for the command guard", "launch");
+    }
+    if (launch.spec.session_id) {
+      n.baseline = await costBaseline(io.env, launch.spec.session_id);
+      io.log?.(`shim: resumed session cost baseline ${n.baseline ? `$${n.baseline.total_cost_usd}` : "none"}`);
     }
     await runClaude({
       spec: launch.spec,
