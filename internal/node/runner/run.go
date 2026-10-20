@@ -225,6 +225,9 @@ func Run(ctx context.Context, n Node) error {
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Bus: n.Bus, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
 			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv}
+		if c.StateDir != "" {
+			w.BlobCache = filepath.Join(c.StateDir, "blobs") // project data by digest, shared by the slots
+		}
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
 		if s != nil {

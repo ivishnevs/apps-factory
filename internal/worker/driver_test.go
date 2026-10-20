@@ -48,6 +48,9 @@ func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Drive
 // stored edits the spec before Core stores the run as well (Core reads the captured config).
 type stored func(*protocol.RunSpec)
 
+// withStore prepares Core's store (projects, documents, blobs) before the run is created.
+type withStore func(*storage.Store)
+
 // stopCause cancels the execution with cause once the run started, as a node's heartbeat stop does.
 type stopCause struct{ cause error }
 
@@ -66,6 +69,11 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.DB.Close() })
+	for _, mod := range mods {
+		if m, ok := mod.(withStore); ok {
+			m(s)
+		}
+	}
 	c := &core.Core{Store: s, Bus: b, Token: "test-token", Agents: map[string]config.Agent{"demo": {Spec: config.Spec{Role: "executor"}}}}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
