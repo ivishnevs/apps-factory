@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,6 +37,7 @@ type runLog struct {
 	buf     bytes.Buffer
 	seq     int64
 	final   bool
+	uploads sync.WaitGroup // chunks uploading during the run
 }
 
 // newRunLog redacts the node's environment secrets and its Core token from the start.
@@ -91,12 +92,21 @@ func (l *runLog) add(kind string, p protocol.Event) {
 	full := l.buf.Len() >= LogChunk
 	l.mu.Unlock()
 	if full {
-		l.flush(false)
+		// Uploads during the run never hold up the run's events; the final flush waits for them.
+		l.uploads.Add(1)
+		go func() {
+			defer l.uploads.Done()
+			l.flush(false)
+		}()
 	}
 }
 
-// flush uploads the buffered lines as the next chunk; final marks the run's last chunk (sent once, even empty).
+// flush uploads the buffered lines as the next chunk; final marks the run's last chunk (sent once, even
+// empty, after the chunks still uploading).
 func (l *runLog) flush(final bool) {
+	if final {
+		l.uploads.Wait()
+	}
 	l.mu.Lock()
 	if l.final || l.buf.Len() == 0 && !final {
 		l.mu.Unlock()
@@ -117,6 +127,10 @@ func (l *runLog) flush(final bool) {
 		}
 		if err = l.api.putLog(ctx, l.run, l.lease, seq, final, b); err == nil {
 			return
+		}
+		var h *HTTPError
+		if errors.As(err, &h) && h.Status < 500 {
+			break // refused (an older Core without logs, a replaced lease): retrying does not help
 		}
 	}
 	slog.Error("run log upload", "run", l.run, "seq", seq, "error", err)
@@ -146,7 +160,7 @@ func (a API) putLog(ctx context.Context, run, lease string, seq int64, final boo
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return fmt.Errorf("Core HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(msg)))
+		return &HTTPError{res.StatusCode, strings.TrimSpace(string(msg))}
 	}
 	return nil
 }

@@ -53,6 +53,8 @@ func newFakeCore(t *testing.T, stateDir string) (*fakeCore, worker.API) {
 	mux.HandleFunc("POST /nodes/{id}/heartbeat", f.heartbeat)
 	mux.HandleFunc("POST /runs/{id}/claim", f.claim)
 	mux.HandleFunc("POST /runs/{id}/start", f.start)
+	// Run log chunks (core-owned-project-data D6) are accepted and dropped.
+	mux.HandleFunc("PUT /runs/{id}/logs", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		http.NotFound(w, r)
