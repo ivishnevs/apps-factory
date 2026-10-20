@@ -14,6 +14,9 @@ import (
 // driverHealth keeps the node's view of its drivers (runtime-drivers D4): the version check runs at start and
 // every VersionInterval, Probe (binary, version range, auth; never a model call) at start and every Interval.
 // A failing check disables the driver on this node: its slots stop claiming its subject until a check passes.
+// A transient failure (the probe killed by its timeout, no output, not started under load) is retried with a
+// longer timeout and disables the driver only after probes.TransientFailures checks in a row, never while a
+// run on the driver succeeded or was active since the last check (check, activity).
 // A run ended by the runtime's authentication failure disables it the same way (runtime-drivers 3.2); a
 // passing probe re-enables it only once the auth hold-off expired (authHoldOffs: 10 min, then 30 min, then
 // 2 h for each further failure), so a probe that passes while runs keep failing auth does not flap it. The
@@ -41,6 +44,11 @@ type driverState struct {
 	strikes   int
 	authUntil time.Time
 	held      bool // the "probe passes, hold-off continues" line was logged for this hold-off
+	// transients counts the consecutive checks that ended in a transient-only failure after their retries;
+	// probes.TransientFailures of them disable the driver. evidence: a run on the driver succeeded or
+	// produced runtime activity since the last check.
+	transients int
+	evidence   bool
 }
 
 // authHoldOffs are the successive hold-offs after a run's authentication failure; the last is the cap and
@@ -57,6 +65,13 @@ func (h *driverHealth) clock() time.Time {
 func (s *driverState) ok() bool { return s.versionErr == "" && s.probeFail == "" && s.authFail == "" }
 
 func newDriverHealth(drivers []driver.Driver, p node.Probes) *driverHealth {
+	def := node.Defaults().Probes
+	if p.Attempts <= 0 {
+		p.Attempts, p.RetryBackoff = def.Attempts, def.RetryBackoff
+	}
+	if p.TransientFailures <= 0 {
+		p.TransientFailures = def.TransientFailures
+	}
 	h := &driverHealth{drivers: drivers, probes: p, state: map[string]*driverState{}}
 	for _, d := range drivers {
 		h.state[string(d.Name())] = &driverState{}
@@ -64,38 +79,106 @@ func newDriverHealth(drivers []driver.Driver, p node.Probes) *driverHealth {
 	return h
 }
 
+// probeResult is one attempt of a driver's checks.
+type probeResult struct {
+	version, versionErr string
+	failed              []string
+	transient           bool // failing, and every failure is transient (CheckResult.Transient, node.IsTransient)
+}
+
+func (r probeResult) failing() bool { return r.versionErr != "" || len(r.failed) > 0 }
+
+// attempt runs the driver's checks once, with the per-command timeout under ctx.
+func attempt(ctx context.Context, d driver.Driver, version bool) probeResult {
+	var r probeResult
+	transient := true
+	if version {
+		v, err := d.CheckVersion(ctx)
+		r.version = v
+		if err != nil {
+			r.versionErr = err.Error()
+			transient = node.IsTransient(err)
+		}
+	}
+	for _, c := range d.Probe(ctx) {
+		if c.Status == node.Fail {
+			r.failed = append(r.failed, c.Check+": "+c.Detail)
+			transient = transient && c.Transient
+		}
+	}
+	r.transient = r.failing() && transient
+	return r
+}
+
+// probe runs the driver's checks and retries a transient-only failure (runtime-drivers D4): up to
+// probes.Attempts in all, probes.RetryBackoff apart (doubling), the command timeout doubled each time. A pass
+// or a definitive failure ends it at once.
+func (h *driverHealth) probe(ctx context.Context, d driver.Driver, version bool) probeResult {
+	attempts := max(h.probes.Attempts, 1)
+	var r probeResult
+	for i := range attempts {
+		if i > 0 {
+			wait := h.probes.RetryBackoff << (i - 1)
+			slog.Warn("driver probe failed transiently; retrying", "driver", d.Name(), "attempt", i+1, "of", attempts, "after", wait,
+				"probe", strings.Join(r.failed, "; "), "version_error", r.versionErr)
+			select {
+			case <-ctx.Done():
+				return r
+			case <-time.After(wait):
+			}
+		}
+		r = attempt(node.WithCommandTimeout(ctx, node.CommandTimeout<<i), d, version)
+		if ctx.Err() != nil || !r.transient {
+			return r
+		}
+	}
+	return r
+}
+
 // check runs Probe on every driver, and the version check too when version is set; it reports whether any
-// driver changed between usable and disabled, logging each change once.
+// driver changed between usable and disabled, logging each change once. A check that still fails only
+// transiently after its retries leaves the driver as it was, with a warning, unless it is the
+// probes.TransientFailures-th such check in a row; a run on the driver that succeeded or produced runtime
+// activity since the previous check is evidence of health, and such a failure then never disables it.
 func (h *driverHealth) check(ctx context.Context, version bool) bool {
 	flipped := false
+	limit := max(h.probes.TransientFailures, 1)
 	for _, d := range h.drivers {
 		name := string(d.Name())
-		var v, verr string
-		if version {
-			var err error
-			if v, err = d.CheckVersion(ctx); err != nil {
-				verr = err.Error()
-			}
-		}
-		var failed []string
-		for _, r := range d.Probe(ctx) {
-			if r.Status == node.Fail {
-				failed = append(failed, r.Check+": "+r.Detail)
-			}
-		}
+		r := h.probe(ctx, d, version)
 		if ctx.Err() != nil {
 			return flipped // a cancelled check says nothing about the driver
 		}
 		h.mu.Lock()
 		s := h.state[name]
 		was := s.ok()
-		if version {
-			s.version, s.versionErr = v, verr
+		evidence := s.evidence
+		s.evidence = false
+		apply := true
+		var warn string
+		switch {
+		case !r.transient:
+			s.transients = 0
+		case evidence:
+			s.transients, apply = 0, false
+			warn = "driver probe failed transiently; a run on it succeeded or was active since the last check, so it stays as it was"
+		default:
+			s.transients++
+			if s.transients < limit {
+				apply = false
+				warn = "driver probe failed transiently; it stays as it was unless the failure repeats"
+			}
 		}
-		s.probeFail = strings.Join(failed, "; ")
+		if apply {
+			if version {
+				s.version, s.versionErr = r.version, r.versionErr
+			}
+			s.probeFail = strings.Join(r.failed, "; ")
+		}
+		transients := s.transients
 		// The probe checks authentication: once the hold-off expired its result replaces a run's auth failure.
 		holding := false
-		if s.authFail != "" {
+		if s.authFail != "" && apply {
 			if t := h.clock(); !t.Before(s.authUntil) {
 				s.authFail = ""
 			} else if s.probeFail == "" && s.versionErr == "" && !s.held {
@@ -104,18 +187,31 @@ func (h *driverHealth) check(ctx context.Context, version bool) bool {
 		}
 		now, verrNow, probeNow, vNow, until := s.ok(), s.versionErr, s.probeFail, s.version, s.authUntil
 		h.mu.Unlock()
+		if warn != "" {
+			slog.Warn(warn, "driver", name, "consecutive", transients, "limit", limit, "probe", strings.Join(r.failed, "; "), "version_error", r.versionErr)
+		}
 		if holding {
 			slog.Info("driver probe passes; it stays disabled until its auth hold-off ends", "driver", name, "until", until)
 		}
 		switch {
 		case was && !now:
-			slog.Error("driver disabled on this node", "driver", name, "version_error", verrNow, "probe", probeNow)
+			slog.Error("driver disabled on this node", "driver", name, "version_error", verrNow, "probe", probeNow, "transient", r.transient)
 		case !was && now:
 			slog.Info("driver re-enabled on this node", "driver", name, "version", vNow)
 		}
 		flipped = flipped || was != now
 	}
 	return flipped
+}
+
+// activity records evidence that the named driver works: one of its runs produced a runtime event since
+// the last check (runSucceeded counts too). The next check then does not disable it on a transient failure.
+func (h *driverHealth) activity(name string) {
+	h.mu.Lock()
+	if s := h.state[name]; s != nil {
+		s.evidence = true
+	}
+	h.mu.Unlock()
 }
 
 // authFailed disables the named driver after a run ended on the runtime's authentication failure, like a
@@ -158,6 +254,9 @@ func (h *driverHealth) authFailed(name string, err error) {
 func (h *driverHealth) runSucceeded(name string) {
 	h.mu.Lock()
 	s := h.state[name]
+	if s != nil {
+		s.evidence = true // health evidence for the next check
+	}
 	reset := s != nil && s.strikes > 0 && s.authFail == ""
 	if reset {
 		s.strikes = 0

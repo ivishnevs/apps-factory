@@ -94,6 +94,10 @@ another check that prevents all work fails; the pause SHALL clear when the check
 - **WHEN** the authentication probe of one driver fails on a node that also has another usable driver
 - **THEN** only that driver is disabled, the node keeps claiming runs for the other driver, and the owner gets one alert
 
+#### Scenario: Driver probe slow under load
+- **WHEN** a driver probe times out once while the machine is busy and a run on that driver is succeeding
+- **THEN** the driver stays enabled, the node logs a warning and keeps claiming its runs, and the owner gets no alert
+
 #### Scenario: No usable driver
 - **WHEN** every driver on a node fails its probe
 - **THEN** the node is paused, Core stops granting it claims, and after the probes pass the node resumes on its own
