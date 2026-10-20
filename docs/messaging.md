@@ -62,8 +62,23 @@ Continuation attempts are explicit answers, not failure retries; max_retries doe
 
 Submit is forbidden while waiting; an unanswered task cannot be made READY. A lost run whose runtime
 may still run keeps its task; an answer does not release it. Cancelled and manually blocked tasks do not
-resume automatically; a failed run retries after its backoff (task-lifecycle.md). An answer wakes the asking
+resume automatically. An answer from the task's authority set (the owner, the asker's managers, its
+delegator) is authority input: it counts as progress, so a task whose run failed runs again without its backoff;
+an action approval decision only grants the permission (the backoff stays). An answer wakes the asking
 task; normal dispatch (the agent's run limit, the project writer) applies.
+
+## Directives and authority input
+
+The owner (`factory direct TASK TEXT [--urgent]`, `POST /tasks/{id}/directives`) and agents with authority
+over a task (`factory_task_direct`) give directives: authority triggers that every tool result of the task's
+running run carries as `authority_input` until the agent has seen them, and that block its exits until then
+(409, [Factory MCP](factory-mcp.md#explicit-exits)). Each input has its author's rank (owner 0, then depth in
+the reporting tree); among conflicting directives the one nearest the owner is marked `winning`. A parked task
+is woken at once: authority input overrides its wait, ask, block and children parks and its retry and no_exit
+escalations (task-lifecycle.md, Trigger log and parks). `--urgent` revokes the running run (a stop on the node's
+control subject, the heartbeat as guarantee; outcome `revoked`, not an attempt) and the next run's brief starts
+with the directive; `factory approve APPROVAL REASON --urgent` does the same for the tasks an approved artifact
+version wakes. Comments by agents outside the authority set add no trigger; the next brief lists them.
 
 A manager that cannot decide a question asks its own manager (factory_exit_ask from its conversation, or
 factory_question_forward); the owner's answer to that reaches it as a message on its conversation, and it

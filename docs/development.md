@@ -124,6 +124,7 @@ protocol_version: 1          # 1 (default): per-run claim and heartbeat; 2: regi
 resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
 labels: [macos, xcode]       # sent in register; Core claims an agent's run only where all its spec.labels are
 token_file: /etc/factory/node.token  # node token (factory nodes token create); FACTORY_NODE_TOKEN overrides
+runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)
 state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
 skills_root: /opt/factory    # configs/skills.yaml + skill dirs materialized for runs; default <bin_dir>/.., else the working directory

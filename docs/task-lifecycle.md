@@ -74,6 +74,31 @@ Task events in SQLite preserve earlier submissions/review states even after rewo
 notifications carry bounded identity/status/version pointers; fetch snapshots/history through Core. Comments record review and
 action reasons; artifact rows retain references per run/version.
 
+## Explicit exits
+
+With `FACTORY_EXPLICIT_EXITS=1` a turn no longer submits implicitly: each run ends with one exit tool
+([contract](explicit-exits-contract.md), [tools](factory-mcp.md#explicit-exits)). Effects:
+
+| Exit | Status | Assignee | Trigger / park |
+| --- | --- | --- | --- |
+| submit | IN_REVIEW | the named reviewer (its review run), else unchanged for the owner's review | `assignment` to the reviewer |
+| handoff `approved` | READY | the implementer (merges, then done) | `assignment`; approval bound to `{pr_number, approved_head}` |
+| handoff `changes_requested` | READY with `review_feedback` | the implementer | `assignment` |
+| handoff (no verdict) | READY | `to` (may be itself; not progress then) | `assignment` |
+| done | DONE (conversation: stays open) | — | dependents and the parent wake |
+| ask | READY, shown BLOCKED | — | `ask` park, a question to the manager (locked categories: owner) |
+| block | READY with the named tasks as dependencies (`blocked_on`), or BLOCKED on children | — | children: `children` park until the last child closes; otherwise ask |
+| wait | READY | — | `wait` park until its time |
+
+The owner's `factory tasks review` maps to a verdict: reject returns the task with the feedback, approve
+returns a repository task to its implementer and ends a scratch one. Exits are refused with 410 when the run is
+not the task's live run, and with 409 while authority input (for done: any trigger) is above the exit's
+`ack_seq`; `done` of a repository task needs its pull request merged (squash and rebase merges pass), with
+`review_after_conflicts: required` an approval of the merged head, unless an authority answered
+`abandon_branch`. A turn without an exit is `no_exit`: an attempt, and an escalation to the assignee's manager
+with retry (run again), reassign (to the answering manager; the owner's answer leaves the task unassigned until
+`factory tasks reassign`), accept (keep status and assignee, nothing to run until new input) and cancel.
+
 ## Failure, retry and cancellation
 
 Automatic retry (reliable-recovery D2–D3; owner decision 2026-10-14: autonomy first, dangerous or wasteful
@@ -289,6 +314,15 @@ OpenSpec, children and UNKNOWN-run blocks are still stored.
   (branch, commits ahead of the default branch, head, push and pull request state); dependencies with their
   results; approved artifact inputs; company and project rules; the review or exit instruction.
   `internal/storage/testdata/brief.golden` pins its format.
+- Authority triggers (explicit-exits-authority D6–D7): directives, comments, answers to the task's questions
+  and escalations, ready, assignment and review results by the owner or an agent with authority over the task
+  (its assignee's managers, its delegator), and `artifact_approved` (a required version, or a new version of
+  an artifact the task requires in another version). Approval decisions and system triggers are not. In the
+  trigger's transaction an authority trigger overrides the task's interruptible parks — wait (interrupted), ask
+  (the question is withdrawn as superseded), an exit block (its `blocked_on` dependencies go) and children —
+  and clears the `retries_exhausted`, `budget_exhausted` and `no_exit` escalations; it counts as progress
+  (attempts, fail streak, backoff and today's budget reset). `inspect`, the owner's manual block and OpenSpec or
+  workspace-reset blocks keep the task until their own answer.
 - Parks: `ask` (blocking question, cleared by its answer), `block` (manual or OpenSpec block, cleared by ready),
   `escalation` (an open escalation, cleared by its answer or when its condition goes away). Cancel and DONE
   override all active parks. `inspect` parks exist only from before migration 0029 (UNKNOWN runs).

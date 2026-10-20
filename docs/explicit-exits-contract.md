@@ -94,9 +94,10 @@ Checks, in order: 410 when the run is not the task's current live run (revoked, 
   safe).
 - Exit guard (stream B, `runtime-drivers` 2.4): Codex starts a follow-up turn "end with one factory_exit_* call"
   up to `exit_guard_retries` (default 2); Claude's Stop hook refuses to stop without an exit.
-- `no_exit` (Core): an attempt counted against the budget; an escalation `no_exit` ("agent did not finish") to a
-  `manager` agent, else the owner, answers `retry`, `accept` (keep status and assignee, `handled_seq = wake_seq`),
-  `cancel`; reassigning through a task update clears it.
+- `no_exit` (Core): an attempt counted against the budget; an escalation `no_exit` ("agent did not finish") to
+  the assignee's manager (`reports_to`), else the owner, answers `retry`, `reassign` (to the answering manager; the
+  owner's leaves it unassigned), `accept` (keep status and assignee, `handled_seq = wake_seq`), `cancel`; any
+  authority input clears it.
 
 ## 6. `done`
 
@@ -109,17 +110,21 @@ Scratch projects (no remote) have no PR: `done` is accepted with a clean tree.
 
 ## 7. Authority input
 
-- Authority set (`internal/core/authority.go`): the owner (rank 0); until `hierarchy`, agents with role `manager`
-  (rank 1); the assignee of the delegating task. Authority triggers: directives (`factory_task_direct`,
+- Authority set (`hasAuthority` in `internal/core/stalls.go`, `hasAuthorityTx` in storage): the owner (rank 0), the
+  managers up the assignee's `reports_to` chain (rank = depth, 1 reports to the owner), the assignee of the
+  delegating task (`origin_task`). Authority triggers: directives (`factory_task_direct`,
   `factory direct TASK TEXT [--urgent]`), comments by authority principals, answers to the task's questions,
-  `ready`/reassign by an authority, `artifact_approved` for required or pinned artifacts. Non-authority comments
+  `ready`/reassign by an authority, `artifact_approved` for required artifacts and for tasks pinned to another
+  version of the artifact (they require it); approval decisions are not authority input. Non-authority comments
   add no trigger; they are listed in the next brief.
 - Parked task: an authority trigger overrides interruptible parks (wait, ask, block, children) and the
   escalations `retries_exhausted`, `budget_exhausted`, `no_exit` (it counts as retry); `inspect` needs its answer.
 - Urgent: the run becomes CANCELLING with `stop_reason = directive`; v1: `cancel: true` in the heartbeat answer,
-  v2: heartbeat `stop` reason `directive` (≤ 10 s). The per-node control subject comes with company subject
-  prefixes (runtime-protocol-v2 §10.5). Outcome `revoked`; the next run resumes the session and the brief starts
-  with the directive.
+  v2: `run.stop` on `factory.nodes.<node_id>.control` at once (plain NATS, outside the command stream; Core's
+  outbox publishes it immediately) and the heartbeat `stop` `revoked` as the guarantee. The company prefix
+  (`factory.<company>.nodes...`) comes with postgres-tenancy's subject prefixes. An urgent artifact approval
+  (`factory approve ID REASON --urgent`) stops the runs of the tasks it wakes the same way. Outcome `revoked`; the next
+  run resumes the session and the brief starts with the directive.
 
 ## 8. Facts collection (adapter, `task-worktrees` D5–D6)
 
@@ -166,12 +171,12 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
 - `block on` adds the named tasks as dependencies (the scheduler and the `stalled` escalation already handle
   them); `on_children` blocks until the last child closes; impossible blocks become an ask. `wait` sets
   `not_before` and a wait park that the tick turns into a `wake` trigger; `deadline` is stored, not enforced yet.
-- Authority set: the owner (rank 0) and agents with role `manager` (rank 1, `factory_task_direct` for their run's
-  project). A manager's directive does not lift an owner's manual block. Delegators are not authority yet.
+- Authority set: see §7 (the hierarchy replaced role `manager`). A manager's directive does not lift an owner's
+  manual block.
 - An urgent directive revokes the running run (CANCELLING; v1 cancel, v2 stop `revoked`); its `revoked` end
   returns the task to READY and the next brief starts with the directive.
-- Not yet: `abandon_branch`, project review policy and `review_after_conflicts`, the secret-scan report item,
-  `artifact_approved` as authority input.
+- Since done: `abandon_branch`, `review_after_conflicts`, `artifact_approved` as authority input, the park
+  override for every authority trigger, depth ranks. Not yet: the secret-scan report item.
 
 ## 12. Adapter, worker and exit guard notes
 
