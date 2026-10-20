@@ -17,6 +17,30 @@ func (c *Core) blobRoutes(m *http.ServeMux) {
 		rc, b, err := c.Store.RunBlob(r.Context(), c.companyFrom(r), r.PathValue("id"), r.Header.Get("X-Factory-Lease"), r.PathValue("sha256"))
 		sendBlob(w, rc, b, err)
 	})
+	// Run logs: the node uploads redacted chunks with the run's lease; the owner lists and reads them.
+	m.HandleFunc("PUT /runs/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		seq, err := strconv.ParseInt(q.Get("seq"), 10, 64)
+		if err != nil {
+			http.Error(w, "seq required", 400)
+			return
+		}
+		v, err := c.Store.PutRunLog(r.Context(), c.companyFrom(r), r.PathValue("id"), r.Header.Get("X-Factory-Lease"), seq, q.Get("final") == "1", q.Get("redacted") == "1", http.MaxBytesReader(w, r.Body, storage.MaxBlob+1))
+		reply(w, v, err)
+	})
+	m.HandleFunc("GET /runs/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.RunLogs(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		reply(w, v, err)
+	})
+	m.HandleFunc("GET /runs/{id}/logs/{seq}", func(w http.ResponseWriter, r *http.Request) {
+		seq, err := strconv.ParseInt(r.PathValue("seq"), 10, 64)
+		if err != nil {
+			http.Error(w, "seq required", 400)
+			return
+		}
+		rc, b, err := c.Store.RunLogChunk(r.Context(), c.companyFrom(r), r.PathValue("id"), seq)
+		sendBlob(w, rc, b, err)
+	})
 	m.HandleFunc("GET /blobs/{sha256}", func(w http.ResponseWriter, r *http.Request) {
 		rc, b, err := c.Store.OpenBlob(r.Context(), c.companyFrom(r), r.PathValue("sha256"))
 		sendBlob(w, rc, b, err)

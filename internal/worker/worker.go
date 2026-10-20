@@ -259,6 +259,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if w.RunStopped != nil {
 		defer func() { w.RunStopped(spec, stopped) }()
 	}
+	// The run's log goes to Core redacted, in chunks and finally after the terminal event (D6).
+	rlog := newRunLog(w.API, spec.ID, lease)
+	defer rlog.flush(true)
 	// The run's latest usage and quota ride on every terminal event, so a stopped, timed-out or
 	// unknown run still reports what it consumed.
 	var meter meter
@@ -381,6 +384,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 		p.RunID = spec.ID
 		p.Lease = lease
+		// Known credentials never leave the node: not in events, not in the log.
+		rlog.clean(&p)
+		rlog.add(kind, p)
 		pubCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
 		return w.Bus.Event(pubCtx, w.company(), kind, cause, p)
@@ -534,6 +540,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		if credential.Token == "" || credential.Instructions == "" {
 			return setupFailed(fmt.Errorf("missing run credential"))
 		}
+		rlog.secret(credential.Token)
 		launch.Env = runEnvironment(os.Environ(), w.EnvAllow, w.API.URL, credential.Token)
 		if withMCP {
 			mcp, e := sibling(w.MCPBinary, "factory-mcp")
@@ -548,10 +555,17 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			// when the run returns with an error and its terminal event is emitted afterwards.
 			defer func() { finish(); os.RemoveAll(dir) }()
 			exitFile, mcpName = filepath.Join(dir, "exit.json"), filepath.Base(mcp)
+			// The adapter redacts report attachments with the values the node knows (an owner-only file).
+			redactFile := filepath.Join(dir, "redact.json")
+			values, _ := json.Marshal(rlog.values())
+			if e = os.WriteFile(redactFile, values, 0o600); e != nil {
+				return setupFailed(e)
+			}
 			launch.Env = setEnv(launch.Env, "FACTORY_EXIT_FILE", exitFile)
 			launch.Env = setEnv(launch.Env, "FACTORY_WORKDIR", cwd)
 			launch.Env = setEnv(launch.Env, "FACTORY_DEFAULT_BRANCH", spec.DefaultBranch)
-			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH"}
+			launch.Env = setEnv(launch.Env, "FACTORY_REDACT_FILE", redactFile)
+			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH", "FACTORY_REDACT_FILE"}
 			if wt != nil {
 				scan, _ := json.Marshal(w.Worktrees.ScanCommand())
 				launch.Env = setEnv(launch.Env, "FACTORY_SCAN_COMMAND", string(scan))
