@@ -265,7 +265,7 @@ func TestV2Heartbeat(t *testing.T) {
 		hb.Inventory[1].State != node.RunEnded || hb.Inventory[2].State != node.RunRunning {
 		t.Fatalf("%+v", hb)
 	}
-	if h := hb.Health; h.Load1 != 1.5 || h.CPUs < 1 || h.FreeDiskBytes != 10*node.GiB || h.BusySlots != 2 || h.Disk != "low" {
+	if h := hb.Health; h.Load1 != 1.5 || h.CPUs < 1 || h.FreeDiskBytes != 10*node.GiB || h.BusySlots != 2 || h.Disk != "low" || h.DiskLowBytes == 0 || h.DiskCriticalBytes == 0 || h.DiskCriticalBytes > h.DiskLowBytes {
 		t.Fatalf("%+v", h)
 	}
 	if !stopped["r-running"] || stopped["r-claimed"] || s.claimable() || <-s.cleanups != "task-1" {

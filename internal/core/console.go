@@ -3,6 +3,7 @@ package core
 import (
 	"net/http"
 
+	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 )
 
@@ -14,6 +15,8 @@ type RunStatus struct {
 	TaskID    string `json:"task_id,omitempty"`
 	Status    string `json:"status"`
 	StartedAt int64  `json:"started_at,omitempty"`
+	// Queued says why a QUEUED run is not claimed yet (owner-ui 6.1).
+	Queued *storage.QueuedReason `json:"queued,omitempty"`
 }
 
 type ProjectStatus struct {
@@ -60,12 +63,22 @@ func (c *Core) status(r *http.Request, only string) ([]ProjectStatus, error) {
 	if err != nil {
 		return nil, err
 	}
+	var queuedIDs []string
+	for _, run := range runs {
+		if run.Status == "QUEUED" {
+			queuedIDs = append(queuedIDs, run.Spec.ID)
+		}
+	}
+	queued, err := c.Store.QueuedWhyAll(ctx, company, queuedIDs)
+	if err != nil {
+		return nil, err
+	}
 	out := []ProjectStatus{}
 	for _, p := range projects {
 		st := ProjectStatus{Project: p, Runs: []RunStatus{}, Tasks: map[string]int{}, Waiting: []tasks.Verdict{}}
 		for _, run := range runs {
 			if run.Spec.Project == p.ID {
-				st.Runs = append(st.Runs, RunStatus{ID: run.Spec.ID, Agent: run.Spec.Agent, TaskID: run.Spec.TaskID, Status: run.Status, StartedAt: run.StartedAt})
+				st.Runs = append(st.Runs, RunStatus{ID: run.Spec.ID, Agent: run.Spec.Agent, TaskID: run.Spec.TaskID, Status: run.Status, StartedAt: run.StartedAt, Queued: queued[run.Spec.ID]})
 			}
 		}
 		all, err := c.Store.Tasks(ctx, company, p.ID, "")

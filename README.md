@@ -136,7 +136,7 @@ The workspace is an absolute path on the node's machine, not inside a container.
 ./bin/factory run|retry TASK                   # release a task now
 ./bin/factory pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON]
 ./bin/factory stop [REASON] | start            # company kill switch
-./bin/factory costs [--task T|--agent A|--day|--model] [--since 24h]
+./bin/factory costs [--task T|--agent A|--by task|agent|day|model|project|--day|--model] [--since 24h]
 ./bin/factory rules company|PROJECT [TEXT|-]   # standing rules; time-zone [ZONE] for daily budgets
 ./bin/factory telegram bind                    # one-time code: send /start CODE to the bot
 ./bin/factory projects ... | tasks ... | runs ... | inbox ... | approvals ... | artifacts ... | openspec ...

@@ -35,8 +35,8 @@ func TestRunAuthFailureDisablesDriver(t *testing.T) {
 	if h.usable("claude") || !h.usable("codex") || !h.anyUsable() || changes.Load() != 1 {
 		t.Fatalf("after auth failure: %+v, changes %d", h.infos(), changes.Load())
 	}
-	if got := h.infos(); got[1].OK || !got[0].OK {
-		t.Fatalf("register drivers: %+v", got)
+	if got := h.infos(); got[1].OK || !got[0].OK || got[1].Until != clock.t.Add(authHoldOffs[0]).Unix() || got[0].Until != 0 {
+		t.Fatalf("register drivers (with the hold-off end): %+v", got)
 	}
 	h.authFailed("claude", errors.New("again")) // already disabled: no second change
 	if changes.Load() != 1 {

@@ -57,6 +57,10 @@ type NodeDriver struct {
 	// Check names the failing check of a driver that is not ok (version, probe, auth); Detail says why.
 	Check  string `json:"check,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// TransientFailures: checks in a row that failed only transiently (the driver stays usable until the
+	// node's limit); Until: a disabled driver's auth hold-off end (Unix seconds), 0 when none.
+	TransientFailures int   `json:"transient_failures,omitempty"`
+	Until             int64 `json:"until,omitempty"`
 }
 
 type NodeRegistration struct {

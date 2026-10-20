@@ -8,7 +8,7 @@ import (
 	"appfactory/internal/storage"
 )
 
-// Cost queries (waits-events-cost-cli D5), owner token only: GET /costs?by=task|agent|day|model with
+// Cost queries (waits-events-cost-cli D5), owner token only: GET /costs?by=task|agent|day|model|project with
 // task, agent, model and since (Unix seconds or a duration such as 24h) filters; GET /tasks/{id}/costs is a
 // task's runs and their total (a closed task's cost).
 func (c *Core) costRoutes(m *http.ServeMux) {

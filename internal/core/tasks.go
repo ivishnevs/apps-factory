@@ -157,7 +157,27 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		write(w, c.evaluate(snap))
+		v := c.evaluate(snap)
+		// The task's QUEUED run: why no node claims it yet (owner-ui 6.1).
+		var q *storage.QueuedReason
+		if run := snap.CurrentRun; run != nil && run.Status == "QUEUED" {
+			if q, err = c.Store.QueuedWhy(r.Context(), c.companyFrom(r), run.ID); err != nil {
+				reply(w, nil, err)
+				return
+			}
+		}
+		write(w, struct {
+			tasks.Verdict
+			Queued *storage.QueuedReason `json:"queued,omitempty"`
+		}{v, q})
+	})
+	// A task's parks (owner-ui 6.5): the active ones, all of them with ?all=1.
+	m.HandleFunc("GET /tasks/{id}/parks", func(w http.ResponseWriter, r *http.Request) {
+		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
+			return
+		}
+		v, err := c.Store.TaskParks(r.Context(), c.companyFrom(r), r.PathValue("id"), r.URL.Query().Get("all") != "")
+		reply(w, v, err)
 	})
 	m.HandleFunc("GET /projects/{id}/why", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.list", false, false) {
