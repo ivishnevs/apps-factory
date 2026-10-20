@@ -85,7 +85,10 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Core HTTP %d: %s", e.St
 type Worker struct {
 	Allocator workspace.Allocator
 	Bus       *bus.Bus
-	API       API
+	// Company is the company whose run commands this worker executes (its subjects factory.<company>...);
+	// empty means storage.DefaultCompany.
+	Company string
+	API     API
 	// Driver runs the runtime; nil means Codex configured by Binary and Args.
 	Driver    driver.Driver
 	Binary    string
@@ -165,12 +168,24 @@ func (w *Worker) Run(ctx context.Context) error {
 	return nil
 }
 
-// Subscribe binds the driver's run command subject with its durable consumer. Executors of one driver
-// share that consumer, so node slots and standalone workers compete for the same commands.
+// Subscribe binds the driver's run command subject of the worker's company with its durable consumer.
+// Executors of one driver and company share that consumer, so node slots and standalone workers compete for
+// the same commands.
 func (w *Worker) Subscribe() (*nats.Subscription, error) {
 	drv, _ := w.driver()
-	name := string(drv.Name())
-	return w.Bus.Subscribe("factory.commands.agent.run."+name, name+"-worker-v1")
+	return w.Bus.Subscribe(protocol.CommandSubject(w.company(), drv.Name()), WorkerDurable(w.company(), drv.Name()))
+}
+
+// WorkerDurable is the durable consumer shared by the executors of provider in company.
+func WorkerDurable(company string, provider protocol.RuntimeProvider) string {
+	return string(provider) + "-worker-" + company
+}
+
+func (w *Worker) company() string {
+	if w.Company == "" {
+		return storage.DefaultCompany
+	}
+	return w.Company
 }
 
 // Process validates, claims and executes one run command. running, when set, receives the claimed run
@@ -365,7 +380,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		p.Lease = lease
 		pubCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
-		return w.Bus.Event(pubCtx, kind, cause, p)
+		return w.Bus.Event(pubCtx, w.company(), kind, cause, p)
 	}
 	// A run that ends without a runtime result reports what is known (docs/runtime-protocol-v2.md §8): an
 	// endError names its outcome, or, when the run failed before the runtime started because it was being
@@ -845,8 +860,7 @@ func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool
 		slog.Warn("worktree run in the project workspace", "run", spec.ID, "worktrees", w.Worktrees != nil, "task", spec.TaskID, "repo_url", spec.RepoURL != "")
 		return workspace.Request{}, false
 	}
-	// RunSpec has no company yet; the node serves the default company.
-	r := workspace.Request{Company: storage.DefaultCompany, Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch}
+	r := workspace.Request{Company: w.company(), Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch}
 	if spec.WorkspaceMode == WorkspaceFreshFromDefault {
 		r.Fresh = true
 	} else {

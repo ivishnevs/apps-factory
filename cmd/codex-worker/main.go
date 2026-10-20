@@ -27,6 +27,7 @@ func run() error {
 	} else {
 		c.StateDir = "data/codex-worker"
 	}
+	c.Company = os.Getenv("FACTORY_COMPANY") // empty: the default company
 	if err := c.Validate(); err != nil {
 		return err
 	}

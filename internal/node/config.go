@@ -21,6 +21,9 @@ const ConfigEnv = "FACTORY_NODE_CONFIG"
 type Config struct {
 	Name  string `yaml:"name"`
 	Slots int    `yaml:"slots"`
+	// Company is the company whose runs the node executes (its NATS subjects factory.<company>...); empty is
+	// "default". A protocol v2 node refuses to run when its node token belongs to another company.
+	Company string `yaml:"company"`
 	// ProtocolVersion 1 (default) claims per run with per-run heartbeats; 2 registers the node and
 	// speaks only runtime protocol v2 (docs/runtime-protocol-v2.md).
 	ProtocolVersion int `yaml:"protocol_version"`
@@ -55,6 +58,9 @@ type Config struct {
 	// inherit from the node (worker.RuntimeEnv); the node's and the owner's credentials never pass.
 	RuntimeEnv []string `yaml:"runtime_env"`
 }
+
+// DefaultCompany is the company of a node whose node.yaml names none.
+const DefaultCompany = "default"
 
 // TokenEnv carries the node token in the environment (a 0600 systemd EnvironmentFile or launchd plist).
 const TokenEnv = "FACTORY_NODE_TOKEN"
@@ -205,7 +211,8 @@ func LoadConfig(path string) (Config, error) {
 
 var (
 	nodeName     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
-	resourceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`) // as agent spec.resources
+	companyName  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$`) // as Core's company IDs
+	resourceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)           // as agent spec.resources
 )
 
 const maxSlots = 64
@@ -218,6 +225,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Slots < 1 || c.Slots > maxSlots {
 		errs = append(errs, fmt.Errorf("slots %d: must be between 1 and %d", c.Slots, maxSlots))
+	}
+	if c.Company == "" {
+		c.Company = DefaultCompany
+	} else if !companyName.MatchString(c.Company) {
+		errs = append(errs, fmt.Errorf("company %q: letters, digits, '_' or '-', at most 96", c.Company))
 	}
 	if c.StateDir == "" {
 		errs = append(errs, errors.New("state_dir is required"))

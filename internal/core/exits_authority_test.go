@@ -611,12 +611,12 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	var subject, body string
-	if err := h.s.DB.QueryRow("SELECT subject,body FROM outbox WHERE subject LIKE 'factory.nodes.%'").Scan(&subject, &body); err != nil {
+	if err := h.s.DB.QueryRow("SELECT subject,body FROM outbox WHERE subject LIKE 'factory.default.nodes.%'").Scan(&subject, &body); err != nil {
 		t.Fatal(err)
 	}
 	var e protocol.Envelope
 	var stop protocol.RunStop
-	if subject != "factory.nodes.n1.control" || json.Unmarshal([]byte(body), &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID != run || stop.Reason != "revoked" {
+	if subject != "factory.default.nodes.n1.control" || json.Unmarshal([]byte(body), &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID != run || stop.Reason != "revoked" {
 		t.Fatal(subject, body)
 	}
 	answer, err := h.s.NodeHeartbeat(ctx, co, "n1", storage.NodeHeartbeat{Epoch: 1, Inventory: []storage.InventoryRun{{RunID: run, State: "claimed"}}})
@@ -628,7 +628,7 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	var controls int
-	_ = h.s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.nodes.%'").Scan(&controls)
+	_ = h.s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.default.nodes.%'").Scan(&controls)
 	if cancelled, err := h.s.Heartbeat(ctx, co, r.id, r.lease); err != nil || !cancelled || controls != 1 {
 		t.Fatal(cancelled, err, controls)
 	}

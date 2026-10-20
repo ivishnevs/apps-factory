@@ -32,7 +32,7 @@ func TestQueuedRunCommandIsRedeliveredWithBackoff(t *testing.T) {
 			if err = s.Sent(ctx, o.ID); err != nil {
 				t.Fatal(err)
 			}
-			if o.Subject == "factory.commands.agent.run.codex" {
+			if o.Subject == "factory.default.commands.agent.run.codex" {
 				commands = append(commands, o)
 			}
 		}

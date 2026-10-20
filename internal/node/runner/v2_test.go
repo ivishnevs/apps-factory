@@ -416,7 +416,7 @@ func TestJetStreamNodeV2(t *testing.T) {
 	f, api := newFakeCore(t, dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	events, err := b.Subscribe("factory.events.>", "fake-core-v2")
+	events, err := b.Subscribe("factory.default.events.>", "fake-core-v2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +436,7 @@ func TestJetStreamNodeV2(t *testing.T) {
 	}()
 	publish := func(run string, payload any) {
 		body, _ := json.Marshal(protocol.Wrap("agent.run.requested", run, "", payload))
-		if err := b.Publish(ctx, "factory.commands.agent.run.codex", "cmd-"+run, body); err != nil {
+		if err := b.Publish(ctx, "factory.default.commands.agent.run.codex", "cmd-"+run, body); err != nil {
 			t.Fatal(err)
 		}
 	}

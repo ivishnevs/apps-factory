@@ -131,7 +131,7 @@ func entityEventNote(ctx context.Context, tx *Tx, kind, project, id string, v an
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, "factory.events."+kind, notification, tx.company)
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.EventSubject(tx.company, kind), notification, tx.company)
 	return err
 }
 func (s *Store) Project(ctx context.Context, company, id string) (tasks.Project, error) {

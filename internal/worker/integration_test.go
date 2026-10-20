@@ -174,7 +174,7 @@ func TestJetStreamCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	consumer, err := b.Subscribe("factory.events.>", "cancel-test")
+	consumer, err := b.Subscribe("factory.default.events.>", "cancel-test")
 	if err != nil {
 		t.Fatal(err)
 	}

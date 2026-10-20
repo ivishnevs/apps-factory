@@ -418,7 +418,7 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	}
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
 	b, _ = json.Marshal(e)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, "factory.commands.agent.run."+string(r.Provider), b, tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.CommandSubject(tx.company, r.Provider), b, tx.company); err != nil {
 		return err
 	}
 	return nil

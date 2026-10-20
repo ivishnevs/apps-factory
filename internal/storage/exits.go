@@ -642,7 +642,7 @@ func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) erro
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.NodeControlSubject(node), b, tx.company)
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.NodeControlSubject(tx.company, node), b, tx.company)
 	return err
 }
 

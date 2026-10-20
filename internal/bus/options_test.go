@@ -220,7 +220,7 @@ func TestSecureConnect(t *testing.T) {
 			}
 			defer b.NC.Close()
 			durable := "secure-" + u[:strings.Index(u, ":")] + time.Now().Format("150405")
-			subject := "factory.commands.agent.run." + durable
+			subject := "factory.default.commands.agent.run." + durable
 			sub, err := b.Subscribe(subject, durable)
 			if err != nil {
 				t.Fatal(err)

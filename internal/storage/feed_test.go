@@ -30,7 +30,7 @@ func TestFeedIsWrittenWithItsCause(t *testing.T) {
 	}
 	var e protocol.Envelope
 	var item FeedItem
-	if json.Unmarshal(body, &e) != nil || json.Unmarshal(e.Payload, &item) != nil || subject != "factory.events.feed.p.task.started" || item.Sequence != last.Sequence {
+	if json.Unmarshal(body, &e) != nil || json.Unmarshal(e.Payload, &item) != nil || subject != "factory.default.feed.p.task.started" || item.Sequence != last.Sequence {
 		t.Fatal(subject, string(body))
 	}
 	// A mutation that rolls back leaves no feed row.

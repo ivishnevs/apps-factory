@@ -3,7 +3,8 @@
 # (node-agent 1.5). Everything lives in DIR (default ./.nats-secure-test) and in tmpfs inside the containers.
 #
 #   factory-nats-secure: tls:// on 127.0.0.1:14222 and wss:// on 127.0.0.1:14443 (server name nats.test,
-#                        private CA), nkey users: admin (all) and node (the node permission set below).
+#                        private CA), nkey users: admin (all), node and node-b (the node permission set
+#                        below, each subscribing only to its own control subject).
 #   factory-nats-creds:  operator mode (memory resolver), plain nats:// on 127.0.0.1:14223, a JWT user in node.creds.
 #
 # `up` prints the NATS_TEST_* exports the gated tests in internal/bus and internal/node read.
@@ -37,25 +38,21 @@ chmod 644 "$dir/server.pem" "$dir/server-key.pem" "$dir/ca.pem" # read by the se
 nkey() { docker run --rm "$box" nsc generate nkey --user 2>&1; }  # nsc prints the keys on stderr
 nkey >"$dir/admin.nk"
 nkey >"$dir/node.nk"
+nkey >"$dir/node-b.nk"
 head -1 "$dir/admin.nk" >"$dir/admin.seed"
 head -1 "$dir/node.nk" >"$dir/node.seed"
-chmod 600 "$dir/admin.seed" "$dir/node.seed"
+head -1 "$dir/node-b.nk" >"$dir/node-b.seed"
+chmod 600 "$dir/admin.seed" "$dir/node.seed" "$dir/node-b.seed"
 admin_pub=$(sed -n 2p "$dir/admin.nk")
 node_pub=$(sed -n 2p "$dir/node.nk")
-rm -f "$dir/admin.nk" "$dir/node.nk"
+node_b_pub=$(sed -n 2p "$dir/node-b.nk")
+rm -f "$dir/admin.nk" "$dir/node.nk" "$dir/node-b.nk"
 
-cat >"$dir/secure.conf" <<EOF
-listen: 0.0.0.0:4222
-jetstream { store_dir: /js }
-tls { cert_file: /conf/server.pem, key_file: /conf/server-key.pem }
-websocket { port: 8443, tls { cert_file: /conf/server.pem, key_file: /conf/server-key.pem } }
-authorization {
-  users = [
-    { nkey: $admin_pub }
-    # What a node needs today (runtime protocol v1/v2 on factory.commands.agent.run.*): stream info, its durable
-    # pull consumers on FACTORY_COMMANDS, acks, agent events. No stream creation, no publishing commands.
-    {
-      nkey: $node_pub
+# The permission set of one node (company default, node_id $1): stream info, its durable pull consumers on
+# FACTORY_COMMANDS, acks, agent events of its company, and its own control subject only (node-agent 1.5).
+# No stream creation, no publishing commands, no other node's control subject.
+node_permissions() {
+	cat <<PERMS
       permissions: {
         publish: {
           allow: [
@@ -68,11 +65,30 @@ authorization {
             "\$JS.API.CONSUMER.INFO.FACTORY_COMMANDS.>"
             "\$JS.API.CONSUMER.MSG.NEXT.FACTORY_COMMANDS.>"
             "\$JS.ACK.FACTORY_COMMANDS.>"
-            "factory.events.agent.>"
+            "factory.default.events.agent.>"
           ]
         }
-        subscribe: { allow: [ "_INBOX.>" ] }
+        subscribe: { allow: [ "_INBOX.>", "factory.default.nodes.$1.control" ] }
       }
+PERMS
+}
+
+cat >"$dir/secure.conf" <<EOF
+listen: 0.0.0.0:4222
+jetstream { store_dir: /js }
+tls { cert_file: /conf/server.pem, key_file: /conf/server-key.pem }
+websocket { port: 8443, tls { cert_file: /conf/server.pem, key_file: /conf/server-key.pem } }
+authorization {
+  users = [
+    { nkey: $admin_pub }
+    # Nodes node-a and node-b of company default (runtime protocol v1/v2 on factory.default.commands.agent.run.*).
+    {
+      nkey: $node_pub
+$(node_permissions node-a)
+    }
+    {
+      nkey: $node_b_pub
+$(node_permissions node-b)
     }
   ]
 }
@@ -115,6 +131,7 @@ export NATS_TEST_SECURE_CA=$dir/ca.pem
 export NATS_TEST_SECURE_SERVER_NAME=nats.test
 export NATS_TEST_ADMIN_SEED=$dir/admin.seed
 export NATS_TEST_NODE_SEED=$dir/node.seed
+export NATS_TEST_NODE_B_SEED=$dir/node-b.seed
 export NATS_TEST_CREDS_URL=nats://127.0.0.1:14223
 export NATS_TEST_CREDS_FILE=$dir/node.creds
 EOF

@@ -298,7 +298,8 @@ func (c *Core) run(ctx context.Context) error {
 	if err := c.EnsureConversations(ctx); err != nil {
 		return err
 	}
-	sub, err := c.Bus.Subscribe("factory.events.>", "core-events-v1")
+	// Core consumes its company's events (postgres-tenancy D3: one durable consumer per company).
+	sub, err := c.Bus.Subscribe(protocol.EventSubject(c.company(), ">"), "core-events-"+c.company())
 	if err != nil {
 		return err
 	}
@@ -330,34 +331,22 @@ func (c *Core) run(ctx context.Context) error {
 	}
 }
 
-// publishOutbox publishes the pending outbox messages of every company.
+// publishOutbox publishes a batch of due outbox messages of every company (storage.PublishOutbox: several
+// Core processes may publish in parallel, each message is taken by one of them).
 func (c *Core) publishOutbox(ctx context.Context) error {
-	out, err := c.Store.Pending(ctx)
-	if err != nil {
-		return err
-	}
-	for _, o := range out {
+	_, err := c.Store.PublishOutbox(ctx, func(ctx context.Context, o storage.Outbox) error {
 		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		if strings.HasPrefix(o.Subject, protocol.NodeControlPrefix) {
-			err = c.Bus.Notify(pubCtx, o.Subject, o.Body) // control subjects are not in a stream
-		} else {
-			err = c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
+		defer cancel()
+		if protocol.IsNodeControl(o.Subject) {
+			return c.Bus.Notify(pubCtx, o.Subject, o.Body) // control subjects are not in a stream
 		}
-		cancel()
-		if err != nil {
-			// One message that cannot be published (a broker outage, an invalid subject) is retried
-			// with a backoff; the rest of the queue moves on.
-			slog.Warn("outbox publish", "id", o.ID, "subject", o.Subject, "error", err)
-			if err = c.Store.PublishFailed(ctx, o.ID, err); err != nil {
-				return err
-			}
-			continue
-		}
-		if err = c.Store.Sent(ctx, o.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+		return c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
+	}, func(o storage.Outbox, err error) {
+		// One message that cannot be published (a broker outage, an invalid subject) is retried with a
+		// backoff; the rest of the queue moves on.
+		slog.Warn("outbox publish", "id", o.ID, "subject", o.Subject, "error", err)
+	})
+	return err
 }
 
 const tickInterval = time.Second
@@ -424,7 +413,7 @@ func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 				slog.Error("invalid event", "error", err)
 				continue
 			}
-			if !strings.HasPrefix(m.Subject, "factory.events.agent.") {
+			if !strings.HasPrefix(m.Subject, protocol.EventSubject(c.company(), "agent.")) {
 				if err = m.AckSync(); err != nil {
 					return err
 				}

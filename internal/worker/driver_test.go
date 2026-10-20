@@ -84,7 +84,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	if err != nil {
 		t.Fatal(err)
 	}
-	consumer, err := b.Subscribe("factory.events.>", "fake-test")
+	consumer, err := b.Subscribe("factory.default.events.>", "fake-test")
 	if err != nil {
 		t.Fatal(err)
 	}

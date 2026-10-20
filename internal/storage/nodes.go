@@ -76,7 +76,9 @@ type NodeRegistration struct {
 }
 
 type NodeRegistered struct {
-	Incarnation        string `json:"incarnation"`
+	Incarnation string `json:"incarnation"`
+	// Company is the node token's company: the node's NATS subjects are factory.<company>....
+	Company            string `json:"company"`
 	HeartbeatSeconds   int    `json:"heartbeat_seconds"`
 	StartWindowSeconds int    `json:"start_window_seconds"`
 }
@@ -214,7 +216,7 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	if err = tx.Commit(); err != nil {
 		return out, err
 	}
-	return NodeRegistered{Incarnation: inc, HeartbeatSeconds: HeartbeatSeconds, StartWindowSeconds: int(StartWindow.Seconds())}, nil
+	return NodeRegistered{Incarnation: inc, Company: company, HeartbeatSeconds: HeartbeatSeconds, StartWindowSeconds: int(StartWindow.Seconds())}, nil
 }
 
 // driverTransitions records one feed event per driver that changed between usable and not usable on a
