@@ -36,7 +36,7 @@ source .env
 set +a
 python3 scripts/calorie-e2e.py status
 python3 scripts/calorie-e2e.py watch
-python3 scripts/calorie-e2e.py send "Какой сейчас статус?"
+python3 scripts/calorie-e2e.py send "What is the status now?"
 ```
 
 watch refreshes every five seconds; Ctrl-C stops observation, not the worker. It displays task
@@ -54,7 +54,7 @@ Equivalent existing CLI:
 ./bin/factory conversations messages calorie-owner-dialog
 ./bin/factory inbox list calorie-calculator
 ./bin/factory conversations send calorie-owner-dialog - <<'JSON'
-{"body":"Какой сейчас статус?"}
+{"body":"What is the status now?"}
 JSON
 ```
 

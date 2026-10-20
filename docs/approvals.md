@@ -1,11 +1,11 @@
 # Action approvals
 
-Core сохраняет согласование точного вызова Factory MCP: имя инструмента, все параметры
-(включая версию сущности и `request_id`), проект, агент и текущую задачу. Согласование
-задачи действует при продолжении её run; для запуска без задачи область — агент/проект
-и точный вызов. Другой агент или задача использовать его не могут.
+Core stores an approval of one exact Factory MCP call: the tool name, all arguments (including the entity
+version and `request_id`), the project, the agent and the current task. A task's approval applies when that task's
+run continues; for a run without a task the scope is the agent/project and the exact call. Another agent or task
+cannot use it.
 
-`factory_owner_request_approval` принимает:
+`factory_owner_request_approval` takes:
 
 ```json
 {
@@ -20,27 +20,25 @@ Core сохраняет согласование точного вызова Fac
 }
 ```
 
-Поддержаны существующие инструменты изменений со стабильным `request_id`.
-Неизвестные инструменты и запросы согласования других согласований отклоняются.
-Нужны право написать owner и права на целевую операцию; deny и отсутствие capability
-не отменяются одобрением. Служебные request/get не требуют согласования даже в режиме
-`always`, иначе агент не смог бы запросить разрешение; deny для них действует.
+The existing mutating tools with a stable `request_id` are supported. Unknown tools and requests to approve other
+approvals are refused. The agent needs the right to write to the owner and the rights for the target operation; a
+deny or a missing capability is not overridden by an approval. The request/get tools themselves need no approval,
+even in `always` mode (otherwise the agent could not ask for permission); a deny still applies to them.
 
-В задаче запрос по умолчанию blocking, без задачи — nonblocking. После blocking-запроса
-агент завершает turn. Core освобождает writer после известного завершения runtime,
-переводит задачу в BLOCKED и после решения продолжает её в том же thread. Решение,
-пришедшее до завершения turn, также учитывается. Потерянный run, процесс которого ещё может работать, держит задачу до подтверждения ноды.
-Отказ и истечение срока тоже возвращают управление агенту: действие запрещено.
+In a task the request is blocking by default, without a task nonblocking. After a blocking request the agent ends
+its turn. Core frees the writer once the runtime is known to have ended, moves the task to BLOCKED and, after the
+decision, continues it in the same thread. A decision that arrives before the turn ends is also taken into account.
+A lost run whose process may still be running holds the task until the node confirms. Rejection and expiry also
+hand control back to the agent: the action is forbidden.
 
-Blocking-запрос изменяет версию текущей задачи. Поэтому согласовывать изменение самой
-ожидающей задачи нужно через отдельную задачу исполнения или с `blocking: false`.
-Core отклоняет blocking-согласование такого вызова заранее. Обновлять версию или другие
-аргументы в одобренном вызове нельзя: требуется новое согласование.
+A blocking request changes the version of the current task. So approving a change to the waiting task itself
+needs a separate execution task or `blocking: false`; Core refuses a blocking approval of such a call up front.
+The version or other arguments of an approved call cannot be changed: that needs a new approval.
 
-## Владелец
+## Owner
 
-`factory inbox list [PROJECT]` показывает вопрос с `approval_id` и точным вызовом.
-Обычный `/inbox/ID/answer` для него отклоняется: ответ в чате не выдаёт разрешение.
+`factory inbox list [PROJECT]` shows the question with its `approval_id` and the exact call. The plain
+`/inbox/ID/answer` is refused for it: a chat answer does not grant permission.
 
 ```sh
 ./bin/factory approvals list PROJECT
@@ -54,60 +52,54 @@ Core отклоняет blocking-согласование такого вызо�
 {"version":1,"action":"approve","reason":"Reviewed the exact action","request_id":"owner-decision-1"}
 ```
 
-Действия: `approve`, `reject`, `revoke`. Отзыв применим к APPROVED с актуальной версией.
-HTTP: `GET /approvals?project=...`, `GET /approvals/ID`,
-`POST /approvals/ID/decision`. Эти endpoints требуют токен владельца; run-токен
-не позволяет решать запросы. Решение, ответ inbox и пробуждение задачи атомарны.
+Actions: `approve`, `reject`, `revoke`. Revocation applies to an APPROVED approval at its current version.
+HTTP: `GET /approvals?project=...`, `GET /approvals/ID`, `POST /approvals/ID/decision`. These endpoints require the
+owner token; a run token cannot decide requests. The decision, the inbox answer and the task wake-up are atomic.
 
-## Команды (command guards)
+## Command guards
 
-Агент запрашивает одноразовое разрешение на shell-команду через `factory_owner_request_approval` с
-`call: {"name":"command","arguments":{"argv":["git","push","origin","main"]}}` (ровно ключ `argv`, непустые строки).
-Core отклоняет запрос, если правила агента запрещают команду (403) или она не требует одобрения (400).
-Approval хранится с `kind: command` и fingerprint `command:<id>`, поэтому после использования тот же argv можно
-запросить снова; `CallApproval` (action) его не находит. Решение владельца — как у action (`factory approve|reject`).
+An agent asks for a one-time permission to run a shell command through `factory_owner_request_approval` with
+`call: {"name":"command","arguments":{"argv":["git","push","origin","main"]}}` (exactly the key `argv`, non-empty
+strings). Core refuses the request when the agent's rules deny the command (403) or it does not require approval
+(400). The approval is stored with `kind: command` and fingerprint `command:<id>`, so the same argv can be requested
+again after use; `CallApproval` (action) does not find it. The owner decides as for an action (`factory approve|reject`).
 
-`factory-shim` проверяет команду через `POST /agent/command` с run-токеном. Core берёт самый старый APPROVED,
-неистёкший грант этого run'а (проект, агент, задача) с точно таким же argv, переводит его в `USED` (событие
-`approval.used`) и отвечает 200; иначе 423 с инструкцией. Одобренный грант истекает через `timeout_seconds`
-(по умолчанию 86400 с), как action. Каждый отказ (403/423) — событие run'а `factory/command_refused` и строка ленты
-`run.command_refused`.
+`factory-shim` checks the command through `POST /agent/command` with the run token. Core takes the oldest APPROVED,
+unexpired grant of this run (project, agent, task) with exactly the same argv, marks it `USED` (event
+`approval.used`) and answers 200; otherwise 423 with instructions. An approved grant expires after
+`timeout_seconds` (default 86400 s), like an action. Every refusal (403/423) is a run event
+`factory/command_refused` and a feed row `run.command_refused`.
 
-## Проверка и аудит
+## Checks and audit
 
-`factory_approval_get` возвращает решение в области текущего агента/проекта/задачи.
-Core проверяет snapshot и текущую конфигурацию при каждом вызове. Требование согласования
-даёт HTTP 423 до точного APPROVED; deny даёт 403. Запрошенный точный вызов также
-блокируется до решения, даже если исходная policy позволяла его без согласования.
-Разрешение не распространяется на изменённые аргументы или новый `request_id`.
+`factory_approval_get` returns the decision within the current agent/project/task scope. Core checks the snapshot
+and the current configuration on every call. A required approval gives HTTP 423 until the exact call is APPROVED;
+a deny gives 403. A requested exact call is also blocked until the decision, even if the original policy allowed
+it without approval. A permission does not extend to changed arguments or a new `request_id`.
 
-Идентичные повторы допускаются до отзыва/истечения срока; идемпотентность изменения
-обеспечивает исходный `request_id`. Это разрешение одного логического действия, а не
-одноразовый токен. Отзыв предотвращает дальнейшие вызовы, уже выполненное действие
-не откатывается. Проверка и выполнение в одном Core сериализованы с решением владельца.
+Identical repeats are allowed until revocation/expiry; the original `request_id` keeps the mutation idempotent.
+This permits one logical action; it is not a one-time token. Revocation prevents further calls; an action already
+performed is not rolled back. Check and execution within one Core are serialized with the owner's decision.
 
-База Core сохраняет запросы, решения, связь с inbox и `approval_id` в tool audit.
-События outbox: `factory.<company>.events.approval.requested`, `.resolved`, `.expired`.
-Решение владельца (approve или reject) по запросу задачи (`task_id`) добавляет этой задаче authority-триггер
-`approval_decided` с решением и причиной: он снимает её парковки wait/ask, и следующий brief показывает решение
-(так же для согласований артефактов; отзыв и истечение срока триггера не добавляют).
-Срок по умолчанию 24 часа, максимум 7 дней; проверка времени действует и до фонового
-обновления статуса. Истечение срока не означает разрешение. Стабильные ключи запросов
-и решений позволяют безопасно повторять HTTP-запросы после потери ответа.
+Core's database keeps requests, decisions, their inbox link and the `approval_id` in the tool audit. Outbox events:
+`factory.<company>.events.approval.requested`, `.resolved`, `.expired`. An owner decision (approve or reject) on a
+task's request (`task_id`) adds the authority trigger `approval_decided` with the decision and reason to that task:
+it lifts the task's wait/ask parks, and the next brief shows the decision (likewise for artifact approvals;
+revocation and expiry add no trigger). The default timeout is 24 hours, the maximum 7 days; the time check applies
+even before the background status update. Expiry never means permission. Stable request and decision keys make it
+safe to repeat HTTP requests after a lost response.
 
-## Границы
+## Limits
 
-Это согласования действий. В этом этапе grants выдаются для изменений со стабильным
-`request_id`; read-only инструменты с approval-требованием остаются заблокированными
-(в том числе при `mode: always`). Для обычной работы используйте `selective` с явным
-списком операций. [Версионное согласование артефактов и зависимости задач](artifact-approvals.md)
-реализованы отдельно; приёмка задачи остаётся отдельной операцией.
-Исполнители публикации, покупок, production credentials и удаления проекта ещё
-не добавлены: выдавать разрешение на несуществующий исполнитель нельзя. Host tools
-Codex работают в доверенной модели полного доступа; MCP grants не являются OS sandbox.
-Decision Registry и сохранение отчётов остаются отдельными этапами.
+These are action approvals. Grants are issued for mutations with a stable `request_id`; read-only tools with an
+approval requirement stay blocked (including with `mode: always`). For normal work use `selective` with an explicit
+list of operations. [Versioned artifact approvals and task dependencies](artifact-approvals.md) are separate; task
+acceptance remains a separate operation. Executors for publishing, purchases, production credentials and project
+deletion are not implemented: do not grant permission for an executor that does not exist. Codex host tools run in
+the trusted full-access model; MCP grants are not an OS sandbox. Reports and the Decision Registry:
+[reports and decisions](reports-decisions.md).
 
-Результаты: [verification](approvals-verification.md).
+Results: [verification](approvals-verification.md).
 
-Проверки: `make check`; сквозной тест с реальным Codex:
-`python3 scripts/approvals-smoke.py --restart-core` (Core/NATS и native Worker должны работать).
+Checks: `make check`; end-to-end with real Codex: `python3 scripts/approvals-smoke.py --restart-core` (Core/NATS and
+a node must be running).

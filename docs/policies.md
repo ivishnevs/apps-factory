@@ -92,7 +92,7 @@ names a command, creates a per-run directory first on the runtime PATH (`FACTORY
 
 Core side: `POST /agent/command` (run token; JSON answer `{effect, rule, instruction, approval_id}`, 403 deny,
 423 approval without a grant, 200 allow) decides with the captured and the current agent and consumes grants;
-see [approvals](approvals.md#команды-command-guards).
+see [approvals](approvals.md#command-guards).
 
 This is a guardrail, not a sandbox: agents run as the same OS user and an absolute path bypasses it.
 

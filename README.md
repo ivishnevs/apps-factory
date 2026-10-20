@@ -1,181 +1,243 @@
-# App Factory Orchestrator
+# App Factory
 
-Реализованы Foundation, Agent Config и Task Engine: Go Core, Postgres, NATS JetStream, YAML-агенты и профили,
-реестр skills, единый каталог policies, проекты/задачи с зависимостями, scheduler, Factory MCP, сообщения/inbox и нода
-`factory-node` с Go-драйверами Codex и Claude (Claude — через per-run shim на Claude Agent SDK).
-Core работает в Docker, Worker — на macOS рядом с workspace, Git и Xcode.
+App Factory runs a company of AI agents that build software. A Go **Core** owns all state in **Postgres** and
+dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run each agent as a **Codex** or
+**Claude** session next to the code, Git and Xcode. The owner (you) steers it through a CLI, an inbox and Telegram.
 
-## Запуск
+- **Companies and catalogs.** One Core serves one company (`FACTORY_COMPANY`). Its catalog is `configs/` for the
+  `default` company and `configs/<company>/` for any other (`agents/`, `profiles/`, `policies/`, `node-hooks/`,
+  `skills.yaml`, `quota_keys.yaml`, `company.yaml`); `configs/prices.yaml` is shared. Unknown YAML keys are errors.
+- **Hierarchy.** Agents form a tree through `reports_to`; agents without it report to the owner, and
+  `owner.default_report` in `company.yaml` receives unaddressed owner messages (`@name ...` picks another).
+- **Projects and tasks.** Core keeps projects, a task DAG (BACKLOG → READY → IN_PROGRESS → IN_REVIEW → DONE),
+  attempts, reviews, conversations, reports, a versioned Decision Registry, artifacts and approvals.
+- **Explicit exits.** Every agent run ends with a `factory_exit_*` call (`submit`, `handoff`, `done`, `ask`,
+  `block`, `wait`) through Factory MCP; Core checks it against facts (clean tree, pushed branch, merged PR, secret
+  scan). Waiting on the outside world is only a timer (`factory_exit_wait`).
+- **Task worktrees and PRs.** With `worktrees.enabled`, each task gets its own git worktree on branch `af/<task>`;
+  work is sealed after every run, the branch is pushed and a PR opened with `gh` on `submit`/`handoff`, and `done`
+  of a repository task needs the PR merged. Tasks of one project run in parallel.
+- **Policies and command guards.** One policy catalog covers access, escalation, reporting and recovery rules;
+  every MCP call and shell command is checked (deny, allow or owner approval). These are guardrails, not a sandbox.
+- **OpenSpec in Core.** Product specs and changes live in Core storage; nodes materialize them into the worktree
+  and sync edits back at exits; tasks link to checked active changes.
+- **Recovery, costs, Telegram.** Failed runs retry with backoff and escalate; every run gets a cost row
+  (`configs/prices.yaml`); a Telegram bot sends what needs attention, reminders and a daily digest.
 
-Нужны Go 1.25+, Docker Desktop с запущенным daemon, Python 3 для smoke script
-и **Codex 0.162.1**, авторизованный через `codex login` с ChatGPT.
-API key не используется. Worker отклоняет другие версии Codex до проверки их RPC-схемы.
+## Architecture
+
+```
+  owner: factory CLI / Telegram
+            │ HTTP (FACTORY_TOKEN)
+  ┌─────────▼─────────┐      ┌──────────────┐
+  │ Core (Docker)     │─────▶│ Postgres 17  │  all state, per-company rows
+  │ API, scheduler,   │      └──────────────┘
+  │ outbox, blobs     │      ┌──────────────┐
+  │                   │◀────▶│ NATS JS 2.11 │  commands, events, feed, node control
+  └─────────▲─────────┘      └──────▲───────┘
+            │ claim/lease/exits     │ pull consumers
+  ┌─────────┴───────────────────────┴────────┐
+  │ factory-node (macOS host, N slots)        │
+  │  Codex driver ─ codex app-server          │
+  │  Claude driver ─ factory-shim + Agent SDK │
+  │  factory-mcp (Factory tools, exits)       │
+  │  task worktrees, janitor, doctor          │
+  └───────────────────────────────────────────┘
+```
+
+Core runs in Docker; nodes run on the machines that have the workspaces and toolchains. Core never reads node
+disks: project data (OpenSpec, artifacts, logs) moves through the API. Details: [architecture](docs/architecture.md).
+
+## Prerequisites
+
+- Go 1.25+ (`go.mod`), Git.
+- Docker with the `docker compose` plugin (Docker Desktop or Colima).
+- Node.js 22+ and npm: `make build` builds the Claude shim in `workers/claude`.
+- **Codex CLI 0.162.1** exactly, logged in with `codex login` (ChatGPT; no API key). Other versions are refused.
+- For Claude agents: a Claude subscription login (`claude`, then `/login`). The shim uses
+  `@anthropic-ai/claude-agent-sdk` (pinned in `workers/claude/package-lock.json`); API keys are refused by default.
+  See [Claude runtime](docs/claude-runtime.md).
+- `gh`, authenticated (`gh auth status`), for the push/PR flow of task worktrees.
+- Python 3 for the smoke scripts.
+
+## Quick start
 
 ```sh
-cp .env.example .env # только если .env ещё не существует
-# Замените оба значения случайными hex-строками; например: openssl rand -hex 32
+cp .env.example .env           # only if .env does not exist yet
+# Replace FACTORY_TOKEN, NATS_PASSWORD, POSTGRES_PASSWORD with random values, e.g. openssl rand -hex 32
 chmod 600 .env
-set -a
-source .env
-set +a
+set -a; source .env; set +a
+export FACTORY_URL=http://127.0.0.1:8080
 export NATS_URL="nats://factory:${NATS_PASSWORD}@127.0.0.1:4222"
-make build
-make up
-./bin/factory config validate
-./bin/factory doctor
-./bin/codex-worker
-# или нода; для агентов с runtime.provider: claude включите драйвер (нужны Node 22+ и вход через `claude` /login):
-mkdir -p data && printf 'drivers:\n  claude: {enabled: true}\n' > data/node.yaml
+
+make build                     # bin/factory, factory-node, factory-mcp, factory-shim, codex-worker + Claude shim
+make up                        # docker compose: postgres, nats, core
+./bin/factory config validate  # --company C for another company's catalog
+./bin/factory doctor           # Core, its Postgres and NATS
+```
+
+Start a node (relative paths resolve against the directory you start it in, so run it from the checkout):
+
+```sh
+mkdir -p data
+cat > data/node.yaml <<'YAML'
+state_dir: data/factory-node
+slots: 2
+drivers:
+  codex: {enabled: true}
+  claude: {enabled: true}      # off by default; needs Node 22+ and a Claude login
+worktrees: {enabled: true}     # per-task git worktrees (projects with a repo)
+YAML
+./bin/factory-node doctor -config data/node.yaml   # git, gh, disk, drivers, Core, NATS
 ./bin/factory-node run -config data/node.yaml
 ```
 
-Claude: [docs/claude-runtime.md](docs/claude-runtime.md); нода: [docs/development.md](docs/development.md#node-process).
+The node also takes `FACTORY_NODE_TOKEN` (`factory nodes token create NAME`) instead of the shared token; see
+[node process](docs/development.md#node-process) for every `node.yaml` key, outbound TLS/WebSocket NATS,
+`factory-node launchd` / `systemd` units and `factory-node workspace reset`.
 
-Core и NATS публикуют порты только на loopback. `.env` исключён из Git и Docker build context.
-В этой рабочей копии `.env` уже создан со случайными значениями. Не заменяйте его при обычном запуске.
-Postgres хранит БД в volume `postgres-data`, Core — blobs в `core-blobs` и только `core.incarnation` в `core-data`;
-NATS — сообщения в `nats-data`.
-`make down` останавливает контейнеры и сохраняет данные.
-
-В другом терминале загрузите `.env`, затем:
+First project and task, in another terminal with the same environment:
 
 ```sh
-mkdir -p .cache/demo-workspace
-./bin/factory runs create demo-project demo "$PWD/.cache/demo-workspace" \
-  'Reply with exactly FOUNDATION_OK. Do not use tools or modify files.'
-./bin/factory runs list
-./bin/factory runs get RUN_ID
-./bin/factory runs events RUN_ID
-./bin/factory runs cancel RUN_ID
+mkdir -p .cache/my-project
+./bin/factory projects create my-project "$PWD/.cache/my-project"   # add --repo URL [--branch main] for PRs
+./bin/factory tasks create - <<'JSON'
+{"id":"first-task","project_id":"my-project","title":"First task","description":"Reply TASK_ONE_OK; do not modify files.","assignee":"demo","request_id":"create-first-task"}
+JSON
+./bin/factory tasks ready first-task 1
+./bin/factory watch my-project
+./bin/factory show first-task
+./bin/factory tasks review first-task VERSION accept   # once IN_REVIEW, VERSION from tasks get
 ```
 
-Workspace — абсолютный путь **macOS**, не путь контейнера. Для продолжения передайте сохранённый
-`session_id` последним аргументом `runs create`. Каждый run запускает отдельный app-server;
-threads сохраняются самим Codex, их ID и результаты сохраняются Core.
+The workspace is an absolute path on the node's machine, not inside a container. More: [task lifecycle](docs/task-lifecycle.md).
 
-## Проверки
+### Security notes
 
-```sh
-make check
-# Интеграционный тест: отдельный одноразовый NATS, без настоящей модели.
-docker run -d --name appfactory-test-nats -p 127.0.0.1:14222:4222 nats:2.11.4-alpine -js
-NATS_TEST_URL=nats://127.0.0.1:14222 go test -race ./internal/worker -run TestJetStream -v
-# Тест удаляет свои streams: не направляйте его на рабочий broker.
-docker rm -f appfactory-test-nats
-# Опционально: настоящие ChatGPT-запуски start + resume. Core и Worker должны работать.
-python3 scripts/smoke.py
-# Две зависимые задачи, приёмка, разные threads и перезапуск Core:
-python3 scripts/task-smoke.py --restart-core
-# Manager создаёт задачи через MCP → executor submit → manager review:
-python3 scripts/mcp-smoke.py
-python3 scripts/smoke.py --mcp
-# Вопрос агенту, inbox владельца и постоянный диалог:
-python3 scripts/messaging-smoke.py --restart-core
-```
+- Postgres, NATS and Core publish their ports on loopback (`127.0.0.1`) only.
+- `.env` is excluded from Git and the Docker build context; keep it `0600`. Never print `.env`, database URLs with
+  passwords or authenticated NATS URLs in reports or logs.
+- `FACTORY_TOKEN` is the owner token; runs get scoped, company-bound run tokens; nodes should use per-node tokens
+  (`factory nodes token create`). Token and creds files should be `0600` (`factory-node doctor` warns).
+- Data lives in the volumes `postgres-data`, `nats-data`, `core-blobs` and `core-data`. `make down` keeps them;
+  `docker compose down -v` deletes them. Backups: [development](docs/development.md).
 
-Конфигурации: [docs/agent-configuration.md](docs/agent-configuration.md),
-[docs/skills.md](docs/skills.md), [docs/policies.md](docs/policies.md).
+## Owner CLI
+
+`./bin/factory` with no arguments prints the full usage. The main groups:
 
 ```sh
-./bin/factory agents get demo
-./bin/factory agents authorize demo factory.release.publish
-./bin/factory skills list demo
-./bin/factory skills read demo openspec references/conventions.md
-```
-
-Пример агента: [configs/agents/demo.yaml](configs/agents/demo.yaml).
-Архитектура: [docs/architecture.md](docs/architecture.md).
-Протокол и ограничения: [docs/runtime-protocol.md](docs/runtime-protocol.md).
-Разработка: [docs/development.md](docs/development.md).
-
-Проекты, задачи, приёмка и восстановление: [docs/task-lifecycle.md](docs/task-lifecycle.md).
-Результаты проверки: [docs/task-engine-verification.md](docs/task-engine-verification.md).
-Factory MCP, токены запуска и инструменты: [docs/factory-mcp.md](docs/factory-mcp.md).
-Сообщения, вопросы, inbox и команды владельца: [docs/messaging.md](docs/messaging.md).
-
-Согласования точных действий и решения владельца: [docs/approvals.md](docs/approvals.md).
-Утверждение версий артефактов и ожидание задач: [docs/artifact-approvals.md](docs/artifact-approvals.md).
-
-## Границы этапа
-
-Фабрика поддерживает прямые запуски и задачи через API/CLI и Factory MCP; сообщения, вопросы владельцу, inbox и согласования точных MCP-действий.
-Версионные утверждения артефактов реализованы отдельно от приёмки задач.
-Отчёты и Decision Registry сохраняются в Postgres; UI относится к следующим этапам.
-Policies и grants проверяются при каждом вызове; одобрение не отменяет deny. Неизвестные YAML-поля отклоняются.
-`doctor` проверяет доступность Core, его Postgres (`"database": "postgres 17.x"`) и соединение Core с NATS; доступность Worker
-подтверждается сквозным запуском. `codex-worker` обрабатывает по одному run на процесс, нода — по одному на slot;
-Core допускает не больше `execution.max_concurrent_runs` активных run'ов на агента; workspace проекта занимает один run за раз.
-Агенты с `workspace.mode: worktree` работают в отдельном git worktree на задачу (ветка `af/<task>`; в конце run'а
-незакоммиченная работа запечатывается в `refs/factory/wip/<task>`; перед стартом — проверка на расхождение;
-`factory-node workspace reset`; janitor удаляет worktree закрытых задач). Задачи одного проекта идут параллельно
-на ноде с `worktrees.enabled`; на ноде без worktree и в v1 — по одному.
-Полный MVP из разделов 1–26 ещё не реализован.
-
-Сбой run'а (ошибка runtime, таймаут, зависание, потеря Worker/ноды) повторяется автоматически: задача
-возвращается в READY через 1, 5, затем 15 минут и продолжает в том же workspace и сессии. Три попытки
-подряд без прогресса или 30 run'ов задачи за день — эскалация менеджеру (иначе владельцу) с ответами
-`retry`/`cancel`; задача остаётся READY за паркой эскалации (статуса FAILED у задач больше нет; статус run'а — его
-фаза QUEUED → CLAIMED → RUNNING → (CANCELLING) → ENDED, а как он закончился — только outcome: потерянный run или
-run без итогового ответа runtime — `lost`). Run, потерянный на замолчавшей ноде, держит свою
-задачу, workspace и сессию, пока нода не подтвердит, что его процесса нет; остальные задачи проекта идут.
-Дневной бюджет считается по часовому поясу компании (`factory time-zone Europe/Berlin`, по умолчанию UTC).
-Задачи с `"side_effects": true` или агенты с правилом политики `type: recovery, mode: inspect` (публикация,
-деплой) не повторяются: неясный исход паркует только эту задачу эскалацией `inspect` (подробности:
-docs/task-lifecycle.md). Ответить на неё можно и так:
-
-```sh
-./bin/factory runs resolve RUN_ID retry 'Workspace inspected; describe findings here'
-```
-
-`continue` — эффект случился, продолжить, `retry` — повторить, `cancel` — отменить задачу. Для потерянного run'а
-без проверки (нода не вернётся) `runs resolve` освобождает его с этим ответом.
-
-Persistent significant-action reports, the versioned Decision Registry, project context and paginated feed are available via API/CLI/MCP. See [reports and decisions](docs/reports-decisions.md).
-
-OpenSpec в хранилище Core: [API/CLI/MCP, материализация на узлах и проверки](docs/openspec.md). Документы хранятся в Core, узлы кладут их в worktree; задачи привязываются к проверенным active changes.
-
-Автономность менеджера: категория `technical` делегирована политикой; `manager-autonomous` работает без обращений к owner. Отказ владельца создаёт сохраняемое поручение автору предложения пересмотреть план. [Полномочия и ограничения](docs/reports-decisions.md#delegated-autonomy-and-owner-rejection), [сквозная проверка](docs/decision-autonomy-verification.md).
-
-## Консоль владельца, ожидания, стоимость и Telegram
-
-```sh
-./bin/factory status | watch [PROJECT] [--attention] | log TASK | show TASK      # --json для скриптов
-./bin/factory answer MSG OPTION|TEXT
-./bin/factory comment TASK 'текст' [--urgent]     # ввод владельца; --urgent останавливает текущий run
-./bin/factory run|retry TASK                       # отпустить задачу сейчас
+./bin/factory status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK   # --json for scripts
+./bin/factory pending                          # questions and escalations waiting for you
+./bin/factory answer MSG OPTION|TEXT           # answer a question; approve|reject ID REASON for approvals
+./bin/factory comment TASK TEXT [--urgent]     # owner input; --urgent stops the current run
+./bin/factory direct TASK TEXT [--urgent]      # authority directive to the task's agent
+./bin/factory conversations say PROJECT TEXT   # talk to a direct report (@name TEXT)
+./bin/factory run|retry TASK                   # release a task now
 ./bin/factory pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON]
-./bin/factory stop [REASON] / start                # аварийная остановка компании и её снятие
-./bin/factory pending                              # вопросы и эскалации для владельца (GET /pending/count)
-./bin/factory costs [--task T|--agent A] [--by task|agent|day|model|--day|--model] [--since 24h]
-./bin/factory telegram bind                        # одноразовый код: отправьте боту /start КОД
+./bin/factory stop [REASON] | start            # company kill switch
+./bin/factory costs [--task T|--agent A|--day|--model] [--since 24h]
+./bin/factory rules company|PROJECT [TEXT|-]   # standing rules; time-zone [ZONE] for daily budgets
+./bin/factory telegram bind                    # one-time code: send /start CODE to the bot
+./bin/factory projects ... | tasks ... | runs ... | inbox ... | approvals ... | artifacts ... | openspec ...
+./bin/factory reports ... | decisions ... | agents ... | skills ... | nodes ...
 ```
 
-Агент ждёт внешний мир только таймером: `factory_exit_wait {reason, wake_at|after, deadline}` (минимум 15 минут,
-срок не дальше 14 дней, подряд не дальше первого срока, не больше `max_waits`), затем эскалация менеджеру. Каждый
-закончившийся run получает строку стоимости (`run_costs`; цены — `configs/prices.yaml`). Telegram
-(`FACTORY_TELEGRAM_TOKEN`, `FACTORY_TELEGRAM_PROJECT`, `FACTORY_TELEGRAM_DIGEST_AT`; свободный текст идёт как
-`factory conversations say` — `owner.default_report` или `@name`)
-присылает только то, что требует внимания, напоминания и дневную сводку. Подробности:
-[docs/task-lifecycle.md](docs/task-lifecycle.md#owner-controls), [docs/messaging.md](docs/messaging.md#telegram),
-[docs/reports-decisions.md](docs/reports-decisions.md#event-feed-and-costs).
+Telegram is enabled by `FACTORY_TELEGRAM_TOKEN` (plus `FACTORY_TELEGRAM_PROJECT`, `FACTORY_TELEGRAM_DIGEST_AT`) in
+Core's environment (with `make up`, add them to the `core` service in `compose.yaml`). Details: [owner controls](docs/task-lifecycle.md#owner-controls),
+[messaging and Telegram](docs/messaging.md#telegram), [event feed and costs](docs/reports-decisions.md#event-feed-and-costs).
 
-## Терминальный UI владельца
+### Owner terminal UI
 
 ```sh
-./bin/factory ui                        # полноэкранный UI против Core (FACTORY_URL, FACTORY_TOKEN)
-./bin/factory ui --demo                 # демо-компания без Core
-./bin/factory ui --record state.json    # снимок состояния Core в fixture; --fixture state.json — просмотр без Core
-./bin/factory ui --notify bell          # desktop (уведомление macOS, по умолчанию) | bell | off
+./bin/factory ui                        # full-screen UI against Core (FACTORY_URL, FACTORY_TOKEN)
+./bin/factory ui --demo                 # demo company, no Core needed
+./bin/factory ui --record state.json    # snapshot Core's state into a fixture; --fixture state.json views it without Core
+./bin/factory ui --notify bell          # desktop (macOS notification, default) | bell | off
 ```
 
-Дашборд (дерево агентов `reports_to` с live-статусами и таймерами, задачи выбранного агента, статистика run'а с
-шкалой контекста и sparkline'ами, общий поток активности, мини-карта доски), Kanban-доска с карточками и
-действиями владельца (pause/resume/retry/run/cancel/reassign/reprioritize/comment/direct с подтверждением),
-live-транскрипт run'а (`GET /runs/{id}/events/stream`), swimlanes «кто что кому передал», лента и inbox; строка
-ответа на самый старый вопрос/согласование (`Y`/`N`/`A`), палитра команд `ctrl+k`, мышь. Горячие клавиши — `?`.
-Вкладка `6 Chat` — переписка с прямыми подчинёнными владельца (`POST /messages`, `@name`, «… is replying», непрочитанные);
-`t` на run'е — полный транскрипт сессии (рассуждения, каждый вызов инструмента с полным входом и результатом, из событий
-Core или локального файла сессии Claude/Codex на машине узла, с редактированием секретов); счётчики ошибок инструментов
-`✗3` на дереве, карточках и run'ах; `o` открывает PR задачи, `v` — предпросмотр артефакта перед согласованием; `n` на
-доске — форма новой задачи; новые вопросы, согласования и эскалации — уведомлением macOS (`--notify`).
-Подробности и снимки экранов: [docs/owner-ui.md](docs/owner-ui.md).
+Dashboard (the `reports_to` agent tree with live statuses and timers, the selected agent's tasks, run stats with a
+context gauge and sparklines, a shared activity stream, a board mini-map), a Kanban board with cards and owner actions
+(pause/resume/retry/run/cancel/reassign/reprioritize/comment/direct, with confirmation), a live run transcript
+(`GET /runs/{id}/events/stream`), "who handed what to whom" swimlanes, the feed and the inbox; an answer bar for the
+oldest question/approval (`Y`/`N`/`A`), a `ctrl+k` command palette, mouse support. Key bindings: `?`.
+Tab `6 Chat` is the conversation with the owner's direct reports (`POST /messages`, `@name`, "… is replying", unread
+counts); `t` on a run opens the full session transcript (reasoning, every tool call with its full input and result,
+from Core's events or the local Claude/Codex session file on the node's machine, with secrets redacted); tool error
+counters `✗3` on the tree, cards and runs; `o` opens the task's PR, `v` previews an artifact before approval; `n` on the
+board opens the new-task form; new questions, approvals and escalations arrive as macOS notifications (`--notify`).
+Details and screenshots: [docs/owner-ui.md](docs/owner-ui.md).
+
+## Development and tests
+
+```sh
+make hooks                     # once per clone: gofmt pre-commit hook
+make test-services             # throwaway Postgres (127.0.0.1:15432) and NATS (127.0.0.1:14231) in tmpfs
+export FACTORY_TEST_DATABASE_URL='postgres://postgres:factory@127.0.0.1:15432/postgres?sslmode=disable'
+export NATS_TEST_URL=nats://127.0.0.1:14231
+go test -p 1 -count=1 ./...    # -p 1: packages share the JetStream streams
+make check                     # gofmt, go test -race, go vet, shim checks and tests
+make test-services-down
+```
+
+The Makefile exports `FACTORY_TEST_DATABASE_URL` for `make test`/`make check`; without these variables the
+storage and JetStream tests are skipped. Point them only at servers you can throw away: tests create and drop
+databases and delete streams. Normal tests use fake runtimes, never a real model.
+
+Secure NATS tests (TLS, WebSocket, nkeys, creds): `scripts/nats-secure-test.sh up` prints the `NATS_TEST_*`
+exports for the gated tests in `internal/bus` and `internal/node`; `scripts/nats-secure-test.sh down` removes the
+servers. More: [development](docs/development.md).
+
+### Live smokes
+
+Live smokes spend subscription usage. Run them against the cheap **smoke company** (`configs/smoke/`: only the agents
+the smokes use, cheapest models, `effort: low`, no retries), never the production catalog:
+
+```sh
+FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
+./bin/factory config validate --company smoke
+# start a node with company: smoke in its node.yaml, then:
+scripts/messaging-smoke.py --restart-core
+scripts/openspec-smoke.py --restart-core
+scripts/drivers-smoke.py
+```
+
+The scripts check `GET /health` and refuse to run against the wrong company. Full procedure:
+[live smokes](docs/development.md#live-smokes-cheap).
+
+## Documentation
+
+- [adding-runtime.md](docs/adding-runtime.md) — how to add a new agent runtime driver.
+- [agent-configuration.md](docs/agent-configuration.md) — agents, profiles, hierarchy, runtime and workspace settings.
+- [agent-config-verification.md](docs/agent-config-verification.md) — Agent Config verification results.
+- [approvals.md](docs/approvals.md) — owner approvals of exact MCP actions and shell commands.
+- [approvals-verification.md](docs/approvals-verification.md) — action approval verification results.
+- [architecture.md](docs/architecture.md) — Core, outbox, claims, leases, tenancy and NATS subjects.
+- [artifact-approvals.md](docs/artifact-approvals.md) — versioned artifacts, uploads and approval-gated tasks.
+- [artifact-approvals-verification.md](docs/artifact-approvals-verification.md) — artifact approval verification results.
+- [calorie-calculator-e2e.md](docs/calorie-calculator-e2e.md) — test-project autonomous-team E2E log.
+- [claude-runtime.md](docs/claude-runtime.md) — Claude Go driver, Agent SDK shim, login and limits.
+- [decision-autonomy-verification.md](docs/decision-autonomy-verification.md) — delegated autonomy verification results.
+- [development.md](docs/development.md) — storage, tests, node process, worktrees, NATS security, backups, smokes.
+- [explicit-exits-contract.md](docs/explicit-exits-contract.md) — adapter ↔ Core contract for `factory_exit_*`.
+- [factory-mcp.md](docs/factory-mcp.md) — Factory MCP server, run tokens and tools.
+- [factory-mcp-verification.md](docs/factory-mcp-verification.md) — Factory MCP verification results.
+- [foundation-verification.md](docs/foundation-verification.md) — Foundation verification results (historical).
+- [messaging.md](docs/messaging.md) — messages, conversations, owner questions, inbox and Telegram.
+- [messaging-verification.md](docs/messaging-verification.md) — messaging verification results.
+- [openspec.md](docs/openspec.md) — OpenSpec documents stored in Core: API, CLI, MCP, node materialization.
+- [openspec-verification.md](docs/openspec-verification.md) — OpenSpec integration verification results.
+- [owner-ui.md](docs/owner-ui.md) — the owner's terminal UI (`factory ui`): views, keys, fixtures, notifications.
+- [policies.md](docs/policies.md) — unified policies, command guards, wait and reporting rules.
+- [reports-decisions.md](docs/reports-decisions.md) — reports, Decision Registry, autonomy, event feed and costs.
+- [reports-decisions-verification.md](docs/reports-decisions-verification.md) — reports and decisions verification results.
+- [runtime-protocol.md](docs/runtime-protocol.md) — Codex 0.162.1 app-server protocol and limits.
+- [runtime-protocol-v2.md](docs/runtime-protocol-v2.md) — Core ↔ node protocol v2 (registration, heartbeat, control).
+- [skills.md](docs/skills.md) — per-company skills registry and how runs get skills.
+- [task-engine-verification.md](docs/task-engine-verification.md) — Task Engine verification results.
+- [task-lifecycle.md](docs/task-lifecycle.md) — projects, tasks, scheduling, recovery, waits and owner controls.
+
+## OpenSpec
+
+Requirements and change history of App Factory itself are in [`openspec/`](openspec/) (`openspec/changes/`, one
+directory per change). OpenSpec as a product feature for managed projects: [docs/openspec.md](docs/openspec.md).
