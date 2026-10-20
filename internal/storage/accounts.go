@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"strings"
 )
 
@@ -32,6 +33,19 @@ func (s *Store) CreateAccount(ctx context.Context, id, name string) error {
 // CreateCompany registers a tenant of the default account. The default company exists in every database.
 func (s *Store) CreateCompany(ctx context.Context, id, name string) error {
 	return s.CreateAccountCompany(ctx, DefaultAccount, id, name)
+}
+
+// EnsureCompany registers company in the default account unless it exists: a Core serving a company catalog
+// (configs/<company>/) creates its tenant on first start.
+func (s *Store) EnsureCompany(ctx context.Context, company string) error {
+	_, err := s.CompanyTimeZone(ctx, company)
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if err = s.CreateCompany(ctx, company, company); errors.Is(err, ErrConflict) {
+		return nil // another Core created it meanwhile
+	}
+	return err
 }
 
 // CreateAccountCompany registers a company of account.

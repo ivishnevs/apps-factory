@@ -96,3 +96,25 @@ func TestUsersBelongToCompaniesOfTheirAccount(t *testing.T) {
 		t.Fatal(ms, err)
 	}
 }
+
+// A Core serving a company catalog creates its tenant on first start; later starts and the default company
+// change nothing.
+func TestEnsureCompany(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(testURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	for _, company := range []string{"smoke", "smoke", DefaultCompany} {
+		if err = s.EnsureCompany(ctx, company); err != nil {
+			t.Fatalf("%s: %v", company, err)
+		}
+	}
+	if _, err = s.CompanyTimeZone(ctx, "smoke"); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.EnsureCompany(ctx, "Not A Name"); err == nil {
+		t.Fatal("invalid company id accepted")
+	}
+}

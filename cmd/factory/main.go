@@ -225,7 +225,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if _, err = s.CompanyTimeZone(ctx, company); err != nil {
+	if err = s.EnsureCompany(ctx, company); err != nil {
 		return fmt.Errorf("company %s: %w", company, err)
 	}
 	defer s.DB.Close()
