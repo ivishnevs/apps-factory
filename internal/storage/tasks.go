@@ -105,6 +105,7 @@ func entityEvent(ctx context.Context, tx *Tx, kind, project, id string, v any) e
 // entityEventNote records an entity event whose feed row carries note as its summary (when not empty).
 func entityEventNote(ctx context.Context, tx *Tx, kind, project, id string, v any, note string) error {
 	e := protocol.Wrap(kind, id, "", v)
+	e.At = tx.now().UTC() // Core time comes from the store's clock
 	var state map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &state); err != nil {
 		return err

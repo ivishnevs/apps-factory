@@ -3,7 +3,6 @@ package core
 import (
 	"net/http"
 	"net/url"
-	"slices"
 
 	"appfactory/internal/config"
 	"appfactory/internal/storage"
@@ -11,13 +10,7 @@ import (
 
 // subtree is the agent and every agent whose reports_to chain reaches it (waits-events-cost-cli D3).
 func (c *Core) subtree(agent string) []string {
-	out := []string{agent}
-	for _, name := range config.Names(c.Agents) {
-		if name != agent && slices.Contains(config.Chain(c.Agents, name), agent) {
-			out = append(out, name)
-		}
-	}
-	return out
+	return append([]string{agent}, config.Subtree(c.Agents, agent)...)
 }
 
 // feedListTool is factory_feed_list: the feed of the run's agent's subtree, across its company's projects.
