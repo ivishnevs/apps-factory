@@ -1,30 +1,30 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
 ╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
-│ ◆ owner · you                              ⚠ 4 ││ [→] Task 1 P2-1                     ← ⠋running │
-│ └ ◐ pm: waits on you · P1-5                 1h ││ [!] Task 3 P2-3                    ← needs you │
-│   ├ ⏸ designer: paused waiting for the… paused ││     ↳ escalation · waits on you: answer m-esc… │
-│   ├ ● developer-1: Task 3              12m 00s ││ [!] Task 5 P1-5                    ← needs you │
-│   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
-│   ├ ◐ lead: waits on you · P2-3            30m ││ [◎] Task 6 P3-6                      in review │
-│   │ ├ ● developer-2: Task 2             7m 00s ││     ↳ queued: busy with P2-1                   │
-│   │ │   └ ✎ Edit: src/module_2.ts       0m 15s ││                                                │
-│   │ └ ● re╭──────────────────────── Which option for Task 5? ────────────────────────╮           │
-│   │     └ │ pm: Which option for Task 5: A or B? A is free but slower; B is faster   │           │
-│   └ ◐ qa: │ but paid.                                                                │           │
-│           │                                                                          │           │
+│ ◆ owner · you                              ⚠ 5 ││ [→] Task 1 P2-1                     ← ⠋running │
+│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 3 P2-3                    ← needs you │
+│ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ escalation · waits on you: answer m-esc… │
+│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 5 P1-5                    ← needs you │
+│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
+│ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 4 P2-4                    ← needs you │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││ [◎] Task 6 P3-6                      in review │
+│ └ ◐ pm: waits on you · P1-5                 1h ││     ↳ queued: busy with P2-1                   │
+│   ├ ⏸ desi╭──────────────────────── Which option for Task 5? ────────────────────────╮           │
+│   ├ ● deve│ pm: Which option for Task 5: A or B? A is free but slower; B is faster   │           │
+│   │   └ ▸ │ but paid.                                                                │           │
+│   └ ◐ qa: │                                                                          │           │
 ╰───────────│ ▸ 1  option-a                                                            │───────────╯
 ╭───────────│   2  option-b                                                            │───────────╮
-│ 14:27:30  │   3  ✎ answer in free text…                                              │           │
-│ 14:28:00  ╰──────────────────────────────────────────────────────────────────────────╯.          │
-│ 14:28:00  [developer-1] exit_submit   reviewer=pm summary="module 1 with an offline store, 42 t… │
-│ 14:28:02  [developer-1] refused       exit guard refused the turn's end: submit needs a pushed … │
+│ 14:28:02  │   3  ✎ answer in free text…                                              │a pushed … │
+│ 14:28:03  ╰──────────────────────────────────────────────────────────────────────────╯int":"pus… │
 │ 14:28:30  [reviewer]    task_comments task=P2-1                                                  │
+│ 14:28:40  [developer-2] Bash          $ npm test -- module_2 (exit 1)                            │
 │ 14:29:00  [lead]        answer        → developer-2  Option B, keep it behind a flag.            │
 │ 14:29:00  [developer-2] Bash          $ npm test -- module_2                                     │
+│ 14:29:10  [lead]        says          “The owner asks whether P2-2 can be retried after the reb… │
 │ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                         │
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
  ↑↓ choose  enter pick  esc close

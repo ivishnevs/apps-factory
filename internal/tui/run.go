@@ -33,6 +33,8 @@ type runState struct {
 	width   int
 	// pick is the cursor of the live run picker shown without a run.
 	pick int
+	// errorsOnly shows only tool errors and refusals.
+	errorsOnly bool
 }
 
 // runPoll is how often the live run view reloads the run and its tool calls.
@@ -134,6 +136,10 @@ func (r *runState) key(m *Model, key string) tea.Cmd {
 			if r.pick < len(runs) {
 				return m.openRun(runs[r.pick].ID)
 			}
+		case "t":
+			if r.pick < len(runs) {
+				return m.openTranscript(runs[r.pick].ID)
+			}
 		case "esc":
 			return m.switchTab(m.prevTab)
 		}
@@ -172,6 +178,10 @@ func (r *runState) key(m *Model, key string) tea.Cmd {
 		m.tab = prev
 		return nil
 	case "t":
+		return m.openTranscript(r.id)
+	case "e":
+		r.errorsOnly, r.dirty = !r.errorsOnly, true
+	case "T":
 		if r.run != nil && r.run.Spec.TaskID != "" {
 			return m.openDetail(r.run.Spec.TaskID)
 		}
@@ -280,9 +290,22 @@ func (m *Model) runLines(w, h int) []string {
 	}
 	if r.dirty {
 		r.lines = runLog(r.events, r.calls)
-		content := m.transcript(agent, r.lines, inner)
+		m.noteErrors(r.id, tallyErrors(transcriptFromEvents(r.events, r.calls)))
+		shown := r.lines
+		if r.errorsOnly {
+			shown = []LogLine{}
+			for _, l := range r.lines {
+				if l.Kind == lineRefusal || l.Kind == lineError {
+					shown = append(shown, l)
+				}
+			}
+		}
+		content := m.transcript(agent, shown, inner)
 		if len(content) == 0 {
 			content = []string{stFaint.Render(" waiting for activity…")}
+			if r.errorsOnly {
+				content = []string{stGreen.Render(" ✓ no tool errors or refusals") + stFaint.Render(" · e shows everything")}
+			}
 		}
 		r.vp.SetContentLines(content)
 		r.dirty = false
@@ -302,6 +325,12 @@ func (m *Model) runLines(w, h int) []string {
 		follow = stYellow.Render("paused · G")
 	}
 	title := lipgloss.NewStyle().Foreground(agentColor(agent)).Bold(true).Render(agent) + stFaint.Render(" · "+r.id+" · "+dash(task)+" · ") + state + stFaint.Render(" · ") + follow
+	if t, ok := m.runErrs(r.id); ok && t.N > 0 {
+		title += stFaint.Render(" · ") + errBadge(t.N)
+	}
+	if r.errorsOnly {
+		title += stFaint.Render(" · ") + stRedBold.Render("errors only")
+	}
 	body := strings.Split(r.vp.View(), "\n")
 	if live {
 		body = append(body, "   "+lipgloss.NewStyle().Foreground(agentColor(agent)).Render(m.spin.View()+" "+agent+" is working"+strings.Repeat(".", m.frameN%4)))
@@ -366,6 +395,13 @@ func (m *Model) runStats(w int) []string {
 	}
 	if refusals > 0 {
 		lines = append(lines, kv("Refusals", stRedBold.Render(fmt.Sprint(refusals)), kw))
+	}
+	if t, ok := m.runErrs(r.id); ok && t.N > 0 {
+		lines = append(lines, kv("Errors", errBadge(t.N), kw), "", stRedBold.Render("Last error ")+stDim.Render(m.clock(t.At)))
+		for _, l := range wrap(t.Last, w) {
+			lines = append(lines, stRed.Render(l))
+		}
+		lines = append(lines, "", stFaint.Render("t transcript · e errors only"))
 	}
 	return lines
 }

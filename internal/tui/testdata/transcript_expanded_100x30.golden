@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1   ▸ transcript r-d1… … ▶ running │ ⚠ 5
+╭────────────────────────────── developer-1 · r-d1-7 · P1-3 · ● live ──────────────────────────────╮
+│   core events  · local: not available here  ✗3                                       paused · G  │
+│ ──────────────────────────────────────────────────────────────────────────────────────────────── │
+│   ── session started, model claude-opus-4-7 ──                                          14:18:00 │
+│   ∴ reasoning                                                                           14:18:04 │
+│     The directive says offline first. The store layer is the base of everything else, so the     │
+│     cache can wait until the store has tests.                                                    │
+│ ▌ ╭───────────────────────────────── developer-1 14:18:05 ─────────────────────────────────╮     │
+│ ▌ │ Resuming P1-3. The owner asked for offline support, so I'll start with the store       │     │
+│ ▌ │ layer.                                                                                 │     │
+│ ▌ ╰────────────────────────────────────────────────────────────────────────────────────────╯     │
+│   ▾ ⇄ factory_task_get  task=P1-2                                                     ✓ 14:18:30 │
+│       input                                                                                      │
+│       │ {                                                                                        │
+│       │   "task": "P1-2"                                                                         │
+│       │ }                                                                                        │
+│       result · 1 line                                                                            │
+│       │ {"id":"P1-2","title":"Task 2","status":"DONE","result":"mockups ready"}                  │
+│   ▾ ✎ Read  src/module_1.go                                                           ✓ 14:19:00 │
+│       input                                                                                      │
+│       │ {                                                                                        │
+│       │   "file_path": "src/module_1.go"                                                         │
+│       │ }                                                                                        │
+│       result · 6 lines                                                                           │
+│  ✗ last error 14:28:02 exit guard refused the turn's end: submit needs a pushed branch ahead…    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
+ j/k entry  enter expand  E all  e errors only  l local/core  f follow  T task  esc back

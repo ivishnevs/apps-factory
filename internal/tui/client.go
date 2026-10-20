@@ -49,6 +49,8 @@ type Health struct {
 	Database      string `json:"database,omitempty"`
 	Company       string `json:"company"`
 	ExplicitExits string `json:"explicit_exits,omitempty"`
+	// DefaultReport is owner.default_report: where an unaddressed owner message goes.
+	DefaultReport string `json:"default_report,omitempty"`
 }
 
 // Overview is everything the dashboard and the status bar show, read in one refresh.
@@ -81,6 +83,8 @@ type TaskDetail struct {
 	Costs    storage.CostReport `json:"costs"`
 	Events   []storage.FeedItem `json:"events"`
 	Children []Task             `json:"children,omitempty"`
+	// Exits are the accepted exits with their git and forge facts (the pull request); nil from an older Core.
+	Exits []storage.TaskExit `json:"exits,omitempty"`
 }
 
 // RunEvent is one event of a run stream: its sequence and envelope.
@@ -91,8 +95,12 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start
+	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create
 	TaskID     string         // task actions
+	Project    string         // say, create
+	Title      string         // create (Text is the description)
+	Deps       []string       // create: dependencies
+	Ready      bool           // create: released at once
 	Version    int            // task, message or approval version
 	Text       string         // reason, comment, directive, answer body
 	Assignee   string         // reassign
@@ -128,6 +136,14 @@ func (a Action) Describe() string {
 		return "answer " + a.MessageID + ": " + a.Text
 	case "approve", "reject":
 		return a.Kind + " " + a.ApprovalID + ": " + a.Text
+	case "say":
+		return "message in " + a.Project + ": " + a.Text
+	case "create":
+		r := ""
+		if a.Ready {
+			r = ", ready"
+		}
+		return fmt.Sprintf("create task %q in %s for %s (priority %d%s)", a.Title, a.Project, a.Assignee, a.Priority, r)
 	case "stop":
 		return "STOP the company (kill switch): pause everything and revoke live runs"
 	case "start":
@@ -185,6 +201,12 @@ type Client interface {
 	StreamFeed(ctx context.Context, q FeedQuery, after int64, out func(StreamEvent))
 	StreamRun(ctx context.Context, run string, after int64, tail int, out func(StreamEvent))
 	Do(ctx context.Context, a Action) (string, error)
+	// RunEvents are a run's stored events, oldest first (the full runtime transcript Core keeps).
+	RunEvents(ctx context.Context, run string) ([]RunEvent, error)
+	// Messages are a conversation's messages, oldest first; an unknown conversation has none.
+	Messages(ctx context.Context, conversation string) ([]messaging.Message, error)
+	// ArtifactContent is an uploaded artifact version's content.
+	ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error)
 }
 
 // HTTPClient talks to a running Core with the owner token (FACTORY_URL, FACTORY_TOKEN). The token is only
@@ -310,6 +332,11 @@ func (c *HTTPClient) TaskDetail(ctx context.Context, id string, all []Task) (Tas
 		}
 	}
 	d.Children = childrenOf(id, all)
+	// The exits (pull request facts) are optional: an older Core has no such route.
+	var exits []storage.TaskExit
+	if err := c.get(ctx, base+"/exits", &exits); err == nil {
+		d.Exits = exits
+	}
 	return d, nil
 }
 
@@ -343,6 +370,50 @@ func (c *HTTPClient) Feed(ctx context.Context, q FeedQuery, after int64, limit i
 	var page storage.Page[storage.FeedItem]
 	err := c.get(ctx, "/feed?"+v.Encode(), &page)
 	return page, err
+}
+
+func (c *HTTPClient) RunEvents(ctx context.Context, run string) ([]RunEvent, error) {
+	var events []protocol.Envelope
+	if err := c.get(ctx, "/runs/"+url.PathEscape(run)+"/events", &events); err != nil {
+		return nil, err
+	}
+	out := make([]RunEvent, len(events))
+	for i, e := range events {
+		out[i] = RunEvent{Seq: int64(i + 1), Envelope: e}
+	}
+	return out, nil
+}
+
+func (c *HTTPClient) Messages(ctx context.Context, conversation string) ([]messaging.Message, error) {
+	var v []messaging.Message
+	err := c.get(ctx, "/conversations/"+url.PathEscape(conversation)+"/messages", &v)
+	if he, ok := err.(*worker.HTTPError); ok && he.Status == 404 {
+		return nil, nil // no conversation yet: the first owner message creates it
+	}
+	return v, err
+}
+
+// maxArtifactPreview bounds an artifact download for a preview.
+const maxArtifactPreview = 32 << 20
+
+func (c *HTTPClient) ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error) {
+	b := &limitedBuffer{max: maxArtifactPreview}
+	err := c.API.Fetch(ctx, "/projects/"+url.PathEscape(project)+"/artifacts/"+url.PathEscape(artifact)+"/"+url.PathEscape(version)+"/content", "", b)
+	return b.buf, err
+}
+
+// limitedBuffer keeps at most max bytes and fails beyond.
+type limitedBuffer struct {
+	buf []byte
+	max int
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if len(b.buf)+len(p) > b.max {
+		return 0, fmt.Errorf("artifact larger than %d MiB: download it with factory artifacts", b.max>>20)
+	}
+	b.buf = append(b.buf, p...)
+	return len(p), nil
 }
 
 // Do sends an owner action; the result is a short confirmation.
@@ -382,6 +453,23 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		err = c.API.Do(ctx, "POST", "/inbox/"+url.PathEscape(a.MessageID)+"/answer", body, &result)
 	case "approve", "reject":
 		err = c.API.Do(ctx, "POST", "/approvals/"+url.PathEscape(a.ApprovalID)+"/decision", map[string]any{"version": a.Version, "action": a.Kind, "reason": a.Text, "request_id": rid}, &result)
+	case "say":
+		// POST /messages: to owner.default_report, or the direct report a leading @name addresses.
+		err = c.API.Do(ctx, "POST", "/messages", map[string]any{"project_id": a.Project, "body": a.Text, "request_id": rid}, &result)
+	case "create":
+		deps := a.Deps
+		if deps == nil {
+			deps = []string{}
+		}
+		body := map[string]any{"project_id": a.Project, "title": a.Title, "description": a.Text, "priority": a.Priority, "assignee": a.Assignee, "dependencies": deps, "request_id": rid}
+		if a.Ready {
+			body["ready"] = true // created released (READY, or waiting for its dependencies)
+		}
+		if err = c.API.Do(ctx, "POST", "/tasks", body, &result); err == nil {
+			if id, _ := result["id"].(string); id != "" {
+				return "created " + id + ": " + a.Title, nil
+			}
+		}
 	case "stop":
 		err = c.API.Do(ctx, "POST", "/stop", map[string]string{"reason": a.Text}, &result)
 	case "start":

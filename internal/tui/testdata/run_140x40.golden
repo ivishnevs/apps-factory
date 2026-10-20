@@ -1,6 +1,6 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3   ▸ run r-d1-7                               ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
-╭─────────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow ────────────────────────────╮╭─────────── Run stats ────────────╮
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1   ▸ run r-d1-7                    ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+╭───────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow · ✗3 ─────────────────────────╮╭─────────── Run stats ────────────╮
 │  ── session started, model claude-opus-4-7 ──                                               14:18:00 ││ Agent      developer-1           │
 │                                                                                                      ││ Task       P1-3                  │
 │  ╭────────────────────────── developer-1 14:18:05 ──────────────────────────╮                        ││ Status     RUNNING               │
@@ -10,18 +10,18 @@
 │    ⇄ factory_task_get  task=P1-2                                                            14:18:30 ││ Cache R/W  23,102 / 4,620        │
 │    ◇ core factory_task_get ok                                                               14:18:30 ││ Cost       $1.24                 │
 │    ✎ Read  src/module_1.go                                                                  14:19:00 ││ Duration   12m 00s               │
-│    ✎ Edit  src/module_1.go                                                                  14:20:00 ││ Steps      20                    │
+│    ✎ Edit  src/module_1.go                                                                  14:20:00 ││ Steps      21                    │
 │    ▸  $ go test ./... -run TestModule1 -count=1 -race -timeout 5m                           14:20:40 ││ Shell      4                     │
 │    ▸  $ git push --force origin af/P1-3                                                     14:21:20 ││ Tools      6                     │
 │    ✗ command refused (deny, rule no-force-push): git push --force origin af/P1-3            14:21:21 ││ Refusals   3                     │
-│    ⚠ tool error: command refused by policy no-force-push                                    14:21:22 ││                                  │
+│    ⚠ tool error: Exit code 126 command refused by policy no-force-push: push a new commit … 14:21:22 ││ Errors     ✗3                    │
 │                                                                                                      ││                                  │
-│  ╭────────────────────────── developer-1 14:22:00 ──────────────────────────╮                        ││                                  │
-│  │ Force push is not allowed; pushing a new commit instead.                 │                        ││                                  │
-│  ╰──────────────────────────────────────────────────────────────────────────╯                        ││                                  │
-│    ▸  $ git push origin af/P1-3                                                             14:22:10 ││                                  │
+│  ╭────────────────────────── developer-1 14:22:00 ──────────────────────────╮                        ││ Last error 14:28:02              │
+│  │ Force push is not allowed; pushing a new commit instead.                 │                        ││ exit guard refused the turn's    │
+│  ╰──────────────────────────────────────────────────────────────────────────╯                        ││ end: submit needs a pushed       │
+│    ▸  $ git push origin af/P1-3                                                             14:22:10 ││ branch ahead of main             │
 │    ⇄ factory_message_send  body="Task 3: the store layer is done; starting the offline cac… 14:23:40 ││                                  │
-│    ◇ core factory_message_send ok                                                           14:23:40 ││                                  │
+│    ◇ core factory_message_send ok                                                           14:23:40 ││ t transcript · e errors only     │
 │    ✎ Grep  "loadItems" in src/**                                                            14:25:00 ││                                  │
 │                                                                                                      ││                                  │
 │  ╭────────────────────────── developer-1 14:27:30 ──────────────────────────╮                        ││                                  │
@@ -30,11 +30,11 @@
 │     ⏏ EXIT submit  reviewer=pm summary="module 1 with an offline store, 42 tests"           14:28:00 ││                                  │
 │    ✗ factory_exit_submit refused 409                                                        14:28:01 ││                                  │
 │    ✗ exit guard refused the turn's end: submit needs a pushed branch ahead of main          14:28:02 ││                                  │
+│    ⚠ tool error: 409 {"reason":"branch_not_pushed","hint":"push af/P1-3 ahead of main, the… 14:28:03 ││                                  │
 │    ▸  $ go test ./src/... -run TestStore                                                    14:29:20 ││                                  │
-│                                                                                                      ││                                  │
 │                                                                                                      ││                                  │
 │                                                                                                      ││                                  │
 │    ⠋ developer-1 is working                                                                          ││                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +2 in inbox
- f follow  j/k scroll  G newest  t task  esc back  ^k palette  [ ] project  ? help  q quit
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +3 in inbox
+ t transcript  e errors  f follow  j/k scroll  T task  esc back  ^k palette  [ ] project  ? help  q quit

@@ -354,6 +354,9 @@ func (m *Model) treeLines(w, h int) []string {
 				}
 			}
 			left = stDim.Render(r.prefix) + dot + " " + name + stFaint.Render(": ") + doing
+			if t, ok := m.runErrs(a.run); ok && t.N > 0 {
+				right = errBadge(t.N) + " " + right
+			}
 		}
 		if i == m.dash.sel {
 			selLine = len(lines)
@@ -361,6 +364,12 @@ func (m *Model) treeLines(w, h int) []string {
 			rowOf = append(rowOf, i)
 		} else {
 			lines = append(lines, rightAlign(left, right, w))
+			rowOf = append(rowOf, i)
+		}
+		if t, ok := m.runErrs(r.agent.run); ok && t.N > 0 && i == m.dash.sel && r.name != "" {
+			// The selected agent's last tool error.
+			cont := strings.ReplaceAll(strings.ReplaceAll(r.prefix, "├ ", "│ "), "└ ", "  ")
+			lines = append(lines, rightAlign(stDim.Render(cont+"  ")+stRedBold.Render("✗ ")+stRed.Render(cut(t.Last, w)), stDim.Render(m.clock(t.At)), w))
 			rowOf = append(rowOf, i)
 		}
 		if r.sub != nil {

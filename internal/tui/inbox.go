@@ -103,6 +103,11 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 		if msg.TaskID != "" {
 			return m.openDetail(msg.TaskID)
 		}
+	case "v":
+		if isApproval && ap.Artifact != nil {
+			return m.previewArtifact(ap)
+		}
+		m.setToast("v previews an artifact approval", true)
 	}
 	return nil
 }
@@ -170,7 +175,23 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 	for _, l := range wrap(msg.Body, w-2) {
 		lines = append(lines, stBold.Render(l))
 	}
-	if ap, ok := m.approvalOf(msg); ok {
+	if ap, ok := m.approvalOf(msg); ok && ap.Artifact != nil {
+		a := ap.Artifact
+		lines = append(lines, "", stFaint.Render("artifact ")+stMagenta.Bold(true).Render(a.ID)+" "+stBold.Render(a.Version)+stFaint.Render(" · "+dash(a.Name)))
+		if a.Size > 0 {
+			lines = append(lines, stFaint.Render("content  ")+fmt.Sprintf("%s · sha256 %s", byteSize(a.Size), clip(a.SHA256, 12)))
+		} else {
+			lines = append(lines, stFaint.Render("uri      ")+a.URI)
+		}
+		if ap.Reason != "" {
+			lines = append(lines, stFaint.Render("reason   ")+ap.Reason)
+		}
+		lines = append(lines, stFaint.Render("expires  ")+"in "+until(now, time.Unix(ap.ExpiresAt, 0)), "")
+		view := lipgloss.NewStyle().Background(theme.magenta).Foreground(theme.onAccent).Bold(true).Render(" v  preview ")
+		yes := lipgloss.NewStyle().Background(theme.green).Foreground(theme.onAccent).Bold(true).Render(" y  approve ")
+		no := lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" n  reject ")
+		lines = append(lines, view+"  "+yes+"  "+no)
+	} else if ap, ok := m.approvalOf(msg); ok {
 		lines = append(lines, "", stFaint.Render("call     ")+stMagenta.Bold(true).Render(ap.Call.Name), stFaint.Render("args     ")+brief(ap.Call.Arguments))
 		if ap.Reason != "" {
 			lines = append(lines, stFaint.Render("reason   ")+ap.Reason)
@@ -202,4 +223,15 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 		lines = append(lines, "", stFaint.Render("a  answer in free text"))
 	}
 	return lines
+}
+
+// byteSize is a size in B, KiB or MiB.
+func byteSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }

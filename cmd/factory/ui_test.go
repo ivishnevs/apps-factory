@@ -15,7 +15,7 @@ import (
 
 func TestUICommandArguments(t *testing.T) {
 	ctx := context.Background()
-	for _, args := range [][]string{{"--bogus"}, {"--fixture"}, {"--demo", "x"}} {
+	for _, args := range [][]string{{"--bogus"}, {"--fixture"}, {"--demo", "x"}, {"--demo", "--fixture", "f.json"}, {"--demo", "--notify", "loud"}} {
 		if err := uiCommand(ctx, args); err == nil || !strings.Contains(err.Error(), "usage") {
 			t.Fatal(args, err)
 		}

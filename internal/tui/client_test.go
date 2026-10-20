@@ -64,6 +64,14 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fc.mu.Lock()
 		fc.bodies[p] = body
 		fc.mu.Unlock()
+		if p == "/tasks" {
+			if body["title"] == "" {
+				http.Error(w, "valid task id/title and priority -1000..1000 required", 400)
+				return
+			}
+			reply(map[string]any{"id": "P1-10", "title": body["title"]})
+			return
+		}
 		reply(map[string]any{"ok": true})
 		return
 	}
@@ -130,7 +138,27 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(d.Comments)
 		case parts[1] == "costs":
 			reply(d.Costs)
+		case parts[1] == "exits":
+			reply(d.Exits)
 		}
+	case strings.HasPrefix(p, "/conversations/") && strings.HasSuffix(p, "/messages"):
+		id := strings.TrimSuffix(strings.TrimPrefix(p, "/conversations/"), "/messages")
+		msgs, ok := fc.f.Conversations[id]
+		if !ok {
+			http.Error(w, "conversation not found", 404)
+			return
+		}
+		reply(msgs)
+	case strings.HasPrefix(p, "/projects/") && strings.HasSuffix(p, "/content"):
+		parts := strings.Split(strings.TrimPrefix(p, "/projects/"), "/")
+		// /projects/{p}/artifacts/{a}/{v}/content
+		b, ok := fc.f.Artifacts[parts[0]+"/"+parts[2]+"/"+parts[3]]
+		if !ok {
+			http.Error(w, "artifact not found", 404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte(b))
 	case strings.HasPrefix(p, "/runs/"):
 		parts := strings.Split(strings.TrimPrefix(p, "/runs/"), "/")
 		run, ok := fc.f.Runs[parts[0]]
@@ -178,7 +206,7 @@ func TestHTTPClientOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Health.Company != "Company 1" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 3 || len(ov.Inbox) != 3 || len(ov.Nodes) != 2 || len(ov.Approvals) != 1 || ov.Errors != nil {
+	if ov.Health.Company != "Company 1" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 4 || len(ov.Inbox) != 4 || len(ov.Nodes) != 2 || len(ov.Approvals) != 2 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
 		t.Fatalf("%+v", ov)
 	}
 	if len(ov.Agents) != 7 || ov.Agents[1].Name != "developer-1" || ov.Agents[1].ReportsTo != "pm" || ov.Agents[1].Provider != "claude" {
@@ -479,5 +507,67 @@ func TestDemoFixtureRoundTrip(t *testing.T) {
 	}
 	if _, err = LoadFixture(filepath.Join(t.TempDir(), "missing.json")); err == nil {
 		t.Fatal("missing fixture loaded")
+	}
+}
+
+// TestHTTPClientChatTranscriptLinks: the chat reads a conversation (none yet is empty, not an error) and
+// sends through POST /messages; the transcript reads the run's stored events; the task detail carries its
+// exits' pull request; an artifact's content downloads.
+func TestHTTPClientChatTranscriptLinks(t *testing.T) {
+	fc, _, c := newFakeCore(t)
+	ctx := context.Background()
+	msgs, err := c.Messages(ctx, "owner-pm-project-1")
+	if err != nil || len(msgs) != 3 || msgs[1].Sender != "owner" {
+		t.Fatal(err, msgs)
+	}
+	if msgs, err = c.Messages(ctx, "owner-qa-project-1"); err != nil || msgs != nil {
+		t.Fatal("a missing conversation:", err, msgs)
+	}
+	if _, err = c.Do(ctx, Action{Kind: "say", Project: "project-2", Text: "@lead ship it"}); err != nil {
+		t.Fatal(err)
+	}
+	if b := fc.bodies["/messages"]; b["project_id"] != "project-2" || b["body"] != "@lead ship it" || b["request_id"] == "" {
+		t.Fatal(b)
+	}
+	events, err := c.RunEvents(ctx, "r-d1-7")
+	if err != nil || len(events) != len(DemoFixture().RunEvents["r-d1-7"]) || events[0].Seq != 1 {
+		t.Fatal(err, len(events))
+	}
+	if tally := tallyErrors(transcriptFromEvents(events, DemoFixture().ToolCalls["r-d1-7"])); tally.N != 3 {
+		t.Fatalf("%+v", tally)
+	}
+	d, err := c.TaskDetail(ctx, "P2-1", DemoFixture().Overview.Tasks)
+	if pr := taskPR(d); err != nil || pr == nil || pr.Number != 12 || pr.State != "open" {
+		t.Fatal(err, d.Exits)
+	}
+	b, err := c.ArtifactContent(ctx, "project-2", "release-notes", "v2")
+	if err != nil || !strings.HasPrefix(string(b), "# Project 2") {
+		t.Fatal(err, string(b))
+	}
+	if _, err = c.ArtifactContent(ctx, "project-2", "nope", "v1"); err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatal(err)
+	}
+}
+
+// TestHTTPClientCreateTask: the form's action is POST /tasks with the fields, dependencies, ready and a
+// request_id; Core's refusal comes back as the error.
+func TestHTTPClientCreateTask(t *testing.T) {
+	fc, _, c := newFakeCore(t)
+	text, err := c.Do(context.Background(), Action{Kind: "create", Project: "project-1", Title: "Add export", Text: "CSV export\nof items", Assignee: "developer-1", Priority: 7, Deps: []string{"P1-3"}, Ready: true})
+	if err != nil || text != "created P1-10: Add export" {
+		t.Fatal(text, err)
+	}
+	b := fc.bodies["/tasks"]
+	if b["project_id"] != "project-1" || b["title"] != "Add export" || b["description"] != "CSV export\nof items" || b["assignee"] != "developer-1" || b["priority"] != 7.0 || b["ready"] != true || b["request_id"] == "" {
+		t.Fatal(b)
+	}
+	if deps, _ := b["dependencies"].([]any); len(deps) != 1 || deps[0] != "P1-3" {
+		t.Fatal(b["dependencies"])
+	}
+	if _, err = c.Do(context.Background(), Action{Kind: "create", Project: "project-1"}); err == nil || !strings.Contains(err.Error(), "title") {
+		t.Fatal(err)
+	}
+	if b := fc.bodies["/tasks"]; b["ready"] != nil || len(b["dependencies"].([]any)) != 0 {
+		t.Fatal("a backlog task without dependencies:", b)
 	}
 }

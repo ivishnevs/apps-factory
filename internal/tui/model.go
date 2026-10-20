@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
 )
 
@@ -24,12 +25,15 @@ const (
 	tabFlow
 	tabFeed
 	tabInbox
+	tabChat
 	tabCount
 	// tabRun is the live run view: opened from a card, a task or an agent, not a tab of its own.
 	tabRun tab = 100
+	// tabTranscript is a run's full transcript (t on a run).
+	tabTranscript tab = 101
 )
 
-var tabNames = [tabCount]string{"Dashboard", "Board", "Flow", "Feed", "Inbox"}
+var tabNames = [tabCount]string{"Dashboard", "Board", "Flow", "Feed", "Inbox", "Chat"}
 
 // feedKeep is how many feed rows the UI keeps (feed view and flow).
 const feedKeep = 3000
@@ -45,6 +49,12 @@ type Options struct {
 	Refresh time.Duration
 	// NoStreams keeps the model from starting streams, ticks and animation (tests drive it with messages).
 	NoStreams bool
+	// Local finds runs' session files on this machine (the transcript's local source).
+	Local LocalTranscripts
+	// Notify is desktop (default), bell or off: how a new attention item for the owner notifies.
+	Notify string
+	// Run runs external commands (osascript, open); nil runs them.
+	Run CommandRunner
 }
 
 // Messages.
@@ -131,6 +141,16 @@ type Model struct {
 	flow  flowState
 	feedv feedViewState
 	inbox inboxState
+	chat  chatState
+	tx    txState
+
+	// errs are the runs' tool error counts; errAt when each was read.
+	errs  map[string]errTally
+	errAt map[string]time.Time
+	notif *notifier
+	form  *formState
+	// preview is an artifact preview modal.
+	preview *previewState
 
 	help    bool
 	confirm *Action
@@ -165,6 +185,8 @@ func New(o Options) *Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{c: o.Client, opts: o, ctx: ctx, cancel: cancel, bus: make(chan tea.Msg, 512), width: 100, height: 30,
 		agentLast: map[string]LogLine{}, runTails: map[string]context.CancelFunc{}, actSeen: map[string]bool{},
+		errs: map[string]errTally{}, errAt: map[string]time.Time{}, notif: newNotifier(o.Notify, o.Run),
+		chat: chatState{msgs: map[string][]messaging.Message{}, errs: map[string]string{}, seen: map[string]int64{}},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot))}
 	m.startAt = m.now()
 	m.run.follow = true
@@ -279,12 +301,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamMsg:
 		return m, tea.Batch(m.onStream(StreamEvent(msg)), m.listen())
 	case detailMsg:
-		m.onDetail(msg)
-		return m, nil
+		return m, m.onDetail(msg)
 	case runMsg:
 		return m, m.onRun(msg)
 	case runTickMsg:
 		return m, m.onRunTick(msg)
+	case txLoadMsg:
+		return m, m.onTxLoad(msg)
+	case txLocalMsg:
+		m.onTxLocal(msg)
+		return m, nil
+	case txTickMsg:
+		return m, m.onTxTick(msg)
+	case errsMsg:
+		m.onErrs(msg)
+		return m, nil
+	case chatMsg:
+		m.onChat(msg)
+		return m, nil
+	case chatSentMsg:
+		return m, m.onChatSent(msg)
+	case formDoneMsg:
+		return m, m.onFormDone(msg)
+	case formEditorMsg:
+		m.onFormEditor(msg)
+		return m, nil
+	case previewMsg:
+		return m, m.onPreview(msg)
+	case openedMsg:
+		if msg.err != nil {
+			m.setToast("✗ could not open "+msg.what+": "+msg.err.Error(), true)
+		}
+		return m, nil
+	case bellMsg:
+		return m, tea.Raw("\a")
 	case actionMsg:
 		if msg.err != nil {
 			m.setToast("✗ "+msg.err.Error(), true)
@@ -297,6 +347,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case tea.PasteMsg:
+		if m.form != nil {
+			var cmd tea.Cmd
+			switch m.form.focus {
+			case fTitle:
+				m.form.title, cmd = m.form.title.Update(msg)
+			case fDesc:
+				m.form.desc, cmd = m.form.desc.Update(msg)
+			}
+			return m, cmd
+		}
+		if m.tab == tabChat && m.chat.typing {
+			var cmd tea.Cmd
+			m.chat.ti, cmd = m.chat.ti.Update(msg)
+			return m, cmd
+		}
 		if m.input != nil {
 			var cmd tea.Cmd
 			m.input.ti, cmd = m.input.ti.Update(msg)
@@ -335,7 +400,7 @@ func (m *Model) onOverview(msg overviewMsg) tea.Cmd {
 	m.ov, m.ovErr, m.loaded, m.lastOK, m.fails = msg.ov, nil, true, m.now(), 0
 	m.board.clamp(m)
 	m.inbox.clamp(m)
-	return m.syncRunTails()
+	return tea.Batch(m.syncRunTails(), m.syncErrs(), m.loadChats())
 }
 
 // syncRunTails follows the steps of every live run (cards, the agent tree and the activity stream) and
@@ -380,7 +445,7 @@ func (m *Model) onStream(e StreamEvent) tea.Cmd {
 			return nil
 		}
 		if e.Feed != nil {
-			m.addFeed(*e.Feed)
+			return m.addFeed(*e.Feed)
 		}
 	case strings.HasPrefix(e.Stream, "tail:"):
 		if e.Run != nil {
@@ -404,25 +469,33 @@ func (m *Model) onStream(e StreamEvent) tea.Cmd {
 			if t, ok := m.taskByID(task); ok {
 				project = t.ProjectID
 			}
+			var recount tea.Cmd
 			for _, l := range lines {
 				if l.Kind == lineInfo {
 					continue
+				}
+				if (l.Kind == lineRefusal || l.Kind == lineError) && recount == nil && m.now().Sub(m.errAt[id]) > 2*time.Second {
+					recount = m.loadErrs(id) // a new error: the badge follows at once
 				}
 				if agent != "" {
 					m.agentLast[agent] = l
 				}
 				m.addActivity(actRow{At: l.At, Agent: agent, Tool: l.Tool, Arg: l.Arg, Kind: l.Kind, Project: project, Task: task, Run: id})
 			}
+			return recount
 		}
 	case strings.HasPrefix(e.Stream, "run:"):
 		return m.run.onStream(m, e)
+	case strings.HasPrefix(e.Stream, "tx:"):
+		return m.tx.onStream(m, e)
 	}
 	return nil
 }
 
-func (m *Model) addFeed(item storage.FeedItem) {
+// addFeed keeps a feed row; a fresh attention row shows a toast and notifies.
+func (m *Model) addFeed(item storage.FeedItem) tea.Cmd {
 	if item.Sequence <= m.feedSeq {
-		return
+		return nil
 	}
 	m.feedSeq = item.Sequence
 	m.feed = append(m.feed, item)
@@ -437,7 +510,9 @@ func (m *Model) addFeed(item storage.FeedItem) {
 		if len(m.toasts) > 3 {
 			m.toasts = m.toasts[len(m.toasts)-3:]
 		}
+		return m.notif.item(item, m.now())
 	}
+	return nil
 }
 
 // runAgent is the agent of a live run.
@@ -508,7 +583,7 @@ func (m *Model) switchTab(t tab) tea.Cmd {
 
 // filtering: a view's own text input has the keys.
 func (m *Model) filtering() bool {
-	return m.tab == tabBoard && m.board.editing || m.tab == tabFeed && m.feedv.editing
+	return m.tab == tabBoard && m.board.editing || m.tab == tabFeed && m.feedv.editing || m.tab == tabChat && m.chat.typing
 }
 
 func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
@@ -553,6 +628,12 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if m.form != nil {
+		return m.form.key(m, k)
+	}
+	if m.preview != nil {
+		return m.preview.key(m, key)
+	}
 	if m.palette != nil {
 		return m.palette.key(m, k)
 	}
@@ -581,7 +662,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			return m.switchTab((m.baseTab() + 1) % tabCount)
 		case "shift+tab":
 			return m.switchTab((m.baseTab() + tabCount - 1) % tabCount)
-		case "1", "2", "3", "4", "5":
+		case "1", "2", "3", "4", "5", "6":
 			return m.switchTab(tab(key[0] - '1'))
 		case "]":
 			m.project = m.nextProject(m.project)
@@ -622,16 +703,27 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.feedv.key(m, k)
 	case tabInbox:
 		return m.inbox.key(m, key)
+	case tabChat:
+		return m.chat.key(m, k)
+	case tabTranscript:
+		return m.tx.key(m, key)
 	}
 	return nil
 }
 
-// baseTab is the tab under the run view.
+// baseTab is the tab under the run and transcript views.
 func (m *Model) baseTab() tab {
-	if m.tab == tabRun {
-		return m.prevTab
+	t := m.tab
+	if t == tabTranscript {
+		t = m.tx.back
 	}
-	return m.tab
+	if t == tabRun {
+		t = m.prevTab
+	}
+	if t >= tabCount {
+		return tabDashboard
+	}
+	return t
 }
 
 // View renders the screen.
@@ -670,6 +762,10 @@ func (m *Model) Render() string {
 		body = m.feedLines(w, bodyH)
 	case tabInbox:
 		body = m.inboxLines(w, bodyH)
+	case tabChat:
+		body = m.chatLines(w, bodyH)
+	case tabTranscript:
+		body = m.txLines(w, bodyH)
 	}
 	for len(body) < bodyH {
 		body = append(body, "")
@@ -818,6 +914,11 @@ func (m *Model) tabsLine(w int) string {
 		if tab(i) == tabInbox && len(m.ov.Inbox) > 0 {
 			badge = fmt.Sprintf(" %d", len(m.ov.Inbox))
 		}
+		if tab(i) == tabChat {
+			if n := m.unreadTotal(); n > 0 {
+				badge = fmt.Sprintf(" •%d", n)
+			}
+		}
 		var s string
 		if tab(i) == cur {
 			s = lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(" " + label + badge + " ")
@@ -832,6 +933,9 @@ func (m *Model) tabsLine(w int) string {
 	left := " " + strings.Join(parts, "")
 	if m.tab == tabRun {
 		left += stAccent.Render("  ▸ run " + m.run.id)
+	}
+	if m.tab == tabTranscript {
+		left += stAccent.Render("  ▸ transcript " + m.tx.id)
 	}
 	// Right: connection, company, run state, attention.
 	right := []string{}
@@ -889,6 +993,10 @@ func (m *Model) footerLine(w int) string {
 
 func (m *Model) hints() [][2]string {
 	switch {
+	case m.form != nil:
+		return formHint()
+	case m.preview != nil:
+		return [][2]string{{"j/k", "scroll"}, {"o", "open"}, {"y/n", "approve/reject"}, {"esc", "close"}}
 	case m.input != nil:
 		return [][2]string{{"enter", "ok"}, {"esc", "cancel"}}
 	case m.confirm != nil:
@@ -908,15 +1016,22 @@ func (m *Model) hints() [][2]string {
 		if m.board.open {
 			return [][2]string{{"j/k", "scroll"}, {"p/u", "pause/resume"}, {"r", "retry"}, {"x", "cancel"}, {"d", "direct"}, {"L", "live"}, {"esc", "close"}}
 		}
-		return append([][2]string{{"←→↑↓", "move"}, {"enter", "open"}, {"/", "filter"}, {"!", "needs you"}, {"L", "live"}}, common...)
+		return append([][2]string{{"←→↑↓", "move"}, {"enter", "open"}, {"n", "new"}, {"/", "filter"}, {"!", "needs you"}, {"L", "live"}}, common...)
 	case tabRun:
-		return append([][2]string{{"f", "follow"}, {"j/k", "scroll"}, {"G", "newest"}, {"t", "task"}, {"esc", "back"}}, common...)
+		return append([][2]string{{"t", "transcript"}, {"e", "errors"}, {"f", "follow"}, {"j/k", "scroll"}, {"T", "task"}, {"esc", "back"}}, common...)
+	case tabTranscript:
+		return [][2]string{{"j/k", "entry"}, {"enter", "expand"}, {"E", "all"}, {"e", "errors only"}, {"l", "local/core"}, {"f", "follow"}, {"T", "task"}, {"esc", "back"}}
+	case tabChat:
+		if m.chat.typing {
+			return [][2]string{{"enter", "send"}, {"@name", "address"}, {"esc", "stop typing"}}
+		}
+		return append([][2]string{{"j/k", "report"}, {"enter", "write"}, {"pgup/dn", "scroll"}, {"t", "reply run"}}, common...)
 	case tabFlow:
 		return append([][2]string{{"g", "lanes/pairs"}, {"a", "agent"}, {"t", "task"}, {"x", "clear"}, {"j/k", "scroll"}}, common...)
 	case tabFeed:
 		return append([][2]string{{"!", "attention"}, {"/", "filter"}, {"j/k", "scroll"}, {"G", "newest"}}, common...)
 	case tabInbox:
-		return append([][2]string{{"↑↓", "item"}, {"←→", "option"}, {"enter", "answer"}, {"a", "text"}, {"y/n", "approve"}}, common...)
+		return append([][2]string{{"↑↓", "item"}, {"←→", "option"}, {"enter", "answer"}, {"a", "text"}, {"v", "preview"}, {"y/n", "approve"}}, common...)
 	}
 	return common
 }
@@ -925,6 +1040,10 @@ func (m *Model) hints() [][2]string {
 func (m *Model) modalLines(w, h int) []string {
 	mw := min(w-4, 76)
 	switch {
+	case m.form != nil:
+		return m.formLines(w, h)
+	case m.preview != nil:
+		return m.previewLines(w, h)
 	case m.confirm != nil:
 		lines := []string{}
 		for _, l := range wrap(capitalize(m.confirm.Describe())+"?", mw-4) {
@@ -1030,7 +1149,7 @@ func (m *Model) onClick(ms tea.Mouse) tea.Cmd {
 	if ms.Button != tea.MouseLeft {
 		return nil
 	}
-	if m.input != nil || m.confirm != nil || m.palette != nil || m.chooser != nil {
+	if m.input != nil || m.confirm != nil || m.palette != nil || m.chooser != nil || m.form != nil || m.preview != nil {
 		return nil
 	}
 	m.help = false

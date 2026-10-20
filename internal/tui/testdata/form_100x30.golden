@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
+ 21 tasks  · z shows cancelled                                                                more ▶
+╭───────── ● Backlog 3 ─────────╮╭──────── ● Ready 4 +1 ─────────╮╭───────── ● Running 2 ──────────╮
+│ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
+│ ┃ ● ⚠ Task 4                ┃ ││ │ ● Task 9                  │ ││ │ ● Task 2                   │ │
+│ ┃ P2-4  project-2        ▽3 ┃ ││ │ P1-9  project-1        ▲8 │ ││ │ P3-2  project-3      ✗1 ▲8 │ │
+│ ┃ ●╭─────────────────────────────────────── New task ───────────────────────────────────────╮m │ │
+│ ┃ ↳│   Project       project-1                                                              │  │ │
+│ ┗━━│ ▸ Title         what needs doing                                                       │──╯ │
+│ ╭──│   Description   details, acceptance criteria (ctrl+e opens $EDITOR)                    │──╮ │
+│ │ ●│                                                                                        │  │ │
+│ │ P│                                                                                        │7 │ │
+│ │ ●│                                                                                        │m │ │
+│ │ ○│   Assignee      unassigned                                                             │… │ │
+│ ╰──│   Priority      5          -1000..1000, higher runs first                              │──╯ │
+│ ╭──│   Depends on    ☐ P1-1  ☐ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9                 │    │
+│ │ ●│   Ready now     ● yes — released to the board                                          │    │
+│ │ P│                                                                                        │    │
+│ │ ●│                 Create task                                                            │    │
+│ │ ○│ ────────────────────────────────────────────────────────────────────────────────────── │    │
+│ ╰──│ tab next ←→ choose space toggle ctrl+e $EDITOR ctrl+s create esc cancel                │    │
+│    ╰────────────────────────────────────────────────────────────────────────────────────────╯    │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+╰───────────────────────────────╯╰───────────────────────────────╯╰────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
+ tab next field  ctrl+s create  esc cancel

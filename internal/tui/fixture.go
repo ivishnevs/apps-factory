@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
@@ -24,6 +25,56 @@ type Fixture struct {
 	Runs      map[string]storage.Run        `json:"runs,omitempty"`
 	RunEvents map[string][]RunEvent         `json:"run_events,omitempty"`
 	ToolCalls map[string][]storage.ToolCall `json:"tool_calls,omitempty"`
+	// Conversations are the owner conversations' messages by conversation ID (owner-<agent>-<project>).
+	Conversations map[string][]messaging.Message `json:"conversations,omitempty"`
+	// Artifacts are uploaded artifact contents by "project/artifact/version".
+	Artifacts map[string]string `json:"artifacts,omitempty"`
+}
+
+// ownerConversation is the owner's conversation with a direct report in a project (POST /messages).
+func ownerConversation(agent, project string) string { return "owner-" + agent + "-" + project }
+
+// directReports are the owner's direct reports, sorted (the default report first).
+func directReports(agents []Agent, defaultReport string) []string {
+	out := []string{}
+	for _, a := range agents {
+		if a.ReportsTo == "owner" {
+			out = append(out, a.Name)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if (out[i] == defaultReport) != (out[j] == defaultReport) {
+			return out[i] == defaultReport
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+// defaultReportOf is owner.default_report as Core reports it, or the only direct report.
+func defaultReportOf(ov Overview) string {
+	if ov.Health.DefaultReport != "" {
+		return ov.Health.DefaultReport
+	}
+	if r := directReports(ov.Agents, ""); len(r) == 1 {
+		return r[0]
+	}
+	return ""
+}
+
+// addressee is the direct report an owner message goes to: a leading @name, else the default report.
+func addressee(body string, reports []string, def string) (string, bool) {
+	if strings.HasPrefix(body, "@") {
+		name, _, _ := strings.Cut(strings.TrimPrefix(body, "@"), " ")
+		name = strings.TrimRight(name, ",:")
+		for _, r := range reports {
+			if r == name {
+				return name, true
+			}
+		}
+		return "", false
+	}
+	return def, def != ""
 }
 
 // LoadFixture reads a fixture file, or fixture.json in a directory.
@@ -153,9 +204,51 @@ func (c *FixtureClient) StreamRun(ctx context.Context, run string, after int64, 
 
 func (c *FixtureClient) Do(_ context.Context, a Action) (string, error) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.Sent = append(c.Sent, a)
-	c.mu.Unlock()
+	if a.Kind == "say" {
+		// The demo keeps the owner's message in its conversation, as Core would.
+		def := defaultReportOf(c.F.Overview)
+		to, ok := addressee(a.Text, directReports(c.F.Overview.Agents, def), def)
+		if !ok {
+			return "", fmt.Errorf("address a direct report with @name, or set owner.default_report")
+		}
+		if c.F.Conversations == nil {
+			c.F.Conversations = map[string][]messaging.Message{}
+		}
+		id := ownerConversation(to, a.Project)
+		n := len(c.F.Conversations[id]) + 1
+		// After the conversation's newest message: the fixture's clock stands still.
+		at := c.F.Overview.At
+		for _, x := range c.F.Conversations[id] {
+			if t := time.Unix(x.CreatedAt, 0).Add(time.Minute); t.After(at) {
+				at = t
+			}
+		}
+		c.F.Conversations[id] = append(c.F.Conversations[id], messaging.Message{ID: fmt.Sprintf("m-%s-%d", id, n), ProjectID: a.Project, Sender: "owner", Recipient: to,
+			ConversationID: id, MessageType: "question", Body: a.Text, Status: "PENDING", Version: 1, CreatedAt: at.Unix(), DeliveryStatus: "TRIGGERED"})
+	}
 	return "fixture: not sent — " + a.Describe(), nil
+}
+
+func (c *FixtureClient) RunEvents(_ context.Context, run string) ([]RunEvent, error) {
+	if _, ok := c.F.Runs[run]; !ok {
+		return nil, fmt.Errorf("run %s not in the fixture", run)
+	}
+	return c.F.RunEvents[run], nil
+}
+
+func (c *FixtureClient) Messages(_ context.Context, conversation string) ([]messaging.Message, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]messaging.Message(nil), c.F.Conversations[conversation]...), nil
+}
+
+func (c *FixtureClient) ArtifactContent(_ context.Context, project, artifact, version string) ([]byte, error) {
+	if b, ok := c.F.Artifacts[project+"/"+artifact+"/"+version]; ok {
+		return []byte(b), nil
+	}
+	return nil, fmt.Errorf("artifact %s %s has no content in the fixture", artifact, version)
 }
 
 // Record reads the current Core state into a fixture: the overview, the last feed rows, the detail of every
@@ -227,6 +320,20 @@ func Record(ctx context.Context, c *HTTPClient) (Fixture, error) {
 		}
 		if f.ToolCalls[id], err = c.ToolCalls(ctx, id); err != nil {
 			return f, err
+		}
+	}
+	// The owner's conversations with each direct report in each project (the chat).
+	f.Conversations = map[string][]messaging.Message{}
+	for _, p := range f.Overview.Status {
+		for _, a := range directReports(f.Overview.Agents, "") {
+			id := ownerConversation(a, p.Project.ID)
+			msgs, err := c.Messages(ctx, id)
+			if err != nil {
+				return f, err
+			}
+			if len(msgs) > 0 {
+				f.Conversations[id] = msgs
+			}
 		}
 	}
 	return f, nil

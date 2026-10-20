@@ -1,40 +1,40 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
-╭──────────────────────────────────── Flow · swimlanes · 33 steps · project all · agent all · task all ────────────────────────────────────╮
-│         owner           designer            lead            reviewer                                                                     │
-│                   pm            developer-1       developer-2           qa                                                               │
-│ 06:10     │        │        │        │        ●────────▶        │        │     create    P2-6   “Task 6”                                 │
-│ 07:50     │        │        ◆        │        │        │        │        │     done      P3-1   Task 1 spec v2 in the repo               │
-│ 09:10     ●───────────────────────────────────▶        │        │        │     create    P2-3   “Task 3”                                 │
-│ 09:30     ●────────▶        │        │        │        │        │        │     create    P1-1   “Task 1”                                 │
-│ 09:50     │        ●────────▶        │        │        │        │        │     create    P1-2   “Task 2”                                 │
-│ 10:00     │        ●─────────────────▶        │        │        │        │     create    P1-3   “Task 3”                                 │
-│ 10:05     │        ●─────────────────────────────────────────────────────▶     create    P1-4   “Task 4”                                 │
-│ 10:10     │        │        │        │        │        ◆        │        │     done      P2-6   Task 6 merged, tests pass                │
-│ 10:30     │        │        │        │        ●────────▶        │        │     create    P2-1   “Task 1”                                 │
-│ 10:40     │        │        │        │        ●────────▶        │        │     create    P2-2   “Task 2”                                 │
-│ 11:00     │        │        ◆        │        │        │        │        │     done      P1-2   module 1 mockups v3                      │
-│ 11:10     │        ◆        │        │        │        │        │        │     create    P1-5   “Task 5”                                 │
-│ 11:30     │        ●─────────────────▶        │        │        │        │     create    P1-7   “Task 7”                                 │
-│ 11:50     │        ◀─────────────────●        │        │        │        │     question  P1-3   Should Task 3 support option A or both?  │
-│ 12:00     │        ●─────────────────▶        │        │        │        │     answer    P1-3   Option A only for now.                   │
-│ 12:30     │        │        │        │        ●────────▶        │        │     create    P3-2   “Task 2”                                 │
-│ 12:31     │        │        │        │        │        ●────────▶        │     submit    P2-1   Task 1 is ready for review               │
-│ 12:40     │        │        │        │        │        ◀────────●        │     changes   P2-1   add tests for edge cases                 │
-│ 12:42     │        │        │        │        ●─────────────────▶        │     create    P3-3   “Task 3”                                 │
-│ 12:50     │        ◆        │        │        │        │        │        │     asked     P1-5   Which option for Task 5: A or B?         │
-│ 12:55     ◀────────●        │        │        │        │        │        │     question  P1-5   Which option for Task 5: A or B? A is f… │
-│ 13:05     │        │        │        │        │        ●────────▶        │     submit    P3-6   Task 6 is ready for review               │
-│ 13:20     ●──────────────────────────▶        │        │        │        │     directive P1-3   Keep Task 3 working offline.             │
-│ 13:35     │        │        │        │        │        ●────────▶        │     submit    P2-1   edge-case tests added                    │
-│ 13:40     │        │        │        │        │        ◆        │        │     blocked   P3-5   needs the input data for Task 5          │
-│ 13:50     │        │        │        │        ●────────▶        │        │     handoff   P2-3   rebase P2-2 on main before retrying      │
-│ 14:00     ◀───────────────────────────────────●        │        │        │     escalate  P2-3   P2-3 waits on P2-2                       │
-│ 14:05     │        │        │        ●───────────────────────────────────▶     create    P1-9   “Task 9”                                 │
-│ 14:10     ◀───────────────────────────────────●        │        │        │     approval  P2-3   factory_release_publish: release 1.2 of… │
-│ 14:27     │        │        │        │        ◀────────●        │        │     question  P3-2   Which option for Task 2: A or B?         │
-│ 14:28     ●─────────────────────────────────────────────────────▶        │     comment   P2-1   Please check Task 1 on a large input.    │
-│ 14:29     │        │        │        │        ●────────▶        │        │     answer    P3-2   Option B, keep it behind a flag.         │
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1                                   ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+╭──────────────────────────────────── Flow · swimlanes · 34 steps · project all · agent all · task all ────────────────────────────────────╮
+│         owner          developer-2           pm            developer-1                                                                   │
+│                  lead            reviewer          designer             qa                                                               │
+│ 07:50     │        │        │        │        │        ◆        │        │     done      P3-1   Task 1 spec v2 in the repo               │
+│ 09:10     ●────────▶        │        │        │        │        │        │     create    P2-3   “Task 3”                                 │
+│ 09:30     ●───────────────────────────────────▶        │        │        │     create    P1-1   “Task 1”                                 │
+│ 09:50     │        │        │        │        ●────────▶        │        │     create    P1-2   “Task 2”                                 │
+│ 10:00     │        │        │        │        ●─────────────────▶        │     create    P1-3   “Task 3”                                 │
+│ 10:05     │        │        │        │        ●──────────────────────────▶     create    P1-4   “Task 4”                                 │
+│ 10:10     │        │        ◆        │        │        │        │        │     done      P2-6   Task 6 merged, tests pass                │
+│ 10:30     │        ●────────▶        │        │        │        │        │     create    P2-1   “Task 1”                                 │
+│ 10:40     │        ●────────▶        │        │        │        │        │     create    P2-2   “Task 2”                                 │
+│ 11:00     │        │        │        │        │        ◆        │        │     done      P1-2   module 1 mockups v3                      │
+│ 11:10     │        │        │        │        ◆        │        │        │     create    P1-5   “Task 5”                                 │
+│ 11:30     │        │        │        │        ●─────────────────▶        │     create    P1-7   “Task 7”                                 │
+│ 11:50     │        │        │        │        ◀─────────────────●        │     question  P1-3   Should Task 3 support option A or both?  │
+│ 12:00     │        │        │        │        ●─────────────────▶        │     answer    P1-3   Option A only for now.                   │
+│ 12:30     │        ●────────▶        │        │        │        │        │     create    P3-2   “Task 2”                                 │
+│ 12:31     │        │        ●────────▶        │        │        │        │     submit    P2-1   Task 1 is ready for review               │
+│ 12:40     │        │        ◀────────●        │        │        │        │     changes   P2-1   add tests for edge cases                 │
+│ 12:42     │        ●─────────────────▶        │        │        │        │     create    P3-3   “Task 3”                                 │
+│ 12:50     │        │        │        │        ◆        │        │        │     asked     P1-5   Which option for Task 5: A or B?         │
+│ 12:55     ◀───────────────────────────────────●        │        │        │     question  P1-5   Which option for Task 5: A or B? A is f… │
+│ 13:05     │        │        ●────────▶        │        │        │        │     submit    P3-6   Task 6 is ready for review               │
+│ 13:20     ●─────────────────────────────────────────────────────▶        │     directive P1-3   Keep Task 3 working offline.             │
+│ 13:35     │        │        ●────────▶        │        │        │        │     submit    P2-1   edge-case tests added                    │
+│ 13:40     │        │        ◆        │        │        │        │        │     blocked   P3-5   needs the input data for Task 5          │
+│ 13:50     │        ●────────▶        │        │        │        │        │     handoff   P2-3   rebase P2-2 on main before retrying      │
+│ 14:00     ◀────────●        │        │        │        │        │        │     escalate  P2-3   P2-3 waits on P2-2                       │
+│ 14:05     │        │        │        │        │        │        ●────────▶     create    P1-9   “Task 9”                                 │
+│ 14:10     ◀────────●        │        │        │        │        │        │     approval  P2-3   factory_release_publish: release 1.2 of… │
+│ 14:22     ◀────────────────────────────────────────────●        │        │     approval  P2-4   release-notes v2: the wording the relea… │
+│ 14:27     │        ◀────────●        │        │        │        │        │     question  P3-2   Which option for Task 2: A or B?         │
+│ 14:28     ●──────────────────────────▶        │        │        │        │     comment   P2-1   Please check Task 1 on a large input.    │
+│ 14:29     │        ●────────▶        │        │        │        │        │     answer    P3-2   Option B, keep it behind a flag.         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +3 in inbox
  g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

@@ -1,0 +1,24 @@
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •… …│ ▶ running │ ⚠ 5
+╭─╭───────────── Preview · release-notes v2 · release-notes.md ──────────────╮─╮
+│ │  Project 2 · release 1.2                                                 │ │
+│ │                                                                          │ │
+│ │ What's new                                                               │ │
+│ │                                                                          │ │
+│ │ • Faster sync: changes reach other devices in under a second.            │ │
+│ │ • Offline mode for module 1 (see P1-3).                                  │ │
+│ │ • A new empty state for the item list.                                   │ │
+│ │                                                                          │ │
+╰─│ Fixed                                                                    │─╯
+╭─│                                                                          │─╮
+│ │ 1.  Large inputs no longer time out on import.                           │ │
+│ │ 2.  The settings screen keeps its scroll position.                       │ │
+│ │                                                                          │ │
+│ │ ▌ Beta channel first; the stable release follows after a week without    │ │
+│ │ ▌ regressions.                                                           │ │
+│ │ ──────────────────────────────────────────────────────────────────────── │ │
+│ │ j/k scroll o open in viewer y approve n reject esc close 20 lines ·   0% │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +3 in inbox
+ j/k scroll  o open  y/n approve/reject  esc close

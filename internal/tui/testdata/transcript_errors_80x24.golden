@@ -1,0 +1,24 @@
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1   ▸ transcript r-…
+╭──────────────────── developer-1 · r-d1-7 · P1-3 · ● live ────────────────────╮
+│   core events  · local: not available here  ✗3   errors only         follow  │
+│ ──────────────────────────────────────────────────────────────────────────── │
+│   ▸ ❯ Bash  $ git push --force origin af/P1-3               ✗ error 14:21:20 │
+│       Exit code 126                                                          │
+│   ✗ command refused (deny, rule no-force-push): git push --force o… 14:21:21 │
+│   ▸ ⇄ factory_exit_submit  reviewer=pm summary="module 1 w… ✗ error 14:28:00 │
+│       409 {"reason":"branch_not_pushed","hint":"push af/P1-3 ahead of mai…   │
+│   ✗ Core refused factory_exit_submit (409)                          14:28:01 │
+│ ▌ ✗ exit guard refused the turn's end: submit needs a pushed branc… 14:28:02 │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│  ✗ last error 14:28:02 exit guard refused the turn's end: submit needs a…    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +3 in inbox
+ j/k entry  enter expand  E all  e errors only  l local/core  f follow  T task …

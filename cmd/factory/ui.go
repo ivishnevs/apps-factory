@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -13,20 +15,47 @@ import (
 	"appfactory/internal/worker"
 )
 
-const uiUsage = "ui [--demo | --fixture PATH | --record PATH]"
+const uiUsage = "ui [--demo | --fixture PATH | --record PATH] [--notify desktop|bell|off] [--claude-config-dir DIR] [--codex-home DIR]"
 
 // uiCommand runs the owner's terminal UI against Core (FACTORY_URL, FACTORY_TOKEN), against a recorded fixture
-// (--fixture, --demo: no Core needed), or records Core's current state into a fixture (--record).
+// (--fixture, --demo: no Core needed), or records Core's current state into a fixture (--record). --notify
+// says how a new question, approval or escalation for the owner notifies (a macOS notification by default,
+// the terminal bell elsewhere); --claude-config-dir and --codex-home find runs' local session files when the
+// UI runs on a node's machine (defaults: $CLAUDE_CONFIG_DIR or ~/.claude, $CODEX_HOME or ~/.codex).
 func uiCommand(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	demo := fs.Bool("demo", false, "")
+	fixture := fs.String("fixture", "", "")
+	record := fs.String("record", "", "")
+	notify := fs.String("notify", tui.NotifyDesktop, "")
+	claudeDir := fs.String("claude-config-dir", "", "")
+	codexHome := fs.String("codex-home", "", "")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return fmt.Errorf("usage: %s", uiUsage)
+	}
+	modes := 0
+	for _, on := range []bool{*demo, *fixture != "", *record != ""} {
+		if on {
+			modes++
+		}
+	}
+	switch *notify {
+	case tui.NotifyDesktop, tui.NotifyBell, tui.NotifyOff:
+	default:
+		modes = 2
+	}
+	if modes > 1 {
+		return fmt.Errorf("usage: %s", uiUsage)
+	}
 	mode, path := "live", ""
 	switch {
-	case len(args) == 0:
-	case len(args) == 1 && args[0] == "--demo":
+	case *demo:
 		mode = "demo"
-	case len(args) == 2 && (args[0] == "--fixture" || args[0] == "--record"):
-		mode, path = args[0][2:], args[1]
-	default:
-		return fmt.Errorf("usage: %s", uiUsage)
+	case *fixture != "":
+		mode, path = "fixture", *fixture
+	case *record != "":
+		mode, path = "record", *record
 	}
 	var client tui.Client
 	now := time.Now
@@ -64,7 +93,8 @@ func uiCommand(ctx context.Context, args []string) error {
 		}
 		client = c
 	}
-	m := tui.New(tui.Options{Client: client, Now: now})
+	m := tui.New(tui.Options{Client: client, Now: now, Notify: *notify,
+		Local: tui.LocalTranscripts{ClaudeDir: *claudeDir, CodexHome: *codexHome, Off: mode != "live"}})
 	defer m.Close()
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {

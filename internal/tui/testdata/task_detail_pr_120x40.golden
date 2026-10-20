@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                      14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1               ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+ 21 t╭────────────────────────────────────────────── P2-1 · Task 1 ───────────────────────────────────────────────╮ore ▶
+╭────│ ● REVIEW  IN_REVIEW   project-2   ● reviewer  priority 6 · v3 · attempt 0                                  │────╮
+│ ╭──│ origin  created by lead from P2-3 · implementer developer-2 · reviewer reviewer · 4h ago                   │━━┓ │
+│ │ ●│ PR      #12 open · head 9f3c2e1… · https://github.com/company-1/project-2/pull/12  o opens                 │  ┃ │
+│ │ P│ checks  ✓ go test ./... · ✓ go vet ./...                                                                   │6 ┃ │
+│ │ ●│ why     live_run — run r-rev-2 is running                                                                  │m ┃ │
+│ │ ◌│ clears  reviewer — wait for the review                                                                     │… ┃ │
+│ ╰──│ submission edge-case tests added                                                                           │━━┛ │
+│ ╭──│                                                                                                            │──╮ │
+│ │ ●│ ▌ Runs (2)                                                                                                 │  │ │
+│ │ P│   ✓ #1 r-d2-6    succeeded  10-20 13:20  ⏏ submitted   -                                                   │5 │ │
+│ │ ●│        edge-case tests added                                                                               │m │ │
+│ │ ↳│   ● #2 r-rev-2   RUNNING    10-20 14:26  -             -                                                   │  │ │
+│ ╰──│                                                                                                            │──╯ │
+│ ╭──│ ▌ Recent events                                                                                            │    │
+│ │ ●│   10:30:00   task.created              Task 1                                                              │    │
+│ │ P│   12:31:00   task.exit.submitted       developer-2 → reviewer (submit): Task 1 is ready for review         │    │
+│ │ ●│   12:40:00   task.exit.handoff         reviewer → developer-2 (changes_requested): add tests for edge cas… │    │
+│ │ ↳│   13:35:00   task.exit.submitted       developer-2 → reviewer (submit): edge-case tests added              │    │
+│ ╰──│   14:26:00   task.started              Task 1                                                              │    │
+│ ╭──│   14:28:00   task.commented            Please check Task 1 on a large input.                               │    │
+│ │ ●│                                                                                                            │    │
+│ │ P│                                                                                                            │    │
+│ │ ●│                                                                                                            │    │
+│ │ ↳│                                                                                                            │    │
+│ ╰──│                                                                                                            │    │
+│    │                                                                                                            │    │
+│    │                                                                                                            │    │
+│    │                                                                                                            │    │
+│    │                                                                                                            │    │
+│    │                                                                                                            │    │
+│    │                                                                                                            │    │
+│    │ ────────────────────────────────────────────────────────────────────────────────────────────────────────── │    │
+│    │ p/u r n x a P c d L t o esc  ? names them                                                                  │    │
+│    ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯    │
+╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +3 in inbox
+ j/k scroll  p/u pause/resume  r retry  x cancel  d direct  L live  esc close

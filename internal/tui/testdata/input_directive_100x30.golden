@@ -1,17 +1,17 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
  21 tasks  · z shows cancelled                                                                more ▶
 ╭───────── ● Backlog 3 ─────────╮╭──────── ● Ready 4 +1 ─────────╮╭───────── ● Running 2 ──────────╮
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
-│ │ ● Task 4                  │ ││ │ ● Task 9                  │ ││ ┃ ● Task 2                   ┃ │
-│ │ P3-4  project-3        ▽3 │ ││ │ P1-9  project-1        ▲8 │ ││ ┃ P3-2  project-3         ▲8 ┃ │
-│ │ ● developer-2          1h │ ││ │ ● qa                  25m │ ││ ┃ ● developer-2           7m ┃ │
-│ │ ○ not released            │ ││ │ ◌ ready · next free slot  │ ││ ┃ ⠋ ✎ Edit: src/module_2.ts  ┃ │
+│ │ ● ⚠ Task 4                │ ││ │ ● Task 9                  │ ││ ┃ ● Task 2                   ┃ │
+│ │ P2-4  project-2        ▽3 │ ││ │ P1-9  project-1        ▲8 │ ││ ┃ P3-2  project-3      ✗1 ▲8 ┃ │
+│ │ ● designer             3h │ ││ │ ● qa                  25m │ ││ ┃ ● developer-2           7m ┃ │
+│ │ ↳ you: release it to the… │ ││ │ ◌ ready · next free slot  │ ││ ┃ ✗ $ npm test -- module_2:… ┃ │
 │ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
 │ │ ● Task 4                  │ ││ │ ● Task 2                  │ ││ │ ● Task 3                   │ │
-│ │ P2-4  pr╭───────────────────────────────── Input ──────────────────────────────────╮      △7 │ │
-│ │ ● design│ Directive to P3-2 (start with ! for urgent: stops the live run)          │44 · 12m │ │
+│ │ P3-4  pr╭───────────────────────────────── Input ──────────────────────────────────╮   ✗3 △7 │ │
+│ │ ● develo│ Directive to P3-2 (start with ! for urgent: stops the live run)          │44 · 12m │ │
 │ │ ○ not re│                                                                          │... -ru… │ │
 │ ╰─────────│ › !ship the grams-only picker today                                      │─────────╯ │
 │ ╭─────────╰──────────────────────────────────────────────────────────────────────────╯           │
@@ -26,5 +26,5 @@
 │                               ││                               ││                                │
 │                               ││                               ││                                │
 ╰───────────────────────────────╯╰───────────────────────────────╯╰────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
  enter ok  esc cancel

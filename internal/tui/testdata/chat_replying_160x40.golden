@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1                                                       ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+╭──────── Direct reports ────────╮╭─────────────────────────────────────────────── lead · owner-lead-project-2 ────────────────────────────────────────────────╮
+│ project  project-2             ││                                                                                                                            │
+│ [ ] switches project           ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│ ● pm ★                         ││                                                                                                                            │
+│   project manager              ││                                                                                                                            │
+│ ● lead                         ││                                                                                                                            │
+│   ⠋ replying…                  ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│ ★ default report               ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                                                            │
+│                                ││                                                                                         ╭─────── you 10-20 13:50 ────────╮ │
+│                                ││                                                                                         │ @lead is release 1.2 on track? │ │
+│                                ││                                                                                         ╰────────────────────────────────╯ │
+│                                ││                                                                                                                            │
+│                                ││ ╭────────────────────────────────── lead 10-20 13:55 ───────────────────────────────────╮                                  │
+│                                ││ │ Yes: it passed review and I asked for your approval to publish it to beta. P2-2 still │                                  │
+│                                ││ │ fails, it waits on a rebase.                                                          │                                  │
+│                                ││ ╰───────────────────────────────────────────────────────────────────────────────────────╯                                  │
+│                                ││                                                                                                                            │
+│                                ││                                              ╭───────────────────────────── you 10-20 14:28 ─────────────────────────────╮ │
+│                                ││                                              │ @lead can P2-2 be retried after the rebase, or should we cut it from 1.2? │ │
+│                                ││                                              ╰───────────────────────────────────────────────────────────────────────────╯ │
+│                                ││  ⠋ lead is replying                                                                                                        │
+│                                ││ ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ │
+│                                ││ │ enter to write to lead · @name addresses another report                                                                │ │
+│                                ││ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+╰────────────────────────────────╯╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +3 in inbox
+ j/k report  enter write  pgup/dn scroll  t reply run  ^k palette  [ ] project  ? help  q quit

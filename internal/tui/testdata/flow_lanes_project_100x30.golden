@@ -1,5 +1,5 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
 ╭───────────── Flow · swimlanes · 13 steps · project project-1 · agent all · task all ─────────────╮
 │          owner             designer               qa                                             │
 │                     pm              developer-1                                                  │
@@ -26,5 +26,5 @@
 │                                                                                                  │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
  g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

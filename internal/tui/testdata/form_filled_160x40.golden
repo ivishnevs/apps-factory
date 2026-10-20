@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1                                                       ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+ 9 tasks  · z shows cancelled                                                                                                                             more ▶
+╭──────── ● Backlog 1 ─────────╮╭───────── ● Ready 2 ──────────╮╭──────── ● Running 1 ─────────╮╭──────── ● Waiting 3 ─────────╮╭─────── ● In review 0 ────────╮
+│ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││   —                          │
+│ ┃ ● Task 6                 ┃ ││ │ ● Task 9                 │ ││ │ ● Task 3                 │ ││ │ ● ⚠ Task 5               │ ││                              │
+│ ┃ P1-6  project-1       ▽2 ┃ ││ │ P1-9  project-1       ▲8 │ ││ │ P1-3  project-1    ✗3 △7 │ ││ │ P1-5  project-1       ▲8 │ ││                              │
+│ ┃ ● designer            2h ┃ ││ │ ● qa                 25m │ ││ │ ● developer… $2.44 · 12m │ ││ │ ● pm          $0.07 · 1h │ ││                              │
+│ ┃ ○ not released           ┃ ││ │ ◌ ready · next free slot │ ││ │ ⠋ ▸ go test ./src/... -… │ ││ │ ↳ you: answer m-ask-1 i… │ ││                              │
+│ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││                              │
+│                              ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
+│                              ││ │ ● Task 7                 │ ││                              ││ │ ● Task 1                 │ ││                              │
+│                              ││ │╭─────────────────────────────────────── New task ───────────────────────────────────────╮│ ││                              │
+│                              ││ ││   Project       project-1                                                              ││ ││                              │
+│                              ││ ││   Title         Export items as CSV                                                    ││ ││                              │
+│                              ││ ╰│   Description   One row per item.                                                      │╯ ││                              │
+│                              ││  │                                                                                        │╮ ││                              │
+│                              ││  │                                                                                        ││ ││                              │
+│                              ││  │                                                                                        ││ ││                              │
+│                              ││  │   Assignee      developer-1 · developer                                                ││ ││                              │
+│                              ││  │   Priority      7          -1000..1000, higher runs first                              ││ ││                              │
+│                              ││  │   Depends on    ☐ P1-1  ☑ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9                 │╯ ││                              │
+│                              ││  │ ▸ Ready now     ● yes — released to the board                                          │  ││                              │
+│                              ││  │                                                                                        │  ││                              │
+│                              ││  │                 Create task                                                            │  ││                              │
+│                              ││  │ ────────────────────────────────────────────────────────────────────────────────────── │  ││                              │
+│                              ││  │ tab next ←→ choose space toggle ctrl+e $EDITOR ctrl+s create esc cancel                │  ││                              │
+│                              ││  ╰────────────────────────────────────────────────────────────────────────────────────────╯  ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+│                              ││                              ││                              ││                              ││                              │
+╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +3 in inbox
+ tab next field  ctrl+s create  esc cancel

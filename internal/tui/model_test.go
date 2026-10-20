@@ -71,7 +71,7 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 			got[c.key] = append(got[c.key], tk.ID)
 		}
 	}
-	want := map[string]string{"backlog": "P3-4 P2-4 P1-6", "running": "P3-2 P1-3", "review": "P2-1 P3-6", "done": "P1-2 P1-8 P2-6 P3-1"}
+	want := map[string]string{"backlog": "P2-4 P3-4 P1-6", "running": "P3-2 P1-3", "review": "P2-1 P3-6", "done": "P1-2 P1-8 P2-6 P3-1"}
 	for k, v := range want {
 		if strings.Join(got[k], " ") != v {
 			t.Errorf("%s: %v, want %s", k, got[k], v)
@@ -115,7 +115,7 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 	}
 	press(m, "esc")
 	key(m, "!")
-	if n := len(m.boardTasks()); n != 2 {
+	if n := len(m.boardTasks()); n != 3 {
 		t.Fatal(n)
 	}
 }
@@ -131,7 +131,7 @@ func TestTaskActionsConfirmFirst(t *testing.T) {
 	if m.confirm != nil || len(c.Sent) != 0 {
 		t.Fatal("cancel sent something")
 	}
-	for _, tc := range []struct{ key, kind string }{{"p", "pause"}, {"u", "resume"}, {"r", "retry"}, {"n", "run"}} {
+	for _, tc := range []struct{ key, kind string }{{"p", "pause"}, {"u", "resume"}, {"r", "retry"}} {
 		key(m, tc.key)
 		run(m, key(m, "y"))
 		if a := lastSent(t, c); a.Kind != tc.kind || a.TaskID != "P1-3" {
@@ -251,7 +251,7 @@ func TestCardDetailModal(t *testing.T) {
 func TestPromptBar(t *testing.T) {
 	m, c := demoModel(t, 140, 40)
 	s := ansi.Strip(m.Render())
-	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+2 in inbox") {
+	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+3 in inbox") {
 		t.Fatal(s)
 	}
 	// The oldest item is a question with options: A opens the chooser; 2 picks the second option.
@@ -445,11 +445,11 @@ func TestFeedDedupActivityAndToasts(t *testing.T) {
 func TestDashboardPanels(t *testing.T) {
 	m, _ := demoModel(t, 140, 40)
 	// The owner row: tasks that need the owner, company stats.
-	if list := m.panelTasks(); len(list) != 4 || list[0].ID != "P2-1" {
+	if list := m.panelTasks(); len(list) != 5 || list[0].ID != "P2-1" {
 		t.Fatalf("%+v", list)
 	}
-	// Select developer-1 (rows: owner, pm, designer, developer-1).
-	press(m, "j", "j", "j")
+	// Select developer-1 (rows: owner, lead, developer-2, reviewer, pm, designer, developer-1).
+	press(m, "j", "j", "j", "j", "j", "j")
 	a, ok := m.selectedAgent()
 	if !ok || a.Name != "developer-1" || a.run != "r-d1-7" {
 		t.Fatalf("%+v", a)
@@ -526,14 +526,27 @@ func TestMouse(t *testing.T) {
 	press(m, "1")
 	m.Render()
 	// Click the tree row of developer-1: body starts at y=2, the panel's first row at y=3.
-	m.Update(tea.MouseClickMsg{X: 10, Y: 3 + 3, Button: tea.MouseLeft})
+	rows := m.treeRows()
+	line := -1
+	for l, r := range m.dash.treeMap {
+		if rows[r].name == "developer-1" && line < 0 {
+			line = l
+		}
+	}
+	m.Update(tea.MouseClickMsg{X: 10, Y: 3 + line, Button: tea.MouseLeft})
 	if a, ok := m.selectedAgent(); !ok || a.Name != "developer-1" || m.dash.focus != pTree {
 		t.Fatalf("%+v %v", a, m.dash.focus)
 	}
 	// Wheel scrolls the focused list.
+	next := ""
+	for i, r := range rows {
+		if r.name == "developer-1" {
+			next = rows[i+1].name
+		}
+	}
 	m.Update(tea.MouseWheelMsg{X: 10, Y: 6, Button: tea.MouseWheelDown})
-	if a, _ := m.selectedAgent(); a.Name != "lead" {
-		t.Fatal(a.Name)
+	if a, _ := m.selectedAgent(); a.Name != next {
+		t.Fatal(a.Name, next)
 	}
 	// A project chip.
 	m.Render()
@@ -672,7 +685,7 @@ func TestFixtureStreams(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	<-done
-	if got != 6 {
+	if got != 7 {
 		t.Fatal(got)
 	}
 	events := []StreamEvent{}

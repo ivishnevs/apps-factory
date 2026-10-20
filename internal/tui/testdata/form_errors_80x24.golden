@@ -1,0 +1,24 @@
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •… …│ ▶ running │ ⚠ 5
+ 21 tasks  · z shows cancelled                                            more ▶
+╭─────────── ● Backlog 3 +1 ───────────╮╭──────────── ● Ready 4 +2 ────────────╮
+│ ╭──────────────────────────────── New task ────────────────────────────────╮ │
+│ │   Project       project-1                                                │ │
+│ │ ▸ Title         what needs doing                                         │ │
+│ │                 ✗ a title is required                                    │ │
+│ │   Description   details, acceptance criteria (ctrl+e opens $EDITOR)      │ │
+│ │                                                                          │ │
+│ │   Assignee      unassigned                                               │ │
+│ │                 ✗ a ready task needs an assignee                         │ │
+│ │   Priority      5          -1000..1000, higher runs first                │ │
+│ │   Depends on    ☐ P1-1  ☐ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9   │ │
+│ │   Ready now     ● yes — released to the board                            │ │
+│ │                                                                          │ │
+│ │                 Create task                                              │ │
+│ │ ──────────────────────────────────────────────────────────────────────── │ │
+│ │ tab next ←→ choose space toggle ctrl+e $EDITOR ctrl+s create esc cancel  │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+│                                      ││                                      │
+╰──────────────────────────────────────╯╰──────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +3 in inbox
+ tab next field  ctrl+s create  esc cancel

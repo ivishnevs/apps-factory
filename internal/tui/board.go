@@ -226,17 +226,38 @@ func (m *Model) loadDetail(id string) tea.Cmd {
 	}
 }
 
-func (m *Model) onDetail(msg detailMsg) {
+func (m *Model) onDetail(msg detailMsg) tea.Cmd {
 	if msg.id != m.board.detailID {
-		return
+		return nil
 	}
 	m.board.loading = false
 	if msg.err != nil {
 		m.board.err = msg.err
-		return
+		return nil
 	}
 	d := msg.d
 	m.board.detail, m.board.err = &d, nil
+	// The runs' tool error counts (ended runs are counted once).
+	ids := []string{}
+	for _, r := range d.Attempts {
+		ids = append(ids, r.Spec.ID)
+	}
+	return m.ensureErrs(ids...)
+}
+
+// detailRun is the open task's live run, else its last attempt.
+func (m *Model) detailRun() string {
+	d := m.board.detail
+	if d == nil {
+		return ""
+	}
+	if id, ok := m.liveRunOf(d.Task.ID); ok {
+		return id
+	}
+	if n := len(d.Attempts); n > 0 {
+		return d.Attempts[n-1].Spec.ID
+	}
+	return ""
 }
 
 // openDetail opens a task's detail modal on the board.
@@ -285,6 +306,14 @@ func (s *boardState) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 			return nil
 		case "g":
 			s.scroll = 0
+			return nil
+		case "o":
+			return m.openTaskPR()
+		case "t":
+			if id := m.detailRun(); id != "" {
+				return m.openTranscript(id)
+			}
+			m.setToast(s.detailID+" has no run yet", true)
 			return nil
 		}
 		if t, ok := s.selected(m); ok {
@@ -347,6 +376,8 @@ func (s *boardState) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		if t, ok := s.selected(m); ok {
 			return m.openDetail(t.ID)
 		}
+	case "n":
+		return m.openForm()
 	default:
 		if t, ok := s.selected(m); ok {
 			return m.taskAction(t, key)
@@ -443,8 +474,8 @@ func (m *Model) taskAction(t Task, key string) tea.Cmd {
 	return nil
 }
 
-// cardLines are the four lines of a task card.
-func (m *Model) cardLines(t Task, w int, col string) []string {
+// cardLines are the four lines of a task card; the selected card shows its run's last tool error.
+func (m *Model) cardLines(t Task, w int, col string, selected bool) []string {
 	now := m.now()
 	dot := columnColor(col).Render("●")
 	if col == "running" || m.isLive(t.ID) {
@@ -463,7 +494,12 @@ func (m *Model) cardLines(t Task, w int, col string) []string {
 	case t.Priority >= 5:
 		prio = stYellow.Render("△")
 	}
-	line2 := rightAlign(stFaint.Render(t.ID)+" "+projectChip(t.ProjectID), prio+stFaint.Render(strconv.Itoa(t.Priority)), w)
+	errs, hasErrs := m.taskErrs(t)
+	badge := ""
+	if hasErrs && errs.N > 0 {
+		badge = errBadge(errs.N) + " "
+	}
+	line2 := rightAlign(stFaint.Render(t.ID)+" "+projectChip(t.ProjectID), badge+prio+stFaint.Render(strconv.Itoa(t.Priority)), w)
 	cost := ""
 	for _, g := range m.ov.TaskCosts.Groups {
 		if g.Key == t.ID {
@@ -473,6 +509,8 @@ func (m *Model) cardLines(t Task, w int, col string) []string {
 	line3 := rightAlign(agentChip(t.Assignee), stFaint.Render(cost+ago(now, time.Unix(t.UpdatedAt, 0))), w)
 	var line4 string
 	switch {
+	case selected && hasErrs && errs.N > 0:
+		line4 = stRedBold.Render("✗ ") + stRed.Render(errs.Last)
 	case m.isLive(t.ID):
 		act := "working…"
 		if l, ok := m.agentLast[t.Assignee]; ok {
@@ -551,7 +589,7 @@ func (m *Model) boardLines(w, h int) []string {
 			first = sel - per + 1
 		}
 		for j := first; j < len(c.tasks) && j < first+per; j++ {
-			lines = append(lines, card(m.cardLines(c.tasks[j], cardW-4, c.key), cardW, cardH, columnColor(c.key).GetForeground(), focused && j == sel)...)
+			lines = append(lines, card(m.cardLines(c.tasks[j], cardW-4, c.key, focused && j == sel), cardW, cardH, columnColor(c.key).GetForeground(), focused && j == sel)...)
 		}
 		if len(c.tasks) == 0 {
 			lines = append(lines, stDim.Render("  —"))
@@ -614,10 +652,21 @@ func (m *Model) detailModal(w, h int) []string {
 	for len(lines) < room {
 		lines = append(lines, "")
 	}
-	hint := stAccent.Render("p") + stFaint.Render(" pause ") + stAccent.Render("u") + stFaint.Render(" resume ") + stAccent.Render("r") + stFaint.Render(" retry ") +
-		stAccent.Render("n") + stFaint.Render(" run ") + stAccent.Render("x") + stFaint.Render(" cancel ") + stAccent.Render("a") + stFaint.Render(" reassign ") +
-		stAccent.Render("P") + stFaint.Render(" priority ") + stAccent.Render("c") + stFaint.Render(" comment ") + stAccent.Render("d") + stFaint.Render(" direct ") +
-		stAccent.Render("L") + stFaint.Render(" live ") + stAccent.Render("esc") + stFaint.Render(" close")
+	keys := [][2]string{{"p/u", "pause/resume"}, {"r", "retry"}, {"n", "run"}, {"x", "cancel"}, {"a", "reassign"}, {"P", "priority"}, {"c", "comment"},
+		{"d", "direct"}, {"L", "live"}, {"t", "transcript"}, {"o", "PR"}, {"esc", "close"}}
+	parts := []string{}
+	for _, k := range keys {
+		parts = append(parts, stAccent.Render(k[0])+stFaint.Render(" "+k[1]))
+	}
+	hint := strings.Join(parts, " ")
+	if ansiWidth(hint) > inner {
+		// Narrow: the keys only, the words for the most used.
+		parts = parts[:0]
+		for _, k := range keys {
+			parts = append(parts, stAccent.Render(k[0]))
+		}
+		hint = strings.Join(parts, " ") + stFaint.Render("  ? names them")
+	}
 	lines = append(lines, rule(inner), hint)
 	return frame(title, lines, mw, mh, theme.accent, true, false)
 }
@@ -653,6 +702,26 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 		origin += " · reviewer " + t.Reviewer
 	}
 	add(stFaint.Render("origin  ") + origin + stFaint.Render(" · "+ago(now, time.Unix(t.CreatedAt, 0))+" ago"))
+	if pr := taskPR(d); pr != nil {
+		st := stGreen
+		switch pr.State {
+		case "merged":
+			st = stMagenta
+		case "closed":
+			st = stRed
+		}
+		line := stFaint.Render("PR      ") + stBold.Render(fmt.Sprintf("#%d", pr.Number)) + " " + st.Render(dash(pr.State))
+		if pr.HeadSHA != "" {
+			line += stFaint.Render(" · head " + clip(pr.HeadSHA, 8))
+		}
+		if u := m.prURL(t.ProjectID, pr); u != "" {
+			line += stFaint.Render(" · ") + stBlue.Underline(true).Render(u) + stFaint.Render("  o opens")
+		}
+		add(line)
+	}
+	if t.Submission != nil && len(t.Submission.Checks) > 0 {
+		add(stFaint.Render("checks  ") + stGreen.Render("✓ ") + strings.Join(t.Submission.Checks, stFaint.Render(" · ")+stGreen.Render("✓ ")))
+	}
 	why := d.Why
 	if why.Reason == "" {
 		why.Reason, why.Clearer = t.Reason, t.Clearer
@@ -740,7 +809,11 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 			if r.StartedAt > 0 {
 				started = time.Unix(r.StartedAt, 0).In(m.opts.Location).Format("01-02 15:04")
 			}
-			add(fmt.Sprintf("  %s #%d %s %s %s %s %s", icon, i+1, fit(r.Spec.ID, 9), statusStyle(r.Status).Render(fit(st, 10)), stFaint.Render(fit(started, 12)), fit(dash(exit), 13), cost))
+			errs := ""
+			if tl, ok := m.runErrs(r.Spec.ID); ok && tl.N > 0 {
+				errs = "  " + errBadge(tl.N) + " " + stRed.Render(cut(tl.Last, max(w-80, 10)))
+			}
+			add(fmt.Sprintf("  %s #%d %s %s %s %s %s", icon, i+1, fit(r.Spec.ID, 9), statusStyle(r.Status).Render(fit(st, 10)), stFaint.Render(fit(started, 12)), fit(dash(exit), 13), fit(cost, 8)) + errs)
 			if r.Result != "" {
 				add(stFaint.Render("       " + oneLine(r.Result)))
 			}

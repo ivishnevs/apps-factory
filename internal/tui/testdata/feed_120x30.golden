@@ -1,7 +1,6 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                      14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                          ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1               ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
 ╭──────────────────────────────────────────────── Feed ● live · follow ────────────────────────────────────────────────╮
-│ 12:40:00 → exit.handoff          P2-1   reviewer         reviewer → developer-2 (changes_requested): add tests for … │
 │ 12:42:00 + created               P3-3   lead             Task 3                                                      │
 │ 12:50:00 → exit.asked            P1-5   pm               pm asked: Which option for Task 5: A or B?                  │
 │ 12:55:00 ⚠ message.created       P1-5   pm               pm → owner (question): Which option for Task 5: A or B? A … │
@@ -21,10 +20,11 @@
 │ 14:21:00 ✗ run.command_refused   P1-3   developer-1      git push --force refused by rule no-force-push              │
 │ 14:23:00 ▶ started               P3-2   developer-2      Task 2                                                      │
 │ 14:24:00 ⚠ node.low_disk         ·      node             mac-mini: 4.1 GiB free on /                                 │
+│ 14:22:00 ⚠ approval.requested    P2-4   designer         release-notes v2: the wording the release 1.2 announcement… │
 │ 14:26:00 ▶ started               P2-1   reviewer         Task 1                                                      │
 │ 14:27:00 → message.created       P3-2   developer-2      developer-2 → lead (question): Which option for Task 2: A … │
 │ 14:28:00 ✎ commented             P2-1   owner            Please check Task 1 on a large input.                       │
 │ 14:29:00 → message.created       P3-2   lead             lead → developer-2 (answer): Option B, keep it behind a fl… │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +3 in inbox
  ! attention  / filter  j/k scroll  G newest  ^k palette  [ ] project  ? help  q quit

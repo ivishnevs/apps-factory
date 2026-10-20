@@ -21,15 +21,17 @@ func demoModel(t *testing.T, w, h int) (*Model, *FixtureClient) {
 	applyTheme(true)
 	f := DemoFixture()
 	c := &FixtureClient{F: f}
-	m := New(Options{Client: c, Now: func() time.Time { return DemoAt }, Location: time.UTC, NoStreams: true})
+	m := New(Options{Client: c, Now: func() time.Time { return DemoAt }, Location: time.UTC, NoStreams: true, Local: LocalTranscripts{Off: true}, Notify: NotifyOff})
 	t.Cleanup(m.Close)
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
-	m.Update(overviewMsg{ov: f.Overview})
+	// The overview's follow-up reads (tool error counts, the owner conversations) run at once.
+	_, cmd := m.Update(overviewMsg{ov: f.Overview})
+	run(m, cmd)
 	m.Update(streamMsg{Stream: "feed", State: true, Connected: true})
 	for i := range f.Feed {
 		m.Update(streamMsg{Stream: "feed", Feed: &f.Feed[i]})
 	}
-	for _, id := range []string{"r-d1-7", "r-rev-2", "r-d2-4"} {
+	for _, id := range []string{"r-d1-7", "r-rev-2", "r-d2-4", "r-lead-c1"} {
 		events := f.RunEvents[id]
 		for i := range events {
 			m.Update(streamMsg{Stream: "tail:" + id, Run: &events[i]})
@@ -67,6 +69,12 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	case "ctrl+k":
 		return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}
+	case "ctrl+s":
+		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	}
 	r := []rune(k)
 	return tea.KeyPressMsg{Code: r[0], Text: k}
@@ -132,7 +140,7 @@ func TestGoldenScreens(t *testing.T) {
 		{name: "dashboard_140x40", w: 140, h: 40},
 		{name: "dashboard_100x30", w: 100, h: 30},
 		{name: "dashboard_80x24", w: 80, h: 24},
-		{name: "dashboard_agent_140x40", w: 140, h: 40, keys: []string{"j", "j", "j"}},
+		{name: "dashboard_agent_140x40", w: 140, h: 40, keys: []string{"j", "j", "j", "j", "j", "j"}},
 		{name: "dashboard_zoom_tree_100x30", w: 100, h: 30, keys: []string{"z"}},
 		{name: "board_160x40", w: 160, h: 40, keys: []string{"2"}},
 		{name: "board_100x30", w: 100, h: 30, keys: []string{"2", "right", "right"}},
@@ -154,6 +162,26 @@ func TestGoldenScreens(t *testing.T) {
 		{name: "prompt_chooser_100x30", w: 100, h: 30, keys: []string{"A"}},
 		{name: "palette_100x30", w: 100, h: 30, keys: []string{"ctrl+k"}, prep: func(m *Model) { typeText(m, "cal3") }},
 		{name: "help_100x30", w: 100, h: 30, keys: []string{"?"}},
+		// Chat: the direct reports and a conversation; lead is replying in project-2; typing a message.
+		{name: "chat_100x30", w: 100, h: 30, keys: []string{"6"}},
+		{name: "chat_80x24", w: 80, h: 24, keys: []string{"6"}},
+		{name: "chat_replying_160x40", w: 160, h: 40, keys: []string{"6", "]", "]", "j"}},
+		{name: "chat_typing_100x30", w: 100, h: 30, keys: []string{"6", "enter"}, prep: func(m *Model) { typeText(m, "@lead cut P2-2 from 1.2 if the rebase fails") }},
+		// The session drill-down: Claude and Codex transcripts, everything expanded, errors only.
+		{name: "transcript_140x40", w: 140, h: 40, prep: func(m *Model) { openDemoTranscript(m, "r-d1-7") }},
+		{name: "transcript_expanded_100x30", w: 100, h: 30, prep: func(m *Model) { openDemoTranscript(m, "r-d1-7"); press(m, "E", "g", "j", "j") }},
+		{name: "transcript_errors_80x24", w: 80, h: 24, prep: func(m *Model) { openDemoTranscript(m, "r-d1-7"); press(m, "e") }},
+		{name: "transcript_codex_160x40", w: 160, h: 40, prep: func(m *Model) { openDemoTranscript(m, "r-d2-4"); press(m, "k", "k", "enter") }},
+		{name: "run_errors_100x30", w: 100, h: 30, prep: func(m *Model) { openDemoRun(m, "r-d1-7"); press(m, "e") }},
+		// External links: a task's pull request; an artifact approval and its preview.
+		{name: "task_detail_pr_120x40", w: 120, h: 40, prep: func(m *Model) { run(m, m.openDetail("P2-1")) }},
+		{name: "inbox_artifact_120x30", w: 120, h: 30, keys: []string{"5", "j", "j"}},
+		{name: "preview_100x30", w: 100, h: 30, keys: []string{"5", "j", "j"}, prep: func(m *Model) { run(m, key(m, "v")) }},
+		{name: "preview_80x24", w: 80, h: 24, keys: []string{"5", "j", "j"}, prep: func(m *Model) { run(m, key(m, "v")) }},
+		// The create task form: empty, refused fields, filled in.
+		{name: "form_100x30", w: 100, h: 30, keys: []string{"2", "n"}},
+		{name: "form_errors_80x24", w: 80, h: 24, keys: []string{"2", "n", "ctrl+s"}},
+		{name: "form_filled_160x40", w: 160, h: 40, keys: []string{"2", "]", "n"}, prep: fillDemoForm},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, _ := demoModel(t, tc.w, tc.h)
@@ -184,4 +212,31 @@ func openDemoRun(m *Model, id string) {
 		m.Update(streamMsg{Stream: "run:" + id, Run: &f.RunEvents[id][i]})
 	}
 	m.Update(runMsg{id: id, run: f.Runs[id], calls: f.ToolCalls[id]})
+}
+
+// openDemoTranscript opens a run's transcript and delivers its load as the stream would.
+func openDemoTranscript(m *Model, id string) {
+	run(m, m.openTranscript(id))
+	if m.tx.run != nil {
+		run(m, m.loadLocal(id, *m.tx.run)) // the follow-up of the load
+	}
+}
+
+// fillDemoForm types a task into the open form: title, description, developer-1, priority 7, P1-3.
+func fillDemoForm(m *Model) {
+	typeText(m, "Export items as CSV")
+	press(m, "tab")
+	typeText(m, "One row per item.")
+	press(m, "tab")
+	for m.form.assigneeName() != "developer-1" {
+		press(m, "right")
+	}
+	press(m, "tab")
+	press(m, "backspace")
+	typeText(m, "7")
+	press(m, "tab")
+	for m.form.depAt < len(m.depCandidates(m.form)) && m.depCandidates(m.form)[m.form.depAt].ID != "P1-3" {
+		press(m, "right")
+	}
+	press(m, "space", "tab")
 }

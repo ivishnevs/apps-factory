@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
+╭─╭─────────────────────── Preview · release-notes v2 · release-notes.md ────────────────────────╮─╮
+│ │  Project 2 · release 1.2                                                                     │ │
+│ │                                                                                              │ │
+│ │ What's new                                                                                   │ │
+│ │                                                                                              │ │
+│ │ • Faster sync: changes reach other devices in under a second.                                │ │
+│ │ • Offline mode for module 1 (see P1-3).                                                      │ │
+│ │ • A new empty state for the item list.                                                       │ │
+│ │                                                                                              │ │
+│ │ Fixed                                                                                        │ │
+│ │                                                                                              │ │
+│ │ 1.  Large inputs no longer time out on import.                                               │ │
+│ │ 2.  The settings screen keeps its scroll position.                                           │ │
+│ │                                                                                              │ │
+│ │ ▌ Beta channel first; the stable release follows after a week without regressions.           │ │
+│ │                                                                                              │ │
+│ │ ┌─                                                                                           │ │
+│ │ │ factory release publish --channel beta --version 1.2                                       │ │
+│ │ └─                                                                                           │ │
+│ │                                                                                              │ │
+│ │                                                                                              │ │
+│ │                                                                                              │ │
+│ │ ──────────────────────────────────────────────────────────────────────────────────────────── │ │
+│ │ j/k scroll o open in viewer y approve n reject esc close                     19 lines · 100% │ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────╯ │
+╰──────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
+ j/k scroll  o open  y/n approve/reject  esc close

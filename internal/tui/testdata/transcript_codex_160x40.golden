@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1   ▸ transcript r-d2-4                                 ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+╭──────────────────────────────────────────────────────────── developer-2 · r-d2-4 · P3-2 · ● live ────────────────────────────────────────────────────────────╮
+│   core events  · local: not available here  ✗1                                                                                                   paused · G  │
+│ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│   ╭───────────────────────────────── developer-2 14:23:00 ─────────────────────────────────╮                                                                 │
+│   │ Building module 2 from the P3-1 spec.                                                  │                                                                 │
+│   ╰────────────────────────────────────────────────────────────────────────────────────────╯                                                                 │
+│   ▸ ✎ Edit  src/module_2.ts, src/module_2_test.ts                                                                                                 ✓ 14:23:40 │
+│   ▸ ❯ Bash  $ npm run build                                                                                                                       ✓ 14:25:00 │
+│   ▸ ⇄ factory_message_send  body="Which option for Task 2: A or B?" recipient=lead                                                                ✓ 14:26:40 │
+│   ∴ reasoning                                                                                                                                       14:28:30 │
+│     The build passes; the tests for the new parser still need the fixture from P3-1.                                                                         │
+│ ▌ ▾ ❯ Bash  $ npm test -- module_2                                                                                                          ✗ error 14:28:40 │
+│ ▌     input                                                                                                                                                  │
+│ ▌     │ npm test -- module_2                                                                                                                                 │
+│ ▌     error · 4 lines                                                                                                                                        │
+│ ▌     │ FAIL src/module_2_test.ts                                                                                                                            │
+│ ▌     │   ✕ parses an empty input (4 ms)                                                                                                                     │
+│ ▌     │ Tests: 1 failed, 11 passed                                                                                                                           │
+│ ▌     │ (exit 1)                                                                                                                                             │
+│   ▸ ❯ Bash  $ npm test -- module_2                                                                                                                ✓ 14:29:00 │
+│   ▸ ✎ Edit  src/module_2.ts                                                                                                                       ✓ 14:29:45 │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│  ✗ last error 14:28:40 $ npm test -- module_2: FAIL src/module_2_test.ts                                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +3 in inbox
+ j/k entry  enter expand  E all  e errors only  l local/core  f follow  T task  esc back

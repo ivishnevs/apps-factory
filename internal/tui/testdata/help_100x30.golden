@@ -1,30 +1,30 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
-╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
-│ ◆ owner · you                              ⚠ 4 ││ [→] Task 1 P2-1                     ← ⠋running │
-│ └ ◐ pm: waits on you · P1-5                 1h ││ [!] Task 3 P2-3                    ← needs you │
-│   ├ ⏸ desi╭────────────────────────────────── Keys ──────────────────────────────────╮wer m-esc… │
-│   ├ ● deve│ Global        1-5 or tab switch screen · [ ] project · ctrl+k palette ·  │ needs you │
-│   │   └ ▸ │               R refresh · K kill switch · q quit · mouse: click, wheel   │sk-1 in t… │
-│   ├ ◐ lead│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │ in review │
-│   │ ├ ● de│               you                                                        │           │
-│   │ │   └ │ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │           │
-│   │ └ ● re│               panel · f flow of agent                                    │           │
-│   │     └ │ Board         ←→↑↓ move · enter open card · / filter (a:AGENT s:STATUS ! │           │
-│   └ ◐ qa: │               open words) · ! needs you · z cancelled                    │           │
-│           │ Task actions  p pause · u resume · r retry · n run · x cancel · a        │           │
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
+╭───────────╭────────────────────────────────── Keys ──────────────────────────────────╮───────────╮
+│ ◆ owner · │ Global        1-6 or tab switch screen · [ ] project · ctrl+k palette ·  │← ⠋running │
+│ ├ ● lead: │               R refresh · K kill switch · q quit · mouse: click, wheel   │ needs you │
+│ │   └ › Th│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │wer m-esc… │
+│ │ ├ ● deve│               you                                                        │ needs you │
+│ │ │   └ ✎ │ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │sk-1 in t… │
+│ │ └ ● revi│               panel · f flow of agent                                    │ needs you │
+│ │     └ › │ Board         ←→↑↓ move · enter open card · n new task · / filter        │ in review │
+│ └ ◐ pm: wa│               (a:AGENT s:STATUS ! open words) · ! needs you · z          │           │
+│   ├ ⏸ desi│               cancelled                                                  │           │
+│   ├ ● deve│ New task      tab/shift+tab field · ←→ choose · space toggle · ctrl+e    │           │
+│   │   └ ▸ │               description in $EDITOR · ctrl+s create · esc cancel        │           │
+│   └ ◐ qa: │ Task actions  p pause · u resume · r retry · n run · x cancel · a        │           │
 ╰───────────│               reassign · P priority · c comment · d directive (!text     │───────────╯
-╭───────────│               urgent) · L live run · f flow                              │───────────╮
-│ 14:27:30  │ Run           f follow · j/k scroll · G newest · t task · esc back       │           │
-│ 14:28:00  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │.          │
-│ 14:28:00  │ Feed          ! attention · / filter · x clear · j/k G scroll            │ore, 42 t… │
-│ 14:28:02  │ Inbox         ↑↓ item · ←→ option · enter answer · a free text · y       │a pushed … │
-│ 14:28:30  │               approve · n reject · t task                                │           │
-│ 14:29:00  │ Confirm       y/enter sends, n/esc cancels — every action asks first     │           │
-│ 14:29:00  ╰──────────────────────────────────────────────────────────────────────────╯           │
-│ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                         │
-│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │
-│ 14:29:45  [developer-2] Edit          src/module_2.ts                                            │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
+╭───────────│               urgent) · L live run · t transcript · o open PR · f flow   │───────────╮
+│ 14:28:02  │ Run           t transcript · e errors only · f follow · j/k scroll · G   │a pushed … │
+│ 14:28:03  │               newest · T task · esc back                                 │int":"pus… │
+│ 14:28:30  │ Transcript    j/k entry · enter expand/collapse · E all · e errors only  │           │
+│ 14:28:40  │               · l local/core source · f follow · T task · esc back       │           │
+│ 14:29:00  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │           │
+│ 14:29:00  │ Feed          ! attention · / filter · x clear · j/k G scroll            │           │
+│ 14:29:10  │ Inbox         ↑↓ item · ←→ option · enter answer · a free text · v       │r the reb… │
+│ 14:29:20  │               preview artifact · y approve · n reject · t task           │           │
+│ 14:29:30  │ Chat          j/k report · enter write · enter send · @name address ·    │ked.”      │
+│ 14:29:45  │               esc stop typing · pgup/pgdn or ctrl+u/ctrl+d scroll · t    │           │
+╰───────────╰──────────────────────────────────────────────────────────────────────────╯───────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
  any key close

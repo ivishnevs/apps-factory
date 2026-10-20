@@ -1,40 +1,40 @@
  ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1                                   ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
 ╭────────────────── Agent Tree ──────────────────╮╭──────────── Tasks · developer-1 ────────────╮╭────────── Stats · developer-1 ──────────╮
-│ ◆ owner · you                              ⚠ 4 ││ [→] Task 3 P1-3                  ← ⠋running ││ Agent       developer-1 · developer     │
-│ └ ◐ pm: waits on you · P1-5                 1h ││ [ ] Task 7 P1-7                             ││ Model       claude-opus-4-7 · claude    │
-│   ├ ⏸ designer: paused waiting for the… paused ││     ↳ queued: busy with P1-3                ││ Run         r-d1-7 · P1-3               │
-│   ├ ● developer-1: Task 3              12m 00s ││                                             ││ Context     ███████░░░░░░░░░░░░░ 34.2%  │
-│   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││                                             ││ Tokens In   45,230                      │
-│   ├ ◐ lead: waits on you · P2-3            30m ││                                             ││ Tokens Out  12,891                      │
-│   │ ├ ● developer-2: Task 2             7m 00s ││                                             ││ Cache R/W   23,102 / 4,620              │
-│   │ │   └ ✎ Edit: src/module_2.ts       0m 15s ││                                             ││ Run cost    $1.24                       │
-│   │ └ ● reviewer: Task 1                4m 00s ││                                             ││ Duration    12m 00s                     │
-│   │     └ › Testing Task 1 on a large … 0m 30s ││                                             ││ Today       $2.44 · 3 runs              │
-│   └ ◐ qa: waits on developer-1 · P1-4       4h ││                                             ││ Spend 24h   ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▇▁▁█▁▁▅▁    │
-│                                                ││                                             ││ Activity    ▁▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▂▁▁▄█▄    │
-│                                                ││                                             ││                                         │
+│ ◆ owner · you                              ⚠ 5 ││ [→] Task 3 P1-3                  ← ⠋running ││ Agent       developer-1 · developer     │
+│ ├ ● lead: Conversation with owner       1m 00s ││ [ ] Task 7 P1-7                             ││ Model       claude-opus-4-7 · claude    │
+│ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ queued: busy with P1-3                ││ Run         r-d1-7 · P1-3               │
+│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││                                             ││ Context     ███████░░░░░░░░░░░░░ 34.2%  │
+│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││                                             ││ Tokens In   45,230                      │
+│ │ └ ● reviewer: Task 1                  4m 00s ││                                             ││ Tokens Out  12,891                      │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││                                             ││ Cache R/W   23,102 / 4,620              │
+│ └ ◐ pm: waits on you · P1-5                 1h ││                                             ││ Run cost    $1.24                       │
+│   ├ ⏸ designer: paused waiting for the… paused ││                                             ││ Duration    12m 00s                     │
+│   ├ ● developer-1: Task 3           ✗3 12m 00s ││                                             ││ Today       $2.44 · 3 runs              │
+│   │   ✗ exit guard refused the turn'… 14:28:02 ││                                             ││ Spend 24h   ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▇▁▁█▁▁▅▁    │
+│   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││                                             ││ Activity    ▁▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▂▁▁▄█▄    │
+│   └ ◐ qa: waits on developer-1 · P1-4       4h ││                                             ││                                         │
 │                                                ││                                             ││                                         │
 │                                                ││                                             ││                                         │
 │                                                ││                                             ││                                         │
 │                                                ││                                             ││                                         │
 ╰────────────────────────────────────────────────╯╰─────────────────────────────────────────────╯╰─────────────────────────────────────────╯
 ╭─────────────────────────────────────────── Activity ───────────────────────────────────────────╮╭──────────────── Pulse ─────────────────╮
-│ 14:26:00  [reviewer]    says          “Reviewing the second submission of P2-1.”               ││ Backlog   ▇▇▇····················   3  │
-│ 14:26:40  [reviewer]    Bash          $ git diff main...af/P2-1 --stat                         ││ Ready     ▇▇▇▇···················   4  │
-│ 14:26:40  [developer-2] message_send  body="Which option for Task 2: A or B?" recipient=lead   ││ Running   ▇▇·····················   2  │
-│ 14:27:00  [developer-2] question      → lead  Which option for Task 2: A or B?                 ││ Waiting   ▇▇▇▇▇··················   5  │
-│ 14:27:30  [developer-1] says          “All 42 tests pass. Submitting for review.”              ││ In review ▇▇·····················   2  │
-│ 14:27:30  [reviewer]    Bash          $ go test ./...                                          ││ Done      ▇▇▇▇···················   4  │
-│ 14:28:00  [owner]       comment       → reviewer  Please check Task 1 on a large input.        ││                                        │
-│ 14:28:00  [developer-1] exit_submit   reviewer=pm summary="module 1 with an offline store, 42… ││ Spend 24h ▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄ $6.61   │
-│ 14:28:02  [developer-1] refused       exit guard refused the turn's end: submit needs a pushe… ││ Nodes     ● mac-studio 3/4  ○ mac-min… │
-│ 14:28:30  [reviewer]    task_comments task=P2-1                                                ││                                        │
-│ 14:29:00  [lead]        answer        → developer-2  Option B, keep it behind a flag.          ││ pm               ▁▁▁▄█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
-│ 14:29:00  [developer-2] Bash          $ npm test -- module_2                                   ││ designer         ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
-│ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                       ││ developer-1      ▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▂▁▂█▃  │
-│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”    ││ lead             ▁█▁▁▁▁▁▁▁▁▁▁▁██▁█▁▁█  │
-│ 14:29:45  [developer-2] Edit          src/module_2.ts                                          ││ developer-2      ▂▁▁▁▁▂▁▁▁▁▂▂▂▁▁▁▁▁▅█  │
+│ 14:27:00  [developer-2] question      → lead  Which option for Task 2: A or B?                 ││ Backlog   ▇▇▇····················   3  │
+│ 14:27:30  [developer-1] says          “All 42 tests pass. Submitting for review.”              ││ Ready     ▇▇▇▇···················   4  │
+│ 14:27:30  [reviewer]    Bash          $ go test ./...                                          ││ Running   ▇▇·····················   2  │
+│ 14:28:00  [owner]       comment       → reviewer  Please check Task 1 on a large input.        ││ Waiting   ▇▇▇▇▇··················   5  │
+│ 14:28:00  [developer-1] exit_submit   reviewer=pm summary="module 1 with an offline store, 42… ││ In review ▇▇·····················   2  │
+│ 14:28:02  [developer-1] refused       exit guard refused the turn's end: submit needs a pushe… ││ Done      ▇▇▇▇···················   4  │
+│ 14:28:03  [developer-1]               tool error: 409 {"reason":"branch_not_pushed","hint":"p… ││                                        │
+│ 14:28:30  [reviewer]    task_comments task=P2-1                                                ││ Spend 24h ▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄ $6.61   │
+│ 14:28:40  [developer-2] Bash          $ npm test -- module_2 (exit 1)                          ││ Nodes     ● mac-studio 3/4  ○ mac-min… │
+│ 14:29:00  [lead]        answer        → developer-2  Option B, keep it behind a flag.          ││                                        │
+│ 14:29:00  [developer-2] Bash          $ npm test -- module_2                                   ││ lead             ▁▄▁▁▁▁▁▁▁▁▁▁▁▄▄▁▄▁▁█  │
+│ 14:29:10  [lead]        says          “The owner asks whether P2-2 can be retried after the r… ││ developer-2      ▂▁▁▁▁▂▁▁▁▁▂▂▂▁▁▁▁▁▄█  │
+│ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                       ││ reviewer         ▁▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█  │
+│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”    ││ pm               ▁▁▁▄█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
+│ 14:29:45  [developer-2] Edit          src/module_2.ts                                          ││ designer         ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁  │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +3 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit
