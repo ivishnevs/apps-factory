@@ -233,8 +233,9 @@ func TestDispatchAtomicAndSingleWriter(t *testing.T) {
 	}
 }
 
-// A side-effect task is inspected, never retried automatically, after an unknown outcome.
-func TestTaskUnknownReconciliationAndCancel(t *testing.T) {
+// A side-effect task is inspected, never retried automatically, after a lost run; resolving the run
+// answers the inspection.
+func TestTaskLostReconciliationAndCancel(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
 	created, err := s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", SideEffects: true, RequestID: "create-a"})
@@ -251,20 +252,19 @@ func TestTaskUnknownReconciliationAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
-	if a.Status != "BLOCKED" || a.RetryEligible {
+	if a.RetryEligible || reason(t, s, a.ID) != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatal(a)
 	}
 	if _, err := s.TaskAction(ctx, DefaultCompany, a.ID, tasks.Action{Version: a.Version, Action: "ready"}); !errors.Is(err, ErrConflict) {
-		t.Fatal("unknown retried", err)
+		t.Fatal("lost run retried", err)
 	}
-	if err := s.Resolve(ctx, DefaultCompany, r.ID, "FAILED", "workspace inspected; result unknown and new attempt needs owner intent"); err != nil {
+	if err := s.Resolve(ctx, DefaultCompany, r.ID, "FAILED", "workspace inspected; nothing happened, run it again"); err != nil {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
-	if a.Status != "FAILED" || a.RetryEligible {
-		t.Fatal("reconciliation retried automatically", a)
+	if a.Status != "READY" || reason(t, s, a.ID) != tasks.ReasonRunnable {
+		t.Fatal("resolve FAILED is not a retry", a, reason(t, s, a.ID))
 	}
-	a = readyEngineTask(t, s, a)
 	r = dispatchEngineTask(t, s, a, "run-a2")
 	if err := s.Cancel(ctx, DefaultCompany, r.ID); err != nil {
 		t.Fatal(err)

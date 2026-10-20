@@ -11,8 +11,9 @@ import (
 )
 
 // Waits are parks and derived reasons, not stored state (trigger-log-scheduling D2): a task waiting for the
-// answer to its blocking question has an active ask park, one waiting for artifact approvals has unapproved
-// required artifacts, and its stored status stays READY. Reads present the compatibility view: status
+// answer to its blocking question has an active ask park, one held by a recovery escalation (retries or
+// budget exhausted, no exit, inspection, a diverged workspace) its escalation park, one waiting for artifact
+// approvals has unapproved required artifacts, and its stored status stays READY. Reads present the compatibility view: status
 // BLOCKED with block_reason, and wait_message_id while the question is open.
 
 type querier interface {
@@ -52,6 +53,18 @@ func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) 
 	}
 	if ref != "" {
 		t.Status, t.BlockReason = "BLOCKED", "message: waiting for answer"
+		return nil
+	}
+	// A recovery escalation (reliable-recovery: FAILED is retired) holds the task behind its park.
+	var held string
+	err = q.QueryRowContext(ctx, `SELECT p.reason FROM task_parks p JOIN escalations e ON e.company_id=p.company_id AND e.message_id=p.ref_id
+ WHERE p.company_id=? AND p.task_id=? AND p.kind='escalation' AND p.status='active' AND e.status='open'
+ AND e.reason IN ('retries_exhausted','budget_exhausted','no_exit','inspect','workspace_diverged') ORDER BY p.created_at,p.id LIMIT 1`, company, t.ID).Scan(&held)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if held != "" {
+		t.Status, t.BlockReason = "BLOCKED", "escalation: "+held
 		return nil
 	}
 	for _, a := range t.RequiredArtifacts {

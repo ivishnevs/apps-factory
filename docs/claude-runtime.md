@@ -51,7 +51,7 @@ and `data` is the SDK message. Inside the shim:
 | SDK result | Run status |
 | --- | --- |
 | `success`, `is_error: false` | COMPLETED |
-| any other result | FAILED (retryable within `max_retries`) |
+| any other result | FAILED (an attempt; the task retries after a backoff) |
 | any non-success result after a requested `interrupt()` | CANCELLED |
 | no result, process exit, protocol/startup error, no result within 10s of interrupt | UNKNOWN |
 

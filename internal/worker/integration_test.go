@@ -109,7 +109,7 @@ func TestJetStreamFoundation(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if r.Status == "UNKNOWN" || r.Status == "FAILED" {
+			if r.Status == "FAILED" {
 				t.Fatalf("run failed: %+v", r)
 			}
 			if r.Status != "COMPLETED" {

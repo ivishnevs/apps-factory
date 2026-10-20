@@ -469,3 +469,59 @@ func TestLockedCategoriesCannotBeDelegated(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestRecoveryRule (reliable-recovery 2.1): a recovery rule with mode inspect, filtered by roles and agents
+// like any rule, makes the agent's recovery mode inspect; other agents retry. Malformed rules are refused.
+func TestRecoveryRule(t *testing.T) {
+	root := fixture(t)
+	put(t, root, "configs/policies/restricted.yaml", `apiVersion: factory/v1
+kind: Policy
+metadata:
+  name: restricted
+spec:
+  rules:
+    - name: inspect-publishing
+      type: recovery
+      mode: inspect
+      roles: [developer]
+      instruction: Publishing runs are inspected, not retried.
+`)
+	c, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Agents["agent"].RecoveryMode(); got != "inspect" {
+		t.Fatal(got)
+	}
+	if !strings.Contains(c.Agents["agent"].Instructions, "[recovery, inspect] Publishing runs are inspected") {
+		t.Fatal(c.Agents["agent"].Instructions)
+	}
+	put(t, root, "configs/policies/restricted.yaml", strings.Replace(`apiVersion: factory/v1
+kind: Policy
+metadata:
+  name: restricted
+spec:
+  rules:
+    - name: inspect-publishing
+      type: recovery
+      mode: inspect
+      roles: [developer]
+      instruction: Publishing runs are inspected, not retried.
+`, "[developer]", "[manager]", 1))
+	if c, err = LoadCatalog(root); err != nil || c.Agents["agent"].RecoveryMode() != "retry" {
+		t.Fatal(err, c.Agents["agent"].RecoveryMode())
+	}
+	for name, rule := range map[string]string{
+		"no mode":         "type: recovery",
+		"unknown mode":    "type: recovery\n      mode: maybe",
+		"effect":          "type: recovery\n      mode: inspect\n      effect: deny",
+		"operations":      "type: recovery\n      mode: inspect\n      operations: [factory.release.publish]",
+		"mode on access":  "type: access\n      operations: [x]\n      effect: deny\n      mode: inspect",
+		"mode on reports": "type: reporting\n      mode: inspect",
+	} {
+		put(t, root, "configs/policies/restricted.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: restricted\nspec:\n  rules:\n    - name: r\n      "+rule+"\n      instruction: x\n")
+		if _, err := LoadCatalog(root); err == nil {
+			t.Error(name, "accepted")
+		}
+	}
+}

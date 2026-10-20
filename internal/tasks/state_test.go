@@ -6,7 +6,7 @@ import (
 )
 
 func ready() Snapshot {
-	return Snapshot{Task: Task{ID: "t", Status: "READY", Assignee: "dev"}, AgentConfigured: true, MaxRetries: 2, WakeSeq: 3, HandledSeq: 1,
+	return Snapshot{Task: Task{ID: "t", Status: "READY", Assignee: "dev"}, AgentConfigured: true, WakeSeq: 3, HandledSeq: 1,
 		Pending: []Trigger{{Seq: 2, Kind: "ready", Actor: "owner", Authority: true}, {Seq: 3, Kind: "answer", Actor: "owner", Authority: true, RefID: "m0"}}}
 }
 
@@ -29,13 +29,14 @@ func TestEvaluateReasons(t *testing.T) {
 		{"unknown agent", func(s *Snapshot) { s.AgentConfigured = false }, ReasonUnassigned, "owner"},
 		{"live run", func(s *Snapshot) { s.Task.Status = "IN_PROGRESS"; s.CurrentRun = live }, ReasonLiveRun, "run:r1"},
 		{"queued run", func(s *Snapshot) { s.CurrentRun = &Run{ID: "r1", Status: "QUEUED"} }, ReasonLiveRun, "run:r1"},
-		{"retries exhausted", func(s *Snapshot) { s.Task.Status, s.Task.Attempt, s.Task.RetryEligible = "FAILED", 3, true }, ReasonParked + ParkEscalation, "owner"},
-		{"failure without retry", func(s *Snapshot) { s.Task.Status, s.Task.Attempt = "FAILED", 1 }, ReasonParked + ParkEscalation, "owner"},
-		{"unknown outcome", func(s *Snapshot) {
-			s.Task.Status, s.Task.BlockReason = "BLOCKED", "run: outcome unknown"
-			s.CurrentRun = &Run{ID: "r1", Status: "UNKNOWN"}
-			s.Parks = []Park{inspect}
-		}, ReasonParked + ParkInspect, "owner"},
+		{"retries exhausted", func(s *Snapshot) {
+			s.Parks = []Park{{ID: "p0", Kind: ParkEscalation, RefID: "m0", Reason: "retries_exhausted: 3 attempts", Who: "owner"}}
+		}, ReasonParked + ParkEscalation, "owner"},
+		{"inspection", func(s *Snapshot) { s.Parks = []Park{inspect} }, ReasonParked + ParkInspect, "owner"},
+		{"lost run that may still run", func(s *Snapshot) {
+			s.Task.Status = "IN_PROGRESS"
+			s.CurrentRun = &Run{ID: "r1", Status: "FAILED", Lost: true}
+		}, ReasonLiveRun, "node"},
 		{"question to owner", func(s *Snapshot) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "message: waiting for answer"
 			s.Parks = []Park{ask}
@@ -53,19 +54,17 @@ func TestEvaluateReasons(t *testing.T) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "artifact: waiting for owner approval of layout@1"
 			s.UnapprovedArtifacts = []Artifact{{ID: "layout", Version: "1"}}
 		}, ReasonArtifacts, "owner"},
-		{"retry pending", func(s *Snapshot) { s.Task.Status, s.Task.Attempt, s.Task.RetryEligible = "FAILED", 1, true }, ReasonBackoff, "scheduler"},
 		{"in review", func(s *Snapshot) { s.Task.Status = "IN_REVIEW" }, ReasonIdle, "reviewer"},
 		{"ready without trigger", func(s *Snapshot) { s.WakeSeq, s.HandledSeq, s.Pending = 3, 3, nil }, ReasonIdle, "owner"},
 		{"rework", func(s *Snapshot) { s.Task.Status = "REWORK" }, ReasonIdle, "owner"},
 		{"agent busy", func(s *Snapshot) { s.AgentRun = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"} }, ReasonCapacity, "run:r2"},
 		{"writer busy", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "QUEUED", TaskID: "other"} }, ReasonCapacity, "run:r3"},
-		{"project quarantined", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "UNKNOWN", TaskID: "other"} }, ReasonCapacity, "owner"},
+		{"writer lost", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "FAILED", TaskID: "other", Lost: true} }, ReasonCapacity, "node"},
 		// Order: the first false conjunct wins.
 		{"backlog before unassigned", func(s *Snapshot) { s.Task.Status, s.Task.Assignee = "BACKLOG", "" }, ReasonBacklog, "owner"},
 		{"live run before parks", func(s *Snapshot) { s.CurrentRun = live; s.Parks = []Park{ask} }, ReasonLiveRun, "run:r1"},
 		{"escalation before inspect", func(s *Snapshot) {
-			s.Task.Status = "FAILED"
-			s.Parks = []Park{inspect}
+			s.Parks = []Park{inspect, {ID: "p0", Kind: ParkEscalation, RefID: "m0", Reason: "inspect: run r1", Who: "owner"}}
 		}, ReasonParked + ParkEscalation, "owner"},
 		{"inspect before ask", func(s *Snapshot) {
 			s.Parks = []Park{ask, inspect}
@@ -103,7 +102,7 @@ func TestEvaluateReasons(t *testing.T) {
 
 func TestEvaluateNamesTheResolveCommand(t *testing.T) {
 	s := ready()
-	s.WriterRun = &Run{ID: "lost", Status: "UNKNOWN", TaskID: "other"}
+	s.WriterRun = &Run{ID: "lost", Status: "FAILED", TaskID: "other", Lost: true}
 	if v := Evaluate(s); !strings.Contains(v.Clearer.Action, "factory runs resolve lost") {
 		t.Fatal(v)
 	}

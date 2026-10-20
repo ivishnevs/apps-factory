@@ -19,21 +19,24 @@ pins it to its node; a `fresh_from_default` worktree never pins.
 
 BACKLOG -> READY -> IN_PROGRESS -> IN_REVIEW -> DONE.
 IN_REVIEW can reject to REWORK; explicit ready returns it to the scheduler.
-BACKLOG/READY/REWORK/FAILED can be manually BLOCKED with a reason, then explicitly readied.
-FAILED can retry within policy limits or via explicit ready. CANCELLED and DONE are final.
-Execution with unknown outcome becomes BLOCKED and quarantines the run/workspace.
+BACKLOG/READY/REWORK can be manually BLOCKED with a reason, then explicitly readied.
+A run that ends without success leaves the task READY: it retries automatically after a backoff, or waits
+behind an escalation's park (FAILED is retired; reliable-recovery). Reads present a READY task held by a
+recovery escalation (`retries_exhausted`, `budget_exhausted`, `no_exit`, `inspect`, `workspace_diverged`) as
+BLOCKED with block reason `escalation: <reason>: <summary>` (derived, not stored). CANCELLED and DONE are final.
 
 Tasks may also declare `required_artifacts` with exact id/version/URI. Unsatisfied owner
 approvals hold the task: it stays READY with reason `artifacts`, and reads present it as BLOCKED with an
 `artifact:` block reason (not stored; migration 0028 converted stored ones). Approval releases it without
-changing manual blocks or UNKNOWN quarantine. Dispatch and claim pin/check the approved inputs; a revoked
-approval ends a still QUEUED run `stale`.
+changing manual blocks, parks or a lost run that still holds the task. Dispatch and claim pin/check the
+approved inputs; a revoked approval ends a still QUEUED run `stale`.
 
 READY expresses permission to schedule; it does not assert prerequisites are satisfied.
 All dependencies must be DONE. IN_REVIEW, failed, blocked and cancelled dependencies do not satisfy
 this gate. Cross-project dependencies, duplicate/self edges and DAG cycles are rejected transactionally.
 Dependencies/assignment/metadata can change before execution, after rejection or known failure.
-They cannot change during active execution, review, final state, or an unresolved UNKNOWN run.
+They cannot change during active execution, review, final state, a lost run whose runtime may still run, or
+an open inspection of a side-effect task.
 Parent tasks must exist in the same project; parent assignment is immutable and does not imply an
 execution dependency. OpenSpec change is a stored reference, not an implemented OpenSpec adapter.
 Cycles are checked on "waits for" edges — a task waits for its dependencies and a parent for its children —
@@ -85,11 +88,14 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
   consumed, so the retry handles the same work.
 - `paused_out` (quota, auth, missing runtime) counts nothing: the task is READY again and runs when the pause
   lifts. `revoked` and `stale` keep today's behaviour (cancel → CANCELLED, kill switch → READY).
-- `succeeded` resets the counters and the backoff.
+- `succeeded` ends the backoff; with progress (an exit that moved `exit_sha`, or submit, done or a handoff to
+  another agent; every success without explicit exits) it also resets the attempts. Authority input (a
+  directive, an owner `ready`, a `retry` answer) resets the counters, the backoff and today's budget.
+- An end is applied once per run (`runs.recovered`): late events of the run change nothing.
 - A failed merge is an ordinary attempt (task-worktrees D7): the implementer of an approved task whose merge
   failed (checks, branch protection, conflicts) exits `factory_exit_handoff` to itself with `merge_failed`
   (why). It counts an attempt with backoff (1, 5, 15 minutes) and the task runs again after `not_before`; the
-  third failed merge in a row without progress leaves the task FAILED with a `retries_exhausted` escalation.
+  third failed merge in a row without progress parks the task with a `retries_exhausted` escalation.
   `merge_failed` before an approval, by another agent or to another agent is refused `invalid_exit`.
 - Unmerged branches: once a day (and at Core start) Core lists tasks closed (DONE or CANCELLED) in the last 30
   days whose last exit facts show their branch ahead of the default branch with a pull request not merged and
@@ -98,26 +104,34 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
 - A task's `model` override (runtime-drivers D1, agent-configuration.md) reaches the run's `runtime_options`
   when it fits the assignee's provider; otherwise the run uses the agent's model and records
   `task.model_ignored`.
-- Budget: every budget outcome (all of the above except `revoked`, `paused_out`, `stale`, and losses caused by
-  a node restart) counts in `task_budget` per task and UTC day.
+- Budget: every budget outcome (`succeeded` and all of the above except `revoked`, `paused_out`, `stale`,
+  `unclaimed`, and losses caused by a node restart) counts in `task_budget` per task and company-local day
+  (`factory time-zone ZONE`, an IANA name; UTC by default).
 - Three attempts in a row without progress open a `retries_exhausted` escalation, 30 budget runs in a day a
-  `budget_exhausted` escalation; the task stays FAILED. Answers `retry` (counters, backoff and today's budget
-  reset, the task runs now) or `cancel`. Releasing the task (`factory tasks ready`) has the same effect as
-  `retry` and clears the escalation; reassigning it resets the counters for the new assignee.
+  `budget_exhausted` escalation; the task stays READY behind the escalation's park. Answers `retry` (counters,
+  backoff and today's budget reset, the task runs now) or `cancel`. Releasing the task (`factory tasks ready`)
+  has the same effect as `retry` and clears the escalation; reassigning it resets the counters for the new
+  assignee. Authority input that arrived after the failing run was briefed (above its brief and the task's
+  `handled_seq`) counts as a retry instead: no escalation, and the task runs with that input.
 - Lost runs: a v1 run whose lease expired is released at once (the worker stops a run whose heartbeat fails).
   A v2 run lost to a new node epoch, or missing from the node's inventory, is released too. A v2 run lost
   because the node went silent (or stopped past its timeout) may still be running: it keeps its writer slot
-  (the project workspace or its task worktree) and its session, and its task stays BLOCKED (`parked:inspect`) until the node proves it
-  gone — it registers a newer epoch, sends a heartbeat without it, or reports the stop of a run Core declared
-  lost (that CANCELLED is a confirmation, not an owner cancel). Then the task retries as above. Only an
-  unreleased UNKNOWN run holds its writer slot.
-- `side_effects: true` (task create/update JSON) marks a task whose runs act outside the workspace (publish,
-  deploy): it is never retried automatically. A failure leaves it FAILED for the owner; an unknown outcome
-  parks it for inspection (`runs resolve`, required even when the runtime is known to be gone).
-  `max_retries` in agent YAML still applies only to these tasks.
+  (the project workspace or its task worktree), its session and its task (`live_run`, the run `unreleased`)
+  until the node proves it gone — it registers a newer epoch (it kills the old epoch's process groups before it
+  registers), sends a heartbeat without it, or reports the stop of a run Core declared lost (that CANCELLED is a
+  confirmation, not an owner cancel). Then the task retries as above. Only an unreleased lost run holds its
+  writer slot; nothing else of the project waits for it.
+- Side effects (reliable-recovery D4): `side_effects: true` (task create/update JSON), or a `type: recovery,
+  mode: inspect` policy rule of the run's agent (read from the run's config snapshot), marks a task whose runs
+  act outside the workspace (publish, deploy). It is never retried automatically: any end other than
+  `succeeded`, `paused_out`, `stale`, `unclaimed` or `revoked` parks that task alone with an `inspect`
+  escalation (answers `retry`, `continue` — the effect happened, the next brief says so — or `cancel`); other
+  tasks, the project and its workspaces keep running. `factory runs resolve RUN STATUS EVIDENCE` answers it
+  (COMPLETED continue, FAILED retry, CANCELLED cancel).
 
-Late trustworthy terminal evidence still resolves an UNKNOWN run. Reconciliation (`runs resolve`) is audited:
-COMPLETED submits for review, FAILED leaves the decision to the owner, CANCELLED ends the task.
+Late trustworthy terminal evidence still replaces a Core-decided `lost` end. `runs resolve` on a lost run whose
+runtime may still run (no inspection) releases it with that status: COMPLETED submits for review, FAILED retries,
+CANCELLED ends the task. Reconciliations are audited (`run.reconciled`).
 
 ### Run outcomes
 
@@ -125,9 +139,12 @@ Every ended run records one outcome next to its status (`outcome` in run reads a
 `STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded` (COMPLETED), `failed`,
 `setup_failed` (OpenSpec preflight, skills or `workspace_diverged` before the runtime started),
 `timed_out`, `idle_timeout`, `max_turns`, `paused_out` (reported by the worker), `lost` (lease, start
-window or node lost; UNKNOWN and FAILED `lost: not started`), `revoked` (cancel, kill switch) and `stale`
-(a queued run cancelled by a claim-time check). The `run_outcome` trigger derives it unless the code that
-ended the run set one; late terminal evidence on an UNKNOWN run replaces `lost`, an owner's
+window or node lost; FAILED, decided by Core only), `revoked` (cancel, kill switch) and `stale`/`unclaimed`
+(a queued run cancelled by a claim-time check or never claimed). Workers never report UNKNOWN: an end without
+terminal evidence is CANCELLED while the run was being stopped, else FAILED `failed`. Run statuses are QUEUED,
+CLAIMED (v2, before `/start`), RUNNING, CANCELLING and the ended COMPLETED, FAILED, CANCELLED; migration 0029
+mapped UNKNOWN runs to FAILED `lost` and FAILED tasks to READY. The `run_outcome` trigger derives the outcome
+unless the code that ended the run set one; late terminal evidence on a lost run replaces `lost`, an owner's
 `runs resolve` does not. The attempt/backoff/budget flags of each outcome are `storage.Outcomes` and drive the automatic retry
 above.
 
@@ -136,8 +153,8 @@ stop): it ends FAILED `idle_timeout`, a known failure, and its task is not cance
 timeout reported as `outcome: timed_out` is handled the same way.
 
 Task cancellation cancels a queued run immediately or sets CANCELLING for heartbeat-driven runtime
-interruption. Writer reservation remains until a known terminal result. UNKNOWN still requires
-reconciliation even when cancellation was requested. Calling runs cancel for a task-linked run also
+interruption. Writer reservation remains until a known terminal result; a lost run whose runtime may still
+run keeps it until it is released, also when cancellation was requested. Calling runs cancel for a task-linked run also
 updates its task. A completion racing a cancellation leaves the task CANCELLED, not accepted.
 
 ## Versions and idempotency
@@ -209,10 +226,11 @@ still permits caller-supplied actor labels; MCP derives identity exclusively fro
 Messaging extension: a blocking question asked during the active run is an `ask` park on the task that names
 the asking run; reads show it as `wait_message_id` while it is open. A successful turn of that run becomes
 READY instead of IN_REVIEW: held by the open park (presented as BLOCKED, `message: waiting for answer`), or
-runnable if the question was already answered. The answer clears the park and adds an `answer` trigger; the
-next run resumes the same task thread and its brief carries the answer. No submission is accepted while
-waiting. Cancellation, failure, unknown outcomes and manual blocks
-require their existing explicit handling; an answer does not override them. See messaging.md.
+runnable if the question was already answered. A run that asked and then failed is applied like any failed
+run (attempt, backoff, escalation) and the open park still holds the task. The answer clears the park and adds an `answer`
+trigger; the next run resumes the same task thread and its brief carries the answer. No submission is
+accepted while waiting. Cancellation, inspections and manual blocks keep their own handling; an answer does
+not override them. See messaging.md.
 
 ## Why a task does not run
 
@@ -225,11 +243,13 @@ transaction; the scheduler dispatches only a `runnable` verdict and claim re-eva
 `reason` and `clearer`.
 
 Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agent), `live_run`, parks
-(`parked:escalation` — failed with retries exhausted or not allowed; `parked:inspect` — current run UNKNOWN;
+(`parked:escalation` — an open escalation: retries or budget exhausted, inspection of a side-effect task, a
+stall; `parked:inspect` — a park from before migration 0029;
 `parked:ask` — unanswered blocking question; `parked:block` — manual or OpenSpec block), `dependencies`,
 `artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK, a READY task without an
 unhandled trigger, and other states that wait for an explicit action), `capacity` (the agent is busy on another
-task, or another task's run — including an UNKNOWN one — holds the project workspace's writer slot; runs in
+task, or another task's run — including a lost one whose runtime may still run — holds the project workspace's
+writer slot; runs in
 other tasks' worktrees never do), else `runnable`. The verdict also
 lists the pending triggers the next run will be briefed on.
 
@@ -268,15 +288,15 @@ OpenSpec, children and UNKNOWN-run blocks are still stored.
   results; approved artifact inputs; company and project rules; the review or exit instruction.
   `internal/storage/testdata/brief.golden` pins its format.
 - Parks: `ask` (blocking question, cleared by its answer), `block` (manual or OpenSpec block, cleared by ready),
-  `inspect` (current run UNKNOWN, cleared when the run is resolved or terminal evidence arrives). Cancel and DONE
-  override all active parks. `escalation` is still derived from FAILED until reliable-recovery.
+  `escalation` (an open escalation, cleared by its answer or when its condition goes away). Cancel and DONE
+  override all active parks. `inspect` parks exist only from before migration 0029 (UNKNOWN runs).
 - The migration backfills a `ready` trigger for READY tasks and parks for existing manual/OpenSpec blocks,
   unanswered blocking questions and UNKNOWN current runs.
 
 ## Owner console v0
 
 - `factory status [PROJECT]` (`GET /status`): per project the task counts by status, active runs (including
-  UNKNOWN), how many tasks are runnable, every waiting task with its `why` reason and who clears it, and the
+  lost runs whose runtime may still run), how many tasks are runnable, every waiting task with its `why` reason and who clears it, and the
   inbox size.
 - `factory watch [PROJECT] [--attention]` (`GET /feed`): the last 20 feed events, then new ones every 2 s; `!`
   marks events that need the owner.
@@ -301,6 +321,9 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
   dependency is assigned and released, or closes.
 - `idle` — the task has an assignee and its `why` reason has been `idle` for 24 hours: one attention feed event
   `task.alert.idle` per episode (`task_alerts`, migration 0012), cleared with `task.alert_cleared.idle`.
+- `no_progress` — the task's runs have made no progress (Failure, retry and cancellation) for 8 hours since
+  the first run after its last progress: one attention event `task.alert.no_progress` per episode, cleared
+  (`task.alert_cleared.no_progress`) and re-armed by progress or authority input.
 
 An escalation (reliable-recovery D5, migration 0017) is a park of kind `escalation` on the task (`why` shows
 `parked:escalation` and who answers) plus a question from `factory` with the allowed answers as one

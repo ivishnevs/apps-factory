@@ -84,7 +84,7 @@ func TestMergeFailuresAreAttempts(t *testing.T) {
 			t.Fatalf("attempt %d: %+v", attempt, got)
 		}
 		if attempt == 3 {
-			if got.Status != "FAILED" {
+			if got.Status != "BLOCKED" || !strings.HasPrefix(got.BlockReason, "escalation: retries_exhausted: ") || got.NotBefore != 0 {
 				t.Fatalf("third failed merge: %+v", got)
 			}
 			break

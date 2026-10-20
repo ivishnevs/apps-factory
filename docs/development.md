@@ -289,7 +289,8 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
   reused when a transient failure (network, 5xx) is retried. `409 retry` naks the command with a 5 s delay,
   `409 drop` acks it; on `200` the command is acked and the executor runs the claim's `run_spec`. After the
   workspace is allocated and the runtime launched, `POST /runs/{id}/start {lease}` (retried) moves the run to
-  RUNNING; a failed start ends the run UNKNOWN. There are no per-run heartbeats.
+  RUNNING (until then run reads show it CLAIMED); a failed start ends the run FAILED. There are no per-run
+  heartbeats.
 - Every `heartbeat_seconds` (register answer, default 10): `POST /nodes/{node_id}/heartbeat` with the inventory
   (`claimed`, `starting`, `running`, `ended_unacked` with `elapsed_ms` since the claim on the monotonic clock)
   and health (`load1`, `cpus`, `free_disk_bytes` and `disk` ok/low/critical on `disk.path` by the node.yaml
@@ -361,8 +362,8 @@ no incarnation: stop them first and start them after step 5):
      than before the restore, its `drivers` `ok`, recent `last_seen` and `health` (disk `ok`).
    - `./bin/factory status` and `./bin/factory runs list`: runs that were active in the backup are now ended by
      Core (the nodes' new epochs lose them): unstarted ones FAILED
-     `lost: not started` (retried), started ones UNKNOWN `lost: …`. Resolve UNKNOWN runs of `side_effects` tasks
-     (`BLOCKED`) with `./bin/factory runs resolve` after inspecting the workspace.
+     `lost: not started` (retried), started ones FAILED `lost: …` (retried). Answer the `inspect` escalations of
+     `side_effects` tasks (or `./bin/factory runs resolve`) after inspecting the workspace.
    - Work done after the backup point is not in the database: tasks may run again, and their worktrees keep the
      newer commits (sealed WIP refs and branches stay on the node), so a re-run may start from `workspace_diverged`.
    - `./bin/factory doctor` for Core, SQLite and NATS.

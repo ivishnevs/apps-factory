@@ -16,6 +16,8 @@ import (
 const (
 	stallSweepEvery = time.Minute
 	idleAlertAfter  = 24 * time.Hour
+	// noProgressAlertAfter is how long a task's runs may go without progress before its manager is alerted.
+	noProgressAlertAfter = 8 * time.Hour
 )
 
 func (c *Core) sweepStalls(ctx context.Context) error {
@@ -84,7 +86,14 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	if err = c.Store.SyncEscalations(ctx, company, "pinned_node_unavailable", pinned); err != nil {
 		return err
 	}
-	return c.Store.SyncAlerts(ctx, company, "idle", idle)
+	if err = c.Store.SyncAlerts(ctx, company, "idle", idle); err != nil {
+		return err
+	}
+	noProgress, err := c.Store.NoProgress(ctx, company, now.Add(-noProgressAlertAfter))
+	if err != nil {
+		return err
+	}
+	return c.Store.SyncAlerts(ctx, company, "no_progress", noProgress)
 }
 
 // unmergedCheckEvery is the period of the unmerged-branch check (task-worktrees D9).

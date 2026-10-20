@@ -154,8 +154,8 @@ Answer `200`:
 ## 8. Events
 
 Envelope and lease unchanged; `usage`, `quota` and `POST /runs/{id}/workspace` as already agreed (see
-runtime-protocol.md). Terminal statuses stay COMPLETED/FAILED/CANCELLED/UNKNOWN until the outcome model
-(`reliable-recovery` 1.x) adds `outcome`; that change is versioned separately.
+runtime-protocol.md). Terminal statuses are COMPLETED/FAILED/CANCELLED with an `outcome` (reliable-recovery);
+Core refuses `UNKNOWN`. Run reads show a claimed, unstarted run as `CLAIMED`.
 
 ## 9. Who does what
 
@@ -173,7 +173,8 @@ runtime-protocol.md). Terminal statuses stay COMPLETED/FAILED/CANCELLED/UNKNOWN 
    machines may share a name). Core accepts duplicate names with a warning.
 2. **Lost runs before the outcome model:** a CLAIMED run that missed its start window ends FAILED with result
    `lost: not started` (the runtime never ran, so a retry is safe). A RUNNING run missing from the inventory, runs of
-   an older epoch and runs of an offline node end UNKNOWN as today. The outcome model replaces both later.
+   an older epoch and runs of an offline node end FAILED `lost` too (reliable-recovery); the offline node's runs
+   stay unreleased until the node proves their runtime gone.
 3. **claim_id** is only an idempotency key; claims of parallel slots are not ordered.
 4. **Timings:** heartbeat 10 s, `timed_out` grace 60 s, start window 60 s extended by `claimed`/`starting`
    inventory up to 15 min, offline after 60 s of continuous ticking (limitation above).
@@ -217,18 +218,19 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
 - **Heartbeat effects**: listed unended runs get their lease renewed; `claimed`/`starting` entries of an
   unstarted run extend `start_by` to now + 60 s, never past claim + 15 min. `stop`: `revoked` (CANCELLING or
   kill switch), `terminal` (Core already ended it), `unknown_run` (not this node's epoch), `timed_out`
-  (started longer ago than `timeout_seconds` + 60 s; Core ends it UNKNOWN with result `timed_out: …`, since
-  the runtime may still have acted). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
+  (started longer ago than `timeout_seconds` + 60 s; Core ends it FAILED `timed_out` and keeps it unreleased
+  until the node confirms the stop, since the runtime may still act). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
   records `end_applied`). Started runs of this epoch missing from the inventory for more than 30 s after
-  `/start` end UNKNOWN (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
+  `/start` end FAILED `lost` (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
   `critical` (a heartbeat without `health.disk` keeps the last answer). `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
   Idle stop). `timed_out` is judged on the entry's `elapsed_ms` (the node's sleep-excluding clock since the
   claim), never on Core's wall clock. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
   most 30 answers (the node retries a busy worktree from the next listing).
 - **Lost runs** (§10.2): a new epoch, an offline node (no heartbeat or claim for 60 s of continuous ticking)
   or an expired lease end the node's unstarted runs FAILED `lost: not started (…)`, retryable like a known
-  failure, and started runs UNKNOWN `lost: …`. A node's terminal event that arrives later still resolves an
-  UNKNOWN run, as in v1. A heartbeat from an offline node brings it back online.
+  failure, and started runs FAILED `lost: …` (released for a new epoch, whose node killed the old process groups
+  before registering; unreleased for an offline node until it proves them gone). A node's terminal event that
+  arrives later still replaces `lost`, as in v1. A heartbeat from an offline node brings it back online.
 - **Incarnation** lives in the database (`core_meta`) with a copy in `<db>.incarnation`; when the two differ
   at start (a restored database), Core creates a new incarnation. Restoring the file together with the
   database is not detected: after such a restore write any other value into `<db>.incarnation` (for example

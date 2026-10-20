@@ -511,6 +511,9 @@ func (c *Catalog) finish(root string, a *Agent) error {
 		if r.Target != "" {
 			fmt.Fprintf(&ctx, ", %s", r.Target)
 		}
+		if r.Mode != "" {
+			fmt.Fprintf(&ctx, ", %s", r.Mode)
+		}
 		fmt.Fprintf(&ctx, "] %s Operations: %s", r.Instruction, strings.Join(r.Operations, ", "))
 		if len(r.Commands) > 0 {
 			fmt.Fprintf(&ctx, "; commands: %s", strings.Join(r.Commands, ", "))
@@ -583,6 +586,17 @@ func (a Agent) Authorize(op string) policies.Decision {
 		add("approval", "agent approval settings")
 	}
 	return d
+}
+
+// RecoveryMode is how an unclear end of the agent's runs is recovered (reliable-recovery D4): "inspect"
+// when a resolved policy rule of type recovery says so (the task is parked for inspection), else "retry".
+func (a Agent) RecoveryMode() string {
+	for _, r := range a.Rules {
+		if r.Type == "recovery" && r.Mode == "inspect" {
+			return "inspect"
+		}
+	}
+	return "retry"
 }
 
 // AuthorizeCommand decides a shell command (argv[0] is the command name) with the agent's access rules.

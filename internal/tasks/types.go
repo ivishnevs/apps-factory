@@ -70,6 +70,9 @@ type Task struct {
 	AttemptsNoProgress int   `json:"attempts_no_progress,omitempty"`
 	FailStreak         int   `json:"fail_streak,omitempty"`
 	NotBefore          int64 `json:"not_before,omitempty"`
+	// ProgressAt is the last progress (D2: a successful run with progress, or authority input); runs
+	// without progress since then for no_progress_alert_after raise an alert (D8).
+	ProgressAt int64 `json:"progress_at,omitempty"`
 	// SideEffects marks a task whose runs act outside the workspace (publish, deploy): an unclear
 	// outcome parks it for inspection instead of retrying.
 	SideEffects bool `json:"side_effects,omitempty"`

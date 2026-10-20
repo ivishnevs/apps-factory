@@ -89,7 +89,7 @@ func TestSchedulerAutomaticRetry(t *testing.T) {
 	}
 	task, _ = s.Task(ctx, co, task.ID)
 	open, _ := s.Escalations(ctx, co, true)
-	if task.Status != "FAILED" || task.Attempt != 3 || len(open) != 1 || open[0].Reason != "retries_exhausted" || open[0].Target != "manager" {
+	if task.Status != "BLOCKED" || !strings.HasPrefix(task.BlockReason, "escalation: retries_exhausted: ") || task.Attempt != 3 || len(open) != 1 || open[0].Reason != "retries_exhausted" || open[0].Target != "manager" {
 		t.Fatalf("%+v %+v", task, open)
 	}
 	q, _ := s.Message(ctx, co, open[0].MessageID)

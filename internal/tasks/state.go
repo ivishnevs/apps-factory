@@ -7,8 +7,7 @@ import (
 )
 
 // Reasons a task does not run now (trigger-log-scheduling D3), in evaluation order. Parks and
-// triggers come from the trigger log (written in shadow mode); escalation is still derived from a
-// FAILED status until reliable-recovery. Evaluate is diagnostic and does not drive the scheduler.
+// triggers come from the trigger log; an escalation is a park (FAILED is retired, reliable-recovery).
 const (
 	ReasonTerminal     = "terminal"
 	ReasonBacklog      = "backlog"
@@ -45,10 +44,13 @@ type Run struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	TaskID string `json:"task_id,omitempty"`
+	// Lost: Core ended the run lost while its runtime may still run (reliable-recovery D3); it holds its
+	// task and workspace until its node proves the runtime gone.
+	Lost bool `json:"lost,omitempty"`
 }
 
 func (r Run) Live() bool {
-	return r.Status == "QUEUED" || r.Status == "RUNNING" || r.Status == "CANCELLING"
+	return r.Status == "QUEUED" || r.Status == "RUNNING" || r.Status == "CANCELLING" || r.Lost
 }
 
 // Park is an active hold on a task; Who clears it.
@@ -92,8 +94,6 @@ type Snapshot struct {
 	Dependencies        []Dependency
 	// UnapprovedArtifacts are required artifact versions without a current owner approval.
 	UnapprovedArtifacts []Artifact
-	// MaxRetries is the attempt limit of the assignee's captured config for a failed task.
-	MaxRetries int
 	// Paused are the pauses covering the task: "company", "project:<id>", "agent:<name>",
 	// "quota_key:<key>". QuotaPaused lists every paused quota key; Core adds the assignee's one to Paused.
 	Paused      []string
@@ -104,7 +104,7 @@ type Snapshot struct {
 	AgentRun                    *Run
 	AgentLive, AgentProjectLive int
 	AgentCap, AgentProjectCap   int
-	// WriterRun is a run of another task holding the project workspace writer slot, including an UNKNOWN run
+	// WriterRun is a run of another task holding the project workspace writer slot, including a lost run
 	// whose runtime may still run (not released).
 	WriterRun *Run
 	// Nodes are the company's registered (protocol v2) nodes; none means v1 workers only and no node
@@ -156,6 +156,9 @@ func Evaluate(s Snapshot) Verdict {
 		if n := s.nodeReason(true); r.Status == "QUEUED" && n.Reason != "" {
 			return v(n.Reason, n.Detail+" (run "+r.ID+" is QUEUED)", n.Clearer.Who, n.Clearer.Action)
 		}
+		if r.Lost {
+			return v(ReasonLiveRun, "run "+r.ID+" is lost and its runtime may still run", "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" STATUS EVIDENCE")
+		}
 		return v(ReasonLiveRun, "run "+r.ID+" is "+r.Status, "run:"+r.ID, "wait for it to finish or factory runs cancel "+r.ID)
 	}
 	for _, kind := range parkOrder {
@@ -185,9 +188,6 @@ func Evaluate(s Snapshot) Verdict {
 	}
 	if t.Status == "READY" && t.NotBefore > 0 && !s.Now.IsZero() && s.Now.Unix() < t.NotBefore {
 		return v(ReasonBackoff, fmt.Sprintf("automatic retry after %s (%d failed in a row, %d of %d attempts without progress)", time.Unix(t.NotBefore, 0).UTC().Format(time.RFC3339), t.FailStreak, t.AttemptsNoProgress, 3), "time", "the retry starts after the backoff (or factory tasks ready "+t.ID+" VERSION now)")
-	}
-	if t.Status == "FAILED" {
-		return v(ReasonBackoff, fmt.Sprintf("attempt %d of %d failed", t.Attempt, s.MaxRetries+1), "scheduler", "automatic retry on the next tick")
 	}
 	switch t.Status {
 	case "IN_REVIEW":
@@ -220,8 +220,8 @@ func Evaluate(s Snapshot) Verdict {
 		}
 	}
 	if r := s.WriterRun; r != nil {
-		if r.Status == "UNKNOWN" {
-			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s with unknown outcome (task %s)", r.ID, r.TaskID), "owner", "inspect the workspace, then factory runs resolve "+r.ID+" STATUS EVIDENCE")
+		if r.Lost {
+			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by lost run %s whose runtime may still run (task %s)", r.ID, r.TaskID), "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" STATUS EVIDENCE")
 		}
 		return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the run in the project workspace")
 	}
@@ -231,16 +231,13 @@ func Evaluate(s Snapshot) Verdict {
 	return v(ReasonRunnable, "", "scheduler", "dispatch on the next tick")
 }
 
-// park returns the first active park of a kind. Escalation is still derived from FAILED.
+// park returns the first active park of a kind.
 func park(s Snapshot, kind string) (Verdict, bool) {
 	t := s.Task
 	hold := func(detail, who, action string) (Verdict, bool) {
 		return Verdict{Detail: detail, Clearer: Clearer{Who: who, Action: action}}, true
 	}
 	if kind == ParkEscalation {
-		if t.Status == "FAILED" && (!t.RetryEligible || t.Attempt > s.MaxRetries) {
-			return hold(fmt.Sprintf("attempt %d failed; automatic retries exhausted or not allowed", t.Attempt), "owner", "factory tasks ready "+t.ID+" VERSION to retry, or cancel")
-		}
 		for _, p := range s.Parks {
 			if p.Kind == ParkEscalation {
 				return hold(p.Reason, p.Who, "answer escalation question "+p.RefID+" (factory answer "+p.RefID+" ANSWER)")

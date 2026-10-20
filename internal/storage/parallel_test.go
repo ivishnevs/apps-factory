@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,15 +158,19 @@ func TestWorkspaceDiverged(t *testing.T) {
 	}
 	got, _ := s.Task(ctx, co, "t")
 	open, _ := s.Escalations(ctx, co, true)
-	if got.Status != "FAILED" || len(open) != 1 || open[0].Reason != "workspace_diverged" {
-		t.Fatalf("%+v %+v", got, open)
+	reason := func() string {
+		snap, _ := s.TaskSnapshot(ctx, co, "t")
+		return tasks.Evaluate(withAgent(snap)).Reason
+	}
+	if got.Status != "BLOCKED" || !strings.HasPrefix(got.BlockReason, "escalation: workspace_diverged: ") || len(open) != 1 || open[0].Reason != "workspace_diverged" || reason() != tasks.ReasonParked+tasks.ParkEscalation {
+		t.Fatalf("%+v %+v %s", got, open, reason())
 	}
 	q, _ := s.Message(ctx, co, open[0].MessageID)
 	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "reset", Answers: map[string]any{"answer": "reset_workspace"}, RequestID: "r"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = s.Task(ctx, co, "t"); got.Status != "FAILED" {
-		t.Fatal("ran before the node reset the worktree", got.Status)
+	if r := reason(); r != tasks.ReasonParked+tasks.ParkBlock {
+		t.Fatal("ran before the node reset the worktree", r)
 	}
 	a, err := s.NodeHeartbeat(ctx, co, "n1", NodeHeartbeat{Epoch: 1})
 	if err != nil || len(a.Reset) != 1 || a.Reset[0] != "t" {
@@ -174,7 +179,7 @@ func TestWorkspaceDiverged(t *testing.T) {
 	if a, err = s.NodeHeartbeat(ctx, co, "n1", NodeHeartbeat{Epoch: 1, ResetDone: []string{"t"}}); err != nil || len(a.Reset) != 0 {
 		t.Fatal(a, err)
 	}
-	if got, _ = s.Task(ctx, co, "t"); got.Status != "READY" {
-		t.Fatal(got.Status)
+	if got, _ = s.Task(ctx, co, "t"); got.Status != "READY" || got.NotBefore != 0 || strings.HasPrefix(reason(), tasks.ReasonParked) {
+		t.Fatal(got.Status, reason())
 	}
 }

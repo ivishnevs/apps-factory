@@ -60,7 +60,8 @@ func recheckTask(ctx context.Context, tx *Tx, id string, spec protocol.RunSpec) 
 // it runs again. It reports false when the run was no longer QUEUED.
 func endQueued(ctx context.Context, tx *Tx, id, outcome, why string) (bool, error) {
 	now := tx.now()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome=?,result=?,finished_at=? WHERE company_id=? AND id=? AND status='QUEUED'", outcome, why, now.Unix(), tx.company, id)
+	// The end is applied here (no attempt, backoff or budget), so the run counts as recovered.
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome=?,result=?,finished_at=?,recovered=1 WHERE company_id=? AND id=? AND status='QUEUED'", outcome, why, now.Unix(), tx.company, id)
 	if err != nil {
 		return false, err
 	}

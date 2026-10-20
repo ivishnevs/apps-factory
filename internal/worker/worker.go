@@ -332,6 +332,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		w.sealWorktree(spec.ID, lease, *wt, req, exit)
 		return exitEnd
 	}
+	// noEvidence: the run ends without a runtime result or a known outcome (the deferred end below).
+	var noEvidence bool
 	emit := func(kind string, p protocol.Event) error {
 		if p.Status != "" {
 			x := finish()
@@ -340,8 +342,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 			// After an accepted exit the run ends as the exit says, also when the executor stopped the
 			// runtime meanwhile (ExitGrace, a timeout, a stop) or the end has no evidence: Core records
-			// it succeeded, and a CANCELLED or UNKNOWN end would misreport it.
-			if x.State == "accepted" && p.Status != "COMPLETED" && (ctx.Err() != nil || p.Status == "UNKNOWN") {
+			// it succeeded, and a CANCELLED or failed end would misreport it.
+			if x.State == "accepted" && p.Status != "COMPLETED" && (ctx.Err() != nil || noEvidence) {
 				slog.Info("run ended after its accepted exit", "run", spec.ID, "exit", x.Kind, "status", p.Status, "outcome", p.Outcome)
 				kind, p.Status, p.Outcome = "completed", "COMPLETED", ""
 			}
@@ -362,15 +364,25 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	// A run that ends without a runtime result reports what is known (docs/runtime-protocol.md, Run
 	// outcomes from workers): an endError names its outcome and ends FAILED, or CANCELLED when it
-	// failed before the runtime started because the run was being stopped; any other error after the
-	// prompt may have reached the runtime has no terminal evidence and ends UNKNOWN.
+	// failed before the runtime started because the run was being stopped. Any other error after the
+	// prompt may have reached the runtime has no terminal evidence: CANCELLED with the stop's outcome when
+	// the run was being stopped (a revoke has none), else FAILED failed (a runtime, protocol or process
+	// error, reliable-recovery D1). The worker never reports UNKNOWN; only Core decides lost.
 	defer func() {
 		if runErr == nil {
 			return
 		}
-		status, outcome := "UNKNOWN", ""
+		noEvidence = true
+		status, outcome := "FAILED", driver.OutcomeFailed
+		if meter.quota != nil {
+			outcome = driver.OutcomePausedOut // the subscription limit ended the turn
+		}
+		if ctx.Err() != nil {
+			status, outcome = "CANCELLED", stopOutcome(ctx)
+		}
 		var end *endError
 		if errors.As(runErr, &end) {
+			noEvidence = false
 			status, outcome = "FAILED", end.outcome
 			if end.notStarted && ctx.Err() != nil {
 				status, outcome = "CANCELLED", stopOutcome(ctx)
@@ -693,8 +705,9 @@ func stopOutcome(ctx context.Context) string {
 //     quota hit, else failed.
 //   - Without terminal evidence (Err) the outcome is known only when the executor stopped the runtime
 //     for a timeout (it kills the process group) or the error names it (auth, missing runtime, broken
-//     stream): FAILED with it. Otherwise UNKNOWN, also after a quota hit: an interrupt for a revoke
-//     without a result, or the shim/app-server going away mid-turn.
+//     stream): FAILED with it. Otherwise "" (no evidence; execute reports CANCELLED for a stopped run,
+//     else FAILED failed), also after a quota hit: an interrupt for a revoke without a result, or the
+//     shim/app-server going away mid-turn.
 func runEnd(r driver.Result, stop string, quota bool) (status, outcome string) {
 	if r.Err != nil {
 		if stop != "" {
@@ -703,7 +716,7 @@ func runEnd(r driver.Result, stop string, quota bool) (status, outcome string) {
 		if o := driver.OutcomeOf(r.Err); o != "" {
 			return "FAILED", o
 		}
-		return "UNKNOWN", ""
+		return "", ""
 	}
 	switch r.Status {
 	case "COMPLETED":
@@ -725,7 +738,7 @@ func runEnd(r driver.Result, stop string, quota bool) (status, outcome string) {
 }
 
 // ended is the error that ends a started run without terminal evidence: an endError when runEnd
-// knows its outcome, else the error itself (UNKNOWN).
+// knows its outcome, else the error itself (execute decides the end from the run's context).
 func ended(r driver.Result, stop string, quota bool) error {
 	if status, outcome := runEnd(r, stop, quota); status == "FAILED" {
 		return &endError{outcome: outcome, err: r.Err}

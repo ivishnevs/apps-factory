@@ -177,7 +177,7 @@ func (s *Store) RevokeLive(ctx context.Context, company, actor string) (int, err
 			return 0, err
 		}
 		if next == "CANCELLED" {
-			if err = syncTaskRun(ctx, tx, r.id, false); err != nil {
+			if err = syncTaskRun(ctx, tx, r.id); err != nil {
 				return 0, err
 			}
 		}

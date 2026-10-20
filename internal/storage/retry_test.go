@@ -112,12 +112,12 @@ func TestRetryBudgetAndPausedOut(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	readyEngineTask(t, s, createEngineTask(t, s, "busy"))
-	if _, err := s.DB.Exec("INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,?)", co, "busy", budgetDay(s.Now()), DailyBudget-1); err != nil {
+	if _, err := s.DB.Exec("INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,?)", co, "busy", s.Now().UTC().Format("2006-01-02"), DailyBudget-1); err != nil {
 		t.Fatal(err)
 	}
 	got := run("busy", "b1", protocol.Event{Status: "FAILED", Outcome: "failed"})
 	open, _ := s.Escalations(ctx, co, true)
-	if got.Status != "FAILED" || len(open) != 1 || open[0].Reason != "budget_exhausted" || open[0].Target != "owner" {
+	if got.Status != "BLOCKED" || !strings.HasPrefix(got.BlockReason, "escalation: budget_exhausted: ") || len(open) != 1 || open[0].Reason != "budget_exhausted" || open[0].Target != "owner" || reason(t, s, "busy") != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatalf("%+v %+v", got, open)
 	}
 	// Releasing it again is an authority retry: budget and counters reset, escalation cleared.
@@ -134,7 +134,7 @@ func TestRetryBudgetAndPausedOut(t *testing.T) {
 	if err != nil || !side.SideEffects {
 		t.Fatal(side, err)
 	}
-	if got = run("publish", "p1", protocol.Event{Status: "FAILED", Outcome: "failed"}); got.Status != "FAILED" || got.FailStreak != 0 {
+	if got = run("publish", "p1", protocol.Event{Status: "FAILED", Outcome: "failed"}); got.FailStreak != 0 || reason(t, s, "publish") != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatalf("side-effect task retried: %+v", got)
 	}
 }
@@ -165,7 +165,7 @@ func TestLostV2RunWaitsForTheNode(t *testing.T) {
 	if err := s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
-	if got := taskOf(t, s, "t1"); got.Status != "BLOCKED" {
+	if got := taskOf(t, s, "t1"); got.Status != "IN_PROGRESS" || reason(t, s, "t1") != tasks.ReasonLiveRun {
 		t.Fatalf("retried while the node may still run it: %+v", got)
 	}
 	register(t, s, "n1", 2) // the node restarted: what it ran is gone
@@ -180,7 +180,7 @@ func TestLostV2RunWaitsForTheNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, err := s.NodeHeartbeat(ctx, co, "n1", NodeHeartbeat{Epoch: 2, Inventory: []InventoryRun{{RunID: "r2", State: "running"}}})
-	if err != nil || len(a.Stop) != 1 || a.Stop[0].Reason != "terminal" || taskOf(t, s, "t2").Status != "BLOCKED" {
+	if err != nil || len(a.Stop) != 1 || a.Stop[0].Reason != "terminal" || taskOf(t, s, "t2").Status != "IN_PROGRESS" {
 		t.Fatal(a, err, taskOf(t, s, "t2"))
 	}
 	if err = end(t, s, "r2", lease, protocol.Event{Status: "CANCELLED"}); err != nil {
@@ -223,7 +223,7 @@ func TestReassignmentResetsAttempts(t *testing.T) {
 		fake.Advance(time.Hour)
 	}
 	got := taskOf(t, s, "t1")
-	if open, _ := s.Escalations(ctx, co, true); got.Status != "FAILED" || len(open) != 1 || open[0].Reason != "retries_exhausted" {
+	if open, _ := s.Escalations(ctx, co, true); got.Status != "BLOCKED" || got.BlockReason == "" || len(open) != 1 || open[0].Reason != "retries_exhausted" {
 		t.Fatalf("%+v %+v", got, open)
 	}
 	qa := "qa-agent"
@@ -236,6 +236,16 @@ func TestReassignmentResetsAttempts(t *testing.T) {
 }
 
 func withAgent(s tasks.Snapshot) tasks.Snapshot { s.AgentConfigured = true; return s }
+
+// reason is the task's Evaluate reason now.
+func reason(t *testing.T, s *Store, id string) string {
+	t.Helper()
+	snap, err := s.TaskSnapshot(context.Background(), DefaultCompany, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tasks.Evaluate(withAgent(snap)).Reason
+}
 
 // TestInspectEscalation: a task with external effects is inspected instead of retried; continue reconciles a
 // lost run as COMPLETED and tells the next brief the effect happened; retry reruns a failed one.
@@ -282,8 +292,8 @@ func TestInspectEscalation(t *testing.T) {
 	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}
-	if got = taskOf(t, s, "deploy"); got.Status != "FAILED" {
-		t.Fatal("side-effect task retried", got.Status)
+	if r := reason(t, s, "deploy"); r != tasks.ReasonParked+tasks.ParkEscalation {
+		t.Fatal("side-effect task retried", r)
 	}
 	answer("deploy", "retry")
 	if got = taskOf(t, s, "deploy"); got.Status != "READY" {

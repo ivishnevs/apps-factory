@@ -70,7 +70,7 @@ func TestSleepGapDoesNotExpireLeasesUntilOneTTLOfContinuousTicks(t *testing.T) {
 		}
 	}
 	tick(time.Second)
-	if status("quiet") != "UNKNOWN" {
+	if status("quiet") != "FAILED" {
 		t.Fatal("silent worker never declared lost", status("quiet"))
 	}
 	if status("renewed") != "RUNNING" {

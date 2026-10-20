@@ -8,14 +8,19 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	_ "time/tzdata" // company time zones on hosts without a zoneinfo database
 
+	"appfactory/internal/config"
+	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
 
 // Automatic retry (reliable-recovery D2–D3; owner decision 2026-10-14: autonomy first). A task whose run
 // ended with an attempt or lost outcome goes back to READY after a backoff and runs again in the same
 // workspace, resuming the session where the node allows it. Three attempts without progress or the daily
-// budget escalate instead. Tasks marked side_effects keep the conservative path (FAILED, or inspect).
+// budget escalate instead: the task stays READY behind the escalation's park (FAILED is retired). Tasks
+// with external side effects (the task's side_effects, or a recovery: inspect policy rule of the run's
+// agent) are inspected instead of retried.
 
 const (
 	// RetryAttempts is the number of attempt outcomes in a row without progress that escalates.
@@ -41,16 +46,81 @@ func init() {
 	escalationAnswers["inspect"] = []string{"retry", "continue", "cancel"}
 }
 
-func budgetDay(t time.Time) string { return t.UTC().Format("2006-01-02") }
+// budgetDay is the company-local day of now (companies.time_zone, UTC when unset or unknown) that the
+// daily budget counts in.
+func budgetDay(ctx context.Context, tx *Tx) (string, error) {
+	var zone string
+	if err := tx.QueryRowContext(ctx, "SELECT time_zone FROM companies WHERE id=?", tx.company).Scan(&zone); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		loc = time.UTC
+	}
+	return tx.now().In(loc).Format("2006-01-02"), nil
+}
+
+// CompanyTimeZone returns the company's time zone (an IANA name; UTC by default).
+func (s *Store) CompanyTimeZone(ctx context.Context, company string) (string, error) {
+	var zone string
+	err := s.DB.QueryRowContext(ctx, "SELECT time_zone FROM companies WHERE id=?", company).Scan(&zone)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return zone, err
+}
+
+// SetCompanyTimeZone sets the company's time zone, the day of the daily budget.
+func (s *Store) SetCompanyTimeZone(ctx context.Context, company, zone string) error {
+	if _, err := time.LoadLocation(zone); err != nil || zone == "" || zone == "Local" {
+		return inputError("time_zone must be an IANA time zone name such as Europe/Berlin or UTC")
+	}
+	res, err := s.DB.ExecContext(ctx, "UPDATE companies SET time_zone=? WHERE id=?", zone, company)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// NoProgress lists the open tasks whose runs have made no progress (D2) since before the given time: the
+// first run after the task's last progress started then or earlier (reliable-recovery D8). The episode ends
+// with progress, which re-arms the alert.
+func (s *Store) NoProgress(ctx context.Context, company string, since time.Time) ([]Alert, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT t.id,min(r.created_at),count(*) FROM tasks t JOIN runs r ON r.company_id=t.company_id AND r.task_id=t.id
+ WHERE t.company_id=? AND t.status NOT IN ('DONE','CANCELLED','BACKLOG') AND r.created_at>coalesce(json_extract(t.body,'$.progress_at'),0)
+ GROUP BY t.id HAVING min(r.created_at)<=? ORDER BY t.id`, company, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Alert{}
+	for rows.Next() {
+		var id string
+		var first int64
+		var runs int
+		if err = rows.Scan(&id, &first, &runs); err != nil {
+			return nil, err
+		}
+		out = append(out, Alert{TaskID: id, Summary: fmt.Sprintf("no progress in %d runs since %s", runs, time.Unix(first, 0).UTC().Format(time.RFC3339))})
+	}
+	return out, rows.Err()
+}
 
 // recoverTask applies the outcome table to the task after its current run ended (called from
 // syncTaskRun once the task has its status). It counts the attempt and the budget, then either schedules
-// the retry (READY with not_before), escalates, or leaves the task as it is.
+// the retry (READY with not_before), escalates, or leaves the task as it is. A task still IN_PROGRESS on
+// the run (or IN_REVIEW for a review run) has not had this end applied; afterwards it is READY, CANCELLED or
+// parked, so a later call for the same run (late evidence, the release of a lost run) changes nothing.
 func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	var taskID sql.NullString
-	var status, outcome, result string
-	var released bool
-	if err := tx.QueryRowContext(ctx, "SELECT task_id,status,outcome,result,released FROM runs WHERE id=?", runID).Scan(&taskID, &status, &outcome, &result, &released); err != nil {
+	var outcome, result string
+	var unreleased bool
+	var briefTo int64
+	var specJSON []byte
+	if err := tx.QueryRowContext(ctx, "SELECT task_id,outcome,result,unreleased,brief_to,spec FROM runs WHERE id=?", runID).Scan(&taskID, &outcome, &result, &unreleased, &briefTo, &specJSON); err != nil {
 		return err
 	}
 	if !taskID.Valid {
@@ -65,7 +135,17 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	if err != nil {
 		return err
 	}
+	day, err := budgetDay(ctx, tx)
+	if err != nil {
+		return err
+	}
 	if outcome == "succeeded" {
+		if first, err := markRecovered(ctx, tx, runID); err != nil || !first {
+			return err
+		}
+		if err = countBudget(ctx, tx, t.ID, day); err != nil {
+			return err
+		}
 		// A success ends the failure streak; it resets the attempts only with progress (D2): an exit that
 		// moved exit_sha, or without git facts submit, done or a handoff to another agent. Without explicit
 		// exits every success counts as progress.
@@ -82,12 +162,12 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		before := t
 		t.FailStreak = 0
 		if progress {
-			t.AttemptsNoProgress = 0
+			t.AttemptsNoProgress, t.ProgressAt = 0, now.Unix()
 		}
 		if !hasExit { // an exit sets not_before itself (wait)
 			t.NotBefore = 0
 		}
-		if t.FailStreak == before.FailStreak && t.AttemptsNoProgress == before.AttemptsNoProgress && t.NotBefore == before.NotBefore {
+		if t.FailStreak == before.FailStreak && t.AttemptsNoProgress == before.AttemptsNoProgress && t.NotBefore == before.NotBefore && t.ProgressAt == before.ProgressAt {
 			return nil
 		}
 		return saveTask(ctx, tx, &t, "task.updated")
@@ -96,38 +176,50 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	if !ok || t.CancelRequested {
 		return nil
 	}
-	if waiting, err := askPark(ctx, tx, tx.company, t.ID); err != nil || waiting != "" {
-		return err // a task waiting for an answer is not retried
+	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
+	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
+	switch {
+	case outcome == "no_exit", review, t.Status == "IN_PROGRESS":
+	case t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "run:"): // held on an UNKNOWN run before 0029
+	default:
+		return nil // already applied, CANCELLED, or READY after a kill switch
 	}
-	if t.SideEffects {
-		// reliable-recovery D4: an unclear end of a task with external effects is inspected, never retried.
-		switch outcome {
-		case "revoked", "paused_out", "stale", "unclaimed":
-			return nil
+	if inspect, err := inspectsRun(ctx, tx, t, specJSON, outcome); err != nil || inspect {
+		if err != nil {
+			return err
 		}
-		if t.Status != "FAILED" && !(t.Status == "BLOCKED" && status == "UNKNOWN") {
-			return nil
-		}
-		// One inspection per run: a reconciliation (runs resolve) or an answer already decided it.
+		// reliable-recovery D4: an unclear end of a task with external effects is inspected, never retried;
+		// only this task waits (its escalation park), at once even while a lost run's node is silent.
 		var seen int
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM escalations WHERE company_id=? AND task_id=? AND reason='inspect' AND ref_id=?", tx.company, t.ID, runID).Scan(&seen); err != nil || seen > 0 {
+			return err
+		}
+		if first, err := markRecovered(ctx, tx, runID); err != nil || !first {
+			return err
+		}
+		if !review {
+			t.Status, t.BlockReason = "READY", ""
+		}
+		t.RetryEligible, t.Result = false, result
+		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
 		return openEscalation(ctx, tx, "inspect", escalationAnswers["inspect"], EscalationWant{TaskID: t.ID, RefID: runID,
 			Summary: "run " + runID + " of a task with external effects ended " + outcome + ": " + excerpt512(result) + " — check whether the effect happened: retry (it did not, or it is idempotent), continue (it happened), cancel",
 			Target:  retryTarget(tx, t.Assignee)})
 	}
-	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
-	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
-	switch {
-	case outcome == "no_exit":
-	case t.Status == "FAILED", review:
-	case t.Status == "BLOCKED" && status == "UNKNOWN" && released:
-	default:
-		return nil // CANCELLED, READY (kill switch), or a lost run that may still run
+	if unreleased {
+		return nil // the runtime may still run: the task waits for its node (releaseLost)
 	}
+	if first, err := markRecovered(ctx, tx, runID); err != nil || !first {
+		return err
+	}
+	if err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared"); err != nil {
+		return err
+	}
+	// A loss to a new worker epoch is not the task's doing (D1): no budget.
 	if rule.Budget && !strings.Contains(result, "restarted (epoch") {
-		if _, err = tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=used+1", tx.company, t.ID, budgetDay(now)); err != nil {
+		if err = countBudget(ctx, tx, t.ID, day); err != nil {
 			return err
 		}
 	}
@@ -138,13 +230,19 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		t.FailStreak++
 		t.NotBefore = now.Add(backoff(t.FailStreak)).Unix()
 	}
-	if status == "UNKNOWN" {
-		if err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared"); err != nil {
+	// Authority input the run was not briefed on counts as a retry answer (D2, D5): counters, backoff and
+	// today's budget reset, and the task runs with that input instead of escalating.
+	var fresh bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM task_triggers WHERE company_id=? AND task_id=? AND authority=1 AND seq>max(?,(SELECT handled_seq FROM tasks WHERE company_id=? AND id=?)))", tx.company, t.ID, briefTo, tx.company, t.ID).Scan(&fresh); err != nil {
+		return err
+	}
+	if fresh {
+		if err = resetRetry(ctx, tx, &t); err != nil {
 			return err
 		}
 	}
 	var used int
-	if err = tx.QueryRowContext(ctx, "SELECT coalesce((SELECT used FROM task_budget WHERE company_id=? AND task_id=? AND day=?),0)", tx.company, t.ID, budgetDay(now)).Scan(&used); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT coalesce((SELECT used FROM task_budget WHERE company_id=? AND task_id=? AND day=?),0)", tx.company, t.ID, day).Scan(&used); err != nil {
 		return err
 	}
 	reason, summary := "", ""
@@ -152,6 +250,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	case outcome == "setup_failed" && strings.HasPrefix(result, "workspace_diverged"):
 		// Retrying cannot help: the worktree changed outside any run (task-worktrees D4).
 		reason, summary = "workspace_diverged", excerpt512(result)
+	case fresh:
 	case outcome == "no_exit" && t.AttemptsNoProgress < RetryAttempts:
 		reason, summary = "no_exit", "the agent's run ended without a factory_exit_* call (for review: the agent did not finish): "+excerpt512(result)
 	case t.AttemptsNoProgress >= RetryAttempts:
@@ -161,19 +260,53 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	}
 	t.RetryEligible = false
 	t.Result = result
+	if !review && !(reason == "no_exit" && t.Status == "IN_PROGRESS") {
+		t.Status, t.BlockReason = "READY", ""
+	}
 	if reason != "" {
-		if !review && outcome != "no_exit" {
-			t.Status, t.BlockReason = "FAILED", ""
-		}
+		// The escalation's park holds the task (READY, or IN_REVIEW for a review run) until it is answered.
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
 		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(tx, t.Assignee)})
 	}
-	if !review {
-		t.Status, t.BlockReason = "READY", ""
-	}
 	return saveTask(ctx, tx, &t, "task.retry")
+}
+
+// markRecovered records that the run's end is applied to its task now; false when it already was (an end
+// repeated by later events of the run).
+func markRecovered(ctx context.Context, tx *Tx, runID string) (bool, error) {
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET recovered=1 WHERE id=? AND recovered=0", runID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// countBudget counts a run's end against the task's budget for day.
+func countBudget(ctx context.Context, tx *Tx, task, day string) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=used+1", tx.company, task, day)
+	return err
+}
+
+// inspectsRun tells whether the run's end parks its task for inspection (D4): the task has side effects,
+// or the run's captured agent config has a recovery: inspect rule, and the outcome is unclear (not
+// paused_out, stale, unclaimed or a revoke).
+func inspectsRun(ctx context.Context, tx *Tx, t tasks.Task, specJSON []byte, outcome string) (bool, error) {
+	switch outcome {
+	case "revoked", "paused_out", "stale", "unclaimed":
+		return false, nil
+	}
+	if t.SideEffects {
+		return true, nil
+	}
+	var spec protocol.RunSpec
+	var captured config.Agent
+	if json.Unmarshal(specJSON, &spec) != nil || len(spec.ConfigSnapshot) == 0 || json.Unmarshal(spec.ConfigSnapshot, &captured) != nil {
+		return false, nil
+	}
+	return captured.RecoveryMode() == "inspect", nil
 }
 
 func excerpt512(s string) string {
@@ -192,9 +325,14 @@ func retryTarget(tx *Tx, assignee string) string {
 }
 
 // resetRetry clears the counters, the backoff and today's budget: authority input or a retry answer.
+// Either counts as progress for the no-progress alert.
 func resetRetry(ctx context.Context, tx *Tx, t *tasks.Task) error {
-	t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0
-	_, err := tx.ExecContext(ctx, "DELETE FROM task_budget WHERE company_id=? AND task_id=? AND day=?", tx.company, t.ID, budgetDay(tx.now()))
+	t.AttemptsNoProgress, t.FailStreak, t.NotBefore, t.ProgressAt = 0, 0, 0, tx.now().Unix()
+	day, err := budgetDay(ctx, tx)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "DELETE FROM task_budget WHERE company_id=? AND task_id=? AND day=?", tx.company, t.ID, day)
 	return err
 }
 
@@ -214,7 +352,7 @@ func clearRetryEscalations(ctx context.Context, tx *Tx, t tasks.Task, why string
 
 // retryAnswer is the retry answer of a retry escalation: counters reset, the task runs again now.
 func retryAnswer(ctx context.Context, tx *Tx, t tasks.Task) error {
-	if t.Status != "FAILED" && t.Status != "IN_PROGRESS" && t.Status != "IN_REVIEW" {
+	if t.Status != "READY" && t.Status != "IN_PROGRESS" && t.Status != "IN_REVIEW" {
 		return fmt.Errorf("%w: task is %s", ErrConflict, t.Status)
 	}
 	if err := resetRetry(ctx, tx, &t); err != nil {
@@ -239,10 +377,10 @@ func acceptAnswer(ctx context.Context, tx *Tx, t tasks.Task) error {
 	return saveTask(ctx, tx, &t, "task.updated")
 }
 
-// releaseLost marks a lost run's runtime as gone (it no longer holds its project, workspace or session)
-// and lets its task retry.
+// releaseLost marks a lost run's runtime as gone (it no longer holds its workspace, session or task) and
+// lets its task retry.
 func releaseLost(ctx context.Context, tx *Tx, id string) error {
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET released=1 WHERE id=? AND status='UNKNOWN' AND released=0", id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET unreleased=0 WHERE id=? AND unreleased=1", id)
 	if err != nil {
 		return err
 	}
@@ -255,7 +393,7 @@ func releaseLost(ctx context.Context, tx *Tx, id string) error {
 // releaseNodeRuns releases the unreleased lost runs of node that its new state proves gone: runs of an
 // older epoch (the node killed what its previous process left), or runs of this epoch it no longer lists.
 func releaseNodeRuns(ctx context.Context, tx *Tx, node string, olderThan int64, listed map[string]bool, epoch int64) error {
-	rows, err := tx.QueryContext(ctx, "SELECT id,epoch FROM runs WHERE company_id=? AND node_id=? AND status='UNKNOWN' AND released=0", tx.company, node)
+	rows, err := tx.QueryContext(ctx, "SELECT id,epoch FROM runs WHERE company_id=? AND node_id=? AND unreleased=1", tx.company, node)
 	if err != nil {
 		return err
 	}
@@ -284,15 +422,15 @@ func releaseNodeRuns(ctx context.Context, tx *Tx, node string, olderThan int64, 
 	return nil
 }
 
-// inspectAnswer answers the inspect escalation of a side-effect task: the inspected run is reconciled
-// (an UNKNOWN run becomes FAILED for retry, COMPLETED for continue) and the task runs again; continue tells
-// the next brief that the effect happened.
+// inspectAnswer answers the inspect escalation of a side-effect task: the inspected run is reconciled (a
+// lost run is released, the inspector having checked its runtime, and becomes COMPLETED for continue) and
+// the task runs again; continue tells the next brief that the effect happened.
 func inspectAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answer, actor string) error {
 	status, note := "FAILED", "inspected: the effect did not happen; retry"
 	if answer == "continue" {
 		status, note = "COMPLETED", "inspected: the effect happened; continue from there"
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=result||' ['||?||']',finished_at=? WHERE id=? AND status='UNKNOWN'", status, note, tx.now().Unix(), e.RefID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=result||' ['||?||']',unreleased=0 WHERE id=? AND outcome='lost'", status, note, e.RefID); err != nil {
 		return err
 	}
 	if err := clearParks(ctx, tx, t, tasks.ParkInspect, e.RefID, "cleared"); err != nil {

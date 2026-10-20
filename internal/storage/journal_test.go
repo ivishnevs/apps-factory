@@ -51,27 +51,14 @@ func TestReportsDurabilityIdentityAndRuntime(t *testing.T) {
 	if _, err = s.CreateReport(ctx, DefaultCompany, "p", in); err == nil {
 		t.Fatal("forged runtime report")
 	}
-	event := finishEngineRun(t, s, run, "UNKNOWN")
+	event := finishEngineRun(t, s, run, "FAILED")
 	if err = s.Apply(ctx, DefaultCompany, event); err != nil {
 		t.Fatal(err)
 	}
+	// The runtime report records the end; a failed run retries on its own, so it asks nothing of the owner.
 	page, err := s.Reports(ctx, DefaultCompany, "p", "runtime", "", run.ID, 0, 10)
-	if err != nil || len(page.Items) != 1 || page.Items[0].Result != "UNKNOWN" || page.Items[0].Source != "core" {
+	if err != nil || len(page.Items) != 1 || page.Items[0].Result != "FAILED" || page.Items[0].Source != "core" || page.Items[0].NeedsOwnerAction {
 		t.Fatal(page, err)
-	}
-	unknownNotice := page.Items[0].MessageID
-	if err = s.Resolve(ctx, DefaultCompany, run.ID, "COMPLETED", "inspected workspace and verified effects"); err != nil {
-		t.Fatal(err)
-	}
-	page, err = s.Reports(ctx, DefaultCompany, "p", "runtime", "", run.ID, 0, 10)
-	if err != nil || len(page.Items) != 2 {
-		t.Fatal(page, err)
-	}
-	inbox, _ = s.Inbox(ctx, DefaultCompany, "p")
-	for _, m := range inbox {
-		if m.ID == unknownNotice {
-			t.Fatal("stale UNKNOWN notice", m)
-		}
 	}
 	persisted, err := s.Report(ctx, DefaultCompany, report.ID)
 	if err != nil || persisted.Result != "checks passed" {

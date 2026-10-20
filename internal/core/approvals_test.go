@@ -264,8 +264,10 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 	}
 }
 
-func TestApprovalDecisionDoesNotReleaseActiveOrUnknownWriter(t *testing.T) {
-	for _, terminal := range []string{"COMPLETED", "UNKNOWN"} {
+// TestApprovalDecisionDoesNotReleaseActiveOrLostWriter: an approval decision does not start the task early,
+// neither while its run is active nor while a lost run's retry waits for its backoff.
+func TestApprovalDecisionDoesNotReleaseActiveOrLostWriter(t *testing.T) {
+	for _, terminal := range []string{"COMPLETED", "LOST"} {
 		t.Run(terminal, func(t *testing.T) {
 			ctx := context.Background()
 			s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
@@ -301,7 +303,7 @@ func TestApprovalDecisionDoesNotReleaseActiveOrUnknownWriter(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if terminal == "UNKNOWN" {
+			if terminal == "LOST" {
 				if _, err = s.DB.Exec("UPDATE runs SET lease_until=0 WHERE id=?", task.CurrentRunID); err != nil {
 					t.Fatal(err)
 				}
@@ -325,14 +327,14 @@ func TestApprovalDecisionDoesNotReleaseActiveOrUnknownWriter(t *testing.T) {
 					t.Fatal(saved)
 				}
 			} else {
-				if saved.Status != "BLOCKED" {
-					t.Fatal("decision released unknown writer", saved)
+				if saved.Status != "READY" || saved.NotBefore <= s.Now().Unix() {
+					t.Fatal("decision released the lost run's retry", saved)
 				}
 				if err = c.Schedule(ctx); err != nil {
 					t.Fatal(err)
 				}
 				saved, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
-				if saved.CurrentRunID != task.CurrentRunID || saved.Status != "BLOCKED" {
+				if saved.CurrentRunID != task.CurrentRunID || saved.Status != "READY" {
 					t.Fatal(saved)
 				}
 			}

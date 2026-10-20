@@ -186,7 +186,7 @@ func TestNodeOfflineAfterContinuousTicking(t *testing.T) {
 			if offlineAt <= storage.NodeOffline || offlineAt > storage.NodeOffline+2*time.Second {
 				t.Fatalf("offline after %s of continuous ticking, want just past %s", offlineAt, storage.NodeOffline)
 			}
-			if st := status(); st != "UNKNOWN" {
+			if st := status(); st != "FAILED" {
 				t.Fatal("offline node's run not lost", st)
 			}
 			if _, err = s.NodeHeartbeat(ctx, storage.DefaultCompany, "n1", storage.NodeHeartbeat{Epoch: 1}); err != nil || !online() {

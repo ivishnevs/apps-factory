@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	"appfactory/internal/config"
-	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
 
@@ -115,7 +113,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	snap := tasks.Snapshot{Task: t, Now: tx.now(), PinTimeout: PinTimeout}
 	run := func(query string, args ...any) (*tasks.Run, error) {
 		var r tasks.Run
-		err := tx.QueryRowContext(ctx, query, args...).Scan(&r.ID, &r.Status, &r.TaskID)
+		err := tx.QueryRowContext(ctx, query, args...).Scan(&r.ID, &r.Status, &r.TaskID, &r.Lost)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -123,16 +121,8 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	}
 	var err error
 	if t.CurrentRunID != "" {
-		if snap.CurrentRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND id=?", tx.company, t.CurrentRunID); err != nil {
+		if snap.CurrentRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND id=?", tx.company, t.CurrentRunID); err != nil {
 			return snap, err
-		}
-		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", tx.company, t.CurrentRunID)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return snap, err
-		}
-		var captured config.Agent
-		if len(spec.ConfigSnapshot) > 0 && json.Unmarshal(spec.ConfigSnapshot, &captured) == nil {
-			snap.MaxRetries = captured.Spec.Execution.MaxRetries
 		}
 	}
 	if err = tx.QueryRowContext(ctx, "SELECT wake_seq,handled_seq FROM tasks WHERE company_id=? AND id=?", tx.company, t.ID).Scan(&snap.WakeSeq, &snap.HandledSeq); err != nil {
@@ -202,7 +192,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		}
 	}
 	if t.Assignee != "" {
-		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND coalesce(task_id,'')!=? ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
+		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND coalesce(task_id,'')!=? ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
 			return snap, err
 		}
 		if snap.AgentLive, snap.AgentProjectLive, err = agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID); err != nil {
@@ -220,8 +210,8 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	if err != nil {
 		return snap, err
 	}
-	// The workspace_writer index includes unreleased UNKNOWN runs: they keep the project workspace slot.
-	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,'') FROM runs WHERE company_id=? AND workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR status='UNKNOWN' AND released=0) AND coalesce(task_id,'')!=? ORDER BY status='UNKNOWN' DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
+	// The workspace_writer index includes unreleased lost runs: they keep the project workspace slot.
+	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1) AND coalesce(task_id,'')!=? ORDER BY unreleased DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
 	return snap, err
 }
 

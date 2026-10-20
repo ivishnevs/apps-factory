@@ -201,7 +201,7 @@ func autoRuntimeReport(ctx context.Context, tx *Tx, id string) error {
 		return err
 	}
 	switch status {
-	case "COMPLETED", "FAILED", "CANCELLED", "UNKNOWN":
+	case "COMPLETED", "FAILED", "CANCELLED":
 	default:
 		return nil
 	}
@@ -214,11 +214,8 @@ func autoRuntimeReport(ctx context.Context, tx *Tx, id string) error {
 		return nil
 	}
 	in := reports.Create{TaskID: spec.TaskID, RunID: id, Actor: "system", Kind: "runtime", Summary: "Runtime " + id + " is " + status, Purpose: "Record the observed execution outcome", Result: status}
-	if status == "UNKNOWN" {
-		in.NeedsOwnerAction = true
-		in.OwnerAction = "Inspect workspace and side effects, then reconcile the run; do not retry blindly."
-	}
-	if status != "UNKNOWN" {
+	// A run that ended UNKNOWN before reliable-recovery left an owner notice; its later end closes it.
+	{
 		old, e := getDoc[reports.Report](ctx, tx, "SELECT body FROM reports WHERE source_key=?", "runtime:"+id+":UNKNOWN")
 		if e != nil && !errors.Is(e, ErrNotFound) {
 			return e

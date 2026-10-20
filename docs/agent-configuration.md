@@ -33,8 +33,9 @@ override must fit the assignee's provider (Claude: `opus`, `sonnet`, `haiku`, `o
 `[1m]`; Codex: `gpt-*`, `codex-*`, `o<digit>…`; `default` fits both) or it is refused; one left behind by a
 reassignment to another provider is ignored (the agent's model runs) with a `task.model_ignored` feed event.
 Prompt paths must resolve inside FACTORY_ROOT, including symlinks. timeout is 1s–24h.
-`execution.max_concurrent_runs` (1..8, default 1) caps the agent's live runs and `max_concurrent_runs_per_project` (default the same) its live runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time. Keep coordinators (role manager) at 1. max_retries must be nonnegative; Task Engine applies it only to known Worker-reported failed turns.
-UNKNOWN and manually reconciled failures never retry automatically. Communication create/assign permissions are checked on named-agent task mutations; can_message
+`execution.max_concurrent_runs` (1..8, default 1) caps the agent's live runs and `max_concurrent_runs_per_project` (default the same) its live runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time. Keep coordinators (role manager) at 1. max_retries must be nonnegative; it is a deprecated alias kept for compatibility: automatic retry follows the
+outcome table (three attempts without progress, a daily budget; task-lifecycle.md). A `type: recovery, mode:
+inspect` policy rule makes an unclear end of the agent's runs an inspection instead of a retry. Communication create/assign permissions are checked on named-agent task mutations; can_message
 checks explicit recipient agent names and reserved owner on scoped messaging. Capabilities
 and context selectors remain metadata for later richer context integration.
 

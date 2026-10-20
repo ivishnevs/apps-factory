@@ -55,6 +55,21 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		err := c.Store.SetCompanyRules(r.Context(), c.companyFrom(r), p.Rules)
 		reply(w, map[string]string{"scope": "company", "rules": p.Rules}, err)
 	})
+	// The company's time zone sets the day of the daily retry budget (reliable-recovery D2).
+	m.HandleFunc("GET /settings/company/time_zone", func(w http.ResponseWriter, r *http.Request) {
+		zone, err := c.Store.CompanyTimeZone(r.Context(), c.companyFrom(r))
+		reply(w, map[string]string{"time_zone": zone}, err)
+	})
+	m.HandleFunc("PUT /settings/company/time_zone", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			TimeZone string `json:"time_zone"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		err := c.Store.SetCompanyTimeZone(r.Context(), c.companyFrom(r), p.TimeZone)
+		reply(w, map[string]string{"time_zone": p.TimeZone}, err)
+	})
 	m.HandleFunc("GET /projects/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.EntityEvents(r.Context(), c.companyFrom(r), r.PathValue("id"), "")
 		reply(w, v, err)
@@ -370,35 +385,6 @@ func (c *Core) Schedule(ctx context.Context) error {
 	company := c.company()
 	if err := c.Store.ReconcileArtifactTasks(ctx, company); err != nil {
 		return err
-	}
-	failed, err := c.Store.Tasks(ctx, company, "", "FAILED")
-	if err != nil {
-		return err
-	}
-	for _, t := range failed {
-		if !t.RetryEligible {
-			continue
-		}
-		run, err := c.Store.Get(ctx, company, t.CurrentRunID)
-		if err != nil {
-			return err
-		}
-		var snapshot config.Agent
-		if json.Unmarshal(run.Spec.ConfigSnapshot, &snapshot) != nil {
-			continue
-		}
-		if t.Attempt > snapshot.Spec.Execution.MaxRetries {
-			continue
-		}
-		if _, err = c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "ready", Reason: "Bounded retry after known failed turn; inspect previous attempt and workspace", Actor: "system", RequestID: "retry-" + t.CurrentRunID}); err != nil && !errors.Is(err, storage.ErrConflict) {
-			if errors.Is(err, storage.ErrInput) {
-				if _, e := c.Store.TaskAction(ctx, company, t.ID, tasks.Action{Version: t.Version, Action: "block", Reason: err.Error(), Actor: "system"}); e != nil && !errors.Is(e, storage.ErrConflict) {
-					return e
-				}
-				continue
-			}
-			return err
-		}
 	}
 	ready, err := c.Store.Tasks(ctx, company, "", "READY")
 	if err != nil {

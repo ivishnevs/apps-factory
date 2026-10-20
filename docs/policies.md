@@ -1,6 +1,6 @@
 # Unified policies
 
-One catalog in configs/policies/*.yaml contains access, escalation and reporting instructions.
+One catalog in configs/policies/*.yaml contains access, escalation, reporting and recovery rules.
 Use apiVersion factory/v1, kind Policy, metadata.name and spec:
 
 ```yaml
@@ -21,6 +21,11 @@ spec:
     - name: report-dependencies
       type: reporting
       instruction: Report dependency installation, its purpose and result.
+    - name: inspect-publishing
+      type: recovery
+      mode: inspect
+      roles: [publisher]
+      instruction: Publishing runs are inspected, not retried.
 ```
 
 Agents attach policies by name. All mandatory policies also apply automatically.
@@ -34,6 +39,11 @@ An allow rule cannot override a denylist or grant a tool absent from an allowlis
 target is self/manager/owner; instructions govern the trusted agent. Reporting instructions describe
 significant events; agents persist these through factory_report_create. Reporting is part of the
 same policy system, independent of access approval and escalation.
+A recovery rule (`mode: inspect`, the only mode; no operations, effect or target) marks the agent's runs as
+acting outside the workspace: an unclear end parks the task for inspection instead of an automatic retry
+(reliable-recovery D4, [task lifecycle](task-lifecycle.md#failure-retry-and-cancellation)). The run's config
+snapshot carries it, so a later policy change does not change how a running run recovers. `factory agents
+authorize NAME OPERATION` prints the agent's effective `recovery` mode (`inspect` or `retry`).
 Behavioral instructions with contradictory escalation/reporting rules are not automatically
 arbitrated; configure consistent instructions. Access conflicts have the precedence above.
 

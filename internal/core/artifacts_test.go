@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,7 +317,9 @@ func TestArtifactWaitersPreserveManualBlocksQuarantineAndDeadlines(t *testing.T)
 	}
 	unknown, _ = s.Task(ctx, storage.DefaultCompany, unknown.ID)
 	manual, _ = s.Task(ctx, storage.DefaultCompany, manual.ID)
-	if unknown.Status != "BLOCKED" || manual.Status != "BLOCKED" || manual.BlockReason != "manual: Owner pause" {
+	lostRun := unknown.CurrentRunID
+	// Held by its inspection escalation: reads present BLOCKED with the escalation's reason.
+	if unknown.Status != "BLOCKED" || !strings.HasPrefix(unknown.BlockReason, "escalation: inspect: ") || manual.Status != "BLOCKED" || manual.BlockReason != "manual: Owner pause" {
 		t.Fatal(unknown, manual)
 	}
 	if _, err = s.DecideApproval(ctx, storage.DefaultCompany, a.ID, approvals.Decision{Version: 2, Action: "revoke", Reason: "stop", RequestID: "revoke"}); err != nil {
@@ -325,8 +328,10 @@ func TestArtifactWaitersPreserveManualBlocksQuarantineAndDeadlines(t *testing.T)
 	if err = c.Schedule(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// The inspection holds the side-effect task: nothing dispatched it again.
+	unknown, _ = s.Task(ctx, storage.DefaultCompany, unknown.ID)
 	run, _ := s.Get(ctx, storage.DefaultCompany, unknown.CurrentRunID)
-	if run.Status != "UNKNOWN" {
+	if unknown.CurrentRunID != lostRun || run.Status != "FAILED" || run.Outcome != "lost" {
 		t.Fatal(run)
 	}
 }

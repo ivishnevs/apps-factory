@@ -5,6 +5,7 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/openspec"
+	"appfactory/internal/policies"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"context"
@@ -31,7 +32,7 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE | " + nodesUsage)
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -59,7 +60,11 @@ func run() error {
 			if !ok {
 				return fmt.Errorf("unknown agent")
 			}
-			return printJSON(a.Authorize(args[3]))
+			// The effective recovery mode is shown along: it is per agent, not per operation.
+			return printJSON(struct {
+				policies.Decision
+				Recovery string `json:"recovery"`
+			}{a.Authorize(args[3]), a.RecoveryMode()})
 		}
 		return fmt.Errorf("usage: config validate | agents list | agents get NAME | agents authorize NAME OPERATION")
 	}
@@ -84,7 +89,7 @@ func run() error {
 		return nodesCommand(ctx, api, args)
 	}
 	switch args[0] {
-	case "pause", "resume", "pauses", "stop", "start", "pending", "answer", "approve", "reject", "escalations", "direct", "abandon-branch", "rules":
+	case "pause", "resume", "pauses", "stop", "start", "pending", "answer", "approve", "reject", "escalations", "direct", "abandon-branch", "rules", "time-zone":
 		return ownerCommand(ctx, api, args)
 	}
 	if args[0] == "status" || args[0] == "watch" || args[0] == "log" || args[0] == "show" {

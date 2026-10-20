@@ -68,7 +68,10 @@ func TestDurableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestLeaseLossRequiresReconciliation(t *testing.T) {
+
+// TestLeaseLossEndsTheRunLost: an expired v1 lease ends the run lost; it is neither revived nor claimed
+// again, and there is nothing to reconcile (the v1 worker stops a run whose lease it lost).
+func TestLeaseLossEndsTheRunLost(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "db"))
 	if err != nil {
@@ -96,10 +99,10 @@ func TestLeaseLossRequiresReconciliation(t *testing.T) {
 		t.Fatal("blind retry allowed")
 	}
 	run, _ := s.Get(ctx, DefaultCompany, "r")
-	if run.Status != "UNKNOWN" {
-		t.Fatal(run.Status)
+	if run.Status != "FAILED" || run.Outcome != "lost" {
+		t.Fatal(run.Status, run.Outcome)
 	}
-	if err = s.Resolve(ctx, DefaultCompany, "r", "FAILED", "Inspected workspace; safe to start a new run"); err != nil {
+	if err = s.Resolve(ctx, DefaultCompany, "r", "FAILED", "Inspected workspace; safe to start a new run"); !errors.Is(err, ErrConflict) {
 		t.Fatal(err)
 	}
 }
