@@ -15,9 +15,10 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden screens")
 
 // demoModel is the UI on the demo fixture at a fixed moment, sized w×h, with the feed received and the
-// live runs' last activity known. It starts no streams: tests drive it with messages.
+// live runs' steps known. It starts no streams: tests drive it with messages.
 func demoModel(t *testing.T, w, h int) (*Model, *FixtureClient) {
 	t.Helper()
+	applyTheme(true)
 	f := DemoFixture()
 	c := &FixtureClient{F: f}
 	m := New(Options{Client: c, Now: func() time.Time { return DemoAt }, Location: time.UTC, NoStreams: true})
@@ -28,7 +29,7 @@ func demoModel(t *testing.T, w, h int) (*Model, *FixtureClient) {
 	for i := range f.Feed {
 		m.Update(streamMsg{Stream: "feed", Feed: &f.Feed[i]})
 	}
-	for _, id := range []string{"r-ios-7", "r-rev-2"} {
+	for _, id := range []string{"r-ios-7", "r-rev-2", "r-web-4"} {
 		events := f.RunEvents[id]
 		for i := range events {
 			m.Update(streamMsg{Stream: "tail:" + id, Run: &events[i]})
@@ -64,6 +65,8 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "ctrl+c":
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	case "ctrl+k":
+		return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}
 	}
 	r := []rune(k)
 	return tea.KeyPressMsg{Code: r[0], Text: k}
@@ -126,32 +129,31 @@ func TestGoldenScreens(t *testing.T) {
 		keys []string
 		prep func(m *Model)
 	}{
+		{name: "dashboard_140x40", w: 140, h: 40},
+		{name: "dashboard_100x30", w: 100, h: 30},
 		{name: "dashboard_80x24", w: 80, h: 24},
-		{name: "dashboard_120x32", w: 120, h: 32},
-		{name: "tasks_80x24", w: 80, h: 24, keys: []string{"2"}},
-		{name: "tasks_filter_80x24", w: 80, h: 24, keys: []string{"2", "/"}, prep: func(m *Model) { typeText(m, "p:calorie open"); press(m, "enter") }},
-		{name: "task_detail_80x40", w: 80, h: 40, keys: []string{"2"}, prep: func(m *Model) {
-			m.tasks.cursor = indexOf(m.visibleTasks(), "CAL-3")
-			cmd := m.tasks.key(m, keyMsg("enter"))
-			m.Update(cmd())
-		}},
-		{name: "tasks_wide_160x30", w: 160, h: 30, keys: []string{"2"}, prep: func(m *Model) {
-			m.tasks.cursor = indexOf(m.visibleTasks(), "CAL-3")
-			cmd := m.tasks.key(m, keyMsg("enter"))
-			m.Update(cmd())
-		}},
-		{name: "confirm_pause_80x24", w: 80, h: 24, keys: []string{"2", "p"}},
-		{name: "input_directive_80x24", w: 80, h: 24, keys: []string{"2", "d"}, prep: func(m *Model) { typeText(m, "!ship the grams-only picker today") }},
-		{name: "run_80x24", w: 80, h: 24, prep: func(m *Model) { openDemoRun(m, "r-ios-7") }},
-		{name: "run_picker_80x24", w: 80, h: 24, keys: []string{"3"}},
-		{name: "flow_80x24", w: 80, h: 24, keys: []string{"4"}},
-		{name: "flow_task_80x24", w: 80, h: 24, keys: []string{"4"}, prep: func(m *Model) { m.flow.filter = FlowFilter{Task: "N-1"} }},
-		{name: "flow_graph_100x30", w: 100, h: 30, keys: []string{"4", "g"}},
-		{name: "feed_80x24", w: 80, h: 24, keys: []string{"5"}},
-		{name: "feed_attention_80x24", w: 80, h: 24, keys: []string{"5", "!"}},
-		{name: "inbox_80x24", w: 80, h: 24, keys: []string{"6"}},
-		{name: "inbox_approval_80x24", w: 80, h: 24, keys: []string{"6", "j"}},
-		{name: "help_80x24", w: 80, h: 24, keys: []string{"?"}},
+		{name: "dashboard_agent_140x40", w: 140, h: 40, keys: []string{"j", "j", "j"}},
+		{name: "dashboard_zoom_tree_100x30", w: 100, h: 30, keys: []string{"z"}},
+		{name: "board_160x40", w: 160, h: 40, keys: []string{"2"}},
+		{name: "board_100x30", w: 100, h: 30, keys: []string{"2", "right", "right"}},
+		{name: "board_80x24", w: 80, h: 24, keys: []string{"2"}},
+		{name: "board_project_100x30", w: 100, h: 30, keys: []string{"2", "]"}},
+		{name: "task_detail_120x40", w: 120, h: 40, prep: func(m *Model) { m.Update(m.openDetail("CAL-3")()) }},
+		{name: "confirm_pause_100x30", w: 100, h: 30, keys: []string{"2", "right", "right", "p"}},
+		{name: "input_directive_100x30", w: 100, h: 30, keys: []string{"2", "right", "right", "d"}, prep: func(m *Model) { typeText(m, "!ship the grams-only picker today") }},
+		{name: "run_140x40", w: 140, h: 40, prep: func(m *Model) { openDemoRun(m, "r-ios-7") }},
+		{name: "run_codex_100x30", w: 100, h: 30, prep: func(m *Model) { openDemoRun(m, "r-web-4") }},
+		{name: "flow_lanes_140x40", w: 140, h: 40, keys: []string{"3"}},
+		{name: "flow_lanes_project_100x30", w: 100, h: 30, keys: []string{"3", "]"}},
+		{name: "flow_pairs_100x30", w: 100, h: 30, keys: []string{"3", "g"}},
+		{name: "flow_timeline_80x24", w: 80, h: 24, keys: []string{"3"}},
+		{name: "feed_120x30", w: 120, h: 30, keys: []string{"4"}},
+		{name: "feed_attention_80x24", w: 80, h: 24, keys: []string{"4", "!"}},
+		{name: "inbox_120x30", w: 120, h: 30, keys: []string{"5"}},
+		{name: "inbox_approval_80x24", w: 80, h: 24, keys: []string{"5", "j"}},
+		{name: "prompt_chooser_100x30", w: 100, h: 30, keys: []string{"A"}},
+		{name: "palette_100x30", w: 100, h: 30, keys: []string{"ctrl+k"}, prep: func(m *Model) { typeText(m, "cal3") }},
+		{name: "help_100x30", w: 100, h: 30, keys: []string{"?"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, _ := demoModel(t, tc.w, tc.h)

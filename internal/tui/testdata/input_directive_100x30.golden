@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+ 21 tasks  · z shows cancelled                                                                more ▶
+╭───────── ● Backlog 3 ─────────╮╭──────── ● Ready 4 +1 ─────────╮╭───────── ● Running 2 ──────────╮
+│ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
+│ │ ● Blog engine             │ ││ │ ● Crash on empty meal li… │ ││ ┃ ● Pricing page             ┃ │
+│ │ W-4  website           ▽3 │ ││ │ CAL-9  calorie         ▲8 │ ││ ┃ W-2  website            ▲8 ┃ │
+│ │ ● demo                 1h │ ││ │ ● calorie-qa          25m │ ││ ┃ ● demo                  7m ┃ │
+│ │ ○ not released            │ ││ │ ◌ ready · next free slot  │ ││ ┃ ⠋ ✎ Edit: src/pages/prici… ┃ │
+│ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
+│ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
+│ │ ● Dark mode icons         │ ││ │ ● Fix the sync conflict … │ ││ │ ● Build the meal entry sc… │ │
+│ │ N-4  not╭───────────────────────────────── Input ──────────────────────────────────╮      △7 │ │
+│ │ ● calori│ Directive to W-2 (start with ! for urgent: stops the live run)           │44 · 12m │ │
+│ │ ○ not re│                                                                          │ilter M… │ │
+│ ╰─────────│ › !ship the grams-only picker today                                      │─────────╯ │
+│ ╭─────────╰──────────────────────────────────────────────────────────────────────────╯           │
+│ │ ● App Store screenshots   │ ││ │ ● SEO audit of the landi… │ ││                                │
+│ │ CAL-6  calorie         ▽2 │ ││ │ W-3  website           △5 │ ││                                │
+│ │ ● calorie-designer     2h │ ││ │ ● reviewer             1h │ ││                                │
+│ │ ○ not released            │ ││ │ ↳ queued: busy with N-1   │ ││                                │
+│ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││                                │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+│                               ││                               ││                                │
+╰───────────────────────────────╯╰───────────────────────────────╯╰────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ enter ok  esc cancel

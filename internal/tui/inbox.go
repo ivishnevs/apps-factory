@@ -1,12 +1,12 @@
 package tui
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"appfactory/internal/approvals"
 	"appfactory/internal/messaging"
@@ -64,11 +64,11 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 	case "l", "right":
 		s.option = min(s.option+1, max(len(opts)-1, 0))
 	case "enter":
-		if isApproval || len(opts) == 0 {
-			if !isApproval {
-				return s.key(m, "a")
-			}
+		if isApproval {
 			return nil
+		}
+		if len(opts) == 0 {
+			return s.key(m, "a")
 		}
 		opt := opts[min(s.option, len(opts)-1)]
 		m.askConfirm(Action{Kind: "answer", MessageID: msg.ID, Version: msg.Version, Text: opt, Answers: map[string]any{msg.Questions[0].ID: opt}})
@@ -77,7 +77,7 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 			m.setToast("approvals are decided with y (approve) or n (reject)", true)
 			return nil
 		}
-		return m.openInput("Answer "+msg.ID+" (free text)", "", Action{Kind: "answer", MessageID: msg.ID, Version: msg.Version}, func(a *Action, text string) error {
+		return m.openInput("Answer "+msg.Sender+" (free text)", "", Action{Kind: "answer", MessageID: msg.ID, Version: msg.Version}, func(a *Action, text string) error {
 			if text == "" {
 				return fmt.Errorf("empty answer")
 			}
@@ -92,11 +92,7 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 		if key == "n" {
 			kind, initial = "reject", ""
 		}
-		version := ap.Version
-		if version == 0 {
-			version = 1
-		}
-		return m.openInput(strings.ToUpper(kind[:1])+kind[1:]+" "+msg.ApprovalID+": reason", initial, Action{Kind: kind, ApprovalID: msg.ApprovalID, Version: version}, func(a *Action, text string) error {
+		return m.openInput(capitalize(kind)+" "+msg.ApprovalID+" — reason", initial, Action{Kind: kind, ApprovalID: msg.ApprovalID, Version: max(ap.Version, 1)}, func(a *Action, text string) error {
 			if text == "" {
 				return fmt.Errorf("a reason is required")
 			}
@@ -105,81 +101,105 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 		})
 	case "t":
 		if msg.TaskID != "" {
-			m.tasks.detailID, m.tasks.loading, m.tasks.scroll, m.tasks.open, m.tasks.detail = msg.TaskID, true, 0, !m.wideTasks(), nil
-			m.switchTab(tabTasks)
-			return m.loadDetail(msg.TaskID)
+			return m.openDetail(msg.TaskID)
 		}
 	}
 	return nil
 }
 
+func inboxKind(msg messaging.Message) (string, lipgloss.Style) {
+	switch {
+	case msg.ApprovalID != "":
+		return "approval", stMagenta
+	case msg.EscalationReason != "":
+		return "escalation", stRedBold
+	case msg.Status == "ESCALATED":
+		return "escalated", stOrange
+	}
+	return msg.MessageType, stYellow
+}
+
 func (m *Model) inboxLines(w, h int) []string {
+	if !m.loaded {
+		return m.notLoaded()
+	}
 	s := &m.inbox
 	items := m.ov.Inbox
 	now := m.now()
-	lines := []string{cut(stTitle.Render("Inbox")+stFaint.Render(fmt.Sprintf("  %d waiting on you · ←/→ option · enter answer · a free text · y approve · n reject · t task", len(items))), w)}
 	if len(items) == 0 {
-		return append(lines, "", stFaint.Render("  nothing waits on you"))
+		return panel("Inbox", []string{"", stGreen.Render("  ✓ nothing waits on you")}, w, h, true)
 	}
 	s.clamp(m)
-	listH := min(len(items), max(h/3, 3))
-	start := 0
-	if s.cursor >= listH {
-		start = s.cursor - listH + 1
+	listW := w * 2 / 5
+	if w < 100 {
+		listW = w
 	}
-	for i := start; i < len(items) && i < start+listH; i++ {
-		msg := items[i]
-		kind := msg.MessageType
-		switch {
-		case msg.ApprovalID != "":
-			kind = "approval"
-		case msg.EscalationReason != "":
-			kind = "escalation"
-		case msg.Status == "ESCALATED":
-			kind = "escalated"
-		}
-		line := "  " + stRedBold.Render(fit(kind, 11)) + fit(msg.Sender, 17) + fit(dash(msg.TaskID), 8) + stFaint.Render(fit(ago(now, time.Unix(msg.CreatedAt, 0)), 5)) + oneLine(msg.Body)
+	list := []string{}
+	for i, msg := range items {
+		kind, ks := inboxKind(msg)
+		head := ks.Render("● "+kind) + "  " + lipgloss.NewStyle().Foreground(agentColor(msg.Sender)).Render(msg.Sender)
+		head = rightAlign(head, stFaint.Render(ago(now, time.Unix(msg.CreatedAt, 0))+" ago"), listW-4)
+		body := "  " + stFaint.Render(cut(dash(msg.TaskID)+" · "+oneLine(msg.Body), listW-6))
 		if i == s.cursor {
-			line = stSelected.Render(fit(stripStyles(line), w))
+			bg := lipgloss.NewStyle().Background(theme.surfaceHi)
+			head, body = bg.Render(fit(head, listW-4)), bg.Render(fit(body, listW-4))
 		}
-		lines = append(lines, cut(line, w))
+		list = append(list, head, body, "")
 	}
-	lines = append(lines, stFaint.Render(strings.Repeat("─", w)))
-	msg := items[s.cursor]
-	lines = append(lines, cut(stBold.Render(msg.ID)+fmt.Sprintf("  from %s to %s · project %s · task %s · v%d", msg.Sender, msg.Recipient, msg.ProjectID, dash(msg.TaskID), msg.Version), w))
+	listPanel := panel(fmt.Sprintf("Inbox · %d", len(items)), list, listW, h, true)
+	if w < 100 {
+		// Narrow: the list on top, the selected item below.
+		top := min(len(items)*3+2, h/2)
+		return append(panel(fmt.Sprintf("Inbox · %d", len(items)), list, w, top, true), panel("Item", m.inboxItemLines(items[s.cursor], w-4), w, h-top, false)...)
+	}
+	return hjoin(0, listPanel, panel("Item", m.inboxItemLines(items[s.cursor], w-listW-4), w-listW, h, false))
+}
+
+func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
+	s := &m.inbox
+	now := m.now()
+	kind, ks := inboxKind(msg)
+	lines := []string{ks.Render("● "+strings.ToUpper(kind)) + "  " + stFaint.Render("from ") + agentChip(msg.Sender) + stFaint.Render("  to ") + msg.Recipient + "  " + projectChip(msg.ProjectID) + stFaint.Render("  "+dash(msg.TaskID))}
 	if msg.Deadline > 0 {
-		lines = append(lines, stFaint.Render(cut("answer due in "+until(now, time.Unix(msg.Deadline, 0)), w)))
+		lines = append(lines, stFaint.Render("answer due in "+until(now, time.Unix(msg.Deadline, 0))))
 	}
 	if msg.MayBeOutdated {
-		lines = append(lines, stYellow.Render("the task changed since this was asked: it may be outdated"))
+		lines = append(lines, stYellow.Render("◐ the task changed since this was asked: it may be outdated"))
 	}
+	lines = append(lines, "")
 	for _, l := range wrap(msg.Body, w-2) {
-		lines = append(lines, " "+l)
+		lines = append(lines, stBold.Render(l))
 	}
 	if ap, ok := m.approvalOf(msg); ok {
-		args, _ := json.Marshal(ap.Call.Arguments)
-		lines = append(lines, "", stBold.Render(" approval "+ap.ID)+" "+ap.Status+" · agent "+ap.Agent+" · expires in "+until(now, time.Unix(ap.ExpiresAt, 0)))
-		lines = append(lines, cut("  call: "+stMagenta.Render(ap.Call.Name)+" "+string(args), w))
+		lines = append(lines, "", stFaint.Render("call     ")+stMagenta.Bold(true).Render(ap.Call.Name), stFaint.Render("args     ")+brief(ap.Call.Arguments))
 		if ap.Reason != "" {
-			lines = append(lines, cut("  reason: "+ap.Reason, w))
+			lines = append(lines, stFaint.Render("reason   ")+ap.Reason)
 		}
-		lines = append(lines, "  "+stGreen.Render("y approve")+" · "+stRed.Render("n reject"))
+		lines = append(lines, stFaint.Render("expires  ")+"in "+until(now, time.Unix(ap.ExpiresAt, 0)), "")
+		yes := lipgloss.NewStyle().Background(theme.green).Foreground(theme.onAccent).Bold(true).Render(" y  approve ")
+		no := lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" n  reject ")
+		lines = append(lines, yes+"  "+no)
 	}
 	for _, q := range msg.Questions {
-		lines = append(lines, "", cut(" "+stBold.Render(q.Question)+stFaint.Render(" ("+q.Type+")"), w))
+		lines = append(lines, "", stTitle.Render("? ")+stBold.Render(q.Question)+stFaint.Render("  "+q.Type))
 		if len(msg.Questions) == 1 && q.Type == "single_choice" {
 			opts := []string{}
 			for i, o := range q.Options {
 				label := " " + o + " "
 				if i == s.option {
-					label = stSelected.Render(label)
+					label = lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(label)
+				} else {
+					label = stChip.Render(label)
 				}
 				opts = append(opts, label)
 			}
-			lines = append(lines, cut("  "+strings.Join(opts, " "), w))
+			lines = append(lines, "  "+strings.Join(opts, " "), stFaint.Render("  ←/→ choose · enter answer · a free text"))
 		} else if len(q.Options) > 0 {
-			lines = append(lines, cut("  options: "+strings.Join(q.Options, ", ")+stFaint.Render(" (answer in free text: a)"), w))
+			lines = append(lines, "  options: "+strings.Join(q.Options, ", ")+stFaint.Render(" (answer in free text: a)"))
 		}
+	}
+	if len(msg.Questions) == 0 && msg.ApprovalID == "" {
+		lines = append(lines, "", stFaint.Render("a  answer in free text"))
 	}
 	return lines
 }

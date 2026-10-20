@@ -1,0 +1,24 @@
+ ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+╭────── Flow · swimlanes · 33 steps · project all · agent all · task all ──────╮
+│       owner   calorie-… calorie-…   demo                                     │
+│          calorie-… calorie-…  manager reviewer                               │
+│ 12:31   │    │    │    │    │    │    ●────▶   submit    N-1    markdown ex… │
+│ 12:40   │    │    │    │    │    │    ◀────●   changes   N-1    escape pipe… │
+│ 12:42   │    │    │    │    │    ●─────────▶   create    W-3    “SEO audit … │
+│ 12:50   │    ◆    │    │    │    │    │    │   asked     CAL-5  Which nutri… │
+│ 12:55   ◀────●    │    │    │    │    │    │   question  CAL-5  Which nutri… │
+│ 13:05   │    │    │    │    │    │    ●────▶   submit    W-6    signup form… │
+│ 13:20   ●──────────────▶    │    │    │    │   directive CAL-3  Keep the en… │
+│ 13:35   │    │    │    │    │    │    ●────▶   submit    N-1    pipes escap… │
+│ 13:40   │    │    │    │    │    │    ◆    │   blocked   W-5    needs the l… │
+│ 13:50   │    │    │    │    │    ●────▶    │   handoff   N-3    rebase N-2 … │
+│ 14:00   ◀────────────────────────●    │    │   escalate  N-3    N-3 waits o… │
+│ 14:05   │    │    │    ●────▶    │    │    │   create    CAL-9  “Crash on e… │
+│ 14:10   ◀────────────────────────●    │    │   approval  N-3    factory_rel… │
+│ 14:27   │    │    │    │    │    ◀────●    │   question  W-2    Yearly disc… │
+│ 14:28   ●──────────────────────────────────▶   comment   N-1    Please chec… │
+│ 14:29   │    │    │    │    │    ●────▶    │   answer    W-2    20%, rounde… │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  …

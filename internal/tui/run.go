@@ -8,11 +8,12 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"appfactory/internal/storage"
 )
 
-// runState is the live run view: one run's activity, streamed, with follow mode.
+// runState is the live run view: one run's transcript, streamed, with follow mode.
 type runState struct {
 	id      string
 	run     *storage.Run
@@ -29,6 +30,7 @@ type runState struct {
 	cancel  context.CancelFunc
 	vp      viewport.Model
 	ready   bool
+	width   int
 	// pick is the cursor of the live run picker shown without a run.
 	pick int
 }
@@ -42,10 +44,10 @@ func (m *Model) openRun(id string) tea.Cmd {
 	if r.cancel != nil {
 		r.cancel()
 	}
-	follow := r.follow
-	*r = runState{id: id, follow: follow || r.id == "", dirty: true}
-	r.follow = true
-	m.switchTab(tabRun)
+	*r = runState{id: id, follow: true, dirty: true}
+	if m.tab != tabRun {
+		m.prevTab, m.tab = m.tab, tabRun
+	}
 	cmds := []tea.Cmd{m.loadRun(id)}
 	if !m.opts.NoStreams {
 		ctx, cancel := context.WithCancel(m.ctx)
@@ -132,6 +134,8 @@ func (r *runState) key(m *Model, key string) tea.Cmd {
 			if r.pick < len(runs) {
 				return m.openRun(runs[r.pick].ID)
 			}
+		case "esc":
+			return m.switchTab(m.prevTab)
 		}
 		return nil
 	}
@@ -165,17 +169,11 @@ func (r *runState) key(m *Model, key string) tea.Cmd {
 		}
 		prev := m.prevTab
 		*r = runState{follow: true}
-		if prev == tabRun {
-			prev = tabDashboard
-		}
-		return m.switchTab(prev)
+		m.tab = prev
+		return nil
 	case "t":
 		if r.run != nil && r.run.Spec.TaskID != "" {
-			id := r.run.Spec.TaskID
-			m.tasks.detailID, m.tasks.loading, m.tasks.scroll, m.tasks.open = id, true, 0, !m.wideTasks()
-			m.tasks.detail = nil
-			m.switchTab(tabTasks)
-			return m.loadDetail(id)
+			return m.openDetail(r.run.Spec.TaskID)
 		}
 	}
 	return nil
@@ -197,79 +195,94 @@ func (m *Model) liveRuns() []liveRun {
 	return out
 }
 
+// transcript renders the run's activity like a chat: the agent's messages as bubbles, tool calls as
+// compact rows (shell commands as code), refusals in red, the exit highlighted.
+func (m *Model) transcript(agent string, lines []LogLine, w int) []string {
+	out := []string{}
+	ac := agentColor(agent)
+	for _, l := range lines {
+		t := stDim.Render(l.At.In(m.opts.Location).Format("15:04:05"))
+		switch l.Kind {
+		case lineSay:
+			bw := min(w-2, 76)
+			body := wrap(l.Arg, bw-4)
+			title := lipgloss.NewStyle().Foreground(ac).Bold(true).Render(agent) + " " + t
+			out = append(out, "")
+			for _, bl := range frame(title, body, bw, len(body)+2, ac, false, false) {
+				out = append(out, " "+bl)
+			}
+		case lineShell:
+			out = append(out, rightAlign("   "+stCyan.Render("▸ ")+stCode.Render(" "+cut(l.Arg, w-18)+" "), t, w))
+		case lineMCP:
+			out = append(out, rightAlign("   "+stMagenta.Render("⇄ "+l.Tool)+"  "+stFaint.Render(l.Arg), t, w))
+		case lineExit:
+			bar := lipgloss.NewStyle().Background(theme.green).Foreground(theme.onAccent).Bold(true)
+			out = append(out, rightAlign("   "+bar.Render(" ⏏ EXIT "+strings.TrimPrefix(l.Tool, "factory_exit_")+" ")+" "+stGreen.Render(cut(l.Arg, w-30)), t, w))
+		case lineRefusal:
+			out = append(out, rightAlign("   "+stRedBold.Render("✗ "+l.Arg), t, w))
+		case lineError:
+			out = append(out, rightAlign("   "+stRedBold.Render("⚠ "+l.Arg), t, w))
+		case lineCore:
+			out = append(out, rightAlign("   "+stDim.Render("◇ core "+l.Arg), t, w))
+		case lineEnd:
+			out = append(out, "", " "+lipgloss.NewStyle().Background(theme.yellow).Foreground(theme.onAccent).Bold(true).Render(" ■ "+l.Arg+" ")+" "+t)
+		case lineInfo:
+			out = append(out, rightAlign(" "+stDim.Render("── "+l.Arg+" ──"), t, w))
+		default:
+			out = append(out, rightAlign("   "+stFaint.Render("✎ "+l.Tool)+"  "+l.Arg, t, w))
+		}
+	}
+	return out
+}
+
 func (m *Model) runLines(w, h int) []string {
 	r := &m.run
 	now := m.now()
 	if r.id == "" {
-		lines := []string{stTitle.Render("Live runs") + stFaint.Render("  enter: follow a run · from Tasks press L on a task"), ""}
+		lines := []string{}
 		runs := m.liveRuns()
 		if len(runs) == 0 {
-			return append(lines, stFaint.Render("  no live runs"))
+			lines = append(lines, stFaint.Render("no live runs"))
 		}
 		for i, lr := range runs {
-			line := fmt.Sprintf("  %s %s %s %s %s  started %s ago", fit(lr.ID, 12), fit(lr.Agent, 18), fit(lr.TaskID, 10), statusStyle(lr.Status).Render(fit(lr.Status, 10)), fit(lr.Project, 12), ago(now, time.Unix(lr.StartedAt, 0)))
+			line := pulse(m.frameN, theme.green) + " " + fit(lr.ID, 10) + lipgloss.NewStyle().Foreground(agentColor(lr.Agent)).Render(fit(lr.Agent, 18)) + fit(lr.TaskID, 8) + projectChip(lr.Project) +
+				stFaint.Render("  "+elapsed(now.Sub(time.Unix(lr.StartedAt, 0))))
 			if i == r.pick {
-				line = stSelected.Render(fit(stripStyles(line), w))
+				line = lipgloss.NewStyle().Background(theme.surfaceHi).Render(fit(line, w-4))
 			}
 			lines = append(lines, line)
 		}
-		return lines
+		return panel("Live runs", lines, w, h, true)
 	}
-	head := stTitle.Render("Run "+r.id) + " "
-	if run := r.run; run != nil {
-		status := run.Status
-		if run.Outcome != "" {
-			status += "/" + run.Outcome
-		}
-		head += fmt.Sprintf("%s · task %s · %s", run.Spec.Agent, dash(run.Spec.TaskID), statusStyle(run.Status).Render(status))
-		if run.StartedAt > 0 {
-			head += " · started " + ago(now, time.Unix(run.StartedAt, 0)) + " ago"
-		}
-		if c := usageCost(run.Usage); c > 0 {
-			head += fmt.Sprintf(" · ~$%.2f", c)
-		}
-	} else if r.runErr != nil {
-		head += stRed.Render(r.runErr.Error())
+	agent, task := "", ""
+	if r.run != nil {
+		agent, task = r.run.Spec.Agent, r.run.Spec.TaskID
 	}
-	flags := []string{}
-	if r.follow {
-		flags = append(flags, stGreen.Render("follow on"))
-	} else {
-		flags = append(flags, stYellow.Render("follow off (f)"))
+	sideW := 0
+	if w >= 110 {
+		sideW = 36
 	}
-	switch {
-	case r.ended:
-		flags = append(flags, "ended "+r.outcome)
-	case r.st.connected:
-		flags = append(flags, stGreen.Render("live"))
-	case r.st.seen:
-		flags = append(flags, stRed.Render("reconnecting"))
+	tw := w - sideW
+	inner := tw - 4
+	live := !r.ended && (r.run == nil || r.run.Status != "ENDED")
+	vh := max(h-2, 1)
+	if live {
+		vh = max(h-3, 1) // the last line animates the working agent
 	}
-	flags = append(flags, fmt.Sprintf("%d events", len(r.events)))
-	lines := []string{cut(head, w), cut(stFaint.Render(strings.Join(flags, " · ")+" · j/k scroll · G bottom · t task · esc back"), w)}
-	vh := max(h-len(lines), 1)
 	if !r.ready {
-		r.vp = viewport.New(viewport.WithWidth(w), viewport.WithHeight(vh))
+		r.vp = viewport.New(viewport.WithWidth(inner), viewport.WithHeight(vh))
 		r.ready = true
 	}
-	if r.vp.Width() != w || r.vp.Height() != vh {
-		r.vp.SetWidth(w)
+	if r.vp.Width() != inner || r.vp.Height() != vh {
+		r.vp.SetWidth(inner)
 		r.vp.SetHeight(vh)
 		r.dirty = true
 	}
 	if r.dirty {
 		r.lines = runLog(r.events, r.calls)
-		content := make([]string, 0, len(r.lines))
-		for _, l := range r.lines {
-			label := lineKindStyle(l.Kind).Render(fit(l.Kind, 8))
-			text := l.Text
-			if l.Kind == lineSay || l.Kind == lineRefusal || l.Kind == lineError || l.Kind == lineExit {
-				text = lineKindStyle(l.Kind).Render(text)
-			}
-			content = append(content, cut(stFaint.Render(m.clock(l.At))+" "+label+text, w))
-		}
+		content := m.transcript(agent, r.lines, inner)
 		if len(content) == 0 {
-			content = []string{stFaint.Render("  waiting for activity…")}
+			content = []string{stFaint.Render(" waiting for activity…")}
 		}
 		r.vp.SetContentLines(content)
 		r.dirty = false
@@ -277,5 +290,82 @@ func (m *Model) runLines(w, h int) []string {
 			r.vp.GotoBottom()
 		}
 	}
-	return append(lines, strings.Split(r.vp.View(), "\n")...)
+	state := stGreen.Render("● live")
+	switch {
+	case r.ended:
+		state = stYellow.Render("■ ended " + r.outcome)
+	case r.st.seen && !r.st.connected:
+		state = stRed.Render("◐ reconnecting")
+	}
+	follow := stGreen.Render("follow")
+	if !r.follow {
+		follow = stYellow.Render("paused · G")
+	}
+	title := lipgloss.NewStyle().Foreground(agentColor(agent)).Bold(true).Render(agent) + stFaint.Render(" · "+r.id+" · "+dash(task)+" · ") + state + stFaint.Render(" · ") + follow
+	body := strings.Split(r.vp.View(), "\n")
+	if live {
+		body = append(body, "   "+lipgloss.NewStyle().Foreground(agentColor(agent)).Render(m.spin.View()+" "+agent+" is working"+strings.Repeat(".", m.frameN%4)))
+	}
+	main := panel(title, body, tw, h, true)
+	if sideW == 0 {
+		return main
+	}
+	return hjoin(0, main, panel("Run stats", m.runStats(sideW-4), sideW, h, false))
+}
+
+func (m *Model) runStats(w int) []string {
+	r := &m.run
+	const kw = 11
+	if r.run == nil {
+		if r.runErr != nil {
+			return []string{stRed.Render(r.runErr.Error())}
+		}
+		return []string{m.spin.View() + " loading"}
+	}
+	run := r.run
+	var in, out, cr, cw int64
+	var cost float64
+	model := ""
+	for _, u := range run.Usage {
+		in, out, cr, cw, cost = in+u.Input, out+u.Output, cr+u.CacheRead, cw+u.CacheWrite, cost+u.CostUSD
+		model = u.Model
+	}
+	status := run.Status
+	if run.Outcome != "" {
+		status += " · " + run.Outcome
+	}
+	end := m.now()
+	if run.FinishedAt > 0 {
+		end = time.Unix(run.FinishedAt, 0)
+	}
+	refusals, tools, shells := 0, 0, 0
+	for _, l := range r.lines {
+		switch l.Kind {
+		case lineRefusal:
+			refusals++
+		case lineShell:
+			shells++
+		case lineMCP, lineTool, lineExit:
+			tools++
+		}
+	}
+	frac := float64(in+cr) / float64(contextWindow(model))
+	lines := []string{
+		kv("Agent", lipgloss.NewStyle().Foreground(agentColor(run.Spec.Agent)).Bold(true).Render(run.Spec.Agent), kw),
+		kv("Task", dash(run.Spec.TaskID), kw),
+		kv("Status", statusStyle(run.Status).Render(status), kw),
+		kv("Model", dash(model), kw),
+		kv("Context", gauge(frac, max(w-kw-7, 4))+fmt.Sprintf(" %3.0f%%", frac*100), kw),
+		kv("Tokens", thousands(in)+stFaint.Render(" in ")+thousands(out)+stFaint.Render(" out"), kw),
+		kv("Cache R/W", thousands(cr)+stFaint.Render(" / ")+thousands(cw), kw),
+		kv("Cost", stBold.Render(money(cost)), kw),
+		kv("Duration", elapsed(end.Sub(time.Unix(run.StartedAt, 0))), kw),
+		kv("Steps", fmt.Sprintf("%d", len(r.lines)), kw),
+		kv("Shell", fmt.Sprintf("%d", shells), kw),
+		kv("Tools", fmt.Sprintf("%d", tools), kw),
+	}
+	if refusals > 0 {
+		lines = append(lines, kv("Refusals", stRedBold.Render(fmt.Sprint(refusals)), kw))
+	}
+	return lines
 }

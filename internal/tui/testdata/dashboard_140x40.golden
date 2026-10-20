@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                                                  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                                   ● fixture demo │ acme │ ▶ running │ ⚠ 4
+╭────────────────── Agent Tree ──────────────────╮╭───────────── Tasks · needs you ─────────────╮╭──────────────── Company ────────────────╮
+│ ◆ owner · you                              ⚠ 4 ││ [→] Markdown export N-1          ← ⠋running ││ Company     acme                        │
+│ ├ ◐ calorie-manager: waits on you · CAL-5   1h ││ [!] Release notes app 1.2 N-3   ← needs you ││ Agents      7 (3 active)                │
+│ │ ├ ⏸ calorie-designer: paused waiting… paused ││     ↳ escalation · waits on you: answer m-… ││ Open tasks  16                          │
+│ │ ├ ● calorie-ios: Build the meal ent… 12m 00s ││ [!] Pick the nutrition data AP… ← needs you ││ Needs you   4                           │
+│ │ │   └ ▸ swift test --filter MealStor… 0m 40s ││     ↳ ask · waits on you: answer m-ask-1 i… ││ Spend today $5.15 · 14 runs             │
+│ │ └ ◐ calorie-qa: waits on calorie-ios · C… 4h ││ [◎] Newsletter signup form W-6    in review ││ Spend 24h   ▁▁▂▄▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄    │
+│ └ ◐ manager: waits on you · N-3            30m ││     ↳ queued: busy with N-1                 ││ Nodes       1/2 online                  │
+│   ├ ● demo: Pricing page                7m 00s ││                                             ││                                         │
+│   │   └ ✎ Edit: src/pages/pricing.tsx   0m 15s ││                                             ││                                         │
+│   └ ● reviewer: Markdown export         4m 00s ││                                             ││                                         │
+│       └ › Testing the export on a 10k-… 0m 30s ││                                             ││                                         │
+│                                                ││                                             ││                                         │
+│                                                ││                                             ││                                         │
+│                                                ││                                             ││                                         │
+│                                                ││                                             ││                                         │
+│                                                ││                                             ││                                         │
+│                                                ││                                             ││                                         │
+╰────────────────────────────────────────────────╯╰─────────────────────────────────────────────╯╰─────────────────────────────────────────╯
+╭─────────────────────────────────────────── Activity ───────────────────────────────────────────╮╭──────────────── Pulse ─────────────────╮
+│ 14:26:00  [reviewer]         says          “Reviewing the second submission of N-1.”           ││ Backlog   ▇▇▇····················   3  │
+│ 14:26:40  [reviewer]         Bash          $ git diff main...af/N-1 --stat                     ││ Ready     ▇▇▇▇···················   4  │
+│ 14:26:40  [demo]             message_send  body="Yearly discount: 15% or 20%?" recipient=mana… ││ Running   ▇▇·····················   2  │
+│ 14:27:00  [demo]             question      → manager  Yearly discount: 15% or 20%?             ││ Waiting   ▇▇▇▇▇··················   5  │
+│ 14:27:30  [calorie-ios]      says          “All 42 tests pass. Submitting for review.”         ││ In review ▇▇·····················   2  │
+│ 14:27:30  [reviewer]         Bash          $ go test ./export/...                              ││ Done      ▇▇▇▇···················   4  │
+│ 14:28:00  [owner]            comment       → reviewer  Please check the export on a 10k-line … ││                                        │
+│ 14:28:00  [calorie-ios]      exit_submit   reviewer=calorie-manager summary="meal entry scree… ││ Spend 24h ▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄ $6.61   │
+│ 14:28:02  [calorie-ios]      refused       exit guard refused the turn's end: submit needs a … ││ Nodes     ● mac-studio 3/4  ○ mac-min… │
+│ 14:28:30  [reviewer]         task_comments task=N-1                                            ││                                        │
+│ 14:29:00  [manager]          answer        → demo  20%, rounded to whole dollars.              ││ calorie-manager  ▁▁▁▄█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
+│ 14:29:00  [demo]             Bash          $ npx playwright test pricing.spec.ts               ││ calorie-designer ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
+│ 14:29:20  [calorie-ios]      Bash          $ swift test --filter MealStoreTests                ││ calorie-ios      ▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▂▁▂█▃  │
+│ 14:29:30  [reviewer]         says          “Testing the export on a 10k-line note as the owne… ││ calorie-qa       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
+│ 14:29:45  [demo]             Edit          src/pages/pricing.tsx                               ││ manager          ▁█▁▁▁▁▁▁▁▁▁▁▁██▁█▁▁█  │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for? USD… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit

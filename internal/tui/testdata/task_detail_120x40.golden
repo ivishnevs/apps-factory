@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                               ● fixture demo │ acme │ ▶ running │ ⚠ 4
+ 21 t╭─────────────────────────────────── CAL-3 · Build the meal entry screen ────────────────────────────────────╮ore ▶
+╭────│ ● RUNNING  IN_PROGRESS   calorie   ● calorie-ios  priority 7 · v3 · attempt 2                              │────╮
+│ ╭──│ origin  created by calorie-manager from CAL-1 · 4h ago                                                     │──╮ │
+│ │ ●│ why     live_run — run r-ios-7 is running                                                                  │… │ │
+│ │ W│ clears  calorie-ios — wait for the run                                                                     │9 │ │
+│ │ ●│ triggers directive by owner ★                                                                              │m │ │
+│ │ ○│ needs   CAL-2 DONE                                                                                         │… │ │
+│ ╰──│                                                                                                            │──╯ │
+│ ╭──│ ▌ Children (1)                                                                                             │──╮ │
+│ │ ●│   ● CAL-9   READY       ● calorie-qa        Crash on empty meal list                                       │… │ │
+│ │ N│                                                                                                            │8 │ │
+│ │ ●│ ▌ Body                                                                                                     │h │ │
+│ │ ○│   Implement the meal entry screen from the CAL-2 mockups.                                                  │… │ │
+│ ╰──│                                                                                                            │──╯ │
+│ ╭──│   Acceptance:                                                                                              │──╮ │
+│ │ ●│   - portion picker in grams                                                                                │… │ │
+│ │ C│   - works offline                                                                                          │9 │ │
+│ │ ●│   - unit tests for the calorie sum                                                                         │m │ │
+│ │ ○│                                                                                                            │… │ │
+│ ╰──│ ▌ Runs (2)                                                                                                 │──╯ │
+│    │   ✗ #1 r-ios-6   failed     10-20 12:50  -             $0.61 (reported)                                    │──╮ │
+│    │        xcodebuild: the simulator did not boot                                                              │… │ │
+│    │   ● #2 r-ios-7   RUNNING    10-20 14:18  -             ~$1.24                                              │6 │ │
+│    │   ended runs cost $0.61 over 1 runs                                                                        │m │ │
+│    │                                                                                                            │… │ │
+│    │ ▌ Comments (2)                                                                                             │──╯ │
+│    │   10-20 12:00 calorie-manager: Grams only for v1; ounces later.                                            │──╮ │
+│    │   10-20 13:20 owner: Keep the entry screen offline-first.                                                  │… │ │
+│    │                                                                                                            │6 │ │
+│    │ ▌ Recent events                                                                                            │h │ │
+│    │   10:00:00   task.created              Build the meal entry screen                                         │… │ │
+│    │   11:01:00   task.trigger.dependency_d…CAL-2 done                                                          │──╯ │
+│    │ ────────────────────────────────────────────────────────────────────────────────────────────────────────── │    │
+│    │ p pause u resume r retry n run x cancel a reassign P priority c comment d direct L live esc close          │    │
+│    ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯    │
+╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ j/k scroll  p/u pause/resume  r retry  x cancel  d direct  L live  esc close

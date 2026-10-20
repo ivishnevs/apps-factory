@@ -6,14 +6,15 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"appfactory/internal/storage"
 )
 
-// feedViewState is the live feed: attention rows highlighted, filters by project, attention and text.
+// feedViewState is the live feed: attention rows highlighted, filters by attention and words (the project
+// is the header selection).
 type feedViewState struct {
 	attention bool
-	project   string
 	filter    string
 	editing   bool
 	ti        textinput.Model
@@ -21,10 +22,9 @@ type feedViewState struct {
 	follow    bool
 }
 
-func (f *feedViewState) filtering() bool { return f.editing }
-
-func (f *feedViewState) matches(item storage.FeedItem) bool {
-	if f.attention && !item.Attention || f.project != "" && item.ProjectID != f.project {
+func (m *Model) feedMatches(item storage.FeedItem) bool {
+	f := &m.feedv
+	if f.attention && !item.Attention || m.project != "" && item.ProjectID != "" && item.ProjectID != m.project {
 		return false
 	}
 	if f.filter == "" {
@@ -56,19 +56,17 @@ func (f *feedViewState) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch key {
 	case "!", "a":
 		f.attention, f.scroll = !f.attention, 0
-	case "p":
-		f.project, f.scroll = m.nextProject(f.project), 0
 	case "/":
 		f.ti = textinput.New()
 		f.ti.Prompt = "filter › "
 		f.ti.Placeholder = "words in type, task, agent or summary"
 		f.ti.SetValue(f.filter)
 		f.ti.CursorEnd()
-		f.ti.SetWidth(max(m.width-12, 10))
+		f.ti.SetWidth(max(m.width-16, 10))
 		f.editing = true
 		return f.ti.Focus()
 	case "x", "esc":
-		f.attention, f.project, f.filter, f.scroll = false, "", "", 0
+		f.attention, f.filter, f.scroll = false, "", 0
 	case "k", "up":
 		f.scroll++
 		f.follow = false
@@ -87,76 +85,91 @@ func (f *feedViewState) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// feedIcon is the glyph of a feed event.
+func feedIcon(item storage.FeedItem) string {
+	t := item.Type
+	switch {
+	case item.Attention:
+		return stRedBold.Render("⚠")
+	case strings.HasSuffix(t, ".done"):
+		return stGreen.Render("✓")
+	case t == "task.created":
+		return stCyan.Render("+")
+	case strings.HasPrefix(t, "task.exit."), strings.HasPrefix(t, "message."):
+		return stMagenta.Render("→")
+	case t == "task.started":
+		return stGreen.Render("▶")
+	case strings.Contains(t, "refused"), t == "task.retry":
+		return stRed.Render("✗")
+	case strings.Contains(t, "paused"), strings.Contains(t, "parked"):
+		return stYellow.Render("⏸")
+	case strings.HasPrefix(t, "task.trigger."), t == "task.commented":
+		return stYellow.Render("✎")
+	case strings.HasPrefix(t, "node."):
+		return stBlue.Render("◇")
+	}
+	return stFaint.Render("·")
+}
+
 func (m *Model) feedLines(w, h int) []string {
 	f := &m.feedv
-	state := stFaint.Render("connecting")
+	inner := w - 4
+	state := stFaint.Render("◌ connecting")
 	switch {
 	case m.feedSt.connected:
-		state = stGreen.Render("live")
+		state = stGreen.Render("● live")
 	case m.feedSt.seen:
-		state = stRed.Render("reconnecting: " + m.feedSt.err)
+		state = stRed.Render("◐ reconnecting " + m.feedSt.err)
 	}
-	filters := []string{"project " + orAll(f.project)}
-	if f.attention {
-		filters = append(filters, stRedBold.Render("attention only"))
-	}
-	if f.filter != "" {
-		filters = append(filters, "filter "+stYellow.Render(f.filter))
-	}
-	follow := "follow"
-	if !f.follow {
-		follow = stYellow.Render("paused (G)")
-	}
-	lines := []string{
-		cut(stTitle.Render("Feed")+" "+state+" · "+follow+" · "+strings.Join(filters, " · "), w),
-		cut(stFaint.Render("! attention only · p project · / filter · x clear · j/k scroll · G newest"), w),
-	}
+	head := []string{}
 	if f.editing {
-		lines = append(lines, f.ti.View())
+		head = append(head, f.ti.View())
 	}
 	rows := []string{}
 	for _, item := range m.feed {
-		if !f.matches(item) {
+		if !m.feedMatches(item) {
 			continue
 		}
-		mark := " "
+		who := item.Actor
+		if who == "" {
+			who = item.Agent
+		}
+		where := item.TaskID
+		if where == "" {
+			where = "·"
+		}
+		typ := strings.TrimPrefix(item.Type, "task.")
+		ts := stMagenta
 		if item.Attention {
-			mark = stRedBold.Render("!")
+			ts = stRedBold
 		}
-		where := item.ProjectID + "/" + item.TaskID
-		if item.TaskID == "" {
-			where = dash(item.ProjectID)
-		}
-		who := item.Agent
-		if item.Actor != "" && item.Actor != item.Agent {
-			who = strings.TrimSpace(who + " by " + item.Actor)
-		}
-		typ := col(item.Type, 25)
+		summary := oneLine(item.Summary)
+		row := stDim.Render(m.clock(item.CreatedAt)) + " " + feedIcon(item) + " " + ts.Render(fit(typ, 22)) + stFaint.Render(fit(where, 7)) +
+			lipgloss.NewStyle().Foreground(agentColor(who)).Render(fit(dash(who), 17)) + summary
 		if item.Attention {
-			typ = stRedBold.Render(typ)
+			row = lipgloss.NewStyle().Background(theme.surface).Render(fit(row, inner))
 		}
-		var row string
-		if w >= 120 {
-			row = stFaint.Render(m.clock(item.CreatedAt)) + " " + mark + " " + typ + col(where, 15) + col(who, 24) + oneLine(item.Summary)
-		} else {
-			// Narrow: the summary says most; who leads it.
-			if who != "" && !strings.HasPrefix(item.Summary, item.Agent+" ") && !strings.HasPrefix(item.Summary, item.Actor+" ") {
-				who = stBold.Render(who) + ": "
-			} else {
-				who = ""
-			}
-			row = stFaint.Render(m.clock(item.CreatedAt)[:5]) + " " + mark + " " + typ + col(where, 14) + who + oneLine(item.Summary)
-		}
-		rows = append(rows, cut(row, w))
+		rows = append(rows, cut(row, inner))
 	}
+	room := max(h-2-len(head), 1)
 	if len(rows) == 0 {
-		return append(lines, "", stFaint.Render(fmt.Sprintf("  no feed rows (%d received)", len(m.feed))))
+		rows = append(rows, "", stFaint.Render(fmt.Sprintf("  no feed rows (%d received)", len(m.feed))))
 	}
-	room := max(h-len(lines), 1)
 	end := len(rows) - f.scroll
 	if end < room {
 		end = min(room, len(rows))
 		f.scroll = len(rows) - end
 	}
-	return append(lines, rows[max(end-room, 0):end]...)
+	follow := stGreen.Render("follow")
+	if !f.follow {
+		follow = stYellow.Render("paused · G")
+	}
+	title := "Feed " + state + stFaint.Render(" · ") + follow
+	if f.attention {
+		title += stFaint.Render(" · ") + stRedBold.Render("attention only")
+	}
+	if f.filter != "" {
+		title += stFaint.Render(" · filter ") + stYellow.Render(f.filter)
+	}
+	return panel(title, append(head, rows[max(end-room, 0):end]...), w, h, true)
 }

@@ -1,24 +1,24 @@
- 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
-Agents  7 agents · reports_to tree · enter: run/tasks · t tasks · f flow
-AGENT               STATE    TASK    TODAY  AGE  LAST ACTIVITY
-calorie-manager     idle     CAL-1   $0.12  1h   waits for the answer to m-ask-1
-├ calorie-designer  paused   -       $0.55  3h   CAL-2 done
-├ calorie-ios       running  CAL-3   $1.84  2m   exit guard refused the turn's …
-└ calorie-qa        idle     CAL-4   -      4h   Test meal entry on iPhone SE
-manager             idle     N-3     -      20m  factory_release_publish: relea…
-├ demo              idle     N-2     $0.92  45m  N-2: 3 runs without progress
-└ reviewer          running  N-1     $0.31  1m   Testing the export on a 10k-li…
-
-Tasks     IN_PROGRESS 1 · IN_REVIEW 1 · READY 6 · BACKLOG 1 · DONE 1  (runnable…
-Attention inbox 3 · approvals 1 · alerts 1 · inspect 0 · in review 1 · feed ! 6…
-Nodes     ● mac-studio 2/4 load 1.2 · ○ mac-mini offline 7m fail:disk
-Pauses    agent calorie-designer: waiting for the brand guide
-
-
-
-
-
-
-
-
- ● fixture demo │ company default │ ▶ running │ feed live
+ ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+╭───────────── Agent Tree ─────────────╮╭───────── Tasks · needs you ──────────╮
+│ ◆ owner · you                    ⚠ 4 ││ [→] Markdown export N-1   ← ⠋running │
+│ ├ ◐ calorie-manager: waits on yo… 1h ││ [!] Release notes app 1… ← needs you │
+│ │ ├ ⏸ calorie-designer: paus… paused ││     ↳ escalation · waits on you: an… │
+│ │ ├ ● calorie-ios: Build th… 12m 00s ││ [!] Pick the nutrition … ← needs you │
+│ │ │   └ ▸ swift test --filte… 0m 40s ││     ↳ ask · waits on you: answer m-… │
+│ │ └ ◐ calorie-qa: waits on calor… 4h ││ [◎] Newsletter signup for… in review │
+│ └ ◐ manager: waits on you · N-3  30m ││     ↳ queued: busy with N-1          │
+│   ├ ● demo: Pricing page      7m 00s ││                                      │
+│   │   └ ✎ Edit: src/pages/pr… 0m 15s ││                                      │
+╰──────────────────────────────────────╯╰──────────────────────────────────────╯
+╭────────────────────────────────── Activity ──────────────────────────────────╮
+│ 14:28:02  [calorie-ios]      refused       exit guard refused the turn's en… │
+│ 14:28:30  [reviewer]         task_comments task=N-1                          │
+│ 14:29:00  [manager]          answer        → demo  20%, rounded to whole do… │
+│ 14:29:00  [demo]             Bash          $ npx playwright test pricing.sp… │
+│ 14:29:20  [calorie-ios]      Bash          $ swift test --filter MealStoreT… │
+│ 14:29:30  [reviewer]         says          “Testing the export on a 10k-lin… │
+│ 14:29:45  [demo]             Edit          src/pages/pricing.tsx             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q qu…

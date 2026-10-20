@@ -178,7 +178,7 @@ func TestHTTPClientOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Health.Company != "default" || len(ov.Status) != 2 || len(ov.Tasks) != 10 || len(ov.Inbox) != 3 || len(ov.Nodes) != 2 || len(ov.Approvals) != 1 || ov.Errors != nil {
+	if ov.Health.Company != "acme" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 3 || len(ov.Inbox) != 3 || len(ov.Nodes) != 2 || len(ov.Approvals) != 1 || ov.Errors != nil {
 		t.Fatalf("%+v", ov)
 	}
 	if len(ov.Agents) != 7 || ov.Agents[1].Name != "calorie-ios" || ov.Agents[1].ReportsTo != "calorie-manager" || ov.Agents[1].Provider != "claude" {
@@ -228,12 +228,12 @@ func TestHTTPClientTaskDetail(t *testing.T) {
 			t.Fatalf("%+v", e)
 		}
 	}
-	if len(d.Events) != 8 {
+	if len(d.Events) != len(DemoFixture().Details["CAL-3"].Events) {
 		t.Fatal(len(d.Events))
 	}
 	d, err = c.TaskDetail(context.Background(), "CAL-3", DemoFixture().Overview.Tasks)
 	kids := childrenOf("CAL-1", DemoFixture().Overview.Tasks)
-	if err != nil || len(kids) != 4 || kids[0].ID != "CAL-5" && kids[0].ID != "CAL-2" {
+	if err != nil || len(kids) != 6 || kids[0].ID != "CAL-2" {
 		t.Fatalf("%v %+v", err, kids)
 	}
 }
@@ -459,7 +459,7 @@ func TestRecordFixture(t *testing.T) {
 		t.Fatal(st.Mode())
 	}
 	back, err := LoadFixture(path)
-	if err != nil || len(back.Feed) != len(f.Feed) || back.Overview.Health.Company != "default" {
+	if err != nil || len(back.Feed) != len(f.Feed) || back.Overview.Health.Company != "acme" {
 		t.Fatal(err)
 	}
 }
@@ -474,7 +474,7 @@ func TestDemoFixtureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Name != "demo" || len(f.Overview.Tasks) != 10 || len(f.RunEvents["r-ios-7"]) != 15 || f.Details["CAL-3"].Why.Reason != "live_run" {
+	if f.Name != "demo" || len(f.Overview.Tasks) != 22 || len(f.RunEvents["r-ios-7"]) != len(DemoFixture().RunEvents["r-ios-7"]) || f.Details["CAL-3"].Why.Reason != "live_run" {
 		t.Fatalf("%+v", f.Overview.Tasks)
 	}
 	if _, err = LoadFixture(filepath.Join(t.TempDir(), "missing.json")); err == nil {

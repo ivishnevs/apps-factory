@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                               ● fixture demo │ acme │ ▶ running │ ⚠ 4
+╭───────────────── Inbox · 3 ──────────────────╮╭──────────────────────────────── Item ────────────────────────────────╮
+│ ● question  calorie-manager           1h ago ││ ● QUESTION  from ● calorie-manager  to owner   calorie   CAL-5       │
+│   CAL-5 · Which nutrition data API may we p… ││ answer due in 23h                                                    │
+│                                              ││                                                                      │
+│ ● approval  manager                  20m ago ││ Which nutrition data API may we pay for? USDA is free but has no     │
+│   N-3 · Approve publishing notes 1.2 to Tes… ││ barcodes.                                                            │
+│                                              ││                                                                      │
+│ ● escalation  factory                30m ago ││ ? Which nutrition API?  single_choice                                │
+│   N-3 · N-3 stalled: it waits on N-2, which… ││    usda-free   nutritionix-paid   edamam-paid                        │
+│                                              ││   ←/→ choose · enter answer · a free text                            │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ ↑↓ item  ←→ option  enter answer  a text  y/n approve  ^k palette  [ ] project  ? help  q quit

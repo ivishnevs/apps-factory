@@ -1,24 +1,24 @@
- 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
-Inbox  3 waiting on you · ←/→ option · enter answer · a free text · y approve ·…
-  question   calorie-manager  CAL-5   1h   Which nutrition data API may we pay …
-  approval   manager          N-3     20m  Approve publishing notes 1.2 to Test…
-  escalation factory          N-3     30m  N-3 stalled: it waits on N-2, which …
-────────────────────────────────────────────────────────────────────────────────
-m-appr-1  from manager to owner · project notes · task N-3 · v1
- Approve publishing notes 1.2 to TestFlight.
-
- approval ap-1 PENDING · agent manager · expires in 24h
-  call: factory_release_publish {"channel":"testflight","version":"1.2"}
-  reason: release 1.2 is approved by review
-  y approve · n reject
-
-
-
-
-
-
-
-
-
-
- ● fixture demo │ company default │ ▶ running │ feed live
+ ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+╭───────────────────────────────── Inbox · 3 ──────────────────────────────────╮
+│ ● question  calorie-manager                                           1h ago │
+│   CAL-5 · Which nutrition data API may we pay for? USDA is free but has no … │
+│                                                                              │
+│ ● approval  manager                                                  20m ago │
+│   N-3 · Approve publishing notes 1.2 to TestFlight.                          │
+│                                                                              │
+│ ● escalation  factory                                                30m ago │
+│   N-3 · N-3 stalled: it waits on N-2, which failed 3 times without progress. │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────── Item ────────────────────────────────────╮
+│ ● APPROVAL  from ● manager  to owner   notes   N-3                           │
+│                                                                              │
+│ Approve publishing notes 1.2 to TestFlight.                                  │
+│                                                                              │
+│ call     factory_release_publish                                             │
+│ args     channel=testflight version=1.2                                      │
+│ reason   release 1.2 is approved by review                                   │
+│ expires  in 24h                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ ↑↓ item  ←→ option  enter answer  a text  y/n approve  ^k palette  [ ] project…

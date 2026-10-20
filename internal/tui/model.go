@@ -7,8 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"appfactory/internal/storage"
 )
@@ -17,15 +20,16 @@ type tab int
 
 const (
 	tabDashboard tab = iota
-	tabTasks
-	tabRun
+	tabBoard
 	tabFlow
 	tabFeed
 	tabInbox
 	tabCount
+	// tabRun is the live run view: opened from a card, a task or an agent, not a tab of its own.
+	tabRun tab = 100
 )
 
-var tabNames = [tabCount]string{"Dashboard", "Tasks", "Run", "Flow", "Feed", "Inbox"}
+var tabNames = [tabCount]string{"Dashboard", "Board", "Flow", "Feed", "Inbox"}
 
 // feedKeep is how many feed rows the UI keeps (feed view and flow).
 const feedKeep = 3000
@@ -39,7 +43,7 @@ type Options struct {
 	Location *time.Location
 	// Refresh is the overview refresh period; 0 means 3 s.
 	Refresh time.Duration
-	// NoStreams keeps the model from starting streams and ticks (model tests drive it with messages).
+	// NoStreams keeps the model from starting streams, ticks and animation (tests drive it with messages).
 	NoStreams bool
 }
 
@@ -75,6 +79,18 @@ type streamState struct {
 	seen      bool
 }
 
+// toastItem is an attention event sliding in at the top right.
+type toastItem struct {
+	text string
+	at   time.Time
+}
+
+// zone is a clickable rectangle of the last rendered screen.
+type zone struct {
+	x0, y0, x1, y1 int
+	click          func(x, y int) tea.Cmd
+}
+
 // Model is the root of the UI.
 type Model struct {
 	c       Client
@@ -86,6 +102,9 @@ type Model struct {
 	height  int
 	tab     tab
 	prevTab tab
+	spin    spinner.Model
+	frameN  int
+	startAt time.Time
 
 	ov      Overview
 	ovErr   error
@@ -96,13 +115,18 @@ type Model struct {
 	feed    []storage.FeedItem
 	feedSeq int64
 	feedSt  streamState
+	// project is the selected project ("" = all): the chips in the header.
+	project string
 
-	// agentLast is the last activity line of each agent's live run (run tails).
+	// agentLast is the last activity line of each agent's live run (run tails); activity merges the feed
+	// and every live run's steps.
 	agentLast map[string]LogLine
 	runTails  map[string]context.CancelFunc
+	activity  []actRow
+	actSeen   map[string]bool
 
 	dash  dashState
-	tasks tasksState
+	board boardState
 	run   runState
 	flow  flowState
 	feedv feedViewState
@@ -111,9 +135,13 @@ type Model struct {
 	help    bool
 	confirm *Action
 	input   *inputState
+	palette *paletteState
+	chooser *chooserState
 	toast   string
 	toastAt time.Time
 	toastEr bool
+	toasts  []toastItem
+	zones   []zone
 }
 
 type inputState struct {
@@ -135,8 +163,10 @@ func New(o Options) *Model {
 		o.Location = time.Local
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Model{c: o.Client, opts: o, ctx: ctx, cancel: cancel, bus: make(chan tea.Msg, 256), width: 80, height: 24,
-		agentLast: map[string]LogLine{}, runTails: map[string]context.CancelFunc{}}
+	m := &Model{c: o.Client, opts: o, ctx: ctx, cancel: cancel, bus: make(chan tea.Msg, 512), width: 100, height: 30,
+		agentLast: map[string]LogLine{}, runTails: map[string]context.CancelFunc{}, actSeen: map[string]bool{},
+		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot))}
+	m.startAt = m.now()
 	m.run.follow = true
 	m.feedv.follow = true
 	m.flow.follow = true
@@ -152,11 +182,12 @@ func (m *Model) now() time.Time {
 
 func (m *Model) clock(t time.Time) string { return t.In(m.opts.Location).Format("15:04:05") }
 
-// Init loads the overview and starts the feed stream and the refresh tick.
+// Init loads the overview, asks the terminal for its background (light or dark theme) and starts the feed
+// stream, the refresh tick and the animation.
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.loadOverview()}
+	cmds := []tea.Cmd{m.loadOverview(), tea.RequestBackgroundColor}
 	if !m.opts.NoStreams {
-		cmds = append(cmds, m.listen(), m.tick(), m.stream(func(ctx context.Context, out func(StreamEvent)) {
+		cmds = append(cmds, m.listen(), m.tick(), m.spin.Tick, m.stream(func(ctx context.Context, out func(StreamEvent)) {
 			m.c.StreamFeed(ctx, FeedQuery{}, 0, out)
 		}, m.ctx))
 	}
@@ -225,13 +256,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
+	case tea.BackgroundColorMsg:
+		applyTheme(msg.IsDark())
+		return m, nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
+		m.frameN++
+		return m, cmd
 	case tickMsg:
 		if m.loading {
 			return m, m.tick() // a slow Core: no second read on top of the first
 		}
 		cmds := []tea.Cmd{m.loadOverview(), m.tick()}
-		if m.tab == tabTasks && m.tasks.detail != nil && (m.tasks.open || m.wideTasks()) {
-			cmds = append(cmds, m.loadDetail(m.tasks.detailID)) // the open detail stays current
+		if m.board.open && m.board.detail != nil {
+			cmds = append(cmds, m.loadDetail(m.board.detailID)) // the open task stays current
 		}
 		return m, tea.Batch(cmds...)
 	case overviewMsg:
@@ -248,13 +287,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onRunTick(msg)
 	case actionMsg:
 		if msg.err != nil {
-			m.setToast("failed: "+msg.err.Error(), true)
+			m.setToast("✗ "+msg.err.Error(), true)
 		} else {
-			m.setToast(msg.text, false)
+			m.setToast("✓ "+msg.text, false)
 		}
 		cmds := []tea.Cmd{m.loadOverview()}
-		if m.tasks.detailID != "" {
-			cmds = append(cmds, m.loadDetail(m.tasks.detailID))
+		if m.board.detailID != "" {
+			cmds = append(cmds, m.loadDetail(m.board.detailID))
 		}
 		return m, tea.Batch(cmds...)
 	case tea.PasteMsg:
@@ -263,10 +302,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.ti, cmd = m.input.ti.Update(msg)
 			return m, cmd
 		}
+		if m.palette != nil {
+			var cmd tea.Cmd
+			m.palette.ti, cmd = m.palette.ti.Update(msg)
+			return m, cmd
+		}
+	case tea.MouseClickMsg:
+		return m, m.onClick(msg.Mouse())
+	case tea.MouseWheelMsg:
+		k := "j"
+		if msg.Mouse().Button == tea.MouseWheelUp {
+			k = "k"
+		}
+		return m, m.onKey(keyPress(k))
 	case tea.KeyPressMsg:
 		return m, m.onKey(msg)
 	}
 	return m, nil
+}
+
+func keyPress(k string) tea.KeyPressMsg {
+	r := []rune(k)
+	return tea.KeyPressMsg{Code: r[0], Text: k}
 }
 
 func (m *Model) onOverview(msg overviewMsg) tea.Cmd {
@@ -276,13 +333,13 @@ func (m *Model) onOverview(msg overviewMsg) tea.Cmd {
 		return nil
 	}
 	m.ov, m.ovErr, m.loaded, m.lastOK, m.fails = msg.ov, nil, true, m.now(), 0
-	m.tasks.clamp(m)
+	m.board.clamp(m)
 	m.inbox.clamp(m)
 	return m.syncRunTails()
 }
 
-// syncRunTails follows the last event of every live run (dashboard activity) and stops the tails of runs
-// that ended.
+// syncRunTails follows the steps of every live run (cards, the agent tree and the activity stream) and
+// stops the tails of runs that ended.
 func (m *Model) syncRunTails() tea.Cmd {
 	if m.opts.NoStreams {
 		return nil
@@ -299,7 +356,7 @@ func (m *Model) syncRunTails() tea.Cmd {
 			m.runTails[r.ID] = cancel
 			id := r.ID
 			cmds = append(cmds, m.stream(func(ctx context.Context, out func(StreamEvent)) {
-				m.c.StreamRun(ctx, id, 0, 3, func(e StreamEvent) {
+				m.c.StreamRun(ctx, id, 0, 20, func(e StreamEvent) {
 					e.Stream = "tail:" + id
 					out(e)
 				})
@@ -327,12 +384,34 @@ func (m *Model) onStream(e StreamEvent) tea.Cmd {
 		}
 	case strings.HasPrefix(e.Stream, "tail:"):
 		if e.Run != nil {
+			id := strings.TrimPrefix(e.Stream, "tail:")
+			key := fmt.Sprintf("%s:%d", id, e.Run.Seq)
+			if m.actSeen[key] {
+				return nil
+			}
+			m.actSeen[key] = true
 			lines := describeRunEvent(e.Run.Envelope)
-			if len(lines) > 0 {
-				id := strings.TrimPrefix(e.Stream, "tail:")
-				if agent := m.runAgent(id); agent != "" {
-					m.agentLast[agent] = lines[len(lines)-1]
+			agent := m.runAgent(id)
+			task := ""
+			for _, p := range m.ov.Status {
+				for _, r := range p.Runs {
+					if r.ID == id {
+						task = r.TaskID
+					}
 				}
+			}
+			project := ""
+			if t, ok := m.taskByID(task); ok {
+				project = t.ProjectID
+			}
+			for _, l := range lines {
+				if l.Kind == lineInfo {
+					continue
+				}
+				if agent != "" {
+					m.agentLast[agent] = l
+				}
+				m.addActivity(actRow{At: l.At, Agent: agent, Tool: l.Tool, Arg: l.Arg, Kind: l.Kind, Project: project, Task: task, Run: id})
 			}
 		}
 	case strings.HasPrefix(e.Stream, "run:"):
@@ -350,6 +429,15 @@ func (m *Model) addFeed(item storage.FeedItem) {
 	if len(m.feed) > feedKeep {
 		m.feed = append([]storage.FeedItem(nil), m.feed[len(m.feed)-feedKeep:]...)
 	}
+	m.addActivity(feedActivity(item))
+	// A fresh attention event (not the replay of history) slides in as a toast.
+	if item.Attention && m.now().Sub(item.CreatedAt) < 2*time.Minute && m.now().Sub(m.startAt) > 3*time.Second {
+		text := "⚠ " + strings.TrimPrefix(item.Type, "task.") + " · " + oneLine(item.Summary)
+		m.toasts = append(m.toasts, toastItem{text: text, at: m.now()})
+		if len(m.toasts) > 3 {
+			m.toasts = m.toasts[len(m.toasts)-3:]
+		}
+	}
 }
 
 // runAgent is the agent of a live run.
@@ -362,6 +450,18 @@ func (m *Model) runAgent(id string) string {
 		}
 	}
 	return ""
+}
+
+// liveRunOf is the live run of a task, if any.
+func (m *Model) liveRunOf(task string) (string, bool) {
+	for _, p := range m.ov.Status {
+		for _, r := range p.Runs {
+			if r.TaskID == task {
+				return r.ID, true
+			}
+		}
+	}
+	return "", false
 }
 
 // companyStopped is the company pause (the kill switch or a company pause), if any.
@@ -379,7 +479,7 @@ func (m *Model) openInput(label, initial string, a Action, apply func(a *Action,
 	ti.Prompt = "› "
 	ti.SetValue(initial)
 	ti.CursorEnd()
-	ti.SetWidth(max(m.width-4, 10))
+	ti.SetWidth(max(min(m.width-14, 66), 10))
 	m.input = &inputState{ti: ti, label: label, action: a, apply: apply}
 	return m.input.ti.Focus()
 }
@@ -406,6 +506,11 @@ func (m *Model) switchTab(t tab) tea.Cmd {
 	return nil
 }
 
+// filtering: a view's own text input has the keys.
+func (m *Model) filtering() bool {
+	return m.tab == tabBoard && m.board.editing || m.tab == tabFeed && m.feedv.editing
+}
+
 func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	key := k.String()
 	if key == "ctrl+c" {
@@ -421,7 +526,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			in := m.input
 			a := in.action
 			if err := in.apply(&a, strings.TrimSpace(in.ti.Value())); err != nil {
-				m.setToast(err.Error(), true)
+				m.setToast("✗ "+err.Error(), true)
 				return nil
 			}
 			m.input = nil
@@ -440,7 +545,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		switch key {
 		case "y", "Y", "enter":
 			m.confirm = nil
-			m.setToast("sending: "+a.Describe(), false)
+			m.setToast("… "+a.Describe(), false)
 			return m.send(a)
 		case "n", "N", "esc", "q":
 			m.confirm = nil
@@ -448,35 +553,57 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if m.palette != nil {
+		return m.palette.key(m, k)
+	}
+	if m.chooser != nil {
+		return m.chooser.key(m, key)
+	}
 	if m.help {
 		m.help = false
 		return nil
 	}
-	if m.tab == tabTasks && m.tasks.filtering() || m.tab == tabFeed && m.feedv.filtering() {
-		// The view's filter input has the keys.
-	} else {
+	if !m.filtering() {
 		switch key {
 		case "q":
+			if m.tab == tabBoard && m.board.open {
+				break
+			}
 			m.cancel()
 			return tea.Quit
 		case "?":
 			m.help = true
 			return nil
+		case "ctrl+k", ":":
+			m.openPalette()
+			return m.palette.ti.Focus()
 		case "tab":
-			return m.switchTab((m.tab + 1) % tabCount)
+			return m.switchTab((m.baseTab() + 1) % tabCount)
 		case "shift+tab":
-			return m.switchTab((m.tab + tabCount - 1) % tabCount)
-		case "1", "2", "3", "4", "5", "6":
+			return m.switchTab((m.baseTab() + tabCount - 1) % tabCount)
+		case "1", "2", "3", "4", "5":
 			return m.switchTab(tab(key[0] - '1'))
+		case "]":
+			m.project = m.nextProject(m.project)
+			m.board.clamp(m)
+			return nil
+		case "[":
+			m.project = m.prevProject(m.project)
+			m.board.clamp(m)
+			return nil
 		case "ctrl+r", "R":
-			m.setToast("refreshing", false)
+			m.setToast("↻ refreshing", false)
 			return m.loadOverview()
+		case "Y", "N", "A":
+			if cmd, ok := m.promptKey(key); ok {
+				return cmd
+			}
 		case "K":
 			if p, stopped := m.companyStopped(); stopped {
 				m.askConfirm(Action{Kind: "start", Text: p.Reason})
 				return nil
 			}
-			return m.openInput("Kill switch: stop the company. Reason", "", Action{Kind: "stop"}, func(a *Action, text string) error {
+			return m.openInput("⏻ Kill switch — stop the company. Reason", "", Action{Kind: "stop"}, func(a *Action, text string) error {
 				a.Text = text
 				return nil
 			})
@@ -485,8 +612,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	switch m.tab {
 	case tabDashboard:
 		return m.dash.key(m, key)
-	case tabTasks:
-		return m.tasks.key(m, k)
+	case tabBoard:
+		return m.board.key(m, k)
 	case tabRun:
 		return m.run.key(m, key)
 	case tabFlow:
@@ -499,129 +626,343 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// View renders the screen: tabs, the active view, overlays and the status bar.
+// baseTab is the tab under the run view.
+func (m *Model) baseTab() tab {
+	if m.tab == tabRun {
+		return m.prevTab
+	}
+	return m.tab
+}
+
+// View renders the screen.
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.Render())
 	v.AltScreen = true
-	v.WindowTitle = "factory ui"
+	v.MouseMode = tea.MouseModeCellMotion
+	v.WindowTitle = "App Factory"
 	return v
 }
 
-// Render is the screen as a string (golden tests).
+// Render is the screen as a string (golden tests): header, tabs, the view, modals, the prompt bar and keys.
 func (m *Model) Render() string {
 	w, h := m.width, m.height
-	if w < 20 || h < 6 {
-		return "terminal too small"
+	if w < 60 || h < 16 {
+		return "terminal too small (60×16 at least)"
 	}
-	bodyH := h - 2
+	m.zones = m.zones[:0]
+	footer := []string{m.footerLine(w)}
+	if p := m.promptLine(w); p != "" {
+		footer = append([]string{p}, footer...)
+	}
+	bodyH := h - 2 - len(footer)
 	var body []string
-	switch {
-	case m.help:
-		body = m.helpLines(w)
-	case m.tab == tabDashboard:
+	switch m.tab {
+	case tabDashboard:
 		body = m.dashboardLines(w, bodyH)
-	case m.tab == tabTasks:
-		body = m.tasksLines(w, bodyH)
-	case m.tab == tabRun:
+		m.dashZones(w, bodyH)
+	case tabBoard:
+		body = m.boardLines(w, bodyH)
+	case tabRun:
 		body = m.runLines(w, bodyH)
-	case m.tab == tabFlow:
+	case tabFlow:
 		body = m.flowLines(w, bodyH)
-	case m.tab == tabFeed:
+	case tabFeed:
 		body = m.feedLines(w, bodyH)
-	case m.tab == tabInbox:
+	case tabInbox:
 		body = m.inboxLines(w, bodyH)
 	}
-	if overlay := m.overlayLines(w); len(overlay) > 0 {
-		if len(body) > bodyH-len(overlay) {
-			body = body[:max(bodyH-len(overlay), 0)]
-		}
-		for len(body) < bodyH-len(overlay) {
-			body = append(body, "")
-		}
-		body = append(body, overlay...)
+	for len(body) < bodyH {
+		body = append(body, "")
 	}
-	return m.headerLine(w) + "\n" + block(body, w, bodyH) + "\n" + m.statusLine(w)
+	body = body[:bodyH]
+	if modal := m.modalLines(w, bodyH); len(modal) > 0 {
+		body = overlay(body, modal, w)
+	}
+	if t := m.toastLines(w); len(t) > 0 {
+		x := w - ansi.StringWidth(t[0]) - 1
+		body = spliceLines(body, t, max(x, 0), 0, w)
+	}
+	return m.headerLine(w) + "\n" + m.tabsLine(w) + "\n" + block(body, w, bodyH) + "\n" + strings.Join(footer, "\n")
+}
+
+// overlay draws modal centered over body.
+func overlay(body, modal []string, w int) []string {
+	mw := 0
+	for _, l := range modal {
+		mw = max(mw, ansi.StringWidth(l))
+	}
+	top := max((len(body)-len(modal))/2, 0)
+	return spliceLines(body, modal, max((w-mw)/2, 0), top, w)[:len(body)]
+}
+
+// toastLines are the attention toasts: they slide in from the right edge and stay 6 s.
+func (m *Model) toastLines(w int) []string {
+	now := m.now()
+	live := []toastItem{}
+	for _, t := range m.toasts {
+		if now.Sub(t.at) < 6*time.Second {
+			live = append(live, t)
+		}
+	}
+	m.toasts = live
+	if len(live) == 0 {
+		return nil
+	}
+	tw := min(52, w/2)
+	lines := []string{}
+	for _, t := range live {
+		lines = append(lines, cut(stRedBold.Render(t.text), tw-4))
+	}
+	out := frame(stRedBold.Render("Attention"), lines, tw, len(lines)+2, theme.red, false, false)
+	// Slide: the first 400 ms the toast enters from the right.
+	slide := 1 - float64(now.Sub(live[len(live)-1].at))/float64(400*time.Millisecond)
+	if slide > 0 {
+		shift := int(slide * float64(tw))
+		for i := range out {
+			out[i] = ansi.Truncate(out[i], tw-shift, "")
+		}
+	}
+	return out
 }
 
 func (m *Model) headerLine(w int) string {
-	parts := []string{}
-	for i, name := range tabNames {
-		label := fmt.Sprintf(" %d %s", i+1, name)
-		if tab(i) == tabInbox && len(m.ov.Inbox) > 0 {
-			label += fmt.Sprintf("(%d)", len(m.ov.Inbox))
+	bar := lipgloss.NewStyle().Background(theme.surface)
+	logo := lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(" ◆ APP FACTORY ")
+	clock := bar.Foreground(theme.dim).Render(m.now().In(m.opts.Location).Format("15:04:05") + " ")
+	room := w - ansi.StringWidth(logo) - ansi.StringWidth(clock) - 2
+	// Chips: full, then compact (no brackets, no share), then names only, until they fit.
+	var chips []string
+	for mode := 0; mode < 3; mode++ {
+		chips = []string{m.projectChipLabel("", "all", mode)}
+		for _, p := range m.projects() {
+			chips = append(chips, m.projectChipLabel(p, p, mode))
 		}
-		label += " "
-		if tab(i) == m.tab {
-			parts = append(parts, stTabActive.Render(label))
-		} else {
-			parts = append(parts, stTab.Render(label))
+		if ansi.StringWidth(strings.Join(chips, " ")) <= room {
+			break
 		}
 	}
-	return fit(strings.Join(parts, "")+stFaint.Render("  ? help"), w)
+	x := ansi.StringWidth(logo) + 1
+	for i, c := range chips {
+		proj := ""
+		if i > 0 {
+			proj = m.projects()[i-1]
+		}
+		cw := ansi.StringWidth(c)
+		m.zones = append(m.zones, zone{x0: x, y0: 0, x1: x + cw, y1: 1, click: func(int, int) tea.Cmd { m.project = proj; m.board.clamp(m); return nil }})
+		x += cw + 1
+	}
+	left := logo + bar.Render(" ") + strings.Join(chips, bar.Render(" "))
+	if ansi.StringWidth(left)+ansi.StringWidth(clock) > w {
+		left = ansi.Truncate(left, w-ansi.StringWidth(clock)-1, "…")
+	}
+	gap := max(w-ansi.StringWidth(left)-ansi.StringWidth(clock), 0)
+	return fit(left+bar.Render(strings.Repeat(" ", gap))+clock, w)
 }
 
-func (m *Model) overlayLines(w int) []string {
+// projectChipLabel is a header chip: [ ● name 33% ] — the dot is green when the project has live runs, the
+// percentage its done share.
+func (m *Model) projectChipLabel(p, label string, mode int) string {
+	done, total, live := 0, 0, false
+	for _, st := range m.ov.Status {
+		if p != "" && st.Project.ID != p {
+			continue
+		}
+		for s, n := range st.Tasks {
+			total += n
+			if s == "DONE" {
+				done += n
+			}
+		}
+		if len(st.Runs) > 0 {
+			live = true
+		}
+	}
+	dot := "○"
+	if live {
+		dot = "●"
+	}
+	pct := ""
+	if total > 0 {
+		pct = fmt.Sprintf(" %d%%", done*100/total)
+	}
+	open, shut := "[ ", " ]"
+	switch mode {
+	case 1:
+		open, shut = " ", " "
+	case 2:
+		open, shut, pct = " ", " ", ""
+	}
+	text := open + dot + " " + label + pct + shut
+	if p == m.project {
+		return lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(text)
+	}
+	st := lipgloss.NewStyle().Background(theme.surface).Foreground(theme.text)
+	if live {
+		return st.Render(open) + st.Foreground(theme.green).Render(dot) + st.Render(" "+label+pct+shut)
+	}
+	return st.Foreground(theme.dim).Render(text)
+}
+
+// attentionCount is what waits on the owner: inbox items and active alerts.
+func (m *Model) attentionCount() int {
+	return len(m.ov.Inbox) + m.ov.Pending.Alerts + m.ov.Pending.Inspect
+}
+
+func (m *Model) tabsLine(w int) string {
+	parts := []string{}
+	cur := m.baseTab()
+	x := 1
+	for i, name := range tabNames {
+		label := fmt.Sprintf("%d %s", i+1, name)
+		badge := ""
+		if tab(i) == tabInbox && len(m.ov.Inbox) > 0 {
+			badge = fmt.Sprintf(" %d", len(m.ov.Inbox))
+		}
+		var s string
+		if tab(i) == cur {
+			s = lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(" " + label + badge + " ")
+		} else {
+			s = " " + stFaint.Render(label) + stRedBold.Render(badge) + " "
+		}
+		t := tab(i)
+		m.zones = append(m.zones, zone{x0: x, y0: 1, x1: x + ansi.StringWidth(s), y1: 2, click: func(int, int) tea.Cmd { return m.switchTab(t) }})
+		x += ansi.StringWidth(s)
+		parts = append(parts, s)
+	}
+	left := " " + strings.Join(parts, "")
+	if m.tab == tabRun {
+		left += stAccent.Render("  ▸ run " + m.run.id)
+	}
+	// Right: connection, company, run state, attention.
+	right := []string{}
+	switch {
+	case m.ovErr != nil && !m.loaded:
+		right = append(right, stRedBold.Render("○ unreachable"))
+	case m.ovErr != nil:
+		right = append(right, stYellow.Render("◐ retrying · "+ago(m.now(), m.lastOK)+" old"))
+	case !m.loaded:
+		right = append(right, stFaint.Render("◌ connecting"))
+	default:
+		feed := stGreen.Render("●")
+		if m.feedSt.seen && !m.feedSt.connected {
+			feed = stYellow.Render("◐")
+		}
+		if w >= 110 {
+			feed += stFaint.Render(" " + m.c.Describe())
+		}
+		right = append(right, feed)
+	}
+	if c := m.ov.Health.Company; c != "" {
+		right = append(right, stBold.Render(c))
+	}
+	if p, stopped := m.companyStopped(); stopped {
+		right = append(right, lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" ■ STOPPED "+p.Reason+" "))
+	} else if m.loaded {
+		right = append(right, stGreen.Render("▶ running"))
+	}
+	if n := m.attentionCount(); n > 0 {
+		right = append(right, stRedBold.Render(fmt.Sprintf("⚠ %d", n)))
+	}
+	r := strings.Join(right, stDim.Render(" │ ")) + " "
+	room := w - ansi.StringWidth(left) - 1
+	if ansi.StringWidth(r) > room {
+		r = ansi.TruncateLeft(r, ansi.StringWidth(r)-max(room, 0), "…")
+	}
+	return rightAlign(left, r, w)
+}
+
+// footerLine shows the keys of the current view, or the last action's result.
+func (m *Model) footerLine(w int) string {
+	if m.toast != "" && m.now().Sub(m.toastAt) < 8*time.Second {
+		st := lipgloss.NewStyle().Foreground(theme.green)
+		if m.toastEr {
+			st = stRedBold
+		}
+		return fit(" "+st.Render(m.toast), w)
+	}
+	parts := []string{}
+	for _, h := range m.hints() {
+		parts = append(parts, stAccent.Bold(true).Render(h[0])+" "+stFaint.Render(h[1]))
+	}
+	return fit(" "+strings.Join(parts, stDim.Render("  ")), w)
+}
+
+func (m *Model) hints() [][2]string {
 	switch {
 	case m.input != nil:
-		return []string{
-			stFaint.Render(strings.Repeat("─", w)),
-			stBold.Render(m.input.label) + "  " + stFaint.Render("enter ok · esc cancel"),
-			m.input.ti.View(),
-		}
+		return [][2]string{{"enter", "ok"}, {"esc", "cancel"}}
 	case m.confirm != nil:
-		prompt := m.confirm.Describe()
-		lines := []string{stFaint.Render(strings.Repeat("─", w))}
-		for _, l := range wrap(prompt+"?", w-2) {
+		return [][2]string{{"y", "confirm"}, {"n", "cancel"}}
+	case m.palette != nil:
+		return [][2]string{{"type", "search"}, {"↑↓", "choose"}, {"enter", "go"}, {"esc", "close"}}
+	case m.chooser != nil:
+		return [][2]string{{"↑↓", "choose"}, {"enter", "pick"}, {"esc", "close"}}
+	case m.help:
+		return [][2]string{{"any key", "close"}}
+	}
+	common := [][2]string{{"^k", "palette"}, {"[ ]", "project"}, {"?", "help"}, {"q", "quit"}}
+	switch m.tab {
+	case tabDashboard:
+		return append([][2]string{{"h/l", "panel"}, {"j/k", "move"}, {"enter", "open"}, {"z", "zoom"}}, common...)
+	case tabBoard:
+		if m.board.open {
+			return [][2]string{{"j/k", "scroll"}, {"p/u", "pause/resume"}, {"r", "retry"}, {"x", "cancel"}, {"d", "direct"}, {"L", "live"}, {"esc", "close"}}
+		}
+		return append([][2]string{{"←→↑↓", "move"}, {"enter", "open"}, {"/", "filter"}, {"!", "needs you"}, {"L", "live"}}, common...)
+	case tabRun:
+		return append([][2]string{{"f", "follow"}, {"j/k", "scroll"}, {"G", "newest"}, {"t", "task"}, {"esc", "back"}}, common...)
+	case tabFlow:
+		return append([][2]string{{"g", "lanes/pairs"}, {"a", "agent"}, {"t", "task"}, {"x", "clear"}, {"j/k", "scroll"}}, common...)
+	case tabFeed:
+		return append([][2]string{{"!", "attention"}, {"/", "filter"}, {"j/k", "scroll"}, {"G", "newest"}}, common...)
+	case tabInbox:
+		return append([][2]string{{"↑↓", "item"}, {"←→", "option"}, {"enter", "answer"}, {"a", "text"}, {"y/n", "approve"}}, common...)
+	}
+	return common
+}
+
+// modalLines is the open modal: help, palette, chooser, an input, a confirmation or the task detail.
+func (m *Model) modalLines(w, h int) []string {
+	mw := min(w-4, 76)
+	switch {
+	case m.confirm != nil:
+		lines := []string{}
+		for _, l := range wrap(capitalize(m.confirm.Describe())+"?", mw-4) {
 			lines = append(lines, stBold.Render(l))
 		}
-		return append(lines, stYellow.Render("y")+" confirm · "+stYellow.Render("n")+" cancel")
+		yes := lipgloss.NewStyle().Background(theme.green).Foreground(theme.onAccent).Bold(true).Render(" y  confirm ")
+		no := lipgloss.NewStyle().Background(theme.surfaceHi).Foreground(theme.text).Render(" n  cancel ")
+		lines = append(lines, "", yes+"  "+no)
+		border := theme.yellow
+		if m.confirm.Kind == "stop" || m.confirm.Kind == "cancel" || m.confirm.Kind == "reject" || m.confirm.Urgent {
+			border = theme.red
+		}
+		return frame(stYellow.Bold(true).Render("Confirm"), lines, mw, len(lines)+2, border, false, false)
+	case m.input != nil:
+		lines := []string{}
+		for _, l := range wrap(m.input.label, mw-4) {
+			lines = append(lines, stBold.Render(l))
+		}
+		lines = append(lines, "", m.input.ti.View())
+		return frame(stTitle.Render("Input"), lines, mw, len(lines)+2, theme.accent, true, false)
+	case m.palette != nil:
+		return m.paletteLines(mw, h)
+	case m.chooser != nil:
+		return m.chooserLines(mw)
+	case m.help:
+		lines := m.helpLines(mw - 4)
+		return frame(stTitle.Render("Keys"), lines, mw, min(len(lines)+2, h), theme.accent, true, false)
+	case m.tab == tabBoard && m.board.open:
+		return m.detailModal(w, h)
 	}
 	return nil
 }
 
-func (m *Model) statusLine(w int) string {
-	core := "● " + m.c.Describe()
-	style := stBar
-	switch {
-	case m.ovErr != nil && !m.loaded:
-		core = "○ " + m.c.Describe() + " unreachable: " + m.ovErr.Error()
-		style = stBarAlert
-	case m.ovErr != nil:
-		core = "○ " + m.c.Describe() + " retrying (" + ago(m.now(), m.lastOK) + " stale)"
-		style = stBarAlert
-	case !m.loaded:
-		core = "… " + m.c.Describe() + " connecting"
+func capitalize(s string) string {
+	if s == "" {
+		return s
 	}
-	parts := []string{core}
-	if m.ov.Health.Company != "" {
-		parts = append(parts, "company "+m.ov.Health.Company)
-	}
-	if p, stopped := m.companyStopped(); stopped {
-		parts = append([]string{"■ STOPPED " + p.Reason}, parts...) // first: never cut off
-		style = stBarAlert
-	} else if m.loaded {
-		parts = append(parts, "▶ running")
-	}
-	switch {
-	case !m.feedSt.seen:
-	case m.feedSt.connected:
-		parts = append(parts, "feed live")
-	default:
-		parts = append(parts, "feed reconnecting")
-	}
-	left := " " + strings.Join(parts, " │ ")
-	right := ""
-	if m.toast != "" && m.now().Sub(m.toastAt) < 8*time.Second {
-		right = m.toast
-		if m.toastEr {
-			style = stBarAlert
-		}
-	}
-	if right != "" {
-		lw := w - min(ansiWidth(right)+3, w/2)
-		return style.Render(fit(left, lw) + fit(" "+right+" ", w-lw))
-	}
-	return style.Render(fit(left, w))
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // projects are the project IDs, sorted.
@@ -651,6 +992,22 @@ func (m *Model) nextProject(cur string) string {
 	return ""
 }
 
+func (m *Model) prevProject(cur string) string {
+	ps := m.projects()
+	if cur == "" {
+		if len(ps) > 0 {
+			return ps[len(ps)-1]
+		}
+		return ""
+	}
+	for i, p := range ps {
+		if p == cur && i > 0 {
+			return ps[i-1]
+		}
+	}
+	return ""
+}
+
 func (m *Model) taskByID(id string) (Task, bool) {
 	for _, t := range m.ov.Tasks {
 		if t.ID == id {
@@ -658,4 +1015,30 @@ func (m *Model) taskByID(id string) (Task, bool) {
 		}
 	}
 	return Task{}, false
+}
+
+// notLoaded is the body while there is no data yet.
+func (m *Model) notLoaded() []string {
+	if m.ovErr != nil {
+		return []string{"", "  " + stRedBold.Render("○ Core is unreachable: ") + m.ovErr.Error(), "",
+			stFaint.Render("  Retrying every few seconds. Check FACTORY_URL and FACTORY_TOKEN, or try factory ui --demo.")}
+	}
+	return []string{"", "  " + m.spin.View() + " Loading…"}
+}
+
+func (m *Model) onClick(ms tea.Mouse) tea.Cmd {
+	if ms.Button != tea.MouseLeft {
+		return nil
+	}
+	if m.input != nil || m.confirm != nil || m.palette != nil || m.chooser != nil {
+		return nil
+	}
+	m.help = false
+	for i := len(m.zones) - 1; i >= 0; i-- {
+		z := m.zones[i]
+		if ms.X >= z.x0 && ms.X < z.x1 && ms.Y >= z.y0 && ms.Y < z.y1 {
+			return z.click(ms.X-z.x0, ms.Y-z.y0)
+		}
+	}
+	return nil
 }

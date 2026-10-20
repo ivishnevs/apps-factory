@@ -53,18 +53,23 @@ type Health struct {
 
 // Overview is everything the dashboard and the status bar show, read in one refresh.
 type Overview struct {
-	Health    Health                `json:"health"`
-	Status    []core.ProjectStatus  `json:"status"`
-	Agents    []Agent               `json:"agents"`
-	Tasks     []Task                `json:"tasks"`
-	Pauses    []storage.Pause       `json:"pauses"`
-	Pending   storage.PendingCounts `json:"pending"`
-	Nodes     []Node                `json:"nodes"`
-	Costs     storage.CostReport    `json:"costs_today"`
-	Inbox     []messaging.Message   `json:"inbox"`
-	Approvals []approvals.Approval  `json:"approvals"`
-	At        time.Time             `json:"at"`
-	Errors    map[string]string     `json:"errors,omitempty"`
+	Health  Health                `json:"health"`
+	Status  []core.ProjectStatus  `json:"status"`
+	Agents  []Agent               `json:"agents"`
+	Tasks   []Task                `json:"tasks"`
+	Pauses  []storage.Pause       `json:"pauses"`
+	Pending storage.PendingCounts `json:"pending"`
+	Nodes   []Node                `json:"nodes"`
+	Costs   storage.CostReport    `json:"costs_today"`
+	// TaskCosts are the ended runs' cost per task (all time); RecentCosts the runs that ended in the last 24 h.
+	TaskCosts   storage.CostReport `json:"task_costs"`
+	RecentCosts storage.CostReport `json:"recent_costs"`
+	// LiveRuns are the live runs' records (usage so far), by run ID.
+	LiveRuns  map[string]storage.Run `json:"live_runs,omitempty"`
+	Inbox     []messaging.Message    `json:"inbox"`
+	Approvals []approvals.Approval   `json:"approvals"`
+	At        time.Time              `json:"at"`
+	Errors    map[string]string      `json:"errors,omitempty"`
 }
 
 // TaskDetail is one task's detail pane.
@@ -256,6 +261,16 @@ func (c *HTTPClient) Overview(ctx context.Context) (Overview, error) {
 	part("approvals", c.get(ctx, "/approvals", &o.Approvals))
 	midnight := startOfDay(o.At)
 	part("costs", c.get(ctx, fmt.Sprintf("/costs?by=agent&since=%d", midnight.Unix()), &o.Costs))
+	part("task_costs", c.get(ctx, "/costs?by=task", &o.TaskCosts))
+	part("recent_costs", c.get(ctx, fmt.Sprintf("/costs?since=%d", o.At.Add(-24*time.Hour).Unix()), &o.RecentCosts))
+	o.LiveRuns = map[string]storage.Run{}
+	for _, p := range o.Status {
+		for _, r := range p.Runs {
+			if run, err := c.Run(ctx, r.ID); err == nil {
+				o.LiveRuns[r.ID] = run
+			}
+		}
+	}
 	if len(o.Errors) == 0 {
 		o.Errors = nil
 	}

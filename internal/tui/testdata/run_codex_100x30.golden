@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3   ▸ run r-web-4        ● │ acme │ ▶ running │ ⚠ 4
+╭───────────────────────────── demo · r-web-4 · W-2 · ● live · follow ─────────────────────────────╮
+│                                                                                                  │
+│  ╭───────────────────────────── demo 14:23:00 ──────────────────────────────╮                    │
+│  │ Building the pricing page from the W-1 copy.                             │                    │
+│  ╰──────────────────────────────────────────────────────────────────────────╯                    │
+│    ✎ Edit  src/pages/pricing.tsx, src/components/TierCard.tsx                           14:23:40 │
+│    ▸  $ npm run build                                                                   14:25:00 │
+│    ⇄ factory_message_send  body="Yearly discount: 15% or 20%?" recipient=manager        14:26:40 │
+│    ▸  $ npx playwright test pricing.spec.ts                                             14:29:00 │
+│    ✎ Edit  src/pages/pricing.tsx                                                        14:29:45 │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│    ⠋ demo is working                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ f follow  j/k scroll  G newest  t task  esc back  ^k palette  [ ] project  ? help  q quit

@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+╭────────────── Flow · swimlanes · 13 steps · project calorie · agent all · task all ──────────────╮
+│          owner         calorie-designer       calorie-qa                                         │
+│               calorie-manager       calorie-ios                                                  │
+│ 09:30      ●─────────▶         │         │         │     create    CAL-1  “Ship calorie calcula… │
+│ 09:50      │         ●─────────▶         │         │     create    CAL-2  “Design the meal entr… │
+│ 10:00      │         ●───────────────────▶         │     create    CAL-3  “Build the meal entry… │
+│ 10:05      │         ●─────────────────────────────▶     create    CAL-4  “Test meal entry on i… │
+│ 11:00      │         │         ◆         │         │     done      CAL-2  meal entry mockups in… │
+│ 11:10      │         ◆         │         │         │     create    CAL-5  “Pick the nutrition d… │
+│ 11:30      │         ●───────────────────▶         │     create    CAL-7  “Barcode scanner spik… │
+│ 11:50      │         ◀───────────────────●         │     question  CAL-3  Should the portion pi… │
+│ 12:00      │         ●───────────────────▶         │     answer    CAL-3  Grams only for v1.     │
+│ 12:50      │         ◆         │         │         │     asked     CAL-5  Which nutrition data … │
+│ 12:55      ◀─────────●         │         │         │     question  CAL-5  Which nutrition data … │
+│ 13:20      ●─────────────────────────────▶         │     directive CAL-3  Keep the entry screen… │
+│ 14:05      │         │         │         ●─────────▶     create    CAL-9  “Crash on empty meal … │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

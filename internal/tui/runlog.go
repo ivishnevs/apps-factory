@@ -11,10 +11,13 @@ import (
 	"appfactory/internal/storage"
 )
 
-// LogLine is one line of a run's activity as the live run view shows it.
+// LogLine is one line of a run's activity: what kind it is, the tool (Bash, Read, factory_task_get, ...)
+// and its argument; Text is the whole line.
 type LogLine struct {
 	At   time.Time
 	Kind string // say, shell, mcp, exit, tool, refusal, error, info, end, core
+	Tool string
+	Arg  string
 	Text string
 }
 
@@ -32,6 +35,15 @@ const (
 	lineCore    = "core"
 )
 
+func mkLine(at time.Time, kind, tool, arg string) LogLine {
+	arg = oneLine(arg)
+	text := arg
+	if tool != "" {
+		text = strings.TrimSpace(tool + " " + arg)
+	}
+	return LogLine{At: at, Kind: kind, Tool: tool, Arg: arg, Text: text}
+}
+
 // describeRunEvent turns one stored run event into activity lines: agent messages, tool calls (shell
 // commands and factory_* MCP calls apart), refusals and the run's end. Deltas, usage and other runtime
 // bookkeeping produce nothing.
@@ -41,7 +53,6 @@ func describeRunEvent(e protocol.Envelope) []LogLine {
 		return nil
 	}
 	at := e.At
-	line := func(kind, text string) LogLine { return LogLine{At: at, Kind: kind, Text: oneLine(text)} }
 	if p.Status == "ENDED" {
 		text := "run ended " + p.Outcome
 		if p.ExitState != "" {
@@ -50,16 +61,16 @@ func describeRunEvent(e protocol.Envelope) []LogLine {
 		if p.Result != "" {
 			text += ": " + p.Result
 		}
-		return []LogLine{line(lineEnd, text)}
+		return []LogLine{mkLine(at, lineEnd, "", text)}
 	}
 	if p.Quota != nil {
-		return []LogLine{line(lineError, "quota limit hit ("+p.Quota.Type+")")}
+		return []LogLine{mkLine(at, lineError, "", "quota limit hit ("+p.Quota.Type+")")}
 	}
 	var data map[string]any
 	_ = json.Unmarshal(p.Data, &data)
 	switch {
 	case p.Method == "claude/system/init":
-		return []LogLine{line(lineInfo, "session started, model "+str(data, "model"))}
+		return []LogLine{mkLine(at, lineInfo, "", "session started, model "+str(data, "model"))}
 	case p.Method == "claude/assistant":
 		return claudeContent(at, data, false)
 	case p.Method == "claude/user":
@@ -70,7 +81,7 @@ func describeRunEvent(e protocol.Envelope) []LogLine {
 		case "usage", "cost", "quota":
 			return nil
 		}
-		return []LogLine{line(lineError, "runtime "+ev)}
+		return []LogLine{mkLine(at, lineError, "", "runtime "+ev)}
 	case p.Method == "item/completed":
 		item, _ := data["item"].(map[string]any)
 		return codexItem(at, item)
@@ -81,15 +92,19 @@ func describeRunEvent(e protocol.Envelope) []LogLine {
 				argv = append(argv, fmt.Sprint(s))
 			}
 		}
-		return []LogLine{line(lineRefusal, fmt.Sprintf("command refused (%s, rule %s): %s", str(data, "effect"), str(data, "rule"), strings.Join(argv, " ")))}
+		l := mkLine(at, lineRefusal, "", fmt.Sprintf("command refused (%s, rule %s): %s", str(data, "effect"), str(data, "rule"), strings.Join(argv, " ")))
+		l.Tool = "refused"
+		return []LogLine{l}
 	case strings.HasSuffix(p.Method, "/exit_guard"):
 		text := "exit guard refused the turn's end"
 		if r := str(data, "reason"); r != "" {
 			text += ": " + r
 		}
-		return []LogLine{line(lineRefusal, text)}
+		l := mkLine(at, lineRefusal, "", text)
+		l.Tool = "refused"
+		return []LogLine{l}
 	case p.Method == "codex/quota":
-		return []LogLine{line(lineError, "quota limit hit")}
+		return []LogLine{mkLine(at, lineError, "", "quota limit hit")}
 	}
 	return nil
 }
@@ -103,14 +118,14 @@ func claudeContent(at time.Time, data map[string]any, user bool) []LogLine {
 		switch block["type"] {
 		case "text":
 			if !user {
-				out = append(out, LogLine{At: at, Kind: lineSay, Text: oneLine(str(block, "text"))})
+				out = append(out, mkLine(at, lineSay, "", str(block, "text")))
 			}
 		case "tool_use":
 			input, _ := block["input"].(map[string]any)
 			out = append(out, toolLine(at, str(block, "name"), input))
 		case "tool_result":
 			if isErr, _ := block["is_error"].(bool); isErr {
-				out = append(out, LogLine{At: at, Kind: lineError, Text: "tool error: " + oneLine(resultText(block["content"]))})
+				out = append(out, mkLine(at, lineError, "", "tool error: "+resultText(block["content"])))
 			}
 		}
 	}
@@ -137,7 +152,7 @@ func resultText(v any) string {
 func toolLine(at time.Time, name string, input map[string]any) LogLine {
 	switch {
 	case name == "Bash":
-		return LogLine{At: at, Kind: lineShell, Text: "$ " + oneLine(str(input, "command"))}
+		return mkLine(at, lineShell, "Bash", "$ "+str(input, "command"))
 	case strings.Contains(name, "factory_"):
 		tool := name // mcp__factory__factory_x (Claude) or factory_x (Codex)
 		if i := strings.LastIndex(tool, "__"); i >= 0 {
@@ -147,28 +162,33 @@ func toolLine(at time.Time, name string, input map[string]any) LogLine {
 		if strings.HasPrefix(tool, "factory_exit_") {
 			kind = lineExit
 		}
-		return LogLine{At: at, Kind: kind, Text: tool + " " + brief(input)}
+		return mkLine(at, kind, tool, brief(input))
 	}
 	arg := str(input, "file_path")
 	if arg == "" {
-		arg = str(input, "pattern")
+		if p := str(input, "pattern"); p != "" {
+			arg = fmt.Sprintf("%q", p)
+			if path := str(input, "path"); path != "" {
+				arg += " in " + path
+			}
+		}
 	}
 	if arg == "" {
 		arg = brief(input)
 	}
-	return LogLine{At: at, Kind: lineTool, Text: name + " " + oneLine(arg)}
+	return mkLine(at, lineTool, name, arg)
 }
 
 func codexItem(at time.Time, item map[string]any) []LogLine {
 	switch item["type"] {
 	case "agentMessage":
-		return []LogLine{{At: at, Kind: lineSay, Text: oneLine(str(item, "text"))}}
+		return []LogLine{mkLine(at, lineSay, "", str(item, "text"))}
 	case "commandExecution":
-		text := "$ " + oneLine(commandText(item["command"]))
+		cmd := "$ " + commandText(item["command"])
 		if code, ok := item["exitCode"].(float64); ok && code != 0 {
-			return []LogLine{{At: at, Kind: lineError, Text: fmt.Sprintf("%s  (exit %d)", text, int(code))}}
+			return []LogLine{mkLine(at, lineError, "Bash", fmt.Sprintf("%s  (exit %d)", cmd, int(code)))}
 		}
-		return []LogLine{{At: at, Kind: lineShell, Text: text}}
+		return []LogLine{mkLine(at, lineShell, "Bash", cmd)}
 	case "mcpToolCall":
 		args, _ := item["arguments"].(map[string]any)
 		return []LogLine{toolLine(at, str(item, "tool"), args)}
@@ -181,7 +201,7 @@ func codexItem(at time.Time, item map[string]any) []LogLine {
 				}
 			}
 		}
-		return []LogLine{{At: at, Kind: lineTool, Text: "edit " + strings.Join(paths, ", ")}}
+		return []LogLine{mkLine(at, lineTool, "Edit", strings.Join(paths, ", "))}
 	}
 	return nil
 }
@@ -206,7 +226,8 @@ func describeToolCall(tc storage.ToolCall) LogLine {
 	if tc.Status >= 400 {
 		kind, verdict = lineRefusal, fmt.Sprintf("refused %d", tc.Status)
 	}
-	return LogLine{At: time.Unix(tc.CreatedAt, 0), Kind: kind, Text: fmt.Sprintf("core: %s %s", tc.Tool, verdict)}
+	l := mkLine(time.Unix(tc.CreatedAt, 0), kind, "core", tc.Tool+" "+verdict)
+	return l
 }
 
 // runLog merges a run's activity lines and Core's tool call records by time.
@@ -229,13 +250,36 @@ func str(m map[string]any, k string) string {
 	return ""
 }
 
-// brief is a short JSON of a tool input.
+// brief is a tool input as k=v pairs (sorted keys; long values cut), never raw JSON.
 func brief(v map[string]any) string {
 	if len(v) == 0 {
 		return ""
 	}
-	b, _ := json.Marshal(v)
-	return clip(string(b), 160)
+	keys := make([]string, 0, len(v))
+	for k := range v {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := []string{}
+	for _, k := range keys {
+		var s string
+		switch x := v[k].(type) {
+		case string:
+			s = x
+			if strings.ContainsAny(s, " ,") {
+				s = fmt.Sprintf("%q", clip(s, 60))
+			}
+		case nil:
+			s = "-"
+		case map[string]any, []any:
+			b, _ := json.Marshal(x)
+			s = clip(string(b), 40)
+		default:
+			s = fmt.Sprint(x)
+		}
+		parts = append(parts, k+"="+s)
+	}
+	return clip(strings.Join(parts, " "), 160)
 }
 
 func oneLine(s string) string {

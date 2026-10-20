@@ -43,7 +43,7 @@ func TestInteractionOf(t *testing.T) {
 func TestEdges(t *testing.T) {
 	ins := interactions(DemoFixture().Feed, FlowFilter{Project: "notes"})
 	es := edges(ins)
-	if len(es) == 0 || es[0].From != "manager" || es[0].To != "demo" || es[0].Total != 3 || es[0].verbsText() != "create×2 handoff" {
+	if len(es) == 0 || es[0].From != "manager" || es[0].To != "demo" || es[0].Total != 4 || es[0].verbsText() != "create×3 handoff" {
 		t.Fatalf("%+v", es)
 	}
 	for _, in := range ins {
@@ -51,7 +51,7 @@ func TestEdges(t *testing.T) {
 			t.Fatal(in)
 		}
 	}
-	if got := interactions(DemoFixture().Feed, FlowFilter{Agent: "reviewer"}); len(got) != 4 {
+	if got := interactions(DemoFixture().Feed, FlowFilter{Agent: "reviewer"}); len(got) != 6 {
 		t.Fatalf("%d", len(got))
 	}
 }
@@ -69,18 +69,18 @@ func TestDescribeRunEvent(t *testing.T) {
 	}{
 		{progress("item/completed", map[string]any{"item": map[string]any{"type": "agentMessage", "text": "hello\nworld"}}), lineSay, "hello world"},
 		{progress("item/completed", map[string]any{"item": map[string]any{"type": "commandExecution", "command": []string{"go", "test"}, "exitCode": 0}}), lineShell, "$ go test"},
-		{progress("item/completed", map[string]any{"item": map[string]any{"type": "commandExecution", "command": "make", "exitCode": 2}}), lineError, "$ make  (exit 2)"},
-		{progress("item/completed", map[string]any{"item": map[string]any{"type": "mcpToolCall", "server": "factory", "tool": "factory_exit_done", "arguments": map[string]any{"summary": "ok"}}}), lineExit, `factory_exit_done {"summary":"ok"}`},
-		{progress("item/completed", map[string]any{"item": map[string]any{"type": "fileChange", "changes": []any{map[string]any{"path": "a.go"}}}}), lineTool, "edit a.go"},
-		{progress("claude/assistant", map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "mcp__factory__factory_task_create", "input": map[string]any{"title": "x"}}}}}), lineMCP, `factory_task_create {"title":"x"}`},
-		{progress("claude/assistant", map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Grep", "input": map[string]any{"pattern": "TODO"}}}}}), lineTool, "Grep TODO"},
+		{progress("item/completed", map[string]any{"item": map[string]any{"type": "commandExecution", "command": "make", "exitCode": 2}}), lineError, "$ make (exit 2)"},
+		{progress("item/completed", map[string]any{"item": map[string]any{"type": "mcpToolCall", "server": "factory", "tool": "factory_exit_done", "arguments": map[string]any{"summary": "ok"}}}), lineExit, `summary=ok`},
+		{progress("item/completed", map[string]any{"item": map[string]any{"type": "fileChange", "changes": []any{map[string]any{"path": "a.go"}}}}), lineTool, "a.go"},
+		{progress("claude/assistant", map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "mcp__factory__factory_task_create", "input": map[string]any{"title": "x"}}}}}), lineMCP, `title=x`},
+		{progress("claude/assistant", map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Grep", "input": map[string]any{"pattern": "TODO"}}}}}), lineTool, `"TODO"`},
 		{progress("factory/command_refused", map[string]any{"argv": []string{"rm", "-rf", "/"}, "effect": "deny", "rule": "no-rm"}), lineRefusal, "command refused (deny, rule no-rm): rm -rf /"},
 		{progress("codex/exit_guard", map[string]any{"refusal": 2}), lineRefusal, "exit guard refused the turn's end"},
 		{progress("claude/shim/auth_error", nil), lineError, "runtime auth_error"},
 		{protocol.Wrap("agent.completed", "r", "", protocol.Event{RunID: "r", Status: "ENDED", Outcome: "failed", ExitState: "refused", Result: "boom"}), lineEnd, "run ended failed (exit refused): boom"},
 	} {
 		lines := describeRunEvent(tc.e)
-		if len(lines) != 1 || lines[0].Kind != tc.kind || lines[0].Text != tc.text {
+		if len(lines) != 1 || lines[0].Kind != tc.kind || lines[0].Text != tc.text && lines[0].Arg != tc.text {
 			t.Errorf("%s: %+v", tc.text, lines)
 		}
 	}

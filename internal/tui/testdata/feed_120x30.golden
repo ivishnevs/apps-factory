@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                               ● fixture demo │ acme │ ▶ running │ ⚠ 4
+╭──────────────────────────────────────────────── Feed ● live · follow ────────────────────────────────────────────────╮
+│ 12:40:00 → exit.handoff          N-1    reviewer         reviewer → demo (changes_requested): escape pipes in tables │
+│ 12:42:00 + created               W-3    manager          SEO audit of the landing page                               │
+│ 12:50:00 → exit.asked            CAL-5  calorie-manager  calorie-manager asked: Which nutrition data API may we pay… │
+│ 12:55:00 ⚠ message.created       CAL-5  calorie-manager  calorie-manager → owner (question): Which nutrition data A… │
+│ 12:55:00 ⏸ parked.ask            CAL-5  calorie-manager  waits for the answer to m-ask-1                             │
+│ 13:05:00 → exit.submitted        W-6    demo             demo → reviewer (submit): signup form with double opt-in    │
+│ 13:10:00 ✗ retry                 CAL-3  calorie-ios      CAL-3: run r-ios-6 ended failed; retry in 1m0s              │
+│ 13:20:00 ✎ trigger.directive     CAL-3  owner            Keep the entry screen offline-first.                        │
+│ 13:30:00 ⚠ owner.paused          ·      owner            agent calorie-designer: waiting for the brand guide         │
+│ 13:35:00 → exit.submitted        N-1    demo             demo → reviewer (submit): pipes escaped, tests added        │
+│ 13:40:00 → exit.blocked          W-5    demo             demo blocked: needs the legal text for the banner           │
+│ 13:45:00 ⚠ alert.no_progress     N-2    demo             N-2: 3 runs without progress                                │
+│ 13:50:00 → exit.handoff          N-3    manager          manager → demo (handoff): rebase N-2 on main before retryi… │
+│ 14:00:00 ⚠ escalation.stalled    N-3    manager          N-3 waits on N-2 → owner                                    │
+│ 14:05:00 + created               CAL-9  calorie-ios      Crash on empty meal list                                    │
+│ 14:10:00 ⚠ approval.requested    N-3    manager          factory_release_publish: release 1.2 is approved by review  │
+│ 14:18:00 ▶ started               CAL-3  calorie-ios      Build the meal entry screen                                 │
+│ 14:21:00 ✗ run.command_refused   CAL-3  calorie-ios      git push --force refused by rule no-force-push              │
+│ 14:23:00 ▶ started               W-2    demo             Pricing page                                                │
+│ 14:24:00 ⚠ node.low_disk         ·      node             mac-mini: 4.1 GiB free on /                                 │
+│ 14:26:00 ▶ started               N-1    reviewer         Markdown export                                             │
+│ 14:27:00 → message.created       W-2    demo             demo → manager (question): Yearly discount: 15% or 20%?     │
+│ 14:28:00 ✎ commented             N-1    owner            Please check the export on a 10k-line note.                 │
+│ 14:29:00 → message.created       W-2    manager          manager → demo (answer): 20%, rounded to whole dollars.     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ ! attention  / filter  j/k scroll  G newest  ^k palette  [ ] project  ? help  q quit

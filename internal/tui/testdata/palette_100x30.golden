@@ -1,0 +1,30 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
+│ ◆ owner · you                              ⚠ 4 ││ [→] Markdown export N-1             ← ⠋running │
+│ ├ ◐ calorie-manager: waits on you · CAL-5   1h ││ [!] Release notes app 1.2 N-3      ← needs you │
+│ │ ├ ⏸ calorie-designer: paused waiting… paused ││     ↳ escalation · waits on you: answer m-esc… │
+│ │ ├ ● calorie-ios: Build the meal ent… 12m 00s ││ [!] Pick the nutrition data API C… ← needs you │
+│ │ │   └ ▸ swift test --filter MealStor… 0m 40s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
+│ │ └ ◐ calorie-qa: waits on calorie-ios · C… 4h ││ [◎] Newsletter signup form W-6       in review │
+│ └ ◐ manager: waits on you · N-3            30m ││     ↳ queued: busy with N-1                    │
+│   ├ ● demo: Pricing page                7m 00s ││                                                │
+│   │   └ ✎ Edit: src/pages/pricing.tsx   0m 15s ││                                                │
+│   └ ● revi╭──────────────────────────── Command palette ─────────────────────────────╮           │
+│       └ › │ ❯ cal3                                                                   │           │
+│           │ ──────────────────────────────────────────────────────────────────────── │           │
+╰───────────│  □ task    CAL-3 Build the meal entry screen   IN_PROGRESS · calorie-ios │───────────╯
+╭───────────╰──────────────────────────────────────────────────────────────────────────╯───────────╮
+│ 14:27:30  [reviewer]         Bash          $ go test ./export/...                                │
+│ 14:28:00  [owner]            comment       → reviewer  Please check the export on a 10k-line no… │
+│ 14:28:00  [calorie-ios]      exit_submit   reviewer=calorie-manager summary="meal entry screen,… │
+│ 14:28:02  [calorie-ios]      refused       exit guard refused the turn's end: submit needs a pu… │
+│ 14:28:30  [reviewer]         task_comments task=N-1                                              │
+│ 14:29:00  [manager]          answer        → demo  20%, rounded to whole dollars.                │
+│ 14:29:00  [demo]             Bash          $ npx playwright test pricing.spec.ts                 │
+│ 14:29:20  [calorie-ios]      Bash          $ swift test --filter MealStoreTests                  │
+│ 14:29:30  [reviewer]         says          “Testing the export on a 10k-line note as the owner … │
+│ 14:29:45  [demo]             Edit          src/pages/pricing.tsx                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ type search  ↑↓ choose  enter go  esc close

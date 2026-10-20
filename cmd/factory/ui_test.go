@@ -60,7 +60,7 @@ func TestUIRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	f, err := tui.LoadFixture(path)
-	if err != nil || len(f.Feed) != 3 || f.Overview.Health.Company != "default" {
+	if err != nil || len(f.Feed) != 3 || f.Overview.Health.Company != "acme" {
 		t.Fatal(err, f)
 	}
 	b, _ := os.ReadFile(path)

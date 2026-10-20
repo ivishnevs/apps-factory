@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 )
@@ -33,8 +34,7 @@ func run(m *Model, cmd tea.Cmd) []tea.Msg {
 	case tea.QuitMsg:
 		return []tea.Msg{msg}
 	}
-	_, next := m.Update(msg)
-	_ = next // follow-up commands (ticks, listens) are not run in tests
+	m.Update(msg)
 	return []tea.Msg{msg}
 }
 
@@ -53,10 +53,76 @@ func lastSent(t *testing.T, c *FixtureClient) Action {
 	return c.Sent[len(c.Sent)-1]
 }
 
-func TestTaskActionsConfirmFirst(t *testing.T) {
-	m, c := demoModel(t, 80, 24)
+func onBoard(t *testing.T, m *Model, id string) {
+	t.Helper()
 	press(m, "2")
-	// The cursor is on CAL-3 (in progress first). p asks; n cancels; nothing is sent.
+	m.focusTask(id)
+	if tk, ok := m.board.selected(m); !ok || tk.ID != id {
+		t.Fatalf("focus %s: %+v", id, tk)
+	}
+}
+
+func TestBoardColumnsAndNavigation(t *testing.T) {
+	m, _ := demoModel(t, 160, 40)
+	press(m, "2")
+	got := map[string][]string{}
+	for _, c := range m.columns() {
+		for _, tk := range c.tasks {
+			got[c.key] = append(got[c.key], tk.ID)
+		}
+	}
+	want := map[string]string{"backlog": "W-4 N-4 CAL-6", "running": "W-2 CAL-3", "review": "N-1 W-6", "done": "CAL-2 CAL-8 N-6 W-1"}
+	for k, v := range want {
+		if strings.Join(got[k], " ") != v {
+			t.Errorf("%s: %v, want %s", k, got[k], v)
+		}
+	}
+	if len(got["waiting"]) != 5 || got["waiting"][0] != "N-3" || got["cancelled"] != nil {
+		t.Fatal(got["waiting"], got["cancelled"])
+	}
+	// Owner-waiting cards first, cancelled hidden until z.
+	key(m, "z")
+	if len(m.columns()) != 7 {
+		t.Fatal("cancelled column not shown")
+	}
+	// Arrows move between columns and cards.
+	press(m, "right", "right", "down")
+	if tk, _ := m.board.selected(m); tk.ID != "CAL-3" {
+		t.Fatal(tk.ID)
+	}
+	// The project chip narrows the board.
+	press(m, "]")
+	if m.project != "calorie" {
+		t.Fatal(m.project)
+	}
+	for _, tk := range m.boardTasks() {
+		if tk.ProjectID != "calorie" {
+			t.Fatal(tk.ID)
+		}
+	}
+	press(m, "[")
+	if m.project != "" {
+		t.Fatal(m.project)
+	}
+	// Filter: words, agent, needs-you.
+	press(m, "/")
+	typeText(m, "a:demo")
+	press(m, "enter")
+	for _, tk := range m.boardTasks() {
+		if tk.Assignee != "demo" {
+			t.Fatal(tk.ID)
+		}
+	}
+	press(m, "esc")
+	key(m, "!")
+	if n := len(m.boardTasks()); n != 2 {
+		t.Fatal(n)
+	}
+}
+
+func TestTaskActionsConfirmFirst(t *testing.T) {
+	m, c := demoModel(t, 120, 40)
+	onBoard(t, m, "CAL-3")
 	key(m, "p")
 	if m.confirm == nil || m.confirm.Kind != "pause" || m.confirm.TaskID != "CAL-3" || m.confirm.Version != 3 {
 		t.Fatalf("%+v", m.confirm)
@@ -76,7 +142,7 @@ func TestTaskActionsConfirmFirst(t *testing.T) {
 		}
 	}
 	// Cancelling a task with open children cascades (and says so).
-	m.tasks.cursor = indexOf(m.visibleTasks(), "CAL-1")
+	m.focusTask("CAL-1")
 	key(m, "x")
 	if !m.confirm.Cascade || !strings.Contains(m.confirm.Describe(), "open children") {
 		t.Fatalf("%+v", m.confirm)
@@ -88,9 +154,8 @@ func TestTaskActionsConfirmFirst(t *testing.T) {
 }
 
 func TestTaskInputs(t *testing.T) {
-	m, c := demoModel(t, 80, 24)
-	press(m, "2")
-	// Reassign: an unknown agent keeps the input open with an error.
+	m, c := demoModel(t, 120, 40)
+	onBoard(t, m, "CAL-3")
 	key(m, "a")
 	typeText(m, "nobody")
 	key(m, "enter")
@@ -106,7 +171,6 @@ func TestTaskInputs(t *testing.T) {
 	if a := lastSent(t, c); a.Kind != "reassign" || a.Assignee != "calorie-qa" || a.Version != 3 {
 		t.Fatalf("%+v", a)
 	}
-	// Reprioritize starts from the current priority.
 	key(m, "P")
 	if m.input.ti.Value() != "7" {
 		t.Fatal(m.input.ti.Value())
@@ -118,7 +182,6 @@ func TestTaskInputs(t *testing.T) {
 	if a := lastSent(t, c); a.Kind != "reprioritize" || a.Priority != 9 {
 		t.Fatalf("%+v", a)
 	}
-	// A directive starting with ! is urgent; esc on the input sends nothing.
 	key(m, "d")
 	typeText(m, "!ship it")
 	key(m, "enter")
@@ -155,60 +218,84 @@ func TestTaskInputs(t *testing.T) {
 	}
 }
 
-func TestTaskFilterAndDetail(t *testing.T) {
-	m, _ := demoModel(t, 80, 24)
-	press(m, "2", "/")
-	typeText(m, "a:calorie-manager")
-	key(m, "enter")
-	list := m.visibleTasks()
-	if len(list) != 2 || list[0].ID != "CAL-1" {
-		t.Fatalf("%+v", list)
-	}
-	key(m, "esc") // clears the filter
-	if m.tasks.filter != "" || len(m.visibleTasks()) != 9 {
-		t.Fatal(m.tasks.filter)
-	}
-	key(m, "!")
-	for _, tk := range m.visibleTasks() {
-		if !m.needsOwner(tk) {
-			t.Fatal(tk.ID)
-		}
-	}
-	if len(m.visibleTasks()) != 2 {
-		t.Fatal(len(m.visibleTasks()))
-	}
-	key(m, "!")
-	// conv shows the conversation tasks.
-	m.tasks.setFilter(m, "conv p:notes")
-	if len(m.visibleTasks()) != 4 {
-		t.Fatal(len(m.visibleTasks()))
-	}
-	m.tasks.setFilter(m, "")
-	// enter loads the detail; esc returns to the list.
-	m.tasks.cursor = indexOf(m.visibleTasks(), "CAL-3")
+func TestCardDetailModal(t *testing.T) {
+	m, c := demoModel(t, 120, 40)
+	onBoard(t, m, "CAL-3")
 	run(m, key(m, "enter"))
-	if !m.tasks.open || m.tasks.detail == nil || m.tasks.detail.Task.ID != "CAL-3" {
-		t.Fatalf("%+v", m.tasks)
+	if !m.board.open || m.board.detail == nil || m.board.detail.Task.ID != "CAL-3" {
+		t.Fatalf("%+v", m.board)
 	}
-	// L opens the task's live run.
-	key(m, "L")
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "CAL-3 · Build the meal entry screen") || !strings.Contains(s, "Runs (2)") {
+		t.Fatal(s)
+	}
+	// Actions work from the modal; q closes it instead of quitting.
+	key(m, "r")
+	run(m, key(m, "y"))
+	if a := lastSent(t, c); a.Kind != "retry" || a.TaskID != "CAL-3" {
+		t.Fatalf("%+v", a)
+	}
+	if cmd := key(m, "q"); cmd != nil || m.board.open {
+		t.Fatal("q did not close the modal")
+	}
+	// L opens the live run; esc returns.
+	run(m, key(m, "L"))
 	if m.tab != tabRun || m.run.id != "r-ios-7" {
 		t.Fatal(m.tab, m.run.id)
 	}
 	key(m, "esc")
-	if m.tab != tabTasks {
+	if m.tab != tabBoard {
 		t.Fatal(m.tab)
 	}
-	key(m, "esc")
-	if m.tasks.open {
-		t.Fatal("detail still open")
+}
+
+func TestPromptBar(t *testing.T) {
+	m, c := demoModel(t, 140, 40)
+	s := ansi.Strip(m.Render())
+	if !strings.Contains(s, "→ 12:55:00 calorie-manager asks: Which nutrition data API") || !strings.Contains(s, "+2 in inbox") {
+		t.Fatal(s)
+	}
+	// The oldest item is a question with options: A opens the chooser; 2 picks the second option.
+	key(m, "A")
+	if m.chooser == nil || len(m.chooser.options) != 4 {
+		t.Fatalf("%+v", m.chooser)
+	}
+	key(m, "2")
+	run(m, key(m, "y"))
+	if a := lastSent(t, c); a.Kind != "answer" || a.MessageID != "m-ask-1" || a.Answers["answer"] != "nutritionix-paid" {
+		t.Fatalf("%+v", a)
+	}
+	// The last option is free text.
+	key(m, "A")
+	press(m, "down", "down", "down", "enter")
+	if m.input == nil {
+		t.Fatal("no free text input")
+	}
+	typeText(m, "USDA for now")
+	key(m, "enter")
+	run(m, key(m, "y"))
+	if a := lastSent(t, c); a.Text != "USDA for now" || a.Answers != nil {
+		t.Fatalf("%+v", a)
+	}
+	// Y/N do nothing for a question; with the approval first, Y approves.
+	ov := m.ov
+	ov.Inbox = []messaging.Message{ov.Inbox[1]}
+	m.Update(overviewMsg{ov: ov})
+	key(m, "Y")
+	key(m, "enter")
+	run(m, key(m, "y"))
+	if a := lastSent(t, c); a.Kind != "approve" || a.ApprovalID != "ap-1" || a.Text != "approved by owner" {
+		t.Fatalf("%+v", a)
+	}
+	key(m, "N")
+	key(m, "enter")
+	if m.input == nil || !strings.Contains(m.toast, "reason is required") {
+		t.Fatal("empty rejection accepted")
 	}
 }
 
 func TestInboxAnswersAndApprovals(t *testing.T) {
-	m, c := demoModel(t, 80, 24)
-	press(m, "6")
-	// The question has options: → picks the second, enter confirms, y sends a structured answer.
+	m, c := demoModel(t, 120, 30)
+	press(m, "5")
 	key(m, "right")
 	key(m, "enter")
 	run(m, key(m, "y"))
@@ -216,7 +303,6 @@ func TestInboxAnswersAndApprovals(t *testing.T) {
 	if a.Kind != "answer" || a.MessageID != "m-ask-1" || a.Text != "nutritionix-paid" || a.Answers["answer"] != "nutritionix-paid" || a.Version != 1 {
 		t.Fatalf("%+v", a)
 	}
-	// Free text.
 	key(m, "a")
 	typeText(m, "USDA for now")
 	key(m, "enter")
@@ -224,7 +310,6 @@ func TestInboxAnswersAndApprovals(t *testing.T) {
 	if a = lastSent(t, c); a.Text != "USDA for now" || a.Answers != nil {
 		t.Fatalf("%+v", a)
 	}
-	// The approval: a is refused, y approves with a reason, n rejects and needs one.
 	key(m, "j")
 	key(m, "a")
 	if m.input != nil || !m.toastEr {
@@ -237,10 +322,6 @@ func TestInboxAnswersAndApprovals(t *testing.T) {
 		t.Fatalf("%+v", a)
 	}
 	key(m, "n")
-	key(m, "enter")
-	if m.input == nil || !strings.Contains(m.toast, "reason is required") {
-		t.Fatal("empty rejection accepted")
-	}
 	typeText(m, "not yet")
 	key(m, "enter")
 	run(m, key(m, "y"))
@@ -250,7 +331,7 @@ func TestInboxAnswersAndApprovals(t *testing.T) {
 }
 
 func TestKillSwitch(t *testing.T) {
-	m, c := demoModel(t, 80, 24)
+	m, c := demoModel(t, 120, 30)
 	key(m, "K")
 	typeText(m, "incident")
 	key(m, "enter")
@@ -261,10 +342,10 @@ func TestKillSwitch(t *testing.T) {
 	if a := lastSent(t, c); a.Kind != "stop" || a.Text != "incident" {
 		t.Fatalf("%+v", a)
 	}
-	// Stopped: the status bar says so, K offers start.
 	ov := m.ov
 	ov.Pauses = append(ov.Pauses, storage.Pause{Scope: "company", Reason: "stop: incident", Actor: "owner"})
 	m.Update(overviewMsg{ov: ov})
+	m.toast = ""
 	if s := ansi.Strip(m.Render()); !strings.Contains(s, "■ STOPPED stop: incident") {
 		t.Fatal(s)
 	}
@@ -278,8 +359,9 @@ func TestKillSwitch(t *testing.T) {
 // TestRunFollow: new events keep the view at the bottom while following; scrolling up stops following and
 // new events then leave the view where it is; G follows again.
 func TestRunFollow(t *testing.T) {
-	m, _ := demoModel(t, 80, 12)
+	m, _ := demoModel(t, 100, 20)
 	openDemoRun(m, "r-ios-7")
+	base := len(m.run.events)
 	m.Render()
 	if !m.run.follow || !m.run.vp.AtBottom() {
 		t.Fatal("not at bottom")
@@ -295,12 +377,11 @@ func TestRunFollow(t *testing.T) {
 	ev.Seq = 100
 	m.Update(streamMsg{Stream: "run:r-ios-7", Run: &ev})
 	m.Render()
-	if m.run.vp.YOffset() != offset || len(m.run.events) != 16 {
+	if m.run.vp.YOffset() != offset || len(m.run.events) != base+1 {
 		t.Fatal(m.run.vp.YOffset(), offset, len(m.run.events))
 	}
-	// A replayed event (seq already seen) is dropped.
 	m.Update(streamMsg{Stream: "run:r-ios-7", Run: &ev})
-	if len(m.run.events) != 16 {
+	if len(m.run.events) != base+1 {
 		t.Fatal(len(m.run.events))
 	}
 	key(m, "G")
@@ -308,77 +389,226 @@ func TestRunFollow(t *testing.T) {
 	if !m.run.follow || !m.run.vp.AtBottom() {
 		t.Fatal("G did not follow")
 	}
-	// The end of the run.
-	cmd, _ := m.Update(streamMsg{Stream: "run:r-ios-7", End: true, Outcome: "succeeded"})
-	_ = cmd
+	m.Update(streamMsg{Stream: "run:r-ios-7", End: true, Outcome: "succeeded"})
 	if !m.run.ended || !strings.Contains(ansi.Strip(m.Render()), "ended succeeded") {
 		t.Fatal("end not shown")
 	}
-	// Events of another run's stream are ignored.
 	m.Update(streamMsg{Stream: "run:other", Run: &ev})
-	if len(m.run.events) != 16 {
+	if len(m.run.events) != base+1 {
 		t.Fatal("foreign event")
 	}
 }
 
-func TestFeedDedupAndState(t *testing.T) {
-	m, _ := demoModel(t, 80, 24)
-	n := len(m.feed)
+func TestFeedDedupActivityAndToasts(t *testing.T) {
+	m, _ := demoModel(t, 120, 30)
+	n, acts := len(m.feed), len(m.activity)
 	old := m.feed[0]
 	m.Update(streamMsg{Stream: "feed", Feed: &old})
-	if len(m.feed) != n {
+	if len(m.feed) != n || len(m.activity) != acts {
 		t.Fatal("duplicate kept")
 	}
+	// A replayed run step is not added twice.
+	ev := m.c.(*FixtureClient).F.RunEvents["r-web-4"][0]
+	m.Update(streamMsg{Stream: "tail:r-web-4", Run: &ev})
+	if len(m.activity) != acts {
+		t.Fatal("duplicate step")
+	}
 	m.Update(streamMsg{Stream: "feed", State: true, Connected: false, Err: "EOF"})
-	if s := ansi.Strip(m.Render()); !strings.Contains(s, "feed reconnecting") {
+	press(m, "4")
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "reconnecting EOF") {
 		t.Fatal(s)
 	}
-	press(m, "5")
-	if s := ansi.Strip(m.Render()); !strings.Contains(s, "reconnecting: EOF") {
-		t.Fatal(s)
-	}
-	// Scrolling up pauses the feed view; a new row does not move it; G returns to the newest.
 	key(m, "k")
 	if m.feedv.follow {
 		t.Fatal("follow")
 	}
-	item := storage.FeedItem{Sequence: 999, Type: "task.created", ProjectID: "notes", TaskID: "N-9", Agent: "demo", Actor: "manager", Summary: "brand new", CreatedAt: DemoAt}
+	// A fresh attention event slides in as a toast (the model has been up for a while).
+	m.startAt = DemoAt.Add(-time.Minute)
+	item := storage.FeedItem{Sequence: 999, Type: "approval.requested", ProjectID: "notes", TaskID: "N-9", Agent: "demo", Actor: "demo", Summary: "brand new approval", CreatedAt: DemoAt, Attention: true}
 	m.Update(streamMsg{Stream: "feed", Feed: &item})
-	if strings.Contains(ansi.Strip(m.Render()), "brand new") {
-		t.Fatal("paused view moved")
+	if len(m.toasts) != 1 {
+		t.Fatal(m.toasts)
+	}
+	if s := ansi.Strip(m.Render()); strings.Contains(s, "brand new approval") {
+		t.Fatal("the toast is shown before it slides in")
+	}
+	m.toasts[0].at = DemoAt.Add(-time.Second) // slid in
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "Attention") || !strings.Contains(s, "brand new approval") {
+		t.Fatal(s)
 	}
 	key(m, "G")
-	if !strings.Contains(ansi.Strip(m.Render()), "brand new") {
+	if !strings.Contains(ansi.Strip(m.Render()), "N-9") {
 		t.Fatal("newest not shown")
 	}
-	// The new row is also an interaction in the flow.
-	ins := interactions(m.feed, FlowFilter{Task: "N-9"})
-	if len(ins) != 1 || ins[0].From != "manager" || ins[0].To != "demo" || ins[0].Verb != "create" {
-		t.Fatalf("%+v", ins)
-	}
 }
 
-func TestResizeAndSmallTerminal(t *testing.T) {
-	m, _ := demoModel(t, 80, 24)
-	for _, tb := range []string{"1", "2", "3", "4", "5", "6"} {
-		press(m, tb)
-		for _, size := range [][2]int{{60, 20}, {200, 50}, {80, 24}} {
-			m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
-			screen(t, m) // exact size, every line
+func TestDashboardPanels(t *testing.T) {
+	m, _ := demoModel(t, 140, 40)
+	// The owner row: tasks that need the owner, company stats.
+	if list := m.panelTasks(); len(list) != 4 || list[0].ID != "N-1" {
+		t.Fatalf("%+v", list)
+	}
+	// Select calorie-ios (rows: owner, calorie-manager, calorie-designer, calorie-ios).
+	press(m, "j", "j", "j")
+	a, ok := m.selectedAgent()
+	if !ok || a.Name != "calorie-ios" || a.run != "r-ios-7" {
+		t.Fatalf("%+v", a)
+	}
+	s := ansi.Strip(m.Render())
+	for _, want := range []string{"Stats · calorie-ios", "45,230", "12,891", "Context", "Tasks · calorie-ios", "[→] Build the meal entry screen"} {
+		if !strings.Contains(s, want) {
+			t.Fatal(want, s)
 		}
 	}
-	m.Update(tea.WindowSizeMsg{Width: 10, Height: 3})
-	if m.Render() != "terminal too small" {
-		t.Fatal(m.Render())
+	// enter on a running agent opens its run.
+	run(m, key(m, "enter"))
+	if m.tab != tabRun || m.run.id != "r-ios-7" {
+		t.Fatal(m.tab)
 	}
-	v := m.View()
-	if !v.AltScreen {
-		t.Fatal("not full screen")
+	key(m, "esc")
+	// Focus moves between panels; z zooms the focused one.
+	key(m, "l")
+	if m.dash.focus != pTasks {
+		t.Fatal(m.dash.focus)
+	}
+	key(m, "z")
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "Tasks · calorie-ios  ⤢") || strings.Contains(s, "Agent Tree") {
+		t.Fatal(s)
+	}
+	key(m, "esc")
+	// enter on a task opens its detail on the board.
+	run(m, key(m, "enter"))
+	if m.tab != tabBoard || !m.board.open || m.board.detailID != "CAL-3" {
+		t.Fatal(m.tab, m.board.detailID)
 	}
 }
 
-func TestQuitAndHelp(t *testing.T) {
+func TestPalette(t *testing.T) {
+	m, _ := demoModel(t, 120, 30)
+	key(m, "ctrl+k")
+	if m.palette == nil {
+		t.Fatal("no palette")
+	}
+	typeText(m, "pricing")
+	list := m.palette.matches()
+	if len(list) == 0 || list[0].label != "W-2 Pricing page" {
+		t.Fatalf("%+v", list)
+	}
+	run(m, key(m, "enter"))
+	if m.palette != nil || m.tab != tabBoard || m.board.detailID != "W-2" {
+		t.Fatal(m.tab, m.board.detailID)
+	}
+	key(m, "esc")
+	key(m, "ctrl+k")
+	typeText(m, "r-web")
+	run(m, key(m, "enter"))
+	if m.tab != tabRun || m.run.id != "r-web-4" {
+		t.Fatal(m.tab, m.run.id)
+	}
+	if fuzzy("cm", "calorie-manager") == 0 || fuzzy("xyz", "calorie") != 0 || fuzzy("cal", "CAL-3") <= fuzzy("cal", "local") {
+		t.Fatal("fuzzy")
+	}
+}
+
+func TestMouse(t *testing.T) {
+	m, _ := demoModel(t, 140, 40)
+	m.Render()
+	// Click the Board tab (second line).
+	for _, z := range m.zones {
+		if z.y0 == 1 && z.x0 > 10 && z.x0 < 25 {
+			m.Update(tea.MouseClickMsg{X: z.x0 + 1, Y: 1, Button: tea.MouseLeft})
+			break
+		}
+	}
+	if m.tab != tabBoard {
+		t.Fatal(m.tab)
+	}
+	press(m, "1")
+	m.Render()
+	// Click the tree row of calorie-ios: body starts at y=2, the panel's first row at y=3.
+	m.Update(tea.MouseClickMsg{X: 10, Y: 3 + 3, Button: tea.MouseLeft})
+	if a, ok := m.selectedAgent(); !ok || a.Name != "calorie-ios" || m.dash.focus != pTree {
+		t.Fatalf("%+v %v", a, m.dash.focus)
+	}
+	// Wheel scrolls the focused list.
+	m.Update(tea.MouseWheelMsg{X: 10, Y: 6, Button: tea.MouseWheelDown})
+	if a, _ := m.selectedAgent(); a.Name != "calorie-qa" {
+		t.Fatal(a.Name)
+	}
+	// A project chip.
+	m.Render()
+	chips := 0
+	for _, z := range m.zones {
+		if z.y0 == 0 {
+			if chips++; chips == 2 { // all, then calorie
+				m.Update(tea.MouseClickMsg{X: z.x0, Y: 0, Button: tea.MouseLeft})
+				break
+			}
+		}
+	}
+	if m.project != "calorie" {
+		t.Fatal(m.project)
+	}
+	// Board: a click focuses a card (second card of the Ready column), a second click opens it.
+	m.project = ""
+	press(m, "2")
+	m.Render()
+	var ready zone
+	for _, z := range m.zones {
+		if z.y0 > 2 && z.x0 > 0 && ready.x1 == 0 {
+			ready = z
+		}
+	}
+	m.Update(tea.MouseClickMsg{X: ready.x0 + 3, Y: ready.y0 + 7, Button: tea.MouseLeft})
+	if tk, _ := m.board.selected(m); m.board.col != 1 || tk.ID != m.columns()[1].tasks[1].ID {
+		t.Fatal(m.board.col, tk.ID)
+	}
+	m.Render()
+	run(m, func() tea.Msg {
+		_, cmd := m.Update(tea.MouseClickMsg{X: ready.x0 + 3, Y: ready.y0 + 7, Button: tea.MouseLeft})
+		return cmd()
+	})
+	if !m.board.open {
+		t.Fatal("second click did not open the card")
+	}
+	if !m.View().AltScreen || m.View().MouseMode != tea.MouseModeCellMotion {
+		t.Fatal("view modes")
+	}
+}
+
+func TestResizeThemeAndSmallTerminal(t *testing.T) {
 	m, _ := demoModel(t, 80, 24)
+	for _, tb := range []string{"1", "2", "3", "4", "5"} {
+		press(m, tb)
+		for _, size := range [][2]int{{60, 16}, {200, 50}, {80, 24}, {100, 30}} {
+			m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			screen(t, m)
+		}
+	}
+	openDemoRun(m, "r-rev-2")
+	for _, size := range [][2]int{{60, 16}, {200, 50}} {
+		m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		screen(t, m)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 50, Height: 10})
+	if !strings.HasPrefix(m.Render(), "terminal too small") {
+		t.Fatal(m.Render())
+	}
+	// A light terminal switches the palette.
+	dark := theme.text
+	m.Update(tea.BackgroundColorMsg{Color: lightColor{}})
+	if theme.text == dark || isDark {
+		t.Fatal("theme not switched")
+	}
+	applyTheme(true)
+}
+
+type lightColor struct{}
+
+func (lightColor) RGBA() (r, g, b, a uint32) { return 0xffff, 0xffff, 0xffff, 0xffff }
+
+func TestQuitAndHelp(t *testing.T) {
+	m, _ := demoModel(t, 100, 30)
 	key(m, "?")
 	if !m.help {
 		t.Fatal("no help")
@@ -395,48 +625,12 @@ func TestQuitAndHelp(t *testing.T) {
 	}
 }
 
-func TestTabsAndDashboardNavigation(t *testing.T) {
-	m, _ := demoModel(t, 80, 24)
-	key(m, "tab")
-	if m.tab != tabTasks {
-		t.Fatal(m.tab)
-	}
-	press(m, "1")
-	// The cursor starts on calorie-manager; j moves to calorie-designer, then calorie-ios (running): enter opens
-	// its run.
-	press(m, "j", "j")
-	key(m, "enter")
-	if m.tab != tabRun || m.run.id != "r-ios-7" {
-		t.Fatal(m.tab, m.run.id)
-	}
-	press(m, "1", "k")
-	key(m, "enter") // calorie-designer is not running: its tasks
-	if m.tab != tabTasks || m.tasks.filter != "a:calorie-designer" {
-		t.Fatal(m.tab, m.tasks.filter)
-	}
-	press(m, "1", "f")
-	if m.tab != tabFlow || m.flow.filter.Agent != "calorie-designer" {
-		t.Fatal(m.flow.filter)
-	}
-	key(m, "x")
-	key(m, "p")
-	if m.flow.filter.Project != "calorie" {
-		t.Fatal(m.flow.filter)
-	}
-	key(m, "a")
-	typeText(m, "demo")
-	key(m, "enter")
-	if m.confirm != nil || m.flow.filter.Agent != "demo" {
-		t.Fatal("a flow filter asked for confirmation")
-	}
-}
-
-// TestOverviewErrors: an unreachable Core shows in the status bar; the last good data stays.
+// TestOverviewErrors: an unreachable Core shows in the header; the last good data stays.
 func TestOverviewErrors(t *testing.T) {
 	c := &HTTPClient{API: worker.API{URL: "http://127.0.0.1:1", Token: "secret-token-xyz"}}
 	m := New(Options{Client: c, Now: func() time.Time { return DemoAt }, Location: time.UTC, NoStreams: true})
 	defer m.Close()
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.Update(overviewMsg{err: errors.New("dial tcp 127.0.0.1:1: connection refused")})
 	s := ansi.Strip(m.Render())
 	if !strings.Contains(s, "unreachable") || !strings.Contains(s, "connection refused") {
@@ -448,14 +642,13 @@ func TestOverviewErrors(t *testing.T) {
 	if !strings.Contains(s, "retrying") || !strings.Contains(s, "calorie-ios") {
 		t.Fatal(s)
 	}
-	for _, tb := range []string{"1", "2", "3", "4", "5", "6", "?"} {
+	for _, tb := range []string{"1", "2", "3", "4", "5", "?"} {
 		press(m, tb)
 		if strings.Contains(m.Render(), "secret-token-xyz") {
 			t.Fatal("token on screen")
 		}
 		press(m, "esc")
 	}
-	// The real client against a closed port fails without the token in the error.
 	_, err := c.Overview(context.Background())
 	if err == nil || strings.Contains(err.Error(), "secret-token-xyz") {
 		t.Fatal(err)
