@@ -49,7 +49,7 @@ Drivers declare capability `exit_guard`. Codex: after `turn/completed` without a
 `factory_task_comment` from an agent outside the authority set stores a comment and an event-feed item, and adds no trigger. Comments since the last run are listed in the next brief. An agent's comment never triggers its own task.
 
 ### D9. Agents only through MCP
-The worker builds the agent's environment from an allowlist: no owner or user token, no Core admin credentials, no `factory` CLI configuration; the run token is visible only to the MCP adapter. The default policy catalog denies the `factory` owner CLI on the agent's PATH (refusing shim, `node-agent` D6). Agents act on the factory only through Factory MCP tools.
+The worker builds the agent's environment from an allowlist: no owner or user token, no Core admin credentials, no `factory` CLI configuration. The run token stays in the runtime environment: Codex forwards it to the MCP adapter by name and the approval shims read it there. Hiding it in a file or socket would not isolate it from an agent running as the same user (non-goal: preventing a trusted agent from bypassing MCP), and the token only acts for its own live run (410 once the run is ended, revoked or superseded), so a leak is bounded by the run. The default policy catalog denies the `factory` owner CLI on the agent's PATH (refusing shim, `node-agent` D6). Agents act on the factory only through Factory MCP tools.
 
 ## Risks / Trade-offs
 - Agents may loop on 409 → the 409 body contains the input itself; the adapter raises `ack_seq` on display, so the second exit succeeds unless new input arrived.
