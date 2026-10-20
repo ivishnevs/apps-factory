@@ -187,7 +187,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return snap, err
 		}
-		if err != nil || a.Status != "APPROVED" || a.Artifact == nil || *a.Artifact != ref {
+		if err != nil || a.Status != "APPROVED" || a.Artifact == nil || !sameArtifact(*a.Artifact, ref) {
 			snap.UnapprovedArtifacts = append(snap.UnapprovedArtifacts, ref)
 		}
 	}

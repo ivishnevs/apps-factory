@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path"
+	"path/filepath"
 
 	"appfactory/internal/artifacts"
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 func (c *Core) artifactRoutes(m *http.ServeMux) {
@@ -99,6 +102,21 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
 		v, err := c.Store.RegisterArtifact(r.Context(), c.companyFrom(r), run.Spec.Project, in)
+		reply(w, v, err)
+	case "factory_artifact_upload":
+		// The node's adapter uploaded the worktree file and filled in its digest (core-owned-project-data D4).
+		if run.Spec.TaskID == "" {
+			http.Error(w, "artifact upload requires a current task", 403)
+			return
+		}
+		sha := stringArg(p.Arguments, "sha256")
+		if sha == "" {
+			http.Error(w, "upload the file through the node's Factory MCP adapter (no sha256)", 400)
+			return
+		}
+		id, version := stringArg(p.Arguments, "artifact_id"), stringArg(p.Arguments, "artifact_version")
+		a := tasks.Artifact{ID: id, Version: version, URI: storage.UploadURI(id, version), SHA256: sha, Name: path.Base(filepath.ToSlash(stringArg(p.Arguments, "path")))}
+		v, err := c.Store.RegisterArtifact(r.Context(), c.companyFrom(r), run.Spec.Project, artifacts.Register{Artifact: a, TaskID: run.Spec.TaskID, RunID: run.Spec.ID, Actor: run.Spec.Agent, RequestID: stringArg(p.Arguments, "request_id")})
 		reply(w, v, err)
 	case "factory_artifact_request_approval":
 		for _, a := range []config.Agent{snapshot, current} {

@@ -173,6 +173,26 @@ func createReportTx(ctx context.Context, tx *Tx, project string, in reports.Crea
 			return r, inputError("invalid report change")
 		}
 	}
+	// Attachments are blobs the run's node uploaded; the report keeps their digests.
+	if len(in.Attachments) > 16 {
+		return r, inputError("at most 16 attachments")
+	}
+	seen := map[string]bool{}
+	for _, a := range in.Attachments {
+		if a.Path == "" || len(a.Path) > 512 || seen[a.Path] {
+			return r, inputError("attachments need distinct paths")
+		}
+		seen[a.Path] = true
+		blob, err := blobRow(ctx, tx, tx.company, a.SHA256)
+		if errors.Is(err, ErrNotFound) {
+			return r, inputError("attachment " + a.Path + " was not uploaded (attach files through the node's Factory MCP adapter)")
+		}
+		if err != nil {
+			return r, err
+		}
+		a.Size = blob.Size
+		r.Attachments = append(r.Attachments, a)
+	}
 	if r.NeedsOwnerAction {
 		var registered int
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM projects WHERE company_id=? AND id=?", tx.company, project).Scan(&registered); err != nil {
@@ -188,6 +208,11 @@ func createReportTx(ctx context.Context, tx *Tx, project string, in reports.Crea
 	body, _ := json.Marshal(r)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO reports VALUES(?,?,?,?,?,?,?,?,?)", r.ID, project, nullable(r.TaskID), nullable(r.RunID), r.Kind, r.Source, nullable(key), body, tx.company); err != nil {
 		return r, err
+	}
+	for _, a := range r.Attachments {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO report_attachments(company_id,report_id,name,sha256,size) VALUES(?,?,?,?,?)", tx.company, r.ID, a.Path, a.SHA256, a.Size); err != nil {
+			return r, err
+		}
 	}
 	return r, entityEvent(ctx, tx, "report.created", project, r.ID, r)
 }

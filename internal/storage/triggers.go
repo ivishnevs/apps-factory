@@ -261,7 +261,7 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 	for _, t := range open {
 		text := ""
 		for _, ref := range t.RequiredArtifacts {
-			if ref == a {
+			if sameArtifact(a, ref) {
 				text = "artifact " + a.ID + "@" + a.Version + " approved"
 				break
 			}

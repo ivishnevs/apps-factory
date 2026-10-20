@@ -35,6 +35,8 @@ type Adapter struct {
 	Client *http.Client
 	// RetryBase is the first wait between deliveries of a queued exit (default 2 s, doubling up to 1 min).
 	RetryBase time.Duration
+	// Redact are credential values the node knows (FACTORY_REDACT_FILE); attachments are uploaded without them.
+	Redact []string
 
 	mu      sync.Mutex
 	ack     int64
@@ -146,6 +148,22 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 	if kind := ExitKind(c.Name); kind != "" {
 		return a.Exit(ctx, kind, c.Arguments)
 	}
+	switch c.Name {
+	case "factory_openspec_sync":
+		return a.syncTool(ctx)
+	case "factory_artifact_upload", "factory_report_create":
+		// The adapter streams the named worktree files to Core first (core-owned-project-data D4, D6).
+		if err := a.upload(ctx, &c); err != nil {
+			return nil, err
+		}
+	case "factory_task_submit":
+		// Without explicit exits a submission ends the work: the OpenSpec edits go first, as before an exit.
+		if r, err := a.Sync(ctx); err != nil {
+			return nil, fmt.Errorf("submission refused (openspec_sync): %w", err)
+		} else if r != nil && len(r.Conflicts) > 0 {
+			return nil, syncRefusal(r)
+		}
+	}
 	status, b, seen, err := a.do(ctx, "POST", "/agent/call", c)
 	if err != nil {
 		return nil, err
@@ -204,6 +222,12 @@ func (a *Adapter) Exit(ctx context.Context, kind string, args map[string]any) (a
 	}
 	if args == nil {
 		args = map[string]any{}
+	}
+	// The run's OpenSpec edits reach Core before any exit; a conflict refuses the exit (D4).
+	if r, err := a.Sync(ctx); err != nil {
+		return nil, fmt.Errorf("exit refused (openspec_sync): %w", err)
+	} else if r != nil && len(r.Conflicts) > 0 {
+		return nil, syncRefusal(r)
 	}
 	facts, err := a.Facts(ctx)
 	if err != nil {
@@ -471,6 +495,15 @@ func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	if v := getenv("FACTORY_SCAN_COMMAND"); v != "" {
 		if err := json.Unmarshal([]byte(v), &a.ScanCommand); err != nil {
 			return nil, fmt.Errorf("FACTORY_SCAN_COMMAND: JSON array expected: %w", err)
+		}
+	}
+	if v := getenv("FACTORY_REDACT_FILE"); v != "" {
+		b, err := os.ReadFile(v)
+		if err == nil {
+			err = json.Unmarshal(b, &a.Redact)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("FACTORY_REDACT_FILE: %w", err)
 		}
 	}
 	if a.Workdir == "" {

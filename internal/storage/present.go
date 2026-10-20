@@ -77,7 +77,7 @@ func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) 
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if err != nil || ap.Status != "APPROVED" || ap.Artifact == nil || *ap.Artifact != a {
+		if err != nil || ap.Status != "APPROVED" || ap.Artifact == nil || !sameArtifact(*ap.Artifact, a) {
 			t.Status, t.BlockReason = "BLOCKED", fmt.Sprintf("artifact: waiting for owner approval of %s@%s", a.ID, a.Version)
 			return nil
 		}

@@ -19,7 +19,20 @@ func validArtifact(a tasks.Artifact) error {
 	if !entityName.MatchString(a.ID) || strings.TrimSpace(a.Version) == "" || len(a.Version) > 128 || strings.ContainsAny(a.Version, "\r\n\x00") || strings.TrimSpace(a.URI) == "" || len(a.URI) > 4096 || strings.ContainsAny(a.URI, "\r\n\x00") {
 		return inputError("artifact requires valid id, version up to 128 and immutable URI up to 4096 bytes")
 	}
+	// factory:// names content Factory holds: only an uploaded version (with its digest) may use it.
+	if strings.HasPrefix(a.URI, "factory://") && a.URI != UploadURI(a.ID, a.Version) || a.SHA256 != "" && len(a.SHA256) != 64 || len(a.Name) > 255 || strings.ContainsAny(a.Name, "/\\\r\n\x00") {
+		return inputError("factory:// URIs are factory://artifacts/<id>/<version> of an uploaded version (factory_artifact_upload)")
+	}
 	return nil
+}
+
+// UploadURI is the URI of an uploaded artifact version (core-owned-project-data D4).
+func UploadURI(id, version string) string { return "factory://artifacts/" + id + "/" + version }
+
+// sameArtifact: an approved or registered version satisfies a reference with the same id, version and URI and,
+// when the reference pins one, the same content digest.
+func sameArtifact(have, ref tasks.Artifact) bool {
+	return have.ID == ref.ID && have.Version == ref.Version && have.URI == ref.URI && (ref.SHA256 == "" || ref.SHA256 == have.SHA256)
 }
 func (s *Store) Artifact(ctx context.Context, company, project, id, version string) (artifacts.Record, error) {
 	return getDoc[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? AND version=?", company, project, id, version)
@@ -63,7 +76,9 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 	}
 	old, err := artifactVersionTx(ctx, tx, project, a.ID, a.Version)
 	if err == nil {
-		if old.URI != a.URI {
+		// A version is immutable: other content needs a new version (its approval does not carry over). A
+		// reference without a digest (a submission naming an uploaded version) is the registered version.
+		if !sameArtifact(old.Artifact, a.Artifact) {
 			return a, ErrConflict
 		}
 		return old, nil
@@ -71,8 +86,21 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 	if !errors.Is(err, ErrNotFound) {
 		return a, err
 	}
+	if (a.SHA256 != "") != (a.URI == UploadURI(a.ID, a.Version)) {
+		return a, inputError("factory://artifacts URIs and content digests belong to uploaded versions (factory_artifact_upload)")
+	}
+	if a.SHA256 != "" {
+		blob, err := blobRow(ctx, tx, tx.company, a.SHA256)
+		if errors.Is(err, ErrNotFound) {
+			return a, inputError("artifact content was not uploaded")
+		}
+		if err != nil {
+			return a, err
+		}
+		a.Size = blob.Size
+	}
 	b, _ := json.Marshal(a)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_versions VALUES(?,?,?,?,?,?)", project, a.ID, a.Version, a.URI, b, tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_versions(project_id,id,version,uri,body,company_id,sha256,size) VALUES(?,?,?,?,?,?,?,?)", project, a.ID, a.Version, a.URI, b, tx.company, a.SHA256, a.Size); err != nil {
 		return a, err
 	}
 	return a, entityEvent(ctx, tx, "artifact.registered", project, a.ID, a)
@@ -170,8 +198,8 @@ func requiredArtifacts(ctx context.Context, tx *Tx, project string, refs []tasks
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if err == nil && a.URI != ref.URI {
-			return inputError("required artifact URI conflicts with registered version")
+		if err == nil && !sameArtifact(a.Artifact, ref) {
+			return inputError("required artifact conflicts with the registered version (URI or content digest)")
 		}
 	}
 	return nil
@@ -183,10 +211,10 @@ func approvedArtifactInputs(ctx context.Context, tx *Tx, t tasks.Task) ([]tasks.
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, "", err
 		}
-		if err != nil || a.Status != "APPROVED" || a.Artifact == nil || *a.Artifact != ref {
+		if err != nil || a.Status != "APPROVED" || a.Artifact == nil || !sameArtifact(*a.Artifact, ref) {
 			return nil, fmt.Sprintf("artifact: waiting for owner approval of %s@%s", ref.ID, ref.Version), nil
 		}
-		inputs = append(inputs, tasks.ApprovedArtifact{Artifact: ref, ApprovalID: a.ID, ApprovalVersion: a.Version})
+		inputs = append(inputs, tasks.ApprovedArtifact{Artifact: *a.Artifact, ApprovalID: a.ID, ApprovalVersion: a.Version})
 	}
 	return inputs, "", nil
 }
