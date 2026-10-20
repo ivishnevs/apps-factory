@@ -7,6 +7,8 @@ Its last result: tests failed: 3 of 120
 Directive from owner (directive): fix the tests before the refactor
 Since your last run:
 - ready by owner (authority)
+- assignment by owner (authority) (addressed to other): assigned to other
+- assignment by owner (authority): assigned to demo
 - directive by owner (authority): fix the tests before the refactor
 Comment by qa: flaky on CI, see run 812
 Tasks your earlier runs created:

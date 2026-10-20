@@ -24,8 +24,10 @@ FAILED can retry within policy limits or via explicit ready. CANCELLED and DONE 
 Execution with unknown outcome becomes BLOCKED and quarantines the run/workspace.
 
 Tasks may also declare `required_artifacts` with exact id/version/URI. Unsatisfied owner
-approvals produce an automatic artifact BLOCKED state; approval restores READY without
-changing manual blocks or UNKNOWN quarantine. Dispatch and claim pin/check the approved inputs.
+approvals hold the task: it stays READY with reason `artifacts`, and reads present it as BLOCKED with an
+`artifact:` block reason (not stored; migration 0028 converted stored ones). Approval releases it without
+changing manual blocks or UNKNOWN quarantine. Dispatch and claim pin/check the approved inputs; a revoked
+approval ends a still QUEUED run `stale`.
 
 READY expresses permission to schedule; it does not assert prerequisites are satisfied.
 All dependencies must be DONE. IN_REVIEW, failed, blocked and cancelled dependencies do not satisfy
@@ -42,9 +44,10 @@ tool arguments). Creation is deduplicated: when an open task with the same origi
 (case-folded, whitespace collapsed) and an assignee of the same role exists, Core returns it with
 `deduplicated: true` instead of creating another. Owner-created tasks are never deduplicated.
 
-Scheduler selects by descending priority, then creation time/ID. It atomically verifies the task
-version, dependencies and slots, inserts the run and attempt, marks IN_PROGRESS and enqueues a
-durable command. A unique active task-run index prevents duplicate dispatch. Queued/running runs
+Scheduler dispatches READY tasks whose `why` verdict is `runnable`, by descending priority, then the oldest
+unhandled trigger (the work waiting longest), then ID (trigger-log-scheduling D4). It atomically verifies the
+task version, dependencies and slots, inserts the run and attempt, marks IN_PROGRESS and enqueues a
+durable command; the run's prompt is built later, at claim. A unique active task-run index prevents duplicate dispatch. Queued/running runs
 hold their writer slot (the `workspace_writer` index over the run's slot above) and their session
 (`session_turn`); an agent runs at most `max_concurrent_runs` (and `max_concurrent_runs_per_project`) runs at
 once. Different tasks, projects and agents run concurrently on node slots. A task may be IN_PROGRESS while its
@@ -203,11 +206,12 @@ See factory-mcp.md for run credentials, agent review and the audit endpoint. The
 still permits caller-supplied actor labels; MCP derives identity exclusively from credentials.
 
 
-Messaging extension: wait_message_id identifies a blocking question asked during the active run.
-A successful turn with that marker becomes BLOCKED while unanswered or READY if already answered,
-instead of IN_REVIEW. A later explicit answer resumes only a message-blocked task with a known
-COMPLETED prior run. Dispatch resumes the same task thread, adds the answer and clears the marker.
-No submission is accepted while waiting. Cancellation, failure, unknown outcomes and manual blocks
+Messaging extension: a blocking question asked during the active run is an `ask` park on the task that names
+the asking run; reads show it as `wait_message_id` while it is open. A successful turn of that run becomes
+READY instead of IN_REVIEW: held by the open park (presented as BLOCKED, `message: waiting for answer`), or
+runnable if the question was already answered. The answer clears the park and adds an `answer` trigger; the
+next run resumes the same task thread and its brief carries the answer. No submission is accepted while
+waiting. Cancellation, failure, unknown outcomes and manual blocks
 require their existing explicit handling; an answer does not override them. See messaging.md.
 
 ## Why a task does not run
@@ -215,7 +219,8 @@ require their existing explicit handling; an answer does not override them. See 
 `factory tasks why ID` and `factory tasks why --project PROJECT` (add `--json` for JSON; HTTP
 `GET /tasks/{id}/why`, `GET /projects/{id}/why`) print, for each non-terminal task, the first reason it does
 not run now and who clears it. `tasks.Evaluate` is a pure function of a snapshot that Store loads in one
-transaction; it is diagnostic only and the scheduler does not use it yet (trigger-log-scheduling D3).
+transaction; the scheduler dispatches only a `runnable` verdict and claim re-evaluates it
+(trigger-log-scheduling D3).
 `GET /tasks` and `GET /tasks/{id}` (and the Factory MCP task tools built on them) return every task with its
 `reason` and `clearer`.
 
@@ -228,11 +233,14 @@ task, or another task's run — including an UNKNOWN one — holds the project w
 other tasks' worktrees never do), else `runnable`. The verdict also
 lists the pending triggers the next run will be briefed on.
 
-## Trigger log and parks (shadow mode)
+## Trigger log and parks
 
 Migration 0010 adds `task_triggers` and `task_parks` (trigger-log-scheduling D1–D2). Every cause writes its
 trigger or park in its own transaction, and each appears in the feed (`task.trigger.<kind>`,
-`task.parked.<kind>`, `task.unparked.<kind>`); the scheduler still decides from task status.
+`task.parked.<kind>`, `task.unparked.<kind>`). Questions and artifact waits are no longer stored as status
+BLOCKED: the `ask` park and the derived `artifacts` reason hold a READY task, and reads (task GET/list, MCP
+task tools, `GET /tasks?status=BLOCKED`) present it as BLOCKED with `block_reason` and its `reason`. Manual,
+OpenSpec, children and UNKNOWN-run blocks are still stored.
 
 - Triggers raise `tasks.wake_seq`: `ready` (ready action; authority when the owner acts), `created_ready`
   (`POST /tasks` with `ready: true`; an agent needs `factory.task.ready`), `assignment` (assignee changed),
@@ -241,8 +249,24 @@ trigger or park in its own transaction, and each appears in the feed (`task.trig
   (a blocking question answered), `dependency_done` (once, when the last open dependency becomes DONE),
   `last_child_closed` (once, when the last open child becomes DONE or CANCELLED by any path) and
   `artifact_approved`.
-- Claim records the run's brief window `brief_from = handled_seq`, `brief_to = wake_seq`; a COMPLETED run sets
-  `handled_seq = brief_to` (explicit exits replace this later).
+- Claim records the run's brief window `brief_from = handled_seq`, `brief_to = wake_seq` and builds the brief
+  in the same transaction; a COMPLETED run sets `handled_seq = brief_to` (explicit exits replace this later).
+- Claim re-checks the task (D6): a run that is no longer the task's current run, whose task was reassigned or
+  cancelled, or whose `why` verdict (with the run itself ignored) is `terminal`, `backlog`, `unassigned`,
+  `parked:*` or `dependencies` ends `stale` (no attempt, no backoff; feed `run.stale`) and the claim answers
+  409 `{"drop": true}`; pauses, capacity and node reasons answer `{"retry": true}` and the run stays QUEUED.
+  Reassigning a task whose run is still QUEUED ends that run `stale` at once and returns the task to READY.
+- Reconciler (D5): a QUEUED run's command is resent after 1, 2, 4, 8, then 15 minutes (`<run>/<n>`), so a purged
+  or restored command stream never strands work; a task run QUEUED for longer than `queue_ttl` (15 minutes)
+  ends `unclaimed` (no attempt, no backoff; feed `run.unclaimed`) and its task is dispatched again.
+- The brief (D8), built at claim: the task and its OpenSpec change; the previous run's outcome (every run after
+  the first; with its last result when it did not succeed); directives and the triggers of the brief window
+  with author, authority and their addressee when it was another agent (`task_triggers.addressee`, the
+  assignee when the trigger was written; migration 0028); answers to blocking questions; review feedback; comments since the previous run;
+  tasks created by earlier runs with their status; the branch log from the facts of the task's last exit
+  (branch, commits ahead of the default branch, head, push and pull request state); dependencies with their
+  results; approved artifact inputs; company and project rules; the review or exit instruction.
+  `internal/storage/testdata/brief.golden` pins its format.
 - Parks: `ask` (blocking question, cleared by its answer), `block` (manual or OpenSpec block, cleared by ready),
   `inspect` (current run UNKNOWN, cleared when the run is resolved or terminal evidence arrives). Cancel and DONE
   override all active parks. `escalation` is still derived from FAILED until reliable-recovery.

@@ -53,19 +53,19 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			}
 		}
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT seq,kind,actor,authority,ref_id,body FROM task_triggers WHERE company_id=? AND task_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT 20", tx.company, t.ID, from, to)
+	rows, err := tx.QueryContext(ctx, "SELECT seq,kind,actor,authority,ref_id,body,addressee FROM task_triggers WHERE company_id=? AND task_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT 20", tx.company, t.ID, from, to)
 	if err != nil {
 		return "", err
 	}
 	type trigger struct {
-		kind, actor, ref, body string
-		authority              bool
+		kind, actor, ref, body, to string
+		authority                  bool
 	}
 	var triggers []trigger
 	for rows.Next() {
 		var g trigger
 		var seq int64
-		if err = rows.Scan(&seq, &g.kind, &g.actor, &g.authority, &g.ref, &g.body); err != nil {
+		if err = rows.Scan(&seq, &g.kind, &g.actor, &g.authority, &g.ref, &g.body, &g.to); err != nil {
 			rows.Close()
 			return "", err
 		}
@@ -78,12 +78,13 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	rows.Close()
 	if tx.store.ExplicitExits {
 		for _, g := range triggers {
-			if g.authority && strings.TrimSpace(g.body) != "" {
+			// Authority input with text; an assignment's text is generated, not an instruction.
+			if g.authority && strings.TrimSpace(g.body) != "" && g.kind != "assignment" && g.kind != "created_ready" {
 				fmt.Fprintf(&b, "Directive from %s (%s): %s\n", g.actor, g.kind, briefExcerpt(g.body, 4*1024))
 			}
 		}
 	}
-	// Why this run: the triggers since the task was last handled, with author and authority.
+	// Why this run: the triggers since the task was last handled, with author, authority and addressee.
 	if len(triggers) > 0 {
 		b.WriteString("Since your last run:\n")
 		for _, g := range triggers {
@@ -92,6 +93,9 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 				who += " (authority)"
 			}
 			line := "- " + g.kind + " by " + who
+			if g.to != "" && g.to != spec.Agent {
+				line += " (addressed to " + g.to + ")" // written before the task came to this agent
+			}
 			if g.body != "" {
 				line += ": " + briefExcerpt(g.body, 1024)
 			}

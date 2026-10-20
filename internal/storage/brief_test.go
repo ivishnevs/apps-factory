@@ -58,6 +58,13 @@ func TestBriefGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake.Advance(time.Minute)
+	// A handoff away and back: the first assignment trigger was addressed to another agent.
+	for _, to := range []string{"other", "demo"} {
+		task, _ = s.Task(ctx, co, "golden")
+		if _, err = s.UpdateTask(ctx, co, "golden", tasks.Update{Version: task.Version, Assignee: &to}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err = s.CommentTask(ctx, co, "golden", tasks.Comment{Text: "flaky on CI, see run 812", Actor: "qa", RequestID: "qa"}); err != nil {
 		t.Fatal(err)
 	}

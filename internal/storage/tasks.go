@@ -240,6 +240,7 @@ func listDocs[T any](ctx context.Context, q interface {
 	}
 	return vs, rows.Err()
 }
+
 // Tasks lists tasks by their presented status: BLOCKED includes READY tasks held by a question or artifacts.
 func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]tasks.Task, error) {
 	stored := status

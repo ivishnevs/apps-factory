@@ -190,6 +190,7 @@ func approvedArtifactInputs(ctx context.Context, tx *Tx, t tasks.Task) ([]tasks.
 	}
 	return inputs, "", nil
 }
+
 // reconcileArtifactTasks ends the QUEUED runs of tasks whose approved artifact inputs no longer hold (a
 // revoked or replaced approval): the run ends stale and the task is READY again, held by its artifacts.
 func reconcileArtifactTasks(ctx context.Context, tx *Tx) error {

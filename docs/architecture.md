@@ -5,15 +5,19 @@ outbox row in one transaction. The outbox publisher waits for a JetStream publis
 before marking sent. A crash before marking may republish the same message ID.
 
 Native Workers share a durable provider-specific pull consumer. Before runtime side effects,
-a Worker fetches authoritative RunSpec and atomically claims it through Core. Claim returns
-a unique lease, changes QUEUED to RUNNING, and enforces the agent concurrency slot. A duplicate
-command for a claimed run is acknowledged without executing again. A busy agent leaves its
+a Worker atomically claims the run through Core; the command is only a pointer. Claim re-checks the
+task against the database (trigger-log-scheduling D6), builds the brief in the same transaction and returns
+a unique lease with the authoritative RunSpec, changes QUEUED to RUNNING, and enforces the agent concurrency
+slot. A command for a run the task no longer wants (reassigned, cancelled, parked, a dependency reopened) is
+answered `409 {"drop":true}`: the run ends `stale`, and the worker acknowledges the command without starting a
+runtime, as it does for a duplicate command of a claimed run. A busy agent (`409 {"retry":true}`) leaves its
 queued command pending for retry. Once claimed, broker command is acknowledged; lease recovery
 handles a crash after this point. This deliberately does not promise exactly-once external effects.
 A run still QUEUED after its command left the outbox gets the same command again (message ID `<run>/<n>`) after
 1, 2, 4, 8 and then every 15 minutes since the last publish, and never while an earlier command is still
 unpublished; a purged or restored stream therefore never strands work, and the duplicates are dropped by claim.
-Each resend is a `run.command_redelivered` feed event.
+Each resend is a `run.command_redelivered` feed event. A task run nobody claims within `queue_ttl` (15 minutes)
+ends `unclaimed` without an attempt and its task is dispatched again (`run.unclaimed`).
 
 Worker heartbeats every 10s; leases expire after 45s. Heartbeats also deliver cancellation.
 All Core time comes from `Store.Clock` (wall time unless a test injects `clock.Fake`). Core keeps an in-memory

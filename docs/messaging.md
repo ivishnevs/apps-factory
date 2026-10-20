@@ -30,11 +30,11 @@ retried. Nonblocking answers create a separate recipient delivery; blocking answ
 ## Blocking questions
 
 `blocking: true` requires the current agent's current task/run. After asking, finish the turn;
-do not poll or wait for the recipient while holding the writer. The task stays IN_PROGRESS until
-known completion, then BLOCKED with wait_message_id. If an answer already arrived, completion
-projects directly to READY. Owner/recipient response makes a message-blocked task READY only
-when the previous run is known COMPLETED. Core injects the explicit answer into the continuation
-prompt, resumes the same thread and clears the wait marker when dispatching the next attempt.
+do not poll or wait for the recipient while holding the writer. The question is an `ask` park on
+the task (trigger-log-scheduling D2). The task stays IN_PROGRESS until known completion, then READY held
+by the park: reads show BLOCKED with wait_message_id and reason `parked:ask`. If an answer already
+arrived, nothing holds it. The response clears the park and adds an `answer` trigger; the next run's
+brief, built at claim, carries the explicit answer and resumes the same thread.
 Continuation attempts are explicit answers, not failure retries; max_retries does not limit them.
 
 Submit is forbidden while waiting; an unanswered task cannot be made READY. UNKNOWN stays

@@ -7,8 +7,9 @@ changes the current (v1) behaviour until a node registers with `protocol_version
 
 ## 1. Versions and transition
 
-- v1 (today): per-run `GET /runs/{id}` → `POST /runs/{id}/claim` → `POST /runs/{id}/heartbeat`, command payload is
-  the full RunSpec.
+- v1 (today): per-run `POST /runs/{id}/claim` (its answer carries the RunSpec with the brief, as in v2; a worker
+  facing an older Core falls back to `GET /runs/{id}`) → `POST /runs/{id}/heartbeat`; the command payload is
+  still the full RunSpec, but the worker takes only its id.
 - v2: a node registers, claims in two phases, renews all its leases with one inventory heartbeat, and treats the
   command as a pointer.
 - Core serves v1 and v2 side by side. A registered node speaks only v2 (no mixing on one node); unregistered workers
@@ -194,10 +195,13 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
 - **Leases** of v2 runs last 60 s (the offline threshold) and are renewed only by the inventory heartbeat;
   the per-run `POST /runs/{id}/heartbeat` refuses v2 runs with 409. Lease expiry keeps its continuity guard,
   so a sleeping Core host expires nothing until one window of continuous ticking.
-- **Claim** without a body is v1 (`{lease}`); with `{node_id, epoch, claim_id, slot}` it is v2. Checks in
+- **Claim** without a body is v1 (the same answer and refusals, without node checks or `start_by`); with
+  `{node_id, epoch, claim_id, slot}` it is v2. Checks in
   order: node registered with this epoch (else `drop/old_epoch`); same `(node_id, epoch, claim_id)` → the
   same answer; revoked → `drop/revoked`; claimed by another claim → `drop/duplicate`; not QUEUED →
-  `drop/stale`; task's live run is another run, assignee changed or cancel requested → `drop/not_runnable`;
+  `drop/stale`; task's live run is another run, assignee changed, cancel requested, or the task's `why`
+  verdict (the run itself ignored) is terminal, backlog, unassigned, parked or waiting on dependencies →
+  `drop/not_runnable` and the run ends `stale`;
   paused (company, project, agent, quota key) → `retry/paused`; no `ok` driver for the provider or a missing
   agent label → `retry/capacity`; the agent has another live run → `retry/agent_busy`; no free slot or
   resource classes short (`spec.resources` of the run's agent snapshot against node.yaml `resources` minus the
@@ -205,8 +209,8 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   `retry/capacity`; OpenSpec or approved-artifact
   checks fail (recorded on the task as in v1) → `drop/not_runnable`. Refusals are JSON:
   `409 {"retry":true,"reason":…}` / `409 {"drop":true,"reason":…}`.
-- **Claim answer**: `run_spec` is the stored RunSpec plus `company`; `brief` is `{from, to}` of the run's
-  trigger window; `start_by` is claim + 60 s. Branch names stay the node's (`af/<task>…`).
+- **Claim answer**: `run_spec` is the stored RunSpec plus `company`, its prompt the brief built in the claim's
+  transaction; `brief` is `{from, to}` of the run's trigger window; `start_by` is claim + 60 s. Branch names stay the node's (`af/<task>…`).
 - **Register** answers `409 {"reason":"stale_epoch"}` for an epoch not above the last one. **Heartbeat**
   answers `409 {"reason":"stale_epoch"}` for an older epoch and `404 {"reason":"unknown_node"}` for an
   unknown node or a newer epoch than registered (the node registers again).

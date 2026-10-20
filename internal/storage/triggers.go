@@ -20,7 +20,8 @@ func addTrigger(ctx context.Context, tx *Tx, t tasks.Task, kind string, authorit
 		actor = "owner"
 	}
 	now := tx.now()
-	res, err := tx.ExecContext(ctx, "INSERT INTO task_triggers(company_id,task_id,kind,authority,actor,ref_id,body,created_at) VALUES(?,?,?,?,?,?,?,?)", tx.company, t.ID, kind, authority, actor, ref, shortText(body, 4096), now.Unix())
+	// The addressee is the task's assignee when the trigger is written (the agent a handoff or review goes to).
+	res, err := tx.ExecContext(ctx, "INSERT INTO task_triggers(company_id,task_id,kind,authority,actor,ref_id,body,created_at,addressee) VALUES(?,?,?,?,?,?,?,?,?)", tx.company, t.ID, kind, authority, actor, ref, shortText(body, 4096), now.Unix(), t.Assignee)
 	if err != nil {
 		return err
 	}
