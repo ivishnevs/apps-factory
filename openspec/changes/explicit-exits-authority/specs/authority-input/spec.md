@@ -21,6 +21,21 @@ In the same transaction as an authority trigger, every active interruptible park
 - **WHEN** a manager directs a task parked on a wait
 - **THEN** the wait SHALL end as interrupted and the task SHALL become runnable immediately without backoff
 
+### Requirement: Approval decisions wake the requesting task
+When the owner approves or rejects an approval (action, command or artifact) that a task requested, Core SHALL add the authority trigger `approval_decided` to that task naming the approval, the decision and its reason. It SHALL override the task's wait and ask parks only; blocks, children parks, escalations and a retry backoff SHALL stay. Revocation and expiry SHALL add no trigger. Other tasks that require or pin the artifact SHALL get `artifact_approved` as before.
+
+#### Scenario: Parked requester is approved
+- **WHEN** a task that requested an artifact approval parked with `factory_exit_wait` and the owner approves the version
+- **THEN** the task SHALL get `approval_decided`, its wait SHALL be overridden and its next brief SHALL show the approval and its reason
+
+#### Scenario: Requester is rejected
+- **WHEN** the owner rejects the approval with a reason
+- **THEN** the task SHALL wake the same way and its brief SHALL show the rejection with the reason
+
+#### Scenario: Lost run waits for its backoff
+- **WHEN** the owner decides an approval of a task whose lost run's retry waits for its backoff
+- **THEN** the backoff SHALL stay
+
 ### Requirement: Urgent stop and resume
 An urgent directive or urgent artifact approval SHALL revoke the live run, deliver a stop command on the per-node control subject of the run's node (never on the shared work-queue command stream), and rely on the heartbeat response as the guarantee within one heartbeat interval. The next run SHALL resume the same session with the directive first in its brief, and the revoked run SHALL NOT count as an attempt.
 

@@ -38,7 +38,9 @@ instructions), so it never contends with the project's writer run. Its brief lis
 answers with factory_message_reply (message_id/version/body/request_id, answers optional), forwards with
 factory_question_forward, and ends with `factory_exit_done`, which marks the input handled up to its ack_seq
 and keeps the task open (a turn without an exit does the same; ask and wait are also accepted; any new input on a
-conversation task, authority or not, ends its active wait). An
+conversation task, authority or not, ends its active wait). A conversation run owns no branch or PR, so its exits
+carry no git facts (`FACTORY_CONVERSATION=1` for the adapter) and Core requires none, also in a project with a
+repository. An
 unanswered question does not escalate when a run ends: it moves up after `escalate_after` (questions routed up
 the chain) or escalates at its deadline. Tasks an agent delegated that close wake its conversation with
 `delegated_closed` when none of its open tasks waits on them (a dependency or the parent wake by themselves).

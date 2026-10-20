@@ -47,6 +47,10 @@ Core SHALL open a self-clearing `stalled` escalation when a task waits on a task
 - **WHEN** task A is blocked on task B and B has no assignee
 - **THEN** A SHALL get a `stalled` escalation naming B, which SHALL clear when B is assigned
 
+#### Scenario: Parked on a child in BACKLOG
+- **WHEN** task A is parked on its children and an open child C is in BACKLOG or has no assignee
+- **THEN** A SHALL get a `stalled` escalation to its assignee's manager naming C, which SHALL clear when C is assigned and released or closes, and the answer `unblock` SHALL release A from its children park
+
 ### Requirement: Per-task inspection for external side effects
 For a task marked as having external side effects, any uncertain outcome SHALL park only that task with an `inspect` escalation and SHALL NOT retry automatically. Other tasks, the project and its workspaces SHALL remain schedulable.
 

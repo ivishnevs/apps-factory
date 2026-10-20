@@ -61,3 +61,7 @@ Each alert is emitted once per episode and re-armed after progress.
 - Automatic retry repeats work that partially happened → retries run in the same workspace and session with the previous outcome in the brief; anything with external effects is marked and goes to inspection instead.
 - A wrongly unmarked side-effect agent would be retried → the policy rule is attached by role (e.g. release/publisher roles) in the default catalog; protected `system` operations remain approval-gated regardless.
 - A paused Core never expiring leases → expiry resumes after one TTL of continuous ticking; tests cover a simulated 2-hour gap.
+
+## Amendments
+
+- 2026-10-20 (D8): stall detection covers a task parked on its children: an open child in BACKLOG or without an assignee opens the same self-clearing `stalled` escalation per (task, child) to the assignee manager; `unblock` releases the parent from its children park, `cancel` cancels it.

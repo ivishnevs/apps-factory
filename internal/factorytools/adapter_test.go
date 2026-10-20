@@ -300,4 +300,14 @@ func TestAdapterFactsOutsideARepository(t *testing.T) {
 	if f, err := (&Adapter{Workdir: work}).Facts(context.Background()); err != nil || f == nil {
 		t.Fatal("no facts at the repository root", f, err)
 	}
+	// A conversation run (FACTORY_CONVERSATION=1) owns no branch or PR: no facts, even at a repository root.
+	conv, err := AdapterFromEnv(func(k string) string {
+		return map[string]string{"FACTORY_URL": "http://core", "FACTORY_RUN_TOKEN": "tok", "FACTORY_WORKDIR": work, "FACTORY_CONVERSATION": "1"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, err := conv.Facts(context.Background()); err != nil || f != nil {
+		t.Fatal("facts of a conversation run", f, err)
+	}
 }

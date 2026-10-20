@@ -156,3 +156,31 @@ func TestJetStreamConversationNoWorktree(t *testing.T) {
 		t.Fatalf("task branch %q", out)
 	}
 }
+
+// TestJetStreamConversationRelativeStateDir: a relative state_dir (a node started from its checkout with
+// `state_dir: data/...`) still gives the conversation run an absolute directory.
+func TestJetStreamConversationRelativeStateDir(t *testing.T) {
+	url := os.Getenv("NATS_TEST_URL")
+	if url == "" {
+		t.Skip("set NATS_TEST_URL to dedicated broker")
+	}
+	t.Chdir(t.TempDir())
+	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
+	r, _ := runDriver(t, url, Worker{Driver: d, StateDir: filepath.Join("data", "factory-node-tvorog")}, false, func(s *protocol.RunSpec) {
+		s.Conversation, s.TaskID = true, "conv-demo"
+	})
+	if r.Outcome != "succeeded" || len(d.Launches()) != 1 {
+		t.Fatalf("%s %q", r.Outcome, r.Result)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cwd, err = filepath.EvalSymlinks(cwd); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(cwd, "data", "factory-node-tvorog", "conversations", "default", "fake-project", "demo")
+	if got := d.Launches()[0].Cwd; got != want {
+		t.Fatalf("cwd %q, want %q", got, want)
+	}
+}

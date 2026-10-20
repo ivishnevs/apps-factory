@@ -123,6 +123,27 @@ func refusalOf(t *testing.T, w *httptest.ResponseRecorder) storage.ExitRefusal {
 	return r
 }
 
+// TestConversationExitWithoutFacts: a conversation run of a project with a repository works in its own
+// directory and owns no branch or PR, so its exits need no git facts (hierarchy D5): done is accepted.
+func TestConversationExitWithoutFacts(t *testing.T) {
+	h := newExitHarness(t)
+	conv := storage.ConversationID("code", "demo")
+	if err := h.c.EnsureConversations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.s.CommentTask(context.Background(), storage.DefaultCompany, conv, tasks.Comment{Text: "summarize the plan", RequestID: "conv-input"}); err != nil {
+		t.Fatal(err)
+	}
+	r := h.start(conv)
+	w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "plan summarized"}}, nil)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if got := h.task(conv); got.Status == "IN_PROGRESS" {
+		t.Fatalf("exit not applied: %+v", got)
+	}
+}
+
 // TestExitSubmitReviewDone: submit needs facts, a clean tree and every directive seen; the named reviewer
 // reviews in its own run and approves; done needs the merged pull request; every exit is idempotent.
 func TestExitSubmitReviewDone(t *testing.T) {

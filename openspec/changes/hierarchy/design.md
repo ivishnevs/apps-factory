@@ -38,3 +38,7 @@ Managers do not get runs for every event in their subtree. They see subtree even
 - Long chains add latency to questions → category delegation lets lower managers answer; `escalate_after` bounds waiting.
 - One conversation task per agent can grow a long session → driver resume policy may start a fresh session with a summary when the runtime reports context limits; the conversation history stays in the DB.
 - Removing message delivery runs changes messaging behaviour → API shape kept; verification re-runs the messaging smoke with conversation tasks.
+
+## Amendments
+
+- 2026-10-20 (D5): conversation runs exit without repository facts (they run in their own conversation directory and own no branch or PR); Core accepts done, ask and wait from them in a project with a repository.

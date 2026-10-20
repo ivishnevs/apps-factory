@@ -115,7 +115,10 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 			err = reconcileArtifactTasks(ctx, tx)
 		}
 		if err == nil && a.Kind == "artifact" && a.Status == "APPROVED" && a.Artifact != nil {
-			err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, in.Urgent)
+			err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, a.TaskID, in.Urgent)
+		}
+		if err == nil && (a.Status == "APPROVED" || a.Status == "REJECTED") {
+			err = approvalDecided(ctx, tx, a, in.Urgent)
 		}
 		return a, err
 	})

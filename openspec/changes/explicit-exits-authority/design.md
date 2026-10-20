@@ -55,3 +55,8 @@ The worker builds the agent's environment from an allowlist: no owner or user to
 - Agents may loop on 409 → the 409 body contains the input itself; the adapter raises `ack_seq` on display, so the second exit succeeds unless new input arrived.
 - Exit facts come from the trusted node → acceptable in the trusted-agent model; Core still checks sequence and run identity.
 - Interim authority by role until `hierarchy` → documented as temporary; one function to replace.
+
+## Amendments
+
+- 2026-10-20 (D7): an owner decision (approve or reject) on an approval a task requested adds the authority trigger `approval_decided` to that task (body: approval, decision, reason). It overrides the wait and ask parks only; blocks, children parks, escalations and a retry backoff stay, so a decision still does not release a lost run early. Revocation and expiry add none; tasks requiring or pinning the artifact keep `artifact_approved` (the requester gets only `approval_decided`).
+- 2026-10-20 (facts): a conversation run owns no branch or PR; its adapter collects no repository facts (`FACTORY_CONVERSATION=1`) and Core neither requires nor reads them, whatever the project repository.

@@ -97,6 +97,9 @@ func exclude(cwd string, names []string) error {
 	if err != nil {
 		return err
 	}
+	if cwd, err = filepath.Abs(cwd); err != nil { // git prints absolute paths: Rel needs both absolute
+		return err
+	}
 	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")

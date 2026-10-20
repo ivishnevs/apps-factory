@@ -189,7 +189,7 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 }
 
 // resetRef is the ref of the block park that holds a task until its node reset the worktree.
-const resetRef = "reset_workspace"
+const resetRef = tasks.ParkRefResetWorkspace
 
 // ErrNeedsCascade: a cancel answer on a task with open children; cancel them first (or cascade).
 var ErrNeedsCascade = fmt.Errorf("%w: needs_cascade: the task has open children", ErrConflict)
@@ -241,6 +241,19 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		}
 		return comment(ctx, tx, t.ID, actor, "reset_workspace: continue from the remote branch; unpushed work stays on node "+e.RefID)
 	case "unblock": // stalled: stop waiting on the stuck dependency
+		if !slices.Contains(t.Dependencies, e.RefID) {
+			// A stuck child of a task parked on its children: the parent stops waiting on its children.
+			if err = clearParks(ctx, tx, t, tasks.ParkChildren, anyRef, "overridden"); err != nil {
+				return err
+			}
+			if err = comment(ctx, tx, t.ID, actor, "escalation stalled: no longer waits on its children ("+e.RefID+" is stuck)"); err != nil {
+				return err
+			}
+			if t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "children:") {
+				t.Status, t.BlockReason = "READY", ""
+			}
+			return saveTask(ctx, tx, &t, "task.updated")
+		}
 		t.Dependencies = slices.DeleteFunc(slices.Clone(t.Dependencies), func(d string) bool { return d == e.RefID })
 		if err = dependencies(ctx, tx, t); err != nil {
 			return err

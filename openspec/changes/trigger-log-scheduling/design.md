@@ -66,3 +66,7 @@ A task created through MCP records `origin_task` and `origin_run`. Creation is d
 - Two notions of state (status and parks) → status is the lifecycle, parks are holds; `Evaluate` is the only reader that combines them.
 - More rows per task → triggers and parks are small; retention of trigger bodies follows run events (30 days); sequences are kept forever.
 - Prompt built at claim rather than dispatch → claim does more work under the lock; bounded by existing context limits (900 KiB).
+
+## Amendments
+
+- 2026-10-20 (D3): the clearer of `parked:children` names the open children assignees (`agent:a,agent:b`, else `children`) with the action to wait for the named children or release early with `factory tasks ready ID VERSION`; the block park of a worktree reset is cleared by `node`. The snapshot loads the open children with a children park.

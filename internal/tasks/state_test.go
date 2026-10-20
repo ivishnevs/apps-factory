@@ -48,6 +48,18 @@ func TestEvaluateReasons(t *testing.T) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: waiting for keys"
 			s.Parks = []Park{block}
 		}, ReasonParked + ParkBlock, "owner"},
+		{"children", func(s *Snapshot) {
+			s.Task.Status, s.Task.BlockReason = "BLOCKED", "children: waiting for open children"
+			s.Parks = []Park{{ID: "p", Kind: ParkChildren, Reason: "after the kids", Who: "owner"}}
+			s.Children = []Child{{"k1", "READY", "ios"}, {"k2", "BACKLOG", "ios"}, {"k3", "READY", "web"}}
+		}, ReasonParked + ParkChildren, "agent:ios,agent:web"},
+		{"unassigned children", func(s *Snapshot) {
+			s.Parks = []Park{{ID: "p", Kind: ParkChildren, Reason: "after the kids", Who: "owner"}}
+			s.Children = []Child{{ID: "k1", Status: "BACKLOG"}}
+		}, ReasonParked + ParkChildren, "children"},
+		{"worktree reset", func(s *Snapshot) {
+			s.Parks = []Park{{ID: "p", Kind: ParkBlock, RefID: ParkRefResetWorkspace, Reason: "waiting for the node to reset the worktree", Who: "owner"}}
+		}, ReasonParked + ParkBlock, "node"},
 		{"blocked status without park", func(s *Snapshot) { s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: x" }, ReasonIdle, "owner"},
 		{"dependency", func(s *Snapshot) { s.Dependencies = []Dependency{{"a", "DONE"}, {"b", "IN_REVIEW"}} }, ReasonDependencies, "task:b"},
 		{"artifact", func(s *Snapshot) {

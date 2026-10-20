@@ -574,6 +574,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			launch.Env = setEnv(launch.Env, "FACTORY_DEFAULT_BRANCH", spec.DefaultBranch)
 			launch.Env = setEnv(launch.Env, "FACTORY_REDACT_FILE", redactFile)
 			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH", "FACTORY_REDACT_FILE"}
+			if spec.Conversation {
+				// No git facts for a conversation run's exits: it owns no branch or PR.
+				launch.Env = setEnv(launch.Env, "FACTORY_CONVERSATION", "1")
+				vars = append(vars, "FACTORY_CONVERSATION")
+			}
 			if wt != nil {
 				scan, _ := json.Marshal(w.Worktrees.ScanCommand())
 				launch.Env = setEnv(launch.Env, "FACTORY_SCAN_COMMAND", string(scan))
@@ -920,7 +925,10 @@ func (w *Worker) conversationDir(spec protocol.RunSpec) (string, error) {
 			return "", fmt.Errorf("conversation directory: invalid name %q", n)
 		}
 	}
-	dir := filepath.Join(root, "conversations", w.company(), spec.Project, spec.Agent)
+	dir, err := filepath.Abs(filepath.Join(root, "conversations", w.company(), spec.Project, spec.Agent))
+	if err != nil {
+		return "", fmt.Errorf("conversation directory: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("conversation directory: %w", err)
 	}

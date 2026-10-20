@@ -25,6 +25,13 @@ Core SHALL refuse an exit with 409 and no state change while the task has author
 - **WHEN** a manager directs a running task and the executor then calls `factory_exit_done` without having seen it
 - **THEN** Core SHALL answer 409 with the directive, and a repeated exit after the adapter returned it SHALL be evaluated normally
 
+### Requirement: Conversation runs exit without git facts
+A conversation run owns no branch or pull request. Its MCP adapter SHALL collect no git facts (`FACTORY_CONVERSATION=1`) and Core SHALL neither require nor read exit facts for it, whatever the project's repository.
+
+#### Scenario: Conversation done in a repository project
+- **WHEN** a conversation run of a project with `repo_url` calls `factory_exit_done` without facts
+- **THEN** Core SHALL accept the exit instead of refusing `facts_required`
+
 ### Requirement: Done requires a merged pull request
 When a task's exit facts show a branch with commits ahead of the default branch, `done` SHALL be accepted only if its pull request is merged, unless an authority has answered `abandon_branch`.
 

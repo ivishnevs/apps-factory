@@ -230,7 +230,10 @@ enabled driver must pass its version check and probe at start (see Driver checks
 for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
-errors.
+errors. Relative paths (`state_dir`, `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `token_file`,
+`drivers.claude.shim`, the NATS creds, seed and TLS files, and a driver `binary`/`executable` that holds a `/`)
+resolve against the working directory the node starts in, not the config file's directory: start it from the
+checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
 
 ```yaml
 name: mini-1                 # default: host name; a label only (v2 identifies the node by node_id)

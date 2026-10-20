@@ -24,6 +24,9 @@ type Adapter struct {
 	URL, Token string
 	// Workdir is the run's working directory (git facts come from it).
 	Workdir string
+	// Conversation marks a conversation run (FACTORY_CONVERSATION=1): it owns no branch or PR, so no git facts
+	// are collected and Core requires none (hierarchy D5).
+	Conversation bool
 	// DefaultBranch of the project; empty asks origin/HEAD, then "main".
 	DefaultBranch string
 	// ScanCommand gets the revision range as its last argument and exits 1 on a finding (empty: no scan).
@@ -370,7 +373,7 @@ func (a *Adapter) run(ctx context.Context, name string, args ...string) (string,
 
 // Facts collects the git facts of Workdir; nil without a repository (scratch work).
 func (a *Adapter) Facts(ctx context.Context) (*Facts, error) {
-	if a.Workdir == "" {
+	if a.Workdir == "" || a.Conversation {
 		return nil, nil
 	}
 	// Only the workspace's own repository counts: a scratch workspace inside another checkout (for example
@@ -488,7 +491,7 @@ func (e *notFound) Error() string { return e.name + ": executable not found" }
 // AdapterFromEnv builds the adapter of cmd/factory-mcp from the run environment.
 func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	a := &Adapter{URL: getenv("FACTORY_URL"), Token: getenv("FACTORY_RUN_TOKEN"), Workdir: getenv("FACTORY_WORKDIR"),
-		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE")}
+		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
 	if a.Token == "" || a.URL == "" {
 		return nil, errors.New("FACTORY_RUN_TOKEN and FACTORY_URL required")
 	}

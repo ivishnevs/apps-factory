@@ -341,3 +341,35 @@ func TestNodeToken(t *testing.T) {
 		t.Fatal("missing token_file accepted")
 	}
 }
+
+// Relative node.yaml paths resolve against the working directory at load (docs/development.md), so a
+// conversation run's directory and every path downstream are absolute.
+func TestConfigRelativePathsAbsolute(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	c, err := LoadConfig(writeConfig(t, `
+state_dir: data/factory-node-tvorog
+bin_dir: bin
+token_file: secrets/node.token
+worktrees: {enabled: true}
+drivers:
+  codex: {binary: codex}
+  claude: {enabled: true, executable: ./bin/claude, shim: workers/shim.js}
+nats: {creds_file: secrets/node.creds}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	j := func(p string) string { return filepath.Join(cwd, p) }
+	for got, want := range map[string]string{
+		c.StateDir: j("data/factory-node-tvorog"), c.Disk.Path: j("data/factory-node-tvorog"),
+		c.Worktrees.Root: j("data/factory-node-tvorog/worktrees"), c.BinDir: j("bin"), c.TokenFile: j("secrets/node.token"),
+		c.Drivers.Claude.Executable: j("bin/claude"), c.Drivers.Claude.Shim: j("workers/shim.js"), c.NATS.CredsFile: j("secrets/node.creds"),
+		c.Drivers.Codex.Binary: "codex",
+	} {
+		if got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+}

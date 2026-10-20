@@ -450,8 +450,9 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		if err = clearParks(ctx, tx, t, tasks.ParkAsk, m.ID, "cleared"); err != nil {
 			return answer, err
 		}
-		// An answer to the task's decision from its authority set is authority input; an approval decision
-		// grants a permission and redirects nothing (the run's backoff, e.g. after a lost run, stays).
+		// An answer to the task's decision from its authority set is authority input. The reply to an approval
+		// question is not: the owner's decision itself adds the authority trigger approval_decided
+		// (approvalDecided), and an expiry is no input.
 		authority := m.ApprovalID == "" && (hasAuthorityTx(ctx, tx, t, in.Sender) || inChain(tx, m.Sender, in.Sender))
 		if err = addTrigger(ctx, tx, &t, "answer", authority, in.Sender, m.ID, in.Body); err != nil {
 			return answer, err
