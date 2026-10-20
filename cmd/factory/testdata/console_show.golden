@@ -17,6 +17,6 @@ recent events:
   09:03:30   task.started                 a                        demo by owner — Build screen
   09:03:40   task.waiting                 a                        demo by owner — Build screen
   09:03:40 ! task.parked.ask              a                        demo — waiting for the answer to question <id> from owner
-  09:03:40 ! message.created              a                        by demo
+  09:03:40 ! message.created              a                        by demo — demo → owner (question): Metric or imperial?
   09:03:40   task.trigger.owner_comment   a                        demo by owner — keep it simple
   09:03:40   task.updated                 a                        demo by owner — Build screen

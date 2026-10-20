@@ -50,6 +50,10 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 		item.RunID = id
 	}
 	item.Summary, _ = excerpt(str("summary", "title", "topic"), 4096)
+	if item.Summary == "" && strings.HasPrefix(e.Type, "message.") {
+		// A message row names its route and body, so the feed shows who passes what to whom.
+		item.Summary, _ = excerpt(str("sender")+" → "+str("recipient")+" ("+str("message_type")+"): "+str("body"), 4096)
+	}
 	// Attention marks what waits on the owner (see AttentionKinds for the unconditional kinds).
 	var needsOwner bool
 	_ = json.Unmarshal(state["needs_owner_action"], &needsOwner)

@@ -386,6 +386,47 @@ func endOutcome(current, stopReason string, p protocol.Event) (result, outcome s
 	return result, outcome
 }
 
+// RunEvent is a stored run event with its sequence, the cursor of the run event stream.
+type RunEvent struct {
+	Seq      int64
+	Envelope protocol.Envelope
+}
+
+// RunEventsAfter reads up to limit events of a run after the sequence after, in order.
+func (s *Store) RunEventsAfter(ctx context.Context, company, id string, after int64, limit int) ([]RunEvent, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT seq,body FROM events WHERE company_id=? AND run_id=? AND seq>? ORDER BY seq LIMIT ?", company, id, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RunEvent{}
+	for rows.Next() {
+		var b []byte
+		var e RunEvent
+		if err = rows.Scan(&e.Seq, &b); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(b, &e.Envelope); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// RunEventTail is the cursor before a run's last n events (0 when the run has n events or fewer).
+func (s *Store) RunEventTail(ctx context.Context, company, id string, n int) (int64, error) {
+	var seq int64
+	err := s.DB.QueryRowContext(ctx, "SELECT COALESCE(MIN(seq)-1,0) FROM (SELECT seq FROM events WHERE company_id=? AND run_id=? ORDER BY seq DESC LIMIT ?) t", company, id, n).Scan(&seq)
+	if err != nil {
+		return 0, err
+	}
+	if seq < 0 {
+		seq = 0
+	}
+	return seq, nil
+}
+
 func (s *Store) Events(ctx context.Context, company, id string) ([]protocol.Envelope, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT body FROM events WHERE company_id=? AND run_id=? ORDER BY seq", company, id)
 	if err != nil {
