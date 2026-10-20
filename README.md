@@ -7,7 +7,7 @@ Core работает в Docker, Worker — на macOS рядом с workspace, 
 
 ## Запуск
 
-Нужны Go 1.24.1+, Docker Desktop с запущенным daemon, Python 3 для smoke script
+Нужны Go 1.25+, Docker Desktop с запущенным daemon, Python 3 для smoke script
 и **Codex 0.162.1**, авторизованный через `codex login` с ChatGPT.
 API key не используется. Worker отклоняет другие версии Codex до проверки их RPC-схемы.
 
@@ -158,3 +158,17 @@ OpenSpec в хранилище Core: [API/CLI/MCP, материализация 
 присылает только то, что требует внимания, напоминания и дневную сводку. Подробности:
 [docs/task-lifecycle.md](docs/task-lifecycle.md#owner-controls), [docs/messaging.md](docs/messaging.md#telegram),
 [docs/reports-decisions.md](docs/reports-decisions.md#event-feed-and-costs).
+
+## Терминальный UI владельца
+
+```sh
+./bin/factory ui                        # полноэкранный UI против Core (FACTORY_URL, FACTORY_TOKEN)
+./bin/factory ui --demo                 # демо-компания без Core
+./bin/factory ui --record state.json    # снимок состояния Core в fixture; --fixture state.json — просмотр без Core
+```
+
+Дашборд агентов по дереву `reports_to` (кто чем занят, последний шаг live run'а, стоимость за день), задачи с
+причиной ожидания и действиями владельца (pause/resume/retry/run/cancel/reassign/reprioritize/comment/direct с
+подтверждением), live-просмотр run'а (`GET /runs/{id}/events/stream`), поток работы между агентами («кто что
+кому передал»), лента с attention и inbox с ответами и согласованиями на месте. Горячие клавиши — `?`.
+Подробности и снимки экранов: [docs/owner-ui.md](docs/owner-ui.md).
