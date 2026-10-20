@@ -42,13 +42,13 @@ drivers:
   codex: {enabled: false}
   claude: {enabled: true, executable: /usr/local/bin/claude}
 disk: {path: /work, low_watermark_gib: 50, critical_watermark_gib: 10}
-probes: {interval: 5m, version_interval: 2h}
+probes: {interval: 5m, version_interval: 2h, transient_failures: 5}
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Name != "mini-1" || c.Slots != 3 || c.Drivers.Codex.On() || !c.Drivers.Claude.On() || c.Drivers.Claude.Executable != "/usr/local/bin/claude" || c.Disk.Path != "/work" || c.Disk.LowGiB != 50 || c.BinDir != "/opt/factory/bin" ||
-		c.Probes.Interval != 5*time.Minute || c.Probes.VersionInterval != 2*time.Hour {
+		c.Probes.Interval != 5*time.Minute || c.Probes.VersionInterval != 2*time.Hour || c.Probes.TransientFailures != 5 || c.Probes.Attempts != 3 || c.Probes.RetryBackoff != 5*time.Second {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -70,6 +70,7 @@ func TestConfigValidation(t *testing.T) {
 		"resources: {simulator: -1}": "resources.simulator",
 		"labels: ['a b']":            `label "a b"`,
 		"probes: {interval: 10s}":    "probes.interval",
+		"probes: {attempts: 0}":      "probes.attempts",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "node.yaml") {

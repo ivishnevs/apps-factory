@@ -120,6 +120,9 @@ type Worker struct {
 	AuthFailed func(err error)
 	// RunSucceeded, when set, is called when a run ends succeeded; the node resets the driver's auth hold-off.
 	RunSucceeded func()
+	// RuntimeActivity, when set, is called for each runtime event of a run; the node takes it as evidence
+	// that the driver works, so a transient probe failure does not disable it (runtime-drivers D4).
+	RuntimeActivity func()
 	// BlobCache keeps downloaded project blobs by digest across runs (core-owned-project-data D3); empty
 	// downloads into a temporary directory per run.
 	BlobCache string
@@ -691,6 +694,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			if !ok {
 				events = nil
 				continue
+			}
+			if w.RuntimeActivity != nil {
+				w.RuntimeActivity()
 			}
 			p := protocol.Event{Method: e.Method, Data: openspec.AuditData(e.Data)}
 			switch e.Kind {

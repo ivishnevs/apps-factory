@@ -42,7 +42,8 @@ Access rules gain `commands: [glob patterns]` (matched against argv[0] basename 
   template hooks (e.g. `xcrun simctl list` works, Xcode version). Runtime checks (binary, supported version,
   authentication) are **driver probes**: this change defines the hook interface `node.RuntimeProbe{Probe(ctx) []CheckResult}` and a Codex
   probe; `runtime-drivers` makes every `Driver` implement it, adds the Claude probe and owns the semantics (a failing probe disables that
-  driver on the node with `driver_unsupported`). A failed node check emits one `node.check_failed{check}` event. The
+  driver on the node with `driver_unsupported`; a transient probe failure — killed by its timeout, no output, not
+  started under load — is retried and disables the driver only when it repeats, never while its runs succeed). A failed node check emits one `node.check_failed{check}` event. The
   node sets itself `paused` (Core stops granting claims) only when it cannot work at all: no driver remains usable, no
   git/forge credentials, or critical disk; the pause clears automatically when the check passes again.
 - **`factory node doctor`** runs every self-check locally and prints a pass/fail table with remediation hints; it works

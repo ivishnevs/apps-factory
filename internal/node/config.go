@@ -159,10 +159,17 @@ type ClaudeConfig struct {
 }
 
 // Probes: Interval runs each driver's Probe (binary, version range, auth; no model call), VersionInterval
-// its version check. A failing check disables that driver on this node until a later check passes.
+// its version check. A failing check disables that driver on this node until a later check passes. A
+// transient failure (CheckResult.Transient: killed by its timeout, no output, could not start under load) is
+// retried up to Attempts times in all, RetryBackoff apart (doubling) with the command timeout doubled each
+// time; only TransientFailures consecutive checks that end transient disable the driver, and never while a
+// run on the driver succeeded or produced runtime activity since the last check.
 type Probes struct {
-	Interval        time.Duration `yaml:"interval"`         // default 10m
-	VersionInterval time.Duration `yaml:"version_interval"` // default 1h
+	Interval          time.Duration `yaml:"interval"`           // default 10m
+	VersionInterval   time.Duration `yaml:"version_interval"`   // default 1h
+	Attempts          int           `yaml:"attempts"`           // default 3
+	RetryBackoff      time.Duration `yaml:"retry_backoff"`      // default 5s
+	TransientFailures int           `yaml:"transient_failures"` // default 3
 }
 
 // Disk watermarks in GiB on Path (default state_dir): below low warn, below critical stop claiming.
@@ -182,7 +189,7 @@ func Defaults() Config {
 		name = "node"
 	}
 	return Config{Name: name, Slots: 2, ProtocolVersion: 1, StateDir: "data/factory-node",
-		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour}, Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
+		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour, Attempts: 3, RetryBackoff: 5 * time.Second, TransientFailures: 3}, Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
 }
 
 // ConfigPath is the flag value, else $FACTORY_NODE_CONFIG; empty means defaults.
@@ -287,6 +294,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Probes.Interval < time.Minute || c.Probes.VersionInterval < time.Minute {
 		errs = append(errs, errors.New("probes.interval and probes.version_interval must be at least 1m"))
+	}
+	if c.Probes.Attempts < 1 || c.Probes.Attempts > 10 || c.Probes.TransientFailures < 1 || c.Probes.RetryBackoff < 0 {
+		errs = append(errs, errors.New("probes.attempts must be 1-10, probes.transient_failures at least 1, probes.retry_backoff not negative"))
 	}
 	if c.Disk.Path == "" {
 		c.Disk.Path = c.StateDir

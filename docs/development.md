@@ -249,7 +249,7 @@ skills_root: /opt/factory    # its company catalog's skills.yaml (configs/[<comp
 drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
-probes: {interval: 10m, version_interval: 1h}  # driver Probe and version check periods (defaults; at least 1m)
+probes: {interval: 10m, version_interval: 1h, attempts: 3, retry_backoff: 5s, transient_failures: 3}  # driver check periods (at least 1m) and transient-failure handling (defaults)
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
 worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
 nats:                        # outbound connection (below); without url: NATS_URL, else nats://127.0.0.1:4222
@@ -275,7 +275,14 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   `probes.version_interval`, its `Probe` (binary, version range, authentication; never a model call) at start and
   every `probes.interval`. A failing check disables that driver on this node: free slots stop fetching its
   subject (one error log), the other drivers keep claiming, running runs continue; the next passing check
-  re-enables it (one info log). A run that ends on the runtime's authentication failure (`driver.AuthFailure`:
+  re-enables it (one info log). A transient failure (the probe killed by its timeout, as on a loaded machine,
+  no output at all, or a process that could not start for lack of resources; `CheckResult.transient`) is not a
+  finding: the check is retried up to `probes.attempts` times in all, `probes.retry_backoff` apart (doubling),
+  with the 30 s command timeout doubled each time; a check that still fails only transiently logs a warning and
+  leaves the driver as it was, and only `probes.transient_failures` such checks in a row disable it. A run on the
+  driver that succeeded or produced runtime events since the previous check is evidence of health: a transient
+  failure then never disables the driver. Definitive failures (not logged in, unsupported version, missing
+  binary, Node or shim) disable it at once, as before. A run that ends on the runtime's authentication failure (`driver.AuthFailure`:
   Claude `auth_error`, Codex without a ChatGPT login; such runs end `paused_out`) disables its driver the same
   way at once, without waiting for the next probe, for a hold-off of 10 min, then 30 min, then 2 h (cap) for each
   further auth failure; a passing probe re-enables it only after the hold-off (one info log when a probe passes

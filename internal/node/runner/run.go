@@ -237,6 +237,7 @@ func Run(ctx context.Context, n Node) error {
 		}
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
+		w.RuntimeActivity = func() { n.health.activity(string(d.Name())) }
 		if s != nil {
 			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
 		}

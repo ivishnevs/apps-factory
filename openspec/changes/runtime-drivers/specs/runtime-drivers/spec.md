@@ -33,6 +33,14 @@ Each driver SHALL declare a supported runtime version range checked at node star
 - **WHEN** a driver's authentication probe fails on a node with another usable driver
 - **THEN** only that driver SHALL be disabled with one `driver_unsupported` event, and it SHALL be re-enabled when the probe passes
 
+#### Scenario: Probe killed by its timeout on a loaded machine
+- **WHEN** a driver's probe is killed by its timeout, returns no output or cannot start for lack of resources
+- **THEN** the node SHALL retry it with a longer timeout, SHALL NOT disable the driver unless the configured number of consecutive checks (default 3) fail that way, SHALL log at most a warning and SHALL NOT emit `driver_unsupported` for it
+
+#### Scenario: Transient probe failure while runs succeed
+- **WHEN** a run on the driver succeeded or produced runtime activity since the last check and the probe then fails transiently
+- **THEN** the driver SHALL stay enabled; a definitive failure (not logged in, unsupported version, missing binary) SHALL still disable it at once
+
 ### Requirement: Codex command guards
 Command guards SHALL apply to Codex runs through PATH shims and by answering the app-server's approval requests according to the agent's policies.
 

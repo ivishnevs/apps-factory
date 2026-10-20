@@ -85,6 +85,13 @@ func (d Driver) CheckVersion(ctx context.Context) (string, error) {
 	out, runErr := cmd.Output()
 	p, err := parseProbe(string(out), runErr)
 	if err != nil {
+		var stderr string
+		if ee := (*exec.ExitError)(nil); errors.As(runErr, &ee) {
+			stderr = string(ee.Stderr)
+		}
+		if node.TransientRun(string(out), stderr, runErr) || strings.TrimSpace(string(out)) == "" && strings.TrimSpace(stderr) == "" {
+			return "", node.Transient(err) // killed, no output or not started: says nothing about the version
+		}
 		return "", err
 	}
 	return p.version()

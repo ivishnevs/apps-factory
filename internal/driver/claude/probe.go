@@ -78,10 +78,12 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 	p, err := d.probe(ctx, h, shim)
 	if err != nil {
 		hint := "check CLAUDE_CODE_EXECUTABLE or rebuild workers/claude (make build)"
+		transient := node.IsTransient(err)
 		if e := (*Error)(nil); errors.As(err, &e) && e.Class == "startup_timeout" {
 			hint = "Claude Code did not answer accountInfo; run claude once and check its login"
+			transient = true // a loaded machine delays the answer as much as a broken login
 		}
-		return append(r, node.CheckResult{Check: "claude.version", Status: node.Fail, Detail: err.Error(), Hint: hint})
+		return append(r, node.CheckResult{Check: "claude.version", Status: node.Fail, Detail: err.Error(), Hint: hint, Transient: transient})
 	}
 	if v, err := p.version(); err != nil {
 		r = append(r, node.CheckResult{Check: "claude.version", Status: node.Fail, Detail: err.Error(),
@@ -100,18 +102,31 @@ func (d Driver) probe(ctx context.Context, h node.Host, shim string) (probeLine,
 	}
 	out, errOut, err := h.Run(ctx, name, args...)
 	p, perr := parseProbe(out, err)
-	if perr != nil && strings.TrimSpace(out) == "" && strings.TrimSpace(errOut) != "" {
-		return p, &Error{Class: "probe", Message: node.FirstLine(errOut)}
+	if perr == nil {
+		return p, nil
+	}
+	// Killed by the timeout, no output at all, or not started under load: the probe says nothing (transient).
+	transient := node.TransientRun(out, errOut, err) || strings.TrimSpace(out) == "" && strings.TrimSpace(errOut) == ""
+	if strings.TrimSpace(out) == "" && strings.TrimSpace(errOut) != "" {
+		perr = &Error{Class: "probe", Message: node.FirstLine(errOut)}
+	}
+	if transient {
+		return p, node.Transient(perr)
 	}
 	return p, perr
 }
 
 func (d Driver) nodeCheck(ctx context.Context, h node.Host) node.CheckResult {
 	hint := "install Node.js 22 or newer"
-	v, err := h.Output(ctx, d.nodeBinary(), "--version")
+	out, errOut, err := h.Run(ctx, d.nodeBinary(), "--version")
 	if err != nil {
-		return node.CheckResult{Check: "claude.node", Status: node.Fail, Detail: "node: " + err.Error(), Hint: hint}
+		detail := "node: " + err.Error()
+		if l := node.FirstLine(errOut); l != "" {
+			detail += ": " + l
+		}
+		return node.CheckResult{Check: "claude.node", Status: node.Fail, Detail: detail, Hint: hint, Transient: node.TransientRun(out, errOut, err)}
 	}
+	v := strings.TrimSpace(out)
 	major, _ := strconv.Atoi(strings.SplitN(strings.TrimPrefix(v, "v"), ".", 2)[0])
 	if major < 22 {
 		return node.CheckResult{Check: "claude.node", Status: node.Fail, Detail: "node " + v + "; required >= 22", Hint: hint}

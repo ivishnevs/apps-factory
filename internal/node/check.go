@@ -30,6 +30,10 @@ type CheckResult struct {
 	Status Status `json:"status"`
 	Detail string `json:"detail,omitempty"`
 	Hint   string `json:"hint,omitempty"`
+	// Transient marks a failure that says nothing definite about the check: the command was killed by its
+	// timeout, produced no output, or could not start under load (TransientRun). The running node retries such
+	// a driver probe and disables the driver only after repeated ones (runtime-drivers D4).
+	Transient bool `json:"transient,omitempty"`
 }
 
 // RuntimeProbe checks a runtime driver: binary, supported version, authentication; never a model call.
@@ -50,13 +54,14 @@ type Host struct {
 	Run func(ctx context.Context, name string, args ...string) (stdout, stderr string, err error)
 }
 
-const commandTimeout = 30 * time.Second
+// CommandTimeout is how long Host.Run lets a check command run; WithCommandTimeout changes it for a context.
+const CommandTimeout = 30 * time.Second
 
 func LocalHost(goos string) Host {
 	exe, _ := os.Executable()
 	return Host{GOOS: goos, Executable: exe, Getenv: os.Getenv, LookPath: exec.LookPath, Stat: os.Stat, FreeBytes: freeBytes, Load1: load1,
 		Run: func(ctx context.Context, name string, args ...string) (string, string, error) {
-			ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+			ctx, cancel := context.WithTimeout(ctx, CommandTimeoutOf(ctx))
 			defer cancel()
 			var out, errb bytes.Buffer
 			c := exec.CommandContext(ctx, name, args...)
