@@ -1,8 +1,17 @@
 # Architecture — Foundation
 
-Core is the sole owner of SQLite. A validated API request inserts a run and its command
-outbox row in one transaction. The outbox publisher waits for a JetStream publish ack
-before marking sent. A crash before marking may republish the same message ID.
+Core is the sole owner of its Postgres database (postgres-tenancy). A validated API request inserts a run and its
+command outbox row in one transaction. The outbox publisher takes a batch of rows FOR UPDATE SKIP LOCKED, waits for
+the JetStream publish ack of each and marks them sent in the same transaction, so several Core processes may
+publish. A crash before the commit republishes the same message ID (JetStream deduplicates it).
+
+Tenancy: an account owns companies and users; users are members of companies of their account. Every row carries
+`company_id`, keys and foreign keys include it, and every Store call is scoped by it; a Core serves one company
+(`FACTORY_COMPANY`) with that company's catalog (`configs/` for `default`, `configs/<company>/` otherwise). Store
+transactions take a per-company advisory lock, so decisions (dispatch, claim, expiry) serialize per company and
+companies never wait for each other. NATS subjects carry the company: `factory.<company>.commands...`,
+`factory.<company>.events...`, `factory.<company>.feed...` and the node control subject
+`factory.<company>.nodes.<node_id>.control`.
 
 Native Workers share a durable provider-specific pull consumer. Before runtime side effects,
 a Worker atomically claims the run through Core; the command is only a pointer. Claim re-checks the
@@ -35,7 +44,7 @@ run; its stop) or the owner resolves it; nothing else of the project waits for i
 automatically in the same workspace and session; tasks with external side effects are parked for inspection.
 Queued cancellation is immediate, running cancellation is observed within a heartbeat interval.
 
-SQLite has a unique writer index per workspace slot (`workspace_writer`) over active and unreleased lost runs.
+The database has a unique writer index per workspace slot (`workspace_writer`) over active and unreleased lost runs.
 A worktree task run holds its own slot (`<project workspace>#task/<task>`), so tasks of one project run in parallel
 on nodes with worktrees; runs in the shared project workspace (shared or scratch mode, message runs, or a worktree
 run claimed by a node without worktrees or by a v1 worker) hold the project workspace and run one at a time
@@ -100,7 +109,7 @@ stops claiming below the critical watermark, and a watchdog reaps runtime groups
 
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
 Worker events carry the Core lease. Core atomically persists an event and updates the run,
-then acknowledges broker delivery. SQLite event IDs deduplicate replay. Progress never revives
+then acknowledges broker delivery. Stored event IDs deduplicate replay. Progress never revives
 terminal runs. Late terminal evidence replaces a Core-decided `lost` (or `timed_out`) end once.
 If broker event publication fails, Worker stops execution. Missing terminal evidence expires to `lost`.
 
@@ -119,9 +128,9 @@ and skills.md for precedence and the distinction between structured checks and t
 
 Task Engine adds transactional schema migration 2, registered projects and dependency DAG tasks.
 Scheduler dispatch atomically creates the attempt/run/outbox and reserves the task. Worker terminal
-events project to task submission/failure/blocked state in the same SQLite transaction as deduplication.
+events project to task submission/failure/blocked state in the same database transaction as deduplication.
 Review remains explicit and only DONE dependencies unblock successors. See task-lifecycle.md.
-Full entity snapshots stay in SQLite audit events; bounded JetStream notifications carry entity,
+Full entity snapshots stay in database audit events; bounded JetStream notifications carry entity,
 project, status/version pointers. Subscribers fetch current state or audit history through Core.
 
 
@@ -141,10 +150,10 @@ correlate message events. Owner dialogs persist their own completed thread; task
 separate sessions. Core resumes work and manages deadlines/escalations; Worker has no messaging loop.
 See messaging.md for permissions, owner inbox and failure semantics.
 
-Action approvals persist exact scoped calls and owner decisions in SQLite v5, link to inbox and tool audit, and resume tasks through the existing messaging wait lifecycle. See [approvals](approvals.md).
+Action approvals persist exact scoped calls and owner decisions in the database, link to inbox and tool audit, and resume tasks through the existing messaging wait lifecycle. See [approvals](approvals.md).
 
-SQLite v6 adds immutable project artifact versions and typed owner artifact decisions. Task required_artifacts gates dispatch and claim; RunSpec retains the approved input versions. Task review, content approval and action authorization stay independent. See [artifact approvals](artifact-approvals.md).
+The schema holds immutable project artifact versions and typed owner artifact decisions. Task required_artifacts gates dispatch and claim; RunSpec retains the approved input versions. Task review, content approval and action authorization stay independent. See [artifact approvals](artifact-approvals.md).
 
-SQLite v7 adds immutable significant reports, observed runtime outcomes, versioned decisions with one approved choice per project/topic, explicit replacement and bounded approved context in new RunSpecs. Exact owner action grants protect agent decision recording. Project feed exposes short event pointers; full snapshots remain in entity events. See [reports and decisions](reports-decisions.md).
+The schema holds immutable significant reports, observed runtime outcomes, versioned decisions with one approved choice per project/topic, explicit replacement and bounded approved context in new RunSpecs. Exact owner action grants protect agent decision recording. Project feed exposes short event pointers; full snapshots remain in entity events. See [reports and decisions](reports-decisions.md).
 
 OpenSpec integration maps a host workspace root into Docker Core, exposes confined lazy file reads and checks active task links at create/update/ready/dispatch/claim. Native Worker performs a final preflight. Initialization stores only directory metadata; specification bodies remain in files. See [OpenSpec](openspec.md).

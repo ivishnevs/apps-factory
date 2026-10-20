@@ -6,8 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/nats-io/nats.go"
+	"slices"
 	"time"
 )
+
+// Streams are the factory's JetStream streams; every subject starts with factory.<company> (protocol
+// CommandSubject, EventSubject, FeedSubject). Node control subjects stay outside the streams.
+var Streams = []nats.StreamConfig{
+	{Name: "FACTORY_COMMANDS", Subjects: []string{"factory.*.commands.>"}, Storage: nats.FileStorage},
+	{Name: "FACTORY_EVENTS", Subjects: []string{"factory.*.events.>", "factory.*.feed.>"}, Storage: nats.FileStorage},
+}
 
 type Bus struct {
 	NC *nats.Conn
@@ -31,9 +39,15 @@ func setup(nc *nats.Conn) (*Bus, error) {
 		return nil, err
 	}
 	b := &Bus{nc, js}
-	for _, c := range []nats.StreamConfig{{Name: "FACTORY_COMMANDS", Subjects: []string{"factory.commands.>"}, Storage: nats.FileStorage}, {Name: "FACTORY_EVENTS", Subjects: []string{"factory.events.>"}, Storage: nats.FileStorage}} {
-		if _, err = js.StreamInfo(c.Name); errors.Is(err, nats.ErrStreamNotFound) {
+	for _, c := range Streams {
+		var info *nats.StreamInfo
+		if info, err = js.StreamInfo(c.Name); errors.Is(err, nats.ErrStreamNotFound) {
 			_, err = js.AddStream(&c)
+		} else if err == nil && !slices.Equal(info.Config.Subjects, c.Subjects) {
+			// A stream of the unprefixed subjects (before company prefixes): take the company subjects.
+			cfg := info.Config
+			cfg.Subjects = c.Subjects
+			_, err = js.UpdateStream(&cfg)
 		}
 		if err != nil {
 			nc.Close()
@@ -55,13 +69,13 @@ func (b *Bus) Notify(ctx context.Context, subject string, body []byte) error {
 	}
 	return b.NC.FlushWithContext(ctx)
 }
-func (b *Bus) Event(ctx context.Context, kind, cause string, p protocol.Event) error {
+func (b *Bus) Event(ctx context.Context, company, kind, cause string, p protocol.Event) error {
 	e := protocol.Wrap("agent."+kind, p.RunID, cause, p)
 	body, err := json.Marshal(e)
 	if err != nil {
 		return err
 	}
-	return b.Publish(ctx, "factory.events.agent."+kind, e.ID, body)
+	return b.Publish(ctx, protocol.EventSubject(company, "agent."+kind), e.ID, body)
 }
 func (b *Bus) Subscribe(subject, durable string) (*nats.Subscription, error) {
 	return b.JS.PullSubscribe(subject, durable, nats.ManualAck(), nats.AckExplicit(), nats.AckWait(60*time.Second), nats.MaxAckPending(1))

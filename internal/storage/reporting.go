@@ -63,7 +63,7 @@ func missingReports(ctx context.Context, tx *Tx, runID, agent string, t tasks.Ta
 	if len(rules) == 0 {
 		return nil
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT kind FROM reports WHERE company_id=? AND run_id=?", tx.company, runID)
+	rows, err := tx.QueryContext(ctx, "SELECT kind FROM reports WHERE company_id=? AND run_id=? ORDER BY seq", tx.company, runID)
 	if err != nil {
 		return err
 	}

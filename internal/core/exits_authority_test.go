@@ -66,7 +66,7 @@ func (h *exitHarness) lastTrigger(task string) triggerRow {
 // parkStatus is the status of the task's newest park of kind ("" when it has none).
 func (h *exitHarness) parkStatus(task, kind string) string {
 	var status string
-	_ = h.s.DB.QueryRow("SELECT status FROM task_parks WHERE task_id=? AND kind=? ORDER BY created_at DESC, rowid DESC LIMIT 1", task, kind).Scan(&status)
+	_ = h.s.DB.QueryRow("SELECT status FROM task_parks WHERE task_id=? AND kind=? ORDER BY created_at DESC, seq DESC LIMIT 1", task, kind).Scan(&status)
 	return status
 }
 
@@ -351,7 +351,12 @@ func TestArtifactApprovedIsAuthority(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
-	for id, a := range map[string]tasks.Artifact{"uses": v1, "needs": v2} {
+	// In this order: the older work of "uses" (its trigger) is dispatched before "needs" after the urgent stop.
+	for _, c := range []struct {
+		id string
+		a  tasks.Artifact
+	}{{"uses", v1}, {"needs", v2}} {
+		id, a := c.id, c.a
 		if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: id, ProjectID: "notes", Title: id, Assignee: "demo", RequiredArtifacts: []tasks.Artifact{a}, Ready: true, RequestID: id}); err != nil {
 			t.Fatal(err)
 		}
@@ -606,12 +611,12 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	var subject, body string
-	if err := h.s.DB.QueryRow("SELECT subject,body FROM outbox WHERE subject LIKE 'factory.nodes.%'").Scan(&subject, &body); err != nil {
+	if err := h.s.DB.QueryRow("SELECT subject,body FROM outbox WHERE subject LIKE 'factory.default.nodes.%'").Scan(&subject, &body); err != nil {
 		t.Fatal(err)
 	}
 	var e protocol.Envelope
 	var stop protocol.RunStop
-	if subject != "factory.nodes.n1.control" || json.Unmarshal([]byte(body), &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID != run || stop.Reason != "revoked" {
+	if subject != "factory.default.nodes.n1.control" || json.Unmarshal([]byte(body), &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID != run || stop.Reason != "revoked" {
 		t.Fatal(subject, body)
 	}
 	answer, err := h.s.NodeHeartbeat(ctx, co, "n1", storage.NodeHeartbeat{Epoch: 1, Inventory: []storage.InventoryRun{{RunID: run, State: "claimed"}}})
@@ -623,7 +628,7 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	var controls int
-	_ = h.s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.nodes.%'").Scan(&controls)
+	_ = h.s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.default.nodes.%'").Scan(&controls)
 	if cancelled, err := h.s.Heartbeat(ctx, co, r.id, r.lease); err != nil || !cancelled || controls != 1 {
 		t.Fatal(cancelled, err, controls)
 	}

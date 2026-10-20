@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -48,73 +51,65 @@ func loadMigrations() ([]migration, error) {
 	return out, nil
 }
 
-// migrate applies pending migrations, each in its own transaction, and records them in
-// schema_migrations. A database from before schema_migrations is adopted at its
-// PRAGMA user_version. user_version is kept equal to the latest applied version so that
-// older binaries, which check only user_version, refuse a newer schema.
-func migrate(db *sql.DB) error {
+// SchemaKey identifies the embedded migrations (a hash of their names and contents): databases migrated by
+// the same key have the same schema (test template databases are named after it).
+func SchemaKey() string {
+	ms, err := loadMigrations()
+	if err != nil {
+		return "invalid"
+	}
+	h := sha256.New()
+	for _, m := range ms {
+		fmt.Fprintf(h, "%d %s %d\n%s", m.Version, m.Name, len(m.SQL), m.SQL)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// Migrate applies the pending embedded migrations to db, each in its own transaction, and records them in
+// schema_migrations. It holds a session advisory lock meanwhile, so Core processes starting together apply
+// each migration exactly once; a database with a version newer than this binary knows is refused.
+func Migrate(ctx context.Context, db *sql.DB) error {
 	ms, err := loadMigrations()
 	if err != nil {
 		return err
 	}
-	latest := ms[len(ms)-1].Version
-	var legacy int
-	if err = db.QueryRow("PRAGMA user_version").Scan(&legacy); err != nil {
-		return err
-	}
-	tx, err := db.Begin()
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	var exists int
-	if err = tx.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&exists); err != nil {
+	defer conn.Close()
+	if _, err = conn.ExecContext(ctx, "SELECT pg_advisory_lock($1, 0)", lockMigrate); err != nil {
 		return err
 	}
-	if exists == 0 {
-		if legacy > latest {
-			return fmt.Errorf("unsupported database schema %d", legacy)
-		}
-		if _, err = tx.Exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)"); err != nil {
-			return err
-		}
-		for _, m := range ms[:legacy] {
-			if _, err = tx.Exec("INSERT INTO schema_migrations(version,name,applied_at) VALUES(?,?,0)", m.Version, m.Name); err != nil {
-				return err
-			}
-		}
+	defer conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1, 0)", lockMigrate)
+	if _, err = conn.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at bigint NOT NULL)"); err != nil {
+		return err
 	}
 	var current int
-	if err = tx.QueryRow("SELECT coalesce(max(version),0) FROM schema_migrations").Scan(&current); err != nil {
+	if err = conn.QueryRowContext(ctx, "SELECT coalesce(max(version),0) FROM schema_migrations").Scan(&current); err != nil {
 		return err
 	}
-	if current > latest {
-		return fmt.Errorf("unsupported database schema %d", current)
-	}
-	if err = tx.Commit(); err != nil {
-		return err
+	if latest := ms[len(ms)-1].Version; current > latest {
+		return fmt.Errorf("unsupported database schema %d (this Core knows up to %d)", current, latest)
 	}
 	for _, m := range ms[current:] {
-		if err = apply(db, m); err != nil {
+		if err = apply(ctx, conn, m); err != nil {
 			return fmt.Errorf("migration %04d_%s: %w", m.Version, m.Name, err)
 		}
 	}
 	return nil
 }
 
-func apply(db *sql.DB, m migration) error {
-	tx, err := db.Begin()
+func apply(ctx context.Context, conn *sql.Conn, m migration) error {
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(m.SQL); err != nil {
+	if _, err = tx.ExecContext(ctx, m.SQL); err != nil {
 		return err
 	}
-	if _, err = tx.Exec("INSERT INTO schema_migrations(version,name,applied_at) VALUES(?,?,?)", m.Version, m.Name, time.Now().Unix()); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", m.Version)); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version,name,applied_at) VALUES($1,$2,$3)", m.Version, m.Name, time.Now().Unix()); err != nil {
 		return err
 	}
 	return tx.Commit()

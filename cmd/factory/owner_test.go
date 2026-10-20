@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +14,14 @@ import (
 	"appfactory/internal/core"
 	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
 
 func TestOwnerControlsAgainstCore(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func fmtInt(n int64) string { b, _ := json.Marshal(n); return string(b) }
 // one with its single choice; an option outside the list is refused before reaching Core.
 func TestEscalationsCLI(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -61,7 +61,8 @@ seals what its previous epoch left (it already kills orphaned groups at start).
 
 ## 4. Command
 
-Subject unchanged until company prefixes (`factory.commands.agent.run.<provider>`). Payload becomes a pointer:
+Subject `factory.<company>.commands.agent.run.<provider>` (node.yaml `company`; the register answer's `company`, the
+node token's, must match it). Payload becomes a pointer:
 
 ```json
 {"run_id": "…", "company": "default", "agent": "calorie-ios", "provider": "codex"}
@@ -242,10 +243,10 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   before registering; unreleased for an offline node until it proves them gone). A node's terminal event that
   arrives later still replaces `lost`, as in v1; a late `revoked` or `lost` end only releases the run (its runtime
   is gone, nothing more is known). A heartbeat from an offline node brings it back online.
-- **Incarnation** lives in the database (`core_meta`) with a copy in `<db>.incarnation`; when the two differ
-  at start (a restored database), Core creates a new incarnation. Restoring the file together with the
-  database is not detected: after such a restore write any other value into `<db>.incarnation` (for example
-`echo restored > data/factory.db.incarnation`) before starting Core. Runbook: [development](development.md#restoring-cores-database).
+- **Incarnation** lives in the database (`core_meta`) with a copy in Core's data directory (`core.incarnation`);
+  when the two differ at start (a restored database), Core creates a new incarnation. Restoring the file together
+  with the database is not detected: after such a restore write any other value into `core.incarnation` (for
+  example `echo restored > data/core.incarnation`) before starting Core. Runbook: [development](development.md#restoring-cores-database).
 - **Worktrees** (additive register field `worktrees: true`, node.yaml `worktrees.enabled`): a node that runs
   worktree tasks in their own worktree lets tasks of one project run in parallel. A worktree run holds its own
   writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees (or by

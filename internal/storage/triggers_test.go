@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -161,67 +160,6 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 		if !seen[kind] {
 			t.Error("feed lacks", kind)
 		}
-	}
-}
-
-func TestTriggerAndParkBackfill(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "db")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.CreateProject(ctx, DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/trigger-backfill"}); err != nil {
-		t.Fatal(err)
-	}
-	ready := createEngineTask(t, s, "ready")
-	readyEngineTask(t, s, ready)
-	blocked := createEngineTask(t, s, "blocked")
-	if _, err = s.TaskAction(ctx, DefaultCompany, "blocked", tasks.Action{Version: blocked.Version, Action: "block", Reason: "keys"}); err != nil {
-		t.Fatal(err)
-	}
-	// Waits as an older Core stored them: BLOCKED with wait_message_id for a question, BLOCKED with an
-	// artifact reason for an unapproved required artifact (written below, after the rollback).
-	createEngineTask(t, s, "asked")
-	question, err := s.SendMessage(ctx, DefaultCompany, messaging.Send{ProjectID: "p", TaskID: "asked", Sender: "demo", Recipient: "owner", MessageType: "question", Body: "Which audience?", RequestID: "asked"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mockup := tasks.Artifact{ID: "mockup", Version: "v1", URI: "git:abc/mockup.svg"}
-	if _, err = s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: "artifact", ProjectID: "p", Title: "artifact", Assignee: "demo", RequiredArtifacts: []tasks.Artifact{mockup}, RequestID: "artifact"}); err != nil {
-		t.Fatal(err)
-	}
-	rollbackTo(t, s.DB, 9)
-	for id, set := range map[string]string{
-		"asked":    `'$.block_reason','message: waiting for answer','$.wait_message_id','` + question.ID + `','$.current_run_id','old-run'`,
-		"artifact": `'$.block_reason','artifact: waiting for owner approval of mockup@v1'`,
-	} {
-		if _, err = s.DB.Exec(`UPDATE tasks SET status='BLOCKED',body=json_set(body,'$.status','BLOCKED',`+set+`) WHERE id=?`, id); err != nil {
-			t.Fatal(err)
-		}
-	}
-	s.DB.Close()
-	if s, err = Open(path); err != nil {
-		t.Fatal(err)
-	}
-	defer s.DB.Close()
-	expectVerdict(t, s, "ready", tasks.ReasonRunnable, "ready")
-	expectVerdict(t, s, "blocked", tasks.ReasonParked+tasks.ParkBlock)
-	expectVerdict(t, s, "asked", tasks.ReasonParked+tasks.ParkAsk)
-	expectVerdict(t, s, "artifact", tasks.ReasonArtifacts)
-	// The waits are no longer stored (status READY, no wait_message_id); reads still present them as BLOCKED.
-	for id, wait := range map[string]string{"asked": question.ID, "artifact": ""} {
-		var status, stored string
-		if err = s.DB.QueryRow("SELECT status,coalesce(json_extract(body,'$.wait_message_id'),'') FROM tasks WHERE id=?", id).Scan(&status, &stored); err != nil || status != "READY" || stored != "" {
-			t.Fatal(id, status, stored, err)
-		}
-		if v, _ := s.Task(ctx, DefaultCompany, id); v.Status != "BLOCKED" || v.WaitMessageID != wait {
-			t.Fatalf("%s: %+v", id, v)
-		}
-	}
-	var asker string
-	if err = s.DB.QueryRow("SELECT run_id FROM task_parks WHERE task_id='asked' AND kind='ask' AND status='active'").Scan(&asker); err != nil || asker != "old-run" {
-		t.Fatal("the ask park does not name the asking run:", asker, err)
 	}
 }
 

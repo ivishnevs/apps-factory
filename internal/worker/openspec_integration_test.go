@@ -9,6 +9,7 @@ import (
 
 	"appfactory/internal/bus"
 	"appfactory/internal/protocol"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -24,7 +25,7 @@ func TestJetStreamOpenSpecPreflightBeforeRuntime(t *testing.T) {
 	defer b.NC.Close()
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	sub, e := b.Subscribe("factory.events.>", "spec-preflight-test")
+	sub, e := b.Subscribe("factory.default.events.>", "spec-preflight-test")
 	if e != nil {
 		t.Fatal(e)
 	}

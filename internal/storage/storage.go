@@ -6,14 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"appfactory/internal/clock"
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
-
-	_ "modernc.org/sqlite"
 )
 
 var ErrInput = errors.New("invalid input")
@@ -31,7 +28,7 @@ const DefaultCompany = "default"
 const LeaseTTL = 45 * time.Second
 
 type Store struct {
-	DB       *sql.DB
+	DB       *DB
 	OpenSpec openspec.Access
 	// Clock is the source of every timestamp Store writes or compares; nil means wall time.
 	Clock clock.Clock
@@ -121,40 +118,44 @@ type Outbox struct {
 	Body        []byte
 }
 
-func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+// Options configure OpenWith.
+type Options struct {
+	// IncarnationFile keeps a copy of the database incarnation outside the database (in Core's data
+	// directory), so a database restored from a backup is recognized and gets a new incarnation; empty skips
+	// the check.
+	IncarnationFile string
+}
+
+// Open connects to the Postgres database at url (postgres://...) and applies the pending migrations.
+func Open(url string) (*Store, error) { return OpenWith(url, Options{}) }
+
+// OpenWith is Open with options.
+func OpenWith(url string, o Options) (*Store, error) {
+	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	for _, q := range []string{"PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000", "PRAGMA journal_mode=WAL"} {
-		if _, err = db.Exec(q); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	if err = migrate(db); err != nil {
+	db.SetMaxOpenConns(16)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxIdleTime(time.Minute)
+	ctx := context.Background()
+	if err = Migrate(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{DB: db}
-	if err = s.checkIncarnation(context.Background(), path); err != nil {
+	s := &Store{DB: &DB{db}}
+	if err = s.checkIncarnation(ctx, o.IncarnationFile); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-// Tx is a transaction bound to one company. Helpers write tx.company into every row they
-// insert and scope every lookup by a caller-supplied ID with it.
-type Tx struct {
-	*sql.Tx
-	company string
-	store   *Store
-}
-
 func (tx *Tx) now() time.Time { return tx.store.Now() }
 
+// begin starts a transaction of company holding the company's advisory lock (D4): transactions that read
+// state and decide on it (dispatch, claim, expiry, approval expiry, message scheduling, every mutation) run
+// one at a time per company, as they did on the single SQLite connection; other companies never wait.
 func (s *Store) begin(ctx context.Context, company string) (*Tx, error) {
 	if company == "" {
 		return nil, inputError("company required")
@@ -163,16 +164,11 @@ func (s *Store) begin(ctx context.Context, company string) (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Tx{Tx: tx, company: company, store: s}, nil
-}
-
-// CreateCompany registers a tenant. The default company exists in every database.
-func (s *Store) CreateCompany(ctx context.Context, id, name string) error {
-	if !entityName.MatchString(id) || strings.TrimSpace(name) == "" {
-		return inputError("company requires valid id and name")
+	if err = lockCompanyTx(ctx, tx, company); err != nil {
+		tx.Rollback()
+		return nil, err
 	}
-	_, err := s.DB.ExecContext(ctx, "INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", id, name, s.Now().Unix())
-	return constraint(err)
+	return &Tx{Tx: tx, company: company, store: s}, nil
 }
 func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) error {
 	tx, err := s.begin(ctx, company)
@@ -218,8 +214,15 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 	}
 	return rs, rows.Err()
 }
+
+// Heartbeat extends a v1 run's lease. It decides on the lease like expiry does, so it holds the company lock.
 func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool, error) {
-	res, err := s.DB.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND protocol=1 AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND protocol=1 AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
 	if err != nil {
 		return false, err
 	}
@@ -228,48 +231,12 @@ func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool,
 		return false, ErrConflict
 	}
 	var status, stopReason string
-	err = s.DB.QueryRowContext(ctx, "SELECT status,stop_reason FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &stopReason)
-	return status == "CANCELLING" || stopReason != "", err
+	if err = tx.QueryRowContext(ctx, "SELECT status,stop_reason FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &stopReason); err != nil {
+		return false, err
+	}
+	return status == "CANCELLING" || stopReason != "", tx.Commit()
 }
 
-// Pending and Sent drive the outbox publisher, which serves every company.
-func (s *Store) Pending(ctx context.Context) ([]Outbox, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,subject,body FROM outbox WHERE sent=0 AND next_at<=? ORDER BY rowid LIMIT 100", s.Now().Unix())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Outbox{}
-	for rows.Next() {
-		var o Outbox
-		if err = rows.Scan(&o.ID, &o.Subject, &o.Body); err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
-}
-
-// PublishFailed records a failed publication: the message is retried after a growing backoff (1 s doubling
-// to 5 min) and the rest of the outbox is published meanwhile (eventually consistent, never stuck behind one
-// message).
-func (s *Store) PublishFailed(ctx context.Context, id string, cause error) error {
-	var attempts int
-	if err := s.DB.QueryRowContext(ctx, "SELECT attempts FROM outbox WHERE id=?", id).Scan(&attempts); err != nil {
-		return err
-	}
-	wait := time.Second << min(attempts, 9)
-	if wait > 5*time.Minute {
-		wait = 5 * time.Minute
-	}
-	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET attempts=attempts+1,next_at=?,last_error=? WHERE id=?", s.Now().Add(wait).Unix(), shortText(cause.Error(), 1024), id)
-	return err
-}
-
-func (s *Store) Sent(ctx context.Context, id string) error {
-	_, err := s.DB.ExecContext(ctx, "UPDATE outbox SET sent=1,sent_at=? WHERE id=?", s.Now().Unix(), id)
-	return err
-}
 func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) error {
 	if e.Version != 1 || e.ID == "" {
 		return fmt.Errorf("%w: unsupported envelope", ErrInvalid)
@@ -451,7 +418,7 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	}
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
 	b, _ = json.Marshal(e)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, "factory.commands.agent.run."+string(r.Provider), b, tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.CommandSubject(tx.company, r.Provider), b, tx.company); err != nil {
 		return err
 	}
 	return nil
@@ -465,7 +432,7 @@ func checkSessionProvider(ctx context.Context, tx *Tx, r *protocol.RunSpec) erro
 		return nil
 	}
 	var b []byte
-	err := tx.QueryRowContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1", tx.company, r.SessionID).Scan(&b)
+	err := tx.QueryRowContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND session_id=? ORDER BY created_at DESC, seq DESC LIMIT 1", tx.company, r.SessionID).Scan(&b)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}

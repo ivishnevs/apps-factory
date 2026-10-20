@@ -72,8 +72,7 @@ While the task has authority input above `ack_seq`, every tool result of the run
 "authority_input": [{seq, author, rank, kind, text}], "winning"}`: rank is the author's depth (owner 0, then
 the reporting tree), and among conflicting directives the one nearest the owner wins. An urgent directive (or
 urgent artifact approval) revokes the run: `run.stop` goes out at once on the node's control subject
-`factory.nodes.<node_id>.control` (plain NATS, outside the command stream; the company prefix comes with
-postgres-tenancy), the heartbeat answer is the guarantee, and the next run starts with the directive.
+`factory.<company>.nodes.<node_id>.control` (plain NATS, outside the command stream), the heartbeat answer is the guarantee, and the next run starts with the directive.
 
 ## Identity and execution
 

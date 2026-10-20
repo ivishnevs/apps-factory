@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,12 +13,13 @@ import (
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "db")
+	dbPath := storagetest.URL(t)
 	s, err := storage.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 	for _, outcome := range []string{"reject", "expire"} {
 		t.Run(outcome, func(t *testing.T) {
 			ctx := context.Background()
-			s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+			s, err := storage.Open(storagetest.URL(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -270,7 +270,7 @@ func TestApprovalDecisionDoesNotReleaseActiveOrLostWriter(t *testing.T) {
 	for _, terminal := range []string{"COMPLETED", "LOST"} {
 		t.Run(terminal, func(t *testing.T) {
 			ctx := context.Background()
-			s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+			s, err := storage.Open(storagetest.URL(t))
 			if err != nil {
 				t.Fatal(err)
 			}

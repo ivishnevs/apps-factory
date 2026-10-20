@@ -19,7 +19,6 @@ import (
 	"appfactory/internal/node/sessions"
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
-	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
 	"github.com/nats-io/nats.go"
@@ -164,7 +163,11 @@ func Run(ctx context.Context, n Node) error {
 	store := sessions.Open(c.StateDir)
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	jan := &janitor.Janitor{Config: c.Janitor, Worktrees: trees, Company: storage.DefaultCompany, Sessions: store}
+	company := c.Company // a v2 node checks it against its token's company in the register answer below
+	if company == "" {
+		company = node.DefaultCompany
+	}
+	jan := &janitor.Janitor{Config: c.Janitor, Worktrees: trees, Company: company, Sessions: store}
 	if n.Host.FreeBytes != nil {
 		low := uint64(c.Disk.LowGiB * node.GiB)
 		jan.LowDisk = func() bool { free, err := n.Host.FreeBytes(c.Disk.Path); return err == nil && free < low }
@@ -182,6 +185,10 @@ func Run(ctx context.Context, n Node) error {
 		var err error
 		if s, err = newSession(ctx, n, trees); err != nil {
 			return err
+		}
+		if s.company != "" && s.company != company {
+			// The node would fetch commands no Core of its token's company ever sends.
+			return fmt.Errorf("node.yaml company %s, but the node token belongs to company %s: set company: %s", company, s.company, s.company)
 		}
 		s.cleanup = jan.Cleanup
 		s.reset = func(ctx context.Context, task string) error {
@@ -207,7 +214,7 @@ func Run(ctx context.Context, n Node) error {
 		go checks.run(ctx, c.Probes.Interval)
 		// Core's urgent stops arrive on the node's control subject, outside the command stream (a plain
 		// subscription: missed while disconnected, then the heartbeat answer stops the run).
-		control, err := n.Bus.NC.Subscribe(protocol.NodeControlSubject(s.inv.NodeID), func(m *nats.Msg) { s.control(m.Data) })
+		control, err := n.Bus.NC.Subscribe(protocol.NodeControlSubject(company, s.inv.NodeID), func(m *nats.Msg) { s.control(m.Data) })
 		if err != nil {
 			return err
 		}
@@ -216,7 +223,7 @@ func Run(ctx context.Context, n Node) error {
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
-		w := &worker.Worker{Bus: n.Bus, API: n.API, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
+		w := &worker.Worker{Bus: n.Bus, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
 			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv}
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }

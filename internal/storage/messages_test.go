@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -38,7 +37,7 @@ func applyMessageRun(t *testing.T, s *Store, run protocol.RunSpec, lease, outcom
 }
 func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "db")
+	path := testURL(t)
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +185,7 @@ func TestQuestionLoopGuardTimeoutAndTransactionalOutbox(t *testing.T) {
 		t.Fatal(m)
 	}
 	var count int
-	if err = s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject='factory.events.message.created'").Scan(&count); err != nil || count != 10 {
+	if err = s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject='factory.default.events.message.created'").Scan(&count); err != nil || count != 10 {
 		t.Fatal(count, err)
 	}
 }
@@ -236,7 +235,7 @@ func TestMessageEventsShareConversationCorrelation(t *testing.T) {
 	if _, err = s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Answer", RequestID: "correlate-answer"}); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := s.DB.Query("SELECT body FROM outbox WHERE subject LIKE 'factory.events.message.%'")
+	rows, err := s.DB.Query("SELECT body FROM outbox WHERE subject LIKE 'factory.default.events.message.%'")
 	if err != nil {
 		t.Fatal(err)
 	}

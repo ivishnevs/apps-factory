@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,12 +13,13 @@ import (
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestRunScopedMCP(t *testing.T) {
 	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "db")
+	dbPath := storagetest.URL(t)
 	s, err := storage.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func TestRunScopedMCP(t *testing.T) {
 		t.Fatal("terminal credential alive", w.Code)
 	}
 	var count, pending int
-	if err = s.DB.QueryRow("SELECT count(*),sum(status=0) FROM tool_calls WHERE run_id=?", run.Spec.ID).Scan(&count, &pending); err != nil || count < 10 || pending != 0 {
+	if err = s.DB.QueryRow("SELECT count(*),count(*) FILTER (WHERE status=0) FROM tool_calls WHERE run_id=?", run.Spec.ID).Scan(&count, &pending); err != nil || count < 10 || pending != 0 {
 		t.Fatal(count, pending, err)
 	}
 	// Reviewer is a distinct bound run; accepting own work never gets owner treatment.

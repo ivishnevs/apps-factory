@@ -41,7 +41,7 @@ func (s *Store) PriceRunCosts(ctx context.Context, company string, prices config
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT c.run_id,r.usage FROM run_costs c JOIN runs r ON r.id=c.run_id WHERE c.company_id=? AND c.priced=0 LIMIT 500", company)
+	rows, err := tx.QueryContext(ctx, "SELECT c.run_id,r.usage FROM run_costs c JOIN runs r ON r.id=c.run_id WHERE c.company_id=? AND c.priced=0 ORDER BY c.recorded_at,c.run_id LIMIT 500", company)
 	if err != nil {
 		return 0, err
 	}

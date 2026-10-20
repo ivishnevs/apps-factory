@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestDurableLifecycle(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "db.sqlite")
+	path := testURL(t)
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +72,7 @@ func TestDurableLifecycle(t *testing.T) {
 // again, and there is nothing to reconcile (the v1 worker stops a run whose lease it lost).
 func TestLeaseLossEndsTheRunLost(t *testing.T) {
 	ctx := context.Background()
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +106,7 @@ func TestLeaseLossEndsTheRunLost(t *testing.T) {
 	}
 }
 func TestCancelQueued(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +133,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 }
 func TestSessionBelongsToProvider(t *testing.T) {
 	ctx := context.Background()
-	s, err := Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/workspace"
 	"context"
@@ -194,7 +195,7 @@ func TestJetStreamWorktreeReport(t *testing.T) {
 	defer b.NC.Close()
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,9 @@ type DriverInfo struct {
 }
 
 type Registered struct {
-	Incarnation        string `json:"incarnation"`
+	Incarnation string `json:"incarnation"`
+	// Company is the company of the node's token: the node's subjects are factory.<company>....
+	Company            string `json:"company,omitempty"`
 	HeartbeatSeconds   int    `json:"heartbeat_seconds"`
 	StartWindowSeconds int    `json:"start_window_seconds"`
 	// Hooks is the catalog's NodeHooks document for this node.
@@ -125,6 +127,7 @@ type session struct {
 	retryMax time.Duration // longest pause between register attempts
 
 	incarnation string
+	company     string      // from the register answer; empty from a Core that does not send it
 	paused      atomic.Bool // Core's pause
 	switching   atomic.Bool // re-registering: no claims
 	// kick asks for a heartbeat now: a driver was disabled or re-enabled (the heartbeat carries the drivers).
@@ -199,6 +202,9 @@ func (s *session) register(ctx context.Context, reason string) error {
 		switch {
 		case err == nil:
 			s.incarnation, s.interval = r.Incarnation, time.Duration(r.HeartbeatSeconds)*time.Second
+			if r.Company != "" {
+				s.company = r.Company
+			}
 			if s.interval <= 0 {
 				s.interval = defaultHeartbeat
 			}

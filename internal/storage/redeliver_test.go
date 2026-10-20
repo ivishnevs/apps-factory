@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 
 func TestQueuedRunCommandIsRedeliveredWithBackoff(t *testing.T) {
 	ctx := context.Background()
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +32,7 @@ func TestQueuedRunCommandIsRedeliveredWithBackoff(t *testing.T) {
 			if err = s.Sent(ctx, o.ID); err != nil {
 				t.Fatal(err)
 			}
-			if o.Subject == "factory.commands.agent.run.codex" {
+			if o.Subject == "factory.default.commands.agent.run.codex" {
 				commands = append(commands, o)
 			}
 		}

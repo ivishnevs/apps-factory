@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +11,7 @@ import (
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
@@ -21,7 +21,7 @@ import (
 // runs.
 func TestOwnerCLIControls(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

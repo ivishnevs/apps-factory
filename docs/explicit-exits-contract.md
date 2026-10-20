@@ -120,9 +120,8 @@ Scratch projects (no remote) have no PR: `done` is accepted with a clean tree.
 - Parked task: an authority trigger overrides interruptible parks (wait, ask, block, children) and the
   escalations `retries_exhausted`, `budget_exhausted`, `no_exit` (it counts as retry); `inspect` needs its answer.
 - Urgent: the run becomes CANCELLING with `stop_reason = directive`; v1: `cancel: true` in the heartbeat answer,
-  v2: `run.stop` on `factory.nodes.<node_id>.control` at once (plain NATS, outside the command stream; Core's
-  outbox publishes it immediately) and the heartbeat `stop` `revoked` as the guarantee. The company prefix
-  (`factory.<company>.nodes...`) comes with postgres-tenancy's subject prefixes. An urgent artifact approval
+  v2: `run.stop` on `factory.<company>.nodes.<node_id>.control` at once (plain NATS, outside the command stream;
+  Core's outbox publishes it immediately) and the heartbeat `stop` `revoked` as the guarantee. An urgent artifact approval
   (`factory approve ID REASON --urgent`) stops the runs of the tasks it wakes the same way. Outcome `revoked`; the next
   run resumes the session and the brief starts with the directive.
 

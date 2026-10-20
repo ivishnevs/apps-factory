@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -111,13 +112,44 @@ type Quota struct {
 	Type string `json:"type,omitempty"`
 }
 
-// NodeControlPrefix starts every node's control subject: a plain fan-out NATS subject outside the JetStream
-// streams, so a stop never waits behind queued run commands (explicit-exits-authority D7, node-agent D2).
-// The company prefix (factory.<company>.nodes...) comes with postgres-tenancy's subject prefixes.
-const NodeControlPrefix = "factory.nodes."
+// NATS subjects carry the company as their second token (postgres-tenancy D3): factory.<company>.<kind>....
+// Company IDs contain no dots, so the company is always one token.
 
-// NodeControlSubject is the control subject of a node; Core publishes RunStop there.
-func NodeControlSubject(nodeID string) string { return NodeControlPrefix + nodeID + ".control" }
+// CommandSubject is the run command subject of a runtime provider (stream FACTORY_COMMANDS).
+func CommandSubject(company string, provider RuntimeProvider) string {
+	return "factory." + company + ".commands.agent.run." + string(provider)
+}
+
+// EventSubject is the subject of an event of kind, e.g. "agent.completed" or "task.updated" (stream
+// FACTORY_EVENTS).
+func EventSubject(company, kind string) string { return "factory." + company + ".events." + kind }
+
+// FeedSubject is the subject of a feed row of project (or "_company") and kind (stream FACTORY_EVENTS).
+func FeedSubject(company, project, kind string) string {
+	return "factory." + company + ".feed." + project + "." + kind
+}
+
+// NodeControlSubject is the control subject of a node: a plain fan-out NATS subject outside the JetStream
+// streams, so a stop never waits behind queued run commands (explicit-exits-authority D7, node-agent D2).
+// Core publishes RunStop there; a node's credentials may subscribe to its own control subject only.
+func NodeControlSubject(company, nodeID string) string {
+	return "factory." + company + ".nodes." + nodeID + ".control"
+}
+
+// IsNodeControl reports whether subject is a node's control subject.
+func IsNodeControl(subject string) bool {
+	parts := strings.Split(subject, ".")
+	return len(parts) == 5 && parts[0] == "factory" && parts[2] == "nodes" && parts[4] == "control"
+}
+
+// SubjectCompany is the company of a factory subject, empty for any other subject.
+func SubjectCompany(subject string) string {
+	parts := strings.SplitN(subject, ".", 3)
+	if len(parts) < 3 || parts[0] != "factory" {
+		return ""
+	}
+	return parts[1]
+}
 
 // RunStop is the payload of a "run.stop" control message: the node stops the run if it still has it.
 type RunStop struct {

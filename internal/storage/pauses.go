@@ -60,7 +60,7 @@ func (s *Store) SetPause(ctx context.Context, company string, p Pause) error {
 	if p.Actor == "" {
 		p.Actor = "owner"
 	}
-	res, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO pauses(company_id,scope,target,reason,actor,created_at,until) VALUES(?,?,?,?,?,?,?)", company, p.Scope, p.Target, p.Reason, p.Actor, tx.now().Unix(), p.Until)
+	res, err := tx.ExecContext(ctx, "INSERT INTO pauses(company_id,scope,target,reason,actor,created_at,until) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING", company, p.Scope, p.Target, p.Reason, p.Actor, tx.now().Unix(), p.Until)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (s *Store) RevokeLive(ctx context.Context, company, actor string) (int, err
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id,status FROM runs WHERE company_id=? AND status IN ('QUEUED','CLAIMED','RUNNING','CANCELLING') AND revoked=0", company)
+	rows, err := tx.QueryContext(ctx, "SELECT id,status FROM runs WHERE company_id=? AND status IN ('QUEUED','CLAIMED','RUNNING','CANCELLING') AND revoked=0 ORDER BY seq", company)
 	if err != nil {
 		return 0, err
 	}
@@ -297,7 +297,7 @@ func quotaPause(ctx context.Context, tx *Tx, runID string, q protocol.Quota) err
 		return nil
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO pauses(company_id,scope,target,reason,actor,created_at,until) VALUES(?,'quota_key',?,?,'runtime',?,?)
- ON CONFLICT(company_id,scope,target) DO UPDATE SET until=max(until,excluded.until),reason=excluded.reason`, tx.company, key, reason, now.Unix(), until.Unix()); err != nil {
+ ON CONFLICT(company_id,scope,target) DO UPDATE SET until=GREATEST(pauses.until,excluded.until),reason=excluded.reason`, tx.company, key, reason, now.Unix(), until.Unix()); err != nil {
 		return err
 	}
 	if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "quota.paused", EntityID: "quota_key:" + key, ProjectID: spec.Project, CreatedAt: now, TaskID: spec.TaskID, RunID: runID, Agent: spec.Agent, Actor: "runtime", Summary: reason + "; claims for quota key " + key + " paused until " + until.UTC().Format(time.RFC3339), Attention: true, Ref: key}); err != nil {
@@ -400,7 +400,7 @@ func (s *Store) ExpirePauses(ctx context.Context, company string) error {
 	}
 	defer tx.Rollback()
 	now := tx.now().Unix()
-	rows, err := tx.QueryContext(ctx, "SELECT scope,target,reason FROM pauses WHERE company_id=? AND until>0 AND until<=?", company, now)
+	rows, err := tx.QueryContext(ctx, "SELECT scope,target,reason FROM pauses WHERE company_id=? AND until>0 AND until<=? ORDER BY scope,target", company, now)
 	if err != nil {
 		return err
 	}
@@ -440,7 +440,7 @@ func (s *Store) ExpirePauses(ctx context.Context, company string) error {
 
 // activeQuotaKeys lists the quota keys paused now.
 func activeQuotaKeys(ctx context.Context, tx *Tx) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT target FROM pauses WHERE company_id=? AND scope='quota_key' AND (until=0 OR until>?)", tx.company, tx.now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT target FROM pauses WHERE company_id=? AND scope='quota_key' AND (until=0 OR until>?) ORDER BY target", tx.company, tx.now().Unix())
 	if err != nil {
 		return nil, err
 	}

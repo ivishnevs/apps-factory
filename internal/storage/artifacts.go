@@ -25,7 +25,7 @@ func (s *Store) Artifact(ctx context.Context, company, project, id, version stri
 	return getDoc[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? AND version=?", company, project, id, version)
 }
 func (s *Store) Artifacts(ctx context.Context, company, project string) ([]artifacts.Record, error) {
-	return listDocs[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? ORDER BY rowid", company, project)
+	return listDocs[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? ORDER BY seq", company, project)
 }
 func artifactVersionTx(ctx context.Context, tx *Tx, project, id, version string) (artifacts.Record, error) {
 	return getDoc[artifacts.Record](ctx, tx, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? AND version=?", tx.company, project, id, version)
@@ -97,13 +97,13 @@ func (s *Store) RegisterArtifact(ctx context.Context, company, project string, i
 		}
 		a, err := registerArtifactTx(ctx, tx, project, in)
 		if err == nil && in.RunID != "" {
-			_, err = tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(task_id,run_id,id,version) DO NOTHING", in.TaskID, in.RunID, in.Artifact.ID, in.Artifact.Version, in.Artifact.URI, tx.company)
+			_, err = tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(company_id,task_id,run_id,id,version) DO NOTHING", in.TaskID, in.RunID, in.Artifact.ID, in.Artifact.Version, in.Artifact.URI, tx.company)
 		}
 		return a, err
 	})
 }
 
-const artifactApprovalQuery = "SELECT body FROM approvals WHERE company_id=? AND project_id=? AND kind='artifact' AND artifact_id=? AND artifact_version=? ORDER BY rowid DESC LIMIT 1"
+const artifactApprovalQuery = "SELECT body FROM approvals WHERE company_id=? AND project_id=? AND kind='artifact' AND artifact_id=? AND artifact_version=? ORDER BY seq DESC LIMIT 1"
 
 func artifactApprovalTx(ctx context.Context, tx *Tx, project, id, version string) (approvals.Approval, error) {
 	return getDoc[approvals.Approval](ctx, tx, artifactApprovalQuery, tx.company, project, id, version)
@@ -194,7 +194,7 @@ func approvedArtifactInputs(ctx context.Context, tx *Tx, t tasks.Task) ([]tasks.
 // reconcileArtifactTasks ends the QUEUED runs of tasks whose approved artifact inputs no longer hold (a
 // revoked or replaced approval): the run ends stale and the task is READY again, held by its artifacts.
 func reconcileArtifactTasks(ctx context.Context, tx *Tx) error {
-	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND status='IN_PROGRESS'", tx.company)
+	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND status='IN_PROGRESS' ORDER BY priority DESC,created_at,id", tx.company)
 	if err != nil {
 		return err
 	}

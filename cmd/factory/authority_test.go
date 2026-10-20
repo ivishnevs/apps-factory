@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
@@ -19,7 +19,7 @@ import (
 // cancel through factory tasks, and says something to the default direct report.
 func TestTaskAuthorityCommands(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

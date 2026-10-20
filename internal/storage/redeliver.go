@@ -38,9 +38,9 @@ func (s *Store) RedeliverQueued(ctx context.Context, company string) (int, error
 	}
 	// at = when the last command left the outbox (or was enqueued, for rows from before sent_at).
 	rows, err := tx.QueryContext(ctx, `SELECT r.id,r.project,r.spec,r.command_count,
- max(r.command_at,coalesce((SELECT max(o.sent_at) FROM outbox o WHERE o.subject LIKE 'factory.commands.%' AND json_extract(o.body,'$.correlation_id')=r.id),0))
+ GREATEST(r.command_at,coalesce((SELECT max(o.sent_at) FROM outbox o WHERE o.company_id=r.company_id AND split_part(o.subject,'.',3)='commands' AND (o.body->>'correlation_id')=r.id),0))
  FROM runs r WHERE r.company_id=? AND r.status='QUEUED' AND r.command_at<=?
- AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.sent=0 AND o.subject LIKE 'factory.commands.%' AND json_extract(o.body,'$.correlation_id')=r.id)`, company, now.Add(-time.Minute).Unix())
+ AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.sent=0 AND o.company_id=r.company_id AND split_part(o.subject,'.',3)='commands' AND (o.body->>'correlation_id')=r.id) ORDER BY r.seq`, company, now.Add(-time.Minute).Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -71,7 +71,7 @@ func (s *Store) RedeliverQueued(ctx context.Context, company string) (int, error
 		if err != nil {
 			return 0, err
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, "factory.commands.agent.run."+string(spec.Provider), b, company); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.CommandSubject(company, spec.Provider), b, company); err != nil {
 			return 0, err
 		}
 		if _, err = tx.ExecContext(ctx, "UPDATE runs SET command_count=?,command_at=? WHERE id=?", q.sent+1, now.Unix(), spec.ID); err != nil {

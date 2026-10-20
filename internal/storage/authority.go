@@ -100,7 +100,7 @@ func (s *Store) PauseTask(ctx context.Context, company, id string, in tasks.Auth
 		if t.Kind == tasks.KindConversation {
 			return t, inputError("a conversation task is not paused; pause the agent")
 		}
-		res, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO task_pauses(company_id,task_id,actor,rank,reason,created_at) VALUES(?,?,?,?,?,?)", tx.company, t.ID, actorName(in.Actor), in.Rank, strings.TrimSpace(in.Reason), tx.now().Unix())
+		res, err := tx.ExecContext(ctx, "INSERT INTO task_pauses(company_id,task_id,actor,rank,reason,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING", tx.company, t.ID, actorName(in.Actor), in.Rank, strings.TrimSpace(in.Reason), tx.now().Unix())
 		if err != nil {
 			return t, err
 		}
@@ -240,7 +240,7 @@ func reassignTx(ctx context.Context, tx *Tx, t tasks.Task, assignee, actor, reas
 
 // openChildren lists the task's open children.
 func openChildren(ctx context.Context, tx *Tx, id string) ([]tasks.Task, error) {
-	return listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND json_extract(body,'$.parent_task_id')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id", tx.company, id)
+	return listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (body->>'parent_task_id')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id", tx.company, id)
 }
 
 // cancelTx cancels an open task: a QUEUED run is revoked, a claimed or running one asked to stop (the task is

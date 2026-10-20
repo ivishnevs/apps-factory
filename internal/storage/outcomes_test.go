@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -223,32 +222,4 @@ func TestIdleStopV2(t *testing.T) {
 	if len(a.Stop) != 1 || a.Stop[0].Reason != "idle_timeout" {
 		t.Fatal(a)
 	}
-}
-
-// TestOutcomeBackfill: runs that ended before outcomes existed get one from their status.
-func TestOutcomeBackfill(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	queue(t, s, "old-done", "p1", "a1", "")
-	queue(t, s, "old-lost", "p2", "a2", "")
-	queue(t, s, "live", "p3", "a3", "")
-	rollbackTo(t, s.DB, 15)
-	if _, err = s.DB.Exec("UPDATE runs SET status='COMPLETED' WHERE id='old-done'; UPDATE runs SET status='UNKNOWN' WHERE id='old-lost'"); err != nil {
-		t.Fatal(err)
-	}
-	s.DB.Close()
-	if s, err = Open(path); err != nil {
-		t.Fatal(err)
-	}
-	defer s.DB.Close()
-	for id, want := range map[string]string{"old-done": "succeeded", "old-lost": "lost", "live": ""} {
-		if _, out := outcomeOf(t, s, id); out != want {
-			t.Errorf("%s: %q, want %q", id, out, want)
-		}
-	}
-	_ = ctx
 }

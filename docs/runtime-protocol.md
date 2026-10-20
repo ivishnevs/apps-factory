@@ -33,8 +33,8 @@ error and fail the run (outcome `failed`, retried automatically). This is a docu
 separate from the Core [inbox/action approval workflow](approvals.md). Full access means shell actions can
 bypass behavioral instructions; no claim of isolation is made.
 
-NATS subjects: factory.commands.agent.run.codex; factory.events.agent.started/progress/completed/failed.
-Durables: codex-worker-v1, core-events-v1. Provider suffix is a deliberate extension of the original
+NATS subjects: factory.<company>.commands.agent.run.codex; factory.<company>.events.agent.started/progress/completed/failed.
+Durables: codex-worker-<company>, core-events-<company>. Provider suffix is a deliberate extension of the original
 single command subject, enabling independent runtime consumers without Codex fields in RunSpec.
 Cancellation currently uses Core's durable CANCELLING state + heartbeat response, not a second broker
 consumer. It survives restarts. Task and message events are published through Core transactional outbox; approval subjects remain for a later stage.

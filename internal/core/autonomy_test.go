@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,12 +14,13 @@ import (
 	"appfactory/internal/policies"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "db")
+	dbPath := storagetest.URL(t)
 	s, e := storage.Open(dbPath)
 	if e != nil {
 		t.Fatal(e)
@@ -213,7 +213,7 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 
 func TestDecisionAuthorityRequiresCapturedGrant(t *testing.T) {
 	ctx := context.Background()
-	s, e := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, e := storage.Open(storagetest.URL(t))
 	if e != nil {
 		t.Fatal(e)
 	}

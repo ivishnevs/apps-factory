@@ -137,8 +137,8 @@ func (s *Store) ReportUnmergedBranches(ctx context.Context, company string) (int
 	}
 	defer tx.Rollback()
 	since := tx.now().Add(-UnmergedWindow).Unix()
-	rows, err := tx.QueryContext(ctx, `SELECT t.id,(SELECT e.facts FROM run_exits e WHERE e.company_id=t.company_id AND e.task_id=t.id AND e.facts!='' ORDER BY e.created_at DESC, e.rowid DESC LIMIT 1)
- FROM tasks t WHERE t.company_id=? AND t.status IN ('DONE','CANCELLED') AND json_extract(t.body,'$.updated_at')>=?
+	rows, err := tx.QueryContext(ctx, `SELECT t.id,(SELECT e.facts FROM run_exits e WHERE e.company_id=t.company_id AND e.task_id=t.id AND e.facts!='' ORDER BY e.created_at DESC, e.seq DESC LIMIT 1)
+ FROM tasks t WHERE t.company_id=? AND t.status IN ('DONE','CANCELLED') AND (t.body->>'updated_at')::bigint>=?
  AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.company_id=t.company_id AND w.task_id=t.id AND w.abandon_branch=1)
  AND NOT EXISTS (SELECT 1 FROM feed_events f WHERE f.company_id=t.company_id AND f.task_id=t.id AND f.kind='task.unmerged_branch')
  ORDER BY t.id`, company, since)

@@ -99,7 +99,7 @@ func TestJetStreamPurgedCommandStream(t *testing.T) {
 	if err = b.JS.PurgeStream("FACTORY_COMMANDS"); err != nil {
 		t.Fatal(err)
 	}
-	sub, err := b.Subscribe("factory.commands.agent.run.codex", "purge-test")
+	sub, err := b.Subscribe("factory.default.commands.agent.run.codex", "purge-test")
 	if err != nil {
 		t.Fatal(err)
 	}

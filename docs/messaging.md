@@ -1,6 +1,6 @@
 # Messages, owner questions and inbox
 
-Core persists asynchronous communication in SQLite. `factory_message_send`, `factory_message_ask`,
+Core persists asynchronous communication in its database. `factory_message_send`, `factory_message_ask`,
 `factory_message_reply`, `factory_message_get`, `factory_message_list` and `factory_owner_ask`
 are available through Factory MCP. Identity and project come from the active run credential.
 Communication never depends on scraping an agent's final text.
@@ -152,7 +152,7 @@ questions per conversation/task can be dispatched; further questions escalate di
 Normalized repeated question text/forms in a conversation or task are rejected (including repeated
 owner text with a new key). Reusing the original key replays the original response. Each message
 chain has conversation_id and message events use it as correlation_id. Full snapshots remain in
-SQLite; outbox notifications contain pointers. Validating permissions/config snapshots never mutates
+the database; outbox notifications contain pointers. Validating permissions/config snapshots never mutates
 current permissions. Tool responses retain the existing explicit 64 KiB content limit.
 
 The inbox is CLI/HTTP; no UI or external delivery service is included. Questions and notifications

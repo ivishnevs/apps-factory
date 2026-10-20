@@ -22,7 +22,7 @@ func (s *Store) SyncAlerts(ctx context.Context, company, kind string, want []Ale
 	}
 	defer tx.Rollback()
 	now := tx.now()
-	rows, err := tx.QueryContext(ctx, "SELECT id,task_id,ref_id,summary FROM task_alerts WHERE company_id=? AND kind=? AND status='active'", company, kind)
+	rows, err := tx.QueryContext(ctx, "SELECT id,task_id,ref_id,summary FROM task_alerts WHERE company_id=? AND kind=? AND status='active' ORDER BY raised_at,id", company, kind)
 	if err != nil {
 		return err
 	}

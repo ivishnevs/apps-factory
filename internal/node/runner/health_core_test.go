@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/worker"
 )
 
@@ -26,7 +26,7 @@ import (
 // 15 minutes give exactly one node.restart_loop.
 func TestNodeHealthAgainstCore(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

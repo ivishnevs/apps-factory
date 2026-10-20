@@ -177,7 +177,7 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if req.Kind == "done" && p.ReviewAfterConflicts == "required" && !abandoned && req.Facts != nil && req.Facts.PR != nil {
 		// The merged head must be the approved one; a head changed after the approval needs a new review.
 		var approved string
-		err = tx.QueryRowContext(ctx, "SELECT approved_head FROM pr_approvals WHERE company_id=? AND task_id=? AND pr_number=? ORDER BY created_at DESC, rowid DESC LIMIT 1", company, t.ID, req.Facts.PR.Number).Scan(&approved)
+		err = tx.QueryRowContext(ctx, "SELECT approved_head FROM pr_approvals WHERE company_id=? AND task_id=? AND pr_number=? ORDER BY created_at DESC, seq DESC LIMIT 1", company, t.ID, req.Facts.PR.Number).Scan(&approved)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return out, err
 		}
@@ -207,7 +207,7 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 		company, runID, t.ID, req.Kind, string(argsJSON), req.AckSeq, factsJSON, exitSHA, string(result), tx.now().Unix()); err != nil {
 		return out, err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,?) WHERE company_id=? AND id=?", req.AckSeq, company, t.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=GREATEST(handled_seq,?) WHERE company_id=? AND id=?", req.AckSeq, company, t.ID); err != nil {
 		return out, err
 	}
 	if exitSHA != "" {
@@ -329,7 +329,7 @@ func checkFacts(req ExitRequest, repo, abandoned bool) *ExitRefusal {
 // unseenTriggers are the task's triggers above ackSeq that the exit must not pass: authority input, and for
 // done any trigger.
 func unseenTriggers(ctx context.Context, tx *Tx, task string, ackSeq int64, all bool) ([]UnseenTrigger, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT seq,kind,actor,authority,body FROM task_triggers WHERE company_id=? AND task_id=? AND seq>? AND (? OR authority=1) ORDER BY seq LIMIT 20", tx.company, task, ackSeq, all)
+	rows, err := tx.QueryContext(ctx, "SELECT seq,kind,actor,authority,body FROM task_triggers WHERE company_id=? AND task_id=? AND seq>? AND (?=1 OR authority=1) ORDER BY seq LIMIT 20", tx.company, task, ackSeq, all)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +364,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			if _, err := registerArtifactTx(ctx, tx, t.ProjectID, artifacts.Register{Artifact: art, TaskID: t.ID, RunID: runID, Actor: agent}); err != nil {
 				return out, err
 			}
-			if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO task_artifacts VALUES(?,?,?,?,?,?)", t.ID, runID, art.ID, art.Version, art.URI, tx.company); err != nil {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(company_id,task_id,run_id,id,version) DO UPDATE SET uri=excluded.uri", t.ID, runID, art.ID, art.Version, art.URI, tx.company); err != nil {
 				return out, err
 			}
 		}
@@ -499,7 +499,7 @@ func exitBlock(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, 
 	}
 	if children {
 		var open int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND json_extract(body,'$.parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, t.ID).Scan(&open); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND (body->>'parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, t.ID).Scan(&open); err != nil {
 			return "", err
 		}
 		if open == 0 {
@@ -540,7 +540,7 @@ func exitBlock(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, 
 // exitMergeFailed tells whether the run's accepted exit reported a failed merge (handoff merge_failed).
 func exitMergeFailed(ctx context.Context, tx *Tx, runID string) (bool, error) {
 	var why string
-	err := tx.QueryRowContext(ctx, "SELECT coalesce(json_extract(arguments,'$.merge_failed'),'') FROM run_exits WHERE run_id=?", runID).Scan(&why)
+	err := tx.QueryRowContext(ctx, "SELECT coalesce(arguments::jsonb->>'merge_failed','') FROM run_exits WHERE run_id=?", runID).Scan(&why)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -642,7 +642,7 @@ func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) erro
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.NodeControlSubject(node), b, tx.company)
+	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.NodeControlSubject(tx.company, node), b, tx.company)
 	return err
 }
 
@@ -715,7 +715,7 @@ func (s *Store) PendingTriggers(ctx context.Context, company, task string) ([]Un
 
 // CreatedBy lists the tasks created by runs of task (origin_task), with their status.
 func (s *Store) CreatedBy(ctx context.Context, company, task string) ([]tasks.Task, error) {
-	ts, err := listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND json_extract(body,'$.origin_task')=? ORDER BY created_at,id", company, task)
+	ts, err := listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND (body->>'origin_task')=? ORDER BY created_at,id", company, task)
 	if err == nil {
 		err = presentTasks(ctx, s.DB, company, ts)
 	}

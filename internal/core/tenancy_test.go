@@ -3,17 +3,17 @@ package core
 import (
 	"context"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestRunTokenIsBoundToCompany(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -125,7 +125,7 @@ func (s *Store) Report(ctx context.Context, company, id string) (reports.Report,
 	return getDoc[reports.Report](ctx, s.DB, "SELECT body FROM reports WHERE company_id=? AND id=?", company, id)
 }
 func (s *Store) Reports(ctx context.Context, company, project, kind, task, run string, after int64, limit int) (Page[reports.Report], error) {
-	return pageDocs[reports.Report](ctx, s.DB, after, limit, "SELECT rowid,body FROM reports WHERE company_id=? AND project_id=? AND (?='' OR kind=?) AND (?='' OR task_id=?) AND (?='' OR run_id=?) AND rowid>? ORDER BY rowid LIMIT ?", company, project, kind, kind, task, task, run, run)
+	return pageDocs[reports.Report](ctx, s.DB, after, limit, "SELECT seq,body FROM reports WHERE company_id=? AND project_id=? AND (?='' OR kind=?) AND (?='' OR task_id=?) AND (?='' OR run_id=?) AND seq>? ORDER BY seq LIMIT ?", company, project, kind, kind, task, task, run, run)
 }
 func (s *Store) CreateReport(ctx context.Context, company, project string, in reports.Create) (reports.Report, error) {
 	return mutate(ctx, s, company, "report.create:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (reports.Report, error) {
@@ -240,7 +240,7 @@ func (s *Store) Decisions(ctx context.Context, company, project, status, topic s
 	default:
 		return Page[decisions.Decision]{}, inputError("unsupported decision status")
 	}
-	return pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT rowid,body FROM decisions WHERE company_id=? AND project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND rowid>? ORDER BY rowid LIMIT ?", company, project, status, status, canonicalTopic(topic), canonicalTopic(topic))
+	return pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT seq,body FROM decisions WHERE company_id=? AND project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND seq>? ORDER BY seq LIMIT ?", company, project, status, status, canonicalTopic(topic), canonicalTopic(topic))
 }
 func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
 	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
@@ -469,7 +469,7 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 			return d, err
 		}
 		// Owner review is authoritative for a topic, regardless of category/value relabelling.
-		history, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND project_id=? AND topic=?", company, project, topic)
+		history, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND project_id=? AND topic=? ORDER BY seq", company, project, topic)
 		if err != nil {
 			return d, err
 		}

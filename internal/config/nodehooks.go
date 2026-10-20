@@ -21,9 +21,9 @@ type NodeHooksDocument struct {
 	Spec       protocol.NodeHooks `yaml:"spec"`
 }
 
-func loadNodeHooks(root string) (map[string]protocol.NodeHooks, error) {
+func loadNodeHooks(root, dir string) (map[string]protocol.NodeHooks, error) {
 	out := map[string]protocol.NodeHooks{}
-	paths, err := filepath.Glob(filepath.Join(root, "configs", "node-hooks", "*.yaml"))
+	paths, err := filepath.Glob(filepath.Join(root, dir, "node-hooks", "*.yaml"))
 	if err != nil {
 		return nil, err
 	}

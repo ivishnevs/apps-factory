@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/policies"
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -127,21 +128,52 @@ func Load(root string) (map[string]Agent, error) {
 	}
 	return c.Agents, nil
 }
-func LoadCatalog(root string) (*Catalog, error) {
+
+// DefaultCompany is the company whose catalog is the configs/ tree itself.
+const DefaultCompany = "default"
+
+// reservedCompanies are the names of the catalog's own entries under configs/, which no company directory
+// may take.
+var reservedCompanies = map[string]bool{"agents": true, "profiles": true, "policies": true, "node-hooks": true, "prompts": true, "skills": true}
+
+// CompanyDir is the directory, relative to root, of company's catalog (postgres-tenancy D3): configs/ for the
+// default company, configs/<company>/ for any other. Each holds agents/, profiles/, policies/, node-hooks/,
+// quota_keys.yaml and company.yaml; skills.yaml and prices.yaml stay shared in configs/.
+func CompanyDir(company string) (string, error) {
+	switch {
+	case company == "" || company == DefaultCompany:
+		return "configs", nil
+	case reservedCompanies[company] || !companyPattern.MatchString(company):
+		return "", fmt.Errorf("invalid company %q for a catalog directory", company)
+	}
+	return filepath.Join("configs", company), nil
+}
+
+var companyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$`)
+
+// LoadCatalog loads the default company's catalog.
+func LoadCatalog(root string) (*Catalog, error) { return LoadCompanyCatalog(root, DefaultCompany) }
+
+// LoadCompanyCatalog loads company's catalog from root/CompanyDir(company): agents with the same name in two
+// companies are independent.
+func LoadCompanyCatalog(root, company string) (*Catalog, error) {
+	dir, err := CompanyDir(company)
+	if err != nil {
+		return nil, err
+	}
 	c := &Catalog{Agents: map[string]Agent{}, Profiles: map[string]Agent{}}
-	var err error
 	c.Skills, err = skills.Load(root)
 	if err != nil {
 		return nil, err
 	}
-	if c.QuotaKeys, err = loadQuotaKeys(root); err != nil {
+	if c.QuotaKeys, err = loadQuotaKeys(root, dir); err != nil {
 		return nil, err
 	}
 	rawPolicies := map[string]policies.Policy{}
 	for _, p := range policies.Builtins() {
 		rawPolicies[p.Metadata.Name] = p
 	}
-	paths, err := filepath.Glob(filepath.Join(root, "configs/policies/*.yaml"))
+	paths, err := filepath.Glob(filepath.Join(root, dir, "policies", "*.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -169,14 +201,14 @@ func LoadCatalog(root string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.NodeHooks, err = loadNodeHooks(root); err != nil {
+	if c.NodeHooks, err = loadNodeHooks(root, dir); err != nil {
 		return nil, err
 	}
-	profiles, err := documents(root, "profiles", "AgentProfile")
+	profiles, err := documents(root, dir, "profiles", "AgentProfile")
 	if err != nil {
 		return nil, err
 	}
-	agents, err := documents(root, "agents", "Agent")
+	agents, err := documents(root, dir, "agents", "Agent")
 	if err != nil {
 		return nil, err
 	}
@@ -286,12 +318,12 @@ func LoadCatalog(root string) (*Catalog, error) {
 		c.Agents[name] = a
 	}
 	if len(c.Agents) == 0 {
-		return nil, fmt.Errorf("no agents in %s/configs/agents", root)
+		return nil, fmt.Errorf("no agents in %s", filepath.Join(root, dir, "agents"))
 	}
 	if err := validTree(c.Agents); err != nil {
 		return nil, err
 	}
-	if c.DefaultReport, err = loadDefaultReport(root, c.Agents); err != nil {
+	if c.DefaultReport, err = loadDefaultReport(root, dir, c.Agents); err != nil {
 		return nil, err
 	}
 	deriveCommunication(c.Agents)
@@ -307,9 +339,9 @@ func LoadCatalog(root string) (*Catalog, error) {
 	}
 	return c, nil
 }
-func documents(root, dir, kind string) (map[string]map[string]any, error) {
+func documents(root, dir, sub, kind string) (map[string]map[string]any, error) {
 	out := map[string]map[string]any{}
-	paths, err := filepath.Glob(filepath.Join(root, "configs", dir, "*.yaml"))
+	paths, err := filepath.Glob(filepath.Join(root, dir, sub, "*.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -706,8 +738,8 @@ func (c *Catalog) DefaultQuotaKey(provider string) string {
 
 // loadQuotaKeys reads configs/quota_keys.yaml (optional): the company's subscriptions, each with the
 // provider whose runs consume it. When the file exists, every agent's explicit quota_key must be declared.
-func loadQuotaKeys(root string) (map[string]QuotaKey, error) {
-	p := filepath.Join(root, "configs/quota_keys.yaml")
+func loadQuotaKeys(root, dir string) (map[string]QuotaKey, error) {
+	p := filepath.Join(root, dir, "quota_keys.yaml")
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		return map[string]QuotaKey{}, nil
 	}
@@ -733,13 +765,13 @@ func loadQuotaKeys(root string) (map[string]QuotaKey, error) {
 
 // loadDefaultReport reads owner.default_report from configs/company.yaml (optional) and checks it: a direct
 // report of the owner, required when the owner has more than one (hierarchy D5).
-func loadDefaultReport(root string, agents map[string]Agent) (string, error) {
+func loadDefaultReport(root, dir string, agents map[string]Agent) (string, error) {
 	var doc struct {
 		Owner struct {
 			DefaultReport string `yaml:"default_report"`
 		} `yaml:"owner"`
 	}
-	p := filepath.Join(root, "configs/company.yaml")
+	p := filepath.Join(root, dir, "company.yaml")
 	if _, err := os.Stat(p); err == nil {
 		if err = configfile.Read(p, &doc); err != nil {
 			return "", err

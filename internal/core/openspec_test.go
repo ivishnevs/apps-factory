@@ -15,12 +15,13 @@ import (
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestOpenSpecGatewayPolicyScopeAndInitialization(t *testing.T) {
 	ctx := context.Background()
-	s, e := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, e := storage.Open(storagetest.URL(t))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -116,7 +117,7 @@ func mustRunSpec(t *testing.T, s *storage.Store, id string) []byte {
 
 func TestSchedulerBlocksDisappearedOpenSpecBeforeRun(t *testing.T) {
 	ctx := context.Background()
-	s, e := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, e := storage.Open(storagetest.URL(t))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -154,7 +155,7 @@ func TestSchedulerBlocksDisappearedOpenSpecBeforeRun(t *testing.T) {
 
 func TestOpenSpecBrokenLinkBlocksKnownFailedRetry(t *testing.T) {
 	ctx := context.Background()
-	s, e := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, e := storage.Open(storagetest.URL(t))
 	if e != nil {
 		t.Fatal(e)
 	}

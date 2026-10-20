@@ -7,17 +7,18 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/rpc"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nats-io/nats.go"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
 func TestFakeAppServer(t *testing.T) {
@@ -67,7 +68,7 @@ func TestJetStreamFoundation(t *testing.T) {
 	// This integration test requires a dedicated broker: reset its streams for isolation.
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	s, err := storage.Open(filepath.Join(t.TempDir(), "core.db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestJetStreamCancellation(t *testing.T) {
 	defer b.NC.Close()
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func TestJetStreamCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	consumer, err := b.Subscribe("factory.events.>", "cancel-test")
+	consumer, err := b.Subscribe("factory.default.events.>", "cancel-test")
 	if err != nil {
 		t.Fatal(err)
 	}

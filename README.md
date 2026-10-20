@@ -1,6 +1,6 @@
 # App Factory Orchestrator
 
-Реализованы Foundation, Agent Config и Task Engine: Go Core, SQLite, NATS JetStream, YAML-агенты и профили,
+Реализованы Foundation, Agent Config и Task Engine: Go Core, Postgres, NATS JetStream, YAML-агенты и профили,
 реестр skills, единый каталог policies, проекты/задачи с зависимостями, scheduler, Factory MCP, сообщения/inbox и нода
 `factory-node` с Go-драйверами Codex и Claude (Claude — через per-run shim на Claude Agent SDK).
 Core работает в Docker, Worker — на macOS рядом с workspace, Git и Xcode.
@@ -99,9 +99,9 @@ Factory MCP, токены запуска и инструменты: [docs/factor
 
 Фабрика поддерживает прямые запуски и задачи через API/CLI и Factory MCP; сообщения, вопросы владельцу, inbox и согласования точных MCP-действий.
 Версионные утверждения артефактов реализованы отдельно от приёмки задач.
-Отчёты и Decision Registry сохраняются в SQLite; UI относится к следующим этапам.
+Отчёты и Decision Registry сохраняются в Postgres; UI относится к следующим этапам.
 Policies и grants проверяются при каждом вызове; одобрение не отменяет deny. Неизвестные YAML-поля отклоняются.
-`doctor` проверяет доступность Core, SQLite и соединение Core с NATS; доступность Worker
+`doctor` проверяет доступность Core, его Postgres (`"database": "postgres 17.x"`) и соединение Core с NATS; доступность Worker
 подтверждается сквозным запуском. Worker обрабатывает по одному run на процесс,
 Core допускает один активный run на агента; workspace проекта занимает один run за раз.
 Агенты с `workspace.mode: worktree` работают в отдельном git worktree на задачу (ветка `af/<task>`; в конце run'а

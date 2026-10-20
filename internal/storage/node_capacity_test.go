@@ -239,7 +239,7 @@ func TestDriverTransitions(t *testing.T) {
 		t.Fatal("the same failure declared again made an event")
 	}
 	queue(t, s, "r1", "p1", "writer", "")
-	if _, err := s.DB.Exec("UPDATE runs SET spec=json_set(spec,'$.provider','claude') WHERE id='r1'"); err != nil {
+	if _, err := s.DB.Exec("UPDATE runs SET spec=(spec::jsonb||jsonb_build_object('provider','claude'))::json WHERE id='r1'"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := claimV2(s, "r1", "n1", 2, "2-0-1")

@@ -1,7 +1,7 @@
 # File-based OpenSpec integration
 
 OpenSpec remains the source for product requirements and change history. Factory stores task status,
-dependencies, attempts, messages and review in SQLite, plus a task's active `openspec_change` name.
+dependencies, attempts, messages and review in its database, plus a task's active `openspec_change` name.
 No document table or embedded document snapshot is added. This stage follows the official
 [OpenSpec concepts](https://github.com/Fission-AI/OpenSpec/blob/main/docs/concepts.md).
 
@@ -42,7 +42,7 @@ It does not generate config, instructions or product documents, and preserves ex
 custom schemas. Workspace must already exist. Repeated initialization is safe; the API also accepts
 a stable request_id for exact replay. Owner initialization requires no queued/running/cancelling or
 unreleased lost writer for the project/workspace. An agent may initialize inside its own active run.
-The SQLite transaction serializes these mutations against scheduling; a lost run whose runtime may still run
+The company-locked transaction serializes these mutations against scheduling; a lost run whose runtime may still run
 keeps its writer slot. Events and mutation receipts contain directory metadata only.
 
 Use the installed official OpenSpec CLI/workflow or normal workspace file tools to author proposals,

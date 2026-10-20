@@ -18,7 +18,7 @@ A runtime is a Go driver that runs inside the node (`factory-node run`); there a
    failure, disables that driver on the node until a probe passes.
 4. Add the driver to `node.yaml` `drivers` (`internal/node.Config`) and build it in `internal/node/runner`
    (`drivers`), and its probe in `cmd/factory-node doctor`. The node then fetches
-   `factory.commands.agent.run.<provider>` with its own shared durable consumer.
+   `factory.<company>.commands.agent.run.<provider>` with its own shared durable consumer.
 5. Declare the runtime_options keys the driver reads; register them in `config.RuntimeOptions`, where config load
    rejects any other key. Keep provider settings inside runtime_options rather than adding SDK-specific fields to
    Core.

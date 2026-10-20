@@ -262,7 +262,7 @@ type NodeUse struct {
 // NodesInUse sums, per node, the runs and resources its current epoch's unended runs hold (claim capacity).
 func (s *Store) NodesInUse(ctx context.Context, company string) (map[string]NodeUse, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT r.node_id,r.spec FROM runs r JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id AND n.epoch=r.epoch
- WHERE r.company_id=? AND r.status IN ('CLAIMED','RUNNING','CANCELLING')`, company)
+ WHERE r.company_id=? AND r.status IN ('CLAIMED','RUNNING','CANCELLING') ORDER BY r.seq`, company)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func nodeWentOffline(ctx context.Context, tx *Tx, id string) error {
 
 // alertLongOffline raises node.offline with attention once for each node offline longer than OfflineAttention.
 func alertLongOffline(ctx context.Context, tx *Tx, cutoff int64) error {
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,last_seen FROM nodes WHERE company_id=? AND online=0 AND offline_alerted=0 AND last_seen<?", tx.company, cutoff-int64((NodeOffline+OfflineAttention).Seconds()))
+	rows, err := tx.QueryContext(ctx, "SELECT id,name,last_seen FROM nodes WHERE company_id=? AND online=0 AND offline_alerted=0 AND last_seen<? ORDER BY name,id", tx.company, cutoff-int64((NodeOffline+OfflineAttention).Seconds()))
 	if err != nil {
 		return err
 	}

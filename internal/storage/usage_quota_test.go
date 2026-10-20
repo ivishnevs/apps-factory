@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 
 func clockStore(t *testing.T) (*Store, *clock.Fake) {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -195,17 +195,17 @@ func subtreeSummary(ctx context.Context, tx *Tx, b *strings.Builder, project, ag
 		}
 		return rows.Err()
 	}
-	if err := collect(`SELECT id||' ['||status||'] '||json_extract(body,'$.title')||' (assignee '||assignee||')' FROM tasks
- WHERE company_id=? AND project_id=? AND status IN ('DONE','CANCELLED') AND json_extract(body,'$.updated_at')>? AND assignee IN (SELECT value FROM json_each(?))
- AND coalesce(json_extract(body,'$.kind'),'')!='conversation' ORDER BY json_extract(body,'$.updated_at') LIMIT 20`, tx.company, project, since, string(in)); err != nil {
+	if err := collect(`SELECT id||' ['||status||'] '||(body->>'title')||' (assignee '||assignee||')' FROM tasks
+ WHERE company_id=? AND project_id=? AND status IN ('DONE','CANCELLED') AND (body->>'updated_at')::bigint>? AND assignee IN (SELECT jsonb_array_elements_text(?::jsonb))
+ AND coalesce(body->>'kind','')!='conversation' ORDER BY (body->>'updated_at')::bigint LIMIT 20`, tx.company, project, since, string(in)); err != nil {
 		return err
 	}
 	if err := collect(`SELECT t.id||' escalated '||e.reason||' to '||e.target||': '||substr(e.summary,1,200) FROM escalations e JOIN tasks t ON t.company_id=e.company_id AND t.id=e.task_id
- WHERE e.company_id=? AND t.project_id=? AND e.created_at>? AND t.assignee IN (SELECT value FROM json_each(?)) ORDER BY e.created_at LIMIT 20`, tx.company, project, since, string(in)); err != nil {
+ WHERE e.company_id=? AND t.project_id=? AND e.created_at>? AND t.assignee IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY e.created_at LIMIT 20`, tx.company, project, since, string(in)); err != nil {
 		return err
 	}
 	if err := collect(`SELECT task_id||' run '||id||' of '||agent||' ended '||outcome FROM runs
- WHERE company_id=? AND json_extract(spec,'$.project')=? AND task_id IS NOT NULL AND status='ENDED' AND outcome NOT IN ('succeeded','no_exit','') AND finished_at>? AND agent IN (SELECT value FROM json_each(?)) ORDER BY finished_at LIMIT 20`, tx.company, project, since, string(in)); err != nil {
+ WHERE company_id=? AND spec->>'project'=? AND task_id IS NOT NULL AND status='ENDED' AND outcome NOT IN ('succeeded','no_exit','') AND finished_at>? AND agent IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY finished_at LIMIT 20`, tx.company, project, since, string(in)); err != nil {
 		return err
 	}
 	if len(lines) > 0 {

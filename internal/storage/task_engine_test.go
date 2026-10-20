@@ -1,13 +1,11 @@
 package storage
 
 import (
+	"appfactory/internal/clock"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +14,7 @@ import (
 
 func engineStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,45 +62,9 @@ func finishEngineRun(t *testing.T, s *Store, r protocol.RunSpec, outcome string)
 	}
 	return e
 }
-func TestMigrationPreservesFoundation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	baseline, err := migrationFS.ReadFile("migrations/0001_runs.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(string(baseline) + "PRAGMA user_version=1;"); err != nil {
-		t.Fatal(err)
-	}
-	spec := protocol.RunSpec{ID: "legacy", Project: "legacy", Agent: "demo"}
-	b, _ := json.Marshal(spec)
-	if _, err = db.Exec("INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,result) VALUES('legacy','legacy','demo','/tmp/legacy',?,'COMPLETED',1,'old result')", b); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.DB.Close()
-	r, err := s.Get(context.Background(), DefaultCompany, "legacy")
-	if err != nil || r.Result != "old result" {
-		t.Fatal(r, err)
-	}
-	ms, _ := loadMigrations()
-	var version, recorded int
-	if err = s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(ms) {
-		t.Fatal(version, err)
-	}
-	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&recorded); err != nil || recorded != len(ms) {
-		t.Fatal(recorded, err)
-	}
-}
 func TestDependenciesReviewAndRework(t *testing.T) {
 	s := engineStore(t)
+	s.Clock = clock.NewFake(time.Now()) // the version count must not depend on crossing a second boundary
 	ctx := context.Background()
 	a := readyEngineTask(t, s, createEngineTask(t, s, "a"))
 	b := readyEngineTask(t, s, createEngineTask(t, s, "b", "a"))
@@ -226,7 +188,7 @@ func TestDispatchAtomicAndSingleWriter(t *testing.T) {
 		t.Fatal("writer or agent slot bypass", err)
 	}
 	var commands, attempts int
-	_ = s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.commands.%'").Scan(&commands)
+	_ = s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.default.commands.%'").Scan(&commands)
 	_ = s.DB.QueryRow("SELECT count(*) FROM task_attempts").Scan(&attempts)
 	if commands != 1 || attempts != 1 {
 		t.Fatal("non-atomic dispatch", commands, attempts)
@@ -344,7 +306,7 @@ func TestLargeResultsKeepBrokerNotificationsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, o := range out {
-		if strings.HasPrefix(o.Subject, "factory.events.") && len(o.Body) > 4096 {
+		if strings.HasPrefix(o.Subject, "factory.default.events.") && len(o.Body) > 4096 {
 			t.Fatal("unbounded entity notification", len(o.Body))
 		}
 	}

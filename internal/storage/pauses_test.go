@@ -176,7 +176,7 @@ func TestOutboxBackoff(t *testing.T) {
 	s, fake := clockStore(t)
 	ctx := context.Background()
 	for _, id := range []string{"bad", "good"} {
-		if _, err := s.DB.Exec("INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", id, "factory.events.x", "{}", DefaultCompany); err != nil {
+		if _, err := s.DB.Exec("INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", id, "factory.default.events.x", "{}", DefaultCompany); err != nil {
 			t.Fatal(err)
 		}
 	}

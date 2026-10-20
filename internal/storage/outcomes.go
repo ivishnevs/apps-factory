@@ -51,7 +51,7 @@ func (s *Store) StopIdle(ctx context.Context, company string) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status='RUNNING' AND stop_reason='' AND last_activity_at>0 AND last_activity_at<?", company, since.Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status='RUNNING' AND stop_reason='' AND last_activity_at>0 AND last_activity_at<? ORDER BY seq", company, since.Unix())
 	if err != nil {
 		return 0, err
 	}

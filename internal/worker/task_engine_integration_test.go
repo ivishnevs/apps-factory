@@ -5,11 +5,11 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"context"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -27,7 +27,7 @@ func TestJetStreamTaskEngineRestart(t *testing.T) {
 	defer b.NC.Close()
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	path := filepath.Join(t.TempDir(), "db")
+	path := storagetest.URL(t)
 	s, err := storage.Open(path)
 	if err != nil {
 		t.Fatal(err)

@@ -69,8 +69,8 @@ Rework resumes only this task's previous thread; other tasks start independent t
 Each attempt persists RunSpec, task/attempt identifiers, provider, config hash/full resolved snapshot,
 available skill names, session ID, timestamps, output and terminal status. Actual skill reads remain
 observable runtime events; the skill list is the offered set, not a claim that every skill was used.
-Historical migration-1 runs have zero start/finish timestamps because those were not recorded then.
-Task events in SQLite preserve earlier submissions/review states even after rework. Broker entity
+Runs have zero start/finish timestamps until they start and end.
+Task events in the database preserve earlier submissions/review states even after rework. Broker entity
 notifications carry bounded identity/status/version pointers; fetch snapshots/history through Core. Comments record review and
 action reasons; artifact rows retain references per run/version.
 

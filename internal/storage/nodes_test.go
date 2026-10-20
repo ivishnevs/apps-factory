@@ -87,29 +87,29 @@ func TestRegisterNodeEpochs(t *testing.T) {
 // TestIncarnationRestore: reopening keeps the incarnation; a database that no longer matches its
 // incarnation file (a restored backup) gets a new one.
 func TestIncarnationRestore(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	s, err := Open(path)
+	url, file := testURL(t), filepath.Join(t.TempDir(), "core.incarnation")
+	s, err := OpenWith(url, Options{IncarnationFile: file})
 	if err != nil {
 		t.Fatal(err)
 	}
 	first, _ := s.Incarnation(context.Background())
 	s.DB.Close()
-	if s, err = Open(path); err != nil {
+	if s, err = OpenWith(url, Options{IncarnationFile: file}); err != nil {
 		t.Fatal(err)
 	}
 	if again, _ := s.Incarnation(context.Background()); again != first {
 		t.Fatal("reopen changed the incarnation")
 	}
 	s.DB.Close()
-	if err = os.WriteFile(path+".incarnation", []byte("other-database\n"), 0o600); err != nil {
+	if err = os.WriteFile(file, []byte("other-database\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if s, err = Open(path); err != nil {
+	if s, err = OpenWith(url, Options{IncarnationFile: file}); err != nil {
 		t.Fatal(err)
 	}
 	defer s.DB.Close()
 	restored, _ := s.Incarnation(context.Background())
-	b, _ := os.ReadFile(path + ".incarnation")
+	b, _ := os.ReadFile(file)
 	if restored == first || strings.TrimSpace(string(b)) != restored {
 		t.Fatalf("restored %q first %q file %q", restored, first, b)
 	}

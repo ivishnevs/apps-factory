@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 
 	"github.com/nats-io/nats.go"
@@ -35,7 +35,7 @@ func TestJetStreamStaleCommandIsDropped(t *testing.T) {
 	defer b.NC.Close()
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestJetStreamStaleCommandIsDropped(t *testing.T) {
 	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "dep", ProjectID: "p", Title: "dep", Assignee: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.DB.Exec(`UPDATE tasks SET status='DONE',body=json_set(body,'$.status','DONE') WHERE id='dep'`); err != nil {
+	if _, err = s.DB.Exec(`UPDATE tasks SET status='DONE',body=(body::jsonb||jsonb_build_object('status','DONE'))::json WHERE id='dep'`); err != nil {
 		t.Fatal(err)
 	}
 	task, err := s.CreateTask(ctx, co, tasks.Create{ID: "work", ProjectID: "p", Title: "work", Assignee: "demo", Dependencies: []string{"dep"}, Ready: true})
@@ -63,7 +63,7 @@ func TestJetStreamStaleCommandIsDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The dependency reopens after dispatch.
-	if _, err = s.DB.Exec(`UPDATE tasks SET status='READY',body=json_set(body,'$.status','READY') WHERE id='dep'`); err != nil {
+	if _, err = s.DB.Exec(`UPDATE tasks SET status='READY',body=(body::jsonb||jsonb_build_object('status','READY'))::json WHERE id='dep'`); err != nil {
 		t.Fatal(err)
 	}
 	out, err := s.Pending(ctx)
