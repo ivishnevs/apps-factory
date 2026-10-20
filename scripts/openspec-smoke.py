@@ -205,7 +205,9 @@ read_bodies_omitted = 0
 for attempt in attempts:
     rid = attempt['spec']['id']
     calls = api('GET', '/runs/' + rid + '/tool-calls')
-    assert all(c['status'] == 200 for c in calls if c['tool'].startswith('factory_openspec_')), calls
+    # Writes and syncs must succeed; a read or list of a path the agent guessed may answer 404.
+    reads = ('factory_openspec_read', 'factory_openspec_list')
+    assert all(c['status'] == 200 or (c['tool'] in reads and c['status'] == 404) for c in calls if c['tool'].startswith('factory_openspec_')), calls
     assert all(0 < c['status'] < 500 for c in calls), calls
     audits.append({'run_id': rid, 'tools': [{'tool': c['tool'], 'status': c['status']} for c in calls]})
     events = api('GET', '/runs/' + rid + '/events')
