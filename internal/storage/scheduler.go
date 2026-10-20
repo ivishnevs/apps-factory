@@ -20,14 +20,11 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if err != nil {
 		return spec, err
 	}
-	if t.WaitMessageID != "" {
-		answered, e := messageWaitState(ctx, tx, t.WaitMessageID)
-		if e != nil {
-			return spec, e
+	if waiting, err := askPark(ctx, tx, company, t.ID); err != nil || waiting != "" {
+		if err == nil {
+			err = ErrConflict
 		}
-		if !answered {
-			return spec, ErrConflict
-		}
+		return spec, err
 	}
 	// A review run: the reviewer assigned by factory_exit_submit reviews the task while it stays IN_REVIEW.
 	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
@@ -102,7 +99,6 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if _, err = tx.ExecContext(ctx, "INSERT INTO task_attempts VALUES(?,?,?,?)", spec.ID, t.ID, spec.Attempt, company); err != nil {
 		return spec, err
 	}
-	t.WaitMessageID = ""
 	if !review {
 		t.Status = "IN_PROGRESS"
 	}
@@ -155,6 +151,11 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string, knownFailure bool
 	if err != nil {
 		return err
 	}
+	// A run that asked a blocking question ends waiting for the answer (its ask park), not in review.
+	asked, err := runAsked(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
 	switch status {
 	case "UNKNOWN":
 		err = addPark(ctx, tx, t, tasks.ParkInspect, runID, "run "+runID+" ended with unknown outcome", true)
@@ -164,7 +165,7 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string, knownFailure bool
 	if err != nil {
 		return err
 	}
-	if hasExit && !(status == "COMPLETED" && t.WaitMessageID != "") {
+	if hasExit && !(status == "COMPLETED" && asked) {
 		return nil // the accepted exit already moved the task (an ask still waits for its answer below)
 	}
 	if !hasExit && tx.store.ExplicitExits && status == "COMPLETED" {
@@ -199,27 +200,20 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string, knownFailure bool
 	case "UNKNOWN":
 		next = "BLOCKED"
 	}
-	if status == "COMPLETED" && t.WaitMessageID != "" && !t.CancelRequested {
-		answered, err := messageWaitState(ctx, tx, t.WaitMessageID)
-		if err != nil {
-			return err
-		}
+	if status == "COMPLETED" && asked && !t.CancelRequested {
+		// READY: an open question's ask park holds the task (reads show BLOCKED); an answered one runs it.
 		t.Result = result
 		t.Submission = nil
 		t.RetryEligible = false
-		t.Status = "BLOCKED"
-		t.BlockReason = "message: waiting for answer"
-		if answered {
-			t.Status = "READY"
-			t.BlockReason = ""
-		}
+		t.Status = "READY"
+		t.BlockReason = ""
 		return saveTask(ctx, tx, &t, "task.waiting")
 	}
 	if next == "" || next == t.Status {
 		return nil
 	}
 	t.Status = next
-	t.RetryEligible = next == "FAILED" && knownFailure && !t.CancelRequested && t.WaitMessageID == ""
+	t.RetryEligible = next == "FAILED" && knownFailure && !t.CancelRequested && !asked
 	t.Result = result
 	t.BlockReason = ""
 	kind := "task.updated"

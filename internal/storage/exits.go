@@ -652,12 +652,16 @@ func (s *Store) Directive(ctx context.Context, company, task, actor, text string
 		if err = clearParks(ctx, tx, t, tasks.ParkChildren, anyRef, "overridden"); err != nil {
 			return t, err
 		}
+		waiting, err := askPark(ctx, tx, tx.company, t.ID)
+		if err != nil {
+			return t, err
+		}
 		switch {
 		case t.Status == "FAILED", t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "children:"):
 			t.Status, t.BlockReason = "READY", ""
-		case t.WaitMessageID != "" && t.Status == "BLOCKED":
-			// The question is superseded by the directive.
-			if m, err := messageTx(ctx, tx, t.WaitMessageID); err == nil && m.Status == "PENDING" {
+		case waiting != "" && t.Status == "READY":
+			// The question of an ended run is superseded by the directive.
+			if m, err := messageTx(ctx, tx, waiting); err == nil && m.Status == "PENDING" {
 				m.Status, m.DeliveryStatus, m.EscalationReason = "WITHDRAWN", "NONE", "superseded by a directive from "+actor
 				if err = saveMessage(ctx, tx, &m, "message.withdrawn"); err != nil {
 					return t, err
@@ -666,7 +670,7 @@ func (s *Store) Directive(ctx context.Context, company, task, actor, text string
 			if err = clearParks(ctx, tx, t, tasks.ParkAsk, anyRef, "overridden"); err != nil {
 				return t, err
 			}
-			t.Status, t.BlockReason, t.WaitMessageID = "READY", "", ""
+			t.BlockReason = ""
 		}
 		if urgent && t.CurrentRunID != "" {
 			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='directive' WHERE id=? AND status='RUNNING'", t.CurrentRunID); err != nil {
@@ -746,5 +750,9 @@ func (s *Store) PendingTriggers(ctx context.Context, company, task string) ([]Un
 
 // CreatedBy lists the tasks created by runs of task (origin_task), with their status.
 func (s *Store) CreatedBy(ctx context.Context, company, task string) ([]tasks.Task, error) {
-	return listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND json_extract(body,'$.origin_task')=? ORDER BY created_at,id", company, task)
+	ts, err := listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND json_extract(body,'$.origin_task')=? ORDER BY created_at,id", company, task)
+	if err == nil {
+		err = presentTasks(ctx, s.DB, company, ts)
+	}
+	return ts, err
 }

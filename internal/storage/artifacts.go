@@ -87,7 +87,11 @@ func (s *Store) RegisterArtifact(ctx context.Context, company, project string, i
 			if e != nil {
 				return artifacts.Record{}, e
 			}
-			if t.CurrentRunID != in.RunID || t.Assignee != in.Actor || t.Status != "IN_PROGRESS" || t.CancelRequested || t.WaitMessageID != "" {
+			waiting, e := askPark(ctx, tx, tx.company, t.ID)
+			if e != nil {
+				return artifacts.Record{}, e
+			}
+			if t.CurrentRunID != in.RunID || t.Assignee != in.Actor || t.Status != "IN_PROGRESS" || t.CancelRequested || waiting != "" {
 				return artifacts.Record{}, ErrConflict
 			}
 		}
@@ -186,86 +190,44 @@ func approvedArtifactInputs(ctx context.Context, tx *Tx, t tasks.Task) ([]tasks.
 	}
 	return inputs, "", nil
 }
-func applyArtifactWait(ctx context.Context, tx *Tx, t *tasks.Task) error {
-	_, reason, err := approvedArtifactInputs(ctx, tx, *t)
-	if err != nil {
-		return err
-	}
-	if reason != "" {
-		t.Status = "BLOCKED"
-		t.BlockReason = reason
-		t.RetryEligible = false
-	} else if t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "artifact:") {
-		t.Status = "READY"
-		t.BlockReason = ""
-	}
-	return nil
-}
+// reconcileArtifactTasks ends the QUEUED runs of tasks whose approved artifact inputs no longer hold (a
+// revoked or replaced approval): the run ends stale and the task is READY again, held by its artifacts.
 func reconcileArtifactTasks(ctx context.Context, tx *Tx) error {
-	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND status IN ('READY','BLOCKED','IN_PROGRESS')", tx.company)
+	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND status='IN_PROGRESS'", tx.company)
 	if err != nil {
 		return err
 	}
 	for _, t := range ts {
-		if t.Status == "BLOCKED" && !strings.HasPrefix(t.BlockReason, "artifact:") {
+		if len(t.RequiredArtifacts) == 0 {
 			continue
 		}
-		if t.Status == "IN_PROGRESS" {
-			if len(t.RequiredArtifacts) == 0 {
-				continue
-			}
-			var status string
-			if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
-				return err
-			}
-			if status != "QUEUED" {
-				continue
-			}
-			_, reason, e := approvedArtifactInputs(ctx, tx, t)
-			if e != nil {
-				return e
-			}
-			saved, e := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=?", t.CurrentRunID)
-			if e != nil {
-				return e
-			}
-			valid, e := approvedRunArtifacts(ctx, tx, saved)
-			if e != nil {
-				return e
-			}
-			if reason == "" && valid {
-				continue
-			}
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome='stale',finished_at=? WHERE id=? AND status='QUEUED'", tx.now().Unix(), t.CurrentRunID); err != nil {
-				return err
-			}
-			if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {
-				return err
-			}
-			t.Status = "BLOCKED"
-			if reason == "" {
-				t.Status = "READY"
-			}
-			t.BlockReason = reason
-			t.RetryEligible = false
-			if err = saveTask(ctx, tx, &t, "task.artifact_waiting"); err != nil {
-				return err
-			}
-			continue
-		}
-		if err = editableRun(ctx, tx, t); errors.Is(err, ErrConflict) {
-			continue
-		} else if err != nil {
+		var status string
+		if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
 			return err
 		}
-		oldStatus, oldReason := t.Status, t.BlockReason
-		if err = applyArtifactWait(ctx, tx, &t); err != nil {
+		if status != "QUEUED" {
+			continue
+		}
+		_, reason, err := approvedArtifactInputs(ctx, tx, t)
+		if err != nil {
 			return err
 		}
-		if oldStatus != t.Status || oldReason != t.BlockReason {
-			if err = saveTask(ctx, tx, &t, "task.artifact_waiting"); err != nil {
-				return err
-			}
+		saved, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE id=?", t.CurrentRunID)
+		if err != nil {
+			return err
+		}
+		valid, err := approvedRunArtifacts(ctx, tx, saved)
+		if err != nil {
+			return err
+		}
+		if reason == "" && valid {
+			continue
+		}
+		if reason == "" {
+			reason = "approved artifact inputs changed"
+		}
+		if _, err = endQueued(ctx, tx, t.CurrentRunID, "stale", reason); err != nil {
+			return err
 		}
 	}
 	return nil

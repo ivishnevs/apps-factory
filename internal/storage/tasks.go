@@ -79,6 +79,11 @@ func mutate[T any](ctx context.Context, s *Store, company, scope, key string, in
 	if err != nil {
 		return zero, constraint(err)
 	}
+	if t, ok := any(&v).(*tasks.Task); ok {
+		if err = presentTask(ctx, tx, company, t); err != nil {
+			return zero, err
+		}
+	}
 	if key != "" {
 		response, err := json.Marshal(v)
 		if err != nil {
@@ -204,7 +209,11 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 	})
 }
 func (s *Store) Task(ctx context.Context, company, id string) (tasks.Task, error) {
-	return getDoc[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND id=?", company, id)
+	t, err := getDoc[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND id=?", company, id)
+	if err == nil {
+		err = presentTask(ctx, s.DB, company, &t)
+	}
+	return t, err
 }
 func taskTx(ctx context.Context, tx *Tx, id string) (tasks.Task, error) {
 	return getDoc[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND id=?", tx.company, id)
@@ -231,8 +240,26 @@ func listDocs[T any](ctx context.Context, q interface {
 	}
 	return vs, rows.Err()
 }
+// Tasks lists tasks by their presented status: BLOCKED includes READY tasks held by a question or artifacts.
 func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]tasks.Task, error) {
-	return listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR status=?) ORDER BY priority DESC,created_at,id", company, project, project, status, status)
+	stored := status
+	if status == "BLOCKED" {
+		stored = ""
+	}
+	ts, err := listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR status=?) AND (?!='BLOCKED' OR status IN ('READY','BLOCKED')) ORDER BY priority DESC,created_at,id", company, project, project, stored, stored, status)
+	if err != nil {
+		return nil, err
+	}
+	if err = presentTasks(ctx, s.DB, company, ts); err != nil || status == "" {
+		return ts, err
+	}
+	out := ts[:0]
+	for _, t := range ts {
+		if t.Status == status {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }
 func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.create", in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
@@ -278,10 +305,7 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			if t.Assignee == "" {
 				return t, inputError("assignee required to create a ready task")
 			}
-			t.Status = "READY"
-			if err := applyArtifactWait(ctx, tx, &t); err != nil {
-				return t, err
-			}
+			t.Status = "READY" // unapproved required artifacts hold it (reads show BLOCKED)
 		}
 		b, _ := json.Marshal(t)
 		if _, err := tx.ExecContext(ctx, "INSERT INTO tasks(id,project_id,status,assignee,priority,version,body,created_at,company_id) VALUES(?,?,?,?,?,?,?,?,?)", t.ID, t.ProjectID, t.Status, t.Assignee, t.Priority, t.Version, b, t.CreatedAt, tx.company); err != nil {
@@ -475,11 +499,6 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 				return t, err
 			}
 		}
-		if t.Status == "READY" || t.Status == "BLOCKED" && strings.HasPrefix(t.BlockReason, "artifact:") {
-			if err = applyArtifactWait(ctx, tx, &t); err != nil {
-				return t, err
-			}
-		}
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return t, err
 		}
@@ -513,18 +532,17 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 		if t.Version != in.Version {
 			return t, ErrConflict
 		}
+		// Actions follow the presented status: a READY task held by a question or artifacts is BLOCKED.
+		view := t
+		if err = presentTask(ctx, tx, company, &view); err != nil {
+			return t, err
+		}
 		switch in.Action {
 		case "ready":
-			if t.WaitMessageID != "" {
-				answered, err := messageWaitState(ctx, tx, t.WaitMessageID)
-				if err != nil {
-					return t, err
-				}
-				if !answered {
-					return t, ErrConflict
-				}
+			if view.WaitMessageID != "" {
+				return t, ErrConflict // the question is open
 			}
-			if t.Status != "BACKLOG" && t.Status != "REWORK" && t.Status != "FAILED" && t.Status != "BLOCKED" {
+			if view.Status != "BACKLOG" && view.Status != "REWORK" && view.Status != "FAILED" && view.Status != "BLOCKED" {
 				return t, ErrConflict
 			}
 			if t.Assignee == "" {
@@ -547,11 +565,8 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			if err = clearRetryEscalations(ctx, tx, t, "released by "+in.Actor); err != nil {
 				return t, err
 			}
-			if err = applyArtifactWait(ctx, tx, &t); err != nil {
-				return t, err
-			}
 		case "block":
-			if t.Status != "BACKLOG" && t.Status != "READY" && t.Status != "REWORK" && t.Status != "FAILED" {
+			if view.Status != "BACKLOG" && view.Status != "READY" && view.Status != "REWORK" && view.Status != "FAILED" {
 				return t, ErrConflict
 			}
 			if strings.TrimSpace(in.Reason) == "" {
@@ -623,7 +638,11 @@ func (s *Store) SubmitTask(ctx context.Context, company, id string, in tasks.Sub
 		if err != nil {
 			return t, err
 		}
-		if t.Version != in.Version || (t.Status != "IN_REVIEW" && t.Status != "IN_PROGRESS") || t.CancelRequested || t.WaitMessageID != "" || t.CurrentRunID != in.RunID {
+		waiting, err := askPark(ctx, tx, company, t.ID)
+		if err != nil {
+			return t, err
+		}
+		if t.Version != in.Version || (t.Status != "IN_REVIEW" && t.Status != "IN_PROGRESS") || t.CancelRequested || waiting != "" || t.CurrentRunID != in.RunID {
 			return t, ErrConflict
 		}
 		if strings.TrimSpace(in.Submission.Summary) == "" {

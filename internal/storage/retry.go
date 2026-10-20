@@ -93,8 +93,11 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return saveTask(ctx, tx, &t, "task.updated")
 	}
 	rule, ok := Outcomes[outcome]
-	if !ok || t.CancelRequested || t.WaitMessageID != "" {
+	if !ok || t.CancelRequested {
 		return nil
+	}
+	if waiting, err := askPark(ctx, tx, tx.company, t.ID); err != nil || waiting != "" {
+		return err // a task waiting for an answer is not retried
 	}
 	if t.SideEffects {
 		// reliable-recovery D4: an unclear end of a task with external effects is inspected, never retried.

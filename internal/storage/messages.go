@@ -176,7 +176,11 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if err != nil {
 			return m, err
 		}
-		if t.Status != "IN_PROGRESS" || t.CurrentRunID != in.RunID || t.Assignee != in.Sender || t.WaitMessageID != "" || t.CancelRequested {
+		waiting, err := askPark(ctx, tx, tx.company, t.ID)
+		if err != nil {
+			return m, err
+		}
+		if t.Status != "IN_PROGRESS" || t.CurrentRunID != in.RunID || t.Assignee != in.Sender || waiting != "" || t.CancelRequested {
 			return m, ErrConflict
 		}
 		var status, agent, project string
@@ -187,13 +191,15 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if status != "RUNNING" || agent != in.Sender || project != in.ProjectID || !tx.store.LeaseLive(until) {
 			return m, ErrConflict
 		}
-		t.WaitMessageID = m.ID
-		t.BlockReason = "message: waiting for answer"
+		// The ask park is the wait (no stored wait_message_id); it remembers the run that asked.
 		t.Submission = nil
 		if err = saveTask(ctx, tx, &t, "task.waiting"); err != nil {
 			return m, err
 		}
 		if err = addPark(ctx, tx, t, tasks.ParkAsk, m.ID, "waiting for the answer to question "+m.ID+" from "+m.Recipient, m.Recipient == "owner"); err != nil {
+			return m, err
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE task_parks SET run_id=? WHERE company_id=? AND task_id=? AND kind=? AND ref_id=? AND status='active'", in.RunID, tx.company, t.ID, tasks.ParkAsk, m.ID); err != nil {
 			return m, err
 		}
 	}
@@ -369,9 +375,6 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if err = entityEvent(ctx, tx, "message.created", answer.ProjectID, answer.ID, answer); err != nil {
 		return answer, err
 	}
-	if err = resumeWaitingTask(ctx, tx, m); err != nil {
-		return answer, err
-	}
 	if err = answerEscalation(ctx, tx, m, in); err != nil {
 		return answer, err
 	}
@@ -388,29 +391,6 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		}
 	}
 	return answer, nil
-}
-func resumeWaitingTask(ctx context.Context, tx *Tx, m messaging.Message) error {
-	if !m.Blocking || m.TaskID == "" {
-		return nil
-	}
-	t, err := taskTx(ctx, tx, m.TaskID)
-	if err != nil {
-		return err
-	}
-	if t.WaitMessageID != m.ID || t.Status != "BLOCKED" || !strings.HasPrefix(t.BlockReason, "message:") {
-		return nil
-	}
-	var status string
-	if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
-		return err
-	}
-	if status != "COMPLETED" {
-		return nil
-	}
-	t.Status = "READY"
-	t.BlockReason = ""
-	t.RetryEligible = false
-	return saveTask(ctx, tx, &t, "task.resumed")
 }
 func (s *Store) DispatchMessage(ctx context.Context, company string, m messaging.Message, spec protocol.RunSpec) (protocol.RunSpec, error) {
 	tx, err := s.begin(ctx, company)
@@ -553,11 +533,6 @@ func (s *Store) ExpireMessages(ctx context.Context, company string) error {
 	return tx.Commit()
 }
 
-func messageWaitState(ctx context.Context, tx *Tx, id string) (bool, error) {
-	var status string
-	err := tx.QueryRowContext(ctx, "SELECT status FROM messages WHERE id=?", id).Scan(&status)
-	return status == "ANSWERED", err
-}
 func (s *Store) AnswerFor(ctx context.Context, company, id string) (messaging.Message, error) {
 	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", company, id)
 }

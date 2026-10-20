@@ -29,6 +29,9 @@ func (s *Store) TaskSnapshot(ctx context.Context, company, id string) (tasks.Sna
 	}
 	snap, err := snapshotTx(ctx, tx, t)
 	snap.Nodes = nodes
+	if err == nil {
+		err = presentTask(ctx, tx, company, &snap.Task)
+	}
 	return snap, err
 }
 
@@ -51,6 +54,9 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 	for _, t := range ts {
 		snap, err := snapshotTx(ctx, tx, t)
 		if err != nil {
+			return nil, err
+		}
+		if err = presentTask(ctx, tx, company, &snap.Task); err != nil {
 			return nil, err
 		}
 		snap.Nodes = nodes

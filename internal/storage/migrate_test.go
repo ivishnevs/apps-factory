@@ -109,6 +109,7 @@ var downs = map[int][]string{
 	26: {"ALTER TABLE nodes DROP COLUMN disk_alerts", "ALTER TABLE nodes DROP COLUMN core_paused", "ALTER TABLE nodes DROP COLUMN failed_checks",
 		"ALTER TABLE nodes DROP COLUMN starts", "ALTER TABLE nodes DROP COLUMN restart_alerted", "ALTER TABLE nodes DROP COLUMN offline_alerted"},
 	27: {"DROP INDEX escalation_open_scope"}, // task_id stays nullable (a superset)
+	28: {"ALTER TABLE task_parks DROP COLUMN run_id"},
 	22: {"ALTER TABLE workspaces DROP COLUMN abandon_branch"},
 	21: {"ALTER TABLE outbox DROP COLUMN attempts", "ALTER TABLE outbox DROP COLUMN next_at", "ALTER TABLE outbox DROP COLUMN last_error"},
 	20: {"ALTER TABLE workspaces DROP COLUMN unpushed", "ALTER TABLE nodes DROP COLUMN worktrees",
