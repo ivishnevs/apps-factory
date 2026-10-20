@@ -1,0 +1,24 @@
+ 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
+factory ui — hotkeys  (any key closes)
+
+Global        1-6 or tab switch view · ? help · R refresh · K kill switch
+              (stop/start company) · q quit
+Lists         j/k ↑/↓ move · g/G top/bottom · pgup/pgdn · enter open · esc back
+Dashboard     enter live run (or tasks) of agent · t its tasks · f its flow
+Tasks         / filter: p:PROJECT s:STATUS a:AGENT ! open conv words · !
+              attention · enter detail
+Task actions  p pause · u resume · r retry · n run · x cancel · a reassign · P
+              priority · c comment · d directive (!text urgent) · L live run · f
+              flow
+Run           f follow · j/k scroll · G newest · t task · esc back
+Flow          g graph/timeline · p project · a agent · t task · x clear · j/k G
+              scroll
+Feed          ! attention · p project · / filter · x clear · j/k G scroll
+Inbox         ←/→ option · enter answer · a free text · y approve · n reject · t
+              task
+Confirm       y/enter sends, n/esc cancels; red marks what waits on you
+
+
+
+
+ ● fixture demo │ company default │ ▶ running │ feed live

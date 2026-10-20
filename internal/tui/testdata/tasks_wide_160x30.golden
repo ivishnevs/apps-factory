@@ -1,0 +1,30 @@
+ 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
+Tasks  9 shown  / filter · ! attention · enter detail                                  │ CAL-3  [IN_PROGRESS]  Build the meal entry screen
+  ID         STATUS      ASSIGNEE         PRI WHY            TITLE                     │ project calorie · assignee calorie-ios · priority 7 · v3 · attempt 2
+  CAL-3      IN_PROGRESS calorie-ios      7   live_run       Build the meal entry scre…│ origin: created by calorie-manager from task CAL-1 · 4h ago
+  N-1        IN_REVIEW   reviewer         6   live_run       Markdown export           │ why: live_run — run r-ios-7 is running
+  CAL-1      READY       calorie-manager  9   parked:childr… Ship calorie calculator v1│   clears: calorie-ios — wait for the run
+! N-3        READY       manager          9   parked:escala… Release notes app 1.2     │ triggers: directive by owner (authority)
+! CAL-5      READY       calorie-manager  8   parked:ask     Pick the nutrition data A…│ depends on: CAL-2 DONE
+  N-2        READY       demo             7   backoff        Fix the sync conflict on …│
+  CAL-4      READY       calorie-qa       6   dependencies   Test meal entry on iPhone…│ Body
+  CAL-6      BACKLOG     calorie-designer 2   backlog        App Store screenshots     │   Implement the meal entry screen from the CAL-2 mockups.
+  CAL-2      DONE        calorie-designer 7                  Design the meal entry scr…│
+                                                                                       │   Acceptance:
+                                                                                       │   - portion picker in grams
+                                                                                       │   - works offline
+                                                                                       │   - unit tests for the calorie sum
+                                                                                       │
+                                                                                       │ Runs (2)
+                                                                                       │   #1 r-ios-6    failed     10-20 12:50  -           $0.61 (reported)
+                                                                                       │      xcodebuild: the simulator did not boot
+                                                                                       │   #2 r-ios-7    RUNNING    10-20 14:18  -           ~$1.23
+                                                                                       │   ended runs cost $0.61 over 1 runs
+                                                                                       │
+                                                                                       │ Comments (2)
+                                                                                       │   10-20 12:00 calorie-manager: Grams only for v1; ounces later.
+                                                                                       │   10-20 13:20 owner: Keep the entry screen offline-first.
+                                                                                       │
+                                                                                       │ Recent events
+                                                                                       │ p pause · u resume · r retry · n run · x cancel · a reassign · P prior…
+ ● fixture demo │ company default │ ▶ running │ feed live

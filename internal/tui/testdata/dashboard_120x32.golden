@@ -1,0 +1,32 @@
+ 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
+Agents  7 agents · reports_to tree · enter: run/tasks · t tasks · f flow
+AGENT               STATE    TASK    RUN       TODAY  AGE  LAST ACTIVITY
+calorie-manager     idle     CAL-1   -         $0.12  1h   waits for the answer to m-ask-1
+├ calorie-designer  paused   -       -         $0.55  3h   CAL-2 done
+├ calorie-ios       running  CAL-3   r-ios-7   $1.84  2m   exit guard refused the turn's end: submit needs a pushed bra…
+└ calorie-qa        idle     CAL-4   -         -      4h   Test meal entry on iPhone SE
+manager             idle     N-3     -         -      20m  factory_release_publish: release 1.2 is approved by review
+├ demo              idle     N-2     -         $0.92  45m  N-2: 3 runs without progress
+└ reviewer          running  N-1     r-rev-2   $0.31  1m   Testing the export on a 10k-line note as the owner asked.
+
+Tasks     IN_PROGRESS 1 · IN_REVIEW 1 · READY 6 · BACKLOG 1 · DONE 1  (runnable 0)
+Attention inbox 3 · approvals 1 · alerts 1 · inspect 0 · in review 1 · feed ! 6 (24h)
+Nodes     ● mac-studio 2/4 load 1.2 · ○ mac-mini offline 7m fail:disk
+Pauses    agent calorie-designer: waiting for the brand guide
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ● fixture demo │ company default │ ▶ running │ feed live

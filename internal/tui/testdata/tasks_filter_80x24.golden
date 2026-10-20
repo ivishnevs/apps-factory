@@ -1,0 +1,24 @@
+ 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
+Tasks  5 shown  filter: p:calorie open  / filter · ! attention · enter detail
+  ID         STATUS      ASSIGNEE         PRI WHY            TITLE
+  CAL-3      IN_PROGRESS calorie-ios      7   live_run       Build the meal ent…
+  CAL-1      READY       calorie-manager  9   parked:childr… Ship calorie calcu…
+! CAL-5      READY       calorie-manager  8   parked:ask     Pick the nutrition…
+  CAL-4      READY       calorie-qa       6   dependencies   Test meal entry on…
+  CAL-6      BACKLOG     calorie-designer 2   backlog        App Store screensh…
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ● fixture demo │ company default │ ▶ running │ feed live

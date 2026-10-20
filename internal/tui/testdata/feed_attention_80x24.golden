@@ -1,0 +1,24 @@
+ 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
+Feed live · follow · project all · attention only
+! attention only · p project · / filter · x clear · j/k scroll · G newest
+12:55 ! message.created          calorie/CAL-5 calorie-manager → owner (questio…
+13:30 ! owner.paused             -             by owner: agent calorie-designer…
+13:45 ! task.alert.no_progress   notes/N-2     demo: N-2: 3 runs without progre…
+14:00 ! task.escalation.stalled  notes/N-3     manager: N-3 waits on N-2 → owner
+14:10 ! approval.requested       notes/N-3     manager: factory_release_publish…
+14:23 ! node.low_disk            -             by node: mac-mini: 4.1 GiB free …
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ● fixture demo │ company default │ ▶ running │ feed live

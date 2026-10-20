@@ -1,6 +1,6 @@
 # Development
 
-Go 1.24.1; nats.go 1.41.2 (compatible with this Go baseline), pgx 5.7.5 (`pgx/v5/stdlib` behind
+Go 1.25 (the floor of the owner UI's Charm v2 libraries: bubbletea 2.0.9, bubbles 2.2.1, lipgloss 2.0.6); nats.go 1.41.2, pgx 5.7.5 (`pgx/v5/stdlib` behind
 `database/sql`), yaml.v3 3.0.1. pgx is pure Go; no CGO toolchain is needed in the Core container.
 
 Storage is Postgres only (postgres-tenancy). `FACTORY_DATABASE_URL` (`postgres://user:password@host:5432/factory`)

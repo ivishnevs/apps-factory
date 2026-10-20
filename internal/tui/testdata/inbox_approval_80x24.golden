@@ -1,0 +1,24 @@
+ 1 Dashboard  2 Tasks  3 Run  4 Flow  5 Feed  6 Inbox(3)   ? help
+Inbox  3 waiting on you · ←/→ option · enter answer · a free text · y approve ·…
+  question   calorie-manager  CAL-5   1h   Which nutrition data API may we pay …
+  approval   manager          N-3     20m  Approve publishing notes 1.2 to Test…
+  escalation factory          N-3     30m  N-3 stalled: it waits on N-2, which …
+────────────────────────────────────────────────────────────────────────────────
+m-appr-1  from manager to owner · project notes · task N-3 · v1
+ Approve publishing notes 1.2 to TestFlight.
+
+ approval ap-1 PENDING · agent manager · expires in 24h
+  call: factory_release_publish {"channel":"testflight","version":"1.2"}
+  reason: release 1.2 is approved by review
+  y approve · n reject
+
+
+
+
+
+
+
+
+
+
+ ● fixture demo │ company default │ ▶ running │ feed live
