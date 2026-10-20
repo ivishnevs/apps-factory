@@ -199,6 +199,14 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		v, err := c.Store.EntityEvents(r.Context(), c.companyFrom(r), "", r.PathValue("id"))
 		reply(w, v, err)
 	})
+	// The task's accepted exits with their git and forge facts (the pull request; the owner UI).
+	m.HandleFunc("GET /tasks/{id}/exits", func(w http.ResponseWriter, r *http.Request) {
+		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
+			return
+		}
+		v, err := c.Store.TaskExits(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		reply(w, v, err)
+	})
 	m.HandleFunc("GET /tasks/{id}/comments", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return

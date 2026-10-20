@@ -194,3 +194,22 @@ func TestUnmergedBranchCheck(t *testing.T) {
 		t.Fatal("a repeated check reported again:", n, err)
 	}
 }
+
+// TestTaskExitsRoute: GET /tasks/{id}/exits lists a task's accepted exits with their facts (the owner UI's
+// pull request), oldest first; an unknown task is 404.
+func TestTaskExitsRoute(t *testing.T) {
+	h := newExitHarness(t)
+	h.create("t", "code", "demo")
+	h.approve("t")
+	w := h.do("owner-secret", "GET", "/tasks/t/exits", nil, nil)
+	var exits []storage.TaskExit
+	if err := json.Unmarshal(w.Body.Bytes(), &exits); err != nil || w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if len(exits) != 2 || exits[0].Kind != "submit" || exits[1].Kind != "handoff" || exits[1].Facts == nil || exits[1].Facts.PR == nil || exits[1].Facts.PR.Number != 7 || exits[1].Facts.PR.State != "open" {
+		t.Fatalf("%+v", exits)
+	}
+	if w = h.do("owner-secret", "GET", "/tasks/nope/exits", nil, nil); w.Code != 404 {
+		t.Fatal(w.Code)
+	}
+}

@@ -718,6 +718,43 @@ func (s *Store) PendingTriggers(ctx context.Context, company, task string) ([]Un
 	return out, rows.Err()
 }
 
+// TaskExit is one accepted exit of a task's run with the node's git and forge facts (the owner UI shows the
+// pull request of the latest one).
+type TaskExit struct {
+	RunID     string     `json:"run_id"`
+	Kind      string     `json:"kind"`
+	Facts     *ExitFacts `json:"facts,omitempty"`
+	CreatedAt int64      `json:"created_at"`
+}
+
+// TaskExits are a task's accepted exits, oldest first.
+func (s *Store) TaskExits(ctx context.Context, company, task string) ([]TaskExit, error) {
+	if _, err := s.Task(ctx, company, task); err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.QueryContext(ctx, "SELECT run_id,kind,facts,created_at FROM run_exits WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TaskExit{}
+	for rows.Next() {
+		var e TaskExit
+		var facts string
+		if err = rows.Scan(&e.RunID, &e.Kind, &facts, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		if facts != "" {
+			var f ExitFacts
+			if json.Unmarshal([]byte(facts), &f) == nil {
+				e.Facts = &f
+			}
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // CreatedBy lists the tasks created by runs of task (origin_task), with their status.
 func (s *Store) CreatedBy(ctx context.Context, company, task string) ([]tasks.Task, error) {
 	ts, err := listDocs[tasks.Task](ctx, s.DB, "SELECT body FROM tasks WHERE company_id=? AND (body->>'origin_task')=? ORDER BY created_at,id", company, task)

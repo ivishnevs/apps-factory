@@ -24,7 +24,7 @@ func TestHealthReportsPostgres(t *testing.T) {
 	}
 	defer b.NC.Close()
 	s := storagetest.Open(t)
-	c := &Core{Store: s, Bus: b, Token: "owner", Company: "default"}
+	c := &Core{Store: s, Bus: b, Token: "owner", Company: "default", DefaultReport: "manager"}
 	h := c.Handler()
 	get := func() (int, map[string]string) {
 		r := httptest.NewRequest("GET", "/health", nil)
@@ -35,7 +35,7 @@ func TestHealthReportsPostgres(t *testing.T) {
 		_ = json.Unmarshal(w.Body.Bytes(), &v)
 		return w.Code, v
 	}
-	if code, v := get(); code != 200 || !strings.HasPrefix(v["database"], "postgres ") || v["company"] != "default" || v["status"] != "ok" || v["explicit_exits"] != "off" {
+	if code, v := get(); code != 200 || !strings.HasPrefix(v["database"], "postgres ") || v["company"] != "default" || v["status"] != "ok" || v["explicit_exits"] != "off" || v["default_report"] != "manager" {
 		t.Fatal(code, v)
 	}
 	s.DB.Close()

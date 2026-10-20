@@ -121,7 +121,7 @@ func (c *Core) Handler() http.Handler {
 		if c.ExplicitExits {
 			exits = "on"
 		}
-		write(w, map[string]string{"status": "ok", "database": database, "company": c.company(), "explicit_exits": exits})
+		write(w, map[string]string{"status": "ok", "database": database, "company": c.company(), "explicit_exits": exits, "default_report": c.defaultReport()})
 	})
 	m.HandleFunc("GET /agents", func(w http.ResponseWriter, r *http.Request) { write(w, config.Names(c.Agents)) })
 	m.HandleFunc("POST /runs", c.create)
