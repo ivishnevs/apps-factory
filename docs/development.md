@@ -122,45 +122,53 @@ production catalog. It has only the agents the smokes use, on the cheapest model
 timeout and no retries: `demo` and `manager` on Codex `gpt-6-luna` (the cheapest entry of the Codex model catalog,
 `~/.codex/models_cache.json`), `claude-demo` on Claude `claude-haiku-5-5` with `max_turns: 10`
 (`TestSmokeCatalog` pins this). If a step fails because the model is too weak, raise that one agent (e.g.
-`gpt-6.1-sol`) rather than the whole catalog. `messaging-smoke.py`, `openspec-smoke.py` and `drivers-smoke.py`
-check `GET /health` first (`company`, `explicit_exits`) and refuse to start a model run against the wrong Core
-(`SMOKE_COMPANY=any` skips the company check); each stops at its first failed step.
+`gpt-6.1-sol`) rather than the whole catalog. All three live smokes run with explicit exits on
+(`FACTORY_EXPLICIT_EXITS=1`, the default) against one Core: every agent run ends with a `factory_exit_*` call and
+the scripts check each run's `ENDED`/`succeeded` outcome and accepted exit. `messaging-smoke.py`,
+`openspec-smoke.py` and `drivers-smoke.py` check `GET /health` first (`company`, `explicit_exits: on`) and refuse to
+start a model run against the wrong Core (`SMOKE_COMPANY=any` skips the company check); each stops at its first
+failed step.
 
 ```sh
-# .env: FACTORY_TOKEN, POSTGRES_PASSWORD, NATS_PASSWORD as usual. Core for the smoke company:
-FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=0 docker compose up -d --build core
+# .env: FACTORY_TOKEN, POSTGRES_PASSWORD, NATS_PASSWORD as usual. One Core for the smoke company, exits on:
+FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
 ./bin/factory config validate --company smoke
-cat > data/node-smoke.yaml <<'EOF'
+cat > data/node-smoke.yaml <<'YAML'
 company: smoke
 state_dir: data/factory-node-smoke
 drivers:
   codex: {enabled: true}
   claude: {enabled: true}
-EOF
+YAML
 # Node environment as usual (FACTORY_TOKEN, FACTORY_URL, NATS_URL); Claude on the personal subscription
 # (claude-runtime.md, Personal subscription):
 CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node doctor -config data/node-smoke.yaml
 CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node run -config data/node-smoke.yaml
 
-# hierarchy 3.2 (Codex only, 7 runs in all):
-scripts/messaging-smoke.py --only owner --restart-core     # the restart part first: 2 demo runs
-scripts/messaging-smoke.py --only agent,dialog              # 2 demo + 3 manager conversation runs
-# core-owned-project-data 3.4 (Codex only; plan, implement, review + Core's archive task, cancelled):
+# then, in order (each script makes its own project):
+# hierarchy 3.2 (Codex only, 7 runs: owner 2 demo; agent 2 demo + 1 manager; dialog 2 manager):
+scripts/messaging-smoke.py --restart-core
+# core-owned-project-data 3.4 (Codex only; plan, implement, review, usually 1 short manager conversation run
+# for delegated_closed; Core's archive task is cancelled):
 scripts/openspec-smoke.py --restart-core                    # after a failure past the plan: --resume PROJECT
-# runtime-drivers 4.2 (Claude developer + Codex reviewer; needs explicit exits on):
-FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d core
-scripts/drivers-smoke.py                                    # 3 runs: Claude submit, Codex approve, Claude done
+# runtime-drivers 4.2 (Claude developer + Codex reviewer; 3 runs: Claude submit, Codex approve, Claude done):
+scripts/drivers-smoke.py
 ```
 
-`messaging-smoke.py --only agent,owner,dialog` (comma list) runs a subset; `--restart-core` applies to `owner`.
-`messaging-smoke.py` and `openspec-smoke.py` were written for implicit submission (`FACTORY_EXPLICIT_EXITS=0`,
-`factory_task_accept`); `drivers-smoke.py` (and `exits-smoke.py`, `SMOKE_AGENT=claude-demo`) need exits on, so
-switch Core between them (`docker compose up -d core` with the other value; the node keeps running). Overlap:
-`messaging-smoke.py --only agent` and the manager runs of `openspec-smoke.py` both exercise the manager's
-conversation task; `drivers-smoke.py` repeats the explicit exits of `exits-smoke.py` across two runtimes, so a
-passing `drivers-smoke.py` makes a separate `exits-smoke.py` run unnecessary. Results land in
-`.cache/messaging-verification.json`, `.cache/openspec-verification.json` and `.cache/drivers-verification.json`
-(run ids, sessions, exits, `GET /tasks/{id}/costs`).
+`messaging-smoke.py --only agent,owner,dialog` (comma list) runs a subset; `--restart-core` applies to `owner`
+(the owner question waits in the inbox across `docker compose restart core`). The exits used: messaging `agent`
+asks the manager with `factory_exit_ask` (the manager's conversation task answers with `factory_message_reply` and
+`factory_exit_done`), then submits; `owner` asks the owner (`factory_exit_ask`, locked category `release`), then
+submits; the owner accepts both; `dialog` runs end with `factory_exit_done` and the conversation task stays open.
+OpenSpec: the plan uploads its change with `factory_openspec_sync` before linking the executor and ends with
+`factory_exit_done`; the executor ends with `factory_exit_submit` (owner review); the review checks the change's
+tasks off in its worktree and ends with `factory_exit_done`, whose OpenSpec sync uploads the edit; the owner accepts
+the executor. Overlap: `messaging-smoke.py --only agent` and the manager runs of `openspec-smoke.py` both exercise
+the manager's conversation task; `drivers-smoke.py` repeats the explicit exits of `exits-smoke.py` across two
+runtimes, so a passing `drivers-smoke.py` makes a separate `exits-smoke.py` run unnecessary. About 14 cheap runs in
+all (messaging 7, OpenSpec 3–5, drivers 3). Results land in `.cache/messaging-verification.json`,
+`.cache/openspec-verification.json` and `.cache/drivers-verification.json` (run ids, sessions, exits,
+`GET /tasks/{id}/costs`).
 
 ## Node doctor
 
