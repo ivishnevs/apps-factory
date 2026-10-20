@@ -18,3 +18,8 @@ spec:
     - name: significant-events
       type: reporting
       instruction: Report dependency installations, environment changes, deviations from the plan, discovered problems and completed stages with their purpose, changes and result. Use factory_report_create with concrete evidence and artifact references when applicable. A report alone does not block work or authorize an action.
+    - name: inspect-external-effects
+      type: recovery
+      mode: inspect
+      roles: [release, publisher]
+      instruction: Your runs act outside the workspace (publishing, deploying, paid operations). A run that ends without a clear result is inspected instead of retried automatically, so keep each external step idempotent and report it before and after acting.

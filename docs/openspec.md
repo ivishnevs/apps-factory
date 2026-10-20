@@ -41,9 +41,9 @@ openspec/
 It does not generate config, instructions or product documents, and preserves existing files and
 custom schemas. Workspace must already exist. Repeated initialization is safe; the API also accepts
 a stable request_id for exact replay. Owner initialization requires no queued/running/cancelling or
-UNKNOWN writer for the project/workspace. An agent may initialize inside its own active run.
-The SQLite transaction serializes these mutations against scheduling; existing UNKNOWN quarantine
-remains intact. Events and mutation receipts contain directory metadata only.
+unreleased lost writer for the project/workspace. An agent may initialize inside its own active run.
+The SQLite transaction serializes these mutations against scheduling; a lost run whose runtime may still run
+keeps its writer slot. Events and mutation receipts contain directory metadata only.
 
 Use the installed official OpenSpec CLI/workflow or normal workspace file tools to author proposals,
 designs, delta specs and tasks. CLI is needed only on the native authoring host; Core has no Node or

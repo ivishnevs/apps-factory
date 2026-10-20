@@ -37,15 +37,15 @@ when the previous run is known COMPLETED. Core injects the explicit answer into 
 prompt, resumes the same thread and clears the wait marker when dispatching the next attempt.
 Continuation attempts are explicit answers, not failure retries; max_retries does not limit them.
 
-Submit is forbidden while waiting; an unanswered task cannot be made READY. UNKNOWN stays
-quarantined; an answer does not reconcile it. FAILED/CANCELLED, owner-cancelled and manually
-blocked tasks do not resume automatically. Replying while a recipient run still holds the project
+Submit is forbidden while waiting; an unanswered task cannot be made READY. A lost run whose runtime
+may still run keeps its task; an answer does not release it. Cancelled and manually blocked tasks do not
+resume automatically; a failed run retries after its backoff (task-lifecycle.md). Replying while a recipient run still holds the project
 writer does not start the originator concurrently. After that run finishes, normal dispatch applies.
 
 A manager may ask the owner for advice in the same conversation. When its prior delivery completed
 without answering, owner advice can reopen that original question and schedule manager continuation.
-The manager then explicitly answers the originator. Timeouts/UNKNOWN are not reopened this way;
-the owner can answer the original escalated question and reconcile unknown work separately.
+The manager then explicitly answers the originator. Timed-out or lost deliveries are not reopened this way;
+the owner can answer the original escalated question directly.
 
 ## Owner API and CLI
 

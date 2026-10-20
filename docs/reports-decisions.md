@@ -19,10 +19,10 @@ It requires owner communication permission; it neither blocks a task nor grants 
 blocking question still uses the messaging tools. Proposal notifications similarly carry decision_id.
 Reading an inbox notification acknowledges it without approving anything.
 
-Core automatically records observed COMPLETED/FAILED/CANCELLED/UNKNOWN run outcomes as source=core,
-kind=runtime, once per run/status. This includes queued cancellations and lease expiration. UNKNOWN
-also creates an owner reconciliation notice; resolving it closes that notice and records the observed
-terminal outcome. COMPLETED describes runtime completion, not task acceptance. Core does not infer
+Core automatically records observed COMPLETED/FAILED/CANCELLED run ends as source=core,
+kind=runtime, once per run/status. This includes queued cancellations and lease expiration (FAILED, outcome
+`lost`). A failed run retries on its own and asks nothing of the owner; a notice left by an UNKNOWN run from
+before reliable-recovery is closed by that run's later end. COMPLETED describes runtime completion, not task acceptance. Core does not infer
 successful dependency installation from shell output. Legacy direct-run projects without a project
 record receive runtime reports but cannot receive project inbox notifications. There is no retroactive
 backfill of old terminal runs.
@@ -151,8 +151,8 @@ The normal message scheduler waits for the project's writer slot and starts a se
 communication run with explicit revision instructions. The author reads the decision and task
 state, revises the plan/affected tasks, proposes an alternative or blocks unfinished work and
 reports the result. The previous approved choice survives rejection of a replacement. There is
-no automatic rollback of completed effects. UNKNOWN keeps the writer quarantined; rejection
-never bypasses reconciliation. Delivery is durable, but quality of the resulting plan remains
+no automatic rollback of completed effects. A lost run whose runtime may still run keeps its writer slot;
+rejection never releases it. Delivery is durable, but quality of the resulting plan remains
 agent behavior, not a deterministic replanning algorithm.
 
 Native Codex is a trusted host process with shell access: these permissions govern Factory gateway

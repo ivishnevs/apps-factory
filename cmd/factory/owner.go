@@ -69,6 +69,20 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		if err := api.Do(ctx, "GET", "/pending/count", nil, &result); err != nil {
 			return err
 		}
+	case "time-zone":
+		// factory time-zone [ZONE]: show or set the company's time zone (the day of the daily retry budget).
+		switch len(args) {
+		case 1:
+			if err := api.Do(ctx, "GET", "/settings/company/time_zone", nil, &result); err != nil {
+				return err
+			}
+		case 2:
+			if err := api.Do(ctx, "PUT", "/settings/company/time_zone", map[string]string{"time_zone": args[1]}, &result); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("time-zone [ZONE]")
+		}
 	case "rules":
 		// factory rules company|PROJECT [TEXT|-]: show or replace standing rules ("-" reads stdin, "" clears).
 		if len(args) < 2 || len(args) > 3 {

@@ -110,7 +110,7 @@ var downs = map[int][]string{
 BEGIN UPDATE runs SET outcome=CASE WHEN NEW.status='COMPLETED' THEN 'succeeded' WHEN NEW.status='CANCELLED' THEN 'revoked'
  WHEN NEW.status='UNKNOWN' AND NEW.result LIKE 'timed_out%' THEN 'timed_out' WHEN NEW.status='UNKNOWN' THEN 'lost' WHEN NEW.result LIKE 'lost:%' THEN 'lost'
  WHEN NEW.result LIKE 'OpenSpec preflight%' OR NEW.result LIKE 'skills:%' OR NEW.result LIKE 'workspace_diverged%' THEN 'setup_failed' ELSE 'failed' END WHERE id=NEW.id; END`,
-		"ALTER TABLE companies DROP COLUMN time_zone"},
+		"ALTER TABLE runs DROP COLUMN recovered", "ALTER TABLE companies DROP COLUMN time_zone"}, // task_alerts keeps its wider CHECK (a superset)
 	28: {}, // placeholder for trigger-log-scheduling's 0028
 	9:  {"DROP TABLE feed_events"},
 	10: {"DROP TABLE task_triggers", "DROP TABLE task_parks", "ALTER TABLE tasks DROP COLUMN wake_seq", "ALTER TABLE tasks DROP COLUMN handled_seq", "ALTER TABLE runs DROP COLUMN brief_from", "ALTER TABLE runs DROP COLUMN brief_to"},

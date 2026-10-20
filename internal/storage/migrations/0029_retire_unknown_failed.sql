@@ -39,5 +39,24 @@ SELECT company_id,id,'ready',0,'migration','FAILED retired (reliable-recovery): 
 UPDATE tasks SET status='READY', wake_seq=(SELECT max(seq) FROM task_triggers g WHERE g.task_id=tasks.id),
  body=json_set(body,'$.status','READY','$.retry_eligible',json('false'),'$.block_reason','')
  WHERE status='FAILED';
+-- recovered: the run's end was applied to its task by the outcome table (once, whatever repeats the end).
+ALTER TABLE runs ADD COLUMN recovered INTEGER NOT NULL DEFAULT 0;
 -- The company's time zone (IANA name) sets the day of the daily retry budget (D2).
 ALTER TABLE companies ADD COLUMN time_zone TEXT NOT NULL DEFAULT 'UTC';
+-- No-progress alerts (D8): task_alerts gains the kind no_progress.
+CREATE TABLE task_alerts_v2 (
+ id TEXT PRIMARY KEY,
+ company_id TEXT NOT NULL,
+ task_id TEXT NOT NULL REFERENCES tasks(id),
+ kind TEXT NOT NULL CHECK(kind IN ('stalled','idle','no_progress')),
+ ref_id TEXT NOT NULL DEFAULT '',
+ summary TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('active','cleared')),
+ raised_at INTEGER NOT NULL,
+ cleared_at INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO task_alerts_v2 SELECT id,company_id,task_id,kind,ref_id,summary,status,raised_at,cleared_at FROM task_alerts;
+DROP TABLE task_alerts;
+ALTER TABLE task_alerts_v2 RENAME TO task_alerts;
+CREATE UNIQUE INDEX active_alert ON task_alerts(task_id,kind,ref_id) WHERE status='active';
+CREATE INDEX task_alerts_company ON task_alerts(company_id,kind,status);

@@ -19,16 +19,18 @@ Worker reads responses by ID, forwards notifications as durable progress events,
 agentMessage text from item/completed. item/agentMessage/delta remains available in run events.
 Only turn/completed status completed/failed/interrupted yields COMPLETED/FAILED/CANCELLED.
 An interrupted turn is CANCELLED even when triggered by the execution timeout.
-Unexpected process exit, protocol failure, lease loss, or missing terminal evidence yields UNKNOWN.
+Unexpected process exit, protocol failure or missing terminal evidence yields FAILED `failed` (CANCELLED while
+the run was being stopped); see Run outcomes from workers. Workers never report UNKNOWN: only Core decides
+`lost` (lease loss, a missed start window, a new node epoch).
 Stderr supplies native diagnostics; protocol messages are not parsed from stderr.
 
 On cancellation Worker sends turn/interrupt, waits up to 10s for terminal evidence, then kills the
 app-server process group on close. Runtime startup calls have 30s timeouts. Event queue is bounded;
-overflow fails safely to UNKNOWN instead of silently discarding notifications.
+overflow fails the run (`FAILED` `failed`) instead of silently discarding notifications.
 
 Server-initiated command/file approval requests receive decline. Other requests (including
 user input, external auth refresh and tools not implemented by Foundation) receive a JSON-RPC
-error and stop the run as UNKNOWN for owner attention. This is a documented Foundation limitation,
+error and fail the run (`FAILED` `failed`, retried automatically). This is a documented Foundation limitation,
 separate from the Core [inbox/action approval workflow](approvals.md). Full access means shell actions can
 bypass behavioral instructions; no claim of isolation is made.
 
@@ -101,7 +103,8 @@ Optional fields; workers and Cores that do not know them ignore them.
 
 - Executor: keeps the run's latest usage per model and its latest quota hit. Each usage/cost report becomes a
   progress event carrying the run's usage so far; a quota hit becomes a progress event with `quota`. Every
-  terminal event (`completed`, `failed` including `UNKNOWN`, and the one after an interrupt without a result)
+  terminal event (`completed`, `failed` including one without terminal evidence, and the one after an
+  interrupt without a result)
   carries both. A run total cost (driver cost event) is set on the single model when no model has its own price.
 - Codex: the model comes from the `thread/start`/`thread/resume` response. Usage comes from
   `thread/tokenUsage/updated` for this run's turn: `total` is thread-wide, so the first update is a baseline
@@ -135,12 +138,14 @@ How the executor (v1 and v2, every driver) fills `Event.outcome` on terminal eve
 | The same, while the run was being stopped | `CANCELLED` with the stop's outcome |
 | Launch refused before the prompt (Claude auth, Codex without a ChatGPT login, missing or unsupported runtime executable) | `FAILED` `paused_out` |
 | Other launch, `/start` or `started` failures before the prompt; a broken shim stream | `FAILED` `failed` |
-| No terminal evidence: interrupt for a revoke without a result, shim or app-server gone mid-turn, `turn/start` failure, event publication failure | `UNKNOWN` |
+| No terminal evidence while the run was being stopped: interrupt for a revoke without a result, a shutdown | `CANCELLED` with the stop's outcome |
+| No terminal evidence otherwise: shim or app-server gone mid-turn, `turn/start` failure, event publication failure | `FAILED` `failed` (`paused_out` after a quota hit in the run) |
 
 - A v1 idle stop is a plain `{cancel: true}`: the worker cannot tell it from an owner cancel and reports
   `CANCELLED`; Core records `idle_timeout` from its own stop reason. v2 carries the reason in `stop`.
-- UNKNOWN stays where the runtime may still have acted after the last evidence and nothing names the cause
-  (Core decides `lost`). A quota hit alone does not make an evidence-less end known.
+- Workers never report UNKNOWN (reliable-recovery D1). Whether a runtime may still have acted is Core's
+  question: it ends a run `lost` when the evidence stops arriving, and a task with external side effects is
+  inspected rather than retried whatever the end. Core rejects an `UNKNOWN` terminal status as invalid.
 - A lost v1 heartbeat or a worker/node shutdown interrupts like an owner cancel (`CANCELLED`, no outcome).
 - Git lock contention inside worktree allocation (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) is
   retried by the allocator; a failure after the retries is transient contention, reported `FAILED` `failed`

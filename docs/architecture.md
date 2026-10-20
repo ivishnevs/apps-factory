@@ -19,12 +19,18 @@ Worker heartbeats every 10s; leases expire after 45s. Heartbeats also deliver ca
 All Core time comes from `Store.Clock` (wall time unless a test injects `clock.Fake`). Core keeps an in-memory
 continuity window that restarts on Core start or after a gap of more than 3 ticks (the host slept or the
 process was paused); a lease expires only when both its `lease_until` and the window start plus one TTL have
-passed, so after a wake every worker gets a full TTL to heartbeat before anything becomes UNKNOWN.
-Core marks expired active runs UNKNOWN. UNKNOWN releases the agent slot, but quarantines the
-project, workspace and known session. Owner reconciliation is explicit; no automatic runtime retry.
+passed, so after a wake every worker gets a full TTL to heartbeat before anything is declared lost.
+Run statuses are QUEUED, CLAIMED (a v2 run claimed but not started), RUNNING, CANCELLING, then ended as COMPLETED,
+FAILED or CANCELLED; the run's `outcome` says how it ended and alone decides recovery (reliable-recovery, see
+[task lifecycle](task-lifecycle.md#failure-retry-and-cancellation)). Only Core decides `lost`: an expired lease, a missed start
+window, a node restarted with a new epoch or an inventory without the run ends it FAILED `lost`. A lost run whose
+runtime may still run (a silent v2 node) stays `unreleased` and keeps its workspace slot, session and task until
+the node proves the runtime gone (a new epoch, which kills the old process groups first; a heartbeat without the
+run; its stop) or the owner resolves it; nothing else of the project waits for it. Ordinary tasks then retry
+automatically in the same workspace and session; tasks with external side effects are parked for inspection.
 Queued cancellation is immediate, running cancellation is observed within a heartbeat interval.
 
-SQLite has a unique writer index per workspace slot (`workspace_writer`) over active and unreleased UNKNOWN runs.
+SQLite has a unique writer index per workspace slot (`workspace_writer`) over active and unreleased lost runs.
 A worktree task run holds its own slot (`<project workspace>#task/<task>`), so tasks of one project run in parallel
 on nodes with worktrees; runs in the shared project workspace (shared or scratch mode, message runs, or a worktree
 run claimed by a node without worktrees or by a v1 worker) hold the project workspace and run one at a time
@@ -34,7 +40,7 @@ session.
 Workspace modes (agent `spec.workspace.mode`): `shared` and `scratch` runs use the project workspace through
 `workspace.Allocator` (`workspace.Local`) with a canonical-path advisory flock.
 Use one canonical host path per project: Core in Docker cannot resolve macOS symlink aliases.
-Do not register the same physical directory under aliases, particularly when reconciling UNKNOWN.
+Do not register the same physical directory under aliases, particularly when resolving a lost run.
 The `.factory-writer.lock` file may remain after release; flock state, not file existence, owns the lock.
 
 `worktree` runs (node `worktrees.enabled`; runs with a `task_id` and the project's `repo_url`) get one git worktree
@@ -90,8 +96,8 @@ stops claiming below the critical watermark, and a watchdog reaps runtime groups
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
 Worker events carry the Core lease. Core atomically persists an event and updates the run,
 then acknowledges broker delivery. SQLite event IDs deduplicate replay. Progress never revives
-terminal runs. Late terminal evidence may resolve UNKNOWN unless the owner already reconciled it.
-If broker event publication fails, Worker stops execution. Missing terminal evidence expires to UNKNOWN.
+terminal runs. Late terminal evidence replaces a Core-decided `lost` (or `timed_out`) end once.
+If broker event publication fails, Worker stops execution. Missing terminal evidence expires to `lost`.
 
 Streams use file storage; their retention is currently unbounded. Configure operational backups
 and retention before production use. Shared tokens/passwords protect trusted local components;

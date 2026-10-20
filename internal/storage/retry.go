@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	_ "time/tzdata" // company time zones on hosts without a zoneinfo database
 
 	"appfactory/internal/config"
 	"appfactory/internal/protocol"
@@ -59,6 +60,55 @@ func budgetDay(ctx context.Context, tx *Tx) (string, error) {
 	return tx.now().In(loc).Format("2006-01-02"), nil
 }
 
+// CompanyTimeZone returns the company's time zone (an IANA name; UTC by default).
+func (s *Store) CompanyTimeZone(ctx context.Context, company string) (string, error) {
+	var zone string
+	err := s.DB.QueryRowContext(ctx, "SELECT time_zone FROM companies WHERE id=?", company).Scan(&zone)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return zone, err
+}
+
+// SetCompanyTimeZone sets the company's time zone, the day of the daily budget.
+func (s *Store) SetCompanyTimeZone(ctx context.Context, company, zone string) error {
+	if _, err := time.LoadLocation(zone); err != nil || zone == "" || zone == "Local" {
+		return inputError("time_zone must be an IANA time zone name such as Europe/Berlin or UTC")
+	}
+	res, err := s.DB.ExecContext(ctx, "UPDATE companies SET time_zone=? WHERE id=?", zone, company)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// NoProgress lists the open tasks whose runs have made no progress (D2) since before the given time: the
+// first run after the task's last progress started then or earlier (reliable-recovery D8). The episode ends
+// with progress, which re-arms the alert.
+func (s *Store) NoProgress(ctx context.Context, company string, since time.Time) ([]Alert, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT t.id,min(r.created_at),count(*) FROM tasks t JOIN runs r ON r.company_id=t.company_id AND r.task_id=t.id
+ WHERE t.company_id=? AND t.status NOT IN ('DONE','CANCELLED','BACKLOG') AND r.created_at>coalesce(json_extract(t.body,'$.progress_at'),0)
+ GROUP BY t.id HAVING min(r.created_at)<=? ORDER BY t.id`, company, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Alert{}
+	for rows.Next() {
+		var id string
+		var first int64
+		var runs int
+		if err = rows.Scan(&id, &first, &runs); err != nil {
+			return nil, err
+		}
+		out = append(out, Alert{TaskID: id, Summary: fmt.Sprintf("no progress in %d runs since %s", runs, time.Unix(first, 0).UTC().Format(time.RFC3339))})
+	}
+	return out, rows.Err()
+}
+
 // recoverTask applies the outcome table to the task after its current run ended (called from
 // syncTaskRun once the task has its status). It counts the attempt and the budget, then either schedules
 // the retry (READY with not_before), escalates, or leaves the task as it is. A task still IN_PROGRESS on
@@ -85,7 +135,17 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	if err != nil {
 		return err
 	}
+	day, err := budgetDay(ctx, tx)
+	if err != nil {
+		return err
+	}
 	if outcome == "succeeded" {
+		if first, err := markRecovered(ctx, tx, runID); err != nil || !first {
+			return err
+		}
+		if err = countBudget(ctx, tx, t.ID, day); err != nil {
+			return err
+		}
 		// A success ends the failure streak; it resets the attempts only with progress (D2): an exit that
 		// moved exit_sha, or without git facts submit, done or a handoff to another agent. Without explicit
 		// exits every success counts as progress.
@@ -134,6 +194,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM escalations WHERE company_id=? AND task_id=? AND reason='inspect' AND ref_id=?", tx.company, t.ID, runID).Scan(&seen); err != nil || seen > 0 {
 			return err
 		}
+		if first, err := markRecovered(ctx, tx, runID); err != nil || !first {
+			return err
+		}
 		if !review {
 			t.Status, t.BlockReason = "READY", ""
 		}
@@ -148,16 +211,15 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	if unreleased {
 		return nil // the runtime may still run: the task waits for its node (releaseLost)
 	}
-	if err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared"); err != nil {
+	if first, err := markRecovered(ctx, tx, runID); err != nil || !first {
 		return err
 	}
-	day, err := budgetDay(ctx, tx)
-	if err != nil {
+	if err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared"); err != nil {
 		return err
 	}
 	// A loss to a new worker epoch is not the task's doing (D1): no budget.
 	if rule.Budget && !strings.Contains(result, "restarted (epoch") {
-		if _, err = tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=used+1", tx.company, t.ID, day); err != nil {
+		if err = countBudget(ctx, tx, t.ID, day); err != nil {
 			return err
 		}
 	}
@@ -209,6 +271,23 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(tx, t.Assignee)})
 	}
 	return saveTask(ctx, tx, &t, "task.retry")
+}
+
+// markRecovered records that the run's end is applied to its task now; false when it already was (an end
+// repeated by later events of the run).
+func markRecovered(ctx context.Context, tx *Tx, runID string) (bool, error) {
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET recovered=1 WHERE id=? AND recovered=0", runID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// countBudget counts a run's end against the task's budget for day.
+func countBudget(ctx context.Context, tx *Tx, task, day string) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=used+1", tx.company, task, day)
+	return err
 }
 
 // inspectsRun tells whether the run's end parks its task for inspection (D4): the task has side effects,
