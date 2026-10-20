@@ -107,7 +107,11 @@ func (c *Core) checkUnmerged(ctx context.Context) error {
 		return nil
 	}
 	c.lastUnmergedCheck = now
-	_, err := c.Store.ReportUnmergedBranches(ctx, c.company())
+	if _, err := c.Store.ReportUnmergedBranches(ctx, c.company()); err != nil {
+		return err
+	}
+	// OpenSpec changes nobody works on (core-owned-project-data D5), for the owner's default report.
+	_, err := c.Store.ReportOrphanChanges(ctx, c.company(), c.defaultReport())
 	return err
 }
 

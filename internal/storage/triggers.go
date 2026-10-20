@@ -207,6 +207,9 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 		if err := dependencyDone(ctx, tx, t); err != nil {
 			return err
 		}
+		if err := archiveChangeTask(ctx, tx, t); err != nil {
+			return err
+		}
 	}
 	if t.ParentTaskID == "" {
 		return nil
