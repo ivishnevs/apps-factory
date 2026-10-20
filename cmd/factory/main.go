@@ -34,14 +34,14 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] (scopes; one task: tasks pause|resume ID VERSION) | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] (scopes; one task: tasks pause|resume ID VERSION) | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate [--company C] | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	root := env("FACTORY_ROOT", ".")
 	// FACTORY_COMPANY is the company this Core (and the catalog commands) serve; --company overrides it.
 	company := env("FACTORY_COMPANY", storage.DefaultCompany)
-	if i := slices.Index(args, "--company"); i > 0 && i+1 < len(args) {
+	if i := slices.Index(args, "--company"); i >= 0 && i+1 < len(args) && len(args) > 2 {
 		company = args[i+1]
 		args = slices.Delete(args, i, i+2)
 	}
