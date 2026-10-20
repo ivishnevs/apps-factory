@@ -116,8 +116,8 @@ It runs `src/runtime.ts` (the SDK adapter); bus, claim and heartbeat belong to t
 | `activity{kind, data}` | every SDK message; `kind` is the progress `method`, `data` the redacted message |
 | `quota{resets_at?, rate_limit_type?}` | `rate_limit_event` with `rate_limit_info.status: rejected` |
 | `auth_error{reason, api_key_source?}` | `apiKeySource` other than `none` without `allow_api_key`; assistant `error` of `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `verification_required` |
-| `usage{model, input, output, cache_read, cache_write}` | `result.modelUsage`, one line per model, cumulative for the query |
-| `cost{usd, source: "claude_estimate"}` | `result.total_cost_usd`, cumulative |
+| `usage{model, input, output, cache_read, cache_write}` | running sums of the assistant messages (no cost), then `result.modelUsage` with `cost_usd`, one line per model; cumulative for the run: on resume, less the transcript's last `cost-state` entry, which Claude Code restores into `modelUsage` |
+| `cost{usd, source: "claude_estimate"}` | `result.total_cost_usd`, cumulative for the run (on resume, less the `cost-state` total) |
 | `max_turns{num_turns}` | FAILED result with subtype `error_max_turns` |
 | `error{class, terminal_reason?, api_error_status?, message?}` | other FAILED results (`class` = result subtype, `api_error` for `success` with `is_error`), or a runtime failure (`launch`, `executable`, `startup_timeout`, `mcp_unavailable`, `session_mismatch`, `no_result`, `interrupt_timeout`, `interrupt_unknown`, `not_started`, `runtime`) |
 | `result{status, result, session_id?}` | always the last line, exactly once; status as in the table above (UNKNOWN after any runtime failure) |

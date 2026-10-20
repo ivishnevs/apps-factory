@@ -3,6 +3,10 @@
 ### Requirement: One node process with worker slots
 Each machine SHALL run one node process that registers with Core under a boot epoch and executes up to its configured number of runs concurrently in worker slots, using one Core connection and one NATS connection.
 
+#### Scenario: Relative paths in node.yaml
+- **WHEN** node.yaml names `state_dir: data/factory-node` (or another relative path: worktrees root, token, shim, NATS files) and the node starts from the checkout
+- **THEN** the node SHALL resolve each to an absolute path against its working directory at config load, so a conversation run's directory and every path derived from them are absolute
+
 #### Scenario: Node restart
 - **WHEN** a node restarts with a new epoch while runs of the previous epoch were unended
 - **THEN** the node SHALL seal their worktrees before registering, and Core SHALL end those runs as `lost` without counting them against the daily budget
@@ -101,3 +105,10 @@ requiring Core.
 #### Scenario: Diagnose a new machine
 - **WHEN** the owner runs `factory node doctor` on a machine with an outdated Codex version
 - **THEN** the table shows the runtime check failed with the supported range and how to update
+
+### Requirement: Conversation runs in their own directory
+A conversation run SHALL run in a per (company, project, agent) conversation directory under the node's state_dir, SHALL NOT take the shared workspace's writer lock, a task worktree or a branch, SHALL get its project data and manifest materialized there, and SHALL receive the project workspace read-only by path (`FACTORY_PROJECT_WORKSPACE`). Its session SHALL resume only in the directory where it ran.
+
+#### Scenario: Writer run active
+- **WHEN** a conversation run is claimed while the project's writer run holds the shared workspace lock
+- **THEN** the conversation run SHALL start in its conversation directory instead of ending `setup_failed`

@@ -143,7 +143,8 @@ var reservedCompanies = map[string]bool{"agents": true, "profiles": true, "polic
 
 // CompanyDir is the directory, relative to root, of company's catalog (postgres-tenancy D3): configs/ for the
 // default company, configs/<company>/ for any other. Each holds agents/, profiles/, policies/, node-hooks/,
-// quota_keys.yaml and company.yaml; skills.yaml and prices.yaml stay shared in configs/.
+// quota_keys.yaml, company.yaml and skills.yaml (its skills registry; none: the company has no skills, with
+// no fallback to configs/skills.yaml); prices.yaml stays shared in configs/.
 func CompanyDir(company string) (string, error) {
 	switch {
 	case company == "" || company == DefaultCompany:
@@ -167,7 +168,7 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 		return nil, err
 	}
 	c := &Catalog{Agents: map[string]Agent{}, Profiles: map[string]Agent{}}
-	c.Skills, err = skills.Load(root)
+	c.Skills, err = skills.Load(filepath.Join(root, dir))
 	if err != nil {
 		return nil, err
 	}

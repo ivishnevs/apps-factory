@@ -2,9 +2,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 
+	"appfactory/internal/approvals"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
@@ -56,8 +58,10 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 		return nil
 	}
 	why := kind + " from " + actor
-	if err := clearParks(ctx, tx, *t, tasks.ParkChildren, anyRef, "overridden"); err != nil {
-		return err
+	if kind != "approval_decided" {
+		if err := clearParks(ctx, tx, *t, tasks.ParkChildren, anyRef, "overridden"); err != nil {
+			return err
+		}
 	}
 	waiting, err := askPark(ctx, tx, tx.company, t.ID)
 	if err != nil {
@@ -77,6 +81,11 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 		if err = clearParks(ctx, tx, *t, tasks.ParkAsk, anyRef, "overridden"); err != nil {
 			return err
 		}
+	}
+	if kind == "approval_decided" {
+		// An approval decision wakes the requesting task from its wait or ask (addTrigger and above) but redirects
+		// nothing else: blocks, escalations and a lost run's retry backoff stay (no progress).
+		return nil
 	}
 	if err = clearRetryEscalations(ctx, tx, *t, why); err != nil {
 		return err
@@ -255,13 +264,16 @@ func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 // artifactApproved fires the authority trigger artifact_approved on open tasks of the project that require
 // the version or are pinned to the artifact (they require, and their runs pin, another version of it: a new
 // approved version is input for them, explicit-exits-authority D6). urgent stops their live runs like an
-// urgent directive.
-func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID string, urgent bool) error {
+// urgent directive. The requesting task (requester) is woken by approvalDecided instead.
+func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID, requester string, urgent bool) error {
 	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED') ORDER BY status,priority DESC,created_at,id", tx.company, project)
 	if err != nil {
 		return err
 	}
 	for _, t := range open {
+		if t.ID == requester {
+			continue
+		}
 		text := ""
 		for _, ref := range t.RequiredArtifacts {
 			if sameArtifact(a, ref) {
@@ -283,6 +295,40 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// approvalDecided fires the authority trigger approval_decided on the open task that requested the approval
+// (approval.task_id) when the owner approves or rejects it: the decision is the owner's input on that task, so
+// it overrides its wait and ask parks like a directive (explicit-exits-authority D7) and the next brief shows
+// it with the reason. An urgent artifact approval stops the task's live run as in artifactApproved.
+func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent bool) error {
+	if a.TaskID == "" {
+		return nil
+	}
+	t, err := taskTx(ctx, tx, a.TaskID)
+	if errors.Is(err, ErrNotFound) || err == nil && (t.Status == "DONE" || t.Status == "CANCELLED") {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	what := "approval " + a.ID
+	switch {
+	case a.Kind == "artifact" && a.Artifact != nil:
+		what = "artifact approval " + a.ID + " of " + a.Artifact.ID + "@" + a.Artifact.Version
+	case a.Kind == "command":
+		what = "command approval " + a.ID
+	case a.Call.Name != "":
+		what = "approval " + a.ID + " of " + a.Call.Name
+	}
+	text := what + " " + strings.ToLower(a.Status) + " by the owner: " + a.DecisionReason
+	if err = addTrigger(ctx, tx, &t, "approval_decided", true, "owner", a.ID, text); err != nil {
+		return err
+	}
+	if urgent && a.Kind == "artifact" && a.Status == "APPROVED" {
+		return stopUrgently(ctx, tx, t, "artifact_approved")
 	}
 	return nil
 }

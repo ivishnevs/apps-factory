@@ -272,7 +272,10 @@ transaction; the scheduler dispatches only a `runnable` verdict and claim re-eva
 Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agent), `live_run`, parks
 (`parked:escalation` — an open escalation: retries or budget exhausted, inspection of a side-effect task, a
 stall; `parked:inspect` — a park from before migration 0029;
-`parked:ask` — unanswered blocking question; `parked:block` — manual or OpenSpec block), `dependencies`,
+`parked:ask` — unanswered blocking question; `parked:block` — manual or OpenSpec block, or the node's worktree
+reset (cleared by `node`); `parked:children` — `factory_exit_block on_children`, cleared by the open children's
+assignees (`agent:a,agent:b`, or `children` when unassigned): wait for them to close, or release it early with
+`factory tasks ready ID VERSION`), `dependencies`,
 `artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK, a READY task without an
 unhandled trigger, and other states that wait for an explicit action), `capacity` (the agent is busy on another
 task, or another task's run — including a lost one whose runtime may still run — holds the project workspace's
@@ -384,7 +387,10 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
 - `stalled` — the task depends on a task that is in BACKLOG, has no assignee, or was cancelled (a cancelled
   dependency never becomes DONE). This opens an **escalation** (below) per (task, dependency), answers
   `unblock` (stop waiting on that dependency) or `cancel` (cancel the waiting task); it clears itself when the
-  dependency is assigned and released, or closes.
+  dependency is assigned and released, or closes. A task parked on its children (`parked:children`) stalls the
+  same way on an open child in BACKLOG or without an assignee ("waits on its child X, which is in BACKLOG"): one
+  escalation per (task, child) to the assignee's manager, cleared when the child is assigned and released or
+  closes; `unblock` releases the parent from its children park.
 - `idle` — the task has an assignee and its `why` reason has been `idle` for 24 hours: one attention feed event
   `task.alert.idle` per episode (`task_alerts`, migration 0012), cleared with `task.alert_cleared.idle`.
 - `no_progress` — the task's runs have made no progress (Failure, retry and cancellation) for 8 hours since

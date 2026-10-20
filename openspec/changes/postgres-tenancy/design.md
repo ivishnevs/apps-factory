@@ -47,3 +47,8 @@ Dropped by owner decision: no SQLite database is kept, so there is nothing to im
 - Postgres adds a service to run locally → one more container in `compose.yaml`, healthcheck before Core starts.
 - Behaviour that silently depended on the single SQLite connection may race → D4 lock on every decide-then-write transaction; concurrency tests run scheduler, claim and expiry in parallel against a real Postgres.
 - Company prefix in NATS subjects changes subject names → workers and Core are upgraded together; the old streams are drained before switching.
+
+## Amendments
+
+- 2026-10-20: `factory serve` registers the served company (`FACTORY_COMPANY`) in the default account when it does not exist (`Store.EnsureCompany`; a concurrent create by another Core counts as success), so a Core for a new catalog such as `configs/smoke/` starts instead of exiting "company not found" (278c47e).
+- 2026-10-20: the skills registry is per company like the rest of the catalog: `configs/skills.yaml` for `default`, `configs/<company>/skills.yaml` for another, SKILL.md paths absolute or relative to that catalog directory (they may lead outside the factory root); no fallback to `configs/skills.yaml`. Prices stay shared (a4ebf62; agent-config amendment).

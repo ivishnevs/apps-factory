@@ -161,3 +161,65 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 		t.Fatal("idle alert repeated", n)
 	}
 }
+
+// TestStallChildrenPark: a task parked on its children (factory_exit_block on_children) stalls on an open child
+// in BACKLOG or without an assignee: the same self-clearing stalled escalation to the parent's manager; releasing
+// the child clears it.
+func TestStallChildrenPark(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	h.create("parent", "notes", "demo")
+	if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: "kid", ProjectID: "notes", Title: "kid", Assignee: "calorie-ios", ParentTaskID: "parent", RequestID: "kid"}); err != nil {
+		t.Fatal(err)
+	}
+	r := h.start("parent")
+	h.callOK(r, "factory_exit_block", map[string]any{"on_children": true, "reason": "after the kid"})
+	h.end(r, "succeeded", "accepted")
+	open := func() []storage.Escalation {
+		t.Helper()
+		h.fake.Advance(time.Minute)
+		if err := h.c.sweepStalls(ctx); err != nil {
+			t.Fatal(err)
+		}
+		all, err := h.s.Escalations(ctx, co, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []storage.Escalation
+		for _, e := range all {
+			if e.Reason == "stalled" && e.TaskID == "parent" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	got := open()
+	if len(got) != 1 || got[0].RefID != "kid" || got[0].Summary != "waits on its child kid, which is in BACKLOG" || got[0].Target != "manager" {
+		t.Fatalf("%+v", got)
+	}
+	if again := open(); len(again) != 1 || again[0].ID != got[0].ID {
+		t.Fatalf("not one escalation per episode: %+v", again)
+	}
+	if _, err := h.s.TaskAction(ctx, co, "kid", tasks.Action{Version: h.task("kid").Version, Action: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	if left := open(); len(left) != 0 {
+		t.Fatalf("released child left the escalation open: %+v", left)
+	}
+	// An unassigned child: the answer unblock releases the parent from its children park.
+	if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: "orphan", ProjectID: "notes", Title: "orphan", ParentTaskID: "parent", RequestID: "orphan"}); err != nil {
+		t.Fatal(err)
+	}
+	got = open()
+	if len(got) != 1 || got[0].RefID != "orphan" || !strings.Contains(got[0].Summary, "child orphan, which") {
+		t.Fatalf("%+v", got)
+	}
+	q, _ := h.s.Message(ctx, co, got[0].MessageID)
+	if _, err := h.s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "go on", Answers: map[string]any{"answer": "unblock"}, RequestID: "unblock"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.task("parent"); p.Status != "READY" || h.parkStatus("parent", tasks.ParkChildren) != "overridden" {
+		t.Fatalf("%+v %s", p, h.parkStatus("parent", tasks.ParkChildren))
+	}
+}

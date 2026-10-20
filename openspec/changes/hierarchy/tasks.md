@@ -17,3 +17,7 @@
 ## 4. Templates and docs
 - [x] 4.1 Update `configs/agents/*` with `reports_to`, `configs/policies/*` with categories, and manager prompts. Verify: `factory config validate`. Done: `reports_to` in every agent (top managers explicitly `owner`), `configs/company.yaml` (`owner.default_report: manager`), calorie-project `escalate_after: 2h` for marketing, hierarchy guidance in `prompts/manager.md` and `prompts/calorie-manager.md`; `factory config validate` passes.
 - [x] 4.2 Update `docs/messaging.md`, `docs/reports-decisions.md`, `docs/agent-configuration.md`. Verify: docs describe the tree, routing and locked categories. Done: messaging (conversation tasks, decision answers, `POST /messages`), reports-decisions (decisions up the tree, locked categories), agent-configuration (escalate_after, authority actions, default report, watchers), task-lifecycle and factory-mcp (authority actions).
+
+## Notes
+- 2026-10-20: conversation runs exit without repository facts in projects with a repository (`TestConversationExitWithoutFacts`).
+- 2026-10-20: conversation runs run in `<state_dir>/conversations/<company>/<project>/<agent>` beside the project's writer, without the writer lock or a task worktree (bc070e8, `TestJetStreamConversationBesideWriter`, `TestJetStreamConversationNoWorktree`; design D5 note).

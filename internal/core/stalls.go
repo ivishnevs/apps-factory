@@ -58,6 +58,20 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 				stalled = append(stalled, storage.EscalationWant{TaskID: t.ID, RefID: d.ID, Summary: fmt.Sprintf("waits on %s, which %s", d.ID, why)})
 			}
 		}
+		// A task parked on its children (Snapshot.Children, loaded with the park) stalls on an open child that
+		// cannot move on its own; a closed child releases the parent, so only open ones count.
+		for _, ch := range s.Children {
+			why := ""
+			switch {
+			case ch.Status == "BACKLOG":
+				why = "is in BACKLOG"
+			case ch.Assignee == "":
+				why = "has no assignee"
+			}
+			if why != "" {
+				stalled = append(stalled, storage.EscalationWant{TaskID: t.ID, RefID: ch.ID, Summary: fmt.Sprintf("waits on its child %s, which %s", ch.ID, why)})
+			}
+		}
 		if v := c.evaluate(s); v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
 		}

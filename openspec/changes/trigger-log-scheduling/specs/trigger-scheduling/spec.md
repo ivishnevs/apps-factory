@@ -29,6 +29,14 @@ Core SHALL decide whether a task may run with one pure function over a snapshot 
 - **WHEN** a task has an active wait park and an active escalation park
 - **THEN** its reason SHALL be `parked:escalation`
 
+#### Scenario: Parked on children
+- **WHEN** a task is parked on its open children
+- **THEN** its clearer SHALL name the children's assignees (`agent:<name>`, or `children` when unassigned) and the action to wait for the named children to close or to release it early with `factory tasks ready`, not the owner
+
+#### Scenario: Waiting for a worktree reset
+- **WHEN** a task's block park waits for its node to reset a diverged worktree
+- **THEN** its clearer SHALL be `node`
+
 ### Requirement: Dispatcher and reconciler
 The dispatcher SHALL create a run and an outbox command for each runnable task without a live run. The reconciler SHALL republish commands for queued runs that were not claimed within the redelivery interval and SHALL end queued runs older than the queue TTL without counting an attempt.
 

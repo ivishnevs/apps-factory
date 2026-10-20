@@ -34,8 +34,9 @@ type Config struct {
 	StateDir string `yaml:"state_dir"`
 	// BinDir holds factory-mcp and factory-shim and is the base of the built Claude shim; empty is the executable's directory.
 	BinDir string `yaml:"bin_dir"`
-	// SkillsRoot is the factory checkout whose configs/skills.yaml and skill directories are materialized
-	// for runs (pinned by hash); empty is <bin_dir>/.., else the working directory.
+	// SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml, or
+	// configs/<company>/skills.yaml) and skill directories are materialized for runs (pinned by hash); empty is
+	// <bin_dir>/.., else the working directory.
 	SkillsRoot string  `yaml:"skills_root"`
 	Drivers    Drivers `yaml:"drivers"`
 	// Probes: how often the node re-checks its drivers (runtime-drivers D4).
@@ -206,7 +207,38 @@ func LoadConfig(path string) (Config, error) {
 		}
 		return c, err
 	}
+	if err := c.Absolute(); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+// Absolute resolves node.yaml's relative paths against the working directory the node starts in (as the
+// docs' `state_dir: data/...` examples read when the node starts from the checkout), so nothing downstream
+// sees a relative path (a conversation run's directory once its runtime runs elsewhere, filepath.Rel against
+// a repository top level). A driver binary or executable is resolved only when it names a path (holds a
+// separator); a bare name stays a PATH lookup.
+func (c *Config) Absolute() error {
+	abs := func(p *string) error {
+		if *p == "" || filepath.IsAbs(*p) {
+			return nil
+		}
+		a, err := filepath.Abs(*p)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", *p, err)
+		}
+		*p = a
+		return nil
+	}
+	cmd := func(p *string) error {
+		if !strings.ContainsRune(*p, filepath.Separator) {
+			return nil
+		}
+		return abs(p)
+	}
+	return errors.Join(abs(&c.StateDir), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
+		abs(&c.TokenFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
+		abs(&c.NATS.CredsFile), abs(&c.NATS.NkeySeedFile), abs(&c.NATS.TLS.CAFile), abs(&c.NATS.TLS.CertFile), abs(&c.NATS.TLS.KeyFile))
 }
 
 var (

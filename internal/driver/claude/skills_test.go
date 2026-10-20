@@ -118,3 +118,20 @@ func TestSkillsConflict(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// TestExcludeRelativeCwd: a relative cwd inside a repository (a relative state_dir) is excluded, not
+// refused by filepath.Rel against the absolute top level.
+func TestExcludeRelativeCwd(t *testing.T) {
+	cwd, _, _ := skillsFixture(t)
+	t.Chdir(cwd)
+	if err := os.MkdirAll("data/conv", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := exclude("data/conv", []string{"openspec"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(cwd, ".git", "info", "exclude"))
+	if err != nil || !strings.Contains(string(b), "/data/conv/.claude/skills/openspec/") {
+		t.Fatalf("exclude %q %v", b, err)
+	}
+}

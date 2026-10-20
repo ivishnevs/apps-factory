@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"appfactory/internal/tasks"
 )
@@ -181,6 +182,15 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 			return snap, err
 		}
 		snap.Dependencies = append(snap.Dependencies, tasks.Dependency{ID: d.ID, Status: d.Status})
+	}
+	if slices.ContainsFunc(snap.Parks, func(p tasks.Park) bool { return p.Kind == tasks.ParkChildren }) {
+		children, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (body->>'parent_task_id')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id LIMIT 20", tx.company, t.ID)
+		if err != nil {
+			return snap, err
+		}
+		for _, c := range children {
+			snap.Children = append(snap.Children, tasks.Child{ID: c.ID, Status: c.Status, Assignee: c.Assignee})
+		}
 	}
 	for _, ref := range t.RequiredArtifacts {
 		a, err := artifactApprovalTx(ctx, tx, t.ProjectID, ref.ID, ref.Version)

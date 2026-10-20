@@ -71,6 +71,7 @@ func TestArtifactUploadBindsApprovalToContent(t *testing.T) {
 		t.Fatal("factory URI without content")
 	}
 	h.end(r, "succeeded", "none")
+	h.cancel("design") // the producer is finished; the decision would wake it otherwise (approval_decided)
 
 	if _, err = h.s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ID: "qa", ProjectID: "notes", Title: "qa", Assignee: "reviewer", RequiredArtifacts: []tasks.Artifact{ref}, Ready: true, RequestID: "create-qa"}); err != nil {
 		t.Fatal(err)

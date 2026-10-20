@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -35,6 +36,8 @@ const (
 	ParkAsk        = "ask"
 	ParkBlock      = "block"
 	ParkChildren   = "children"
+	// ParkRefResetWorkspace is the ref of the block park that waits for the node to reset a diverged worktree.
+	ParkRefResetWorkspace = "reset_workspace"
 )
 
 var parkOrder = []string{ParkEscalation, ParkInspect, ParkWait, ParkAsk, ParkBlock, ParkChildren}
@@ -77,6 +80,13 @@ type Dependency struct {
 	Status string `json:"status"`
 }
 
+// Child is an open child task (parent_task_id) of a task parked on its children.
+type Child struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Assignee string `json:"assignee,omitempty"`
+}
+
 // Snapshot is everything Evaluate reads; storage loads it, Core adds catalog facts.
 type Snapshot struct {
 	Task Task
@@ -93,6 +103,8 @@ type Snapshot struct {
 	WakeSeq, HandledSeq int64
 	Pending             []Trigger
 	Dependencies        []Dependency
+	// Children are the task's open children, loaded when it has a children park (they clear it).
+	Children []Child
 	// UnapprovedArtifacts are required artifact versions without a current owner approval.
 	UnapprovedArtifacts []Artifact
 	// Paused are the pauses covering the task: "company", "project:<id>", "agent:<name>",
@@ -272,7 +284,27 @@ func park(s Snapshot, kind string) (Verdict, bool) {
 		case ParkAsk:
 			return hold(p.Reason, p.Who, "answer message "+p.RefID)
 		case ParkBlock:
+			if p.RefID == ParkRefResetWorkspace {
+				return hold(p.Reason, "node", "the node resets the worktree from the remote branch; the task runs again on its reset_done")
+			}
 			return hold(p.Reason, p.Who, "remove the cause, then factory tasks ready "+t.ID+" VERSION")
+		case ParkChildren:
+			// The children's assignees close it, not the owner; an authority may release it early.
+			var ids, who []string
+			for _, c := range s.Children {
+				ids = append(ids, c.ID)
+				if c.Assignee != "" && !slices.Contains(who, "agent:"+c.Assignee) {
+					who = append(who, "agent:"+c.Assignee)
+				}
+			}
+			if len(who) == 0 {
+				who = []string{"children"}
+			}
+			what := "its open children"
+			if len(ids) > 0 {
+				what = strings.Join(ids, ", ")
+			}
+			return hold(p.Reason, strings.Join(who, ","), "wait for "+what+" to close (or factory tasks ready "+t.ID+" VERSION to release it early)")
 		case ParkWait:
 			return hold(p.Reason, "time", "wakes at its time; a directive or authority comment wakes it now (factory comment "+t.ID+" TEXT)")
 		default:

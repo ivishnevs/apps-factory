@@ -1,0 +1,6 @@
+# Skills registry of company smoke (configs/smoke/): paths to SKILL.md are relative to this directory or absolute.
+skills:
+  openspec:
+    path: ../../skills/openspec/SKILL.md
+    description: Read project specifications and keep implementation changes aligned with OpenSpec.
+    categories: [planning, documentation]

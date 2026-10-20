@@ -8,3 +8,6 @@
 - [x] Test independent task acceptance, versions, role names, persistence, deny, expiry, revocation and quarantine.
 - [x] Verify real Codex v1 approval, v2 rejection, v3 revision and Core restart.
 - [x] Document semantics, migration, operational limits and content-addressed references.
+
+## Notes
+- 2026-10-20: the requesting task of an artifact approval wakes on the owner decision (approve or reject) with the authority trigger `approval_decided`; requirement and scenarios in explicit-exits-authority `authority-input` (`TestApprovalDecisionWakesRequester`).

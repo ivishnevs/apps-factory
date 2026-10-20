@@ -7,6 +7,10 @@ The node SHALL run agents only through a driver interface that declares capabili
 - **WHEN** an agent requests a browser on a runtime whose driver lacks the browser capability
 - **THEN** configuration validation SHALL fail with the agent and option named
 
+#### Scenario: Effort and turn limit
+- **WHEN** an agent sets `runtime.effort` and, on Claude, `runtime.max_turns`
+- **THEN** the run's `runtime_options` SHALL carry them (Codex sends effort with `turn/start`, Claude passes `effort` and `maxTurns`), an unknown effort, a `max_turns` below 1 or `max_turns` on Codex SHALL fail validation, and unset values SHALL be omitted
+
 ### Requirement: Codex and Claude drivers
 The factory SHALL provide a Codex app-server driver and a Claude driver managed by the same node process, with runtime and model chosen per agent. The Claude driver SHALL run the Agent SDK in a per-run child process and SHALL NOT implement claim, lease or heartbeat logic. Both drivers SHALL use the shared MCP adapter, exit guard, command guards and cost accounting.
 
@@ -42,6 +46,10 @@ The node SHALL report the last known usage with the run end, and Core SHALL stor
 #### Scenario: Interrupted run
 - **WHEN** a run is revoked after consuming tokens
 - **THEN** the run record SHALL contain the usage last reported for it
+
+#### Scenario: Developer resumes after a Codex review
+- **WHEN** a Claude developer's task returns to it after a Codex reviewer's run
+- **THEN** the developer's run SHALL carry the developer's last Claude session of the task, not the reviewer's Codex thread
 
 ### Requirement: Claude subscription limits are quota events
 A Claude rate-limit event with status rejected SHALL be reported as a quota event carrying its reset time and SHALL NOT be reported as a failed attempt.

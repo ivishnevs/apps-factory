@@ -77,7 +77,7 @@ func skillRegistry(t *testing.T) (*skills.Registry, string) {
 	t.Helper()
 	root := t.TempDir()
 	for p, data := range map[string]string{
-		"configs/skills.yaml":                 "skills:\n  openspec:\n    path: skills/openspec/SKILL.md\n    description: Specs.\n    categories: [planning]\n",
+		"configs/skills.yaml":                 "skills:\n  openspec:\n    path: ../skills/openspec/SKILL.md\n    description: Specs.\n    categories: [planning]\n",
 		"skills/openspec/SKILL.md":            "---\nname: openspec\ndescription: Specs.\n---\nbody\n",
 		"skills/openspec/references/guide.md": "guide\n",
 	} {
@@ -88,7 +88,7 @@ func skillRegistry(t *testing.T) (*skills.Registry, string) {
 			t.Fatal(err)
 		}
 	}
-	r, err := skills.Load(root)
+	r, err := skills.Load(filepath.Join(root, "configs"))
 	if err != nil {
 		t.Fatal(err)
 	}

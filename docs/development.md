@@ -39,8 +39,8 @@ the same IDs (deduplicated by JetStream, idempotent at consumers).
 
 Catalog per company: `configs/` is the `default` company's catalog; another company's lives in
 `configs/<company>/` with the same layout (`agents/`, `profiles/`, `policies/`, `node-hooks/`, `quota_keys.yaml`,
-`company.yaml`). `configs/skills.yaml` and `configs/prices.yaml` are shared, prompt files are paths relative to
-the root. `factory config validate --company X` (or `FACTORY_COMPANY=X`) checks one company's catalog; agents of
+`company.yaml`, `skills.yaml` — the company's skills registry, no fallback to `configs/skills.yaml`; see
+[skills](skills.md)). `configs/prices.yaml` is shared, prompt files are paths relative to the root. `factory config validate --company X` (or `FACTORY_COMPANY=X`) checks one company's catalog; agents of
 the same name in two companies are independent.
 
 NATS subjects carry the company: `factory.<company>.commands.agent.run.<driver>` (stream `FACTORY_COMMANDS`,
@@ -230,7 +230,10 @@ enabled driver must pass its version check and probe at start (see Driver checks
 for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
-errors.
+errors. Relative paths (`state_dir`, `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `token_file`,
+`drivers.claude.shim`, the NATS creds, seed and TLS files, and a driver `binary`/`executable` that holds a `/`)
+resolve against the working directory the node starts in, not the config file's directory: start it from the
+checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
 
 ```yaml
 name: mini-1                 # default: host name; a label only (v2 identifies the node by node_id)
@@ -242,7 +245,7 @@ token_file: /etc/factory/node.token  # node token (factory nodes token create); 
 runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)
 state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
-skills_root: /opt/factory    # configs/skills.yaml + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
+skills_root: /opt/factory    # its company catalog's skills.yaml (configs/[<company>/]skills.yaml) + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
 drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
@@ -310,7 +313,8 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   turned for 2 minutes is restarted. Busy slots are bounded by the run timeout, not by this check.
 
 - Skills (runtime-drivers 2.3): a run's offered skills (`RunSpec.skills`) are copied from the node's registry
-  (`skills_root`/`configs/skills.yaml`; without it runs get no skills, logged at start) into a temporary directory
+  (`skills_root`/`configs/skills.yaml`, or `configs/<company>/skills.yaml` for the node's `company`; without it runs
+  get no skills, logged at start) into a temporary directory
   outside the workspace, and each copy's content hash (`sha256:` over the skill directory's regular files and
   names, `skills.Hash`) is checked against the hash pinned on the run. A mismatch, or a skill this node lacks, ends
   the run `setup_failed` before the runtime starts (`skills: … (refused before runtime startup)`). Core pins the

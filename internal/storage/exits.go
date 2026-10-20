@@ -171,7 +171,12 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err = tx.QueryRowContext(ctx, "SELECT abandon_branch FROM workspaces WHERE company_id=? AND task_id=?", company, t.ID).Scan(&abandoned); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return out, err
 	}
-	if r := checkFacts(req, p.RepoURL != "", abandoned); r != nil {
+	if t.Kind == tasks.KindConversation {
+		// A conversation run works in its own conversation directory and owns no branch or PR (hierarchy D5):
+		// no git facts are collected or required, whatever the project's repository.
+		req.Facts = nil
+	}
+	if r := checkFacts(req, p.RepoURL != "" && t.Kind != tasks.KindConversation, abandoned); r != nil {
 		return out, r
 	}
 	if req.Kind == "done" && p.ReviewAfterConflicts == "required" && !abandoned && req.Facts != nil && req.Facts.PR != nil {

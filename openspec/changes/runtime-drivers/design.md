@@ -48,3 +48,8 @@ Each driver declares a supported range. Codex: from the verified 0.162.1 up to t
 - A Node child per Claude run adds a process and a startup cost → negligible next to model latency; the shim holds no state between runs.
 - Two runtimes double the protocol surface → shared adapter, guard and accounting code; drivers stay thin.
 - Subscription terms for automated use → the owner decides per quota key; the driver supports both subscription login and API key configuration.
+
+## Amendments
+
+- 2026-10-20: `spec.runtime.effort` (`low|medium|high|xhigh|max`, Codex and Claude) and `spec.runtime.max_turns` (Claude, at least 1) reach the run's `runtime_options` when set; the Codex driver reads `effort` and sends it on `turn/start` (20483a4).
+- 2026-10-20 (resume): dispatch carries the assignee's own last session of the task, so a developer keeps its session across a reviewer of another provider (0355740; reliable-recovery D3 amendment).

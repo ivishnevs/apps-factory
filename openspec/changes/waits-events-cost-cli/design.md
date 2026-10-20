@@ -28,6 +28,8 @@ Each feed row also produces an outbox message on `factory.<company>.feed.<projec
 ### D5. Cost ledger
 `run_costs(company_id, run_id, task_id, agent, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_source: reported|price_table|none, recorded_at)` — exactly one row per ended run, including revoked, failed, timed-out and lost runs, built from the usage stored on the run (`runtime-drivers`); a migration backfills rows for runs that ended before this change. When the runtime reports no cost, `cost_usd` is computed from `configs/<company>/prices.yaml` (model → prices per million tokens) with `cost_source = price_table`, else `none` with tokens only. Figures are API-equivalent for comparison and waste detection, not billing. Limits remain run counts (daily budget); money budgets are later.
 
+A row is the run's own usage. Usage lines are cumulative for the run and replace each other per model (running usage, then the final usage). Runtimes report a resumed session cumulatively over its runs, so the driver subtracts the session's usage before the run: Codex the thread total before the turn; Claude the transcript's last `cost-state` entry, which Claude Code restores into `result.modelUsage` and `total_cost_usd` on resume. Found live on 2026-10-20 (tictactoe, company tvorog): 26 runs, ledger $14.32 with session snapshots stored per run (a developer session of three runs recorded $1.76 + $1.87 + $2.03 against a session total of $2.03); per-run deltas give $6.91, and the tokens equal the transcripts' deduplicated assistant usage exactly. The ledger, not a transcript recomputation, is authoritative: a recomputation at assumed list prices gave $7.96 because it prices Opus 5.5 differently from the SDK (Sonnet agrees to the cent).
+
 ### D6. Owner CLI
 `cmd/factory`, user token, owner API only; plain text by default, `--json` for scripts:
 - `watch` — live view refreshed every few seconds: each agent (working on T for 12 min / idle / paused / waiting, last step) and below it the feed ("T-50 developer → reviewer (submit)", "T-48 done", "T-51 waiting for your answer", "T-47 failed, retry in 5 min").
@@ -45,3 +47,7 @@ Each feed row also produces an outbox message on `factory.<company>.feed.<projec
 - Agents may wait in short loops → minimum interval, episode limit and the daily budget.
 - Telegram noise → attention only plus one digest; everything else is in `watch`/`log`.
 - Price tables go stale → `cost_source` shows how a figure was computed.
+
+## Amendments
+
+- 2026-10-20 (model label): a run's ledger model is the model with the most tokens, cache reads and writes included; counting only input and output named Claude Code's auxiliary Haiku calls. Migration 0003 relabels recorded rows (the cost does not depend on the label) (0355740).

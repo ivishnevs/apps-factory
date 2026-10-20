@@ -52,3 +52,8 @@ Access rules gain `commands: [glob patterns]` (matched against argv[0] basename 
 - One process is a single point of failure per machine → slots are isolated goroutines with their own process groups; a node crash is a new epoch with sealing on restart.
 - Resource needs declared per agent, not per run → conservative defaults; mid-run requests are out of scope.
 - Hooks are arbitrary commands → they are company template data, reviewed like code; timeouts and logs per hook.
+
+## Amendments
+
+- 2026-10-20: node.yaml paths (`state_dir`, `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `token_file`, `drivers.claude.shim`, NATS creds/seed/TLS files, a driver binary or executable holding a `/`) resolve to absolute at config load against the working directory the node starts in (what the `state_dir: data/...` examples expect), not the config file directory. A relative state_dir broke conversation runs (`filepath.Rel` against an absolute repository top level).
+- 2026-10-20: conversation runs (`RunSpec.conversation`, hierarchy D5) run in `<state_dir>/conversations/<company>/<project>/<agent>`: no writer flock, no task worktree or branch; project data and `.factory/manifest.json` are materialized there; the project workspace is passed by path (`FACTORY_PROJECT_WORKSPACE` and an instructions note). Session records keep their directory; a session resumes only where it ran (bc070e8).

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { AccountInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { probe, runShim, sdkVersion, type Launch, type ShimEvent } from "../src/shim.js";
+import { costBaseline, probe, runShim, sdkVersion, type Launch, type ShimEvent } from "../src/shim.js";
 import type { QueryFn } from "../src/runtime.js";
 
 // Recorded SDK message streams shared with internal/driver/claude (Go) tests. Each scenario is
@@ -167,6 +167,54 @@ test("recorded resume: persisted session is resumed", async () => {
   assert.equal(seen.options!.sessionId, undefined);
   assert.deepEqual(events[0], { event: "session", id: s.launch.spec.session_id });
   assert.equal(last(events).status, "COMPLETED");
+});
+
+test("resumed session: usage and cost are the run's own, less the transcript's last cost-state", async () => {
+  const s = JSON.parse(readFileSync(new URL("resume.json", TESTDATA), "utf8")) as Scenario;
+  const id = s.launch.spec.session_id!;
+  const messages = jsonl<SDKMessage>(readFileSync(new URL("resume.sdk.jsonl", TESTDATA), "utf8"));
+  // Claude Code restores the session's cost state on resume: the result covers earlier runs too,
+  // including an auxiliary model only an earlier run used.
+  const result = messages.at(-1) as unknown as { total_cost_usd: number; modelUsage: Record<string, unknown> };
+  result.total_cost_usd = 0.1397;
+  result.modelUsage["claude-haiku-4-5"] = { inputTokens: 1981, outputTokens: 13, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.002 };
+  const config = mkdtempSync(join(tmpdir(), "claude-config-"));
+  const project = join(config, "projects", "-tmp-factory-demo");
+  mkdirSync(project, { recursive: true });
+  const state = (opus: number[], cost: number) =>
+    JSON.stringify({
+      type: "cost-state",
+      sessionId: id,
+      totalCostUSD: cost + 0.002,
+      modelUsage: {
+        "claude-haiku-4-5": { inputTokens: 1981, outputTokens: 13, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.002 },
+        "claude-opus-4-7": { inputTokens: opus[0], outputTokens: opus[1], cacheReadInputTokens: opus[2], cacheCreationInputTokens: opus[3], costUSD: cost },
+      },
+    });
+  writeFileSync(
+    join(project, `${id}.jsonl`),
+    [JSON.stringify({ type: "user", sessionId: id }), state([4, 50, 10000, 9000], 0.05), state([10, 100, 30000, 15000], 0.1), ""].join("\n"),
+  );
+  const stdin = new PassThrough();
+  const { query } = replay(messages, s, stdin);
+  const events = await shim(JSON.stringify(s.launch), query, { ...s.env, CLAUDE_CONFIG_DIR: config }, stdin);
+  type UsageEvent = Extract<ShimEvent, { event: "usage" }>;
+  const usage = events.filter((e): e is UsageEvent => e.event === "usage");
+  // Running usage is the run's own already; the final line is the result less the baseline, and the
+  // haiku line (unchanged since the baseline) is not this run's.
+  assert.deepEqual(usage.at(-1), { event: "usage", model: "claude-opus-4-7", input: 2, output: 4, cache_read: 7016, cache_write: 102, cost_usd: 0.0377 });
+  assert.ok(!usage.some((e) => e.model === "claude-haiku-4-5"));
+  assert.deepEqual(events.find((e) => e.event === "cost"), { event: "cost", usd: 0.0377, source: "claude_estimate" });
+  assert.equal(last(events).status, "COMPLETED");
+});
+
+test("cost baseline: none without a transcript or a cost-state entry", async () => {
+  const config = mkdtempSync(join(tmpdir(), "claude-config-"));
+  assert.equal(await costBaseline({ CLAUDE_CONFIG_DIR: config }, "s1"), undefined);
+  mkdirSync(join(config, "projects", "p"), { recursive: true });
+  writeFileSync(join(config, "projects", "p", "s1.jsonl"), JSON.stringify({ type: "user" }) + "\n");
+  assert.equal(await costBaseline({ CLAUDE_CONFIG_DIR: config }, "s1"), undefined);
+  assert.equal(await costBaseline({ HOME: join(config, "nohome") }, "s1"), undefined);
 });
 
 test("recorded interrupt: stdin interrupt yields CANCELLED from the result evidence", async () => {

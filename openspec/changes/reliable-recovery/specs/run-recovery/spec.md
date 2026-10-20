@@ -40,12 +40,20 @@ Runtime sessions SHALL be keyed by (task, agent). A retry on the same node SHALL
 - **WHEN** a failed task is claimed by a different node
 - **THEN** the run SHALL start a new session and its brief SHALL state the previous outcome
 
+#### Scenario: Implementer resumes after a review by another agent
+- **WHEN** a reviewer on another provider ran last on the task and the implementer is dispatched again on the same node
+- **THEN** the implementer's run SHALL resume the implementer's own last session of the task, not the reviewer's
+
 ### Requirement: Stall detection
 Core SHALL open a self-clearing `stalled` escalation when a task waits on a task that is in BACKLOG or unassigned, and SHALL emit one alert per episode for tasks idle or without progress longer than the configured intervals.
 
 #### Scenario: Blocked on an unassigned task
 - **WHEN** task A is blocked on task B and B has no assignee
 - **THEN** A SHALL get a `stalled` escalation naming B, which SHALL clear when B is assigned
+
+#### Scenario: Parked on a child in BACKLOG
+- **WHEN** task A is parked on its children and an open child C is in BACKLOG or has no assignee
+- **THEN** A SHALL get a `stalled` escalation to its assignee's manager naming C, which SHALL clear when C is assigned and released or closes, and the answer `unblock` SHALL release A from its children park
 
 ### Requirement: Per-task inspection for external side effects
 For a task marked as having external side effects, any uncertain outcome SHALL park only that task with an `inspect` escalation and SHALL NOT retry automatically. Other tasks, the project and its workspaces SHALL remain schedulable.

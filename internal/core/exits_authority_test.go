@@ -250,7 +250,7 @@ func TestBlockFallsBackToAsk(t *testing.T) {
 	}
 
 	h.create("parent", "notes", "demo")
-	if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: "kid", ProjectID: "notes", Title: "kid", ParentTaskID: "parent", RequestID: "kid"}); err != nil {
+	if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: "kid", ProjectID: "notes", Title: "kid", Assignee: "calorie-ios", ParentTaskID: "parent", RequestID: "kid"}); err != nil {
 		t.Fatal(err)
 	}
 	r := h.start("parent")
@@ -260,6 +260,11 @@ func TestBlockFallsBackToAsk(t *testing.T) {
 	h.end(r, "succeeded", "accepted")
 	if got := h.task("parent"); got.Status != "BLOCKED" || h.parkStatus("parent", tasks.ParkChildren) != "active" {
 		t.Fatalf("%+v", got)
+	}
+	// The children's assignees clear the park, not the owner.
+	if v := h.verdict("parent"); v.Reason != tasks.ReasonParked+tasks.ParkChildren || v.Clearer.Who != "agent:calorie-ios" ||
+		v.Clearer.Action != "wait for kid to close (or factory tasks ready parent VERSION to release it early)" {
+		t.Fatalf("%+v", v)
 	}
 	h.cancel("kid")
 	if got := h.task("parent"); got.Status != "READY" || h.parkStatus("parent", tasks.ParkChildren) != "cleared" || h.verdict("parent").Reason != tasks.ReasonRunnable {
@@ -379,6 +384,58 @@ func TestArtifactApprovedIsAuthority(t *testing.T) {
 	next := h.start("uses")
 	if run, _ := h.s.Get(ctx, co, next.id); !strings.Contains(run.Spec.Prompt, "a new version of mockup@1") {
 		t.Fatal(run.Spec.Prompt)
+	}
+}
+
+// TestApprovalDecisionWakesRequester: the owner's decision on an approval a task requested (approval.task_id)
+// is authority input for that task: approved or rejected, it overrides the task's wait park and the next brief
+// shows the decision with its reason, also when the task neither requires nor pins the artifact.
+func TestApprovalDecisionWakesRequester(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	for i, c := range []struct{ action, want string }{
+		{"approve", "approved by the owner: ship it"},
+		{"reject", "rejected by the owner: scope is too large"},
+	} {
+		id, v := "pm-"+c.action, strconv.Itoa(i+1)
+		h.create(id, "notes", "demo")
+		r := h.start(id)
+		a := tasks.Artifact{ID: "mvp-proposal", Version: v, URI: "file:///mvp-" + v + ".md"}
+		if _, err := h.s.RegisterArtifact(ctx, co, "notes", artifacts.Register{Artifact: a, TaskID: id, Actor: "owner", RequestID: "reg-" + id}); err != nil {
+			t.Fatal(err)
+		}
+		req, err := h.s.RequestArtifactApproval(ctx, co, "notes", artifacts.ApprovalRequest{ArtifactID: a.ID, ArtifactVersion: a.Version, Agent: "demo", TaskID: id, RunID: r.id, Reason: "approve the MVP proposal", RequestID: "ask-" + id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.callOK(r, "factory_exit_wait", map[string]any{"reason": "board approval", "after": "6h", "deadline": h.at(72 * time.Hour)})
+		h.end(r, "succeeded", "accepted")
+		if h.parkStatus(id, tasks.ParkWait) != "active" {
+			t.Fatal("no wait park")
+		}
+		reason := strings.SplitN(c.want, ": ", 2)[1]
+		if w := h.do(h.c.Token, "POST", "/approvals/"+req.ID+"/decision", approvals.Decision{Version: req.Version, Action: c.action, Reason: reason, RequestID: "decide-" + id}, nil); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		want := "artifact approval " + req.ID + " of mvp-proposal@" + v + " " + c.want
+		if tr := h.lastTrigger(id); tr.kind != "approval_decided" || !tr.authority || tr.actor != "owner" || tr.body != want {
+			t.Fatalf("%s: %+v", id, tr)
+		}
+		if h.parkStatus(id, tasks.ParkWait) != "overridden" {
+			t.Fatal(h.parkStatus(id, tasks.ParkWait))
+		}
+		if v := h.verdict(id); v.Reason != tasks.ReasonRunnable {
+			t.Fatalf("%s: %+v", id, v)
+		}
+		// The decision is also answered on the agent's conversation (a non-blocking request): its delivery run.
+		h.end(h.start(storage.ConversationID("notes", "demo")), "succeeded", "")
+		next := h.start(id)
+		if run, _ := h.s.Get(ctx, co, next.id); !strings.Contains(run.Spec.Prompt, want) {
+			t.Fatal(run.Spec.Prompt)
+		}
+		h.end(next, "succeeded", "none")
+		h.cancel(id)
 	}
 }
 

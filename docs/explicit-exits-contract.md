@@ -115,7 +115,10 @@ Scratch projects (no remote) have no PR: `done` is accepted with a clean tree.
   delegating task (`origin_task`). Authority triggers: directives (`factory_task_direct`,
   `factory direct TASK TEXT [--urgent]`), comments by authority principals, answers to the task's questions,
   `ready`/reassign by an authority, `artifact_approved` for required artifacts and for tasks pinned to another
-  version of the artifact (they require it); approval decisions are not authority input. Non-authority comments
+  version of the artifact (they require it), and `approval_decided` on the task that requested an approval
+  (`approval.task_id`) when the owner approves or rejects it (action, command or artifact approval; the body names
+  the approval, the decision and its reason; revocation and expiry add none). `approval_decided` overrides only
+  the wait and ask parks: blocks, children, escalations and a retry backoff stay. Non-authority comments
   add no trigger; they are listed in the next brief.
 - Parked task: an authority trigger overrides interruptible parks (wait, ask, block, children) and the
   escalations `retries_exhausted`, `budget_exhausted`, `no_exit` (it counts as retry); `inspect` needs its answer.
@@ -162,7 +165,9 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
 
 - Exits through `/agent/exit` (with facts) and through `/agent/call` (an adapter that does not intercept exit
   tools yet; no facts, `ack_seq` from the header or the brief end). Without facts a task of a project with a
-  repository is refused `409 facts_required` for submit, handoff and done; scratch projects work today.
+  repository is refused `409 facts_required` for submit, handoff and done; scratch projects work today. A
+  conversation run owns no branch or PR: its adapter (`FACTORY_CONVERSATION=1`) collects no facts and Core
+  requires (and reads) none, whatever the project's repository.
 - `/agent/exit*` on a stopped run answers 410 (the credential is checked first, then the run's state).
 - Default reviewer is the owner (`factory tasks review`, mapped to a verdict: approve returns a repository task
   to its implementer to merge, otherwise ends it; reject returns it with the feedback). A `reviewer` agent gets
