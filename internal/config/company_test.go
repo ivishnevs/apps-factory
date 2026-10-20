@@ -61,8 +61,8 @@ spec:
 	if _, ok := def.Policies["acme-only"]; ok {
 		t.Fatal("the default company sees acme's policy")
 	}
-	if _, ok := acme.Policies["acme-only"]; !ok || len(acme.Skills.Skills) != len(def.Skills.Skills) {
-		t.Fatal("acme policy or shared skills missing")
+	if _, ok := acme.Policies["acme-only"]; !ok || len(acme.Skills.Skills) != 0 {
+		t.Fatal("acme policy missing, or acme without skills.yaml got the default company's skills", acme.Skills.Skills)
 	}
 	if same, err := LoadCompanyCatalog(root, DefaultCompany); err != nil || same.Agents["agent"].Spec.Role != "developer" {
 		t.Fatal(err)

@@ -1,13 +1,14 @@
+# Skills registry of the default company (configs/): paths to SKILL.md are relative to this directory or absolute.
 skills:
   openspec:
-    path: skills/openspec/SKILL.md
+    path: ../skills/openspec/SKILL.md
     description: Read project specifications and keep implementation changes aligned with OpenSpec.
     categories: [planning, documentation]
   mobile-app-testing:
-    path: skills/mobile-app-testing/SKILL.md
+    path: ../skills/mobile-app-testing/SKILL.md
     description: Drive and verify iOS and Android apps without the host UI - debug launch arguments, deep links, UI tests by accessibility identifier.
     categories: [mobile, ios, android, testing]
   task-pull-request:
-    path: skills/task-pull-request/SKILL.md
+    path: ../skills/task-pull-request/SKILL.md
     description: Finish a code task through its pull request - submit, update from the default branch after approval, gh pr merge, then exit done.
     categories: [git, review]

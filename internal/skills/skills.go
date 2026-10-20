@@ -19,7 +19,8 @@ type Skill struct {
 }
 type Registry struct {
 	Skills map[string]Skill `yaml:"skills"`
-	Root   string           `yaml:"-"`
+	// Root is the absolute catalog directory holding skills.yaml; relative skill paths resolve against it.
+	Root string `yaml:"-"`
 }
 type Entry struct {
 	Name        string   `json:"name"`
@@ -27,9 +28,19 @@ type Entry struct {
 	Categories  []string `json:"categories"`
 }
 
-func Load(root string) (*Registry, error) {
+// File is the registry file name in a company catalog directory (configs/ or configs/<company>/).
+const File = "skills.yaml"
+
+// Load loads the skills registry of the catalog directory dir (dir/skills.yaml). Each skill's path is its
+// SKILL.md, absolute or relative to dir (it may lead outside dir, e.g. ../skills/x/SKILL.md). A directory
+// without skills.yaml has an empty registry: there is no fallback to another catalog's.
+func Load(dir string) (*Registry, error) {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
 	r := &Registry{Root: root, Skills: map[string]Skill{}}
-	p := filepath.Join(root, "configs/skills.yaml")
+	p := filepath.Join(root, File)
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		return r, nil
 	}
@@ -41,13 +52,13 @@ func Load(root string) (*Registry, error) {
 		if !namePattern.MatchString(name) || strings.TrimSpace(s.Description) == "" || filepath.Base(s.Path) != "SKILL.md" {
 			return nil, fmt.Errorf("invalid skill %q", name)
 		}
-		p, err := configfile.Path(root, s.Path)
+		p, err := r.main(name)
 		if err != nil {
 			return nil, fmt.Errorf("skill %s: %w", name, err)
 		}
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("skill %s: %w", name, err)
 		}
 		text := strings.ReplaceAll(string(data), "\r\n", "\n")
 		if !strings.HasPrefix(text, "---\n") {
@@ -85,12 +96,22 @@ func (r *Registry) Entries(names []string, query, category string) []Entry {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
-func (r *Registry) Read(name, resource string) (string, error) {
+
+// main is the absolute path of name's SKILL.md: its path as is when absolute, else under Root.
+func (r *Registry) main(name string) (string, error) {
 	s, ok := r.Skills[name]
-	if !ok {
+	switch {
+	case !ok:
 		return "", fmt.Errorf("unknown skill %s", name)
+	case s.Path == "":
+		return "", fmt.Errorf("skill %s: path required", name)
+	case filepath.IsAbs(s.Path):
+		return filepath.Clean(s.Path), nil
 	}
-	main, err := configfile.Path(r.Root, s.Path)
+	return filepath.Join(r.Root, s.Path), nil
+}
+func (r *Registry) Read(name, resource string) (string, error) {
+	main, err := r.main(name)
 	if err != nil {
 		return "", err
 	}

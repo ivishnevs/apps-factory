@@ -27,7 +27,7 @@ func fixture(t *testing.T) string {
 	for _, n := range []string{"first", "second"} {
 		put(t, root, "skills/"+n+"/SKILL.md", "---\nname: "+n+"\ndescription: A sample skill\n---\nSECRET_SKILL_BODY\n")
 	}
-	put(t, root, "configs/skills.yaml", "skills:\n  first:\n    path: skills/first/SKILL.md\n    description: First skill\n    categories: [testing]\n  second:\n    path: skills/second/SKILL.md\n    description: Second skill\n    categories: [planning]\n")
+	put(t, root, "configs/skills.yaml", "skills:\n  first:\n    path: ../skills/first/SKILL.md\n    description: First skill\n    categories: [testing]\n  second:\n    path: ../skills/second/SKILL.md\n    description: Second skill\n    categories: [planning]\n")
 	put(t, root, "configs/profiles/base.yaml", `apiVersion: factory/v1
 kind: AgentProfile
 metadata:

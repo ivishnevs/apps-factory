@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"appfactory/internal/configfile"
 )
 
 // HashPrefix marks the content hash format of a skill directory (Hash).
@@ -26,11 +24,7 @@ const (
 
 // Dir is the directory of a registered skill: the directory of its SKILL.md.
 func (r *Registry) Dir(name string) (string, error) {
-	s, ok := r.Skills[name]
-	if !ok {
-		return "", fmt.Errorf("unknown skill %s", name)
-	}
-	main, err := configfile.Path(r.Root, s.Path)
+	main, err := r.main(name)
 	if err != nil {
 		return "", err
 	}

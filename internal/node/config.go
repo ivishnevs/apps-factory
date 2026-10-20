@@ -34,8 +34,9 @@ type Config struct {
 	StateDir string `yaml:"state_dir"`
 	// BinDir holds factory-mcp and factory-shim and is the base of the built Claude shim; empty is the executable's directory.
 	BinDir string `yaml:"bin_dir"`
-	// SkillsRoot is the factory checkout whose configs/skills.yaml and skill directories are materialized
-	// for runs (pinned by hash); empty is <bin_dir>/.., else the working directory.
+	// SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml, or
+	// configs/<company>/skills.yaml) and skill directories are materialized for runs (pinned by hash); empty is
+	// <bin_dir>/.., else the working directory.
 	SkillsRoot string  `yaml:"skills_root"`
 	Drivers    Drivers `yaml:"drivers"`
 	// Probes: how often the node re-checks its drivers (runtime-drivers D4).

@@ -2,7 +2,8 @@
 
 Core loads configs/agents/*.yaml, configs/profiles/*.yaml, configs/policies/*.yaml,
 configs/node-hooks/*.yaml (`NodeHooks`, served to nodes; see [development](development.md#nodehooks-company-catalog)) and
-configs/skills.yaml relative to FACTORY_ROOT. Unknown YAML fields, multiple documents,
+configs/skills.yaml relative to FACTORY_ROOT (for company X the same files under configs/X/, including its own
+skills.yaml; see [skills](skills.md)). Unknown YAML fields, multiple documents,
 null agent/profile values, duplicate names, missing references and inheritance cycles fail loading.
 Run `factory config validate`, `factory agents get demo`, or
 `factory agents authorize demo factory.release.publish` to inspect resolved configuration.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"appfactory/internal/bus"
+	"appfactory/internal/config"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/codex"
@@ -75,7 +76,8 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 	return Run(ctx, Node{Config: c, Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: token}, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
 }
 
-// SkillsRoot is the directory whose configs/skills.yaml is the node's skills registry.
+// SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml for the default
+// company, configs/<company>/skills.yaml for another) is the node's skills registry.
 func SkillsRoot(c node.Config) string {
 	switch {
 	case c.SkillsRoot != "":
@@ -86,20 +88,25 @@ func SkillsRoot(c node.Config) string {
 	return "."
 }
 
-// LoadSkills loads the node's skills registry; nil (logged) when SkillsRoot has no configs/skills.yaml,
-// so runs start without materialized skills.
+// LoadSkills loads the node's skills registry, the skills.yaml of its company's catalog under SkillsRoot (the
+// same file Core pins hashes from); nil (logged) when there is none, so runs start without materialized skills.
 func LoadSkills(c node.Config) (*skills.Registry, error) {
 	root, err := filepath.Abs(SkillsRoot(c))
 	if err != nil {
 		return nil, err
 	}
-	if _, err = os.Stat(filepath.Join(root, "configs", "skills.yaml")); errors.Is(err, os.ErrNotExist) {
-		slog.Warn("no skills registry; runs get no materialized skills", "skills_root", root)
+	rel, err := config.CompanyDir(c.Company)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(root, rel)
+	if _, err = os.Stat(filepath.Join(dir, skills.File)); errors.Is(err, os.ErrNotExist) {
+		slog.Warn("no skills registry; runs get no materialized skills", "skills_root", root, "catalog", rel)
 		return nil, nil
 	}
-	r, err := skills.Load(root)
+	r, err := skills.Load(dir)
 	if err != nil {
-		return nil, fmt.Errorf("skills registry %s: %w", root, err)
+		return nil, fmt.Errorf("skills registry %s: %w", filepath.Join(dir, skills.File), err)
 	}
 	return r, nil
 }
