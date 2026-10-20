@@ -269,7 +269,17 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		}
 		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(tx, t.Assignee)})
 	}
-	return saveTask(ctx, tx, &t, "task.retry")
+	// One feed event names the task, the outcome and the retry time (waits-events-cost-cli D2).
+	note := fmt.Sprintf("%s: run %s ended %s; ", t.ID, runID, outcome)
+	if t.NotBefore > now.Unix() {
+		note += fmt.Sprintf("retry in %s", time.Duration(t.NotBefore-now.Unix())*time.Second)
+	} else {
+		note += "retry now"
+	}
+	if result != "" {
+		note += ": " + excerpt512(result)
+	}
+	return saveTaskNote(ctx, tx, &t, "task.retry", note)
 }
 
 // markRecovered records that the run's end is applied to its task now; false when it already was (an end
@@ -327,6 +337,9 @@ func retryTarget(tx *Tx, assignee string) string {
 // Either counts as progress for the no-progress alert.
 func resetRetry(ctx context.Context, tx *Tx, t *tasks.Task) error {
 	t.AttemptsNoProgress, t.FailStreak, t.NotBefore, t.ProgressAt = 0, 0, 0, tx.now().Unix()
+	if err := endEpisode(ctx, tx, t.ID); err != nil {
+		return err
+	}
 	day, err := budgetDay(ctx, tx)
 	if err != nil {
 		return err

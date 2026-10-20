@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
 
 	"appfactory/internal/artifacts"
 	"appfactory/internal/messaging"
@@ -144,6 +142,11 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err = validExit(req, t, agent); err != nil {
 		return out, err
 	}
+	if req.Kind == "wait" {
+		if err = checkWait(ctx, tx, runID, t, req.Arguments); err != nil {
+			return out, err
+		}
+	}
 	if str(req.Arguments, "merge_failed") != "" {
 		// A failed merge is reported by the implementer of an approved task (task-worktrees D7).
 		var approvals int
@@ -186,6 +189,9 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	}
 	out, err = applyExit(ctx, tx, runID, agent, t, req)
 	if err != nil {
+		return out, err
+	}
+	if err = exitFeed(ctx, tx, runID, agent, t, req, out); err != nil {
 		return out, err
 	}
 	argsJSON, _ := json.Marshal(req.Arguments)
@@ -284,11 +290,9 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 			return refuse("invalid_exit", "reason required")
 		}
 	case "wait":
-		at, err := time.Parse(time.RFC3339, str(a, "wake_at"))
-		if err != nil || str(a, "reason") == "" {
-			return refuse("invalid_exit", "reason and wake_at (RFC 3339) required")
+		if str(a, "reason") == "" {
+			return refuse("invalid_exit", "reason required")
 		}
-		_ = at
 	}
 	return nil
 }
@@ -414,9 +418,13 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		}
 		out.Note = note
 	case "wait":
-		at, _ := time.Parse(time.RFC3339, str(a, "wake_at"))
-		t.Status, t.NotBefore = "READY", at.Unix()
-		if err := addPark(ctx, tx, t, tasks.ParkWait, strconv.FormatInt(at.Unix(), 10), "waiting until "+at.UTC().Format(time.RFC3339)+": "+str(a, "reason"), false); err != nil {
+		if err := applyWait(ctx, tx, runID, &t, a); err != nil {
+			return out, err
+		}
+	}
+	if req.Kind == "submit" || req.Kind == "done" || req.Kind == "handoff" && str(a, "merge_failed") == "" {
+		// Progress ends a wait episode (D1).
+		if err := endEpisode(ctx, tx, t.ID); err != nil {
 			return out, err
 		}
 	}
@@ -438,6 +446,10 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		}
 	case req.Kind == "handoff":
 		if err := addTrigger(ctx, tx, t, "assignment", false, agent, runID, "handoff from "+agent+": "+str(a, "note")); err != nil {
+			return out, err
+		}
+	case req.Kind == "wait":
+		if err := waitExhausted(ctx, tx, runID, t, a); err != nil {
 			return out, err
 		}
 	}
@@ -514,49 +526,6 @@ func exitBlock(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, 
 	}
 	t.Dependencies, t.Status = deps, "READY"
 	return "", nil
-}
-
-// ExpireWaits wakes tasks whose wait exit reached its time: the wait park clears with a wake trigger.
-func (s *Store) ExpireWaits(ctx context.Context, company string) error {
-	tx, err := s.begin(ctx, company)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT task_id,ref_id FROM task_parks WHERE company_id=? AND kind=? AND status='active'", company, tasks.ParkWait)
-	if err != nil {
-		return err
-	}
-	type due struct{ task, ref string }
-	var wake []due
-	for rows.Next() {
-		var d due
-		if err = rows.Scan(&d.task, &d.ref); err != nil {
-			rows.Close()
-			return err
-		}
-		if at, e := strconv.ParseInt(d.ref, 10, 64); e == nil && at <= tx.now().Unix() {
-			wake = append(wake, d)
-		}
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
-	for _, d := range wake {
-		t, err := taskTx(ctx, tx, d.task)
-		if err != nil {
-			return err
-		}
-		if err = clearParks(ctx, tx, t, tasks.ParkWait, d.ref, "cleared"); err != nil {
-			return err
-		}
-		if err = addTrigger(ctx, tx, t, "wake", false, "system", d.ref, "wait time reached"); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }
 
 // runHasExit reports whether the run ended its turn with an accepted exit.

@@ -184,6 +184,9 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	if strings.TrimSpace(p.Rules) != "" {
 		fmt.Fprintf(&b, "Project rules:\n%s\n", strings.TrimSpace(p.Rules))
 	}
+	if err = briefReminders(ctx, tx, &b, spec.Agent, spec.ID); err != nil {
+		return "", err
+	}
 	if review {
 		s, _ := json.Marshal(t.Submission)
 		fmt.Fprintf(&b, "You review this task, submitted by %s: %s\nInspect the changes (the branch and its pull request), then end with factory_exit_handoff to %s with verdict approved, or changes_requested with feedback.\n", t.Implementer, s, t.Implementer)

@@ -42,6 +42,10 @@ type Core struct {
 	lastStallSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
 	lastUnmergedCheck time.Time
+	// Prices is the price table (configs/prices.yaml) for runs whose runtime reported no cost.
+	Prices config.Prices
+	// Telegram routes owner messages from the Telegram channel (waits-events-cost-cli D4).
+	Telegram TelegramConfig
 }
 
 type companyKey struct{}
@@ -83,6 +87,8 @@ func (c *Core) Handler() http.Handler {
 	c.ownerRoutes(m)
 	c.nodeRoutes(m)
 	c.directiveRoutes(m)
+	c.costRoutes(m)
+	c.telegramRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := c.Store.DB.PingContext(r.Context()); err != nil || !c.Bus.NC.IsConnected() {
 			http.Error(w, "unavailable", 503)
@@ -355,6 +361,9 @@ func (c *Core) maintain(ctx context.Context) error {
 		return err
 	}
 	if err := c.sweepStalls(ctx); err != nil {
+		return err
+	}
+	if _, err := c.Store.PriceRunCosts(ctx, c.company(), c.Prices); err != nil {
 		return err
 	}
 	return c.checkUnmerged(ctx)

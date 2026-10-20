@@ -12,7 +12,8 @@ import (
 	"appfactory/internal/protocol"
 )
 
-// Pause is an owner hold on new dispatch for the whole company, a project or an agent.
+// Pause is an owner hold on new dispatch for the whole company, a project, an agent or a quota key; a node
+// pause stops claims on that node only (its live runs continue, other nodes keep claiming).
 type Pause struct {
 	Scope     string `json:"scope"`
 	Target    string `json:"target,omitempty"`
@@ -27,8 +28,9 @@ func validPause(scope, target string) error {
 	switch {
 	case scope == "company" && target == "":
 	case (scope == "project" || scope == "agent" || scope == "quota_key") && entityName.MatchString(target):
+	case scope == "node" && nodeID.MatchString(target):
 	default:
-		return inputError("pause scope must be company, project ID, agent name or quota key")
+		return inputError("pause scope must be company, project ID, agent name, quota key or node ID")
 	}
 	return nil
 }
@@ -139,6 +141,13 @@ func pausedFor(ctx context.Context, tx *Tx, project, agent, quotaKey string) ([]
 		out = append(out, scope)
 	}
 	return out, rows.Err()
+}
+
+// nodePaused tells whether the owner paused claims on the node.
+func nodePaused(ctx context.Context, tx *Tx, node string) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pauses WHERE company_id=? AND scope='node' AND target=?", tx.company, node).Scan(&n)
+	return n > 0, err
 }
 
 // RevokeLive is the kill switch's second half: every QUEUED run is revoked at once and every

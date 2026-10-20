@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,14 @@ import (
 
 	"appfactory/internal/storage"
 )
+
+// killSwitch pauses the company (nodes stop claiming) and revokes every live run; seals complete on the nodes.
+func (c *Core) killSwitch(ctx context.Context, company, reason string) (int, error) {
+	if err := c.Store.SetPause(ctx, company, storage.Pause{Scope: "company", Reason: "stop: " + reason, Actor: "owner"}); err != nil {
+		return 0, err
+	}
+	return c.Store.RevokeLive(ctx, company, "owner")
+}
 
 // Owner controls (waits-events-cost-cli 5.2 and 2.2): pauses, kill switch, pending count and a feed
 // stream. Owner token only; agents have no route to them.
@@ -42,12 +51,7 @@ func (c *Core) ownerRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		company := c.companyFrom(r)
-		if err := c.Store.SetPause(r.Context(), company, storage.Pause{Scope: "company", Reason: "stop: " + p.Reason, Actor: "owner"}); err != nil {
-			reply(w, nil, err)
-			return
-		}
-		n, err := c.Store.RevokeLive(r.Context(), company, "owner")
+		n, err := c.killSwitch(r.Context(), c.companyFrom(r), p.Reason)
 		reply(w, map[string]int{"revoked": n}, err)
 	})
 	m.HandleFunc("GET /escalations", func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +66,7 @@ func (c *Core) ownerRoutes(m *http.ServeMux) {
 	// Last-Event-ID (or ?after=) receives every later row once.
 	m.HandleFunc("GET /feed/stream", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		f := storage.FeedFilter{Project: q.Get("project"), Task: q.Get("task"), Attention: q.Get("attention") == "1" || q.Get("attention") == "true"}
+		f := c.feedFilter(q)
 		var after int64
 		cursor := r.Header.Get("Last-Event-ID")
 		if cursor == "" {

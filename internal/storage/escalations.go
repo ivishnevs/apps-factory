@@ -115,7 +115,7 @@ func openEscalation(ctx context.Context, tx *Tx, reason string, answers []string
 	if err = addPark(ctx, tx, t, tasks.ParkEscalation, m.ID, reason+": "+w.Summary, w.Target == "owner"); err != nil {
 		return err
 	}
-	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.escalation." + reason, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Status: t.Status, Summary: w.Summary + " → " + w.Target, Attention: true, Ref: m.ID})
+	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.escalation." + reason, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Status: t.Status, Summary: w.Summary + " → " + w.Target, Attention: w.Target == "owner", Ref: m.ID})
 }
 
 // closeEscalation ends an open escalation: answered (by the question's answer) or cleared (the
@@ -190,6 +190,9 @@ var ErrNeedsCascade = fmt.Errorf("%w: needs_cascade: the task has open children"
 func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, actor string) error {
 	t, err := taskTx(ctx, tx, e.TaskID)
 	if err != nil {
+		return err
+	}
+	if handled, err := waitAnswer(ctx, tx, t, e, answer, actor); handled || err != nil {
 		return err
 	}
 	if e.Reason == "inspect" && answer != "cancel" {

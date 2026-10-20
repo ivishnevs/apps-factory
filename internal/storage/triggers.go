@@ -32,6 +32,11 @@ func addTrigger(ctx context.Context, tx *Tx, t tasks.Task, kind string, authorit
 	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET wake_seq=? WHERE company_id=? AND id=?", seq, tx.company, t.ID); err != nil {
 		return err
 	}
+	if authority { // authority input ends an active wait early (waits-events-cost-cli D1)
+		if err = interruptWait(ctx, tx, t, actor, kind); err != nil {
+			return err
+		}
+	}
 	return feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.trigger." + kind, EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: now, TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: body, Ref: ref})
 }
 

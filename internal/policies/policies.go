@@ -5,6 +5,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Rule struct {
@@ -17,9 +18,17 @@ type Rule struct {
 	Instruction string   `yaml:"instruction" json:"instruction"`
 	// Mode of a recovery rule (reliable-recovery D4): inspect parks an unclear end of the agent's runs for
 	// inspection instead of retrying it.
-	Mode   string   `yaml:"mode" json:"mode,omitempty"`
-	Roles  []string `yaml:"roles" json:"roles,omitempty"`
-	Agents []string `yaml:"agents" json:"agents,omitempty"`
+	Mode string `yaml:"mode" json:"mode,omitempty"`
+	// Wait rules (waits-events-cost-cli D1): the shortest wait (15m..30m, default 15m) and how many
+	// consecutive waits without progress a task may make (default 12).
+	MinWaitInterval string `yaml:"min_wait_interval" json:"min_wait_interval,omitempty"`
+	MaxWaits        int    `yaml:"max_waits" json:"max_waits,omitempty"`
+	// Mandatory reports of a reporting rule (D2): on these exits a report (of one of ReportKinds, any kind
+	// when empty) is expected from the run. Never blocking: a missing one is an event and a reminder.
+	Exits       []string `yaml:"exits" json:"exits,omitempty"`
+	ReportKinds []string `yaml:"report_kinds" json:"report_kinds,omitempty"`
+	Roles       []string `yaml:"roles" json:"roles,omitempty"`
+	Agents      []string `yaml:"agents" json:"agents,omitempty"`
 }
 type Policy struct {
 	APIVersion string `yaml:"apiVersion" json:"apiVersion"`
@@ -60,6 +69,12 @@ func Validate(p Policy) error {
 		if r.Mode != "" && r.Type != "recovery" {
 			return fmt.Errorf("rule %s: mode only applies to recovery rules", r.Name)
 		}
+		if (r.MinWaitInterval != "" || r.MaxWaits != 0) && r.Type != "wait" {
+			return fmt.Errorf("rule %s: min_wait_interval and max_waits only apply to wait rules", r.Name)
+		}
+		if len(r.Exits)+len(r.ReportKinds) > 0 && r.Type != "reporting" {
+			return fmt.Errorf("rule %s: exits and report_kinds only apply to reporting rules", r.Name)
+		}
 		switch r.Type {
 		case "access":
 			if len(r.Operations)+len(r.Commands) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval") || r.Target != "" {
@@ -78,6 +93,24 @@ func Validate(p Policy) error {
 		case "reporting":
 			if r.Effect != "" || r.Target != "" || len(r.Commands) > 0 {
 				return fmt.Errorf("reporting uses instructions, not effect/target")
+			}
+			for _, e := range r.Exits {
+				if !contains([]string{"submit", "handoff", "done", "ask", "block", "wait"}, e) {
+					return fmt.Errorf("reporting rule %s: unknown exit %q", r.Name, e)
+				}
+			}
+		case "wait":
+			if r.MinWaitInterval != "" {
+				d, err := time.ParseDuration(r.MinWaitInterval)
+				if err != nil || d < 15*time.Minute || d > 30*time.Minute {
+					return fmt.Errorf("wait rule %s: min_wait_interval between 15m and 30m", r.Name)
+				}
+			}
+			if r.MaxWaits < 0 || r.MaxWaits > 100 {
+				return fmt.Errorf("wait rule %s: max_waits 1..100", r.Name)
+			}
+			if r.Effect != "" || r.Target != "" || len(r.Commands)+len(r.Operations) > 0 {
+				return fmt.Errorf("wait rule %s: only min_wait_interval, max_waits, roles and agents apply", r.Name)
 			}
 		case "recovery":
 			if r.Mode != "inspect" {

@@ -40,8 +40,8 @@ func ExitDefinitions() []Tool {
 		map[string]any{"question": s(), "options": arr, "category": s(), "evidence": s()}, "question")
 	add(ExitPrefix+"block", "task.exit.block", "Stop until other tasks of this project are done (on) or until this task's open children close (on_children)."+finish,
 		map[string]any{"on": arr, "on_children": map[string]any{"type": "boolean"}, "reason": s()}, "reason")
-	add(ExitPrefix+"wait", "task.exit.wait", "Stop until a time (RFC 3339 wake_at), for example to wait for an external system."+finish,
-		map[string]any{"reason": s(), "wake_at": s(), "deadline": s()}, "reason", "wake_at")
+	add(ExitPrefix+"wait", "task.exit.wait", "Stop until a time, to wait for the outside world (a build being processed, an external review): wake_at (RFC 3339) or after (e.g. 30m, 2h), at least the minimum wait (15 minutes unless policy says otherwise), and a deadline (RFC 3339, at most 14 days ahead) after which your manager decides. You run again at the wake time with wait_ended in your brief: check the outside world yourself and continue or wait again; consecutive waits cannot pass the first deadline."+finish,
+		map[string]any{"reason": s(), "wake_at": s(), "after": s(), "deadline": s()}, "reason", "deadline")
 	add("factory_task_direct", "task.direct", "Give a directive to a task of this project (managers). An urgent directive stops its running run; the next run starts with it.",
 		map[string]any{"task_id": s(), "text": s(), "urgent": map[string]any{"type": "boolean"}, "request_id": s()}, "task_id", "text", "request_id")
 	return out

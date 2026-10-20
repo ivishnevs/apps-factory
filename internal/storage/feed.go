@@ -50,7 +50,7 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 		item.RunID = id
 	}
 	item.Summary, _ = excerpt(str("summary", "title", "topic"), 4096)
-	// Attention marks what waits on the owner; fuller rules arrive with waits-events-cost-cli.
+	// Attention marks what waits on the owner (see AttentionKinds for the unconditional kinds).
 	var needsOwner bool
 	_ = json.Unmarshal(state["needs_owner_action"], &needsOwner)
 	switch {
@@ -64,8 +64,19 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 	return item
 }
 
+// AttentionKinds always need the owner (waits-events-cost-cli D2): node trouble, an unusable driver, a
+// paused quota key, a stall alert, an approval request, an unmerged branch. Conditional rules stay with
+// their cause: questions and escalations routed to the owner, node.offline after OfflineAttention, reports
+// with needs_owner_action, owner pauses, parks waiting on the owner.
+var AttentionKinds = map[string]bool{
+	"node.low_disk": true, "node.disk_critical": true, "node.restart_loop": true, "node.check_failed": true,
+	"node.heartbeat_stalled": true, "driver_unsupported": true, "quota.paused": true,
+	"task.alert.no_progress": true, "task.alert.idle": true, "approval.requested": true, "task.unmerged_branch": true,
+}
+
 // feed records a feed row and its broker notification in the caller's transaction.
 func feed(ctx context.Context, tx *Tx, item FeedItem) error {
+	item.Attention = item.Attention || AttentionKinds[item.Type]
 	res, err := tx.ExecContext(ctx, "INSERT INTO feed_events(company_id,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
 		tx.company, item.EventID, item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Type, item.ProjectID, item.EntityID, item.TaskID, item.RunID, item.Agent, item.Actor, item.Status, item.Summary, item.Attention, item.Ref)
 	if err != nil {
@@ -92,6 +103,9 @@ type FeedFilter struct {
 	Project, Task string
 	// Attention keeps only events that need the owner.
 	Attention bool
+	// Agents limits the feed to a manager's subtree (waits-events-cost-cli D3): rows of these agents and of
+	// tasks assigned within the subtree or delegated by it (origin_task assigned within); nil is everything.
+	Agents []string
 }
 
 // AddFeed records one feed event Core decides outside a storage transaction (e.g. an ignored model override).
@@ -120,9 +134,17 @@ func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after in
 	if after < 0 || limit < 1 || limit > 100 {
 		return out, inputError("after >= 0 and limit 1..100 required")
 	}
+	agents := ""
+	if f.Agents != nil {
+		b, _ := json.Marshal(f.Agents)
+		agents = string(b)
+	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT seq,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref FROM feed_events
- WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR task_id=?) AND (?=0 OR attention=1) AND seq>? ORDER BY seq LIMIT ?`,
-		company, f.Project, f.Project, f.Task, f.Task, f.Attention, after, limit+1)
+ WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR task_id=?) AND (?=0 OR attention=1) AND seq>?
+ AND (?='' OR agent IN (SELECT value FROM json_each(?)) OR task_id IN (SELECT t.id FROM tasks t WHERE t.company_id=feed_events.company_id
+  AND (t.assignee IN (SELECT value FROM json_each(?)) OR json_extract(t.body,'$.origin_task') IN (SELECT o.id FROM tasks o WHERE o.company_id=t.company_id AND o.assignee IN (SELECT value FROM json_each(?))))))
+ ORDER BY seq LIMIT ?`,
+		company, f.Project, f.Project, f.Task, f.Task, f.Attention, after, agents, agents, agents, agents, limit+1)
 	if err != nil {
 		return out, err
 	}

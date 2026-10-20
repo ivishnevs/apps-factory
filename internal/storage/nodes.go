@@ -423,6 +423,11 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	} else if len(paused) > 0 {
 		return out, retry("paused")
 	}
+	if paused, err := nodePaused(ctx, tx, req.NodeID); err != nil {
+		return out, err
+	} else if paused {
+		return out, &Refusal{Retry: true, Reason: "paused", Detail: "node " + req.NodeID + " paused by the owner"}
+	}
 	if !slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == string(spec.Provider) && d.OK }) {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: "driver " + string(spec.Provider) + " not usable on this node"}
 	}
@@ -714,6 +719,11 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	// Health events (node.low_disk, node.check_failed, ...) and the pause answer at critical disk.
 	if out.Pause, err = nodeHealthEvents(ctx, tx, node, health); err != nil {
 		return out, err
+	}
+	if !out.Pause { // an owner node pause (factory pause --node N) also stops the node claiming
+		if out.Pause, err = nodePaused(ctx, tx, node); err != nil {
+			return out, err
+		}
 	}
 	listed := map[string]bool{}
 	for _, x := range hb.Inventory {

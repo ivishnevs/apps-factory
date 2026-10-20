@@ -1,0 +1,23 @@
+# API prices in USD per million tokens, by the model name the runtime reports in its usage
+# (waits-events-cost-cli D5). Core prices a run from this table only when the runtime reported no cost
+# (cost_source: price_table); figures are API-equivalent, for comparison and waste detection, not billing.
+# Keep the values current: run_costs.cost_source shows how each figure was computed.
+models:
+  gpt-5:
+    input: 1.25
+    output: 10
+    cache_read: 0.125
+  gpt-5-codex:
+    input: 1.25
+    output: 10
+    cache_read: 0.125
+  claude-sonnet-4-5:
+    input: 3
+    output: 15
+    cache_read: 0.3
+    cache_write: 3.75
+  claude-opus-4-1:
+    input: 15
+    output: 75
+    cache_read: 1.5
+    cache_write: 18.75

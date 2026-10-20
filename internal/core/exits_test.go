@@ -340,17 +340,17 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	}
 	r = h.start("w")
 	wake := h.fake.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	call(r, "factory_exit_wait", map[string]any{"reason": "store review", "wake_at": wake})
+	call(r, "factory_exit_wait", map[string]any{"reason": "store review", "wake_at": wake, "deadline": h.fake.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)})
 	h.end(r, "succeeded", "accepted")
-	if got = h.task("w"); got.Status != "READY" || got.NotBefore != h.fake.Now().Add(time.Hour).Unix() {
-		t.Fatalf("%+v", got)
+	if snap, _ := h.s.TaskSnapshot(ctx, storage.DefaultCompany, "w"); h.task("w").Status != "READY" || h.c.evaluate(snap).Reason != tasks.ReasonParked+tasks.ParkWait {
+		t.Fatalf("%+v %+v", h.task("w"), v)
 	}
 	h.fake.Advance(time.Hour)
 	if err := h.s.ExpireWaits(ctx, storage.DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
 	snap, _ := h.s.TaskSnapshot(ctx, storage.DefaultCompany, "w")
-	if len(snap.Pending) == 0 || snap.Pending[len(snap.Pending)-1].Kind != "wake" {
+	if len(snap.Pending) == 0 || snap.Pending[len(snap.Pending)-1].Kind != "wait_ended" {
 		t.Fatalf("%+v", snap.Pending)
 	}
 
