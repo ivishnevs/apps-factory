@@ -11,7 +11,7 @@ Tenancy: an account owns companies and users; users are members of companies of 
 transactions take a per-company advisory lock, so decisions (dispatch, claim, expiry) serialize per company and
 companies never wait for each other. NATS subjects carry the company: `factory.<company>.commands...`,
 `factory.<company>.events...`, `factory.<company>.feed...` and the node control subject
-`factory.<company>.nodes.<node_id>.control`.
+`factory.<company>.nodes.<node_id>.control` (outside the streams; urgent `run.stop`).
 
 Native Workers share a durable provider-specific pull consumer. Before runtime side effects,
 a Worker atomically claims the run through Core; the command is only a pointer. Claim re-checks the
@@ -65,7 +65,7 @@ pidfile, so a second run of the same task waits, and later runs of the task cont
   `refs/factory/wip/<task>` without touching HEAD, index or files, and `sealed_head` is recorded. Nothing is pushed
   by the seal. After an accepted handoff, submit or done the seal then resets the worktree to the exit's commit
   (`exit_sha`), so the next run starts exactly from what was handed over; after other exits it continues as is. The
-  node reports `{mode, branch, node_id, exit_sha, sealed_head, sealed_at}` to `POST /runs/{id}/workspace`
+  node reports `{mode, branch, node_id, exit_sha, sealed_head, sealed_at, unpushed}` to `POST /runs/{id}/workspace`
   (one `workspaces` row per task, `GET /tasks/{id}/workspace`). A worktree left locked by a crashed process is
   sealed as that run's work before the next run, or at node start.
 - Start check (under the lock, before the runtime starts): HEAD at `sealed_head` starts the run, after a
@@ -100,10 +100,10 @@ the stack checks come from the company catalog's `NodeHooks` document, which Cor
 heartbeat answers (node.yaml `janitor` overrides per list). The heartbeat's health (disk level, failing self-checks,
 a stalled heartbeat) and the registers (restarts) become node health events in the feed
 (`node.low_disk`, `node.disk_critical`, `node.restart_loop`, `node.check_failed`, `node.heartbeat_stalled` and
-`node.offline` after 10 minutes carry attention; `node.registered`, `node.online`, `node.paused`/`resumed` do not),
+`node.offline` after 10 minutes carry attention; `node.registered`, `node.online`, `node.paused`/`resumed`, `node.disk_ok`, `node.check_passed` do not),
 one per episode; `factory status` lists the nodes. Command
-guards put refusing or approval-checking shims first on each run's `PATH` (Claude also checks shell commands in a
-`PreToolUse` hook; see [policies](policies.md#command-guards)); they are guardrails, not isolation. A disk gate
+guards put refusing or approval-checking shims first on each run's `PATH` (Codex also decides commands through its
+approval requests, Claude in a `PreToolUse` hook; see [policies](policies.md#command-guards)); they are guardrails, not isolation. A disk gate
 stops claiming below the critical watermark, and a watchdog reaps runtime groups that belong to no slot.
 `factory-node doctor` runs the self-checks locally without Core.
 
@@ -114,7 +114,7 @@ terminal runs. Late terminal evidence replaces a Core-decided `lost` (or `timed_
 If broker event publication fails, Worker stops execution. Missing terminal evidence expires to `lost`.
 
 Streams use file storage; their retention is currently unbounded. Configure operational backups
-and retention before production use. Shared tokens/passwords protect trusted local components;
+and retention before production use. Shared tokens/passwords protect trusted local components (nodes use their own node tokens and NATS users);
 there is no per-agent authorization or strict OS isolation in Foundation. Full host access is
 intentional. Prompt instructions for protected actions are not an enforcement boundary.
 

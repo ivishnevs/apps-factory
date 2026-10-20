@@ -93,8 +93,8 @@ Do not print .env, database URLs with passwords or authenticated NATS URLs in re
 the broker volume.
 `docker compose down -v` deletes durable state and is not the normal stop command.
 
-Foundation limitations: no automatic worker registration/heartbeat dashboard, no remote machine
-path mapping, no event pagination/retention policy, no approval grants yet. Factory MCP enforces run-scoped Core access. Skill operations enforce the shared policy evaluator; shell access is trusted.
+Foundation limitations: no remote machine path mapping (one canonical node path per project), no event
+retention policy. Factory MCP enforces run-scoped Core access. Skill operations enforce the shared policy evaluator; shell access is trusted.
 Do not proceed to later stages until Foundation checks pass.
 
 Task Engine adds scripts/task-smoke.py (opt-in real model chain; --restart-core tests persistence),
@@ -216,7 +216,8 @@ delivered `missing` with an empty spec. Hooks and checks are trusted template da
 
 `./bin/factory-node run [-config node.yaml] [-slots N]` (`make node`) is one process with N slot goroutines
 (node-agent 1.1; registration and the inventory heartbeat with `protocol_version: 2`, below; v2 nodes also
-subscribe to their control subject `factory.<company>.nodes.<node_id>.control`). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats in
+subscribe to their control subject `factory.<company>.nodes.<node_id>.control`, which carries Core's urgent
+`run.stop`; the heartbeat answer's `stop` stays the guarantee). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats in
 v1); the slots share one pull
 subscription per enabled driver on `factory.<company>.commands.agent.run.<driver>` with the durable
 `<driver>-worker-<company>` (node.yaml `company`, default `default`; a v2 node refuses to run when the register answer names another
@@ -312,9 +313,9 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   (`skills_root`/`configs/skills.yaml`; without it runs get no skills, logged at start) into a temporary directory
   outside the workspace, and each copy's content hash (`sha256:` over the skill directory's regular files and
   names, `skills.Hash`) is checked against the hash pinned on the run. A mismatch, or a skill this node lacks, ends
-  the run `setup_failed` before the runtime starts (`skills: … (refused before runtime startup)`). Core does not pin
-  hashes yet: the executor reads `skill_hashes` from the agent snapshot when present and otherwise logs the
-  computed hash and materializes it. Claude: the copies go to `<cwd>/.claude/skills/<name>` (read with the
+  the run `setup_failed` before the runtime starts (`skills: … (refused before runtime startup)`). Core pins the
+  hashes in the run's agent snapshot (`skill_hashes`); a skill Core could not hash stays unpinned, and the executor
+  logs the computed hash and materializes it. Claude: the copies go to `<cwd>/.claude/skills/<name>` (read with the
   `project` setting source), marked with `.factory-skill`, added to the repository's `info/exclude` and removed when
   the session closes; a project's own skill with the same name refuses the launch. Codex: the app-server gets the
   copy directory through `skills/extraRoots/set` before the thread starts (verified with codex-cli 0.162.1;
@@ -396,9 +397,9 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
   fsynced on every start and on every re-register. Copying a state dir to a second machine makes both one node:
   Core refuses the older epoch (`409 stale_epoch`) and that process exits.
 - Start: orphaned runtime groups are killed, worktrees whose run pidfile outlived the previous process are stopped
-  and sealed locally (not reported), then `POST /nodes/register` sends `node_id`, `name`, `epoch`, `slots`,
-  `drivers` (`CheckVersion` version, `ok` when no driver check fails, else `check` and `detail`), `resources`
-  and `labels`. Unreachable Core is retried (up to 30 s apart); a refusal stops the node.
+  and sealed locally (not reported), then `POST /nodes/register` sends `node_id`, `name`, `epoch`,
+  `protocol_version`, `slots`, `drivers` (`CheckVersion` version, `ok` when no driver check fails, else `check` and
+  `detail`), `resources`, `labels`, `worktrees`, `hooks` and `reason` (`start` or `reregister`). Unreachable Core is retried (up to 30 s apart); a refusal stops the node.
 - Commands are pointers: only the run id is read (`run_id`, or `id` of a full RunSpec during the transition). A
   free slot claims with `{node_id, epoch, claim_id, slot}`; `claim_id` is `<epoch>-<slot>-<n>`, an idempotency key
   reused when a transient failure (network, 5xx) is retried. `409 retry` naks the command with a 5 s delay,
@@ -412,8 +413,10 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
   watermarks, `busy_slots`) and the current `drivers`. The answer's `acked` drops ended runs, `stop` cancels runs through the executor
   (which interrupts, seals and reports them; a stopped ended run is dropped), `pause` stops claiming on top of the
   local disk gate, `cleanup` task ids have their worktrees sealed and removed (`git worktree remove`; branch, WIP ref
-  and clone stay; a worktree in use is retried on a later listing) or are logged when worktrees are off. A failed
-  heartbeat is logged; runs continue.
+  and clone stay; a worktree in use is retried on a later listing) or are logged when worktrees are off, `reset`
+  task ids get `janitor.ResetWorkspace` (confirmed in the next heartbeat's `reset_done`), and `hooks` brings a changed
+  `NodeHooks` document (the heartbeat sends `hooks` and the applied `hooks_hash`). A failed heartbeat is logged;
+  runs continue.
 - A changed `incarnation` (or `404` for the node) stops claiming, stops every run, waits for them to end, then
   registers the next epoch with an empty inventory. `409` on a heartbeat stops the node.
 - Capacity (Core): a run holds its slot and resource classes from the claim until it has ended in Core **and** the
@@ -488,13 +491,13 @@ no incarnation: stop them first and start them after step 5):
 With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` get one git worktree per task under
 `worktrees.root` (default `<state_dir>/worktrees`):
 
-- `<root>/default/<project>/repo` is the shared clone of the run's `repo_url`; `tasks/<task>` is the task's worktree
+- `<root>/<company>/<project>/repo` is the shared clone of the run's `repo_url`; `tasks/<task>` is the task's worktree
   on branch `af/<task>`; `scratch/<task>` is exported to the runtime as `FACTORY_SCRATCH`.
 - Each worktree has its own lock, so a second run of the same task waits; later runs reuse the worktree and its work.
 - At run end the runtime process group gets TERM, then KILL after 10 s; the run fails if it survives 30 s. The
   worktree is then sealed: uncommitted work is committed onto `refs/factory/wip/<task>` (the worktree itself is left
   unchanged) and `sealed_head` is written to `.factory/state`. Nothing is pushed. The worker then reports
-  `{mode, branch, node_id, exit_sha, sealed_head, sealed_at}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`, in v2 its `node_id`;
+  `{mode, branch, node_id, exit_sha, sealed_head, sealed_at, unpushed}` to `POST /runs/{id}/workspace` (`node_id` is the node's `name`, in v2 its `node_id`;
   `GET /tasks/{id}/workspace` reads it). Transient failures are retried briefly; a failed report is logged
   and does not fail the run.
 - Continuity (task-worktrees D4, 2.2): the seal reads the run's exit file. `exit_sha` is the exit file's
@@ -505,9 +508,9 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   kept on the WIP ref: the snapshot of uncommitted files, or, without one, the commits made after the exit. A reset
   is recorded in `.factory/state` (`reset_from`) before it runs; a crash in between is finished by the next seal
   or start check. After `ask`, `block`, `wait` or no exit the worktree continues as it is. The seal also computes
-  whether HEAD has commits on no origin branch (`unpushed`); with `wip_sha` it is logged for node pinning (no
-  report field yet).
-- `workspace_mode: fresh_from_default` (no Core config yet): the task worktree has no task branch; every run seals
+  whether HEAD has commits on no origin branch (`unpushed`, reported: Core pins the task to this node); `wip_sha`
+  is logged.
+- `workspace_mode: fresh_from_default` (agent `spec.workspace.mode`): the task worktree has no task branch; every run seals
   what the previous one left, then checks out the freshly fetched `origin/<default>` detached with a clean tree.
   It is reported as mode `worktree` without a branch.
 - A turn that ends while the exit file says `pending` (factory-mcp still retrying delivery to an unreachable Core)
@@ -537,11 +540,11 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   default branch), recreates the worktree and forgets the task's session records, so the next run starts a fresh
   session. The abandoned local state (the seal's WIP commit, else an unpushed branch head) stays on
   `refs/factory/reset/<task>`; the WIP ref is dropped. It prints the result as JSON and can run next to
-  `factory-node run`. The same operation is `janitor.ResetWorkspace` for when Core sends reset-workspace to
-  nodes (no protocol field yet).
+  `factory-node run`. The same operation (`janitor.ResetWorkspace`) runs for the task ids in the v2 heartbeat
+  answer's `reset` (escalation answers, `pinned_node_unavailable`).
 
 Core opens the `workspace_diverged` escalation and pins tasks with unpushed work to their node at claim
-(`pinned_node_unavailable`). Not yet: `fresh_from_default` in agent config. Push and PR happen only through explicit
+(`pinned_node_unavailable`). Push and PR happen only through explicit
 exits (below); merging is the agent's (`task-pull-request` skill). Tasks of one project run in parallel on a node
 with `worktrees.enabled` (it registers `worktrees: true`); elsewhere they share the project workspace one at a time.
 

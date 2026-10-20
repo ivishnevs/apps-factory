@@ -33,7 +33,8 @@ Claude: [docs/claude-runtime.md](docs/claude-runtime.md); нода: [docs/develo
 
 Core и NATS публикуют порты только на loopback. `.env` исключён из Git и Docker build context.
 В этой рабочей копии `.env` уже создан со случайными значениями. Не заменяйте его при обычном запуске.
-Core хранит БД в volume `core-data`; NATS — сообщения в `nats-data`.
+Postgres хранит БД в volume `postgres-data`, Core — blobs в `core-blobs` и только `core.incarnation` в `core-data`;
+NATS — сообщения в `nats-data`.
 `make down` останавливает контейнеры и сохраняет данные.
 
 В другом терминале загрузите `.env`, затем:
@@ -102,8 +103,8 @@ Factory MCP, токены запуска и инструменты: [docs/factor
 Отчёты и Decision Registry сохраняются в Postgres; UI относится к следующим этапам.
 Policies и grants проверяются при каждом вызове; одобрение не отменяет deny. Неизвестные YAML-поля отклоняются.
 `doctor` проверяет доступность Core, его Postgres (`"database": "postgres 17.x"`) и соединение Core с NATS; доступность Worker
-подтверждается сквозным запуском. Worker обрабатывает по одному run на процесс,
-Core допускает один активный run на агента; workspace проекта занимает один run за раз.
+подтверждается сквозным запуском. `codex-worker` обрабатывает по одному run на процесс, нода — по одному на slot;
+Core допускает не больше `execution.max_concurrent_runs` активных run'ов на агента; workspace проекта занимает один run за раз.
 Агенты с `workspace.mode: worktree` работают в отдельном git worktree на задачу (ветка `af/<task>`; в конце run'а
 незакоммиченная работа запечатывается в `refs/factory/wip/<task>`; перед стартом — проверка на расхождение;
 `factory-node workspace reset`; janitor удаляет worktree закрытых задач). Задачи одного проекта идут параллельно

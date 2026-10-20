@@ -14,6 +14,10 @@ state through the app itself instead, in this order of preference:
 3. UI tests that find elements by accessibility identifier (iOS) or test tag / resource id (Android), never by
    screen coordinates or visible text that copy changes would break.
 
+Your agent's policies may deny or gate other commands the same way: a refused command exits 126 with the rule's
+instruction. Follow it; for an approval rule, request `factory_owner_request_approval` for that exact argv and finish
+the turn. Do not work around a guard with an absolute path or a wrapper script.
+
 Keep screenshots, logs and test results as files under a gitignored `.build/` or `artifacts/` directory and
 reference them in your report.
 

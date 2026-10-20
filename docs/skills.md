@@ -27,11 +27,11 @@ own directory, including symlinks. Only regular files <= 1 MiB can be read throu
 
 Runs on a node get the offered skills materialized from the node's registry (`skills_root` in node.yaml),
 verified by content hash (`skills.Hash`, `sha256:…`) against the hash pinned on the run before the
-runtime starts; see [development](development.md#node-process). Core does not pin hashes yet (the node
-reads `skill_hashes` from the agent snapshot when present).
+runtime starts; see [development](development.md#node-process). Core pins the hashes in the run's agent
+snapshot (`skill_hashes`); a skill Core cannot hash stays unpinned.
 
-There is no per-run skill version snapshot in Core yet. A running agent can see updated resource content
-if registry files are changed administratively; restart Core when changing catalog metadata.
+Core pins only hashes, not skill content: reads through Core serve the current registry files, so a running
+agent can see updated resource content if registry files are changed administratively; restart Core when changing catalog metadata.
 
 ## mobile-app-testing
 
