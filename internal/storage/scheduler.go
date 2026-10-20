@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -86,13 +87,20 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		spec.Conversation, spec.WorkspaceMode = true, ""
 	}
 	if t.CurrentRunID != "" {
-		var status, session string
+		var status string
 		var unreleased bool
-		if err = tx.QueryRowContext(ctx, "SELECT status,session_id,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &session, &unreleased); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
 			return spec, err
 		}
 		if unreleased || status != "ENDED" {
 			return spec, ErrConflict
+		}
+		// The session key is (task, agent) (reliable-recovery D3): resume this agent's last session of the
+		// task, not the session of the task's last run, which may be another agent's (the reviewer's).
+		var session string
+		err = tx.QueryRowContext(ctx, "SELECT session_id FROM runs WHERE company_id=? AND task_id=? AND agent=? AND session_id IS NOT NULL AND session_id!='' ORDER BY created_at DESC, seq DESC LIMIT 1", company, t.ID, spec.Agent).Scan(&session)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return spec, err
 		}
 		spec.SessionID = session
 	}

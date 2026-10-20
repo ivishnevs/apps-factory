@@ -109,6 +109,23 @@ func TestRunCostsEveryEndedRun(t *testing.T) {
 	}
 }
 
+// TestRunCostModelCountsCache: the ledger names the model that processed the most tokens with cache
+// included: Claude's main model (mostly cache reads), not its auxiliary model with more uncached input.
+func TestRunCostModelCountsCache(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	h.create("m", "notes", "demo")
+	r := h.start("m")
+	h.usage(r,
+		protocol.Usage{Model: "claude-haiku-5-5", Input: 8, Output: 1152, CacheRead: 113861, CacheWrite: 15400, CostUSD: 0.169, CostSource: "claude_estimate"},
+		protocol.Usage{Model: "claude-haiku-4-5-20251001", Input: 1264, Output: 14, CostUSD: 0.001, CostSource: "claude_estimate"})
+	h.end(r, "failed", "none")
+	rep, err := h.s.Costs(ctx, storage.DefaultCompany, storage.CostFilter{Task: "m"})
+	if err != nil || len(rep.Runs) != 1 || rep.Runs[0].Model != "claude-haiku-5-5" || rep.Runs[0].CacheReadTokens != 113861 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+}
+
 // TestPricesYAML: the shipped table loads and prices per million tokens.
 func TestPricesYAML(t *testing.T) {
 	p, err := config.LoadPrices("../..")
