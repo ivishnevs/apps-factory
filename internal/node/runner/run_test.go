@@ -111,7 +111,7 @@ func TestJetStreamNodeSlots(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if r.Status == "CANCELLED" {
+			if r.Status == "ENDED" && r.Outcome == "lost" { // a node shutdown is a loss, never a revoke
 				break
 			}
 			select {

@@ -67,9 +67,9 @@ Set `openspec_change` to a name such as add-greeting, not an absolute/relative p
 URL. Create its proposal before linking tasks. Create/update/ready/dispatch validate the reference.
 Dispatch copies the name into RunSpec and adds a path/read instruction to the task prompt without
 copying documents. Claim rechecks the file: a missing/invalid queued reference cancels that run and
-blocks its task before Codex starts. Core records the observed CANCELLED outcome. Restoring the
+blocks its task before Codex starts. Core ends that run `stale`. Restoring the
 proposal allows an explicit ready action and a new attempt. Native Worker makes one final local
-preflight before starting app-server; failure publishes known FAILED evidence, without a session
+preflight before starting app-server; failure publishes a `setup_failed` end, without a session
 or runtime side effects. Bounded retries with broken links become blocked instead of crashing Core.
 
 Existing runs retain their name; documents remain current files, not frozen approved content.

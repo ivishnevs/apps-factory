@@ -44,7 +44,7 @@ func TestJetStreamOpenSpecPreflightBeforeRuntime(t *testing.T) {
 		t.Fatal(e)
 	}
 	json.Unmarshal(envelope.Payload, &event)
-	if envelope.Type != "agent.failed" || event.Status != "FAILED" || event.SessionID != "" || !strings.Contains(event.Result, "before runtime startup") {
+	if envelope.Type != "agent.failed" || event.Status != "ENDED" || event.Outcome != "setup_failed" || event.SessionID != "" || !strings.Contains(event.Result, "before runtime startup") {
 		t.Fatal(envelope, event)
 	}
 	msgs[0].AckSync()

@@ -106,7 +106,7 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 			s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = task, remote, "main", mode
 		})
 		l := d.Launches()
-		if r.Status != "COMPLETED" || len(l) != 1 {
+		if r.Outcome != "succeeded" || len(l) != 1 {
 			t.Fatalf("%s: %+v, %d launches", task, r, len(l))
 		}
 		return l[0].Cwd, l[0].Env
@@ -169,7 +169,7 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 	r, _ := runDriver(t, url, Worker{Driver: d, Worktrees: trees, RunStopped: func(s protocol.RunSpec, wt string) { stopped = append(stopped, s.TaskID+":"+wt) }}, false, func(s *protocol.RunSpec) {
 		s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = "t1", remote, "main", "worktree"
 	})
-	if r.Status != "FAILED" || !strings.Contains(r.Result, "workspace_diverged") || !strings.Contains(r.Result, "HEAD changed outside any run") || len(d.Launches()) != 0 {
+	if r.Outcome != "setup_failed" || !strings.Contains(r.Result, "workspace_diverged") || !strings.Contains(r.Result, "HEAD changed outside any run") || len(d.Launches()) != 0 {
 		t.Fatalf("%+v, %d launches", r, len(d.Launches()))
 	}
 	if gitOut(t, cwd, "rev-parse", "HEAD") != moved || len(stopped) != 1 || stopped[0] != "t1:" {

@@ -68,7 +68,7 @@ func TestCompaniesAreIsolated(t *testing.T) {
 	if _, err = s.Heartbeat(ctx, DefaultCompany, "r", lease); err == nil {
 		t.Fatal("foreign heartbeat accepted")
 	}
-	done := protocol.Wrap("agent.completed", "r", "", protocol.Event{RunID: "r", Lease: lease, Status: "COMPLETED"})
+	done := protocol.Wrap("agent.completed", "r", "", protocol.Event{RunID: "r", Lease: lease, Status: "ENDED", Outcome: "succeeded"})
 	if err = s.Apply(ctx, DefaultCompany, done); !errors.Is(err, ErrInvalid) {
 		t.Fatal("foreign event applied", err)
 	}

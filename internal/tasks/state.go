@@ -49,8 +49,9 @@ type Run struct {
 	Lost bool `json:"lost,omitempty"`
 }
 
+// Live: the run is not ENDED (queued, claimed, running or cancelling), or lost with its runtime maybe running.
 func (r Run) Live() bool {
-	return r.Status == "QUEUED" || r.Status == "RUNNING" || r.Status == "CANCELLING" || r.Lost
+	return r.Status != "ENDED" || r.Lost
 }
 
 // Park is an active hold on a task; Who clears it.
@@ -157,7 +158,7 @@ func Evaluate(s Snapshot) Verdict {
 			return v(n.Reason, n.Detail+" (run "+r.ID+" is QUEUED)", n.Clearer.Who, n.Clearer.Action)
 		}
 		if r.Lost {
-			return v(ReasonLiveRun, "run "+r.ID+" is lost and its runtime may still run", "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" STATUS EVIDENCE")
+			return v(ReasonLiveRun, "run "+r.ID+" is lost and its runtime may still run", "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" continue|retry|cancel EVIDENCE")
 		}
 		return v(ReasonLiveRun, "run "+r.ID+" is "+r.Status, "run:"+r.ID, "wait for it to finish or factory runs cancel "+r.ID)
 	}
@@ -221,7 +222,7 @@ func Evaluate(s Snapshot) Verdict {
 	}
 	if r := s.WriterRun; r != nil {
 		if r.Lost {
-			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by lost run %s whose runtime may still run (task %s)", r.ID, r.TaskID), "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" STATUS EVIDENCE")
+			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by lost run %s whose runtime may still run (task %s)", r.ID, r.TaskID), "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" continue|retry|cancel EVIDENCE")
 		}
 		return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the run in the project workspace")
 	}
@@ -251,7 +252,7 @@ func park(s Snapshot, kind string) (Verdict, bool) {
 		}
 		switch kind {
 		case ParkInspect:
-			return hold(p.Reason, p.Who, "inspect the workspace, then factory runs resolve "+p.RefID+" STATUS EVIDENCE")
+			return hold(p.Reason, p.Who, "inspect the workspace, then factory runs resolve "+p.RefID+" continue|retry|cancel EVIDENCE")
 		case ParkAsk:
 			return hold(p.Reason, p.Who, "answer message "+p.RefID)
 		case ParkBlock:

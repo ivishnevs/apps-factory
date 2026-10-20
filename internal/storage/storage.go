@@ -40,7 +40,7 @@ type Store struct {
 	EscalationTarget func(assignee string) string
 	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
 	ManagerOf func(agent string) string
-	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a COMPLETED
+	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a succeeded
 	// turn without an accepted exit is no_exit instead of an implicit submission.
 	ExplicitExits bool
 }
@@ -76,19 +76,16 @@ type Run struct {
 	StartedAt  int64            `json:"started_at"`
 	FinishedAt int64            `json:"finished_at"`
 	Spec       protocol.RunSpec `json:"spec"`
-	Status     string           `json:"status"`
-	SessionID  string           `json:"session_id"`
-	Result     string           `json:"result"`
+	// Status is the run's phase (reliable-recovery D1): QUEUED, CLAIMED (a v2 run claimed but not
+	// started), RUNNING, CANCELLING (a stop in flight), ENDED; Outcome says how an ENDED run ended.
+	Status    string `json:"status"`
+	SessionID string `json:"session_id"`
+	Result    string `json:"result"`
 	// Usage is the last cumulative usage the worker reported (runtime-drivers 2.5).
 	Usage UsageList `json:"usage,omitempty"`
 	// Outcome is how the run ended (reliable-recovery D1); empty while it is live.
 	Outcome string `json:"outcome,omitempty"`
 }
-
-// runStatus is the run status as the API shows it (reliable-recovery D1): QUEUED, CLAIMED (a v2 run
-// claimed but not started; stored as RUNNING with run_started 0), RUNNING, CANCELLING, then ended as
-// COMPLETED, FAILED or CANCELLED, with the outcome saying how.
-const runStatus = "CASE WHEN status='RUNNING' AND protocol=2 AND run_started=0 THEN 'CLAIMED' ELSE status END"
 
 // UsageList is runs.usage: JSON of the last reported Event.usage, empty when none.
 type UsageList []protocol.Usage
@@ -183,7 +180,7 @@ func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) 
 func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	var r Run
 	var b []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT spec,"+runStatus+",session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome)
+	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -194,7 +191,7 @@ func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	return r, err
 }
 func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,"+runStatus+",session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -276,8 +273,8 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	if p.RunID == "" || p.RunID != e.CorrelationID {
 		return fmt.Errorf("%w: correlation mismatch", ErrInvalid)
 	}
-	if p.Status != "" && p.Status != "COMPLETED" && p.Status != "FAILED" && p.Status != "CANCELLED" {
-		return fmt.Errorf("%w: terminal status", ErrInvalid)
+	if p.Status != "" && (p.Status != "ENDED" || !workerOutcomes[p.Outcome]) || p.Status == "" && p.Outcome != "" {
+		return fmt.Errorf("%w: terminal status %q outcome %q", ErrInvalid, p.Status, p.Outcome)
 	}
 	tx, err := s.begin(ctx, company)
 	if err != nil {
@@ -294,7 +291,7 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	var token, status, stopReason string
 	// lost: Core ended the started run lost without the worker's terminal evidence, which may still arrive.
 	var lost bool
-	if err = tx.QueryRowContext(ctx, "SELECT lease,status,stop_reason,status='FAILED' AND end_applied=0 AND outcome IN ('lost','timed_out') AND NOT (protocol=2 AND run_started=0) FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status, &stopReason, &lost); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT lease,status,stop_reason,status='ENDED' AND end_applied=0 AND outcome IN ('lost','timed_out') AND NOT (protocol=2 AND run_started=0) FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status, &stopReason, &lost); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: unknown run", ErrInvalid)
 		}
@@ -302,9 +299,6 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	}
 	if token == "" || token != p.Lease {
 		return ErrConflict
-	}
-	if p.Outcome != "" && (p.Status == "" || !workerOutcomes[p.Outcome]) {
-		return fmt.Errorf("%w: outcome %q", ErrInvalid, p.Outcome)
 	}
 	p.Data = openspec.AuditData(p.Data)
 	e.Payload, err = json.Marshal(p)
@@ -324,18 +318,18 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 			return err
 		}
 	}
-	if status == "RUNNING" || status == "CANCELLING" || lost {
+	if status == "CLAIMED" || status == "RUNNING" || status == "CANCELLING" || lost {
 		// Late terminal evidence can resolve a lost lease; late progress never revives it.
 		if p.Status != "" {
-			if lost && p.Status == "CANCELLED" && !failureOutcomes[p.Outcome] {
-				// The node stopped a run Core already declared lost (stop: terminal): that confirms the
-				// runtime is gone, it is not an owner cancel.
+			if lost && (p.Outcome == "revoked" || p.Outcome == "lost") {
+				// The node stopped a run Core already declared lost (stop: terminal) or ended it without
+				// evidence: that confirms the runtime is gone, it is not an owner cancel.
 				if err = releaseLost(ctx, tx, p.RunID); err != nil {
 					return err
 				}
 				return tx.Commit()
 			}
-			next, result, outcome := endStatus(status, stopReason, p)
+			result, outcome := endOutcome(status, stopReason, p)
 			hasExit, err := runHasExit(ctx, tx, p.RunID)
 			if err != nil {
 				return err
@@ -347,19 +341,18 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 			switch {
 			case hasExit:
 				outcome = "succeeded" // an accepted exit fixes the outcome whatever happens afterwards
-			case s.ExplicitExits && next == "COMPLETED" && !taskRun:
+			case s.ExplicitExits && outcome == "succeeded" && !taskRun:
 				// A run without a task (a message run) ends by replying; exits do not apply.
-			case s.ExplicitExits && next == "COMPLETED" && p.ExitState == "pending":
-				next, outcome = "FAILED", "lost"
+			case s.ExplicitExits && outcome == "succeeded" && p.ExitState == "pending":
+				outcome = "lost"
 				if result == "" {
 					result = "lost: the exit was not delivered before the run ended"
 				}
-			case s.ExplicitExits && next == "COMPLETED":
+			case s.ExplicitExits && outcome == "succeeded":
 				outcome = "no_exit"
 			}
-			// An empty outcome lets the run_outcome trigger derive it (also for late evidence on a lost run, whose
-			// runtime has ended now).
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status=?,result=?,finished_at=?,unreleased=0 WHERE id=?", outcome, next, result, tx.now().Unix(), p.RunID); err != nil {
+			// Late evidence on a lost run replaces its outcome: its runtime has ended now.
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status='ENDED',result=?,finished_at=?,unreleased=0 WHERE id=?", outcome, result, tx.now().Unix(), p.RunID); err != nil {
 				return err
 			}
 		} else if !lost {
@@ -391,27 +384,23 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	return tx.Commit()
 }
 
-// workerOutcomes are the outcomes a worker may report on a terminal event; the others are Core's.
-var workerOutcomes = map[string]bool{"failed": true, "timed_out": true, "idle_timeout": true, "max_turns": true, "setup_failed": true, "paused_out": true}
+// workerOutcomes are the outcomes a worker reports on its terminal event (status ENDED); no_exit, stale and
+// unclaimed are Core's. lost: the run ended without terminal evidence (docs/runtime-protocol-v2.md §8).
+var workerOutcomes = map[string]bool{"succeeded": true, "failed": true, "timed_out": true, "idle_timeout": true, "max_turns": true,
+	"setup_failed": true, "paused_out": true, "revoked": true, "lost": true}
 
-// failureOutcomes end a run FAILED even when the worker reports it CANCELLED: the runtime was stopped for
-// a reason of the run itself, not by an owner, so the task must not be cancelled.
-var failureOutcomes = map[string]bool{"failed": true, "timed_out": true, "idle_timeout": true, "max_turns": true, "setup_failed": true}
-
-// endStatus is the status, result and outcome a terminal event gives a live (or lost) run. A run Core
-// stopped for inactivity (stop_reason idle_timeout) that the worker reports CANCELLED ended idle_timeout.
-func endStatus(current, stopReason string, p protocol.Event) (status, result, outcome string) {
-	status, result, outcome = p.Status, p.Result, p.Outcome
-	if current == "RUNNING" && stopReason == "idle_timeout" && p.Status == "CANCELLED" && outcome == "" {
+// endOutcome is the result and outcome a terminal event gives a live (or lost) run. A run Core stopped for
+// inactivity (stop_reason idle_timeout) that the worker reports revoked, or ended without evidence, ended
+// idle_timeout: Core knows the cause.
+func endOutcome(current, stopReason string, p protocol.Event) (result, outcome string) {
+	result, outcome = p.Result, p.Outcome
+	if current == "RUNNING" && stopReason == "idle_timeout" && (outcome == "revoked" || outcome == "lost") {
 		outcome = "idle_timeout"
 		if result == "" {
 			result = "idle_timeout: no runtime activity for " + IdleTimeout.String() + "; stopped by Core"
 		}
 	}
-	if status == "CANCELLED" && failureOutcomes[outcome] {
-		status = "FAILED"
-	}
-	return status, result, outcome
+	return result, outcome
 }
 
 func (s *Store) Events(ctx context.Context, company, id string) ([]protocol.Envelope, error) {

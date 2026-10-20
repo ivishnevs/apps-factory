@@ -37,11 +37,11 @@ func TestDurableLifecycle(t *testing.T) {
 	if _, err = s.Claim(ctx, DefaultCompany, "one"); err == nil {
 		t.Fatal("duplicate claim accepted")
 	}
-	bad := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: "wrong", Status: "COMPLETED"})
+	bad := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: "wrong", Status: "ENDED", Outcome: "succeeded"})
 	if err = s.Apply(ctx, DefaultCompany, bad); err == nil {
 		t.Fatal("bad lease accepted")
 	}
-	event := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: token, SessionID: "thread-1", Status: "COMPLETED", Result: "ok"})
+	event := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: token, SessionID: "thread-1", Status: "ENDED", Outcome: "succeeded", Result: "ok"})
 	for i := 0; i < 2; i++ {
 		if err = s.Apply(ctx, DefaultCompany, event); err != nil {
 			t.Fatal(err)
@@ -61,7 +61,7 @@ func TestDurableLifecycle(t *testing.T) {
 	}
 	defer s.DB.Close()
 	run, err := s.Get(ctx, DefaultCompany, "one")
-	if err != nil || run.Status != "COMPLETED" || run.Result != "ok" || run.SessionID != "thread-1" {
+	if err != nil || run.Status != "ENDED" || run.Outcome != "succeeded" || run.Result != "ok" || run.SessionID != "thread-1" {
 		t.Fatalf("restart persistence: %+v %v", run, err)
 	}
 	if err = s.Create(ctx, DefaultCompany, other); err != nil {
@@ -99,10 +99,10 @@ func TestLeaseLossEndsTheRunLost(t *testing.T) {
 		t.Fatal("blind retry allowed")
 	}
 	run, _ := s.Get(ctx, DefaultCompany, "r")
-	if run.Status != "FAILED" || run.Outcome != "lost" {
+	if run.Status != "ENDED" || run.Outcome != "lost" {
 		t.Fatal(run.Status, run.Outcome)
 	}
-	if err = s.Resolve(ctx, DefaultCompany, "r", "FAILED", "Inspected workspace; safe to start a new run"); !errors.Is(err, ErrConflict) {
+	if err = s.Resolve(ctx, DefaultCompany, "r", "retry", "Inspected workspace; safe to start a new run"); !errors.Is(err, ErrConflict) {
 		t.Fatal(err)
 	}
 }
@@ -147,7 +147,7 @@ func TestSessionBelongsToProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("completed", "codex", "", protocol.Event{RunID: "codex", Lease: token, SessionID: "thread-1", Status: "COMPLETED"})); err != nil {
+	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("completed", "codex", "", protocol.Event{RunID: "codex", Lease: token, SessionID: "thread-1", Status: "ENDED", Outcome: "succeeded"})); err != nil {
 		t.Fatal(err)
 	}
 	direct := protocol.RunSpec{ID: "direct", Project: "p", Agent: "a", Provider: protocol.RuntimeClaude, Workspace: "/tmp/p", SessionID: "thread-1"}

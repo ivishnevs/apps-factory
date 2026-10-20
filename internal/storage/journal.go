@@ -196,16 +196,15 @@ func autoRuntimeReport(ctx context.Context, tx *Tx, id string) error {
 	if err != nil {
 		return err
 	}
-	var status string
-	if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", id).Scan(&status); err != nil {
+	var status, outcome string
+	if err = tx.QueryRowContext(ctx, "SELECT status,outcome FROM runs WHERE id=?", id).Scan(&status, &outcome); err != nil {
 		return err
 	}
-	switch status {
-	case "COMPLETED", "FAILED", "CANCELLED":
-	default:
+	if status != "ENDED" {
 		return nil
 	}
-	key := "runtime:" + id + ":" + status
+	// One report per outcome: late evidence that changes a lost run's outcome is reported again.
+	key := "runtime:" + id + ":" + outcome
 	var count int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM reports WHERE source_key=?", key).Scan(&count); err != nil {
 		return err
@@ -213,7 +212,7 @@ func autoRuntimeReport(ctx context.Context, tx *Tx, id string) error {
 	if count > 0 {
 		return nil
 	}
-	in := reports.Create{TaskID: spec.TaskID, RunID: id, Actor: "system", Kind: "runtime", Summary: "Runtime " + id + " is " + status, Purpose: "Record the observed execution outcome", Result: status}
+	in := reports.Create{TaskID: spec.TaskID, RunID: id, Actor: "system", Kind: "runtime", Summary: "Runtime " + id + " ended " + outcome, Purpose: "Record the observed execution outcome", Result: outcome}
 	// A run that ended UNKNOWN before reliable-recovery left an owner notice; its later end closes it.
 	{
 		old, e := getDoc[reports.Report](ctx, tx, "SELECT body FROM reports WHERE source_key=?", "runtime:"+id+":UNKNOWN")
@@ -445,7 +444,7 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 	}{in, in.Actor, in.RunID, current}
 	return mutate(ctx, s, company, "decision.decide:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, input, func(tx *Tx) (decisions.Decision, error) {
 		d := decisions.Decision{}
-		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=? AND status='RUNNING' AND lease_until>=?", company, in.RunID, s.leaseCutoff())
+		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=? AND status IN ('CLAIMED','RUNNING') AND lease_until>=?", company, in.RunID, s.leaseCutoff())
 		if err != nil {
 			return d, err
 		}

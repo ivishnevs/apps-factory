@@ -35,9 +35,9 @@ type Driver interface {
 
 // Outcome is the last run of a session as this node recorded it.
 type Outcome struct {
-	// Status is the run's terminal status (COMPLETED, FAILED, CANCELLED; UNKNOWN in records from before reliable-recovery); "" when the node
+	// End is the run's outcome as the node reported it (succeeded, failed, lost, ...); "" when the node
 	// stopped before it was known.
-	Status string
+	End string
 	// Started: the prompt reached the runtime, so the runtime persisted the session (a session launched
 	// but never started has no transcript or rollout to resume).
 	Started bool

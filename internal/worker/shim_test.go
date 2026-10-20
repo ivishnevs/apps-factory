@@ -44,7 +44,7 @@ func TestJetStreamCommandGuards(t *testing.T) {
 		{Exec: []string{"cliclick", "c:1,1"}}, {Exec: []string{"mytool", "build"}}, {Exec: []string{"mytool", "push", "x"}},
 	}}}
 	r, events := runDriver(t, url, Worker{Driver: d, ShimBinary: bin}, false, stored(func(s *protocol.RunSpec) { s.ConfigSnapshot = snapshot }))
-	if r.Status != "COMPLETED" {
+	if r.Outcome != "succeeded" {
 		t.Fatalf("%+v", r)
 	}
 	got := []fake.ExecEvent{}

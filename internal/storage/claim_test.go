@@ -33,7 +33,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	}
 	_, err := s.ClaimRun(ctx, DefaultCompany, "moved-run")
 	dropped(t, err, "stale")
-	if st, out := outcomeOf(t, s, "moved-run"); st != "CANCELLED" || out != "stale" {
+	if st, out := outcomeOf(t, s, "moved-run"); st != "ENDED" || out != "stale" {
 		t.Fatal(st, out)
 	}
 	if v := verdict(t, s, "moved"); v.Reason != tasks.ReasonRunnable {
@@ -52,7 +52,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 
 	// A dependency reopened after dispatch: the task waits for it again.
 	dep := readyEngineTask(t, s, createEngineTask(t, s, "dep"))
-	finishEngineRun(t, s, dispatchEngineTask(t, s, dep, "dep-run"), "COMPLETED")
+	finishEngineRun(t, s, dispatchEngineTask(t, s, dep, "dep-run"), "succeeded")
 	dep, _ = s.Task(ctx, DefaultCompany, "dep")
 	if _, err = s.ReviewTask(ctx, DefaultCompany, "dep", tasks.Review{Version: dep.Version, Accept: true}); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	}
 	_, err = s.ClaimRun(ctx, DefaultCompany, "waiting-run")
 	dropped(t, err, "not_runnable")
-	if st, out := outcomeOf(t, s, "waiting-run"); st != "CANCELLED" || out != "stale" {
+	if st, out := outcomeOf(t, s, "waiting-run"); st != "ENDED" || out != "stale" {
 		t.Fatal(st, out)
 	}
 	if v := verdict(t, s, "waiting"); v.Status != "READY" || v.Reason != tasks.ReasonDependencies {

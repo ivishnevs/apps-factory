@@ -54,7 +54,7 @@ func TestFreshFromDefaultTasks(t *testing.T) {
 	if err != nil || w.Unpushed {
 		t.Fatalf("%+v %v", w, err)
 	}
-	if err = end(t, s, a.ID, ca.Lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+	if err = end(t, s, a.ID, ca.Lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}
 	fake.Advance(time.Hour)

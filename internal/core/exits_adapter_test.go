@@ -99,7 +99,7 @@ exit 1
 	if !audited {
 		t.Fatalf("exit not audited: %+v", calls)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 
 	rv := h.start("t")
 	if _, err := adapter(rv.token).Call(ctx, factorytools.Call{Name: "factory_exit_handoff", Arguments: map[string]any{"to": "demo", "note": "ok", "verdict": "approved"}}); err != nil {
@@ -110,7 +110,7 @@ exit 1
 	if approved != head {
 		t.Fatal("approval not bound to the PR head:", approved)
 	}
-	h.end(rv, "COMPLETED", "accepted")
+	h.end(rv, "succeeded", "accepted")
 
 	r = h.start("t")
 	a = adapter(r.token)

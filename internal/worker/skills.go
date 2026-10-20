@@ -103,7 +103,7 @@ func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec) (protocol.
 	if sameNode {
 		prev = rec
 	}
-	if drv.ResumePolicy(driver.Outcome{Status: prev.Status, Started: prev.Started}, sameNode) {
+	if drv.ResumePolicy(driver.Outcome{End: prev.Outcome, Started: prev.Started}, sameNode) {
 		return spec, prev
 	}
 	slog.Info("fresh session instead of resume", "run", spec.ID, "task", spec.TaskID, "agent", spec.Agent, "session", spec.SessionID, "same_node", sameNode, "started", prev.Started)

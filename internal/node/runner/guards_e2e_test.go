@@ -121,7 +121,7 @@ func (e *e2e) finished(taskID string) storage.Run {
 		if task.CurrentRunID != "" {
 			run, _ = e.store.Get(e.ctx, storage.DefaultCompany, task.CurrentRunID)
 		}
-		return run.Status != "" && run.Status != "QUEUED" && run.Status != "RUNNING" && run.Status != "CANCELLING"
+		return run.Status == "ENDED"
 	})
 	return run
 }
@@ -153,7 +153,7 @@ func TestJetStreamNoExitEndToEnd(t *testing.T) {
 	e := startE2E(t, true, agents, d)
 	e.task("t1")
 	run := e.finished("t1")
-	if run.Status != "COMPLETED" || run.Outcome != "no_exit" {
+	if run.Status != "ENDED" || run.Outcome != "no_exit" {
 		t.Fatalf("run %+v", run)
 	}
 	if got := e.activity(run.Spec.ID, fake.ExitGuardMethod); len(got) != worker.ExitGuardRetries {
@@ -241,7 +241,7 @@ func TestJetStreamCommandGrantEndToEnd(t *testing.T) {
 	}
 
 	run := e.finished("t1")
-	if run.Status != "COMPLETED" {
+	if run.Status != "ENDED" || run.Outcome != "succeeded" {
 		t.Fatalf("run %+v", run)
 	}
 	var execs []fake.ExecEvent
@@ -294,7 +294,7 @@ func TestJetStreamHostUIRefusalEndToEnd(t *testing.T) {
 	e := startE2E(t, false, agents, d)
 	e.task("t1")
 	run := e.finished("t1")
-	if run.Status != "COMPLETED" {
+	if run.Status != "ENDED" || run.Outcome != "succeeded" {
 		t.Fatalf("run %+v", run)
 	}
 	var execs []fake.ExecEvent

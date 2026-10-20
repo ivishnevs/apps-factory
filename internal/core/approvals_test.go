@@ -97,7 +97,7 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if w = httpCall(token, "POST", "/approvals/"+grant.ID+"/decision", approvals.Decision{Version: 1, Action: "approve", Reason: "ok", RequestID: "decision"}); w.Code != 401 {
 		t.Fatal("agent may decide", w.Code)
 	}
-	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "COMPLETED", SessionID: "same-thread"})); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded", SessionID: "same-thread"})); err != nil {
 		t.Fatal(err)
 	}
 	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
@@ -319,7 +319,7 @@ func TestApprovalDecisionDoesNotReleaseActiveOrLostWriter(t *testing.T) {
 				if saved.Status != "IN_PROGRESS" {
 					t.Fatal("decision released active writer", saved)
 				}
-				if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "COMPLETED", SessionID: "thread"})); err != nil {
+				if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "ENDED", Outcome: "succeeded", SessionID: "thread"})); err != nil {
 					t.Fatal(err)
 				}
 				saved, _ = s.Task(ctx, storage.DefaultCompany, task.ID)

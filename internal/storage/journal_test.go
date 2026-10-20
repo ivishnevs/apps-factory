@@ -51,13 +51,13 @@ func TestReportsDurabilityIdentityAndRuntime(t *testing.T) {
 	if _, err = s.CreateReport(ctx, DefaultCompany, "p", in); err == nil {
 		t.Fatal("forged runtime report")
 	}
-	event := finishEngineRun(t, s, run, "FAILED")
+	event := finishEngineRun(t, s, run, "failed")
 	if err = s.Apply(ctx, DefaultCompany, event); err != nil {
 		t.Fatal(err)
 	}
 	// The runtime report records the end; a failed run retries on its own, so it asks nothing of the owner.
 	page, err := s.Reports(ctx, DefaultCompany, "p", "runtime", "", run.ID, 0, 10)
-	if err != nil || len(page.Items) != 1 || page.Items[0].Result != "FAILED" || page.Items[0].Source != "core" || page.Items[0].NeedsOwnerAction {
+	if err != nil || len(page.Items) != 1 || page.Items[0].Result != "failed" || page.Items[0].Source != "core" || page.Items[0].NeedsOwnerAction {
 		t.Fatal(page, err)
 	}
 	persisted, err := s.Report(ctx, DefaultCompany, report.ID)
@@ -157,7 +157,7 @@ func TestDecisionsReplacementConcurrencyAndCapturedContext(t *testing.T) {
 	if len(old.Spec.DecisionContext) != 1 || old.Spec.DecisionContext[0].Value != "SQLite" {
 		t.Fatal(old)
 	}
-	finishEngineRun(t, s, old.Spec, "COMPLETED")
+	finishEngineRun(t, s, old.Spec, "succeeded")
 	next := oldRun
 	next.ID = "new-context"
 	if err = s.Create(ctx, DefaultCompany, next); err != nil {

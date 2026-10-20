@@ -109,11 +109,11 @@ func TestJetStreamFoundation(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if r.Status == "FAILED" {
-				t.Fatalf("run failed: %+v", r)
-			}
-			if r.Status != "COMPLETED" {
+			if r.Status != "ENDED" {
 				continue
+			}
+			if r.Outcome != "succeeded" {
+				t.Fatalf("run failed: %+v", r)
 			}
 			if r.Result != "foundation ok" || r.SessionID != "fake-thread" {
 				t.Fatal(r)
@@ -207,7 +207,7 @@ func TestJetStreamCancellation(t *testing.T) {
 				cancelled = true
 			}
 			if payload.Status != "" {
-				if payload.Status != "CANCELLED" {
+				if payload.Status != "ENDED" || payload.Outcome != "revoked" {
 					t.Fatalf("unexpected terminal %+v", payload)
 				}
 				terminal = true
@@ -223,7 +223,7 @@ func TestJetStreamCancellation(t *testing.T) {
 		t.Fatal("runtime shutdown timeout")
 	}
 	saved, err := s.Get(ctx, storage.DefaultCompany, spec.ID)
-	if err != nil || saved.Status != "CANCELLED" {
+	if err != nil || saved.Outcome != "revoked" {
 		t.Fatal(saved, err)
 	}
 }

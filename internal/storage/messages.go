@@ -188,7 +188,7 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if err = tx.QueryRowContext(ctx, "SELECT status,agent,project,lease_until FROM runs WHERE company_id=? AND id=?", tx.company, in.RunID).Scan(&status, &agent, &project, &until); err != nil {
 			return m, err
 		}
-		if status != "RUNNING" || agent != in.Sender || project != in.ProjectID || !tx.store.LeaseLive(until) {
+		if status != "CLAIMED" && status != "RUNNING" || agent != in.Sender || project != in.ProjectID || !tx.store.LeaseLive(until) {
 			return m, ErrConflict
 		}
 		// The ask park is the wait (no stored wait_message_id); it remembers the run that asked.
@@ -412,7 +412,7 @@ func (s *Store) DispatchMessage(ctx context.Context, company string, m messaging
 		return spec, err
 	}
 	var busy int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING')", company, spec.Agent).Scan(&busy); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND agent=? AND status!='ENDED'", company, spec.Agent).Scan(&busy); err != nil {
 		return spec, err
 	}
 	if busy > 0 {
@@ -455,12 +455,21 @@ func syncMessageRun(ctx context.Context, tx *Tx, runID string) error {
 	if err != nil {
 		return err
 	}
-	var status, session string
-	if err = tx.QueryRowContext(ctx, "SELECT status,session_id FROM runs WHERE id=?", runID).Scan(&status, &session); err != nil {
+	var phase, outcome, session string
+	if err = tx.QueryRowContext(ctx, "SELECT status,outcome,session_id FROM runs WHERE id=?", runID).Scan(&phase, &outcome, &session); err != nil {
 		return err
 	}
-	if status == "RUNNING" || status == "QUEUED" || status == "CANCELLING" {
+	if phase != "ENDED" {
 		return nil
+	}
+	// The message's delivery status: COMPLETED for a completed turn, CANCELLED for a stopped or never
+	// claimed run, FAILED otherwise.
+	status := "FAILED"
+	switch outcome {
+	case "succeeded", "no_exit":
+		status = "COMPLETED"
+	case "revoked", "stale", "unclaimed":
+		status = "CANCELLED"
 	}
 	// Only the first known terminal result projects delivery; late events don't invent an answer.
 	if m.DeliveryStatus != "RUNNING" {
@@ -469,7 +478,7 @@ func syncMessageRun(ctx context.Context, tx *Tx, runID string) error {
 	m.DeliveryStatus = status
 	if m.MessageType == "question" && m.Status == "PENDING" {
 		m.Status = "ESCALATED"
-		m.EscalationReason = "recipient run ended without an explicit answer: " + status
+		m.EscalationReason = "recipient run ended without an explicit answer: " + outcome
 	}
 	if m.MessageType != "question" && status == "COMPLETED" {
 		m.Status = "READ"

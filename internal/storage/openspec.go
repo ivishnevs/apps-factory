@@ -33,7 +33,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 			return out, e
 		}
 		var active int
-		e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1) AND id!=?", p.Workspace, runID).Scan(&active)
+		e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE workspace=? AND (status!='ENDED' OR unreleased=1) AND id!=?", p.Workspace, runID).Scan(&active)
 		if e != nil {
 			return out, e
 		}
@@ -42,7 +42,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 		}
 		if runID != "" {
 			var valid int
-			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND id=? AND project=? AND agent=? AND status='RUNNING' AND lease_until>=?", tx.company, runID, project, actor, s.leaseCutoff()).Scan(&valid); e != nil {
+			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND id=? AND project=? AND agent=? AND status IN ('CLAIMED','RUNNING') AND lease_until>=?", tx.company, runID, project, actor, s.leaseCutoff()).Scan(&valid); e != nil {
 				return out, e
 			}
 			if valid != 1 {
@@ -61,7 +61,7 @@ func (s *Store) InitOpenSpec(ctx context.Context, company, project, actor, runID
 }
 
 func blockOpenSpecRun(ctx context.Context, tx *Tx, id, taskID, reason string) error {
-	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome='stale',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, tx.now().Unix(), id); e != nil {
+	if _, e := tx.ExecContext(ctx, "UPDATE runs SET status='ENDED',outcome='stale',result=?,finished_at=? WHERE id=? AND status='QUEUED'", reason, tx.now().Unix(), id); e != nil {
 		return e
 	}
 	if e := autoRuntimeReport(ctx, tx, id); e != nil {
@@ -77,7 +77,6 @@ func blockOpenSpecRun(ctx context.Context, tx *Tx, id, taskID, reason string) er
 	if t.CurrentRunID == id && t.Status == "IN_PROGRESS" {
 		t.Status = "BLOCKED"
 		t.BlockReason = "openspec: " + reason
-		t.RetryEligible = false
 		t.Submission = nil
 		if e = saveTask(ctx, tx, &t, "task.openspec_waiting"); e != nil {
 			return e

@@ -114,7 +114,7 @@ type Worker struct {
 	// AuthFailed, when set, is called when a run ends on the runtime's authentication failure
 	// (driver.AuthFailure, driver.Result.Auth); the node disables the driver until its next probe passes.
 	AuthFailed func(err error)
-	// RunSucceeded, when set, is called when a run ends COMPLETED; the node resets the driver's auth hold-off.
+	// RunSucceeded, when set, is called when a run ends succeeded; the node resets the driver's auth hold-off.
 	RunSucceeded func()
 }
 
@@ -252,10 +252,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			slog.Error("session record", "run", spec.ID, "session", record.SessionID, "error", err)
 		}
 	}
-	// A runtime still running ExitGrace after its accepted exit is stopped with cause errExitGrace (no
-	// failure outcome: the exit stands).
-	ctx, stopAfterExit := context.WithCancelCause(ctx)
-	defer stopAfterExit(nil)
+	// stopRun stops the run with a cause stopOutcome reads: errExitGrace for a runtime still running
+	// ExitGrace after its accepted exit (the exit stands), errRevoked for a v1 heartbeat cancel,
+	// errHeartbeatLost when the v1 heartbeat fails.
+	ctx, stopRun := context.WithCancelCause(ctx)
+	defer stopRun(nil)
 	var wt *workspace.Worktree
 	var req workspace.Request
 	// exitFile is where the MCP adapter records the run's exit (docs/explicit-exits-contract.md §5).
@@ -342,14 +343,14 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 			// After an accepted exit the run ends as the exit says, also when the executor stopped the
 			// runtime meanwhile (ExitGrace, a timeout, a stop) or the end has no evidence: Core records
-			// it succeeded, and a CANCELLED or failed end would misreport it.
-			if x.State == "accepted" && p.Status != "COMPLETED" && (ctx.Err() != nil || noEvidence) {
-				slog.Info("run ended after its accepted exit", "run", spec.ID, "exit", x.Kind, "status", p.Status, "outcome", p.Outcome)
-				kind, p.Status, p.Outcome = "completed", "COMPLETED", ""
+			// it succeeded, and a stopped or failed end would misreport it.
+			if x.State == "accepted" && p.Outcome != outcomeSucceeded && (ctx.Err() != nil || noEvidence) {
+				slog.Info("run ended after its accepted exit", "run", spec.ID, "exit", x.Kind, "outcome", p.Outcome)
+				kind, p.Outcome = "completed", outcomeSucceeded
 			}
-			record.Status = p.Status
+			record.Outcome = p.Outcome
 			saveRecord()
-			if p.Status == "COMPLETED" && w.RunSucceeded != nil {
+			if p.Outcome == outcomeSucceeded && w.RunSucceeded != nil {
 				w.RunSucceeded()
 			}
 		}
@@ -362,33 +363,33 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer stop()
 		return w.Bus.Event(pubCtx, kind, cause, p)
 	}
-	// A run that ends without a runtime result reports what is known (docs/runtime-protocol.md, Run
-	// outcomes from workers): an endError names its outcome and ends FAILED, or CANCELLED when it
-	// failed before the runtime started because the run was being stopped. Any other error after the
-	// prompt may have reached the runtime has no terminal evidence: CANCELLED with the stop's outcome when
-	// the run was being stopped (a revoke has none), else FAILED failed (a runtime, protocol or process
-	// error, reliable-recovery D1). The worker never reports UNKNOWN; only Core decides lost.
+	// A run that ends without a runtime result reports what is known (docs/runtime-protocol-v2.md §8): an
+	// endError names its outcome, or, when the run failed before the runtime started because it was being
+	// stopped, the stop's outcome. Any other error after the prompt may have reached the runtime has no
+	// terminal evidence: lost (Core records it lost: no attempt), unless the executor stopped the runtime
+	// for a timeout (its known cause) or the subscription limit ended the turn (paused_out). A revoke,
+	// a lost heartbeat or a node shutdown without evidence is lost too.
 	defer func() {
 		if runErr == nil {
 			return
 		}
 		noEvidence = true
-		status, outcome := "FAILED", driver.OutcomeFailed
+		outcome := outcomeLost
 		if meter.quota != nil {
 			outcome = driver.OutcomePausedOut // the subscription limit ended the turn
 		}
-		if ctx.Err() != nil {
-			status, outcome = "CANCELLED", stopOutcome(ctx)
+		if stop := stopOutcome(ctx); stop == outcomeTimedOut || stop == outcomeIdleTimeout {
+			outcome = stop
 		}
 		var end *endError
 		if errors.As(runErr, &end) {
 			noEvidence = false
-			status, outcome = "FAILED", end.outcome
+			outcome = end.outcome
 			if end.notStarted && ctx.Err() != nil {
-				status, outcome = "CANCELLED", stopOutcome(ctx)
+				outcome = stopOutcome(ctx)
 			}
 		}
-		if err := emit("failed", protocol.Event{Status: status, Result: runErr.Error(), Outcome: outcome}); err != nil {
+		if err := emit("failed", protocol.Event{Status: ended, Result: runErr.Error(), Outcome: outcome}); err != nil {
 			slog.Error("terminal event publication failed; lease recovery required", "error", err)
 		}
 	}()
@@ -407,7 +408,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		if errors.As(err, &diverged) {
 			// Core escalates workspace_diverged; the worktree is left as it is (task-worktrees D4).
 			slog.Error("worktree start check", "run", spec.ID, "task", r.Task, "path", diverged.Path, "head", diverged.Head, "sealed_head", diverged.SealedHead, "remote", diverged.Remote, "reason", diverged.Reason)
-			return emit("failed", protocol.Event{Status: "FAILED", Result: diverged.Error(), Outcome: outcomeSetupFailed})
+			return emit("failed", protocol.Event{Status: ended, Result: diverged.Error(), Outcome: outcomeSetupFailed})
 		}
 		if workspace.IsLockError(err) {
 			// Git lock contention that outlived the allocator's retries is transient, not a broken setup
@@ -439,13 +440,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	if spec.OpenSpecChange != "" {
 		if _, e := (openspec.Access{}).CheckChange(cwd, spec.OpenSpecChange); e != nil {
-			return emit("failed", protocol.Event{Status: "FAILED", Result: "OpenSpec preflight failed before runtime startup: " + e.Error(), Outcome: outcomeSetupFailed})
+			return emit("failed", protocol.Event{Status: ended, Result: "OpenSpec preflight failed before runtime startup: " + e.Error(), Outcome: outcomeSetupFailed})
 		}
 	}
 	skillsRoot, skillList, err := w.stageSkills(spec)
 	var skillErr *SkillError
 	if errors.As(err, &skillErr) {
-		return emit("failed", protocol.Event{Status: "FAILED", Result: skillErr.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
+		return emit("failed", protocol.Event{Status: ended, Result: skillErr.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
 	}
 	if err != nil {
 		return setupFailed(err)
@@ -474,11 +475,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				}
 				if err := w.API.Do(heartbeatCtx, "POST", "/runs/"+spec.ID+"/heartbeat", map[string]string{"lease": lease}, &res); err != nil {
 					slog.Error("heartbeat failed", "run", spec.ID, "error", err)
-					cancel()
+					stopRun(errHeartbeatLost)
 					return
 				}
 				if res.Cancel {
-					cancel()
+					stopRun(errRevoked)
 					return
 				}
 			}
@@ -593,17 +594,17 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	saveRecord()
 	if exitFile != "" {
 		// After an accepted exit the turn may finish; a runtime still running ExitGrace later is stopped
-		// (the exit stands: the run ends COMPLETED, Core records it succeeded). The worktree's HEAD when the
+		// (the exit stands: the run ends succeeded). The worktree's HEAD when the
 		// exit is first seen accepted is the exit's commit.
 		watchDone := make(chan struct{})
 		defer close(watchDone)
-		go watchExit(exitFile, watchDone, noteExit, func() { stopAfterExit(errExitGrace) })
+		go watchExit(exitFile, watchDone, noteExit, func() { stopRun(errExitGrace) })
 	}
 	events := session.Events()
 	cancelled := ctx.Done()
 	var interruptTimeout <-chan time.Time
 	var interruptFailed error
-	// stop is the outcome of the reason the executor interrupted the runtime ("" for a revoke).
+	// stop is the outcome of the reason the executor interrupted the runtime ("" while it did not).
 	stop := ""
 	for events != nil {
 		select {
@@ -628,7 +629,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				err = fmt.Errorf("interrupt: %w", interruptFailed)
 			}
 			// No terminal evidence; the session is closed (its process group killed) on return.
-			return ended(driver.Result{Err: err}, stop, meter.quota != nil)
+			return endedWithout(driver.Result{Err: err}, stop, meter.quota != nil)
 		case e, ok := <-events:
 			if !ok {
 				events = nil
@@ -655,36 +656,55 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		w.noteAuth(result.Err)
 	}
 	if result.Err != nil {
-		return ended(result, stop, meter.quota != nil)
+		return endedWithout(result, stop, meter.quota != nil)
 	}
-	status, outcome := runEnd(result, stop, meter.quota != nil)
-	return emit("completed", protocol.Event{Status: status, Result: result.Text, Outcome: outcome})
+	return emit("completed", protocol.Event{Status: ended, Result: result.Text, Outcome: runEnd(result, stop, meter.quota != nil)})
 }
+
+// ended is the status of a terminal event (the run's phase); its outcome says how the run ended.
+const ended = "ENDED"
 
 // Run outcomes the executor reports itself (reliable-recovery D1); the driver names failed,
 // max_turns and paused_out.
 const (
+	outcomeSucceeded   = "succeeded"
 	outcomeTimedOut    = "timed_out"
 	outcomeIdleTimeout = "idle_timeout"
 	outcomeSetupFailed = "setup_failed"
+	outcomeRevoked     = "revoked"
+	// outcomeLost: the run ended without terminal evidence; Core records it lost (no attempt).
+	outcomeLost = "lost"
 )
 
 // errRunTimeout is the cancellation cause of the run's own hard timeout (RunSpec.timeout_seconds).
 var errRunTimeout = errors.New("run timeout")
 
-// errExitGrace is the cancellation cause of a runtime stopped ExitGrace after its accepted exit; it has
-// no outcome, and the run ends COMPLETED (the exit stands).
+// errExitGrace is the cancellation cause of a runtime stopped ExitGrace after its accepted exit; the run
+// ends succeeded (the exit stands).
 var errExitGrace = errors.New("stopped after the accepted exit")
 
-// stopOutcome is the outcome of the reason ctx was cancelled: timed_out for the run's own timeout or
-// Core's v2 stop timed_out, idle_timeout for Core's v2 stop idle_timeout. A revoke (owner cancel,
-// kill switch, v1 heartbeat cancel), a lost heartbeat or a node shutdown has none: the run ends
-// plainly CANCELLED. A v1 idle stop arrives as a plain heartbeat cancel; Core records it idle_timeout
-// from its own stop reason.
+// errRevoked is the cancellation cause of a v1 heartbeat cancel (Core stopped the run); errHeartbeatLost
+// of a failed v1 heartbeat (the worker no longer owns the run).
+var (
+	errRevoked       = errors.New("stopped by Core")
+	errHeartbeatLost = errors.New("heartbeat failed")
+)
+
+// stopOutcome is the outcome of the reason ctx was cancelled ("" while it is not): timed_out for the
+// run's own timeout or Core's v2 stop timed_out, idle_timeout for Core's v2 stop idle_timeout, revoked
+// for any other Core stop (owner cancel, kill switch, a run Core already ended or does not know, a v1
+// heartbeat cancel; Core records a v1 idle stop idle_timeout from its own stop reason), and lost for a
+// stop Core did not ask for (a node shutdown, a lost heartbeat): never revoked.
 func stopOutcome(ctx context.Context) string {
+	if ctx.Err() == nil {
+		return ""
+	}
 	cause := context.Cause(ctx)
 	if errors.Is(cause, errRunTimeout) {
 		return outcomeTimedOut
+	}
+	if errors.Is(cause, errRevoked) {
+		return outcomeRevoked
 	}
 	var c *node.StopCause
 	if errors.As(cause, &c) {
@@ -692,62 +712,64 @@ func stopOutcome(ctx context.Context) string {
 		case outcomeTimedOut, outcomeIdleTimeout:
 			return c.Reason
 		}
+		return outcomeRevoked
 	}
-	return ""
+	return outcomeLost
 }
 
-// runEnd is the terminal status and outcome of a started run from the runtime's result. stop is the
-// outcome of the reason the executor interrupted the runtime ("" when it did not, or for a revoke);
-// quota tells whether the runtime hit its subscription limit during the run.
-//   - COMPLETED stays COMPLETED without an outcome, even after an interrupt.
-//   - CANCELLED carries stop: Core ends {CANCELLED, timed_out|idle_timeout} FAILED, a revoke stays CANCELLED.
-//   - FAILED carries stop, else the driver's outcome (max_turns, paused_out), else paused_out after a
-//     quota hit, else failed.
+// runEnd is the outcome of a started run from the runtime's result. stop is the outcome of the reason
+// the executor interrupted the runtime ("" when it did not); quota tells whether the runtime hit its
+// subscription limit during the run.
+//   - COMPLETED is succeeded, even after an interrupt.
+//   - CANCELLED or FAILED after a stop carry the stop: timed_out, idle_timeout, revoked (Core's stop with
+//     the runtime's evidence) or lost (a node shutdown or lost heartbeat). A CANCELLED turn nobody asked
+//     for is failed.
+//   - FAILED otherwise carries the driver's outcome (max_turns, paused_out), else paused_out after a quota
+//     hit, else failed.
 //   - Without terminal evidence (Err) the outcome is known only when the executor stopped the runtime
 //     for a timeout (it kills the process group) or the error names it (auth, missing runtime, broken
-//     stream): FAILED with it. Otherwise "" (no evidence; execute reports CANCELLED for a stopped run,
-//     else FAILED failed), also after a quota hit: an interrupt for a revoke without a result, or the
-//     shim/app-server going away mid-turn.
-func runEnd(r driver.Result, stop string, quota bool) (status, outcome string) {
+//     stream). Otherwise lost (an interrupt without a result, the shim or app-server going away
+//     mid-turn); execute reports paused_out instead after a quota hit.
+func runEnd(r driver.Result, stop string, quota bool) string {
 	if r.Err != nil {
-		if stop != "" {
-			return "FAILED", stop
+		if stop == outcomeTimedOut || stop == outcomeIdleTimeout {
+			return stop
 		}
 		if o := driver.OutcomeOf(r.Err); o != "" {
-			return "FAILED", o
+			return o
 		}
-		return "", ""
+		return outcomeLost
 	}
 	switch r.Status {
 	case "COMPLETED":
-		return r.Status, ""
-	case "CANCELLED":
-		return r.Status, stop
-	case "FAILED":
+		return outcomeSucceeded
+	case "CANCELLED", "FAILED":
 		switch {
 		case stop != "":
-			return r.Status, stop
+			return stop
+		case r.Status == "CANCELLED":
+			return driver.OutcomeFailed
 		case r.Outcome != "":
-			return r.Status, r.Outcome
+			return r.Outcome
 		case quota:
-			return r.Status, driver.OutcomePausedOut
+			return driver.OutcomePausedOut
 		}
-		return r.Status, driver.OutcomeFailed
+		return driver.OutcomeFailed
 	}
-	return r.Status, ""
+	return outcomeLost
 }
 
-// ended is the error that ends a started run without terminal evidence: an endError when runEnd
-// knows its outcome, else the error itself (execute decides the end from the run's context).
-func ended(r driver.Result, stop string, quota bool) error {
-	if status, outcome := runEnd(r, stop, quota); status == "FAILED" {
+// endedWithout is the error that ends a started run without terminal evidence: an endError when runEnd
+// knows its outcome, else the error itself (execute reports it lost, or paused_out after a quota hit).
+func endedWithout(r driver.Result, stop string, quota bool) error {
+	if outcome := runEnd(r, stop, quota); outcome != outcomeLost {
 		return &endError{outcome: outcome, err: r.Err}
 	}
 	return r.Err
 }
 
 // endError ends a run without a runtime result with a known outcome. notStarted: the prompt never
-// reached the runtime, so a run stopped meanwhile ends CANCELLED with the stop's outcome instead.
+// reached the runtime, so a run stopped meanwhile ends with the stop's outcome instead.
 type endError struct {
 	outcome    string
 	notStarted bool

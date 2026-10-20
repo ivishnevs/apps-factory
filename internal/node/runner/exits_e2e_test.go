@@ -88,7 +88,7 @@ func TestJetStreamExplicitExitEndToEnd(t *testing.T) {
 		if task.CurrentRunID != "" {
 			run, _ = s.Get(ctx, co, task.CurrentRunID)
 		}
-		if run.Status != "" && run.Status != "QUEUED" && run.Status != "RUNNING" && run.Status != "CANCELLING" {
+		if run.Status == "ENDED" {
 			break
 		}
 		select {

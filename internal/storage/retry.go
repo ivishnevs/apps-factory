@@ -200,7 +200,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		if !review {
 			t.Status, t.BlockReason = "READY", ""
 		}
-		t.RetryEligible, t.Result = false, result
+		t.Result = result
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
@@ -258,7 +258,6 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	case used >= DailyBudget:
 		reason, summary = "budget_exhausted", fmt.Sprintf("%d runs today (budget %d); last run %s: %s", used, DailyBudget, outcome, excerpt512(result))
 	}
-	t.RetryEligible = false
 	t.Result = result
 	if !review && !(reason == "no_exit" && t.Status == "IN_PROGRESS") {
 		t.Status, t.BlockReason = "READY", ""
@@ -358,7 +357,7 @@ func retryAnswer(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if err := resetRetry(ctx, tx, &t); err != nil {
 		return err
 	}
-	t.RetryEligible, t.BlockReason = false, ""
+	t.BlockReason = ""
 	if !(t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer) {
 		t.Status = "READY"
 	}
@@ -423,14 +422,14 @@ func releaseNodeRuns(ctx context.Context, tx *Tx, node string, olderThan int64, 
 }
 
 // inspectAnswer answers the inspect escalation of a side-effect task: the inspected run is reconciled (a
-// lost run is released, the inspector having checked its runtime, and becomes COMPLETED for continue) and
-// the task runs again; continue tells the next brief that the effect happened.
+// lost run is released, the inspector having checked its runtime, with the answer in its result) and the
+// task runs again; continue tells the next brief that the effect happened.
 func inspectAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answer, actor string) error {
-	status, note := "FAILED", "inspected: the effect did not happen; retry"
+	note := "inspected: the effect did not happen; retry"
 	if answer == "continue" {
-		status, note = "COMPLETED", "inspected: the effect happened; continue from there"
+		note = "inspected: the effect happened; continue from there"
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=result||' ['||?||']',unreleased=0 WHERE id=? AND outcome='lost'", status, note, e.RefID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET result=result||' ['||?||']',unreleased=0 WHERE id=? AND outcome='lost'", note, e.RefID); err != nil {
 		return err
 	}
 	if err := clearParks(ctx, tx, t, tasks.ParkInspect, e.RefID, "cleared"); err != nil {
@@ -442,7 +441,7 @@ func inspectAnswer(ctx context.Context, tx *Tx, t tasks.Task, e Escalation, answ
 	if answer == "continue" {
 		t.ReviewFeedback = "The previous run's external effect happened (confirmed by " + actor + "): do not repeat it; continue from there."
 	}
-	t.Status, t.BlockReason, t.RetryEligible = "READY", "", false
+	t.Status, t.BlockReason = "READY", ""
 	if err := comment(ctx, tx, t.ID, actor, note); err != nil {
 		return err
 	}

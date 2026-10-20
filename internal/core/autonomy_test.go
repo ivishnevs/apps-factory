@@ -182,7 +182,7 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 		t.Fatal("overlapping writer", m)
 	}
 	// Restart before dispatch: the revision remains durable and is scheduled once after writer release.
-	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED"})); e != nil {
+	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded"})); e != nil {
 		t.Fatal(e)
 	}
 	s.DB.Close()

@@ -189,7 +189,7 @@ func TestOpenSpecBrokenLinkBlocksKnownFailedRetry(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "FAILED"})); e != nil {
+	if e = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", task.CurrentRunID, "", protocol.Event{RunID: task.CurrentRunID, Lease: lease, Status: "ENDED", Outcome: "failed"})); e != nil {
 		t.Fatal(e)
 	}
 	os.Rename(proposal, proposal+".held")

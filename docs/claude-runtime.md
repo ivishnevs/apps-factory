@@ -48,12 +48,12 @@ and `data` is the SDK message. Inside the shim:
    pre-assigned UUID (`sessionId`), continuations use `resume`. The `system/init` session must match.
 2. The `result` message is the only terminal evidence:
 
-| SDK result | Run status |
-| --- | --- |
-| `success`, `is_error: false` | COMPLETED |
-| any other result | FAILED (an attempt; the task retries after a backoff) |
-| any non-success result after a requested `interrupt()` | CANCELLED |
-| no result, process exit, protocol/startup error, no result within 10s of interrupt | UNKNOWN |
+| SDK result | Shim `result` status | Run outcome |
+| --- | --- | --- |
+| `success`, `is_error: false` | COMPLETED | `succeeded` |
+| any other result | FAILED | `failed` (an attempt; the task retries after a backoff) |
+| any non-success result after a requested `interrupt()` | CANCELLED | the stop's (`timed_out`, `idle_timeout`, `revoked`; `lost` for a shutdown) |
+| no result, process exit, protocol/startup error, no result within 10s of interrupt | UNKNOWN | `lost` (no terminal evidence) unless the error class names it |
 
 After the result the shim closes input and drains briefly so the transcript is flushed for resume. The
 executor refines the outcome (`max_turns`, `paused_out` for quota and auth, `timed_out`, see

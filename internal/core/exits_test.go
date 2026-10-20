@@ -89,9 +89,9 @@ func (h *exitHarness) start(task string) exitRun {
 	return exitRun{tk.CurrentRunID, lease, cred.Token}
 }
 
-func (h *exitHarness) end(r exitRun, status, exitState string) {
+func (h *exitHarness) end(r exitRun, outcome, exitState string) {
 	h.t.Helper()
-	if err := h.s.Apply(context.Background(), storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: status, ExitState: exitState})); err != nil {
+	if err := h.s.Apply(context.Background(), storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "ENDED", Outcome: outcome, ExitState: exitState})); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -188,7 +188,7 @@ func TestExitSubmitReviewDone(t *testing.T) {
 	if other := exit("/agent/exit", "done", map[string]any{"summary": "x"}, seen, clean("h1", nil)); other.Code != 409 || refusalOf(t, other).Reason != "exit_already_accepted" {
 		t.Fatal(other.Code, other.Body.String())
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	if run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id); run.Outcome != "succeeded" || h.task("t").Status != "IN_REVIEW" {
 		t.Fatalf("%+v %+v", run, h.task("t"))
 	}
@@ -207,7 +207,7 @@ func TestExitSubmitReviewDone(t *testing.T) {
 	if got = h.task("t"); got.Status != "READY" || got.Assignee != "demo" || got.Reviewer != "" {
 		t.Fatalf("%+v", got)
 	}
-	h.end(rv, "COMPLETED", "accepted")
+	h.end(rv, "succeeded", "accepted")
 
 	// done is refused until the pull request is merged.
 	r = h.start("t")
@@ -243,7 +243,7 @@ func TestNoExitLostAndGone(t *testing.T) {
 	ctx := context.Background()
 	h.create("n", "notes", "demo")
 	r := h.start("n")
-	h.end(r, "COMPLETED", "none")
+	h.end(r, "succeeded", "none")
 	open, _ := h.s.Escalations(ctx, storage.DefaultCompany, true)
 	if run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id); run.Outcome != "no_exit" || len(open) != 1 || open[0].Reason != "no_exit" || h.task("n").Status != "IN_PROGRESS" {
 		t.Fatalf("%+v %+v %+v", run, open, h.task("n"))
@@ -259,8 +259,8 @@ func TestNoExitLostAndGone(t *testing.T) {
 
 	h.create("l", "notes", "demo")
 	r = h.start("l")
-	h.end(r, "COMPLETED", "pending")
-	if run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id); run.Status != "FAILED" || run.Outcome != "lost" || h.task("l").Status != "READY" || h.task("l").NotBefore == 0 {
+	h.end(r, "succeeded", "pending")
+	if run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id); run.Status != "ENDED" || run.Outcome != "lost" || h.task("l").Status != "READY" || h.task("l").NotBefore == 0 {
 		t.Fatalf("%+v %+v", run, h.task("l"))
 	}
 
@@ -293,7 +293,7 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	h.create("ask", "notes", "demo")
 	r := h.start("ask")
 	call(r, "factory_exit_ask", map[string]any{"question": "Which database?", "options": []any{"sqlite", "postgres"}})
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	got := h.task("ask")
 	if got.Status != "BLOCKED" || got.WaitMessageID == "" {
 		t.Fatalf("%+v", got)
@@ -318,7 +318,7 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	if got = h.task("blk"); got.Status != "READY" || len(got.Dependencies) != 1 || v["note"] != nil {
 		t.Fatalf("%+v %v", got, v)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 
 	h.create("cyc", "notes", "demo")
 	if _, err := h.s.UpdateTask(ctx, storage.DefaultCompany, "base", tasks.Update{Version: h.task("base").Version, Dependencies: &[]string{"cyc"}}); err != nil {
@@ -330,7 +330,7 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	if note, _ := v["note"].(string); !strings.Contains(note, "cycle") || h.task("cyc").WaitMessageID == "" {
 		t.Fatalf("%v %+v", v, h.task("cyc"))
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 
 	// wait: READY again only at its time, with a wake trigger.
 	if _, ok := h.c.Agents["qa-agent"]; !ok {
@@ -341,7 +341,7 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	r = h.start("w")
 	wake := h.fake.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	call(r, "factory_exit_wait", map[string]any{"reason": "store review", "wake_at": wake})
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	if got = h.task("w"); got.Status != "READY" || got.NotBefore != h.fake.Now().Add(time.Hour).Unix() {
 		t.Fatalf("%+v", got)
 	}
@@ -362,7 +362,7 @@ func TestAskBlockWaitAndUrgentDirective(t *testing.T) {
 	if run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id); run.Status != "CANCELLING" {
 		t.Fatal(run.Status)
 	}
-	h.end(r, "CANCELLED", "none")
+	h.end(r, "revoked", "none")
 	if got = h.task("w"); got.Status != "READY" {
 		t.Fatalf("%+v", got)
 	}
@@ -430,12 +430,12 @@ func TestReviewAfterConflictsRequired(t *testing.T) {
 	if w := exit(r, "submit", map[string]any{"summary": "s", "reviewer": "reviewer"}, clean("h1", open)); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	rv := h.start("s")
 	if w := exit(rv, "handoff", map[string]any{"to": "demo", "note": "ok", "verdict": "approved"}, clean("h1", open)); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	h.end(rv, "COMPLETED", "accepted")
+	h.end(rv, "succeeded", "accepted")
 	r = h.start("s")
 	moved := &storage.PRFacts{Number: 3, State: "merged", HeadSHA: "h2"}
 	if w := exit(r, "done", map[string]any{"summary": "x"}, clean("h2", moved)); w.Code != 409 || refusalOf(t, w).Reason != "needs_approval" {
@@ -484,7 +484,7 @@ func TestProgressNeedsAnExitThatMoves(t *testing.T) {
 	h.create("loop", "notes", "demo")
 	for range 2 {
 		r := h.start("loop")
-		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "FAILED", Outcome: "failed"})); err != nil {
+		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "ENDED", Outcome: "failed"})); err != nil {
 			t.Fatal(err)
 		}
 		h.fake.Advance(time.Hour)
@@ -498,7 +498,7 @@ func TestProgressNeedsAnExitThatMoves(t *testing.T) {
 		if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: name, Arguments: args}, nil); w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
-		h.end(r, "COMPLETED", "accepted")
+		h.end(r, "succeeded", "accepted")
 		h.fake.Advance(time.Hour)
 	}
 	exitRun("factory_exit_handoff", map[string]any{"to": "demo", "note": "later"})
@@ -583,7 +583,7 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 		if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: args}, nil); w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
-		h.end(r, "COMPLETED", "accepted")
+		h.end(r, "succeeded", "accepted")
 		m, err := h.s.Message(ctx, co, h.task(task).WaitMessageID)
 		if err != nil {
 			t.Fatal(err)
@@ -625,7 +625,7 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 	if q.Recipient != "owner" || len(q.Route) != 1 || q.Route[0] != "calorie-manager" {
 		t.Fatalf("%+v", q)
 	}
-	h.end(delivery, "COMPLETED", "")
+	h.end(delivery, "succeeded", "")
 	if _, err := h.s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: "no", Answers: map[string]any{"answer": "no"}, RequestID: "owner-answer"}); err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +668,7 @@ func TestUnansweredQuestionMovesUp(t *testing.T) {
 	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: map[string]any{"question": "Which store region first?"}}, nil); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	id := h.task("q").WaitMessageID
 	h.fake.Advance(storage.EscalateAfter - time.Minute)
 	if n, err := h.s.AutoForward(ctx, co); err != nil || n != 0 {

@@ -61,7 +61,7 @@ func TestSchedulerAutomaticRetry(t *testing.T) {
 			t.Fatal(err)
 		}
 		run, _ = s.Get(ctx, co, run.Spec.ID) // the brief is built at claim
-		if err = s.Apply(ctx, co, protocol.Wrap("agent.failed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "FAILED", Result: "known failure", Outcome: "failed"})); err != nil {
+		if err = s.Apply(ctx, co, protocol.Wrap("agent.failed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "ENDED", Result: "known failure", Outcome: "failed"})); err != nil {
 			t.Fatal(err)
 		}
 		return run.Spec

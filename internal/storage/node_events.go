@@ -262,7 +262,7 @@ type NodeUse struct {
 // NodesInUse sums, per node, the runs and resources its current epoch's unended runs hold (claim capacity).
 func (s *Store) NodesInUse(ctx context.Context, company string) (map[string]NodeUse, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT r.node_id,r.spec FROM runs r JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id AND n.epoch=r.epoch
- WHERE r.company_id=? AND r.status IN ('RUNNING','CANCELLING')`, company)
+ WHERE r.company_id=? AND r.status IN ('CLAIMED','RUNNING','CANCELLING')`, company)
 	if err != nil {
 		return nil, err
 	}

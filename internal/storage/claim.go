@@ -61,7 +61,7 @@ func recheckTask(ctx context.Context, tx *Tx, id string, spec protocol.RunSpec) 
 func endQueued(ctx context.Context, tx *Tx, id, outcome, why string) (bool, error) {
 	now := tx.now()
 	// The end is applied here (no attempt, backoff or budget), so the run counts as recovered.
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',outcome=?,result=?,finished_at=?,recovered=1 WHERE company_id=? AND id=? AND status='QUEUED'", outcome, why, now.Unix(), tx.company, id)
+	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='ENDED',outcome=?,result=?,finished_at=?,recovered=1 WHERE company_id=? AND id=? AND status='QUEUED'", outcome, why, now.Unix(), tx.company, id)
 	if err != nil {
 		return false, err
 	}
@@ -75,7 +75,7 @@ func endQueued(ctx context.Context, tx *Tx, id, outcome, why string) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	item := FeedItem{EventID: protocol.ID(), Type: "run." + outcome, EntityID: id, ProjectID: spec.Project, CreatedAt: now, TaskID: spec.TaskID, RunID: id, Agent: spec.Agent, Actor: "system", Status: "CANCELLED", Summary: "run " + id + " ended " + outcome + " before it started: " + why}
+	item := FeedItem{EventID: protocol.ID(), Type: "run." + outcome, EntityID: id, ProjectID: spec.Project, CreatedAt: now, TaskID: spec.TaskID, RunID: id, Agent: spec.Agent, Actor: "system", Status: "ENDED", Summary: "run " + id + " ended " + outcome + " before it started: " + why}
 	if spec.TaskID != "" {
 		t, err := taskTx(ctx, tx, spec.TaskID)
 		if err != nil {
@@ -166,7 +166,7 @@ func (s *Store) ClaimRun(ctx context.Context, company, id string) (Claimed, erro
 	switch {
 	case revoked:
 		return out, drop("revoked")
-	case status == "RUNNING" || status == "CANCELLING":
+	case status == "CLAIMED" || status == "RUNNING" || status == "CANCELLING":
 		return out, drop("duplicate")
 	case status != "QUEUED":
 		return out, drop("stale")

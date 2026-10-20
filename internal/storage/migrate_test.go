@@ -101,6 +101,17 @@ func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 
 // downs undo migrations from 0009 on, so backfill tests can build a database as an older Core left it.
 var downs = map[int][]string{
+	30: {"DROP TRIGGER run_phase", "DROP INDEX agent_slot", "DROP INDEX workspace_writer", "DROP INDEX session_turn", "DROP INDEX active_task_run",
+		"UPDATE runs SET status=CASE WHEN outcome IN ('succeeded','no_exit') THEN 'COMPLETED' WHEN outcome IN ('revoked','stale','unclaimed') THEN 'CANCELLED' ELSE 'FAILED' END WHERE status='ENDED'",
+		"UPDATE runs SET status='RUNNING' WHERE status='CLAIMED'",
+		"CREATE UNIQUE INDEX agent_slot ON runs(company_id,agent) WHERE status IN ('RUNNING','CANCELLING')",
+		"CREATE UNIQUE INDEX workspace_writer ON runs(workspace) WHERE workspace != '' AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1)",
+		"CREATE UNIQUE INDEX session_turn ON runs(session_id) WHERE session_id != '' AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1)",
+		"CREATE UNIQUE INDEX active_task_run ON runs(task_id) WHERE task_id IS NOT NULL AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1)",
+		`CREATE TRIGGER run_outcome AFTER UPDATE OF status ON runs WHEN NEW.status IN ('COMPLETED','FAILED','CANCELLED') AND NEW.outcome=''
+BEGIN UPDATE runs SET outcome=CASE WHEN NEW.status='COMPLETED' THEN 'succeeded' WHEN NEW.status='CANCELLED' THEN 'revoked'
+ WHEN NEW.result LIKE 'timed_out%' THEN 'timed_out' WHEN NEW.result LIKE 'lost:%' THEN 'lost'
+ WHEN NEW.result LIKE 'OpenSpec preflight%' OR NEW.result LIKE 'skills:%' OR NEW.result LIKE 'workspace_diverged%' THEN 'setup_failed' ELSE 'failed' END WHERE id=NEW.id; END`}, // retry_eligible stays removed
 	29: {"DROP INDEX workspace_writer", "DROP INDEX session_turn", "DROP INDEX active_task_run", "DROP TRIGGER run_outcome",
 		"ALTER TABLE runs ADD COLUMN released INTEGER NOT NULL DEFAULT 0", "UPDATE runs SET released=1-unreleased", "ALTER TABLE runs DROP COLUMN unreleased",
 		"CREATE UNIQUE INDEX workspace_writer ON runs(workspace) WHERE workspace != '' AND (status IN ('QUEUED','RUNNING','CANCELLING') OR (status='UNKNOWN' AND released=0))",

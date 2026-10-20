@@ -24,10 +24,11 @@ All Core time comes from `Store.Clock` (wall time unless a test injects `clock.F
 continuity window that restarts on Core start or after a gap of more than 3 ticks (the host slept or the
 process was paused); a lease expires only when both its `lease_until` and the window start plus one TTL have
 passed, so after a wake every worker gets a full TTL to heartbeat before anything is declared lost.
-Run statuses are QUEUED, CLAIMED (a v2 run claimed but not started), RUNNING, CANCELLING, then ended as COMPLETED,
-FAILED or CANCELLED; the run's `outcome` says how it ended and alone decides recovery (reliable-recovery, see
-[task lifecycle](task-lifecycle.md#failure-retry-and-cancellation)). Only Core decides `lost`: an expired lease, a missed start
-window, a node restarted with a new epoch or an inventory without the run ends it FAILED `lost`. A lost run whose
+A run's status is its phase: QUEUED → CLAIMED (a v2 run claimed but not started) → RUNNING → (CANCELLING) → ENDED;
+the run's `outcome` alone says how it ended and decides recovery (reliable-recovery, see
+[task lifecycle](task-lifecycle.md#failure-retry-and-cancellation)). Core records `lost`: an expired lease, a missed
+start window, a node restarted with a new epoch or an inventory without the run, and a worker's end without terminal
+evidence (a node shutdown mid-run included). A lost run whose
 runtime may still run (a silent v2 node) stays `unreleased` and keeps its workspace slot, session and task until
 the node proves the runtime gone (a new epoch, which kills the old process groups first; a heartbeat without the
 run; its stop) or the owner resolves it; nothing else of the project waits for it. Ordinary tasks then retry
@@ -60,7 +61,7 @@ pidfile, so a second run of the same task waits, and later runs of the task cont
   sealed as that run's work before the next run, or at node start.
 - Start check (under the lock, before the runtime starts): HEAD at `sealed_head` starts the run, after a
   fast-forward when `origin/<branch>` is strictly ahead; a HEAD changed outside any run, or uncommitted changes that
-  block the fast-forward, end the run FAILED with `workspace_diverged` before the runtime starts and Core opens the
+  block the fast-forward, end the run `setup_failed` with `workspace_diverged` before the runtime starts and Core opens the
   `workspace_diverged` escalation (answered by a reset); a missing worktree is recreated from the local, else remote, else default branch.
 - Reset: `factory-node workspace reset -task ID` (node side of reset-workspace) seals, removes and recreates the
   worktree from the remote or default branch, keeps the abandoned local state on `refs/factory/reset/<task>` and

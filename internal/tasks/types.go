@@ -38,7 +38,6 @@ type Submission struct {
 type Task struct {
 	RequiredArtifacts []Artifact  `json:"required_artifacts,omitempty"`
 	WaitMessageID     string      `json:"wait_message_id,omitempty"`
-	RetryEligible     bool        `json:"retry_eligible"`
 	ID                string      `json:"id"`
 	ProjectID         string      `json:"project_id"`
 	Title             string      `json:"title"`

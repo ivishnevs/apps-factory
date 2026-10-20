@@ -181,7 +181,7 @@ func TestJetStreamOrphanGoneBeforeRetry(t *testing.T) {
 	if procgroup.Alive(group) {
 		t.Fatal("epoch 2 registered while the orphaned runtime still runs")
 	}
-	wait("the old run lost", func() bool { return run(old).Status == "FAILED" })
+	wait("the old run lost", func() bool { return run(old).Status == "ENDED" })
 	if r := run(old); r.Outcome != "lost" || !strings.Contains(r.Result, "restarted (epoch 2)") {
 		t.Fatalf("%+v", r)
 	}

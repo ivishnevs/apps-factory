@@ -28,13 +28,13 @@ func TestJetStreamAuthFailureReported(t *testing.T) {
 		event, outcome string
 		auth           bool
 	}{
-		"failed turn":   {script: fake.Script{Status: "FAILED", Outcome: driver.OutcomePausedOut, Auth: "authentication_failed"}, event: "FAILED", outcome: "paused_out", auth: true},
-		"no evidence":   {script: fake.Script{Auth: "logged out"}, event: "FAILED", outcome: "paused_out", auth: true},
-		"launch":        {launch: fake.AuthError("ChatGPT login required"), event: "FAILED", outcome: "paused_out", auth: true},
-		"quota":         {script: fake.Script{Status: "FAILED", Outcome: driver.OutcomePausedOut}, event: "FAILED", outcome: "paused_out"},
-		"plain failure": {script: fake.Script{Status: "FAILED"}, event: "FAILED", outcome: "failed"},
-		"launch error":  {launch: errors.New("app-server refused the thread"), event: "FAILED", outcome: "failed"},
-		"completed":     {script: fake.Script{Status: "COMPLETED"}, event: "COMPLETED"},
+		"failed turn":   {script: fake.Script{Status: "FAILED", Outcome: driver.OutcomePausedOut, Auth: "authentication_failed"}, event: "ENDED", outcome: "paused_out", auth: true},
+		"no evidence":   {script: fake.Script{Auth: "logged out"}, event: "ENDED", outcome: "paused_out", auth: true},
+		"launch":        {launch: fake.AuthError("ChatGPT login required"), event: "ENDED", outcome: "paused_out", auth: true},
+		"quota":         {script: fake.Script{Status: "FAILED", Outcome: driver.OutcomePausedOut}, event: "ENDED", outcome: "paused_out"},
+		"plain failure": {script: fake.Script{Status: "FAILED"}, event: "ENDED", outcome: "failed"},
+		"launch error":  {launch: errors.New("app-server refused the thread"), event: "ENDED", outcome: "failed"},
+		"completed":     {script: fake.Script{Status: "COMPLETED"}, event: "ENDED", outcome: "succeeded"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var mu sync.Mutex
@@ -56,7 +56,7 @@ func TestJetStreamAuthFailureReported(t *testing.T) {
 			if c.auth && (len(got) != 1 || !driver.IsAuthFailure(got[0])) || !c.auth && len(got) != 0 {
 				t.Fatalf("AuthFailed calls %v, want auth %v", got, c.auth)
 			}
-			if want := map[bool]int{true: 1}[c.event == "COMPLETED"]; succeeded != want {
+			if want := map[bool]int{true: 1}[c.outcome == "succeeded"]; succeeded != want {
 				t.Fatalf("RunSucceeded calls %d, want %d", succeeded, want)
 			}
 		})

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 )
@@ -32,7 +33,7 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID STATUS EVIDENCE | " + nodesUsage)
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -160,12 +161,12 @@ func run() error {
 				path += "/cancel"
 			}
 		case "resolve":
-			if len(args) != 5 {
-				return fmt.Errorf("ID STATUS EVIDENCE required")
+			if len(args) != 5 || !slices.Contains(storage.ResolveAnswers, args[3]) {
+				return fmt.Errorf("ID continue|retry|cancel EVIDENCE required")
 			}
 			method = "POST"
 			path += "/" + args[2] + "/resolve"
-			body = map[string]string{"status": args[3], "result": args[4]}
+			body = map[string]string{"answer": args[3], "result": args[4]}
 		case "create":
 			if len(args) < 6 || len(args) > 7 {
 				return fmt.Errorf("PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] required")

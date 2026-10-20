@@ -19,10 +19,9 @@ It requires owner communication permission; it neither blocks a task nor grants 
 blocking question still uses the messaging tools. Proposal notifications similarly carry decision_id.
 Reading an inbox notification acknowledges it without approving anything.
 
-Core automatically records observed COMPLETED/FAILED/CANCELLED run ends as source=core,
-kind=runtime, once per run/status. This includes queued cancellations and lease expiration (FAILED, outcome
-`lost`). A failed run retries on its own and asks nothing of the owner; a notice left by an UNKNOWN run from
-before reliable-recovery is closed by that run's later end. COMPLETED describes runtime completion, not task acceptance. Core does not infer
+Core automatically records observed run ends as source=core, kind=runtime, once per run and outcome
+(`result` is the outcome). This includes queued cancellations (`revoked`, `stale`) and lease expiration (`lost`). A failed run retries on its own and asks nothing of the owner; a notice left by an UNKNOWN run from
+before reliable-recovery is closed by that run's later end. `succeeded` describes runtime completion, not task acceptance. Core does not infer
 successful dependency installation from shell output. Legacy direct-run projects without a project
 record receive runtime reports but cannot receive project inbox notifications. There is no retroactive
 backfill of old terminal runs.

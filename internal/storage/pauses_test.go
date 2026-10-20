@@ -107,20 +107,20 @@ func TestRevokeReturnsTasksToReady(t *testing.T) {
 		v, _ := s.Task(ctx, co, id)
 		return v.Status
 	}
-	if r, _ := s.Get(ctx, co, queued.ID); r.Status != "CANCELLED" || status("queued") != "READY" {
+	if r, _ := s.Get(ctx, co, queued.ID); r.Status != "ENDED" || r.Outcome != "revoked" || status("queued") != "READY" {
 		t.Fatal("queued run", r.Status, status("queued"))
 	}
 	if cancel, err := s.Heartbeat(ctx, co, running.ID, runLease); err != nil || !cancel {
 		t.Fatal("running run not asked to stop", cancel, err)
 	}
-	apply := func(run protocol.RunSpec, lease, st string) {
+	apply := func(run protocol.RunSpec, lease, outcome string) {
 		t.Helper()
-		if err := s.Apply(ctx, co, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: st, Result: "x"})); err != nil {
+		if err := s.Apply(ctx, co, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: outcome, Result: "x"})); err != nil {
 			t.Fatal(err)
 		}
 	}
-	apply(running, runLease, "CANCELLED")
-	apply(finishing, finLease, "COMPLETED") // the turn ended before the interrupt landed
+	apply(running, runLease, "revoked")
+	apply(finishing, finLease, "succeeded") // the turn ended before the interrupt landed
 	if status("running") != "READY" || status("finishing") != "IN_REVIEW" {
 		t.Fatal(status("running"), status("finishing"))
 	}
@@ -135,7 +135,7 @@ func TestRevokeReturnsTasksToReady(t *testing.T) {
 	if _, err = s.RevokeLive(ctx, co, "owner"); err != nil {
 		t.Fatal(err)
 	}
-	apply(run, lease, "CANCELLED")
+	apply(run, lease, "revoked")
 	if status("running") != "CANCELLED" {
 		t.Fatal("owner cancel lost", status("running"))
 	}

@@ -136,7 +136,7 @@ func TestClaimV2(t *testing.T) {
 		t.Fatal("retried claim got another answer", again, err)
 	}
 	refused(t, func() error { _, err := claimV2(s, "r1", "n1", 3, "3-1-2"); return err }(), false, "duplicate")
-	if st, _, _, _ := runRow(t, s, "r1"); st != "RUNNING" {
+	if st, _, _, _ := runRow(t, s, "r1"); st != "CLAIMED" {
 		t.Fatal(st)
 	}
 	// The node's only simulator is held by r1: another run needing one waits.
@@ -196,6 +196,9 @@ func TestStartAndHeartbeat(t *testing.T) {
 			t.Fatal(st, err)
 		}
 	}
+	if st, _, _, _ := runRow(t, s, "a"); st != "RUNNING" {
+		t.Fatal("start left the run", st)
+	}
 	if _, err := s.Heartbeat(ctx, DefaultCompany, "a", lease("a")); !errors.Is(err, ErrConflict) {
 		t.Fatal("per-run heartbeat renewed a v2 run", err)
 	}
@@ -224,14 +227,14 @@ func TestStartAndHeartbeat(t *testing.T) {
 	if err := s.ExpireNodes(ctx, DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
-	if st, res, _, _ := runRow(t, s, "b"); st != "FAILED" || !strings.HasPrefix(res, "lost: not started") {
+	if st, res, _, _ := runRow(t, s, "b"); st != "ENDED" || !strings.HasPrefix(res, "lost: not started") {
 		t.Fatal(st, res)
 	}
 	// c ends: until its terminal event is applied the node keeps it as ended_unacked.
 	if a := beat(InventoryRun{RunID: "a", State: "running"}, InventoryRun{RunID: "c", State: "ended_unacked"}, InventoryRun{RunID: "d", State: "running"}); len(a.Acked) != 0 {
 		t.Fatal("acked before the end was applied", a)
 	}
-	if err := s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", "c", "", protocol.Event{RunID: "c", Lease: lease("c"), Status: "COMPLETED", Result: "ok"})); err != nil {
+	if err := s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", "c", "", protocol.Event{RunID: "c", Lease: lease("c"), Status: "ENDED", Outcome: "succeeded", Result: "ok"})); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Cancel(ctx, DefaultCompany, "a"); err != nil {
@@ -246,7 +249,7 @@ func TestStartAndHeartbeat(t *testing.T) {
 	if stops["a"] != "revoked" || stops["b"] != "terminal" || stops["zz"] != "unknown_run" || len(a.Acked) != 1 || a.Acked[0] != "c" {
 		t.Fatalf("%+v", a)
 	}
-	if st, res, _, _ := runRow(t, s, "d"); st != "FAILED" || !strings.Contains(res, "missing from node n1 inventory") {
+	if st, res, _, _ := runRow(t, s, "d"); st != "ENDED" || !strings.Contains(res, "missing from node n1 inventory") {
 		t.Fatal(st, res)
 	}
 	if a, _ := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Health: json.RawMessage(`{"disk":"critical"}`)}); !a.Pause {
@@ -299,7 +302,7 @@ func TestTimedOutRun(t *testing.T) {
 		t.Fatal(a)
 	}
 	r, _ := s.Get(ctx, DefaultCompany, "r")
-	if r.Status != "FAILED" || !strings.HasPrefix(r.Result, "timed_out") || r.Outcome != "timed_out" {
+	if r.Status != "ENDED" || !strings.HasPrefix(r.Result, "timed_out") || r.Outcome != "timed_out" {
 		t.Fatalf("%+v", r)
 	}
 }
@@ -318,7 +321,7 @@ func TestLostRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	register(t, s, "n1", 2)
-	if st, res, _, _ := runRow(t, s, spec.ID); st != "FAILED" || !strings.Contains(res, "lost: not started (node n1 restarted (epoch 2))") {
+	if st, res, _, _ := runRow(t, s, spec.ID); st != "ENDED" || !strings.Contains(res, "lost: not started (node n1 restarted (epoch 2))") {
 		t.Fatal(st, res)
 	}
 	// Never started, so safe: the task retries after the first backoff, not counted as an attempt.
@@ -342,7 +345,7 @@ func TestLostRuns(t *testing.T) {
 	if err = s.ExpireNodes(ctx, DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
-	if st, _, _, _ := runRow(t, s, "started"); st != "FAILED" {
+	if st, _, _, _ := runRow(t, s, "started"); st != "ENDED" {
 		t.Fatal(st)
 	}
 	fake.Advance(NodeOffline)
@@ -391,7 +394,7 @@ func TestCleanupListsClosedWorktrees(t *testing.T) {
 	if err = s.Cancel(ctx, DefaultCompany, spec.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.cancelled", spec.ID, "", protocol.Event{RunID: spec.ID, Lease: c.Lease, Status: "CANCELLED"})); err != nil {
+	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.cancelled", spec.ID, "", protocol.Event{RunID: spec.ID, Lease: c.Lease, Status: "ENDED", Outcome: "revoked"})); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.Task(ctx, DefaultCompany, "t1"); got.Status != "CANCELLED" {

@@ -108,14 +108,14 @@ func TestRetryBudgetAndPausedOut(t *testing.T) {
 		return taskOf(t, s, id)
 	}
 	readyEngineTask(t, s, createEngineTask(t, s, "quota"))
-	if got := run("quota", "q1", protocol.Event{Status: "FAILED", Outcome: "paused_out"}); got.Status != "READY" || got.FailStreak != 0 || got.AttemptsNoProgress != 0 || got.NotBefore != 0 {
+	if got := run("quota", "q1", protocol.Event{Status: "ENDED", Outcome: "paused_out"}); got.Status != "READY" || got.FailStreak != 0 || got.AttemptsNoProgress != 0 || got.NotBefore != 0 {
 		t.Fatalf("%+v", got)
 	}
 	readyEngineTask(t, s, createEngineTask(t, s, "busy"))
 	if _, err := s.DB.Exec("INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,?)", co, "busy", s.Now().UTC().Format("2006-01-02"), DailyBudget-1); err != nil {
 		t.Fatal(err)
 	}
-	got := run("busy", "b1", protocol.Event{Status: "FAILED", Outcome: "failed"})
+	got := run("busy", "b1", protocol.Event{Status: "ENDED", Outcome: "failed"})
 	open, _ := s.Escalations(ctx, co, true)
 	if got.Status != "BLOCKED" || !strings.HasPrefix(got.BlockReason, "escalation: budget_exhausted: ") || len(open) != 1 || open[0].Reason != "budget_exhausted" || open[0].Target != "owner" || reason(t, s, "busy") != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatalf("%+v %+v", got, open)
@@ -134,7 +134,7 @@ func TestRetryBudgetAndPausedOut(t *testing.T) {
 	if err != nil || !side.SideEffects {
 		t.Fatal(side, err)
 	}
-	if got = run("publish", "p1", protocol.Event{Status: "FAILED", Outcome: "failed"}); got.FailStreak != 0 || reason(t, s, "publish") != tasks.ReasonParked+tasks.ParkEscalation {
+	if got = run("publish", "p1", protocol.Event{Status: "ENDED", Outcome: "failed"}); got.FailStreak != 0 || reason(t, s, "publish") != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatalf("side-effect task retried: %+v", got)
 	}
 }
@@ -183,7 +183,7 @@ func TestLostV2RunWaitsForTheNode(t *testing.T) {
 	if err != nil || len(a.Stop) != 1 || a.Stop[0].Reason != "terminal" || taskOf(t, s, "t2").Status != "IN_PROGRESS" {
 		t.Fatal(a, err, taskOf(t, s, "t2"))
 	}
-	if err = end(t, s, "r2", lease, protocol.Event{Status: "CANCELLED"}); err != nil {
+	if err = end(t, s, "r2", lease, protocol.Event{Status: "ENDED", Outcome: "revoked"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := taskOf(t, s, "t2"); got.Status != "READY" {
@@ -217,7 +217,7 @@ func TestReassignmentResetsAttempts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "timed_out"}); err != nil {
+		if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "timed_out"}); err != nil {
 			t.Fatal(err)
 		}
 		fake.Advance(time.Hour)
@@ -248,7 +248,8 @@ func reason(t *testing.T, s *Store, id string) string {
 }
 
 // TestInspectEscalation: a task with external effects is inspected instead of retried; continue reconciles a
-// lost run as COMPLETED and tells the next brief the effect happened; retry reruns a failed one.
+// lost run (released, the answer in its result) and tells the next brief the effect happened; retry reruns a
+// failed one.
 func TestInspectEscalation(t *testing.T) {
 	s, fake := retryStore(t)
 	ctx := context.Background()
@@ -282,14 +283,14 @@ func TestInspectEscalation(t *testing.T) {
 	answer("publish", "continue")
 	got := taskOf(t, s, "publish")
 	run, _ := s.Get(ctx, co, "p1")
-	if got.Status != "READY" || !strings.Contains(got.ReviewFeedback, "effect happened") || run.Status != "COMPLETED" {
+	if got.Status != "READY" || !strings.Contains(got.ReviewFeedback, "effect happened") || run.Status != "ENDED" || run.Outcome != "lost" || !strings.Contains(run.Result, "effect happened") {
 		t.Fatalf("%+v %+v", got, run)
 	}
 
 	deploy, _ := s.CreateTask(ctx, co, tasks.Create{ID: "deploy", ProjectID: "p", Title: "deploy", Assignee: "other", SideEffects: true, Ready: true, RequestID: "c-deploy"})
 	spec = dispatchEngineTask(t, s, deploy, "d1")
 	lease, _ := s.Claim(ctx, co, spec.ID)
-	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}
 	if r := reason(t, s, "deploy"); r != tasks.ReasonParked+tasks.ParkEscalation {

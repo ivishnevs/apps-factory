@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -80,7 +81,7 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		if err = tx.QueryRowContext(ctx, "SELECT status,session_id,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &session, &unreleased); err != nil {
 			return spec, err
 		}
-		if unreleased || status == "RUNNING" || status == "QUEUED" || status == "CANCELLING" {
+		if unreleased || status != "ENDED" {
 			return spec, ErrConflict
 		}
 		spec.SessionID = session
@@ -107,7 +108,6 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	}
 	t.BlockReason = ""
 	t.CancelRequested = false
-	t.RetryEligible = false
 	if err = saveTask(ctx, tx, &t, "task.started"); err != nil {
 		return spec, err
 	}
@@ -130,8 +130,8 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 		return err
 	}
 	var taskID sql.NullString
-	var status, result string
-	if err := tx.QueryRowContext(ctx, "SELECT task_id,status,result FROM runs WHERE id=?", runID).Scan(&taskID, &status, &result); err != nil {
+	var outcome, result string
+	if err := tx.QueryRowContext(ctx, "SELECT task_id,outcome,result FROM runs WHERE id=?", runID).Scan(&taskID, &outcome, &result); err != nil {
 		return err
 	}
 	if !taskID.Valid {
@@ -156,13 +156,15 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 	if err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared"); err != nil {
 		return err
 	}
-	if hasExit && !(status == "COMPLETED" && asked) {
+	// A completed turn: succeeded, or no_exit (a turn ended without an exit under explicit exits).
+	completed := outcome == "succeeded" || outcome == "no_exit"
+	if hasExit && !(completed && asked) {
 		return nil // the accepted exit already moved the task (an ask still waits for its answer below)
 	}
-	if !hasExit && tx.store.ExplicitExits && status == "COMPLETED" {
+	if !hasExit && tx.store.ExplicitExits && completed {
 		return nil // no_exit: recoverTask escalates
 	}
-	if status == "COMPLETED" && !hasExit {
+	if completed && !hasExit {
 		// Without explicit exits, a completed turn handles the triggers it was briefed on.
 		if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
 			return err
@@ -172,19 +174,13 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 		return nil
 	}
 	next := ""
-	switch status {
-	case "COMPLETED":
+	switch {
+	case completed:
 		next = "IN_REVIEW"
 		if t.CancelRequested {
 			next = "CANCELLED"
 		}
-	case "FAILED":
-		// FAILED is retired (reliable-recovery D3): the task stays in progress and recoverTask applies the
-		// outcome (retry, escalation or inspection); a requested cancel is honoured.
-		if t.CancelRequested {
-			next = "CANCELLED"
-		}
-	case "CANCELLED":
+	case outcome == "revoked":
 		next = "CANCELLED"
 		// A run revoked by the kill switch stops the run, not the task.
 		if revoked, err := runRevoked(ctx, tx, runID); err != nil {
@@ -192,12 +188,15 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 		} else if revoked && !t.CancelRequested {
 			next = "READY"
 		}
+	case t.CancelRequested:
+		// Any other end leaves the task in progress and recoverTask applies the outcome (retry, escalation
+		// or inspection); a requested cancel is honoured.
+		next = "CANCELLED"
 	}
-	if status == "COMPLETED" && asked && !t.CancelRequested {
+	if completed && asked && !t.CancelRequested {
 		// READY: an open question's ask park holds the task (reads show BLOCKED); an answered one runs it.
 		t.Result = result
 		t.Submission = nil
-		t.RetryEligible = false
 		t.Status = "READY"
 		t.BlockReason = ""
 		return saveTask(ctx, tx, &t, "task.waiting")
@@ -206,7 +205,6 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 		return nil
 	}
 	t.Status = next
-	t.RetryEligible = false
 	t.Result = result
 	t.BlockReason = ""
 	kind := "task.updated"
@@ -222,7 +220,7 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 	return closedTask(ctx, tx, t)
 }
 func (s *Store) Attempts(ctx context.Context, company, id string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,CASE WHEN r.status='RUNNING' AND r.protocol=2 AND r.run_started=0 THEN 'CLAIMED' ELSE r.status END,r.session_id,r.result,r.started_at,r.finished_at,r.usage,r.outcome FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
+	rows, err := s.DB.QueryContext(ctx, "SELECT r.spec,r.status,r.session_id,r.result,r.started_at,r.finished_at,r.usage,r.outcome FROM task_attempts a JOIN runs r ON r.id=a.run_id WHERE a.company_id=? AND a.task_id=? ORDER BY a.attempt", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -286,14 +284,15 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 	if err = tx.QueryRowContext(ctx, "SELECT status,task_id FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &taskID); err != nil {
 		return err
 	}
-	if status != "QUEUED" && status != "RUNNING" {
+	if status != "QUEUED" && status != "CLAIMED" && status != "RUNNING" {
 		return ErrConflict
 	}
-	next := "CANCELLING"
+	// A queued run ends revoked at once; a claimed or running one is CANCELLING until its worker stops it.
+	next, outcome := "CANCELLING", ""
 	if status == "QUEUED" {
-		next = "CANCELLED"
+		next, outcome = "ENDED", "revoked"
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,finished_at=CASE WHEN ?='CANCELLED' THEN ? ELSE finished_at END WHERE id=?", next, next, tx.now().Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,outcome=?,finished_at=CASE WHEN ?='ENDED' THEN ? ELSE finished_at END WHERE id=?", next, outcome, next, tx.now().Unix(), id); err != nil {
 		return err
 	}
 	if taskID.Valid {
@@ -305,7 +304,7 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 			return ErrConflict
 		}
 		t.CancelRequested = true
-		if next == "CANCELLED" {
+		if next == "ENDED" {
 			t.Status = "CANCELLED"
 		}
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
@@ -315,7 +314,7 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 			return err
 		}
 	}
-	if next == "CANCELLED" {
+	if next == "ENDED" {
 		if err = autoRuntimeReport(ctx, tx, id); err != nil {
 			return err
 		}
@@ -332,7 +331,7 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 	}
 	defer tx.Rollback()
 	// v2 leases last NodeOffline and are judged over as much continuous ticking, like the node's silence.
-	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('RUNNING','CANCELLING') AND (protocol=2 AND lease_until<? OR protocol!=2 AND lease_until<?)", company, s.windowCutoff(NodeOffline), s.leaseCutoff())
+	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('CLAIMED','RUNNING','CANCELLING') AND (protocol=2 AND lease_until<? OR protocol!=2 AND lease_until<?)", company, s.windowCutoff(NodeOffline), s.leaseCutoff())
 	if err != nil {
 		return err
 	}
@@ -374,14 +373,17 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 	return tx.Commit()
 }
 
-// Resolve is the owner's reconciliation of a run (factory runs resolve ID STATUS EVIDENCE). A run with an
-// open inspect escalation (reliable-recovery D4) gets its answer: COMPLETED is continue, FAILED retry,
-// CANCELLED cancel. A lost run whose runtime may still run is released with that end (the owner checked
-// that the runtime is gone) and its task follows the status.
-func (s *Store) Resolve(ctx context.Context, company, id, status, result string) error {
-	answer, ok := map[string]string{"COMPLETED": "continue", "FAILED": "retry", "CANCELLED": "cancel"}[status]
-	if !ok {
-		return ErrConflict
+// ResolveAnswers are the answers of factory runs resolve: those of an inspect escalation (D4).
+var ResolveAnswers = []string{"continue", "retry", "cancel"}
+
+// Resolve is the owner's reconciliation of a run (factory runs resolve ID ANSWER EVIDENCE). A run with an
+// open inspect escalation (reliable-recovery D4) gets the answer: continue (the effect happened), retry or
+// cancel. A lost run whose runtime may still run is released (the owner checked that the runtime is gone):
+// retry keeps it lost and its task retries after the backoff, continue also tells the next brief that the
+// run's work happened (counters reset), cancel ends it revoked and cancels its task.
+func (s *Store) Resolve(ctx context.Context, company, id, answer, result string) error {
+	if !slices.Contains(ResolveAnswers, answer) {
+		return inputError("answer must be continue, retry or cancel")
 	}
 	if strings.TrimSpace(result) == "" {
 		return inputError("reconciliation evidence required")
@@ -403,7 +405,7 @@ func (s *Store) Resolve(ctx context.Context, company, id, status, result string)
 		if err = closeEscalation(ctx, tx, e, "answered", answer, "owner", ""); err != nil {
 			return err
 		}
-		if err = comment(ctx, tx, e.TaskID, "owner", "runs resolve "+id+" "+status+": "+result); err != nil {
+		if err = comment(ctx, tx, e.TaskID, "owner", "runs resolve "+id+" "+answer+": "+result); err != nil {
 			return err
 		}
 		if err = applyEscalationAnswer(ctx, tx, e, answer, "owner"); err != nil {
@@ -417,7 +419,11 @@ func (s *Store) Resolve(ctx context.Context, company, id, status, result string)
 			}
 		}
 	} else {
-		res, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=?,unreleased=0 WHERE company_id=? AND id=? AND unreleased=1", status, result, tx.now().Unix(), company, id)
+		outcome := "lost"
+		if answer == "cancel" {
+			outcome = "revoked"
+		}
+		res, err := tx.ExecContext(ctx, "UPDATE runs SET outcome=?,result=result||' [resolved '||?||': '||?||']',unreleased=0 WHERE company_id=? AND id=? AND unreleased=1", outcome, answer, result, company, id)
 		if err != nil {
 			return err
 		}
@@ -427,13 +433,36 @@ func (s *Store) Resolve(ctx context.Context, company, id, status, result string)
 		if err = syncTaskRun(ctx, tx, id); err != nil {
 			return err
 		}
+		if answer == "continue" {
+			if err = resolvedContinue(ctx, tx, id); err != nil {
+				return err
+			}
+		}
 	}
 	var project string
 	if err = tx.QueryRowContext(ctx, "SELECT project FROM runs WHERE id=?", id).Scan(&project); err != nil {
 		return err
 	}
-	if err = entityEvent(ctx, tx, "run.reconciled", project, id, map[string]string{"id": id, "status": status, "evidence": result}); err != nil {
+	if err = entityEvent(ctx, tx, "run.reconciled", project, id, map[string]string{"id": id, "answer": answer, "evidence": result}); err != nil {
 		return fmt.Errorf("reconciliation audit: %w", err)
 	}
 	return tx.Commit()
+}
+
+// resolvedContinue tells the next run of a released lost run's task that the run's work happened: its
+// counters and backoff reset and the brief says to continue from there.
+func resolvedContinue(ctx context.Context, tx *Tx, runID string) error {
+	var taskID sql.NullString
+	if err := tx.QueryRowContext(ctx, "SELECT task_id FROM runs WHERE id=?", runID).Scan(&taskID); err != nil || !taskID.Valid {
+		return err
+	}
+	t, err := taskTx(ctx, tx, taskID.String)
+	if err != nil || t.CurrentRunID != runID || t.Status == "DONE" || t.Status == "CANCELLED" {
+		return err
+	}
+	if err = resetRetry(ctx, tx, &t); err != nil {
+		return err
+	}
+	t.ReviewFeedback = "The previous run's work happened (confirmed by the owner): do not repeat it; continue from there."
+	return saveTask(ctx, tx, &t, "task.retry")
 }

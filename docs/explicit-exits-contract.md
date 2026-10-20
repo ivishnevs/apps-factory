@@ -89,8 +89,8 @@ Checks, in order: 410 when the run is not the task's current live run (revoked, 
 - After `accepted` the worker lets the turn finish and stops the runtime if it still runs 30 s later; work done
   after the exit is not part of it (sealed on the WIP ref, `task-worktrees`).
 - The terminal event carries the file's state: `Event.exit_state: "accepted|pending|refused|none"` (additive
-  field). Core: a run with an accepted exit (`run_exits`) is `succeeded` whatever the status; COMPLETED without
-  one is `no_exit` (`refused` or `none`) or `lost` (`pending`: the exit may be delivered later, the retry is
+  field). Core: a run with an accepted exit (`run_exits`) is `succeeded` whatever the worker reported; `succeeded`
+  without one is `no_exit` (`refused` or `none`) or `lost` (`pending`: the exit may be delivered later, the retry is
   safe).
 - Exit guard (stream B, `runtime-drivers` 2.4): Codex starts a follow-up turn "end with one factory_exit_* call"
   up to `exit_guard_retries` (default 2); Claude's Stop hook refuses to stop without an exit.
@@ -134,8 +134,8 @@ A forge or Core failure retries with the same run key.
 ## 9. Switch and rollout
 
 - Core switch `FACTORY_EXPLICIT_EXITS=1` (per Core until companies have settings). Off: today's tools and implicit
-  submission (any COMPLETED turn → IN_REVIEW). On: exit tools listed, old submit/accept/reject removed, COMPLETED
-  without an exit → `no_exit`.
+  submission (any `succeeded` turn → IN_REVIEW). On: exit tools listed, old submit/accept/reject removed, a
+  `succeeded` turn without an exit → `no_exit`.
 - Order: Core endpoints and `run_exits` behind the switch → adapter (tools, `ack_seq`, facts, delivery, exit file)
   → exit guard in both drivers → prompts and instructions (Core brief; agent YAML and skills by stream B) → switch
   on, then the E2E (stage 9) runs on the new rules.
@@ -168,7 +168,7 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
   `not_before` and a wait park that the tick turns into a `wake` trigger; `deadline` is stored, not enforced yet.
 - Authority set: the owner (rank 0) and agents with role `manager` (rank 1, `factory_task_direct` for their run's
   project). A manager's directive does not lift an owner's manual block. Delegators are not authority yet.
-- An urgent directive revokes the running run (CANCELLING; v1 cancel, v2 stop `revoked`); its CANCELLED end
+- An urgent directive revokes the running run (CANCELLING; v1 cancel, v2 stop `revoked`); its `revoked` end
   returns the task to READY and the next brief starts with the directive.
 - Not yet: `abandon_branch`, project review policy and `review_after_conflicts`, the secret-scan report item,
   `artifact_approved` as authority input.

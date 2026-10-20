@@ -26,6 +26,11 @@ func (c *Core) runToken(company, id, lease string) string {
 	mac.Write([]byte("factory-mcp-v2\x00" + company + "\x00" + id + "\x00" + lease))
 	return "run." + id + "." + hex.EncodeToString(mac.Sum(nil))
 }
+
+// liveRun: a run whose lease authorizes its credential: claimed (the runtime launches before /start) or
+// running; a CANCELLING or ENDED run's credential is refused.
+func liveRun(status string) bool { return status == "CLAIMED" || status == "RUNNING" }
+
 func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 	var p struct {
 		Lease string `json:"lease"`
@@ -37,7 +42,7 @@ func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 	var until int64
 	company := c.companyFrom(r)
 	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, r.PathValue("id")).Scan(&lease, &status, &until)
-	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1 || status != "RUNNING" || !c.Store.LeaseLive(until) {
+	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1 || !liveRun(status) || !c.Store.LeaseLive(until) {
 		http.Error(w, "active run lease required", 403)
 		return
 	}
@@ -69,7 +74,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		http.Error(w, "run credential expired or invalid", 401)
 		return
 	}
-	if status != "RUNNING" || !c.Store.LeaseLive(until) {
+	if !liveRun(status) || !c.Store.LeaseLive(until) {
 		if exitPath(r.URL.Path) && r.URL.Path != "/agent/brief" {
 			// The credential is genuine but its run was stopped or ended: the agent must stop (410).
 			jsonStatus(w, http.StatusGone, map[string]string{"reason": "not_current_run", "hint": "this run was stopped or replaced; finish the turn"})

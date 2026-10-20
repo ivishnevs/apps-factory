@@ -64,9 +64,9 @@ func TestJetStreamStopAfterAcceptedExit(t *testing.T) {
 		status  string
 		outcome string
 	}{
-		"exit grace":           {50 * time.Millisecond, nil, true, "COMPLETED", ""},
-		"timeout after exit":   {time.Hour, []any{func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 }}, true, "COMPLETED", ""},
-		"timeout without exit": {50 * time.Millisecond, []any{func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 }}, false, "CANCELLED", "timed_out"},
+		"exit grace":           {50 * time.Millisecond, nil, true, "ENDED", "succeeded"},
+		"timeout after exit":   {time.Hour, []any{func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 }}, true, "ENDED", "succeeded"},
+		"timeout without exit": {50 * time.Millisecond, []any{func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 }}, false, "ENDED", "timed_out"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ExitGrace = c.grace
@@ -86,7 +86,7 @@ func TestJetStreamStopAfterAcceptedExit(t *testing.T) {
 			if terminal.Status != c.status || terminal.Outcome != c.outcome || terminal.ExitState != want {
 				t.Fatalf("terminal %s/%s exit %s, want %s/%s exit %s", terminal.Status, terminal.Outcome, terminal.ExitState, c.status, c.outcome, want)
 			}
-			if c.exit && (r.Status != "COMPLETED" || r.Outcome == "timed_out" || r.Outcome == "failed") {
+			if c.exit && (r.Status != "ENDED" || r.Outcome != "succeeded") {
 				t.Fatalf("run %s/%s", r.Status, r.Outcome)
 			}
 		})
@@ -214,10 +214,10 @@ func TestJetStreamWorktreeLockError(t *testing.T) {
 	if err = json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
 		t.Fatal(err)
 	}
-	if terminal.Status != "FAILED" || terminal.Outcome != "failed" || !strings.Contains(terminal.Result, "lock") || len(d.Launches()) != 0 {
+	if terminal.Status != "ENDED" || terminal.Outcome != "failed" || !strings.Contains(terminal.Result, "lock") || len(d.Launches()) != 0 {
 		t.Fatalf("terminal %+v", terminal)
 	}
-	if r.Status != "FAILED" || r.Outcome != "failed" {
+	if r.Status != "ENDED" || r.Outcome != "failed" {
 		t.Fatalf("run %s/%s", r.Status, r.Outcome)
 	}
 }

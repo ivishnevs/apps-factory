@@ -29,12 +29,12 @@ func (h *exitHarness) approve(task string) {
 	if code, ref := h.exit(r, "submit", map[string]any{"summary": "work", "reviewer": "reviewer"}, clean("h1", nil)); code != 200 {
 		h.t.Fatal(code, ref)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	rv := h.start(task)
 	if code, ref := h.exit(rv, "handoff", map[string]any{"to": "demo", "note": "ok", "verdict": "approved"}, clean("h1", &storage.PRFacts{Number: 7, State: "open", HeadSHA: "h1"})); code != 200 {
 		h.t.Fatal(code, ref)
 	}
-	h.end(rv, "COMPLETED", "accepted")
+	h.end(rv, "succeeded", "accepted")
 }
 
 // TestMergeFailuresAreAttempts (task-worktrees 3.3, D7): the implementer of an approved task reports a failed
@@ -56,12 +56,12 @@ func TestMergeFailuresAreAttempts(t *testing.T) {
 	if code, ref := h.exit(r, "submit", map[string]any{"summary": "work", "reviewer": "reviewer"}, clean("h1", nil)); code != 200 {
 		t.Fatal(code, ref)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	rv := h.start("t")
 	if code, ref := h.exit(rv, "handoff", map[string]any{"to": "demo", "note": "ok", "verdict": "approved"}, clean("h1", open)); code != 200 {
 		t.Fatal(code, ref)
 	}
-	h.end(rv, "COMPLETED", "accepted")
+	h.end(rv, "succeeded", "accepted")
 
 	waits := []time.Duration{time.Minute, 5 * time.Minute}
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -78,7 +78,7 @@ func TestMergeFailuresAreAttempts(t *testing.T) {
 		if code, ref := h.exit(r, "handoff", failed, clean("h1", open)); code != 200 {
 			t.Fatal(code, ref)
 		}
-		h.end(r, "COMPLETED", "accepted")
+		h.end(r, "succeeded", "accepted")
 		got := h.task("t")
 		if got.AttemptsNoProgress != attempt || got.FailStreak != attempt || !strings.Contains(got.Result, "required check build failed") {
 			t.Fatalf("attempt %d: %+v", attempt, got)
@@ -144,7 +144,7 @@ func TestUnmergedBranchCheck(t *testing.T) {
 		if code, ref := h.exit(r, "handoff", map[string]any{"to": "demo", "note": "later"}, clean("h1", open)); code != 200 {
 			t.Fatal(code, ref)
 		}
-		h.end(r, "COMPLETED", "accepted")
+		h.end(r, "succeeded", "accepted")
 		cancel(id)
 		if id == "old" {
 			h.fake.Advance(31 * 24 * time.Hour)
@@ -160,14 +160,14 @@ func TestUnmergedBranchCheck(t *testing.T) {
 	if code, ref := h.exit(r, "done", map[string]any{"summary": "merged"}, clean("h1", &storage.PRFacts{Number: 7, State: "merged", HeadSHA: "h1"})); code != 200 {
 		t.Fatal(code, ref)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	// An open task with an open PR is not closed.
 	h.create("open", "code", "demo")
 	r = h.start("open")
 	if code, ref := h.exit(r, "handoff", map[string]any{"to": "demo", "note": "later"}, clean("h1", open)); code != 200 {
 		t.Fatal(code, ref)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 
 	for range 2 { // two daily checks: still one event
 		if err := h.c.checkUnmerged(ctx); err != nil {

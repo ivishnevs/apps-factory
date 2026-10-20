@@ -101,7 +101,7 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	if m.DeliveryRunID != "" {
 		t.Fatal("writer overlap", m)
 	}
-	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED", SessionID: "developer-thread"})); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded", SessionID: "developer-thread"})); err != nil {
 		t.Fatal(err)
 	}
 	if err = c.ScheduleMessages(ctx); err != nil {

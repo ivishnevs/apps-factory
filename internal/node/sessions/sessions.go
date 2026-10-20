@@ -26,9 +26,9 @@ type Record struct {
 	Run       string `json:"run"`
 	// Started: the prompt reached the runtime.
 	Started bool `json:"started"`
-	// Status is the run's terminal status; "" while running or when the node stopped first.
-	Status string    `json:"status,omitempty"`
-	At     time.Time `json:"at"`
+	// Outcome is the run's outcome as the node reported it; "" while running or when the node stopped first.
+	Outcome string    `json:"outcome,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // Store keeps one record file per session under Dir.

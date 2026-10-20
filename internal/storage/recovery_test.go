@@ -13,7 +13,7 @@ import (
 )
 
 // endAs ends a started run the way Core records an outcome, then applies it to the task (syncTaskRun).
-func endAs(t *testing.T, s *Store, id, status, outcome, result string) {
+func endAs(t *testing.T, s *Store, id, outcome, result string) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.begin(ctx, DefaultCompany)
@@ -21,7 +21,7 @@ func endAs(t *testing.T, s *Store, id, status, outcome, result string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,outcome=?,result=?,finished_at=? WHERE id=?", status, outcome, result, tx.now().Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='ENDED',outcome=?,result=?,finished_at=? WHERE id=?", outcome, result, tx.now().Unix(), id); err != nil {
 		t.Fatal(err)
 	}
 	if err = syncTaskRun(ctx, tx, id); err != nil {
@@ -47,27 +47,27 @@ func TestOutcomeTable(t *testing.T) {
 	s, fake := retryStore(t)
 	ctx := context.Background()
 	for _, c := range []struct {
-		outcome, status, result string
-		attempts, streak        int
-		wait                    time.Duration
-		budget                  int
-		task                    string // the task's status afterwards
+		outcome, result  string
+		attempts, streak int
+		wait             time.Duration
+		budget           int
+		task             string // the task's status afterwards
 	}{
-		{"succeeded", "COMPLETED", "", 0, 0, 0, 1, "IN_REVIEW"},
-		{"no_exit", "COMPLETED", "", 1, 0, 0, 1, "IN_PROGRESS"}, // escalated no_exit (to the manager)
-		{"failed", "FAILED", "", 1, 1, time.Minute, 1, "READY"},
-		{"timed_out", "FAILED", "", 1, 1, time.Minute, 1, "READY"},
-		{"idle_timeout", "FAILED", "", 1, 1, time.Minute, 1, "READY"},
-		{"max_turns", "FAILED", "", 1, 1, time.Minute, 1, "READY"},
-		{"setup_failed", "FAILED", "OpenSpec preflight failed", 1, 1, time.Minute, 1, "READY"},
-		{"lost", "FAILED", "lost: worker lease expired", 0, 1, time.Minute, 1, "READY"},
-		{"lost", "FAILED", "lost: node n1 restarted (epoch 2)", 0, 1, time.Minute, 0, "READY"}, // new epoch: no budget
-		{"revoked", "CANCELLED", "", 0, 0, 0, 0, "CANCELLED"},
-		{"paused_out", "FAILED", "", 0, 0, 0, 0, "READY"},
-		{"stale", "FAILED", "", 0, 0, 0, 0, "READY"},
-		{"unclaimed", "FAILED", "", 0, 0, 0, 0, "READY"},
+		{"succeeded", "", 0, 0, 0, 1, "IN_REVIEW"},
+		{"no_exit", "", 1, 0, 0, 1, "IN_PROGRESS"}, // escalated no_exit (to the manager)
+		{"failed", "", 1, 1, time.Minute, 1, "READY"},
+		{"timed_out", "", 1, 1, time.Minute, 1, "READY"},
+		{"idle_timeout", "", 1, 1, time.Minute, 1, "READY"},
+		{"max_turns", "", 1, 1, time.Minute, 1, "READY"},
+		{"setup_failed", "OpenSpec preflight failed", 1, 1, time.Minute, 1, "READY"},
+		{"lost", "lost: worker lease expired", 0, 1, time.Minute, 1, "READY"},
+		{"lost", "lost: node n1 restarted (epoch 2)", 0, 1, time.Minute, 0, "READY"}, // new epoch: no budget
+		{"revoked", "", 0, 0, 0, 0, "CANCELLED"},
+		{"paused_out", "", 0, 0, 0, 0, "READY"},
+		{"stale", "", 0, 0, 0, 0, "READY"},
+		{"unclaimed", "", 0, 0, 0, 0, "READY"},
 	} {
-		name := c.outcome + "-" + c.status
+		name := c.outcome
 		if c.budget == 0 && c.outcome == "lost" {
 			name += "-epoch"
 		}
@@ -78,7 +78,7 @@ func TestOutcomeTable(t *testing.T) {
 			if _, err := s.Claim(ctx, DefaultCompany, spec.ID); err != nil {
 				t.Fatal(err)
 			}
-			endAs(t, s, spec.ID, c.status, c.outcome, c.result)
+			endAs(t, s, spec.ID, c.outcome, c.result)
 			got := taskOf(t, s, name)
 			wantNotBefore := int64(0)
 			if c.wait > 0 {
@@ -94,7 +94,7 @@ func TestOutcomeTable(t *testing.T) {
 				t.Fatalf("test row disagrees with the table: %+v", rule)
 			}
 			// Applying the same end again changes nothing.
-			endAs(t, s, spec.ID, c.status, c.outcome, c.result)
+			endAs(t, s, spec.ID, c.outcome, c.result)
 			if again := taskOf(t, s, name); again.AttemptsNoProgress != got.AttemptsNoProgress || again.FailStreak != got.FailStreak || budgetUsed(t, s, name) != c.budget {
 				t.Fatalf("applied twice: %+v", again)
 			}
@@ -131,7 +131,7 @@ func TestBudgetDayInCompanyTimeZone(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+		if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestDirectiveDuringBudgetRun(t *testing.T) {
 	if _, err = s.CommentTask(ctx, co, "t1", tasks.Comment{Text: "use the staging bucket", RequestID: "directive"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}
 	got := taskOf(t, s, "t1")
@@ -200,7 +200,7 @@ func TestDirectiveDuringBudgetRun(t *testing.T) {
 	if lease, err = s.Claim(ctx, co, spec.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}
 	if open, _ = s.Escalations(ctx, co, true); len(open) != 1 || open[0].Reason != "budget_exhausted" {

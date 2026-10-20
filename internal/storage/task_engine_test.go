@@ -51,14 +51,14 @@ func dispatchEngineTask(t *testing.T, s *Store, v tasks.Task, id string) protoco
 	}
 	return r
 }
-func finishEngineRun(t *testing.T, s *Store, r protocol.RunSpec, status string) protocol.Envelope {
+func finishEngineRun(t *testing.T, s *Store, r protocol.RunSpec, outcome string) protocol.Envelope {
 	t.Helper()
 	ctx := context.Background()
 	lease, err := s.Claim(ctx, DefaultCompany, r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: status, SessionID: "session-" + r.TaskID, Result: "checks passed"})
+	e := protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: "ENDED", Outcome: outcome, SessionID: "session-" + r.TaskID, Result: "checks passed"})
 	if err = s.Apply(ctx, DefaultCompany, e); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestDependenciesReviewAndRework(t *testing.T) {
 		t.Fatal("dependency scheduled", err)
 	}
 	r := dispatchEngineTask(t, s, a, "run-a")
-	event := finishEngineRun(t, s, r, "COMPLETED")
+	event := finishEngineRun(t, s, r, "succeeded")
 	a, _ = s.Task(ctx, DefaultCompany, "a")
 	if a.Status != "IN_REVIEW" || a.Version != 4 {
 		t.Fatalf("unexpected projection %+v", a)
@@ -136,7 +136,7 @@ func TestDependenciesReviewAndRework(t *testing.T) {
 	if r2.SessionID != "session-a" || r2.Attempt != 2 {
 		t.Fatal("task session/attempt lost", r2)
 	}
-	finishEngineRun(t, s, r2, "COMPLETED")
+	finishEngineRun(t, s, r2, "succeeded")
 	a, _ = s.Task(ctx, DefaultCompany, "a")
 	a, err = s.ReviewTask(ctx, DefaultCompany, a.ID, tasks.Review{Version: a.Version, Accept: true, RequestID: "accept-a"})
 	if err != nil || a.Status != "DONE" {
@@ -252,18 +252,18 @@ func TestTaskLostReconciliationAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
-	if a.RetryEligible || reason(t, s, a.ID) != tasks.ReasonParked+tasks.ParkEscalation {
+	if reason(t, s, a.ID) != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatal(a)
 	}
 	if _, err := s.TaskAction(ctx, DefaultCompany, a.ID, tasks.Action{Version: a.Version, Action: "ready"}); !errors.Is(err, ErrConflict) {
 		t.Fatal("lost run retried", err)
 	}
-	if err := s.Resolve(ctx, DefaultCompany, r.ID, "FAILED", "workspace inspected; nothing happened, run it again"); err != nil {
+	if err := s.Resolve(ctx, DefaultCompany, r.ID, "retry", "workspace inspected; nothing happened, run it again"); err != nil {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
 	if a.Status != "READY" || reason(t, s, a.ID) != tasks.ReasonRunnable {
-		t.Fatal("resolve FAILED is not a retry", a, reason(t, s, a.ID))
+		t.Fatal("resolve retry is not a retry", a, reason(t, s, a.ID))
 	}
 	r = dispatchEngineTask(t, s, a, "run-a2")
 	if err := s.Cancel(ctx, DefaultCompany, r.ID); err != nil {
@@ -313,7 +313,7 @@ func TestRunningTaskCancellation(t *testing.T) {
 	if err != nil || !cancel {
 		t.Fatal("cancel not delivered", err)
 	}
-	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: "CANCELLED"})); err != nil {
+	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: "ENDED", Outcome: "revoked"})); err != nil {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
@@ -332,7 +332,7 @@ func TestLargeResultsKeepBrokerNotificationsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.Repeat("x", 700*1024)
-	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: "COMPLETED", Result: text})); err != nil {
+	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded", Result: text})); err != nil {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)

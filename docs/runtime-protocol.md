@@ -17,20 +17,19 @@ mode is danger-full-access and approvalPolicy never, matching the trusted MVP ru
 
 Worker reads responses by ID, forwards notifications as durable progress events, and extracts final
 agentMessage text from item/completed. item/agentMessage/delta remains available in run events.
-Only turn/completed status completed/failed/interrupted yields COMPLETED/FAILED/CANCELLED.
-An interrupted turn is CANCELLED even when triggered by the execution timeout.
-Unexpected process exit, protocol failure or missing terminal evidence yields FAILED `failed` (CANCELLED while
-the run was being stopped); see Run outcomes from workers. Workers never report UNKNOWN: only Core decides
+Only turn/completed status completed/failed/interrupted is terminal evidence (the driver's
+COMPLETED/FAILED/CANCELLED result); an interrupted turn carries the reason the executor stopped it.
+Unexpected process exit or missing terminal evidence yields outcome `lost`; see Run outcomes from workers. Core decides
 `lost` (lease loss, a missed start window, a new node epoch).
 Stderr supplies native diagnostics; protocol messages are not parsed from stderr.
 
 On cancellation Worker sends turn/interrupt, waits up to 10s for terminal evidence, then kills the
 app-server process group on close. Runtime startup calls have 30s timeouts. Event queue is bounded;
-overflow fails the run (`FAILED` `failed`) instead of silently discarding notifications.
+overflow ends the run without terminal evidence (`lost`) instead of silently discarding notifications.
 
 Server-initiated command/file approval requests receive decline. Other requests (including
 user input, external auth refresh and tools not implemented by Foundation) receive a JSON-RPC
-error and fail the run (`FAILED` `failed`, retried automatically). This is a documented Foundation limitation,
+error and fail the run (outcome `failed`, retried automatically). This is a documented Foundation limitation,
 separate from the Core [inbox/action approval workflow](approvals.md). Full access means shell actions can
 bypass behavioral instructions; no claim of isolation is made.
 
@@ -86,17 +85,15 @@ Optional fields; workers and Cores that do not know them ignore them.
   (`factory projects create ID WORKSPACE --repo URL --branch BRANCH`, `PATCH /projects/{id}`). Core sets
   `workspace_mode` only when the project has `repo_url`; otherwise the run keeps the shared workspace.
 - `GET /runs/{id}` and task attempts return `usage`; `factory show` prints tokens and the runtime's cost estimate.
-- `Event.outcome` (reliable-recovery D1), on terminal events only: how the run ended when the status does not
-  say it — `failed`, `timed_out`, `idle_timeout`, `max_turns`, `setup_failed` or `paused_out`; other values
-  are refused (`lost`, `revoked`, `stale`, `unclaimed`, `succeeded` and `no_exit` are Core's). A failure
-  outcome (`failed`, `timed_out`, `idle_timeout`, `max_turns`, `setup_failed`) on a `CANCELLED` event ends the
-  run `FAILED`, so a worker that interrupts its own run on a hard timeout reports
-  `{status: CANCELLED, outcome: timed_out}` and the task fails retryably instead of being cancelled. Without
-  an outcome Core derives one from the status and result (see task-lifecycle.md, Run outcomes).
+- A run's `status` is its phase: `QUEUED`, `CLAIMED` (v2, before `/start`), `RUNNING`, `CANCELLING`, `ENDED`
+  (reliable-recovery D1). The terminal event is `{status: ENDED, outcome}`; the outcome is required there and
+  refused anywhere else. A worker reports `succeeded`, `failed`, `timed_out`, `idle_timeout`, `max_turns`,
+  `setup_failed`, `paused_out`, `revoked` or `lost` (no terminal evidence; runtime-protocol-v2.md §8); `no_exit`,
+  `stale` and `unclaimed` are Core's. Any other status or outcome is an invalid event.
 - Idle stop: a started run without any applied event for 30 minutes (judged after a full window of
   continuous Core ticking, so a host sleep does not count) is asked to stop — v1: `{"cancel": true}` in the
   per-run heartbeat answer, v2: heartbeat `stop` with reason `idle_timeout`. The worker interrupts it as for
-  a cancel; its `CANCELLED` end is recorded `FAILED` with outcome `idle_timeout`, and the task is not
+  a cancel; its `revoked` end (or `lost`, without evidence) is recorded `idle_timeout`, and the task is not
   cancelled.
 
 ### Usage and quota sources
@@ -124,32 +121,30 @@ Optional fields; workers and Cores that do not know them ignore them.
 How the executor (v1 and v2, every driver) fills `Event.outcome` on terminal events
 (reliable-recovery 3.4); progress and `started` events never carry one.
 
-| How the run ended | Terminal event |
+| How the run ended | Outcome (status `ENDED`) |
 |---|---|
-| Turn completed (also when it finished as an interrupt was requested) | `COMPLETED` |
-| Turn failed | `FAILED` `failed` |
-| Claude `error_max_turns` result (shim `max_turns`) | `FAILED` `max_turns` |
-| Turn failed after a quota hit (`Event.quota` in this run) or a Claude auth error | `FAILED` `paused_out` (an auth error also disables the driver on the node until its next probe passes) |
-| The executor's own hard timeout (`timeout_seconds`, sleep-excluding clock) interrupted the turn | `CANCELLED` `timed_out` |
-| v2 heartbeat `stop` `timed_out` / `idle_timeout` interrupted the turn | `CANCELLED` `timed_out` / `idle_timeout` |
-| Owner cancel: v1 heartbeat `{cancel: true}`, v2 `stop` `revoked`, `terminal`, `unknown_run` | `CANCELLED` |
-| Timeout or idle stop, no result within the interrupt deadline (the executor then kills the runtime) | `FAILED` `timed_out` / `idle_timeout` |
-| Before the runtime started: invalid RunSpec, workspace allocation, `workspace_diverged`, OpenSpec preflight, skills refusal, shims or `factory-mcp` missing, run credential | `FAILED` `setup_failed` |
-| The same, while the run was being stopped | `CANCELLED` with the stop's outcome |
-| Launch refused before the prompt (Claude auth, Codex without a ChatGPT login, missing or unsupported runtime executable) | `FAILED` `paused_out` |
-| Other launch, `/start` or `started` failures before the prompt; a broken shim stream | `FAILED` `failed` |
-| No terminal evidence while the run was being stopped: interrupt for a revoke without a result, a shutdown | `CANCELLED` with the stop's outcome |
-| No terminal evidence otherwise: shim or app-server gone mid-turn, `turn/start` failure, event publication failure | `FAILED` `failed` (`paused_out` after a quota hit in the run) |
+| Turn completed (also when it finished as an interrupt was requested) | `succeeded` |
+| Turn failed | `failed` |
+| Claude `error_max_turns` result (shim `max_turns`) | `max_turns` |
+| Turn failed after a quota hit (`Event.quota` in this run) or a Claude auth error | `paused_out` (an auth error also disables the driver on the node until its next probe passes) |
+| The executor's own hard timeout (`timeout_seconds`, sleep-excluding clock) stopped the turn, with or without a result within the interrupt deadline (the executor then kills the runtime) | `timed_out` |
+| v2 heartbeat `stop` `timed_out` / `idle_timeout` stopped the turn, with or without a result | `timed_out` / `idle_timeout` |
+| Core's stop with the runtime's interrupted or failed result: v1 heartbeat `{cancel: true}`, v2 `stop` `revoked`, `terminal`, `unknown_run` | `revoked` |
+| A cancelled turn nobody asked for | `failed` |
+| Before the runtime started: invalid RunSpec, workspace allocation, `workspace_diverged`, OpenSpec preflight, skills refusal, shims or `factory-mcp` missing, run credential | `setup_failed` |
+| The same, while the run was being stopped | the stop's outcome (`lost` for a node shutdown) |
+| Launch refused before the prompt (Claude auth, Codex without a ChatGPT login, missing or unsupported runtime executable) | `paused_out` |
+| Other launch, `/start` or `started` failures before the prompt; a broken shim stream | `failed` |
+| A node shutdown, a lost v1 heartbeat or a vanished runtime process group stopped the turn (with or without a result) | `lost` |
+| No terminal evidence: shim or app-server gone mid-turn, an interrupt for a revoke without a result, `turn/start` failure, event publication failure | `lost` (`paused_out` after a quota hit in the run) |
 
 - A v1 idle stop is a plain `{cancel: true}`: the worker cannot tell it from an owner cancel and reports
-  `CANCELLED`; Core records `idle_timeout` from its own stop reason. v2 carries the reason in `stop`.
-- Workers never report UNKNOWN (reliable-recovery D1). Whether a runtime may still have acted is Core's
-  question: it ends a run `lost` when the evidence stops arriving, and a task with external side effects is
-  inspected rather than retried whatever the end. Core rejects an `UNKNOWN` terminal status as invalid.
-- A lost v1 heartbeat or a worker/node shutdown interrupts like an owner cancel (`CANCELLED`, no outcome).
+  `revoked`; Core records `idle_timeout` from its own stop reason. v2 carries the reason in `stop`.
+- `lost` from a worker means only that terminal evidence never arrived; Core records it `lost` (no attempt,
+  backoff, budget), and a task with external side effects is inspected rather than retried whatever the end.
+  Only a stop Core asked for is ever `revoked`: a node shutdown mid-run is `lost`.
 - Git lock contention inside worktree allocation (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) is
-  retried by the allocator; a failure after the retries is transient contention, reported `FAILED` `failed`
-  (`CANCELLED` while the run was being stopped), not `setup_failed` (task-worktrees D1).
+  retried by the allocator; a failure after the retries is transient contention, reported `failed` (the stop's
+  outcome while the run was being stopped), not `setup_failed` (task-worktrees D1).
 - After an accepted exit (`exit_state: accepted`) a run the executor stopped (`ExitGrace` 30 s after the exit,
-  its timeout, a stop) or that ended without terminal evidence reports `COMPLETED` without an outcome: the exit
-  stands and Core records the run `succeeded`.
+  its timeout, a stop) or that ended without terminal evidence reports `succeeded`: the exit stands.

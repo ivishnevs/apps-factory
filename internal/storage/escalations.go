@@ -254,7 +254,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
 				return err
 			}
-			if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || unreleased {
+			if status != "ENDED" || unreleased {
 				return fmt.Errorf("%w: the task has a live run; cancel it with factory tasks cancel", ErrConflict)
 			}
 		}

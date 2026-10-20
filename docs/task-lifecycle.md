@@ -118,42 +118,44 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
   because the node went silent (or stopped past its timeout) may still be running: it keeps its writer slot
   (the project workspace or its task worktree), its session and its task (`live_run`, the run `unreleased`)
   until the node proves it gone — it registers a newer epoch (it kills the old epoch's process groups before it
-  registers), sends a heartbeat without it, or reports the stop of a run Core declared lost (that CANCELLED is a
-  confirmation, not an owner cancel). Then the task retries as above. Only an unreleased lost run holds its
+  registers), sends a heartbeat without it, or reports the end of a run Core declared lost (a `revoked` or `lost`
+  end is a confirmation, not an owner cancel). Then the task retries as above. Only an unreleased lost run holds its
   writer slot; nothing else of the project waits for it.
 - Side effects (reliable-recovery D4): `side_effects: true` (task create/update JSON), or a `type: recovery,
   mode: inspect` policy rule of the run's agent (read from the run's config snapshot), marks a task whose runs
   act outside the workspace (publish, deploy). It is never retried automatically: any end other than
   `succeeded`, `paused_out`, `stale`, `unclaimed` or `revoked` parks that task alone with an `inspect`
   escalation (answers `retry`, `continue` — the effect happened, the next brief says so — or `cancel`); other
-  tasks, the project and its workspaces keep running. `factory runs resolve RUN STATUS EVIDENCE` answers it
-  (COMPLETED continue, FAILED retry, CANCELLED cancel).
+  tasks, the project and its workspaces keep running. `factory runs resolve RUN continue|retry|cancel EVIDENCE`
+  answers it.
 
 Late trustworthy terminal evidence still replaces a Core-decided `lost` end. `runs resolve` on a lost run whose
-runtime may still run (no inspection) releases it with that status: COMPLETED submits for review, FAILED retries,
-CANCELLED ends the task. Reconciliations are audited (`run.reconciled`).
+runtime may still run (no inspection) releases it: `retry` keeps it `lost` and the task retries after the backoff,
+`continue` also resets the counters and tells the next brief that the run's work happened, `cancel` ends it
+`revoked` and cancels the task. Reconciliations are audited (`run.reconciled`).
 
 ### Run outcomes
 
-Every ended run records one outcome next to its status (`outcome` in run reads and task attempts,
-`STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded` (COMPLETED), `failed`,
+A run's status is its phase: QUEUED → CLAIMED (v2, until `/start`; a v1 claim goes straight to RUNNING) →
+RUNNING → (CANCELLING while a stop is in flight) → ENDED. How it ended is only its outcome (`outcome` in run reads
+and task attempts, `STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded`, `failed`,
 `setup_failed` (OpenSpec preflight, skills or `workspace_diverged` before the runtime started),
 `timed_out`, `idle_timeout`, `max_turns`, `paused_out` (reported by the worker), `lost` (lease, start
-window or node lost; FAILED, decided by Core only), `revoked` (cancel, kill switch) and `stale`/`unclaimed`
-(a queued run cancelled by a claim-time check or never claimed). Workers never report UNKNOWN: an end without
-terminal evidence is CANCELLED while the run was being stopped, else FAILED `failed`. Run statuses are QUEUED,
-CLAIMED (v2, before `/start`), RUNNING, CANCELLING and the ended COMPLETED, FAILED, CANCELLED; migration 0029
-mapped UNKNOWN runs to FAILED `lost` and FAILED tasks to READY. The `run_outcome` trigger derives the outcome
-unless the code that ended the run set one; late terminal evidence on a lost run replaces `lost`, an owner's
-`runs resolve` does not. The attempt/backoff/budget flags of each outcome are `storage.Outcomes` and drive the automatic retry
+window or node lost, or a worker's end without terminal evidence: no attempt), `revoked` (cancel, kill switch,
+with the runtime's evidence) and `stale`/`unclaimed` (a queued run ended by a claim-time check or never claimed).
+A node shutdown mid-run is `lost`, never `revoked`. Migration 0029 mapped UNKNOWN runs to `lost` and FAILED tasks
+to READY; 0030 mapped the ended COMPLETED/FAILED/CANCELLED runs to ENDED (deriving a missing outcome from the old
+status and result) and released tasks still BLOCKED on a released `run:` from before 0029 as the retry would. The
+code that ends a run sets its outcome (the `run_phase` trigger refuses ENDED without one); late terminal evidence
+on a lost run replaces `lost`, an owner's `runs resolve` does not. The attempt/backoff/budget flags of each outcome are `storage.Outcomes` and drive the automatic retry
 above.
 
 The hang detector stops a started run that has had no event for 30 minutes (see runtime-protocol.md, Idle
-stop): it ends FAILED `idle_timeout`, a known failure, and its task is not cancelled. A worker's own
+stop): it ends `idle_timeout`, a known failure, and its task is not cancelled. A worker's own
 timeout reported as `outcome: timed_out` is handled the same way.
 
-Task cancellation cancels a queued run immediately or sets CANCELLING for heartbeat-driven runtime
-interruption. Writer reservation remains until a known terminal result; a lost run whose runtime may still
+Task cancellation ends a queued run `revoked` immediately or sets CANCELLING for heartbeat-driven runtime
+interruption; the task is CANCELLED whatever outcome the stopped run then reports. Writer reservation remains until a known terminal result; a lost run whose runtime may still
 run keeps it until it is released, also when cancellation was requested. Calling runs cancel for a task-linked run also
 updates its task. A completion racing a cancellation leaves the task CANCELLED, not accepted.
 
@@ -270,7 +272,7 @@ OpenSpec, children and UNKNOWN-run blocks are still stored.
   `last_child_closed` (once, when the last open child becomes DONE or CANCELLED by any path) and
   `artifact_approved`.
 - Claim records the run's brief window `brief_from = handled_seq`, `brief_to = wake_seq` and builds the brief
-  in the same transaction; a COMPLETED run sets `handled_seq = brief_to` (explicit exits replace this later).
+  in the same transaction; a `succeeded` run sets `handled_seq = brief_to` (explicit exits replace this later).
 - Claim re-checks the task (D6): a run that is no longer the task's current run, whose task was reassigned or
   cancelled, or whose `why` verdict (with the run itself ignored) is `terminal`, `backlog`, `unassigned`,
   `parked:*` or `dependencies` ends `stale` (no attempt, no backoff; feed `run.stale`) and the claim answers
@@ -361,8 +363,8 @@ cancellation.
   when the pause ends (reset reached or `factory resume quota_key KEY`). Declared keys:
   `configs/quota_keys.yaml`.
 - `factory stop [REASON]` (`POST /stop`) is the kill switch: it pauses the company and revokes every live run.
-  A QUEUED run ends at once; a RUNNING run is asked to stop through its heartbeat. A revoked run that ends
-  CANCELLED returns its task to READY instead of cancelling it (a turn that completes first is submitted as
+  A QUEUED run ends at once; a claimed or RUNNING run is asked to stop through its heartbeat. A run that ends
+  `revoked` returns its task to READY instead of cancelling it (a turn that completes first is submitted as
   usual; a task the owner cancelled stays cancelled). `factory start` resumes the company.
 - `factory rules company|PROJECT [TEXT|-]` shows or replaces standing rules (conventions, facts, fixed decisions;
   `GET|PUT /settings/company`, project `rules` in `PATCH /projects/{id}`, up to 8 KiB each). Every brief carries

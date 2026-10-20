@@ -74,13 +74,13 @@ func TestOpenSpecTaskLinksAndQueuedRecheck(t *testing.T) {
 	}
 	current, _ := s.Task(ctx, DefaultCompany, task.ID)
 	cancelled, _ := s.Get(ctx, DefaultCompany, run.ID)
-	if current.Status != "BLOCKED" || !strings.HasPrefix(current.BlockReason, "openspec:") || current.RetryEligible || cancelled.Status != "CANCELLED" {
+	if current.Status != "BLOCKED" || !strings.HasPrefix(current.BlockReason, "openspec:") || cancelled.Status != "ENDED" || cancelled.Outcome != "stale" {
 		t.Fatal(current, cancelled)
 	}
 	os.Rename(proposal+".held", proposal)
 	current = readyEngineTask(t, s, current)
 	next := dispatchEngineTask(t, s, current, "spec-next")
-	finishEngineRun(t, s, next, "COMPLETED")
+	finishEngineRun(t, s, next, "succeeded")
 	current, _ = s.Task(ctx, DefaultCompany, task.ID)
 	if current.Status != "IN_REVIEW" {
 		t.Fatal(current)
@@ -132,7 +132,7 @@ func TestOpenSpecInitializationWriterAndLostRun(t *testing.T) {
 	if _, e = s.InitOpenSpec(ctx, DefaultCompany, "p", "demo", run.ID, "agent-unknown"); !errors.Is(e, ErrConflict) {
 		t.Fatal("unknown agent bypass", e)
 	}
-	if e = s.Resolve(ctx, DefaultCompany, run.ID, "COMPLETED", "inspected workspace"); e != nil {
+	if e = s.Resolve(ctx, DefaultCompany, run.ID, "continue", "inspected workspace"); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.InitOpenSpec(ctx, DefaultCompany, "p", "owner", "", "owner-resolved"); e != nil {

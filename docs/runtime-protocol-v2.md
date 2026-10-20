@@ -55,8 +55,7 @@ catalog has no such document). `reason` (optional, default `start`) says why the
 start) or `reregister` (Core lost the node or changed incarnation); only `start` counts towards
 `node.restart_loop`. A driver change never re-registers: the heartbeat's `drivers` declare it (§3).
 
-Effects: the node is online; every unended run of an older epoch of this node is lost (until the outcome model: see
-§10 "Lost runs"). A lower or equal epoch than
+Effects: the node is online; every unended run of an older epoch of this node is lost (§10 "Lost runs"). A lower or equal epoch than
 the last registered one is refused with `409 {"reason": "stale_epoch"}`. Before registering, the node kills and
 seals what its previous epoch left (it already kills orphaned groups at start).
 
@@ -154,8 +153,19 @@ Answer `200`:
 ## 8. Events
 
 Envelope and lease unchanged; `usage`, `quota` and `POST /runs/{id}/workspace` as already agreed (see
-runtime-protocol.md). Terminal statuses are COMPLETED/FAILED/CANCELLED with an `outcome` (reliable-recovery);
-Core refuses `UNKNOWN`. Run reads show a claimed, unstarted run as `CLAIMED`.
+runtime-protocol.md). A run's `status` is its phase: `QUEUED → CLAIMED → RUNNING → (CANCELLING) → ENDED`
+(reliable-recovery D1); how it ended is only its `outcome`.
+
+The terminal event carries `{"status": "ENDED", "outcome": "…"}`, and only it carries an outcome. A worker reports
+`succeeded`, `failed`, `timed_out`, `idle_timeout`, `max_turns`, `setup_failed`, `paused_out`, `revoked` (Core's stop,
+with the runtime's evidence of the interrupt) or `lost`: the run ended **without terminal evidence** (app-server
+disconnect, shim exit without a result, an interrupt whose result never came, a node shutdown or lost heartbeat
+mid-run), so nothing is known about what the runtime did. Core validates the outcome (anything else, or another
+status, is `400 invalid event`) and records it: `lost` is no attempt, with backoff and budget like Core's own losses;
+a timeout with a known cause (the executor's timeout, Core's `timed_out`/`idle_timeout` stop) stays `timed_out` /
+`idle_timeout` even without evidence, and Core records `idle_timeout` for a `revoked` or `lost` end of a run it
+stopped for inactivity. An accepted exit makes the end `succeeded` whatever the worker reported. `no_exit`, `stale`
+and `unclaimed` are Core's only.
 
 ## 9. Who does what
 
@@ -171,10 +181,10 @@ Core refuses `UNKNOWN`. Run reads show a claimed, unstarted run as `CLAIMED`.
 
 1. **node_id** is generated once and stored in `<state_dir>/node_id`; `name` is a label (macOS renames hosts and two
    machines may share a name). Core accepts duplicate names with a warning.
-2. **Lost runs before the outcome model:** a CLAIMED run that missed its start window ends FAILED with result
-   `lost: not started` (the runtime never ran, so a retry is safe). A RUNNING run missing from the inventory, runs of
-   an older epoch and runs of an offline node end FAILED `lost` too (reliable-recovery); the offline node's runs
-   stay unreleased until the node proves their runtime gone.
+2. **Lost runs:** a CLAIMED run that missed its start window ends `lost` with result `lost: not started` (the
+   runtime never ran, so a retry is safe). A RUNNING run missing from the inventory, runs of an older epoch and runs
+   of an offline node end `lost` too (reliable-recovery); the offline node's runs stay unreleased until the node
+   proves their runtime gone.
 3. **claim_id** is only an idempotency key; claims of parallel slots are not ordered.
 4. **Timings:** heartbeat 10 s, `timed_out` grace 60 s, start window 60 s extended by `claimed`/`starting`
    inventory up to 15 min, offline after 60 s of continuous ticking (limitation above).
@@ -189,10 +199,10 @@ Core refuses `UNKNOWN`. Run reads show a claimed, unstarted run as `CLAIMED`.
 
 What Core does where the sections above leave room (`internal/storage/nodes.go`, `internal/core/nodes.go`):
 
-- **CLAIMED** is stored as status `RUNNING` with `run_started = 0` (`protocol = 2`, `node_id`, `epoch`,
-  `claim_id`, `slot`, `start_by` on the run). A claimed run therefore holds its agent, project and node capacity
-  like a running one, and every existing live-run rule (cancel, kill switch, writer indexes) applies to it.
-  Run reads show `RUNNING` until the outcome model adds statuses.
+- **CLAIMED** is stored (`run_started = 0`, `protocol = 2`, `node_id`, `epoch`, `claim_id`, `slot`, `start_by` on
+  the run); `/start` moves it to `RUNNING`. A claimed run holds its agent, project and node capacity like a running
+  one, and every live-run rule (cancel, kill switch, writer indexes) applies to it. A v1 claim has no start phase: it
+  moves the run to `RUNNING` at once.
 - **Leases** of v2 runs last 60 s (the offline threshold) and are renewed only by the inventory heartbeat;
   the per-run `POST /runs/{id}/heartbeat` refuses v2 runs with 409. Lease expiry keeps its continuity guard,
   so a sleeping Core host expires nothing until one window of continuous ticking.
@@ -218,19 +228,20 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
 - **Heartbeat effects**: listed unended runs get their lease renewed; `claimed`/`starting` entries of an
   unstarted run extend `start_by` to now + 60 s, never past claim + 15 min. `stop`: `revoked` (CANCELLING or
   kill switch), `terminal` (Core already ended it), `unknown_run` (not this node's epoch), `timed_out`
-  (started longer ago than `timeout_seconds` + 60 s; Core ends it FAILED `timed_out` and keeps it unreleased
+  (started longer ago than `timeout_seconds` + 60 s; Core ends it `timed_out` and keeps it unreleased
   until the node confirms the stop, since the runtime may still act). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
   records `end_applied`). Started runs of this epoch missing from the inventory for more than 30 s after
-  `/start` end FAILED `lost` (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
+  `/start` end `lost` (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
   `critical` (a heartbeat without `health.disk` keeps the last answer). `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
   Idle stop). `timed_out` is judged on the entry's `elapsed_ms` (the node's sleep-excluding clock since the
   claim), never on Core's wall clock. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
   most 30 answers (the node retries a busy worktree from the next listing).
 - **Lost runs** (§10.2): a new epoch, an offline node (no heartbeat or claim for 60 s of continuous ticking)
-  or an expired lease end the node's unstarted runs FAILED `lost: not started (…)`, retryable like a known
-  failure, and started runs FAILED `lost: …` (released for a new epoch, whose node killed the old process groups
+  or an expired lease end the node's unstarted runs `lost` (`lost: not started (…)`), and started runs `lost`
+  (`lost: …`; released for a new epoch, whose node killed the old process groups
   before registering; unreleased for an offline node until it proves them gone). A node's terminal event that
-  arrives later still replaces `lost`, as in v1. A heartbeat from an offline node brings it back online.
+  arrives later still replaces `lost`, as in v1; a late `revoked` or `lost` end only releases the run (its runtime
+  is gone, nothing more is known). A heartbeat from an offline node brings it back online.
 - **Incarnation** lives in the database (`core_meta`) with a copy in `<db>.incarnation`; when the two differ
   at start (a restored database), Core creates a new incarnation. Restoring the file together with the
   database is not detected: after such a restore write any other value into `<db>.incarnation` (for example

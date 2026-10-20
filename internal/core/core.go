@@ -136,7 +136,7 @@ func (c *Core) Handler() http.Handler {
 	})
 	m.HandleFunc("POST /runs/{id}/resolve", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
-			Status string `json:"status"`
+			Answer string `json:"answer"`
 			Result string `json:"result"`
 		}
 		if !decode(w, r, &p) {
@@ -146,7 +146,7 @@ func (c *Core) Handler() http.Handler {
 			http.Error(w, "workspace reconciliation evidence required", 400)
 			return
 		}
-		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Status, p.Result))
+		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Answer, p.Result))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" || exitPath(r.URL.Path) {

@@ -125,7 +125,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 	if w = tool("factory_task_submit", map[string]any{"id": producer.ID, "version": producer.Version, "submission": tasks.Submission{Summary: "mockup ready", Artifacts: []tasks.Artifact{ref}}, "request_id": "submit"}); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", producer.CurrentRunID, "", protocol.Event{RunID: producer.CurrentRunID, Lease: lease, Status: "COMPLETED", SessionID: "designer-thread"})); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", producer.CurrentRunID, "", protocol.Event{RunID: producer.CurrentRunID, Lease: lease, Status: "ENDED", Outcome: "succeeded", SessionID: "designer-thread"})); err != nil {
 		t.Fatal(err)
 	}
 	producer, _ = s.Task(ctx, storage.DefaultCompany, producer.ID)
@@ -174,7 +174,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 	if w = tool("factory_approval_get", map[string]any{"approval_id": approval.ID}); w.Code != 200 {
 		t.Fatal("QA cannot read content approval", w.Code, w.Body.String())
 	}
-	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: qaLease, Status: "COMPLETED", SessionID: "qa-thread"})); err != nil {
+	if err = s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: qaLease, Status: "ENDED", Outcome: "succeeded", SessionID: "qa-thread"})); err != nil {
 		t.Fatal(err)
 	}
 	v2 := ref
@@ -237,7 +237,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 	}
 	queued, _ = s.Get(ctx, storage.DefaultCompany, queued.Spec.ID)
 	second, _ = s.Task(ctx, storage.DefaultCompany, second.ID)
-	if queued.Status != "CANCELLED" || second.Status != "BLOCKED" {
+	if queued.Status != "ENDED" || second.Status != "BLOCKED" {
 		t.Fatal(queued.Status, second)
 	}
 	// A content grant cannot satisfy a policy requirement for an arbitrary action call.
@@ -331,7 +331,7 @@ func TestArtifactWaitersPreserveManualBlocksQuarantineAndDeadlines(t *testing.T)
 	// The inspection holds the side-effect task: nothing dispatched it again.
 	unknown, _ = s.Task(ctx, storage.DefaultCompany, unknown.ID)
 	run, _ := s.Get(ctx, storage.DefaultCompany, unknown.CurrentRunID)
-	if unknown.CurrentRunID != lostRun || run.Status != "FAILED" || run.Outcome != "lost" {
+	if unknown.CurrentRunID != lostRun || run.Status != "ENDED" || run.Outcome != "lost" {
 		t.Fatal(run)
 	}
 }

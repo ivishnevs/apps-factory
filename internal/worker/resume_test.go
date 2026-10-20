@@ -25,13 +25,13 @@ func TestJetStreamResumePolicy(t *testing.T) {
 		prev   *sessions.Record
 		resume bool
 	}{
-		"same node":        {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Started: true, Status: "COMPLETED"}, true},
+		"same node":        {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Started: true, Outcome: "succeeded"}, true},
 		"other node":       {nil, false},
 		"never started":    {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0"}, false},
 		"other agent":      {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "reviewer", Run: "r0", Started: true}, false},
 		"other task":       {&sessions.Record{SessionID: "s-prev", Task: "t0", Agent: "demo", Run: "r0", Started: true}, false},
 		"reset workspace":  {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Started: true}, false},
-		"failed but saved": {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Started: true, Status: "UNKNOWN"}, true},
+		"failed but saved": {&sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Started: true, Outcome: "lost"}, true},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestJetStreamResumePolicy(t *testing.T) {
 			d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
 			r, _ := runDriver(t, url, Worker{Driver: d, Sessions: store}, false, func(s *protocol.RunSpec) { s.TaskID, s.SessionID = "t1", "s-prev" })
 			l := d.Launches()
-			if r.Status != "COMPLETED" || len(l) != 1 {
+			if r.Status != "ENDED" || r.Outcome != "succeeded" || len(l) != 1 {
 				t.Fatalf("%+v, %d launches", r, len(l))
 			}
 			session := "fake-session"
@@ -65,7 +65,7 @@ func TestJetStreamResumePolicy(t *testing.T) {
 				t.Fatalf("run session %q, want %q", r.SessionID, session)
 			}
 			rec, ok, err := store.Get(session)
-			if err != nil || !ok || rec.Task != "t1" || rec.Agent != "demo" || rec.Run != "fake-run" || !rec.Started || rec.Status != "COMPLETED" {
+			if err != nil || !ok || rec.Task != "t1" || rec.Agent != "demo" || rec.Run != "fake-run" || !rec.Started || rec.Outcome != "succeeded" {
 				t.Fatalf("record %+v %v %v", rec, ok, err)
 			}
 		})
@@ -119,19 +119,19 @@ func TestJetStreamSkillsPinned(t *testing.T) {
 		status string
 		result string
 	}{
-		"pinned":   {[]any{snapshot(hash), offer("openspec")}, "COMPLETED", "ok"},
-		"unpinned": {[]any{offer("openspec")}, "COMPLETED", "ok"},
-		"mismatch": {[]any{snapshot("sha256:0000"), offer("openspec")}, "FAILED", "differs from the run's pinned sha256:0000"},
-		"missing":  {[]any{offer("openspec", "absent")}, "FAILED", "absent is not in this node's skills registry"},
+		"pinned":   {[]any{snapshot(hash), offer("openspec")}, "succeeded", "ok"},
+		"unpinned": {[]any{offer("openspec")}, "succeeded", "ok"},
+		"mismatch": {[]any{snapshot("sha256:0000"), offer("openspec")}, "setup_failed", "differs from the run's pinned sha256:0000"},
+		"missing":  {[]any{offer("openspec", "absent")}, "setup_failed", "absent is not in this node's skills registry"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
 			r, _ := runDriver(t, url, Worker{Driver: d, Skills: registry}, false, c.mods...)
-			if r.Status != c.status || !strings.Contains(r.Result, c.result) {
-				t.Fatalf("%s: %q", r.Status, r.Result)
+			if r.Outcome != c.status || !strings.Contains(r.Result, c.result) {
+				t.Fatalf("%s: %q", r.Outcome, r.Result)
 			}
 			l := d.Launches()
-			if c.status == "FAILED" {
+			if c.status == "setup_failed" {
 				if len(l) != 0 || !strings.Contains(r.Result, "refused before runtime startup") {
 					t.Fatalf("runtime launched for a refused run: %d", len(l))
 				}

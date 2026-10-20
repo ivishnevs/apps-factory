@@ -197,7 +197,7 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   (`skills_root`/`configs/skills.yaml`; without it runs get no skills, logged at start) into a temporary directory
   outside the workspace, and each copy's content hash (`sha256:` over the skill directory's regular files and
   names, `skills.Hash`) is checked against the hash pinned on the run. A mismatch, or a skill this node lacks, ends
-  the run FAILED before the runtime starts (`skills: … (refused before runtime startup)`). Core does not pin
+  the run `setup_failed` before the runtime starts (`skills: … (refused before runtime startup)`). Core does not pin
   hashes yet: the executor reads `skill_hashes` from the agent snapshot when present and otherwise logs the
   computed hash and materializes it. Claude: the copies go to `<cwd>/.claude/skills/<name>` (read with the
   `project` setting source), marked with `.factory-skill`, added to the repository's `info/exclude` and removed when
@@ -288,8 +288,8 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
   free slot claims with `{node_id, epoch, claim_id, slot}`; `claim_id` is `<epoch>-<slot>-<n>`, an idempotency key
   reused when a transient failure (network, 5xx) is retried. `409 retry` naks the command with a 5 s delay,
   `409 drop` acks it; on `200` the command is acked and the executor runs the claim's `run_spec`. After the
-  workspace is allocated and the runtime launched, `POST /runs/{id}/start {lease}` (retried) moves the run to
-  RUNNING (until then run reads show it CLAIMED); a failed start ends the run FAILED. There are no per-run
+  workspace is allocated and the runtime launched, `POST /runs/{id}/start {lease}` (retried) moves the run
+  from CLAIMED to RUNNING; a failed start ends the run `failed`. There are no per-run
   heartbeats.
 - Every `heartbeat_seconds` (register answer, default 10): `POST /nodes/{node_id}/heartbeat` with the inventory
   (`claimed`, `starting`, `running`, `ended_unacked` with `elapsed_ms` since the claim on the monotonic clock)
@@ -361,8 +361,8 @@ no incarnation: stop them first and start them after step 5):
    - `curl -s -H "Authorization: Bearer $FACTORY_TOKEN" $FACTORY_URL/nodes`: every node `online`, a higher `epoch`
      than before the restore, its `drivers` `ok`, recent `last_seen` and `health` (disk `ok`).
    - `./bin/factory status` and `./bin/factory runs list`: runs that were active in the backup are now ended by
-     Core (the nodes' new epochs lose them): unstarted ones FAILED
-     `lost: not started` (retried), started ones FAILED `lost: …` (retried). Answer the `inspect` escalations of
+     Core (the nodes' new epochs lose them): unstarted ones `lost`
+     (`lost: not started`, retried), started ones `lost` (`lost: …`, retried). Answer the `inspect` escalations of
      `side_effects` tasks (or `./bin/factory runs resolve`) after inspecting the workspace.
    - Work done after the backup point is not in the database: tasks may run again, and their worktrees keep the
      newer commits (sealed WIP refs and branches stay on the node), so a re-run may start from `workspace_diverged`.
@@ -401,9 +401,9 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   60 s (`ExitDeliveryWait`) pass, then stops it as usual; the terminal event's `exit_state` is read after the wait.
   Runs without a pending exit are not delayed.
 - A runtime still running 30 s (`ExitGrace`) after its accepted exit is stopped; a run stopped after its accepted
-  exit (also by its timeout or a stop) or ending without evidence reports `COMPLETED` without an outcome.
+  exit (also by its timeout or a stop) or ending without evidence reports `succeeded`.
 - Git lock errors (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) are retried by the allocator; one
-  that persists ends the run `FAILED` `failed` (retryable contention), never `setup_failed`.
+  that persists ends the run `failed` (retryable contention), never `setup_failed`.
 - Runs without `task_id` or `repo_url` (for example message runs), or with worktrees disabled, fall back to the shared
   project workspace with a warning. `shared` and `scratch` runs use the project workspace (`workspace.Local`).
 
@@ -412,7 +412,7 @@ With `worktrees.enabled: true`, runs of agents with `workspace.mode: worktree` g
   sealed yet, or the worktree was just recreated) → start, after a fast-forward to `origin/<branch>` when the
   remote is strictly ahead (unpushed local commits or an agent's rebase are kept as they are); `sealed_head`
   follows the fast-forward. HEAD differs from `sealed_head` (changed outside any run), or uncommitted changes
-  block the fast-forward → the worktree is left untouched and the run ends FAILED before the runtime starts with
+  block the fast-forward → the worktree is left untouched and the run ends `setup_failed` before the runtime starts with
   `workspace_diverged: task … (branch …): <reason>; HEAD …, sealed_head …, origin …`. A missing worktree is
   recreated from the local branch (else the remote branch, else the default branch).
 

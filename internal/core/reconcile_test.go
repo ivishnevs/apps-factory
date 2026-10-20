@@ -42,7 +42,7 @@ func TestUnclaimedRunIsDispatchedAgain(t *testing.T) {
 	if got.CurrentRunID == first || got.Status != "IN_PROGRESS" || got.AttemptsNoProgress != 0 || got.FailStreak != 0 || got.NotBefore != 0 {
 		t.Fatalf("not dispatched again, or counted as an attempt: %+v", got)
 	}
-	if r, _ := s.Get(ctx, co, first); r.Status != "CANCELLED" || r.Outcome != "unclaimed" {
+	if r, _ := s.Get(ctx, co, first); r.Status != "ENDED" || r.Outcome != "unclaimed" {
 		t.Fatalf("%+v", r)
 	}
 	if r, _ := s.Get(ctx, co, got.CurrentRunID); r.Status != "QUEUED" {
@@ -129,7 +129,7 @@ func TestJetStreamPurgedCommandStream(t *testing.T) {
 	if code, body = call(t, c, "POST", "/runs/"+run+"/claim", c.Token, nil); code != 409 {
 		t.Fatal("claimed twice:", code, body)
 	}
-	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", run, "", protocol.Event{RunID: run, Lease: claimed.Lease, Status: "COMPLETED", Result: "done"})); err != nil {
+	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", run, "", protocol.Event{RunID: run, Lease: claimed.Lease, Status: "ENDED", Outcome: "succeeded", Result: "done"})); err != nil {
 		t.Fatal(err)
 	}
 	if task, _ = s.Task(ctx, co, "purged"); task.Status != "IN_REVIEW" || task.CurrentRunID != run {

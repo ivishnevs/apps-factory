@@ -63,7 +63,7 @@ func runClaudeEvents(t *testing.T, scenario string, cancel bool) (storage.Run, [
 
 func TestJetStreamClaudeDriver(t *testing.T) {
 	status, result, session, events, lines := runClaude(t, "start", false)
-	if status != "COMPLETED" || result != "FOUNDATION_OK" || session != "6f1c7a52-3b0e-4d8f-9a61-2c4e8b7d0f13" {
+	if status != "ENDED" || result != "FOUNDATION_OK" || session != "6f1c7a52-3b0e-4d8f-9a61-2c4e8b7d0f13" {
 		t.Fatal(status, result, session)
 	}
 	// session and result lines become started and completed; every other line is progress.
@@ -75,15 +75,15 @@ func TestJetStreamClaudeDriver(t *testing.T) {
 // End to end: the cancelled run's terminal event carries the usage the shim reported before and with its result.
 func TestJetStreamClaudeDriverCancellation(t *testing.T) {
 	r, events, _ := runClaudeEvents(t, "interrupt", true)
-	if r.Status != "CANCELLED" {
-		t.Fatal(r.Status)
+	if r.Status != "ENDED" || r.Outcome != "revoked" {
+		t.Fatal(r.Status, r.Outcome)
 	}
 	var terminal protocol.Event
 	if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
 		t.Fatal(err)
 	}
 	want := protocol.Usage{Model: "claude-opus-4-7", Input: 3, Output: 48, CacheWrite: 14190, CostUSD: 0.0398, CostSource: claude.CostSource}
-	if terminal.Status != "CANCELLED" || len(terminal.Usage) != 1 || terminal.Usage[0] != want || terminal.Quota != nil {
+	if terminal.Status != "ENDED" || terminal.Outcome != "revoked" || len(terminal.Usage) != 1 || terminal.Usage[0] != want || terminal.Quota != nil {
 		t.Fatalf("terminal %+v", terminal)
 	}
 	// Core keeps it on the run: GET /runs/{id} returns it.

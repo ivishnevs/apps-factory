@@ -140,7 +140,7 @@ func TestJetStreamPendingExitDelivered(t *testing.T) {
 			if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
 				t.Fatal(err)
 			}
-			if terminal.Status != "COMPLETED" || terminal.ExitState != c.want || r.Status != "COMPLETED" {
+			if terminal.Outcome != "succeeded" || terminal.ExitState != c.want || r.Status != "ENDED" || r.Outcome != "succeeded" {
 				t.Fatalf("terminal %s exit %s, run %s; want COMPLETED exit %s", terminal.Status, terminal.ExitState, r.Status, c.want)
 			}
 			if el < c.min || el > c.max {

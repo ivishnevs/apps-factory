@@ -36,7 +36,7 @@ func TestJetStreamCorePinnedSkills(t *testing.T) {
 	sameNode, _ := skillRegistry(t)
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
 	r, _ := runDriver(t, url, Worker{Driver: d, Skills: sameNode}, false, pinned)
-	if l := d.Launches(); r.Status != "COMPLETED" || len(l) != 1 || len(l[0].Skills) != 1 || l[0].Skills[0].Hash != hash {
+	if l := d.Launches(); r.Outcome != "succeeded" || len(l) != 1 || len(l[0].Skills) != 1 || l[0].Skills[0].Hash != hash {
 		t.Fatalf("%s %q: %+v", r.Status, r.Result, l)
 	}
 
@@ -48,7 +48,7 @@ func TestJetStreamCorePinnedSkills(t *testing.T) {
 	}
 	d = &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
 	r, _ = runDriver(t, url, Worker{Driver: d, Skills: staleNode}, false, pinned)
-	if r.Status != "FAILED" || !strings.Contains(r.Result, "differs from the run's pinned "+hash) || !strings.Contains(r.Result, "refused before runtime startup") || len(d.Launches()) != 0 {
+	if r.Outcome != "setup_failed" || !strings.Contains(r.Result, "differs from the run's pinned "+hash) || !strings.Contains(r.Result, "refused before runtime startup") || len(d.Launches()) != 0 {
 		t.Fatalf("%s %q, %d launches", r.Status, r.Result, len(d.Launches()))
 	}
 }

@@ -184,7 +184,7 @@ func TestRunScopedMCP(t *testing.T) {
 	if w = tool("project_get", map[string]any{}); w.Code != 200 {
 		t.Fatal("restart invalidated live token", w.Code, w.Body.String())
 	}
-	event := protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "COMPLETED", Result: "final text"})
+	event := protocol.Wrap("agent.completed", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded", Result: "final text"})
 	if err = s.Apply(ctx, storage.DefaultCompany, event); err != nil {
 		t.Fatal(err)
 	}

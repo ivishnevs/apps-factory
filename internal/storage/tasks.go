@@ -521,7 +521,7 @@ func editableRun(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if err := tx.QueryRowContext(ctx, "SELECT status,unreleased,EXISTS(SELECT 1 FROM escalations WHERE company_id=? AND task_id=? AND reason='inspect' AND ref_id=runs.id AND status='open') FROM runs WHERE id=?", tx.company, t.ID, t.CurrentRunID).Scan(&status, &unreleased, &inspect); err != nil {
 		return err
 	}
-	if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || unreleased || inspect && t.SideEffects {
+	if status != "ENDED" || unreleased || inspect && t.SideEffects {
 		return ErrConflict
 	}
 	return nil
@@ -571,7 +571,6 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			t.Status = "READY"
 			t.BlockReason = ""
 			t.CancelRequested = false
-			t.RetryEligible = false
 			// A release by an authority counts as a retry answer: counters, backoff and today's budget reset.
 			if err = resetRetry(ctx, tx, &t); err != nil {
 				return t, err
@@ -606,7 +605,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 				if unreleased {
 					return t, ErrConflict
 				}
-				if status == "RUNNING" || status == "CANCELLING" {
+				if status == "CLAIMED" || status == "RUNNING" || status == "CANCELLING" {
 					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING' WHERE id=?", t.CurrentRunID); err != nil {
 						return t, err
 					}
@@ -614,7 +613,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 					break
 				}
 				if status == "QUEUED" {
-					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLED',finished_at=? WHERE id=?", tx.now().Unix(), t.CurrentRunID); err != nil {
+					if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='ENDED',outcome='revoked',finished_at=? WHERE id=?", tx.now().Unix(), t.CurrentRunID); err != nil {
 						return t, err
 					}
 					if err = autoRuntimeReport(ctx, tx, t.CurrentRunID); err != nil {

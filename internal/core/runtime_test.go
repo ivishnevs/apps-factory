@@ -240,7 +240,7 @@ func TestQuotaKeyPausesOnlyItsAgents(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = h.s.Apply(ctx, co, protocol.Wrap("agent.ended", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "FAILED", Outcome: "paused_out", Result: "usage limit"})); err != nil {
+	if err = h.s.Apply(ctx, co, protocol.Wrap("agent.ended", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Status: "ENDED", Outcome: "paused_out", Result: "usage limit"})); err != nil {
 		t.Fatal(err)
 	}
 	h.create("a2", "demo")       // key A

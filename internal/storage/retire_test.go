@@ -9,7 +9,7 @@ import (
 	"appfactory/internal/tasks"
 )
 
-// TestRetireUnknownAndFailed (migration 0029): UNKNOWN runs become FAILED with outcome lost, keeping their
+// TestRetireUnknownAndFailed (migration 0029, then 0030): UNKNOWN runs end with outcome lost, keeping their
 // slots only while their runtime may still run; FAILED tasks become READY with a ready trigger and retry,
 // while an escalated one stays parked.
 func TestRetireUnknownAndFailed(t *testing.T) {
@@ -67,13 +67,13 @@ func TestRetireUnknownAndFailed(t *testing.T) {
 		if err = s.DB.QueryRow("SELECT status,outcome,unreleased,finished_at FROM runs WHERE id=?", id).Scan(&status, &outcome, &unreleased, &finished); err != nil {
 			t.Fatal(err)
 		}
-		if status != "FAILED" || outcome != "lost" || unreleased != want || finished == 0 {
+		if status != "ENDED" || outcome != "lost" || unreleased != want || finished == 0 {
 			t.Fatal(id, status, outcome, unreleased, finished)
 		}
 	}
 	for id, want := range map[string]string{"held": tasks.ReasonLiveRun, "gone": tasks.ReasonIdle, "failed": tasks.ReasonRunnable, "escalated": tasks.ReasonParked + tasks.ParkEscalation} {
 		got := taskOf(t, s, id)
-		if r := reason(t, s, id); r != want || got.Status == "FAILED" || got.RetryEligible {
+		if r := reason(t, s, id); r != want || got.Status == "FAILED" {
 			t.Errorf("%s: %s %+v, want %s", id, r, got, want)
 		}
 	}
@@ -93,7 +93,7 @@ func TestRetireUnknownAndFailed(t *testing.T) {
 	if _, err = s.Dispatch(ctx, co, other.ID, other.Version, protocol.RunSpec{ID: "other-run", Project: "p-held", Agent: "other", Provider: protocol.RuntimeCodex}); err == nil {
 		t.Fatal("the held run lost its workspace")
 	}
-	if err = s.Resolve(ctx, co, "held-run", "FAILED", "the node's machine is gone"); err != nil {
+	if err = s.Resolve(ctx, co, "held-run", "retry", "the node's machine is gone"); err != nil {
 		t.Fatal(err)
 	}
 	if got := taskOf(t, s, "held"); got.Status != "READY" || got.FailStreak != 1 {

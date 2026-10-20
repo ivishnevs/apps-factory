@@ -113,8 +113,9 @@ Core допускает один активный run на агента; workspa
 Сбой run'а (ошибка runtime, таймаут, зависание, потеря Worker/ноды) повторяется автоматически: задача
 возвращается в READY через 1, 5, затем 15 минут и продолжает в том же workspace и сессии. Три попытки
 подряд без прогресса или 30 run'ов задачи за день — эскалация менеджеру (иначе владельцу) с ответами
-`retry`/`cancel`; задача остаётся READY за паркой эскалации (статуса FAILED у задач больше нет, UNKNOWN у
-run'ов тоже: потерянный run — FAILED с outcome `lost`). Run, потерянный на замолчавшей ноде, держит свою
+`retry`/`cancel`; задача остаётся READY за паркой эскалации (статуса FAILED у задач больше нет; статус run'а — его
+фаза QUEUED → CLAIMED → RUNNING → (CANCELLING) → ENDED, а как он закончился — только outcome: потерянный run или
+run без итогового ответа runtime — `lost`). Run, потерянный на замолчавшей ноде, держит свою
 задачу, workspace и сессию, пока нода не подтвердит, что его процесса нет; остальные задачи проекта идут.
 Дневной бюджет считается по часовому поясу компании (`factory time-zone Europe/Berlin`, по умолчанию UTC).
 Задачи с `"side_effects": true` или агенты с правилом политики `type: recovery, mode: inspect` (публикация,
@@ -122,11 +123,11 @@ run'ов тоже: потерянный run — FAILED с outcome `lost`). Run, 
 docs/task-lifecycle.md). Ответить на неё можно и так:
 
 ```sh
-./bin/factory runs resolve RUN_ID FAILED 'Workspace inspected; describe findings here'
+./bin/factory runs resolve RUN_ID retry 'Workspace inspected; describe findings here'
 ```
 
-`COMPLETED` — эффект случился, продолжить (`continue`), `FAILED` — повторить (`retry`), `CANCELLED` — отменить
-задачу. Для потерянного run'а без проверки (нода не вернётся) `runs resolve` освобождает его с этим статусом.
+`continue` — эффект случился, продолжить, `retry` — повторить, `cancel` — отменить задачу. Для потерянного run'а
+без проверки (нода не вернётся) `runs resolve` освобождает его с этим ответом.
 
 Persistent significant-action reports, the versioned Decision Registry, project context and paginated feed are available via API/CLI/MCP. See [reports and decisions](docs/reports-decisions.md).
 

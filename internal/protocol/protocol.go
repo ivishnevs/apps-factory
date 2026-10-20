@@ -64,22 +64,23 @@ type Envelope struct {
 	Payload       json.RawMessage `json:"payload"`
 }
 type Event struct {
-	RunID     string          `json:"run_id"`
-	Lease     string          `json:"lease"`
-	SessionID string          `json:"session_id,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	Result    string          `json:"result,omitempty"`
-	Method    string          `json:"method,omitempty"`
-	Data      json.RawMessage `json:"data,omitempty"`
+	RunID     string `json:"run_id"`
+	Lease     string `json:"lease"`
+	SessionID string `json:"session_id,omitempty"`
+	// Status is ENDED on the terminal event (the run's phase), empty otherwise.
+	Status string          `json:"status,omitempty"`
+	Result string          `json:"result,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Data   json.RawMessage `json:"data,omitempty"`
 	// Usage is the run's cumulative token use so far, one entry per model; Core keeps the last
 	// usage it receives, so the terminal event of a stopped or timed-out run should carry it.
 	Usage []Usage `json:"usage,omitempty"`
 	// Quota reports that the runtime hit its subscription limit; Core pauses the agent's quota key
 	// until ResetsAt.
 	Quota *Quota `json:"quota,omitempty"`
-	// Outcome, on a terminal event, names how the run ended when the status alone does not
-	// (reliable-recovery D1): failed, timed_out, idle_timeout, max_turns, setup_failed or paused_out.
-	// A failure outcome on a CANCELLED event makes the run FAILED: the task is not cancelled.
+	// Outcome, required on the terminal event and only there, is how the run ended (reliable-recovery D1):
+	// succeeded, failed, timed_out, idle_timeout, max_turns, setup_failed, paused_out, revoked, or lost when
+	// terminal evidence never arrived (docs/runtime-protocol-v2.md §8).
 	Outcome string `json:"outcome,omitempty"`
 	// ExitState, on a terminal event, is the MCP adapter's exit state (docs/explicit-exits-contract.md §5):
 	// accepted, pending (an exit was queued but not delivered), refused or none.

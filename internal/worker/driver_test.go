@@ -148,14 +148,14 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 }
 
 func TestJetStreamFakeDriverOutcomes(t *testing.T) {
-	for script, want := range map[string]struct{ status, result string }{
-		"completed.json":    {"COMPLETED", "foundation ok"},
-		"failed.json":       {"FAILED", "\n{\"message\":\"model error\"}"},
-		"disconnected.json": {"FAILED", "app-server disconnected: EOF"},
+	for script, want := range map[string]struct{ outcome, result string }{
+		"completed.json":    {"succeeded", "foundation ok"},
+		"failed.json":       {"failed", "\n{\"message\":\"model error\"}"},
+		"disconnected.json": {"lost", "app-server disconnected: EOF"},
 	} {
 		t.Run(script, func(t *testing.T) {
 			r, d := runFake(t, script, false)
-			if r.Status != want.status || r.Result != want.result || r.SessionID != "recorded-thread" {
+			if r.Status != "ENDED" || r.Outcome != want.outcome || r.Result != want.result || r.SessionID != "recorded-thread" {
 				t.Fatalf("%+v", r)
 			}
 			l := d.Launches()
@@ -201,7 +201,7 @@ func TestJetStreamFakeDriverUsageWithoutResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc}}, false)
-	if r.Status != "FAILED" || r.Outcome != "paused_out" || len(r.Usage) != 1 || r.Usage[0].Model != "gpt-5.5" || r.Usage[0].Input != 150 || r.Usage[0].CostUSD != 0.25 {
+	if r.Status != "ENDED" || r.Outcome != "paused_out" || len(r.Usage) != 1 || r.Usage[0].Model != "gpt-5.5" || r.Usage[0].Input != 150 || r.Usage[0].CostUSD != 0.25 {
 		t.Fatalf("%+v", r)
 	}
 	payloads := make([]protocol.Event, len(events))
@@ -225,7 +225,7 @@ func TestJetStreamFakeDriverUsageWithoutResult(t *testing.T) {
 		t.Fatalf("progress %+v", payloads[1:6])
 	}
 	terminal := payloads[6]
-	if terminal.Status != "FAILED" || terminal.Outcome != "paused_out" || len(terminal.Usage) != 1 || terminal.Usage[0] != priced || terminal.Quota == nil || terminal.Quota.Type != "five_hour" {
+	if terminal.Status != "ENDED" || terminal.Outcome != "paused_out" || len(terminal.Usage) != 1 || terminal.Usage[0] != priced || terminal.Quota == nil || terminal.Quota.Type != "five_hour" {
 		t.Fatalf("terminal %+v", terminal)
 	}
 }
@@ -262,14 +262,14 @@ func TestJetStreamInterruptAfterTurnEnded(t *testing.T) {
 		t.Skip("set NATS_TEST_URL to dedicated broker")
 	}
 	r, _ := runDriver(t, url, Worker{Driver: endedDriver{&fake.Driver{}}}, false, func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 })
-	if r.Status != "COMPLETED" || r.Result != "finished just in time" {
+	if r.Outcome != "succeeded" || r.Result != "finished just in time" {
 		t.Fatalf("%+v", r)
 	}
 }
 
 func TestJetStreamFakeDriverCancellation(t *testing.T) {
 	r, _ := runFake(t, "hanging.json", true)
-	if r.Status != "CANCELLED" {
+	if r.Status != "ENDED" || r.Outcome != "revoked" {
 		t.Fatalf("%+v", r)
 	}
 }
@@ -289,7 +289,7 @@ func TestJetStreamFakeDriverToolCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: mcp}, false)
-	if r.Status != "COMPLETED" || len(events) != len(sc.Activity)+2 {
+	if r.Outcome != "succeeded" || len(events) != len(sc.Activity)+2 {
 		t.Fatalf("%+v, %d events", r, len(events))
 	}
 	var call fake.ToolEvent

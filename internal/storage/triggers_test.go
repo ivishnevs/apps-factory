@@ -58,7 +58,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 
 	// A completed run consumes the triggers it was briefed on at claim.
 	run := dispatchEngineTask(t, s, a, "a1")
-	finishEngineRun(t, s, run, "COMPLETED")
+	finishEngineRun(t, s, run, "succeeded")
 	expectVerdict(t, s, "a", tasks.ReasonIdle)
 	a, _ = s.Task(ctx, co, "a")
 	if a, _ = s.ReviewTask(ctx, co, "a", tasks.Review{Version: a.Version, Feedback: "add tests"}); a.Status != "REWORK" {
@@ -78,7 +78,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED", Result: "asked"})); err != nil {
+	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded", Result: "asked"})); err != nil {
 		t.Fatal(err)
 	}
 	expectVerdict(t, s, "a", tasks.ReasonParked+tasks.ParkAsk)
@@ -106,7 +106,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 
 	// The last open dependency reaching DONE wakes its dependent once.
 	run = dispatchEngineTask(t, s, a, "a3")
-	finishEngineRun(t, s, run, "COMPLETED")
+	finishEngineRun(t, s, run, "succeeded")
 	a, _ = s.Task(ctx, co, "a")
 	if _, err = s.ReviewTask(ctx, co, "a", tasks.Review{Version: a.Version, Accept: true}); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 	}
 	// The inspect escalation (answers retry, continue, cancel) leads; resolving the run answers it.
 	expectVerdict(t, s, "b", tasks.ReasonParked+tasks.ParkEscalation, "ready", "dependency_done")
-	if err = s.Resolve(ctx, co, run.ID, "FAILED", "inspected; nothing was changed"); err != nil {
+	if err = s.Resolve(ctx, co, run.ID, "retry", "inspected; nothing was changed"); err != nil {
 		t.Fatal(err)
 	}
 	if v := verdict(t, s, "b"); v.Reason == tasks.ReasonParked+tasks.ParkInspect {

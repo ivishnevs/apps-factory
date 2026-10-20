@@ -20,8 +20,8 @@ import (
 // Runtime protocol v2, Core side (docs/runtime-protocol-v2.md): node registration with epochs, the
 // two-phase claim (CLAIMED, then /start), the inventory heartbeat and lost-run detection.
 //
-// A CLAIMED run is stored as status RUNNING with run_started 0: it holds its agent, project and node
-// capacity exactly like a running run, so every existing rule about live runs applies to it.
+// A CLAIMED run (run_started 0 until /start moves it to RUNNING) holds its agent, project and node capacity
+// exactly like a running run, so every rule about live runs applies to it.
 
 // HeartbeatSeconds is the inventory heartbeat period nodes are told at register (a variable for tests).
 var HeartbeatSeconds = 10
@@ -256,7 +256,7 @@ func driverTransitions(ctx context.Context, tx *Tx, node, name string, before, a
 // released: the node's runtime is known to be gone (a new epoch); otherwise the lost runs keep their
 // project, workspace and session until the node confirms.
 func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why string, released bool) error {
-	rows, err := tx.QueryContext(ctx, "SELECT id,run_started FROM runs WHERE company_id=? AND node_id=? AND (?=0 OR epoch<?) AND status IN ('RUNNING','CANCELLING')", tx.company, node, epoch, epoch)
+	rows, err := tx.QueryContext(ctx, "SELECT id,run_started FROM runs WHERE company_id=? AND node_id=? AND (?=0 OR epoch<?) AND status IN ('CLAIMED','RUNNING','CANCELLING')", tx.company, node, epoch, epoch)
 	if err != nil {
 		return err
 	}
@@ -296,16 +296,19 @@ func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why str
 // task waits until the node proves the runtime gone (releaseLost); late terminal evidence may still replace
 // the outcome (Apply).
 func endLostRun(ctx context.Context, tx *Tx, id, result string, unreleased bool) error {
-	if _, err := tx.ExecContext(ctx, "UPDATE runs SET unreleased=? WHERE id=? AND status IN ('RUNNING','CANCELLING')", unreleased, id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET unreleased=? WHERE id=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", unreleased, id); err != nil {
 		return err
 	}
 	return endLost(ctx, tx, id, result)
 }
 
-// endLost ends a run Core judged lost (FAILED; the run_outcome trigger derives lost or timed_out from the
-// result).
+// endLost ends a run Core judged lost: outcome lost, or timed_out when the result says so.
 func endLost(ctx context.Context, tx *Tx, id, result string) error {
-	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='FAILED',result=?,finished_at=? WHERE id=? AND status IN ('RUNNING','CANCELLING')", result, tx.now().Unix(), id); err != nil {
+	outcome := "lost"
+	if strings.HasPrefix(result, "timed_out") {
+		outcome = "timed_out"
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='ENDED',outcome=?,result=?,finished_at=? WHERE id=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", outcome, result, tx.now().Unix(), id); err != nil {
 		return err
 	}
 	return syncTaskRun(ctx, tx, id)
@@ -382,7 +385,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		return out, err
 	}
 	if node == req.NodeID && epoch == req.Epoch && claim == req.ClaimID {
-		if status != "RUNNING" && status != "CANCELLING" {
+		if status == "QUEUED" || status == "ENDED" {
 			return out, drop("stale")
 		}
 		return claimedAnswer(ctx, tx, company, id)
@@ -390,7 +393,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	switch {
 	case revoked:
 		return out, drop("revoked")
-	case status == "RUNNING" || status == "CANCELLING":
+	case status == "CLAIMED" || status == "RUNNING" || status == "CANCELLING":
 		return out, drop("duplicate")
 	case status != "QUEUED":
 		return out, drop("stale")
@@ -428,7 +431,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	}
 	// Concurrency caps over started runs; the run stays QUEUED and the node retries.
 	var busy, busyProject int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
 		return out, err
 	}
 	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); busy >= perAgent || busyProject >= perProject {
@@ -475,7 +478,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		}
 		return out, err
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,node_held=1,
+	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='CLAIMED',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,node_held=1,
  brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0)
  WHERE id=? AND status='QUEUED'`, protocol.ID(), now.Add(NodeOffline).Unix(), now.Unix(), req.NodeID, req.Epoch, req.ClaimID, req.Slot, now.Add(StartWindow).Unix(), id)
 	if err != nil {
@@ -519,7 +522,7 @@ type NodeLoad struct {
 
 func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64) (NodeLoad, error) {
 	l := NodeLoad{Used: map[string]int{}}
-	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('RUNNING','CANCELLING') OR node_held=1)", tx.company, node, epoch)
+	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('CLAIMED','RUNNING','CANCELLING') OR node_held=1)", tx.company, node, epoch)
 	if err != nil {
 		return l, err
 	}
@@ -573,7 +576,8 @@ func AgentResources(agentJSON []byte) map[string]int {
 }
 
 // StartRun is phase 2 of the v2 claim: the node allocated the workspace and launched the runtime.
-// It is retry-safe and returns the run's status (CANCELLING tells the node to stop).
+// It moves a CLAIMED run to RUNNING, is retry-safe and returns the run's status (CANCELLING tells the node
+// to stop).
 func (s *Store) StartRun(ctx context.Context, company, id, lease string) (string, error) {
 	if lease == "" {
 		return "", inputError("lease required")
@@ -592,11 +596,14 @@ func (s *Store) StartRun(ctx context.Context, company, id, lease string) (string
 	if err != nil {
 		return "", err
 	}
-	if token != lease || proto != 2 || status != "RUNNING" && status != "CANCELLING" {
+	if token != lease || proto != 2 || status != "CLAIMED" && status != "RUNNING" && status != "CANCELLING" {
 		return status, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET run_started=?,last_activity_at=? WHERE id=? AND run_started=0", tx.now().Unix(), tx.now().Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET run_started=?,last_activity_at=?,status=CASE WHEN status='CLAIMED' THEN 'RUNNING' ELSE status END WHERE id=? AND run_started=0", tx.now().Unix(), tx.now().Unix(), id); err != nil {
 		return "", err
+	}
+	if status == "CLAIMED" {
+		status = "RUNNING"
 	}
 	return status, tx.Commit()
 }
@@ -729,7 +736,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 			}
 			continue
 		}
-		if status != "RUNNING" && status != "CANCELLING" {
+		if status != "CLAIMED" && status != "RUNNING" && status != "CANCELLING" {
 			out.Stop = append(out.Stop, Stop{x.RunID, "terminal"})
 			continue
 		}
@@ -811,7 +818,6 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 			if err = resetRetry(ctx, tx, &t); err != nil {
 				return out, err
 			}
-			t.RetryEligible = false
 			if err = saveTask(ctx, tx, &t, "task.retry"); err != nil {
 				return out, err
 			}
@@ -862,7 +868,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 }
 
 // ExpireNodes marks nodes silent for NodeOffline offline (judged like leases, after one window of
-// continuous ticking) and ends their unended runs as lost; CLAIMED runs past start_by end FAILED.
+// continuous ticking) and ends their unended runs as lost; CLAIMED runs past start_by end lost.
 func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 	// Both windows are 60 s: a node (or a CLAIMED run) is judged only after 60 s of continuous ticking,
 	// so a Core host that slept judges nothing until then (runtime protocol v2 §7).
@@ -875,7 +881,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND protocol=2 AND run_started=0 AND status IN ('RUNNING','CANCELLING') AND start_by<?", company, cutoff)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND protocol=2 AND run_started=0 AND status IN ('CLAIMED','CANCELLING') AND start_by<?", company, cutoff)
 	if err != nil {
 		return err
 	}

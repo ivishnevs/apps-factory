@@ -47,14 +47,14 @@ func TestOutcomes(t *testing.T) {
 		status  string
 		outcome string
 	}{
-		{"done", protocol.Event{Status: "COMPLETED"}, "COMPLETED", "succeeded"},
-		{"crash", protocol.Event{Status: "FAILED", Result: "codex exited"}, "FAILED", "failed"},
-		{"preflight", protocol.Event{Status: "FAILED", Result: "OpenSpec preflight failed before runtime startup: x"}, "FAILED", "setup_failed"},
-		{"diverged", protocol.Event{Status: "FAILED", Result: "workspace_diverged: task t"}, "FAILED", "setup_failed"},
-		{"stopped", protocol.Event{Status: "CANCELLED"}, "CANCELLED", "revoked"},
-		{"timeout", protocol.Event{Status: "CANCELLED", Outcome: "timed_out"}, "FAILED", "timed_out"},
-		{"turns", protocol.Event{Status: "FAILED", Outcome: "max_turns"}, "FAILED", "max_turns"},
-		{"quota", protocol.Event{Status: "FAILED", Outcome: "paused_out"}, "FAILED", "paused_out"},
+		{"done", protocol.Event{Status: "ENDED", Outcome: "succeeded"}, "ENDED", "succeeded"},
+		{"crash", protocol.Event{Status: "ENDED", Outcome: "failed", Result: "codex exited"}, "ENDED", "failed"},
+		{"preflight", protocol.Event{Status: "ENDED", Outcome: "setup_failed", Result: "OpenSpec preflight failed before runtime startup: x"}, "ENDED", "setup_failed"},
+		{"stopped", protocol.Event{Status: "ENDED", Outcome: "revoked"}, "ENDED", "revoked"},
+		{"timeout", protocol.Event{Status: "ENDED", Outcome: "timed_out"}, "ENDED", "timed_out"},
+		{"turns", protocol.Event{Status: "ENDED", Outcome: "max_turns"}, "ENDED", "max_turns"},
+		{"quota", protocol.Event{Status: "ENDED", Outcome: "paused_out"}, "ENDED", "paused_out"},
+		{"no-evidence", protocol.Event{Status: "ENDED", Outcome: "lost", Result: "app-server disconnected: EOF"}, "ENDED", "lost"},
 	} {
 		if err := end(t, s, c.id, claim(c.id), c.event); err != nil {
 			t.Fatal(c.id, err)
@@ -63,9 +63,11 @@ func TestOutcomes(t *testing.T) {
 			t.Errorf("%s: %s/%s, want %s/%s", c.id, st, out, c.status, c.outcome)
 		}
 	}
-	// Core's outcomes are not the worker's to report, and only terminal events carry one.
+	// Core's outcomes are not the worker's to report, a terminal event names its outcome, and only terminal
+	// events carry one; the retired terminal statuses are refused.
 	lease := claim("bad")
-	for _, p := range []protocol.Event{{Status: "FAILED", Outcome: "lost"}, {Outcome: "failed"}, {Status: "FAILED", Outcome: "nonsense"}} {
+	for _, p := range []protocol.Event{{Status: "ENDED", Outcome: "no_exit"}, {Status: "ENDED", Outcome: "stale"}, {Status: "ENDED"}, {Outcome: "failed"},
+		{Status: "ENDED", Outcome: "nonsense"}, {Status: "FAILED", Outcome: "failed"}, {Status: "COMPLETED"}, {Status: "CANCELLED"}} {
 		if err := end(t, s, "bad", lease, p); !errors.Is(err, ErrInvalid) {
 			t.Fatal(p, err)
 		}
@@ -86,14 +88,14 @@ func TestOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"late", "resolved"} {
-		if st, out := outcomeOf(t, s, id); st != "FAILED" || out != "lost" {
+		if st, out := outcomeOf(t, s, id); st != "ENDED" || out != "lost" {
 			t.Fatal(id, st, out)
 		}
 	}
-	if err := end(t, s, "late", late, protocol.Event{Status: "COMPLETED"}); err != nil {
+	if err := end(t, s, "late", late, protocol.Event{Status: "ENDED", Outcome: "succeeded"}); err != nil {
 		t.Fatal(err)
 	}
-	if st, out := outcomeOf(t, s, "late"); st != "COMPLETED" || out != "succeeded" {
+	if st, out := outcomeOf(t, s, "late"); st != "ENDED" || out != "succeeded" {
 		t.Fatal(st, out)
 	}
 	_ = lostThenOwner
@@ -101,10 +103,10 @@ func TestOutcomes(t *testing.T) {
 	if _, err := s.DB.Exec("UPDATE runs SET unreleased=1 WHERE id='resolved'"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Resolve(ctx, co, "resolved", "COMPLETED", "checked the workspace"); err != nil {
+	if err := s.Resolve(ctx, co, "resolved", "continue", "checked the workspace"); err != nil {
 		t.Fatal(err)
 	}
-	if st, out := outcomeOf(t, s, "resolved"); st != "COMPLETED" || out != "lost" {
+	if st, out := outcomeOf(t, s, "resolved"); st != "ENDED" || out != "lost" {
 		t.Fatal(st, out)
 	}
 	if r, _ := s.Get(ctx, co, "done"); r.Outcome != "succeeded" {
@@ -112,8 +114,7 @@ func TestOutcomes(t *testing.T) {
 	}
 }
 
-// TestTimedOutTaskIsNotCancelled: a worker stopping its run on its own timeout reports CANCELLED with
-// outcome timed_out; the task retries after the backoff instead of being cancelled.
+// TestTimedOutTaskIsNotCancelled: a worker stopping its run on its own timeout reports outcome timed_out; the task retries after the backoff instead of being cancelled.
 func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
@@ -123,7 +124,7 @@ func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "CANCELLED", Outcome: "timed_out", Result: "hard timeout"}); err != nil {
+	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "timed_out", Result: "hard timeout"}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.Task(ctx, DefaultCompany, "t1")
@@ -133,8 +134,8 @@ func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 }
 
 // TestIdleRunIsStopped: a started run without events for IdleTimeout gets a stop (v1: cancel in the
-// heartbeat answer); its CANCELLED end becomes FAILED idle_timeout and the task fails instead of being
-// cancelled. Events keep a run active; a fresh continuity window (host sleep) delays the detector.
+// heartbeat answer); its revoked end (or one without evidence) is idle_timeout and the task retries instead of
+// being cancelled. Events keep a run active; a fresh continuity window (host sleep) delays the detector.
 func TestIdleRunIsStopped(t *testing.T) {
 	s := engineStore(t)
 	fake := clock.NewFake(time.Unix(1_800_000_000, 0))
@@ -184,11 +185,11 @@ func TestIdleRunIsStopped(t *testing.T) {
 	if !idleFor(IdleTimeout+20*time.Second, false) {
 		t.Fatal("idle run not stopped")
 	}
-	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "CANCELLED"}); err != nil {
+	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "revoked"}); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := s.Get(ctx, co, spec.ID)
-	if r.Status != "FAILED" || r.Outcome != "idle_timeout" || !strings.HasPrefix(r.Result, "idle_timeout") {
+	if r.Status != "ENDED" || r.Outcome != "idle_timeout" || !strings.HasPrefix(r.Result, "idle_timeout") {
 		t.Fatalf("%+v", r)
 	}
 	if got, _ := s.Task(ctx, co, "t1"); got.Status != "READY" || got.AttemptsNoProgress != 1 || got.NotBefore == 0 {

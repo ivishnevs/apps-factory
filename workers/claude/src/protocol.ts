@@ -17,10 +17,11 @@ export interface RunSpec {
   [field: string]: unknown;
 }
 
+// The shim's terminal evidence for the Go driver (driver.Result.Status); UNKNOWN is no evidence. The executor
+// turns it into the run's outcome (succeeded, failed, the stop's outcome, lost), runtime-protocol.md.
 export type TerminalStatus = "COMPLETED" | "FAILED" | "CANCELLED" | "UNKNOWN";
 
-// How a run ended when the status alone does not say it (reliable-recovery D1); terminal events only.
-// A failure outcome on a CANCELLED event makes Core end the run FAILED instead of cancelling the task.
+// What the shim knows about why a turn ended beyond its status (reliable-recovery D1); terminal evidence only.
 export type Outcome = "failed" | "timed_out" | "idle_timeout" | "max_turns" | "setup_failed" | "paused_out";
 
 export interface RunEvent {

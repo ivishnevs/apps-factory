@@ -30,9 +30,9 @@ func askOnTask(t *testing.T, s *Store, recipient string) (tasks.Task, protocol.R
 	task, _ = s.Task(ctx, DefaultCompany, task.ID)
 	return task, run, lease, message
 }
-func applyMessageRun(t *testing.T, s *Store, run protocol.RunSpec, lease, status string) {
+func applyMessageRun(t *testing.T, s *Store, run protocol.RunSpec, lease, outcome string) {
 	t.Helper()
-	if err := s.Apply(context.Background(), DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: status, Result: "turn result", SessionID: "thread-" + run.ID})); err != nil {
+	if err := s.Apply(context.Background(), DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: outcome, Result: "turn result", SessionID: "thread-" + run.ID})); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -70,7 +70,7 @@ func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyMessageRun(t, s, run, lease, "COMPLETED")
+	applyMessageRun(t, s, run, lease, "succeeded")
 	task, _ = s.Task(ctx, DefaultCompany, task.ID)
 	if task.Status != "READY" || task.Submission != nil {
 		t.Fatal(task)
@@ -91,17 +91,17 @@ func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 // TestAnswerAfterAFailedOrCancelledRun: an answer does not resume a run that ended without completing; a
 // cancelled task stays cancelled, a failed run retries after its backoff as any failed run (reliable-recovery).
 func TestAnswerAfterAFailedOrCancelledRun(t *testing.T) {
-	for _, status := range []string{"CANCELLED", "FAILED"} {
-		t.Run(status, func(t *testing.T) {
+	for _, outcome := range []string{"revoked", "failed"} {
+		t.Run(outcome, func(t *testing.T) {
 			s := engineStore(t)
 			ctx := context.Background()
 			task, run, lease, m := askOnTask(t, s, "owner")
-			applyMessageRun(t, s, run, lease, status)
+			applyMessageRun(t, s, run, lease, outcome)
 			if _, err := s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Pros", Answers: map[string]any{"audience": "Pros"}, RequestID: "answer"}); err != nil {
 				t.Fatal(err)
 			}
 			task, _ = s.Task(ctx, DefaultCompany, task.ID)
-			if status == "CANCELLED" && task.Status != "CANCELLED" || status == "FAILED" && (task.Status != "READY" || task.FailStreak != 1 || task.NotBefore == 0) || task.RetryEligible {
+			if outcome == "revoked" && task.Status != "CANCELLED" || outcome == "failed" && (task.Status != "READY" || task.FailStreak != 1 || task.NotBefore == 0) {
 				t.Fatal("unsafe resume", task)
 			}
 		})
@@ -111,7 +111,7 @@ func TestPendingQuestionAndReplyValidation(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
 	task, run, lease, m := askOnTask(t, s, "owner")
-	applyMessageRun(t, s, run, lease, "COMPLETED")
+	applyMessageRun(t, s, run, lease, "succeeded")
 	task, _ = s.Task(ctx, DefaultCompany, task.ID)
 	if task.Status != "BLOCKED" {
 		t.Fatal(task)
@@ -211,7 +211,7 @@ func TestConversationSessionAndUnansweredDeliveryEscalation(t *testing.T) {
 	if _, err = s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "manager", Body: "Explicit answer", RequestID: "reply"}); err != nil {
 		t.Fatal(err)
 	}
-	applyMessageRun(t, s, spec, lease, "COMPLETED")
+	applyMessageRun(t, s, spec, lease, "succeeded")
 	conv, _ = s.Conversation(ctx, DefaultCompany, conv.ID)
 	if conv.SessionID != "thread-manager-1" {
 		t.Fatal(conv)
@@ -228,7 +228,7 @@ func TestConversationSessionAndUnansweredDeliveryEscalation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyMessageRun(t, s, spec, lease, "COMPLETED")
+	applyMessageRun(t, s, spec, lease, "succeeded")
 	m, _ = s.Message(ctx, DefaultCompany, m.ID)
 	if m.Status != "ESCALATED" {
 		t.Fatal("final text was treated as answer", m)
@@ -251,7 +251,7 @@ func TestOwnerEscalationReturnsToManagerAndResumesOrigin(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
 	task, developer, devLease, original := askOnTask(t, s, "manager")
-	applyMessageRun(t, s, developer, devLease, "COMPLETED")
+	applyMessageRun(t, s, developer, devLease, "succeeded")
 	original, _ = s.Message(ctx, DefaultCompany, original.ID)
 	manager, err := s.DispatchMessage(ctx, DefaultCompany, original, protocol.RunSpec{ID: "manager-escalate", Project: "p", Agent: "manager", Workspace: "/tmp/task-engine-p"})
 	if err != nil {
@@ -265,7 +265,7 @@ func TestOwnerEscalationReturnsToManagerAndResumesOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyMessageRun(t, s, manager, managerLease, "COMPLETED")
+	applyMessageRun(t, s, manager, managerLease, "succeeded")
 	original, _ = s.Message(ctx, DefaultCompany, original.ID)
 	if original.Status != "ESCALATED" {
 		t.Fatal(original)
@@ -296,7 +296,7 @@ func TestOwnerEscalationReturnsToManagerAndResumesOrigin(t *testing.T) {
 	if _, err = s.Dispatch(ctx, DefaultCompany, task.ID, task.Version, protocol.RunSpec{ID: "too-early", Project: "p", Agent: "demo"}); !errors.Is(err, ErrConflict) {
 		t.Fatal("manager writer not held", err)
 	}
-	applyMessageRun(t, s, continuation, continuationLease, "COMPLETED")
+	applyMessageRun(t, s, continuation, continuationLease, "succeeded")
 	if _, err = s.Dispatch(ctx, DefaultCompany, task.ID, task.Version, protocol.RunSpec{ID: "safe-resume", Project: "p", Agent: "demo"}); err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestOwnerConversationDoesNotLeakThreadToAnotherRecipient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applyMessageRun(t, s, run, lease, "COMPLETED")
+	applyMessageRun(t, s, run, lease, "succeeded")
 	conv, _ = s.Conversation(ctx, DefaultCompany, conv.ID)
 	if conv.SessionID != "manager-private-thread" {
 		t.Fatal(conv)

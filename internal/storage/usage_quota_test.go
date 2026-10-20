@@ -46,7 +46,7 @@ func TestRunUsageKeepsTheLastReport(t *testing.T) {
 	}
 	send(protocol.Event{Usage: []protocol.Usage{{Model: "m", Input: 10, Output: 1}}})
 	send(protocol.Event{Method: "x"}) // no usage: keeps the stored one
-	send(protocol.Event{Status: "CANCELLED", Usage: []protocol.Usage{{Model: "m", Input: 100, Output: 7, CacheRead: 50}, {Model: "small", Input: 3, Output: 1, CostUSD: 0.01, CostSource: "claude_estimate"}}})
+	send(protocol.Event{Status: "ENDED", Outcome: "revoked", Usage: []protocol.Usage{{Model: "m", Input: 100, Output: 7, CacheRead: 50}, {Model: "small", Input: 3, Output: 1, CostUSD: 0.01, CostSource: "claude_estimate"}}})
 	r, err := s.Get(ctx, co, "r")
 	if err != nil || len(r.Usage) != 2 || r.Usage[0].Input != 100 || r.Usage[1].CostSource != "claude_estimate" {
 		t.Fatalf("%+v %v", r.Usage, err)
@@ -99,7 +99,7 @@ func TestQuotaPausesTheKeyUntilReset(t *testing.T) {
 		t.Fatal(snap.QuotaPaused)
 	}
 	// The run that hit the limit ends (it holds the project's writer slot).
-	if err := s.Apply(ctx, co, protocol.Wrap("agent.completed", "hit", "", protocol.Event{RunID: "hit", Lease: lease, Status: "FAILED"})); err != nil {
+	if err := s.Apply(ctx, co, protocol.Wrap("agent.completed", "hit", "", protocol.Event{RunID: "hit", Lease: lease, Status: "ENDED", Outcome: "failed"})); err != nil {
 		t.Fatal(err)
 	}
 	fake.Advance(2*time.Hour + time.Second)
@@ -203,7 +203,7 @@ func TestWorkspaceReportsUseTheRunLease(t *testing.T) {
 	if _, err = s.ReportWorkspace(ctx, co, run.ID, lease, tasks.Workspace{Mode: "worktree", Branch: "af/a-login", NodeID: "mini-1"}); err != nil {
 		t.Fatal(err)
 	}
-	finishWith := protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "COMPLETED"})
+	finishWith := protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "ENDED", Outcome: "succeeded"})
 	if err = s.Apply(ctx, co, finishWith); err != nil {
 		t.Fatal(err)
 	}

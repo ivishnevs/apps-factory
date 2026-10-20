@@ -138,7 +138,7 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", "r1", "", protocol.Event{RunID: "r1", Lease: lease, Status: "COMPLETED", Result: "done"})); err != nil {
+	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", "r1", "", protocol.Event{RunID: "r1", Lease: lease, Status: "ENDED", Outcome: "succeeded", Result: "done"})); err != nil {
 		t.Fatal(err)
 	}
 	idle := func(after time.Duration) int {

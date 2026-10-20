@@ -111,8 +111,8 @@ func TestJetStreamWatchdogKilledRuntime(t *testing.T) {
 	if err = syscall.Kill(group, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	r := waitRun("killed-run", func(r storage.Run) bool { return r.Status != "RUNNING" && r.Status != "CANCELLING" })
-	if r.Status != "CANCELLED" {
+	r := waitRun("killed-run", func(r storage.Run) bool { return r.Status == "ENDED" })
+	if r.Outcome != "lost" { // the runtime vanished: no terminal evidence
 		t.Fatalf("killed run %+v", r)
 	}
 	waitRun("next-run", running)

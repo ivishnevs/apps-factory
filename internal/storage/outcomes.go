@@ -7,9 +7,8 @@ import (
 )
 
 // OutcomeRule is one row of the run outcome table (reliable-recovery D1): whether the outcome counts as
-// an attempt, applies backoff and counts against the daily budget. Outcomes are recorded on every ended
-// run (runs.outcome, derived by the run_outcome trigger unless the code that ended the run set one);
-// scheduling still follows the run status until the owner decides on automatic retry.
+// an attempt, applies backoff and counts against the daily budget. Every ENDED run has its outcome
+// (runs.outcome, set by the code that ends it; the run_phase trigger refuses an ENDED run without one).
 type OutcomeRule struct {
 	Attempt, Backoff, Budget bool
 }
@@ -38,7 +37,7 @@ var IdleTimeout = 30 * time.Minute
 // StopIdle asks the worker to stop every started run without an applied event for IdleTimeout. The
 // quiet time counts from the later of the last event and the start of Core's current continuity, so a
 // host sleep never makes runs idle. The stop arrives as a heartbeat answer (v1 cancel, v2 stop
-// idle_timeout); the run then ends FAILED with outcome idle_timeout, and its task is not cancelled.
+// idle_timeout); the run then ends with outcome idle_timeout, and its task is not cancelled.
 func (s *Store) StopIdle(ctx context.Context, company string) (int, error) {
 	since := s.Now().Add(-IdleTimeout)
 	if s.Continuity != nil {
@@ -52,7 +51,7 @@ func (s *Store) StopIdle(ctx context.Context, company string) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status='RUNNING' AND stop_reason='' AND (protocol=1 OR run_started>0) AND last_activity_at>0 AND last_activity_at<?", company, since.Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status='RUNNING' AND stop_reason='' AND last_activity_at>0 AND last_activity_at<?", company, since.Unix())
 	if err != nil {
 		return 0, err
 	}

@@ -18,7 +18,7 @@ func TestStore(t *testing.T) {
 	if err := s.Put(a); err != nil {
 		t.Fatal(err)
 	}
-	a.Started, a.Status, a.Run = true, "COMPLETED", "r2"
+	a.Started, a.Outcome, a.Run = true, "succeeded", "r2"
 	if err := s.Put(a); err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok, err := s.Get("thread/1")
-	if err != nil || !ok || !got.Started || got.Status != "COMPLETED" || got.Run != "r2" || got.At.IsZero() {
+	if err != nil || !ok || !got.Started || got.Outcome != "succeeded" || got.Run != "r2" || got.At.IsZero() {
 		t.Fatalf("get = %+v %v %v", got, ok, err)
 	}
 	gone, err := s.ForgetTask("t1")

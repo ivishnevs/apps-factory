@@ -157,7 +157,7 @@ func TestCapacityHeldUntilSealed(t *testing.T) {
 	}
 	// r1 ends in Core, but the node still seals it: it is listed running, so the simulator stays held.
 	beat(1, InventoryRun{RunID: "r1", State: "running"})
-	if err = end(t, s, "r1", c.Lease, protocol.Event{Status: "COMPLETED", Result: "done"}); err != nil {
+	if err = end(t, s, "r1", c.Lease, protocol.Event{Status: "ENDED", Outcome: "succeeded", Result: "done"}); err != nil {
 		t.Fatal(err)
 	}
 	if d := short("1-1-2"); d == "" {
@@ -182,7 +182,7 @@ func TestCapacityHeldUntilSealed(t *testing.T) {
 	// process is gone, so nothing is held any more.
 	_, _ = s.StartRun(ctx, co, "r2", c2.Lease)
 	beat(1, InventoryRun{RunID: "r2", State: "running"})
-	if err = end(t, s, "r2", c2.Lease, protocol.Event{Status: "COMPLETED", Result: "done"}); err != nil {
+	if err = end(t, s, "r2", c2.Lease, protocol.Event{Status: "ENDED", Outcome: "succeeded", Result: "done"}); err != nil {
 		t.Fatal(err)
 	}
 	register(t, s, "n1", 2, func(r *NodeRegistration) { r.Slots = 4 })

@@ -97,7 +97,7 @@ func TestPinnedTask(t *testing.T) {
 	if _, err = s.ReportWorkspace(ctx, co, first.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n1", Unpushed: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err = end(t, s, first.ID, c.Lease, protocol.Event{Status: "FAILED", Outcome: "failed"}); err != nil {
+	if err = end(t, s, first.ID, c.Lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}
 	fake.Advance(time.Hour) // past the retry backoff
@@ -153,7 +153,7 @@ func TestWorkspaceDiverged(t *testing.T) {
 	if _, err = s.ReportWorkspace(ctx, co, spec.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = end(t, s, spec.ID, c.Lease, protocol.Event{Status: "FAILED", Outcome: "setup_failed", Result: "workspace_diverged: task t (branch af/t): HEAD changed outside any run"}); err != nil {
+	if err = end(t, s, spec.ID, c.Lease, protocol.Event{Status: "ENDED", Outcome: "setup_failed", Result: "workspace_diverged: task t (branch af/t): HEAD changed outside any run"}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.Task(ctx, co, "t")

@@ -133,8 +133,8 @@ export function exitStopHook(guard: { file: string; retries: number }, read: (fi
 export const AUTH_ERRORS: ReadonlySet<string> = new Set(["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required"]);
 
 // StopReason is the abort reason of a run's signal: why the run was stopped and the outcome that stop
-// gives it (timed_out for the run's own timeout; none for an owner cancel, whose CANCELLED end is a
-// revoke or, for Core's v1 idle stop, recorded idle_timeout by Core).
+// gives it (timed_out for the run's own timeout; none for an owner cancel: the executor reports its CANCELLED
+// end with the outcome of the stop it requested).
 export class StopReason {
   constructor(
     readonly why: string,
@@ -158,7 +158,7 @@ export function classify(m: SDKResultMessage, interrupted: boolean, stop?: Outco
   if (m.subtype === "success" && !m.is_error) return { status: "COMPLETED", result: m.result };
   const result = m.subtype === "success" ? m.result : [m.subtype, ...m.errors].join("\n");
   // A requested interrupt yields CANCELLED even when triggered by the execution timeout; the stop's
-  // outcome (timed_out) makes Core end it FAILED instead of cancelling the task.
+  // outcome (timed_out) tells the executor why.
   if (interrupted) return { status: "CANCELLED", result, ...(stop ? { outcome: stop } : {}) };
   const outcome: Outcome = m.subtype === "error_max_turns" ? "max_turns" : paused ? "paused_out" : "failed";
   return { status: "FAILED", result, outcome };

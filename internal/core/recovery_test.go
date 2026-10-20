@@ -32,7 +32,7 @@ func TestBackoffResetsOnProgress(t *testing.T) {
 	fail := func() {
 		t.Helper()
 		r := h.start("t")
-		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "FAILED", Outcome: "failed"})); err != nil {
+		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "ENDED", Outcome: "failed"})); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -47,7 +47,7 @@ func TestBackoffResetsOnProgress(t *testing.T) {
 	if code, ref := h.exit(r, "handoff", map[string]any{"to": "demo", "note": "continue from the first commit"}, clean("h1", nil)); code != 200 {
 		t.Fatal(code, ref)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	check("success with progress", 0, 0, 0)
 	h.fake.Advance(time.Second)
 	fail()
@@ -108,7 +108,7 @@ func TestNoProgressAlert(t *testing.T) {
 	fail := func() {
 		t.Helper()
 		r := h.start("t")
-		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "FAILED", Outcome: "failed"})); err != nil {
+		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "ENDED", Outcome: "failed"})); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -149,7 +149,7 @@ func TestNoProgressAlert(t *testing.T) {
 	if code, ref := h.exit(r, "submit", map[string]any{"summary": "done"}, nil); code != 200 {
 		t.Fatal(code, ref)
 	}
-	h.end(r, "COMPLETED", "accepted")
+	h.end(r, "succeeded", "accepted")
 	if a := sweep(time.Minute); len(a) != 2 || a[1] != "task.alert_cleared.no_progress" {
 		t.Fatal(a)
 	}

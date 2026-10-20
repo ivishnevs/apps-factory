@@ -34,7 +34,7 @@ func TestBriefGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	dep := readyEngineTask(t, s, createEngineTask(t, s, "spec"))
-	finishEngineRun(t, s, dispatchEngineTask(t, s, dep, "spec-run"), "COMPLETED")
+	finishEngineRun(t, s, dispatchEngineTask(t, s, dep, "spec-run"), "succeeded")
 	dep, _ = s.Task(ctx, co, "spec")
 	if _, err := s.ReviewTask(ctx, co, "spec", tasks.Review{Version: dep.Version, Accept: true}); err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestBriefGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake.Advance(time.Minute)
-	if err = s.Apply(ctx, co, protocol.Wrap("agent.failed", first.ID, "", protocol.Event{RunID: first.ID, Lease: lease, Status: "FAILED", Result: "tests failed: 3 of 120", Outcome: "failed"})); err != nil {
+	if err = s.Apply(ctx, co, protocol.Wrap("agent.failed", first.ID, "", protocol.Event{RunID: first.ID, Lease: lease, Status: "ENDED", Result: "tests failed: 3 of 120", Outcome: "failed"})); err != nil {
 		t.Fatal(err)
 	}
 	facts := `{"head":"abc123","branch":"af/golden","default_branch":"main","ahead_of_default":2,"pushed":true,"pr":{"number":7,"state":"open","head_sha":"abc123"}}`

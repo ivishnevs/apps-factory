@@ -95,7 +95,7 @@ func TestJetStreamStaleCommandIsDropped(t *testing.T) {
 		t.Fatal("the runtime started for a stale command")
 	}
 	r, err := s.Get(ctx, co, "stale-run")
-	if err != nil || r.Status != "CANCELLED" || r.Outcome != "stale" || r.StartedAt != 0 {
+	if err != nil || r.Status != "ENDED" || r.Outcome != "stale" || r.StartedAt != 0 {
 		t.Fatalf("%+v %v", r, err)
 	}
 	// Acknowledged, not redelivered.

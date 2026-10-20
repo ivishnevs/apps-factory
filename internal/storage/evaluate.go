@@ -192,7 +192,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		}
 	}
 	if t.Assignee != "" {
-		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND coalesce(task_id,'')!=? ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
+		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=? ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
 			return snap, err
 		}
 		if snap.AgentLive, snap.AgentProjectLive, err = agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID); err != nil {
@@ -211,14 +211,14 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		return snap, err
 	}
 	// The workspace_writer index includes unreleased lost runs: they keep the project workspace slot.
-	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND workspace=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1) AND coalesce(task_id,'')!=? ORDER BY unreleased DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
+	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND workspace=? AND (status!='ENDED' OR unreleased=1) AND coalesce(task_id,'')!=? ORDER BY unreleased DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
 	return snap, err
 }
 
 // agentLive counts the agent's live runs other than task's, in all projects and in project.
 func agentLive(ctx context.Context, tx *Tx, agent, project, task string) (all, inProject int, err error) {
 	err = tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs
- WHERE company_id=? AND agent=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND coalesce(task_id,'')!=?`, project, tx.company, agent, task).Scan(&all, &inProject)
+ WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=?`, project, tx.company, agent, task).Scan(&all, &inProject)
 	return
 }
 

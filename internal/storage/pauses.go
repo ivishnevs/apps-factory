@@ -149,7 +149,7 @@ func (s *Store) RevokeLive(ctx context.Context, company, actor string) (int, err
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id,status FROM runs WHERE company_id=? AND status IN ('QUEUED','RUNNING','CANCELLING') AND revoked=0", company)
+	rows, err := tx.QueryContext(ctx, "SELECT id,status FROM runs WHERE company_id=? AND status IN ('QUEUED','CLAIMED','RUNNING','CANCELLING') AND revoked=0", company)
 	if err != nil {
 		return 0, err
 	}
@@ -169,14 +169,14 @@ func (s *Store) RevokeLive(ctx context.Context, company, actor string) (int, err
 	}
 	rows.Close()
 	for _, r := range runs {
-		next := "CANCELLING"
+		next, outcome := "CANCELLING", ""
 		if r.status == "QUEUED" {
-			next = "CANCELLED"
+			next, outcome = "ENDED", "revoked"
 		}
-		if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,revoked=1,result=CASE WHEN ?='CANCELLED' THEN 'revoked by '||? ELSE result END,finished_at=CASE WHEN ?='CANCELLED' THEN ? ELSE finished_at END WHERE id=?", next, next, actor, next, tx.now().Unix(), r.id); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET status=?,outcome=?,revoked=1,result=CASE WHEN ?='ENDED' THEN 'revoked by '||? ELSE result END,finished_at=CASE WHEN ?='ENDED' THEN ? ELSE finished_at END WHERE id=?", next, outcome, next, actor, next, tx.now().Unix(), r.id); err != nil {
 			return 0, err
 		}
-		if next == "CANCELLED" {
+		if next == "ENDED" {
 			if err = syncTaskRun(ctx, tx, r.id); err != nil {
 				return 0, err
 			}

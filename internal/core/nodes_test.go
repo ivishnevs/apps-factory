@@ -186,7 +186,7 @@ func TestNodeOfflineAfterContinuousTicking(t *testing.T) {
 			if offlineAt <= storage.NodeOffline || offlineAt > storage.NodeOffline+2*time.Second {
 				t.Fatalf("offline after %s of continuous ticking, want just past %s", offlineAt, storage.NodeOffline)
 			}
-			if st := status(); st != "FAILED" {
+			if st := status(); st != "ENDED" {
 				t.Fatal("offline node's run not lost", st)
 			}
 			if _, err = s.NodeHeartbeat(ctx, storage.DefaultCompany, "n1", storage.NodeHeartbeat{Epoch: 1}); err != nil || !online() {
@@ -239,7 +239,7 @@ func TestPinnedNodeUnavailable(t *testing.T) {
 			if _, err = s.ReportWorkspace(ctx, co, first.ID, cl.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n1", Unpushed: true}); err != nil {
 				t.Fatal(err)
 			}
-			if err = s.Apply(ctx, co, protocol.Wrap("agent.failed", first.ID, "", protocol.Event{RunID: first.ID, Lease: cl.Lease, Status: "FAILED", Outcome: "failed", Result: "tests fail"})); err != nil {
+			if err = s.Apply(ctx, co, protocol.Wrap("agent.failed", first.ID, "", protocol.Event{RunID: first.ID, Lease: cl.Lease, Status: "ENDED", Outcome: "failed", Result: "tests fail"})); err != nil {
 				t.Fatal(err)
 			}
 			fake.Advance(time.Hour)                                                                   // past the retry backoff

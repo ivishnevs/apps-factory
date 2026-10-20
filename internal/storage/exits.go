@@ -138,7 +138,7 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err != nil {
 		return out, err
 	}
-	if status != "RUNNING" || t.CurrentRunID != runID {
+	if status != "CLAIMED" && status != "RUNNING" || t.CurrentRunID != runID {
 		return out, &ExitRefusal{Status: 410, Reason: "not_current_run", Hint: "this run was stopped or replaced; finish the turn"}
 	}
 	if err = validExit(req, t, agent); err != nil {
@@ -673,7 +673,7 @@ func (s *Store) Directive(ctx context.Context, company, task, actor, text string
 			t.BlockReason = ""
 		}
 		if urgent && t.CurrentRunID != "" {
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='directive' WHERE id=? AND status='RUNNING'", t.CurrentRunID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='directive' WHERE id=? AND status IN ('CLAIMED','RUNNING')", t.CurrentRunID); err != nil {
 				return t, err
 			}
 		}
