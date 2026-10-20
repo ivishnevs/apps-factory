@@ -88,9 +88,9 @@ func (w *Worker) stageSkills(spec protocol.RunSpec) (root string, list []driver.
 const FreshSessionNote = "[App Factory] This run starts a new runtime session: the previous session of this task is not available here (it ran on another node, or the workspace was reset). Take the task's context, history and decisions from Core: this prompt and the Factory tools.\n\n"
 
 // resumeSpec applies the driver's ResumePolicy to spec.SessionID: the session is resumed only when
-// this node recorded it for the same (task, agent) key; otherwise the run starts a fresh session with
-// FreshSessionNote before its prompt. Without a session store the spec is unchanged.
-func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec) (protocol.RunSpec, sessions.Record) {
+// this node recorded it for the same (task, agent) key in the same directory; otherwise the run starts a
+// fresh session with FreshSessionNote before its prompt. Without a session store the spec is unchanged.
+func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec, cwd string) (protocol.RunSpec, sessions.Record) {
 	var prev sessions.Record
 	if spec.SessionID == "" || w.Sessions == nil {
 		return spec, prev
@@ -99,7 +99,10 @@ func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec) (protocol.
 	if err != nil {
 		slog.Error("session record", "run", spec.ID, "session", spec.SessionID, "error", err)
 	}
-	sameNode := ok && rec.Task == spec.TaskID && rec.Agent == spec.Agent
+	// A session resumes in the directory it ran in (Claude keeps transcripts per directory). Records without
+	// one predate it; a conversation's ran in the project workspace before conversation directories.
+	sameDir := rec.Cwd == cwd || rec.Cwd == "" && !spec.Conversation
+	sameNode := ok && rec.Task == spec.TaskID && rec.Agent == spec.Agent && sameDir
 	if sameNode {
 		prev = rec
 	}

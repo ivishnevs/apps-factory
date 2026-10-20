@@ -30,8 +30,11 @@ Every agent has one long-lived **conversation task** per project (`kind: convers
 A message, question, escalation or non-blocking answer addressed to an agent is a `message` trigger on its
 conversation task (`delivery_status: TRIGGERED`); separate message delivery runs are retired. Input from the
 owner or the recipient's manager is authority. The conversation task is scheduled like any task: the agent's
-run limit applies, but it does not take the project writer slot (it runs in the project workspace without a
-worktree). Its brief lists each message with how to handle it; its runs resume one runtime session. The agent
+run limit applies, but it does not take the project writer slot. On the node it runs in its own conversation
+directory, `<state_dir>/conversations/<company>/<project>/<agent>` (no writer lock, no task worktree or branch in
+either workspace mode), where its project data and `.factory/manifest.json` are materialized and its session
+resumes; the project workspace reaches it read-only by path (`FACTORY_PROJECT_WORKSPACE` and a note in its
+instructions), so it never contends with the project's writer run. Its brief lists each message with how to handle it; its runs resume one runtime session. The agent
 answers with factory_message_reply (message_id/version/body/request_id, answers optional), forwards with
 factory_question_forward, and ends with `factory_exit_done`, which marks the input handled up to its ack_seq
 and keeps the task open (a turn without an exit does the same; ask and wait are also accepted; any new input on a

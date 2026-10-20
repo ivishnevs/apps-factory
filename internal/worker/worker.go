@@ -430,7 +430,15 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		w.Inventory.Set(spec.ID, node.RunStarting)
 	}
 	var cwd string
-	if r, ok := w.worktreeRequest(spec); ok {
+	if spec.Conversation {
+		// A conversation run reads the project workspace but never holds its writer slot (hierarchy D5): it
+		// works in its own directory, where its project data is materialized and its session resumes.
+		dir, err := w.conversationDir(spec)
+		if err != nil {
+			return setupFailed(err)
+		}
+		cwd = dir
+	} else if r, ok := w.worktreeRequest(spec); ok {
 		t, err := w.Worktrees.Acquire(ctx, r)
 		var diverged *workspace.DivergedError
 		if errors.As(err, &diverged) {
@@ -517,7 +525,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 		}
 	}()
-	runSpec, prev := w.resumeSpec(drv, spec)
+	runSpec, prev := w.resumeSpec(drv, spec, cwd)
 	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ(), w.EnvAllow)}
 	shimDir, err := w.shims(spec)
 	if err != nil {
@@ -586,13 +594,17 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if wt != nil {
 		launch.Env = setEnv(launch.Env, "FACTORY_SCRATCH", wt.Scratch)
 	}
+	if spec.Conversation && spec.Workspace != "" {
+		launch.Env = setEnv(launch.Env, "FACTORY_PROJECT_WORKSPACE", spec.Workspace)
+		launch.Instructions += conversationNote(spec.Workspace)
+	}
 	session, err = drv.Launch(ctx, launch)
 	if err != nil {
 		// The prompt was not sent: a missing runtime or an auth failure is paused_out, the rest failed.
 		w.noteAuth(err)
 		return notStarted(cmp.Or(driver.OutcomeOf(err), driver.OutcomeFailed), err)
 	}
-	record = sessions.Record{SessionID: session.ID(), Task: spec.TaskID, Agent: spec.Agent, Project: spec.Project, Provider: string(spec.Provider), Run: spec.ID}
+	record = sessions.Record{SessionID: session.ID(), Task: spec.TaskID, Agent: spec.Agent, Project: spec.Project, Provider: string(spec.Provider), Run: spec.ID, Cwd: cwd}
 	if record.SessionID == prev.SessionID {
 		record.Started = prev.Started // a resumed session stays resumable
 	}
@@ -874,6 +886,9 @@ func (m *meter) usage() []protocol.Usage {
 const WorkspaceFreshFromDefault = "fresh_from_default"
 
 func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool) {
+	if spec.Conversation {
+		return workspace.Request{}, false // no task worktree or branch (hierarchy D5; conversationDir)
+	}
 	if spec.WorkspaceMode != "worktree" && spec.WorkspaceMode != WorkspaceFreshFromDefault {
 		return workspace.Request{}, false
 	}
@@ -888,6 +903,33 @@ func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool
 		r.Branch = workspace.BranchName(spec.TaskID, "")
 	}
 	return r, true
+}
+
+// conversationDir is the working directory of an agent's conversation runs in a project (hierarchy D5),
+// <state_dir>/conversations/<company>/<project>/<agent>: the same for every run, so the runtime session
+// resumes there. The run's project data (.factory/manifest.json, the OpenSpec tree) is materialized there,
+// not in the project workspace, and no writer lock is taken: a conversation run never contends with the
+// project's writer run, in the shared workspace or in worktree mode (no task worktree or branch).
+func (w *Worker) conversationDir(spec protocol.RunSpec) (string, error) {
+	root := w.StateDir
+	if root == "" {
+		root = filepath.Join(os.TempDir(), "factory-node")
+	}
+	for _, n := range []string{w.company(), spec.Project, spec.Agent} {
+		if n == "" || n == "." || n == ".." || strings.ContainsAny(n, `/\`) {
+			return "", fmt.Errorf("conversation directory: invalid name %q", n)
+		}
+	}
+	dir := filepath.Join(root, "conversations", w.company(), spec.Project, spec.Agent)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("conversation directory: %w", err)
+	}
+	return filepath.EvalSymlinks(dir)
+}
+
+// conversationNote tells a conversation run where the project workspace is: it reads it, never writes it.
+func conversationNote(workspace string) string {
+	return "\n\nThis is a conversation run: your working directory is your own conversation directory, not the project workspace. The project workspace is at " + workspace + " (also $FACTORY_PROJECT_WORKSPACE); read it when you need the code, but do not modify it: changes belong to tasks you delegate or create.\n"
 }
 
 // sealWorktree seals a run's worktree with its accepted exit (reset to the exit's commit after handoff,

@@ -24,6 +24,8 @@ type Record struct {
 	Project   string `json:"project,omitempty"`
 	Provider  string `json:"provider,omitempty"`
 	Run       string `json:"run"`
+	// Cwd is the directory the session ran in; a session resumes only there.
+	Cwd string `json:"cwd,omitempty"`
 	// Started: the prompt reached the runtime.
 	Started bool `json:"started"`
 	// Outcome is the run's outcome as the node reported it; "" while running or when the node stopped first.
