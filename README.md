@@ -167,8 +167,9 @@ OpenSpec в хранилище Core: [API/CLI/MCP, материализация 
 ./bin/factory ui --record state.json    # снимок состояния Core в fixture; --fixture state.json — просмотр без Core
 ```
 
-Дашборд агентов по дереву `reports_to` (кто чем занят, последний шаг live run'а, стоимость за день), задачи с
-причиной ожидания и действиями владельца (pause/resume/retry/run/cancel/reassign/reprioritize/comment/direct с
-подтверждением), live-просмотр run'а (`GET /runs/{id}/events/stream`), поток работы между агентами («кто что
-кому передал»), лента с attention и inbox с ответами и согласованиями на месте. Горячие клавиши — `?`.
+Дашборд (дерево агентов `reports_to` с live-статусами и таймерами, задачи выбранного агента, статистика run'а с
+шкалой контекста и sparkline'ами, общий поток активности, мини-карта доски), Kanban-доска с карточками и
+действиями владельца (pause/resume/retry/run/cancel/reassign/reprioritize/comment/direct с подтверждением),
+live-транскрипт run'а (`GET /runs/{id}/events/stream`), swimlanes «кто что кому передал», лента и inbox; строка
+ответа на самый старый вопрос/согласование (`Y`/`N`/`A`), палитра команд `ctrl+k`, мышь. Горячие клавиши — `?`.
 Подробности и снимки экранов: [docs/owner-ui.md](docs/owner-ui.md).
