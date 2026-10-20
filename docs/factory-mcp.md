@@ -20,7 +20,8 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 | factory_task_create | factory.task.create | BACKLOG; requires can_create_tasks |
 | factory_task_update | factory.task.update | Metadata/dependencies with version |
 | factory_task_assign | factory.task.assign | Assignee with version; requires can_assign_tasks |
-| factory_task_ready / block / cancel | factory.task.ready / block / cancel | Existing state machine |
+| factory_task_ready / block / cancel | factory.task.ready / block / cancel | Existing state machine; cancel needs authority over the task (or its creator), `cascade` for open children |
+| factory_task_pause / resume / reassign / reprioritize | factory.task.pause / resume / reassign / reprioritize | Authority actions over the assignee's subtree (agent-configuration.md#hierarchy); pause/resume with `agent` for an agent of the subtree |
 | factory_task_submit | factory.task.submit | Current task/run structured submission draft |
 | factory_task_accept / reject | factory.task.review | Another agent's IN_REVIEW work; rejection needs feedback |
 | factory_artifact_register / list / get / request_approval | factory.artifact.register / list / get / request_approval | Immutable artifact versions and owner content approval |

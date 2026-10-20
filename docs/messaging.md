@@ -7,6 +7,9 @@ Communication never depends on scraping an agent's final text.
 
 ## Agent communication
 
+The reporting tree (`spec.reports_to`, [agent configuration](agent-configuration.md#hierarchy)) routes
+questions: `factory_exit_ask` goes to the asker's manager, which answers delegated categories or forwards up;
+locked categories go to the owner. Every agent may message its chain and its direct reports.
 Set `spec.communication.can_message` to explicit agent names and/or `owner`. Both captured and
 current permissions must permit the target; factory.message.send/ask/reply/get/list and
 factory.owner.ask also pass the policy evaluator. No wildcard target or role-specific routing
@@ -20,12 +23,31 @@ Every structured question requires exactly one answer of its declared type. A te
 required alongside form answers. Core rejects arbitrary sender/project/run identifiers in MCP.
 Read tools are scoped to the run's project; messages are shared project context, not private ACLs.
 
-An agent recipient gets a separate communication run carrying message_id, never the sender's
-TaskID/thread. Core dispatches message work before normal READY tasks; message runs use the project
-workspace (one at a time) and an agent has one active run. Agent must explicitly call factory_message_reply with
-message_id/version/body/request_id (and answers when applicable). A completed turn without an
-answer escalates the question to the owner. Known failed/unknown deliveries are not automatically
-retried. Nonblocking answers create a separate recipient delivery; blocking answers resume the task.
+## Conversation tasks
+
+Every agent has one long-lived **conversation task** per project (`kind: conversation`, id
+`conv-<agent>-<project>`, `counterpart` its reports_to), created when Core loads the catalog and on first use.
+A message, question, escalation or non-blocking answer addressed to an agent is a `message` trigger on its
+conversation task (`delivery_status: TRIGGERED`); separate message delivery runs are retired. Input from the
+owner or the recipient's manager is authority. The conversation task is scheduled like any task: the agent's
+run limit applies, but it does not take the project writer slot (it runs in the project workspace without a
+worktree). Its brief lists each message with how to handle it; its runs resume one runtime session. The agent
+answers with factory_message_reply (message_id/version/body/request_id, answers optional), forwards with
+factory_question_forward, and ends with `factory_exit_done`, which marks the input handled up to its ack_seq
+and keeps the task open (a turn without an exit does the same; ask and wait are also accepted). An
+unanswered question does not escalate when a run ends: it moves up after `escalate_after` (questions routed up
+the chain) or escalates at its deadline. Tasks an agent delegated that close wake its conversation with
+`delegated_closed` when none of its open tasks waits on them (a dependency or the parent wake by themselves).
+Conversation tasks never go idle-alerted, cannot be paused, reassigned or cancelled.
+
+## Decision answers
+
+Options are suggestions: a free-text body without `answers` is always accepted (an escalation question still
+needs one of its answers). The first answer wins: answering is a compare-and-set on the question's version; a
+later answer gets 409 `{"reason":"already_answered","answer":{…}}` with the recorded answer. A question stores
+the asking task's wake_seq and assignee; when the task has new triggers or another assignee, reads (message
+get, inbox, the conversation brief) show `may_be_outdated: true`. Closing a task (DONE or CANCELLED) cancels its
+open questions (`status: CANCELLED`, event `message.cancelled`); approval requests keep their own lifecycle.
 
 ## Blocking questions
 
@@ -39,13 +61,12 @@ Continuation attempts are explicit answers, not failure retries; max_retries doe
 
 Submit is forbidden while waiting; an unanswered task cannot be made READY. A lost run whose runtime
 may still run keeps its task; an answer does not release it. Cancelled and manually blocked tasks do not
-resume automatically; a failed run retries after its backoff (task-lifecycle.md). Replying while a recipient run still holds the project
-writer does not start the originator concurrently. After that run finishes, normal dispatch applies.
+resume automatically; a failed run retries after its backoff (task-lifecycle.md). An answer wakes the asking
+task; normal dispatch (the agent's run limit, the project writer) applies.
 
-A manager may ask the owner for advice in the same conversation. When its prior delivery completed
-without answering, owner advice can reopen that original question and schedule manager continuation.
-The manager then explicitly answers the originator. Timed-out or lost deliveries are not reopened this way;
-the owner can answer the original escalated question directly.
+A manager that cannot decide a question asks its own manager (factory_exit_ask from its conversation, or
+factory_question_forward); the owner's answer to that reaches it as a message on its conversation, and it
+then answers the originator.
 
 ## Owner API and CLI
 
@@ -56,8 +77,9 @@ is fixed server-side. All mutations require request_id; answers/reads also requi
 | --- | --- |
 | POST /conversations | Create {project_id, agent, title, optional id, request_id} |
 | GET /conversations?project=ID | List project conversations |
-| GET /conversations/{id} | Logical conversation, including stored thread |
+| GET /conversations/{id} | Logical conversation, with `task_id`, the agent's conversation task that handles it |
 | POST /conversations/{id}/messages | Send {body, optional message_type/questions/timeout_seconds, request_id}; defaults to question |
+| POST /messages | Owner message without a conversation {project_id, body, optional message_type, request_id}: to `owner.default_report`, or to the direct report named by a leading `@name` |
 | GET /conversations/{id}/messages | Ordered persisted history |
 | GET /messages/{id} | Message state and delivery run |
 | GET /inbox?project=ID | Pending owner questions, escalations and unread notifications |
@@ -69,6 +91,7 @@ factory conversations create conversation.json
 factory conversations list PROJECT
 factory conversations send CONVERSATION_ID message.json
 factory conversations messages CONVERSATION_ID
+factory conversations say PROJECT "TEXT"        # default direct report; "@name TEXT" for another
 factory messages get MESSAGE_ID
 factory inbox list PROJECT
 factory inbox answer MESSAGE_ID answer.json
@@ -83,9 +106,9 @@ key to replay after uncertain transport. Conversation creation example:
 ```
 
 Send example: `{"body":"Plan the onboarding flow","request_id":"onboarding-question"}`.
-An owner conversation resumes its agent's last known-completed thread on subsequent owner deliveries.
-Task questions get independent communication runs; they never overwrite that conversation's thread.
-No separate review gate is needed for a delivered message; task implementation still requires review.
+Owner conversations are history; their messages are handled by the agent's conversation task, whose runs
+resume one session. No separate review gate is needed for a delivered message; task implementation still
+requires review.
 
 ## Structured owner question
 

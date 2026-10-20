@@ -146,13 +146,29 @@ messages. Owner-created proposals have no inferred agent recipient. If the autho
 the developer receives the follow-up; it can coordinate with the manager through its allowed
 communication. Missing recipient configurations use the existing message escalation mechanism.
 
-The normal message scheduler waits for the project's writer slot and starts a separate
-communication run with explicit revision instructions. The author reads the decision and task
+The rejection is a trigger on the author's conversation task ([messaging](messaging.md#conversation-tasks)),
+whose next run's brief carries explicit revision instructions. The author reads the decision and task
 state, revises the plan/affected tasks, proposes an alternative or blocks unfinished work and
 reports the result. The previous approved choice survives rejection of a replacement. There is
 no automatic rollback of completed effects. A lost run whose runtime may still run keeps its writer slot;
 rejection never releases it. Delivery is durable, but quality of the resulting plan remains
 agent behavior, not a deterministic replanning algorithm.
+
+## Decisions up the reporting tree
+
+Questions are decided as low in the tree as policy allows (agent-hierarchy). `factory_exit_ask {question,
+options, category}` goes to the asker's manager (`reports_to`). A manager answers when the category is delegated
+to it (the same explicit `factory.decision.decide.<category>` allow, in captured and current policy; questions
+without a category it may always answer), otherwise forwards it up with `factory_question_forward`. The locked
+categories `release` (store submission, publishing), `money` (purchases, paid services), `deletion` and `legal`
+are decided by the owner only: questions in them go straight to the owner and a policy delegating them (also by
+wildcard) fails `factory config validate`. A question left unanswered for `escalate_after` (4 hours, or the
+recipient's escalation rule per category) moves one level up by itself.
+
+Answers: options are suggestions and a free-text answer is always accepted; the first answer wins (409 with the
+recorded answer for a later one); a question whose task changed since it was asked reads `may_be_outdated`; the
+questions of a closed task are cancelled ([messaging](messaging.md#decision-answers)). An answer from the
+asker's chain or the owner is authority input that wakes the task.
 
 Native Codex is a trusted host process with shell access: these permissions govern Factory gateway
 calls, not OS/network isolation. Real verification: [decision-autonomy-verification.md](decision-autonomy-verification.md).
