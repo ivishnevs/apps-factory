@@ -32,8 +32,9 @@ services:
       FACTORY_DATABASE_URL: postgres://factory:${POSTGRES_PASSWORD}@postgres:5432/factory?sslmode=disable
       FACTORY_DATA_DIR: /data
       FACTORY_COMPANY: ${FACTORY_COMPANY:-default}
-      FACTORY_WORKSPACE_HOST_ROOT: ${FACTORY_WORKSPACE_HOST_ROOT:-${PWD}}
-      FACTORY_WORKSPACE_LOCAL_ROOT: /workspaces
+      # Project contents (OpenSpec documents, artifacts, attachments, run logs) by digest; Core mounts no
+      # project files: nodes download and upload through the API (docs/openspec.md).
+      FACTORY_BLOB_DIR: /blobs
       FACTORY_TOKEN: ${FACTORY_TOKEN:?set FACTORY_TOKEN in .env}
       NATS_URL: nats://factory:${NATS_PASSWORD}@nats:4222
       # Runs end with factory_exit_* (docs/explicit-exits-contract.md); set 0 in .env for the old rules.
@@ -42,9 +43,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - core-data:/data
-      - type: bind
-        source: ${FACTORY_WORKSPACE_HOST_ROOT:-${PWD}}
-        target: /workspaces
+      - core-blobs:/blobs
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,3 +54,4 @@ volumes:
   postgres-data:
   nats-data:
   core-data:
+  core-blobs:

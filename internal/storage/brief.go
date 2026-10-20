@@ -28,7 +28,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	var b strings.Builder
 	fmt.Fprintf(&b, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
 	if t.OpenSpecChange != "" {
-		fmt.Fprintf(&b, "OpenSpec change: %s (openspec/changes/%s). Read proposal and relevant specs with factory_openspec_read before implementation; list current openspec/specs as needed. Documents remain current in files; this is a reference, not a copied snapshot.\n", t.OpenSpecChange, t.OpenSpecChange)
+		fmt.Fprintf(&b, "OpenSpec change: %s (%s/changes/%s). Your worktree holds the project's OpenSpec tree as of this run's start: read the proposal and relevant specs before implementation (factory_openspec_read shows the current version). Edits of those files are uploaded at your exit.\n", t.OpenSpecChange, p.OpenSpecDir(), t.OpenSpecChange)
 	}
 	// The previous run of the task (the latest that started), whatever its outcome.
 	var prev struct {
