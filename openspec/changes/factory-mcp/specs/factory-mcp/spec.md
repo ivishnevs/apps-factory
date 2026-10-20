@@ -44,3 +44,10 @@ A real smoke SHALL demonstrate manager-created and assigned tasks, executor MCP 
 #### Scenario: Manager plans and reviews
 - **WHEN** the smoke runs a manager and an executor against Core
 - **THEN** the manager SHALL create and assign a task, the executor SHALL submit it through MCP and the manager SHALL accept it
+
+### Requirement: Argument errors list every problem
+Core SHALL validate tool arguments against the tool's input schema and, on failure, answer 400 with one message naming all missing required arguments, all unknown arguments together with the accepted argument names, and all type errors, with nested paths, so a call with guessed arguments needs at most one corrected retry.
+
+#### Scenario: Guessed arguments
+- **WHEN** an agent calls `factory_artifact_request_approval` without `reason` and `request_id` and with an extra `summary`
+- **THEN** Core SHALL answer 400 `missing required arguments: reason, request_id; unknown arguments: summary (accepted arguments: ...)` in one response

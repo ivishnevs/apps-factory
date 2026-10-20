@@ -187,7 +187,11 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     // User hooks, plugins and MCP servers do not leak into factory runs.
     settingSources: input.settingSources ?? ["project"],
     strictMcpConfig: true,
-    mcpServers: input.mcpCommand ? { factory: { type: "stdio", command: input.mcpCommand } } : {},
+    // alwaysLoad: Factory tools reach the model with their full input schemas on turn 1 instead of
+    // being deferred behind ToolSearch (Claude Code defers MCP tools by default); deferred tools were
+    // called by name with guessed arguments. Only this server is exempt; ENABLE_TOOL_SEARCH in the
+    // run environment still governs any other deferrable tools.
+    mcpServers: input.mcpCommand ? { factory: { type: "stdio", command: input.mcpCommand, alwaysLoad: true } } : {},
     ...(typeof model === "string" && model !== "" && model !== "default" ? { model } : {}),
     ...(typeof effort === "string" && effort !== "" ? { effort: effort as Options["effort"] } : {}),
     ...(typeof maxTurns === "number" && Number.isInteger(maxTurns) && maxTurns > 0 ? { maxTurns } : {}),
