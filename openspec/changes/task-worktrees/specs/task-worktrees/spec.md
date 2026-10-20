@@ -11,6 +11,10 @@ Each task with repository work SHALL run in its own worktree on its own branch, 
 - **WHEN** several worktrees of one repository are created at the same time
 - **THEN** all SHALL be created without a git lock failure being reported as a task failure
 
+#### Scenario: Conversation run
+- **WHEN** a conversation task of a project with a repository runs
+- **THEN** no worktree or branch SHALL be allocated for it and it SHALL run in its conversation directory (`node-agent`)
+
 ### Requirement: Local seal
 After every terminal run the worker SHALL snapshot uncommitted changes onto a local WIP ref without changing HEAD or the index, SHALL NOT push it, and SHALL report the sealed head to Core.
 

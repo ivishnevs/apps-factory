@@ -49,3 +49,21 @@ Core SHALL apply embedded numbered migrations exactly once under a startup lock 
 #### Scenario: Newer database
 - **WHEN** the database has a migration version newer than Core knows
 - **THEN** Core SHALL refuse to start
+
+### Requirement: Served company registered at start
+Core SHALL register the company it serves (`FACTORY_COMPANY`) in the default account at start when it does not exist yet, so that a Core started for a company catalog SHALL NOT exit with the company not found. A company created meanwhile by another Core SHALL be accepted.
+
+#### Scenario: First start for a new company catalog
+- **WHEN** Core starts with `FACTORY_COMPANY=smoke` against a database without company `smoke`
+- **THEN** Core SHALL create company `smoke` in the default account and serve its catalog
+
+#### Scenario: Company created by another Core meanwhile
+- **WHEN** another Core creates the company between the existence check and the insert
+- **THEN** Core SHALL treat the conflict as success and start
+
+### Requirement: Self-contained company catalogs
+A company's catalog SHALL be its own directory (`configs/` for `default`, `configs/<company>/` for another) holding its agents, profiles, policies, node hooks, quota keys, company settings and skills registry (`skills.yaml`). A company without its own `skills.yaml` SHALL have no skills; there SHALL be no fallback to another company's registry.
+
+#### Scenario: Skill only in the default registry
+- **WHEN** an agent of company `acme` includes skill `openspec` and `configs/acme/skills.yaml` does not list it
+- **THEN** loading the `acme` catalog SHALL fail with `unknown skill`

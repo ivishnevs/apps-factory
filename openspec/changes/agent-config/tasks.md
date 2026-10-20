@@ -11,3 +11,7 @@
 - [x] Pass race/unit/static checks and Foundation JetStream/cancellation regression integrations.
 - [x] Verify real Codex reads a supporting resource using Factory CLI and persists the result/events.
 - [x] Document schema, precedence, limits and deferred Task Engine/MCP/approval/report workflows.
+
+## Notes
+
+- 2026-10-20: skills registry per company catalog with catalog-relative paths, no fallback; nodes stage from their company's skills.yaml (a4ebf62, `TestSkillsPerCompany`, `TestLoadSkillsPerCompany`).

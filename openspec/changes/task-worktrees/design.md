@@ -42,3 +42,7 @@ A daily reconciler check lists tasks closed (DONE or CANCELLED) in the last 30 d
 - More disk per project → cleanup of closed tasks' worktrees after seal and cache pruning in `node-agent`.
 - Agents committing junk to satisfy the clean-tree rule → guidance in the refusal; `$FACTORY_SCRATCH` for notes and temporary files.
 - Scanner false positives block exits → the refusal names the file/line; an allowlist file in the repository is respected.
+
+## Amendments
+
+- 2026-10-20: conversation runs get no worktree or branch and take no writer slot; they run in their own conversation directory on the node (`node-agent` amendment, bc070e8).

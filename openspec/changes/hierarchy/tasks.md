@@ -20,3 +20,4 @@
 
 ## Notes
 - 2026-10-20: conversation runs exit without repository facts in projects with a repository (`TestConversationExitWithoutFacts`).
+- 2026-10-20: conversation runs run in `<state_dir>/conversations/<company>/<project>/<agent>` beside the project's writer, without the writer lock or a task worktree (bc070e8, `TestJetStreamConversationBesideWriter`, `TestJetStreamConversationNoWorktree`; design D5 note).

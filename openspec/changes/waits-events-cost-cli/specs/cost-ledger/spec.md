@@ -13,3 +13,10 @@ The owner SHALL be able to query costs by task, agent, day and model, and the to
 #### Scenario: Cost of a closed task
 - **WHEN** the owner asks for the cost of a DONE task with five runs
 - **THEN** the result SHALL be the sum of the five rows with their sources
+
+### Requirement: Run model is the main model
+The model of a run's cost row SHALL be the model that processed the most tokens in the run, counting input, output, cache read and cache write tokens.
+
+#### Scenario: Auxiliary model with uncached calls
+- **WHEN** a Claude run's main model reads most of its prompt from cache and an auxiliary model makes a few uncached calls
+- **THEN** the cost row SHALL name the main model

@@ -65,3 +65,4 @@ Each alert is emitted once per episode and re-armed after progress.
 ## Amendments
 
 - 2026-10-20 (D8): stall detection covers a task parked on its children: an open child in BACKLOG or without an assignee opens the same self-clearing `stalled` escalation per (task, child) to the assignee manager; `unblock` releases the parent from its children park, `cancel` cancels it.
+- 2026-10-20 (D3): dispatch takes the session of the assignee's last run of the task (the (task, agent) key), not the session of the task's last run; after a review the implementer was handed the reviewer's session, dropped it as another provider's and started fresh (0355740).

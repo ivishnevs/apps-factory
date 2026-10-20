@@ -22,3 +22,4 @@
 
 ## Notes
 - 2026-10-20: `stalled` escalation for a task parked on a child in BACKLOG or unassigned; `unblock` releases the children park (`TestStallChildrenPark`).
+- 2026-10-20: dispatch resumes the assignee's own last session of the task, across a review by another agent or provider (0355740, `TestReviewKeepsImplementerSession`).

@@ -40,3 +40,7 @@ Removed: `FACTORY_WORKSPACE_HOST_ROOT`, `FACTORY_WORKSPACE_LOCAL_ROOT`, the Comp
 ## Open Questions
 - Should Core mirror approved specs into the project repository (read-only), and if so, who pushes (an agent task) given Core holds no git credentials? Owner decision 2026-10-20: not now; stays open.
 - Resolved 2026-10-20: the project `workspace` path stays as the nodes' shared-workspace directory and writer-slot key (D7); unsynced OpenSpec edits survive the next materialization and are synced at the next exit (D3).
+
+## Amendments
+
+- 2026-10-20 (D1): blob routes (blob `PUT`/`GET`, run log chunks) extend the request's read and write deadlines to ten minutes; the server's 15 s read and 30 s write timeouts suit JSON calls but cut a 64 MiB blob over a slow link (9eceeef).

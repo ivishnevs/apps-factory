@@ -60,3 +60,4 @@ The worker builds the agent's environment from an allowlist: no owner or user to
 
 - 2026-10-20 (D7): an owner decision (approve or reject) on an approval a task requested adds the authority trigger `approval_decided` to that task (body: approval, decision, reason). It overrides the wait and ask parks only; blocks, children parks, escalations and a retry backoff stay, so a decision still does not release a lost run early. Revocation and expiry add none; tasks requiring or pinning the artifact keep `artifact_approved` (the requester gets only `approval_decided`).
 - 2026-10-20 (facts): a conversation run owns no branch or PR; its adapter collects no repository facts (`FACTORY_CONVERSATION=1`) and Core neither requires nor reads them, whatever the project repository.
+- 2026-10-20: `GET /health` reports `explicit_exits: on|off` (20483a4) for the smoke preflight.

@@ -28,3 +28,4 @@
 
 ## Notes
 - 2026-10-20: node.yaml relative paths resolve to absolute at load against the working directory (`Config.Absolute`, `TestConfigRelativePathsAbsolute`); conversation directories are absolute (`TestJetStreamConversationRelativeStateDir`); the Claude skills exclude accepts a relative cwd (`TestExcludeRelativeCwd`).
+- 2026-10-20: conversation runs in their own directory beside the writer, no worktree (bc070e8, `TestJetStreamConversationBesideWriter`, `TestJetStreamConversationNoWorktree`).

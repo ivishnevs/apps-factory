@@ -26,3 +26,4 @@
 
 ## Notes
 - 2026-10-20: `approval_decided` authority trigger to the requesting task on approve/reject, overriding wait and ask only (`TestApprovalDecisionWakesRequester`, `TestApprovalDecisionDoesNotReleaseActiveOrLostWriter`); conversation runs exit without repository facts (`TestConversationExitWithoutFacts`, `TestAdapterFactsOutsideARepository`).
+- 2026-10-20: `GET /health` reports `explicit_exits` (20483a4, `internal/core/health_test.go`).

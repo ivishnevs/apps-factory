@@ -64,3 +64,10 @@ When Core is unreachable, an exit tool SHALL tell the runtime the exit is queued
 #### Scenario: Directive arrives while the exit is queued
 - **WHEN** the adapter retries a queued exit after the process ended and Core refuses it with 409 because of a new directive
 - **THEN** the run outcome SHALL be `no_exit` and the next brief SHALL contain the directive
+
+### Requirement: Exit mode in health
+`GET /health` SHALL report whether explicit exits are on (`explicit_exits: on|off`) beside the served company.
+
+#### Scenario: Smoke preflight
+- **WHEN** a smoke script reads `GET /health` before any model run
+- **THEN** the answer SHALL include `company` and `explicit_exits`, so the script can refuse a Core with exits off

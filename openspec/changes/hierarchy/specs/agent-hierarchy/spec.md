@@ -50,6 +50,10 @@ Each agent SHALL have one long-lived conversation task with its boss, which resu
 - **WHEN** the owner sends two messages at different times to the top manager
 - **THEN** both SHALL be handled by runs of the same conversation task resuming one session
 
+#### Scenario: Conversation run beside the project's writer
+- **WHEN** the manager's conversation task runs while a writer run of the same project holds the shared workspace
+- **THEN** the conversation run SHALL run at the same time in its own conversation directory, without taking the writer lock
+
 #### Scenario: Conversation run in a repository project
 - **WHEN** a conversation run, working in its own conversation directory, ends with `factory_exit_done` in a project with a repository
 - **THEN** the exit SHALL be accepted without git facts, as the run owns no branch or pull request

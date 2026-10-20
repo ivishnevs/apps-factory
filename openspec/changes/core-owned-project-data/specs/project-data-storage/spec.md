@@ -45,3 +45,17 @@ OpenSpec SHALL be a per-project setting, enabled by default. When the last task 
 #### Scenario: Change without a task
 - **WHEN** an OpenSpec change is not archived and no task links it
 - **THEN** the daily check SHALL emit one event for it to the project's manager
+
+### Requirement: Blob transfers outlast JSON deadlines
+Blob uploads and downloads (artifact and OpenSpec blobs, run log chunks) SHALL have read and write deadlines of ten minutes, longer than the server's deadlines for JSON calls.
+
+#### Scenario: Largest blob over a slow link
+- **WHEN** a node uploads a 64 MiB artifact that takes longer than the server's JSON write timeout
+- **THEN** the upload SHALL complete instead of being cut
+
+### Requirement: Unsynced OpenSpec edits kept
+A materialization SHALL keep OpenSpec documents that differ from the digest in the worktree's previous manifest (edited, deleted or added locally) with that digest as their base, so the next exit SHALL sync them with compare-and-set.
+
+#### Scenario: Run ends without an exit after editing a spec
+- **WHEN** a run edits an OpenSpec document and ends without an exit, and the next run of the task is materialized in the same worktree
+- **THEN** the edit SHALL stay, untouched documents SHALL take Core's version, and the next exit SHALL upload the edit or refuse with `openspec_conflict` if Core changed that document meanwhile

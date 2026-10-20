@@ -45,3 +45,7 @@ Each feed row also produces an outbox message on `factory.<company>.feed.<projec
 - Agents may wait in short loops → minimum interval, episode limit and the daily budget.
 - Telegram noise → attention only plus one digest; everything else is in `watch`/`log`.
 - Price tables go stale → `cost_source` shows how a figure was computed.
+
+## Amendments
+
+- 2026-10-20 (model label): a run's ledger model is the model with the most tokens, cache reads and writes included; counting only input and output named Claude Code's auxiliary Haiku calls. Migration 0003 relabels recorded rows (the cost does not depend on the label) (0355740).

@@ -40,6 +40,10 @@ Runtime sessions SHALL be keyed by (task, agent). A retry on the same node SHALL
 - **WHEN** a failed task is claimed by a different node
 - **THEN** the run SHALL start a new session and its brief SHALL state the previous outcome
 
+#### Scenario: Implementer resumes after a review by another agent
+- **WHEN** a reviewer on another provider ran last on the task and the implementer is dispatched again on the same node
+- **THEN** the implementer's run SHALL resume the implementer's own last session of the task, not the reviewer's
+
 ### Requirement: Stall detection
 Core SHALL open a self-clearing `stalled` escalation when a task waits on a task that is in BACKLOG or unassigned, and SHALL emit one alert per episode for tasks idle or without progress longer than the configured intervals.
 
