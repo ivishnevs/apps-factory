@@ -481,12 +481,13 @@ func editableRun(ctx context.Context, tx *Tx, t tasks.Task) error {
 		return nil
 	}
 	var status string
-	var released bool
-	if err := tx.QueryRowContext(ctx, "SELECT status,released FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &released); err != nil {
+	var unreleased, inspect bool
+	// A side-effect task's unclear run must be inspected (its escalation, or runs resolve) even when its
+	// runtime is gone.
+	if err := tx.QueryRowContext(ctx, "SELECT status,unreleased,EXISTS(SELECT 1 FROM escalations WHERE company_id=? AND task_id=? AND reason='inspect' AND ref_id=runs.id AND status='open') FROM runs WHERE id=?", tx.company, t.ID, t.CurrentRunID).Scan(&status, &unreleased, &inspect); err != nil {
 		return err
 	}
-	// A side-effect task's lost run must be inspected (runs resolve) even when its runtime is gone.
-	if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" && (!released || t.SideEffects) {
+	if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || unreleased || inspect && t.SideEffects {
 		return ErrConflict
 	}
 	return nil
@@ -512,7 +513,14 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 				}
 			}
 			if t.Status != "BACKLOG" && t.Status != "REWORK" && t.Status != "FAILED" && t.Status != "BLOCKED" {
-				return t, ErrConflict
+				// A task parked by a retry escalation is released again as a retry answer.
+				var escalated bool
+				if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM escalations WHERE company_id=? AND task_id=? AND status='open' AND reason IN ('retries_exhausted','budget_exhausted'))", tx.company, t.ID).Scan(&escalated); err != nil {
+					return t, err
+				}
+				if t.Status != "READY" || !escalated {
+					return t, ErrConflict
+				}
 			}
 			if t.Assignee == "" {
 				return t, inputError("assignee required")
@@ -555,11 +563,11 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			}
 			if t.CurrentRunID != "" {
 				var status string
-				var released bool
-				if err = tx.QueryRowContext(ctx, "SELECT status,released FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &released); err != nil {
+				var unreleased bool
+				if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
 					return t, err
 				}
-				if status == "UNKNOWN" && !released {
+				if unreleased {
 					return t, ErrConflict
 				}
 				if status == "RUNNING" || status == "CANCELLING" {

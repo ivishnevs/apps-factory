@@ -246,7 +246,7 @@ func TestStartAndHeartbeat(t *testing.T) {
 	if stops["a"] != "revoked" || stops["b"] != "terminal" || stops["zz"] != "unknown_run" || len(a.Acked) != 1 || a.Acked[0] != "c" {
 		t.Fatalf("%+v", a)
 	}
-	if st, res, _, _ := runRow(t, s, "d"); st != "UNKNOWN" || !strings.Contains(res, "missing from node n1 inventory") {
+	if st, res, _, _ := runRow(t, s, "d"); st != "FAILED" || !strings.Contains(res, "missing from node n1 inventory") {
 		t.Fatal(st, res)
 	}
 	if a, _ := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Health: json.RawMessage(`{"disk":"critical"}`)}); !a.Pause {
@@ -266,7 +266,7 @@ func TestStartAndHeartbeat(t *testing.T) {
 }
 
 // TestTimedOutRun: a started run listed past timeout + grace on the node's sleep-excluding clock
-// (elapsed_ms) ends UNKNOWN timed_out and is stopped; wall-clock time the host slept does not count.
+// (elapsed_ms) ends timed_out and is stopped; wall-clock time the host slept does not count.
 func TestTimedOutRun(t *testing.T) {
 	s, fake := clockStore(t)
 	ctx := context.Background()
@@ -299,13 +299,13 @@ func TestTimedOutRun(t *testing.T) {
 		t.Fatal(a)
 	}
 	r, _ := s.Get(ctx, DefaultCompany, "r")
-	if r.Status != "UNKNOWN" || !strings.HasPrefix(r.Result, "timed_out") || r.Outcome != "timed_out" {
+	if r.Status != "FAILED" || !strings.HasPrefix(r.Result, "timed_out") || r.Outcome != "timed_out" {
 		t.Fatalf("%+v", r)
 	}
 }
 
-// TestLostRuns: a new epoch loses the older epoch's runs (claimed → FAILED and retryable, started →
-// UNKNOWN); a silent node goes offline and loses its runs the same way.
+// TestLostRuns: a new epoch loses the older epoch's runs (claimed or started: lost and retryable); a silent
+// node goes offline and loses its runs, which hold their slots until the node is back.
 func TestLostRuns(t *testing.T) {
 	s := engineStore(t)
 	fake := clock.NewFake(time.Unix(1_800_000_000, 0))
@@ -342,7 +342,7 @@ func TestLostRuns(t *testing.T) {
 	if err = s.ExpireNodes(ctx, DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
-	if st, _, _, _ := runRow(t, s, "started"); st != "UNKNOWN" {
+	if st, _, _, _ := runRow(t, s, "started"); st != "FAILED" {
 		t.Fatal(st)
 	}
 	fake.Advance(NodeOffline)

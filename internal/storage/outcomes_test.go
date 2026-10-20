@@ -86,7 +86,7 @@ func TestOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"late", "resolved"} {
-		if st, out := outcomeOf(t, s, id); st != "UNKNOWN" || out != "lost" {
+		if st, out := outcomeOf(t, s, id); st != "FAILED" || out != "lost" {
 			t.Fatal(id, st, out)
 		}
 	}
@@ -97,6 +97,10 @@ func TestOutcomes(t *testing.T) {
 		t.Fatal(st, out)
 	}
 	_ = lostThenOwner
+	// As a v2 run of a silent node, the lost run still holds its slots until the owner resolves it.
+	if _, err := s.DB.Exec("UPDATE runs SET unreleased=1 WHERE id='resolved'"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Resolve(ctx, co, "resolved", "COMPLETED", "checked the workspace"); err != nil {
 		t.Fatal(err)
 	}

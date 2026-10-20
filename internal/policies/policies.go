@@ -15,8 +15,11 @@ type Rule struct {
 	Effect      string   `yaml:"effect" json:"effect,omitempty"`
 	Target      string   `yaml:"target" json:"target,omitempty"`
 	Instruction string   `yaml:"instruction" json:"instruction"`
-	Roles       []string `yaml:"roles" json:"roles,omitempty"`
-	Agents      []string `yaml:"agents" json:"agents,omitempty"`
+	// Mode of a recovery rule (reliable-recovery D4): inspect parks an unclear end of the agent's runs for
+	// inspection instead of retrying it.
+	Mode   string   `yaml:"mode" json:"mode,omitempty"`
+	Roles  []string `yaml:"roles" json:"roles,omitempty"`
+	Agents []string `yaml:"agents" json:"agents,omitempty"`
 }
 type Policy struct {
 	APIVersion string `yaml:"apiVersion" json:"apiVersion"`
@@ -54,6 +57,9 @@ func Validate(p Policy) error {
 			return fmt.Errorf("policy %s: unique rule name and instruction required", p.Metadata.Name)
 		}
 		names[r.Name] = true
+		if r.Mode != "" && r.Type != "recovery" {
+			return fmt.Errorf("rule %s: mode only applies to recovery rules", r.Name)
+		}
 		switch r.Type {
 		case "access":
 			if len(r.Operations)+len(r.Commands) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval") || r.Target != "" {
@@ -72,6 +78,13 @@ func Validate(p Policy) error {
 		case "reporting":
 			if r.Effect != "" || r.Target != "" || len(r.Commands) > 0 {
 				return fmt.Errorf("reporting uses instructions, not effect/target")
+			}
+		case "recovery":
+			if r.Mode != "inspect" {
+				return fmt.Errorf("recovery rule %s: mode inspect required", r.Name)
+			}
+			if r.Effect != "" || r.Target != "" || len(r.Commands)+len(r.Operations) > 0 {
+				return fmt.Errorf("recovery rule %s: only mode, roles and agents apply", r.Name)
 			}
 		default:
 			return fmt.Errorf("invalid policy rule type %q", r.Type)

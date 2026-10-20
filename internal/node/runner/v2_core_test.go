@@ -127,12 +127,12 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 	wait("cancelled", func() bool { return get("v2-a").status == "CANCELLED" })
 
 	// Database restored: a new incarnation makes the node stop everything and register epoch 2. Core
-	// loses v2-b with epoch 1 (UNKNOWN); the node's own end of it then resolves the run.
+	// loses v2-b with epoch 1 (FAILED lost); the node's own end of it confirms the runtime gone.
 	if _, err = s.DB.Exec("UPDATE core_meta SET value='restored' WHERE key='incarnation'"); err != nil {
 		t.Fatal(err)
 	}
 	wait("epoch 2", func() bool { return nodeOf().Epoch == 2 })
-	wait("v2-b ended", func() bool { st := get("v2-b").status; return st == "CANCELLED" || st == "UNKNOWN" })
+	wait("v2-b ended", func() bool { st := get("v2-b").status; return st == "CANCELLED" || st == "FAILED" })
 	create("v2-c")
 	wait("epoch 2 run started", func() bool { r := get("v2-c"); return r.status == "RUNNING" && r.started > 0 && r.epoch == 2 })
 	stopNode()
@@ -140,7 +140,7 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait("shutdown ends the run", func() bool { st := get("v2-c").status; return st == "CANCELLED" })
-	if r := get("v2-b"); r.status != "CANCELLED" && r.status != "UNKNOWN" {
+	if r := get("v2-b"); r.status != "CANCELLED" && r.status != "FAILED" {
 		t.Fatalf("%+v", r)
 	}
 	t.Logf("v2-b after the incarnation change: %+v", get("v2-b"))

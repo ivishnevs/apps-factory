@@ -320,7 +320,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		answer.DeliveryStatus = "PENDING"
 		if in.Sender == "owner" {
 			// A manager that escalated can receive the owner's answer in a new run.
-			// Reopen only a known-completed delivery, never timeout/UNKNOWN work.
+			// Reopen only a known-completed delivery, never timed-out or lost work.
 			rows, e := tx.QueryContext(ctx, "SELECT body FROM messages WHERE conversation_id=? AND recipient=? AND status='ESCALATED' AND delivery_status='COMPLETED'", m.ConversationID, m.Sender)
 			if e != nil {
 				return answer, e

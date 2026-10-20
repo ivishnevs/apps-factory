@@ -149,7 +149,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 	for _, item := range page.Items {
 		seen[item.Type] = true
 	}
-	for _, kind := range []string{"task.trigger.ready", "task.trigger.answer", "task.trigger.dependency_done", "task.trigger.review_result", "task.parked.ask", "task.unparked.ask", "task.parked.block", "task.parked.inspect", "task.unparked.all"} {
+	for _, kind := range []string{"task.trigger.ready", "task.trigger.answer", "task.trigger.dependency_done", "task.trigger.review_result", "task.parked.ask", "task.unparked.ask", "task.parked.block", "task.parked.escalation", "task.unparked.all"} {
 		if !seen[kind] {
 			t.Error("feed lacks", kind)
 		}

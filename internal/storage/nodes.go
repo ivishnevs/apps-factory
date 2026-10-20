@@ -136,7 +136,8 @@ func (s *Store) checkIncarnation(ctx context.Context, path string) error {
 }
 
 // RegisterNode records a node's new epoch. Every unended run of an older epoch of the node is lost:
-// a run that never started ends FAILED (safe to retry), a started one UNKNOWN.
+// a run that never started ends lost and released (safe to retry), a started one lost and released too,
+// since the new epoch killed what its previous process left.
 func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistration) (NodeRegistered, error) {
 	var out NodeRegistered
 	switch {
@@ -279,9 +280,9 @@ func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why str
 	rows.Close()
 	for _, l := range runs {
 		if l.started == 0 {
-			err = endLost(ctx, tx, l.id, "FAILED", "lost: not started ("+why+")")
+			err = endLost(ctx, tx, l.id, "lost: not started ("+why+")")
 		} else {
-			err = endLostUnknown(ctx, tx, l.id, "lost: "+why+"; inspect workspace before reconciliation", released)
+			err = endLostRun(ctx, tx, l.id, "lost: "+why, !released)
 		}
 		if err != nil {
 			return err
@@ -290,26 +291,24 @@ func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why str
 	return nil
 }
 
-// endLostUnknown ends a started run as lost (UNKNOWN). released says its runtime is known to be gone, so
-// the task may retry at once; otherwise the run keeps its writer slots until the node confirms.
-func endLostUnknown(ctx context.Context, tx *Tx, id, result string, released bool) error {
-	if _, err := tx.ExecContext(ctx, "UPDATE runs SET released=? WHERE id=?", released, id); err != nil {
+// endLostRun ends a started run Core judged lost: FAILED with outcome lost (timed_out when the result says
+// so). unreleased: its runtime may still run, so the run keeps its workspace, session and task slot and its
+// task waits until the node proves the runtime gone (releaseLost); late terminal evidence may still replace
+// the outcome (Apply).
+func endLostRun(ctx context.Context, tx *Tx, id, result string, unreleased bool) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET unreleased=? WHERE id=? AND status IN ('RUNNING','CANCELLING')", unreleased, id); err != nil {
 		return err
 	}
-	return endLost(ctx, tx, id, "UNKNOWN", result)
+	return endLost(ctx, tx, id, result)
 }
 
-// endLost ends a run Core judged lost. FAILED is final (the runtime never ran); UNKNOWN keeps the
-// run open for late terminal evidence and reconciliation, as an expired lease does.
-func endLost(ctx context.Context, tx *Tx, id, status, result string) error {
-	finished := int64(0)
-	if status != "UNKNOWN" {
-		finished = tx.now().Unix()
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,result=?,finished_at=CASE WHEN ?>0 THEN ? ELSE finished_at END WHERE id=? AND status IN ('RUNNING','CANCELLING')", status, result, finished, finished, id); err != nil {
+// endLost ends a run Core judged lost (FAILED; the run_outcome trigger derives lost or timed_out from the
+// result).
+func endLost(ctx context.Context, tx *Tx, id, result string) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='FAILED',result=?,finished_at=? WHERE id=? AND status IN ('RUNNING','CANCELLING')", result, tx.now().Unix(), id); err != nil {
 		return err
 	}
-	return syncTaskRun(ctx, tx, id, status == "FAILED")
+	return syncTaskRun(ctx, tx, id, true)
 }
 
 // ClaimRequest is a v2 claim (phase 1).
@@ -739,7 +738,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		// elapsed_ms runs on the node's sleep-excluding clock since the claim: a sleeping laptop never
 		// wakes up into a timeout (reliable-recovery D7).
 		if started > 0 && spec.TimeoutSeconds > 0 && time.Duration(x.ElapsedMS)*time.Millisecond > time.Duration(spec.TimeoutSeconds)*time.Second+TimeoutGrace {
-			if err = endLost(ctx, tx, x.RunID, "UNKNOWN", "timed_out: still running past timeout_seconds + 60 s grace; inspect workspace before reconciliation"); err != nil {
+			if err = endLostRun(ctx, tx, x.RunID, "timed_out: still running past timeout_seconds + 60 s grace", true); err != nil {
 				return out, err
 			}
 			out.Stop = append(out.Stop, Stop{x.RunID, "timed_out"})
@@ -782,7 +781,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	}
 	rows.Close()
 	for _, id := range missing {
-		if err = endLostUnknown(ctx, tx, id, "lost: missing from node "+node+" inventory", true); err != nil {
+		if err = endLostRun(ctx, tx, id, "lost: missing from node "+node+" inventory", false); err != nil {
 			return out, err
 		}
 	}
@@ -803,7 +802,10 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		if err != nil {
 			return out, err
 		}
-		if t.Status == "FAILED" {
+		if err = clearParks(ctx, tx, t, tasks.ParkBlock, resetRef, "cleared"); err != nil {
+			return out, err
+		}
+		if t.Status == "READY" || t.Status == "FAILED" {
 			if err = resetRetry(ctx, tx, &t); err != nil {
 				return out, err
 			}
@@ -890,7 +892,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 	}
 	rows.Close()
 	for _, id := range late {
-		if err = endLost(ctx, tx, id, "FAILED", "lost: not started within the start window"); err != nil {
+		if err = endLost(ctx, tx, id, "lost: not started within the start window"); err != nil {
 			return err
 		}
 	}

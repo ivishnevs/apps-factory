@@ -147,9 +147,9 @@ func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after in
 	return out, rows.Err()
 }
 
-// ActiveRuns lists runs that are queued, running, cancelling or awaiting reconciliation (UNKNOWN).
+// ActiveRuns lists runs that are queued, claimed, running, cancelling or lost while their runtime may still run.
 func (s *Store) ActiveRuns(ctx context.Context, company string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND status IN ('QUEUED','RUNNING','CANCELLING','UNKNOWN') ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,"+runStatus+",session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND (status IN ('QUEUED','RUNNING','CANCELLING') OR unreleased=1) ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}

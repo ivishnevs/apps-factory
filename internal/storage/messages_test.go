@@ -87,8 +87,11 @@ func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 		t.Fatal(got, err)
 	}
 }
-func TestAnswerDoesNotResumeUnknownOrCancelled(t *testing.T) {
-	for _, status := range []string{"UNKNOWN", "CANCELLED", "FAILED"} {
+
+// TestAnswerAfterAFailedOrCancelledRun: an answer does not resume a run that ended without completing; a
+// cancelled task stays cancelled, a failed run retries after its backoff as any failed run (reliable-recovery).
+func TestAnswerAfterAFailedOrCancelledRun(t *testing.T) {
+	for _, status := range []string{"CANCELLED", "FAILED"} {
 		t.Run(status, func(t *testing.T) {
 			s := engineStore(t)
 			ctx := context.Background()
@@ -98,7 +101,7 @@ func TestAnswerDoesNotResumeUnknownOrCancelled(t *testing.T) {
 				t.Fatal(err)
 			}
 			task, _ = s.Task(ctx, DefaultCompany, task.ID)
-			if task.Status == "READY" || task.RetryEligible {
+			if status == "CANCELLED" && task.Status != "CANCELLED" || status == "FAILED" && (task.Status != "READY" || task.FailStreak != 1 || task.NotBefore == 0) || task.RetryEligible {
 				t.Fatal("unsafe resume", task)
 			}
 		})

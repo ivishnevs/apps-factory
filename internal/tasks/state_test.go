@@ -31,11 +31,11 @@ func TestEvaluateReasons(t *testing.T) {
 		{"queued run", func(s *Snapshot) { s.CurrentRun = &Run{ID: "r1", Status: "QUEUED"} }, ReasonLiveRun, "run:r1"},
 		{"retries exhausted", func(s *Snapshot) { s.Task.Status, s.Task.Attempt, s.Task.RetryEligible = "FAILED", 3, true }, ReasonParked + ParkEscalation, "owner"},
 		{"failure without retry", func(s *Snapshot) { s.Task.Status, s.Task.Attempt = "FAILED", 1 }, ReasonParked + ParkEscalation, "owner"},
-		{"unknown outcome", func(s *Snapshot) {
-			s.Task.Status, s.Task.BlockReason = "BLOCKED", "run: outcome unknown"
-			s.CurrentRun = &Run{ID: "r1", Status: "UNKNOWN"}
-			s.Parks = []Park{inspect}
-		}, ReasonParked + ParkInspect, "owner"},
+		{"inspection", func(s *Snapshot) { s.Parks = []Park{inspect} }, ReasonParked + ParkInspect, "owner"},
+		{"lost run that may still run", func(s *Snapshot) {
+			s.Task.Status = "IN_PROGRESS"
+			s.CurrentRun = &Run{ID: "r1", Status: "FAILED", Lost: true}
+		}, ReasonLiveRun, "node"},
 		{"question to owner", func(s *Snapshot) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "message: waiting for answer"
 			s.Parks = []Park{ask}
@@ -59,7 +59,7 @@ func TestEvaluateReasons(t *testing.T) {
 		{"rework", func(s *Snapshot) { s.Task.Status = "REWORK" }, ReasonIdle, "owner"},
 		{"agent busy", func(s *Snapshot) { s.AgentRun = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"} }, ReasonCapacity, "run:r2"},
 		{"writer busy", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "QUEUED", TaskID: "other"} }, ReasonCapacity, "run:r3"},
-		{"project quarantined", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "UNKNOWN", TaskID: "other"} }, ReasonCapacity, "owner"},
+		{"writer lost", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "FAILED", TaskID: "other", Lost: true} }, ReasonCapacity, "node"},
 		// Order: the first false conjunct wins.
 		{"backlog before unassigned", func(s *Snapshot) { s.Task.Status, s.Task.Assignee = "BACKLOG", "" }, ReasonBacklog, "owner"},
 		{"live run before parks", func(s *Snapshot) { s.CurrentRun = live; s.Parks = []Park{ask} }, ReasonLiveRun, "run:r1"},
@@ -103,7 +103,7 @@ func TestEvaluateReasons(t *testing.T) {
 
 func TestEvaluateNamesTheResolveCommand(t *testing.T) {
 	s := ready()
-	s.WriterRun = &Run{ID: "lost", Status: "UNKNOWN", TaskID: "other"}
+	s.WriterRun = &Run{ID: "lost", Status: "FAILED", TaskID: "other", Lost: true}
 	if v := Evaluate(s); !strings.Contains(v.Clearer.Action, "factory runs resolve lost") {
 		t.Fatal(v)
 	}

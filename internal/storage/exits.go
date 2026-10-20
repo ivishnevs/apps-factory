@@ -390,7 +390,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 				t.NotBefore = now.Add(backoff(t.FailStreak)).Unix()
 				t.Result = "merge failed: " + why
 				if t.AttemptsNoProgress >= RetryAttempts {
-					t.Status, t.NotBefore = "FAILED", 0
+					t.NotBefore = 0 // the escalation's park holds the task
 					escalate = fmt.Sprintf("%d merge attempts in a row failed; last: %s", t.AttemptsNoProgress, excerpt512(why))
 				}
 				if err := comment(ctx, tx, t.ID, agent, "merge failed: "+why); err != nil {

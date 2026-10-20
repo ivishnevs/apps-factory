@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,13 +91,13 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 	got := why()
 	expect(got, map[string]string{"a": tasks.ReasonParked + tasks.ParkEscalation, "b": tasks.ReasonDependencies, "d": tasks.ReasonRunnable})
 	// A lost run whose runtime may still run (a silent v2 node) keeps the project's writer.
-	if _, err = s.DB.Exec("UPDATE runs SET released=0 WHERE id=?", a.CurrentRunID); err != nil {
+	if _, err = s.DB.Exec("UPDATE runs SET unreleased=1 WHERE id=?", a.CurrentRunID); err != nil {
 		t.Fatal(err)
 	}
 	got = why()
 	expect(got, map[string]string{"d": tasks.ReasonCapacity})
-	if got["d"].Clearer.Who != "owner" {
-		t.Fatal("quarantine must name the owner", got["d"])
+	if got["d"].Clearer.Who != "node" || !strings.Contains(got["d"].Clearer.Action, "factory runs resolve") {
+		t.Fatal("a held writer must name its node and the resolve", got["d"])
 	}
 
 	r := httptest.NewRequest("GET", "/tasks/b/why", nil)

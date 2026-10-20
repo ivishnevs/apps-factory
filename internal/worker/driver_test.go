@@ -151,7 +151,7 @@ func TestJetStreamFakeDriverOutcomes(t *testing.T) {
 	for script, want := range map[string]struct{ status, result string }{
 		"completed.json":    {"COMPLETED", "foundation ok"},
 		"failed.json":       {"FAILED", "\n{\"message\":\"model error\"}"},
-		"disconnected.json": {"UNKNOWN", "app-server disconnected: EOF"},
+		"disconnected.json": {"FAILED", "app-server disconnected: EOF"},
 	} {
 		t.Run(script, func(t *testing.T) {
 			r, d := runFake(t, script, false)
@@ -189,9 +189,9 @@ func TestJetStreamRuntimeEnvWithoutCredential(t *testing.T) {
 	}
 }
 
-// Usage and quota go on their progress events and on the terminal event, here an UNKNOWN one
-// without a result; the run's total cost prices its single model.
-func TestJetStreamFakeDriverUsageOnUnknown(t *testing.T) {
+// Usage and quota go on their progress events and on the terminal event, here one without a result
+// after a quota hit (paused_out); the run's total cost prices its single model.
+func TestJetStreamFakeDriverUsageWithoutResult(t *testing.T) {
 	url := os.Getenv("NATS_TEST_URL")
 	if url == "" {
 		t.Skip("set NATS_TEST_URL to dedicated broker")
@@ -201,7 +201,7 @@ func TestJetStreamFakeDriverUsageOnUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc}}, false)
-	if r.Status != "UNKNOWN" || len(r.Usage) != 1 || r.Usage[0].Model != "gpt-5.5" || r.Usage[0].Input != 150 || r.Usage[0].CostUSD != 0.25 {
+	if r.Status != "FAILED" || r.Outcome != "paused_out" || len(r.Usage) != 1 || r.Usage[0].Model != "gpt-5.5" || r.Usage[0].Input != 150 || r.Usage[0].CostUSD != 0.25 {
 		t.Fatalf("%+v", r)
 	}
 	payloads := make([]protocol.Event, len(events))
@@ -225,7 +225,7 @@ func TestJetStreamFakeDriverUsageOnUnknown(t *testing.T) {
 		t.Fatalf("progress %+v", payloads[1:6])
 	}
 	terminal := payloads[6]
-	if terminal.Status != "UNKNOWN" || len(terminal.Usage) != 1 || terminal.Usage[0] != priced || terminal.Quota == nil || terminal.Quota.Type != "five_hour" {
+	if terminal.Status != "FAILED" || terminal.Outcome != "paused_out" || len(terminal.Usage) != 1 || terminal.Usage[0] != priced || terminal.Quota == nil || terminal.Quota.Type != "five_hour" {
 		t.Fatalf("terminal %+v", terminal)
 	}
 }

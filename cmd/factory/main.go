@@ -5,6 +5,7 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/openspec"
+	"appfactory/internal/policies"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"context"
@@ -59,7 +60,11 @@ func run() error {
 			if !ok {
 				return fmt.Errorf("unknown agent")
 			}
-			return printJSON(a.Authorize(args[3]))
+			// The effective recovery mode is shown along: it is per agent, not per operation.
+			return printJSON(struct {
+				policies.Decision
+				Recovery string `json:"recovery"`
+			}{a.Authorize(args[3]), a.RecoveryMode()})
 		}
 		return fmt.Errorf("usage: config validate | agents list | agents get NAME | agents authorize NAME OPERATION")
 	}

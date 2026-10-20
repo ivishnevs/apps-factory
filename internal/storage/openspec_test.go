@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
@@ -99,7 +100,10 @@ func TestOpenSpecTaskLinksAndQueuedRecheck(t *testing.T) {
 		t.Fatal("stored document content in SQLite")
 	}
 }
-func TestOpenSpecInitializationWriterAndUnknownQuarantine(t *testing.T) {
+
+// TestOpenSpecInitializationWriterAndLostRun: a lost run whose runtime may still run keeps the workspace
+// writer slot until it is resolved.
+func TestOpenSpecInitializationWriterAndLostRun(t *testing.T) {
 	s, w := specStore(t)
 	ctx := context.Background()
 	task := readyEngineTask(t, s, createEngineTask(t, s, "writer"))
@@ -114,7 +118,12 @@ func TestOpenSpecInitializationWriterAndUnknownQuarantine(t *testing.T) {
 	if _, e = s.InitOpenSpec(ctx, DefaultCompany, "p", "demo", run.ID, "agent-active"); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", run.ID, "", protocol.Event{RunID: run.ID, Lease: lease, Status: "UNKNOWN"})); e != nil {
+	_ = lease
+	// The run's node goes silent past its lease (as a v2 run): lost, and its runtime may still run.
+	if _, e = s.DB.Exec("UPDATE runs SET protocol=2,run_started=1,lease_until=? WHERE id=?", time.Now().Add(-time.Hour).Unix(), run.ID); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Expire(ctx, DefaultCompany); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.InitOpenSpec(ctx, DefaultCompany, "p", "owner", "", "owner-unknown"); !errors.Is(e, ErrConflict) {

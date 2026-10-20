@@ -181,6 +181,9 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 	return addTrigger(ctx, tx, t, "answer", isOwner(in.Sender), in.Sender, m.ID, "escalation "+e.Reason+": "+answer)
 }
 
+// resetRef is the ref of the block park that holds a task until its node reset the worktree.
+const resetRef = "reset_workspace"
+
 // ErrNeedsCascade: a cancel answer on a task with open children; cancel them first (or cascade).
 var ErrNeedsCascade = fmt.Errorf("%w: needs_cascade: the task has open children", ErrConflict)
 
@@ -202,6 +205,9 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			// The node resets the worktree from the remote branch (heartbeat reset); the task runs again on
 			// its reset_done.
 			if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET reset_pending=1,unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
+				return err
+			}
+			if err = addPark(ctx, tx, t, tasks.ParkBlock, resetRef, "waiting for the node to reset the worktree", false); err != nil {
 				return err
 			}
 			return comment(ctx, tx, t.ID, actor, "reset_workspace: the node resets the worktree from the remote branch; local changes stay on refs/factory/reset")
@@ -244,10 +250,11 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		}
 		if t.CurrentRunID != "" {
 			var status string
-			if err = tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE id=?", t.CurrentRunID).Scan(&status); err != nil {
+			var unreleased bool
+			if err = tx.QueryRowContext(ctx, "SELECT status,unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&status, &unreleased); err != nil {
 				return err
 			}
-			if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || status == "UNKNOWN" {
+			if status == "QUEUED" || status == "RUNNING" || status == "CANCELLING" || unreleased {
 				return fmt.Errorf("%w: the task has a live run; cancel it with factory tasks cancel", ErrConflict)
 			}
 		}
