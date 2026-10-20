@@ -50,9 +50,11 @@ NATS subjects carry the company: `factory.<company>.commands.agent.run.<driver>`
 `core-events-<company>`; executors share `<driver>-worker-<company>` per driver. Core updates the streams' subjects
 at start; consumers of the old unprefixed subjects are not reused (upgrade workers, nodes and Core together).
 
-Backups: back up the Postgres database (`pg_dump`, below) and the NATS volume; Core's data directory
-(`FACTORY_DATA_DIR`, default `data`, the `core-data` volume) holds only `core.incarnation`. Back up before
-upgrading; a downgrade requires restoring a compatible backup (an older Core refuses a newer schema).
+Backups: back up the Postgres database (`pg_dump`, below), the blob store (`FACTORY_BLOB_DIR`, default
+`<data dir>/blobs`, the `core-blobs` volume: OpenSpec documents, artifact contents, attachments and run logs by
+digest; back it up after the database, a blob newer than the dump is harmless) and the NATS volume; Core's data
+directory (`FACTORY_DATA_DIR`, default `data`, the `core-data` volume) holds only `core.incarnation`. Core mounts
+no project workspace. Back up before upgrading; a downgrade requires restoring a compatible backup (an older Core refuses a newer schema).
 
 ```sh
 docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.dump   # online, consistent
@@ -62,7 +64,7 @@ docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.d
 `make hooks` (once per clone) enables `.githooks/pre-commit`, which refuses a commit whose staged Go files are not
 gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
 FACTORY_ROOT selects config root; FACTORY_DATABASE_URL the database; FACTORY_COMPANY the company Core serves;
-FACTORY_DATA_DIR Core's data directory; FACTORY_LISTEN selects HTTP bind.
+FACTORY_DATA_DIR Core's data directory; FACTORY_BLOB_DIR Core's blob store; FACTORY_LISTEN selects HTTP bind.
 FACTORY_URL is the native CLI/Worker endpoint. NATS_URL is the authenticated broker URL.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required.
 FACTORY_WORKER_STATE (default data/codex-worker) keeps pidfiles of running runtimes; on start the
@@ -111,7 +113,7 @@ Versioned artifact verification: `scripts/artifact-approvals-smoke.py --restart-
 
 Reports and decisions: `scripts/journal-smoke.py --restart-core` verifies three real Codex tasks, pending proposal persistence, independent inbox/task review, explicit replacement and captured run contexts. See [reports and decisions](reports-decisions.md).
 
-OpenSpec uses Go 1.24 os.Root for confined file access, with no new dependency or migration (no migration). `scripts/openspec-smoke.py --restart-core` exercises the native official CLI plus the Docker Core gateway and linked tasks. See [OpenSpec](openspec.md).
+OpenSpec documents live in Core (migration `0002_project_data`: `spec_documents`, blobs); nodes materialize them and the MCP adapter syncs edits back at exits. `factory openspec import PROJECT DIR` uploads an existing tree. `scripts/openspec-smoke.py --restart-core` exercises the native official CLI on a downloaded copy, owner compare-and-set writes and linked tasks. See [OpenSpec](openspec.md).
 
 ## Node doctor
 

@@ -85,7 +85,13 @@ and of the current epoch; node has the agent's driver and labels; resource capac
 
 - `200 {"lease": "…", "start_by": "2026-10-14T10:00:30Z", "run_spec": {…}, "brief": {"from": 12, "to": 15}}` — run
   CLAIMED. The RunSpec (with the brief built now) replaces `GET /runs/{id}`. Retrying the same
-  `(node_id, epoch, claim_id)` returns the same answer; Core does not order claim ids.
+  `(node_id, epoch, claim_id)` returns the same answer; Core does not order claim ids. The RunSpec's
+  `materialize` (not stored) lists the project data the node places in the worktree before the runtime starts:
+  `{"openspec_dir": "openspec", "files": [{"path", "sha256", "size"}]}` (core-owned-project-data, see
+  [OpenSpec](openspec.md)). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and
+  `X-Factory-Lease: <lease>`; a blob it cannot fetch ends the run `setup_failed` before the runtime starts. It
+  uploads the run's log, redacted, with `PUT /runs/{id}/logs?seq=N[&final=1]&redacted=1` and the same header,
+  during the run and after its terminal event. Both routes are open to node tokens for the node's own runs.
 - `409 {"retry": true, "reason": "capacity|agent_busy|project_busy", "detail": "…"}` — run stays QUEUED; nak with
   delay. `detail` (optional) says what the node lacks: a usable driver, labels, a slot, a resource class.
 - `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch"}` — ack and drop the command; Core

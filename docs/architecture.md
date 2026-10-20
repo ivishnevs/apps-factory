@@ -53,7 +53,7 @@ session.
 
 Workspace modes (agent `spec.workspace.mode`): `shared` and `scratch` runs use the project workspace through
 `workspace.Allocator` (`workspace.Local`) with a canonical-path advisory flock.
-Use one canonical host path per project: Core in Docker cannot resolve macOS symlink aliases.
+Use one canonical node path per project: Core compares workspace paths as strings (it never resolves them).
 Do not register the same physical directory under aliases, particularly when resolving a lost run.
 The `.factory-writer.lock` file may remain after release; flock state, not file existence, owns the lock.
 
@@ -156,4 +156,19 @@ The schema holds immutable project artifact versions and typed owner artifact de
 
 The schema holds immutable significant reports, observed runtime outcomes, versioned decisions with one approved choice per project/topic, explicit replacement and bounded approved context in new RunSpecs. Exact owner action grants protect agent decision recording. Project feed exposes short event pointers; full snapshots remain in entity events. See [reports and decisions](reports-decisions.md).
 
-OpenSpec integration maps a host workspace root into Docker Core, exposes confined lazy file reads and checks active task links at create/update/ready/dispatch/claim. Native Worker performs a final preflight. Initialization stores only directory metadata; specification bodies remain in files. See [OpenSpec](openspec.md).
+Core-owned project data (core-owned-project-data): Core never reads a node's disk and holds no repository
+clones or forge credentials; code stays in hosted git. Everything else a project produces lives in Core:
+Postgres for metadata (`blobs`, `spec_documents` with every OpenSpec document version, artifact versions with
+`sha256`/`size`, `report_attachments`, `run_logs`) and a content-addressed blob store per company
+(`internal/blobstore`: `LocalFS` on the `core-blobs` volume, `FACTORY_BLOB_DIR`; S3-compatible later). The
+claim answer carries a manifest of the project's OpenSpec tree and the run's pinned approved artifact inputs;
+the node downloads it with the run's lease (digest cache per node) into the worktree before the runtime
+starts, and a missing blob ends the run `setup_failed`. Writes come back only through the API with
+compare-and-set on digests: the MCP adapter syncs the worktree's OpenSpec edits before every exit (a
+conflict refuses the exit), uploads `factory_artifact_upload` files (approval binds to their digest) and
+report attachments, and the node uploads the run's log in chunks; nodes redact the credential values they
+know before anything leaves them. Core answers requests and never calls a node, so it can run on another
+machine than every node. When the last task linked to an OpenSpec change is DONE, Core creates one archive
+task; a daily check reports changes nobody works on. The project `workspace` is the nodes' path of the shared
+project workspace and the key of its writer slot; Core never opens it. See [OpenSpec](openspec.md) and
+[artifact approvals](artifact-approvals.md).

@@ -131,7 +131,7 @@ docs/task-lifecycle.md). Ответить на неё можно и так:
 
 Persistent significant-action reports, the versioned Decision Registry, project context and paginated feed are available via API/CLI/MCP. See [reports and decisions](docs/reports-decisions.md).
 
-Файловая интеграция OpenSpec: [API/CLI/MCP, workspace mapping и проверки](docs/openspec.md). Документы остаются в workspace; задачи привязываются к проверенным active changes.
+OpenSpec в хранилище Core: [API/CLI/MCP, материализация на узлах и проверки](docs/openspec.md). Документы хранятся в Core, узлы кладут их в worktree; задачи привязываются к проверенным active changes.
 
 Автономность менеджера: категория `technical` делегирована политикой; `manager-autonomous` работает без обращений к owner. Отказ владельца создаёт сохраняемое поручение автору предложения пересмотреть план. [Полномочия и ограничения](docs/reports-decisions.md#delegated-autonomy-and-owner-rejection), [сквозная проверка](docs/decision-autonomy-verification.md).
 

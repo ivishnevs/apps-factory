@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Opt-in real Codex: Manager authors OpenSpec -> linked Developer -> explicit Review."""
+"""Opt-in real Codex: Manager authors OpenSpec -> linked Developer -> explicit Review.
+
+The OpenSpec tree lives in Core (core-owned-project-data): the node materializes it into the run's
+workspace and uploads the run's edits at its exit. This script runs on the node's machine, reads the
+tree only through the owner API and validates a downloaded copy with the official CLI."""
 import hashlib
 import json
 import os
@@ -50,6 +54,23 @@ def create_task(agent, title, prompt, linked=False):
         return t
     return api('POST', '/tasks/' + t['id'] + '/actions', {'version': t['version'], 'action': 'ready'})
 
+def download_tree(dest):
+    """Writes Core's current OpenSpec tree below dest/openspec (for the official CLI)."""
+    for doc in api('GET', root + '/openspec/manifest'):
+        content, offset, digest = '', 0, ''
+        while True:
+            query = {'path': doc['path'], 'offset': offset, 'limit': 32768}
+            if offset:
+                query['sha256'] = digest
+            page = api('GET', root + '/openspec/read?' + urllib.parse.urlencode(query))
+            content, offset, digest = content + page['content'], page['next_offset'], page['sha256']
+            if not page['has_more']:
+                break
+        target = dest / 'openspec' / doc['path']
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        assert hashlib.sha256(target.read_bytes()).hexdigest() == doc['sha256'], doc
+
 def accept(t):
     if t['status'] == 'DONE':
         return t
@@ -60,7 +81,7 @@ if not resume:
     init_body = {'request_id': 'bootstrap'}
     initialized = api('POST', root + '/openspec/init', init_body)
     assert api('POST', root + '/openspec/init', init_body) == initialized
-    assert (workspace / 'openspec/changes/archive').is_dir()
+    assert initialized['directories'][-1] == 'openspec/changes/archive', initialized
     try:
         api('POST', '/tasks', {'project_id': project, 'title': 'Invalid link', 'openspec_change': 'missing', 'request_id': 'invalid-link'})
     except urllib.error.HTTPError as error:
@@ -79,7 +100,7 @@ if not resume:
     assert (workspace / 'greeting.txt').read_bytes() == b'HELLO_OPENSPEC\n'
     assert api('GET', root + '/openspec/check/' + change)['valid']
     assert api('GET', '/tasks/' + executor['id'])['status'] == 'IN_REVIEW'
-    # Current files remain the source across restart and subsequent edits.
+    # Core's copy is the source across restart and subsequent edits.
     read_path = root + '/openspec/read?' + urllib.parse.urlencode({'path': 'changes/add-greeting/proposal.md'})
     old = api('GET', read_path)
     progress = {'project': project, 'plan': plan, 'executor': executor, 'old': old, 'restarted': False}
@@ -103,27 +124,43 @@ if '--restart-core' in sys.argv and not progress['restarted']:
     assert api('GET', read_path) == old
     progress['restarted'] = True
     progress_path.write_text(json.dumps(progress, indent=2) + '\n')
-proposal_path = workspace / 'openspec/changes/add-greeting/proposal.md'
+# The owner edits the proposal in Core with compare-and-set; a write from the old base conflicts.
 note = '\nReview note: verify the exact bytes before accepting the Factory task.\n'
-if note not in proposal_path.read_text():
-    proposal_path.write_text(proposal_path.read_text() + note)
-expected_digest = hashlib.sha256(proposal_path.read_bytes()).hexdigest()
-new = wait(read_path, lambda d: d['sha256'] == expected_digest)
+current = api('GET', read_path + '&limit=32768')
+if note not in current['content']:
+    assert not current['has_more'], 'proposal larger than one page'
+    api('POST', root + '/openspec/write', {'path': 'changes/add-greeting/proposal.md', 'base_sha256': current['sha256'], 'content': current['content'] + note})
+new = api('GET', read_path + '&limit=32768')
 assert old['sha256'] != new['sha256'] and 'Review note:' in new['content']
+try:
+    api('POST', root + '/openspec/write', {'path': 'changes/add-greeting/proposal.md', 'base_sha256': old['sha256'], 'content': 'stale'})
+except urllib.error.HTTPError as error:
+    assert error.code == 409 and json.load(error)['current_sha256'] == new['sha256'], error
+else:
+    raise AssertionError('Write from a stale base accepted')
 try:
     api('GET', read_path + '&' + urllib.parse.urlencode({'sha256': old['sha256']}))
 except urllib.error.HTTPError as error:
     assert error.code == 409, error
 else:
     raise AssertionError('Changed document accepted with stale digest')
-review = create_task('manager', 'OPENSPEC_REVIEW', '''This is a bounded OpenSpec review. Read current proposal, tasks and delta spec via factory_openspec_read. The proposal must include the current "Review note:" added after implementation. Verify greeting.txt is exactly HELLO_OPENSPEC followed by one newline, using Python. Run official openspec validate add-greeting --strict --json --no-interactive; inspect help if needed. Only after verification passes, mark both OpenSpec tasks complete using file tools. Read Factory executor TASK_ID via factory_task_get and verify it is still IN_REVIEW despite checked Markdown tasks. Then accept that executor through factory_task_accept with its latest version and request_id review-executor. Create a stage_completed report for the verified change, request_id review-report. Do not archive the change yet, do not create new tasks or delegate. Finish OPENSPEC_REVIEW_OK.'''.replace('TASK_ID', executor['id']), linked=True)
+review = create_task('manager', 'OPENSPEC_REVIEW', '''This is a bounded OpenSpec review. Read current proposal, tasks and delta spec in your worktree's openspec/ directory (or via factory_openspec_read). The proposal must include the current "Review note:" added after implementation. Verify greeting.txt is exactly HELLO_OPENSPEC followed by one newline, using Python. Run official openspec validate add-greeting --strict --json --no-interactive; inspect help if needed. Only after verification passes, mark both OpenSpec tasks complete using file tools (your exit uploads the edit). Read Factory executor TASK_ID via factory_task_get and verify it is still IN_REVIEW despite checked Markdown tasks. Then accept that executor through factory_task_accept with its latest version and request_id review-executor. Create a stage_completed report for the verified change, request_id review-report. Do not archive the change yet, do not create new tasks or delegate. Finish OPENSPEC_REVIEW_OK.'''.replace('TASK_ID', executor['id']), linked=True)
 review = wait('/tasks/' + review['id'], lambda t: t['status'] in ('IN_REVIEW', 'DONE'))
 assert 'OPENSPEC_REVIEW_OK' in review['result'], review
 review = accept(review)
 executor = api('GET', '/tasks/' + executor['id'])
 assert executor['status'] == 'DONE', executor
-validation = subprocess.run(['openspec', 'validate', change, '--strict', '--json', '--no-interactive'], cwd=workspace, capture_output=True, text=True, check=True)
+tree = Path('.cache/' + project + '-tree').resolve()
+download_tree(tree)
+assert '- [x]' in (tree / 'openspec/changes/add-greeting/tasks.md').read_text(), 'review edits not uploaded at its exit'
+validation = subprocess.run(['openspec', 'validate', change, '--strict', '--json', '--no-interactive'], cwd=tree, capture_output=True, text=True, check=True)
 assert json.loads(validation.stdout)['summary']['totals']['failed'] == 0
+# Every task linked to the change is DONE: Core created exactly one archive task. It is cancelled here to keep
+# the scenario bounded (archiving is a separate agent run).
+archive = [t for t in api('GET', '/tasks?project=' + project) if t['title'] == 'Archive OpenSpec change ' + change]
+assert len(archive) == 1 and archive[0]['openspec_change'] == change, archive
+if archive[0]['status'] not in ('DONE', 'CANCELLED'):
+    api('POST', '/tasks/' + archive[0]['id'] + '/actions', {'version': archive[0]['version'], 'action': 'cancel', 'reason': 'smoke stays bounded'})
 attempts = [api('GET', '/tasks/' + t['id'] + '/attempts')[-1] for t in (plan, executor, review)]
 assert attempts[1]['spec']['openspec_change'] == change and attempts[2]['spec']['openspec_change'] == change
 wait('/runs', lambda rs: not any(r['spec']['project'] == project and r['status'] in ('QUEUED', 'RUNNING', 'CANCELLING', 'UNKNOWN') for r in rs))
@@ -141,6 +178,6 @@ assert read_bodies_omitted > 0
 assert not api('GET', '/inbox?project=' + project)
 summary = {'project': project, 'workspace': str(workspace), 'change': change, 'tasks': [t['id'] for t in (plan, executor, review)],
     'runs': [a['spec']['id'] for a in attempts], 'proposal_sha256_before': old['sha256'], 'proposal_sha256_after': new['sha256'],
-    'all_tasks_done': True, 'semantic_validation_passed': True, 'read_bodies_omitted': read_bodies_omitted, 'tool_audit': audits, 'inbox_empty': True}
+    'archive_task': archive[0]['id'], 'all_tasks_done': True, 'semantic_validation_passed': True, 'read_bodies_omitted': read_bodies_omitted, 'tool_audit': audits, 'inbox_empty': True}
 Path('.cache/openspec-verification.json').write_text(json.dumps(summary, indent=2) + '\n')
 print(json.dumps(summary, indent=2))

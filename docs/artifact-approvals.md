@@ -13,6 +13,19 @@
 {"artifact":{"id":"landing-mockup","version":"v2","uri":"git:COMMIT:design/landing.svg"},"request_id":"register-mockup-v2"}
 ```
 
+Файл из worktree лучше загрузить в Core через `factory_artifact_upload` (core-owned-project-data):
+
+```json
+{"artifact_id":"landing-mockup","artifact_version":"v2","path":"design/landing.svg","request_id":"upload-mockup-v2"}
+```
+
+MCP-адаптер узла читает файл внутри worktree (выход за его пределы и symlink-побег запрещены, не больше
+64 МиБ), передаёт его в Core (`PUT /agent/blobs`) и регистрирует версию с URI
+`factory://artifacts/landing-mockup/v2`, `sha256`, `size` и именем файла. Утверждение владельца
+привязано к этому digest: другое содержимое под той же версией отклоняется (409), для него нужна новая
+версия, и прежнее утверждение на неё не распространяется. URI `factory://` нельзя зарегистрировать без
+загруженного содержимого; внешние URI (`git:`, `https:`) остаются ссылками без содержимого в Factory.
+
 2. Прикрепить её к структурированному `factory_task_submit` и/или запросить утверждение:
 
 ```json
@@ -61,8 +74,11 @@ submission с артефактами требует прав и на `factory.ta
 и DONE производителя не утверждает артефакт. Без `required_artifacts` никакого
 обязательного этапа дизайна/утверждения нет. Названия designer/QA не зашиты в Core.
 
-В run сохраняются `approved_artifacts`: точная ссылка, `approval_id` и версия решения.
-Эти данные добавляются к prompt. Core проверяет их внутри транзакции dispatch и ещё
+В run сохраняются `approved_artifacts`: утверждённая версия (с `sha256` для загруженной), `approval_id`
+и версия решения. Эти данные добавляются к prompt; загруженные версии узел до старта runtime кладёт в
+worktree как `.factory/inputs/<id>/<version>/<имя файла>` (манифест claim, см. [OpenSpec](openspec.md)).
+Ссылка в `required_artifacts` может закрепить `sha256`: тогда её удовлетворяет только утверждение этого
+содержимого. Core проверяет их внутри транзакции dispatch и ещё
 раз при claim, непосредственно перед стартом runtime. Отзыв отменяет ещё не начавшийся
 QUEUED run и возвращает его задачу к ожиданию. Новое утверждение требует нового run
 с новым снимком входных данных. Уже начавшийся RUNNING run сохраняет разрешённый на
@@ -114,17 +130,19 @@ QUEUED run и возвращает его задачу к ожиданию. Но
 агента. Owner API не создаёт blocking-запрос от имени активного run.
 
 HTTP: `GET/POST /projects/PROJECT/artifacts`,
-`GET /projects/PROJECT/artifacts/ID/VERSION`,
-`POST /projects/PROJECT/artifacts/approval`; все требуют owner token.
+`GET /projects/PROJECT/artifacts/ID/VERSION`, `GET /projects/PROJECT/artifacts/ID/VERSION/content`
+(загруженное содержимое), `POST /projects/PROJECT/artifacts/approval`; все требуют owner token.
 События: `factory.<company>.events.artifact.registered` и существующие `approval.*`,
 `task.artifact_waiting`. История и outbox сохраняются в базе Core.
 
 ## Границы и проверка
 
-Core хранит и утверждает ссылки, не загружает и не проверяет содержимое URI.
-Используйте commit/content-addressed URI (например, SHA256), а не изменяемый URL
-без версии. Ответственность за новую версию при изменении содержимого остаётся у
-доверенного агента; Factory MCP не является файловой изоляцией.
+Загруженные версии Core хранит сам (blob store по SHA-256) и привязывает к ним утверждение;
+владелец читает содержимое через `GET /projects/PROJECT/artifacts/ID/VERSION/content`. Core
+никогда не читает диски узлов. Для внешних URI Core хранит и утверждает только ссылку, не загружает
+и не проверяет содержимое: используйте commit/content-addressed URI, а не изменяемый URL без версии;
+ответственность за новую версию при изменении содержимого остаётся у доверенного агента. Factory MCP
+не является файловой изоляцией.
 
 Предыдущие task_artifacts и submissions сохраняются при миграции. Историческую ссылку
 нужно явно зарегистрировать перед новым утверждением, если она ещё не попала в реестр;

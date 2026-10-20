@@ -1,84 +1,100 @@
-# File-based OpenSpec integration
+# OpenSpec in Core storage
 
-OpenSpec remains the source for product requirements and change history. Factory stores task status,
-dependencies, attempts, messages and review in its database, plus a task's active `openspec_change` name.
-No document table or embedded document snapshot is added. This stage follows the official
+OpenSpec remains the source for product requirements and change history. Since core-owned-project-data
+the project's OpenSpec tree lives in Core: every document version in Postgres (`spec_documents`: path,
+version, sha256, size, who and when; the current version flagged, deletions kept as versions) with the
+contents in Core's blob store by digest. Core never reads a node's disk, so Core and the nodes need no
+shared filesystem. Nodes materialize the tree into each run's worktree, agents use ordinary files and the
+official OpenSpec CLI there, and the MCP adapter uploads their edits with compare-and-set on digests. Factory
+stores task status, dependencies, attempts, messages and review in its database, plus a task's active
+`openspec_change` name. This follows the official
 [OpenSpec concepts](https://github.com/Fission-AI/OpenSpec/blob/main/docs/concepts.md).
 
-## Workspace access
+## Project setting
 
-Worker uses the absolute native host workspace from project metadata. Docker Core maps
-FACTORY_WORKSPACE_HOST_ROOT to FACTORY_WORKSPACE_LOCAL_ROOT=/workspaces. Compose bind-mounts the
-same host root; the installed .env pins it to this repository. For a different projects directory,
-set FACTORY_WORKSPACE_HOST_ROOT to that absolute path and recreate Core. Without an explicit
-setting Compose uses PWD; launch from the repository root. Project workspaces used by this
-integration must exist beneath that root. Unlinked tasks/direct runs can still use their existing
-Worker paths outside the mount. Native Core needs no mapping when both variables are unset.
-Never put a container path into project metadata: Worker still needs the native path.
+`openspec` in the project (`projects create`/`PATCH /projects/{id}`): `enabled` (default true), `dir`
+(default `openspec`: where nodes materialize the tree in a worktree, relative, outside `.factory` and
+`.git`) and `archive_assignee` (default: the manager of the change's last implementer). With
+`enabled: false` the project has no tree in Core: reads, writes, checks and links are refused and runs
+get no OpenSpec files.
 
-The mount is writable for initialization. Docker Core remains nonroot. Host filesystem permissions
-must permit its configured container UID to create directories; Linux deployments should provision
-compatible ownership/ACLs for the shared workspace. Docker Desktop's host sharing was verified
-with the existing native directories. Factory does not chmod/chown an arbitrary project tree.
+Path rules are unchanged: `config.yaml`, Markdown and `.openspec.yaml` under `specs/` and `changes/`
+(archive included), relative, no traversal, at most 1 MiB of UTF-8 per document. Other files in the
+worktree's OpenSpec directory stay local and are never uploaded.
 
-Document operations open a confined Go os.Root under the project's OpenSpec tree. Absolute paths,
-traversal, escaping symlinks, symlink roots/final documents, devices and nonregular files are
-rejected. Supported reads: config.yaml, Markdown and .openspec.yaml under specs/changes, including
-archive history. Paths are relative to openspec. These controls protect the Factory gateway; native
-Codex still has trusted host access, and owner-configured workspace aliases are not OS isolation.
+## Materialization and write-back
 
-## Initialization and authoring
+The claim answer's run spec carries `materialize`: `{openspec_dir, files: [{path, sha256, size}]}`, the
+project's current tree plus the run's pinned approved artifact inputs (`.factory/inputs/<id>/<version>/<name>`,
+see [artifact approvals](artifact-approvals.md)). Before the runtime starts the node downloads missing blobs
+from `GET /runs/{id}/blobs/{sha256}` (node token or owner token plus the run's lease in `X-Factory-Lease`;
+only blobs of the run's project), verifies and caches them per node by digest (`<state_dir>/blobs`), writes
+them into the worktree, removes documents Core no longer has (other files of the directory stay), creates
+`specs/` and `changes/archive/`, adds `/<dir>/` and `/.factory/` to the repository's `info/exclude` and
+keeps the manifest in `.factory/manifest.json`. A blob that cannot be downloaded ends the run
+`setup_failed` before the runtime starts. Local edits a previous run left unsynced are overwritten.
 
-`factory openspec init PROJECT` creates missing directories only:
+Writes reach Core only with compare-and-set on the document's digest:
 
-```text
-openspec/
-  specs/
-  changes/
-    archive/
-```
+- `factory_openspec_write {path, base_sha256, content}`: `base_sha256` is the digest the caller's copy
+  started from, empty for a new document; otherwise 409 `{"reason":"conflict","path","current_sha256"}`. A
+  write of content that is already current succeeds unchanged (a retry never conflicts with itself).
+- `factory_openspec_delete {path, base_sha256}`, `factory_openspec_move {from, to, base_sha256}`: a document
+  with its digest, or a whole directory such as `changes/x` → `changes/archive/2026-10-20-x` without one;
+  targets must not exist.
+- Sync at exits: before every `factory_exit_*` (and before `factory_task_submit` without explicit exits) the
+  adapter compares the worktree's OpenSpec directory with `.factory/manifest.json` and uploads changed, added
+  and removed documents against the manifest digests, then records the new digests. A conflict refuses the
+  exit (`openspec_conflict`) naming the paths; Core's current version is saved beside the file as
+  `FILE.factory-current` and becomes the new base, so the agent merges, deletes that file and exits again.
+  `factory_openspec_sync` does the same on demand. Documents the run did not change are never uploaded, so
+  an unchanged stale copy cannot overwrite a newer version.
 
-It does not generate config, instructions or product documents, and preserves existing files and
-custom schemas. Workspace must already exist. Repeated initialization is safe; the API also accepts
-a stable request_id for exact replay. Owner initialization requires no queued/running/cancelling or
-unreleased lost writer for the project/workspace. An agent may initialize inside its own active run.
-The company-locked transaction serializes these mutations against scheduling; a lost run whose runtime may still run
-keeps its writer slot. Events and mutation receipts contain directory metadata only.
+The owner writes with `POST /projects/{project}/openspec/write|move|delete` (same bodies and rules).
 
-Use the installed official OpenSpec CLI/workflow or normal workspace file tools to author proposals,
-designs, delta specs and tasks. CLI is needed only on the native authoring host; Core has no Node or
-OpenSpec subprocess dependency. Inspected CLI for this installation: OpenSpec 1.14.0. Inspect its help
-before using commands; Factory does not reproduce schema instructions, semantic validation, stores,
-custom workflows or archive behavior. For example, the inspected commands include:
+## Initialization, import and authoring
+
+`factory openspec init PROJECT` (and `factory_openspec_init`) creates nothing: the tree's fixed directories
+exist on every node; the answer lists them. The owner may call it any time, an agent only inside its active
+run.
+
+`factory openspec import PROJECT DIR` (owner CLI, run where the files are; DIR is the directory holding
+`specs/` and `changes/`) uploads every OpenSpec document whose digest differs from Core's current version,
+with compare-and-set on that digest, and reports written, unchanged and skipped (non-OpenSpec) files.
+Nothing is deleted in Core; a repeated import changes nothing. Projects that track `openspec/` in git
+conflict with materialization: import it, then stop tracking it (or set `openspec.dir`).
+
+Use the installed official OpenSpec CLI on the worktree's copy to author proposals, designs, delta specs and
+tasks; Core has no Node or OpenSpec subprocess dependency. Inspect its help before using commands; Factory
+does not reproduce schema instructions, semantic validation, custom workflows or archive behavior:
 
 ```sh
 openspec new change add-greeting --json
 openspec validate add-greeting --strict --json --no-interactive
 ```
 
-`factory_openspec_check` / API check validates a syntactically valid active change name, a real
-change directory and a nonempty UTF-8 proposal <=1 MiB. The response explicitly says scope=reference.
-It does not claim that a proposal, requirement scenario or custom schema is semantically valid.
-Design/tasks may be authored later; this avoids imposing a second workflow engine.
+`factory_openspec_check` / API check validates a syntactically valid active change name and a nonempty UTF-8
+proposal <= 1 MiB in Core's tree. The response says scope=reference; it does not claim semantic validity.
 
 ## Task and run links
 
-Set `openspec_change` to a name such as add-greeting, not an absolute/relative path, archive name or
-URL. Create its proposal before linking tasks. Create/update/ready/dispatch validate the reference.
-Dispatch copies the name into RunSpec and adds a path/read instruction to the task prompt without
-copying documents. Claim rechecks the file: a missing/invalid queued reference cancels that run and
-blocks its task before Codex starts. Core ends that run `stale`. Restoring the
-proposal allows an explicit ready action and a new attempt. Native Worker makes one final local
-preflight before starting app-server; failure publishes a `setup_failed` end, without a session
-or runtime side effects. Bounded retries with broken links become blocked instead of crashing Core.
+Set `openspec_change` to an active change name such as add-greeting, not a path, archive name or URL. Create
+its proposal before linking tasks. Create/update/ready/dispatch check the reference against Core's tree; claim
+rechecks it: a missing/invalid queued reference ends that run `stale` and blocks its task before any runtime
+starts. Restoring the proposal allows an explicit ready action and a new attempt. The node makes one final
+preflight of the materialized proposal before starting the runtime; failure ends the run `setup_failed`.
 
-Existing runs retain their name; documents remain current files, not frozen approved content.
-Use versioned artifact approvals when exact immutable inputs are required. Agent instructions and
-the shared OpenSpec skill require reading relevant specs and the active change before implementation.
-Changing Markdown checkboxes never changes Factory task status; successful runtime evidence and
-explicit task review still apply. Old terminal task links are retained as historical metadata.
-Changes should be archived only after associated work is complete; an archived name cannot be used
-for new active tasks.
+The brief names the change and its directory; documents are not copied into RunSpecs, reports or decision
+records. Changing Markdown checkboxes never changes Factory task status.
+
+## Archive tasks and the daily check
+
+When the last task linked to an active change becomes DONE, Core creates one READY task "Archive OpenSpec
+change X" (linked to X, assigned to `openspec.archive_assignee`, else the manager of the last implementer,
+else that implementer), once per change (`openspec_changes`). The assignee runs the official archive on its
+worktree copy; its exit uploads the move below `changes/archive`. The daily check reports every active change
+that no open task and no task closed within 7 days links: one `openspec.change_orphaned` feed event per
+change, for the owner's default report.
 
 ## API, CLI and MCP
 
@@ -88,47 +104,43 @@ Owner endpoints require FACTORY_TOKEN:
 - GET /projects/{project}/openspec/list?dir=changes&after=NAME&limit=20.
 - GET /projects/{project}/openspec/read?path=changes/add-greeting/proposal.md.
 - GET /projects/{project}/openspec/check/add-greeting.
+- GET /projects/{project}/openspec/manifest (every current document with digest and size).
+- POST /projects/{project}/openspec/write|move|delete.
 
 ```sh
 factory openspec init PROJECT
 factory openspec list PROJECT changes 'limit=20'
-factory openspec list PROJECT changes/add-greeting
-factory openspec read PROJECT changes/add-greeting/proposal.md
 factory openspec read PROJECT changes/add-greeting/proposal.md 'offset=8192&sha256=DIGEST'
 factory openspec check PROJECT add-greeting
+factory openspec manifest PROJECT
+factory openspec import PROJECT ./openspec
 ```
 
-MCP: factory_openspec_init/list/read/check. Project/workspace/actor come from the run, never model
-arguments. Both captured and current tool filters/policies apply; denies prevail, and approval rules
-require an exact action grant for init. Read tools requiring approval remain fail-closed, as for
-other Factory reads. Run tokens cannot use owner endpoints. Tool audit contains tool identity,
-request key and result status, not document content.
+MCP: factory_openspec_init/list/read/check/write/move/delete/sync (sync runs in the node's adapter).
+Project, actor and run come from the run, never model arguments. Captured and current tool filters/policies
+apply; denies prevail. Run tokens cannot use owner endpoints. Tool audit contains tool identity, request key
+and result status, not document content.
 
-Lists scan one directory, sort names and return items/next_after/has_more. Maximum 2000 entries per
-directory; limit defaults to 20 for HTTP and 10 for MCP (maximum 100/20). There is no recursive bulk
-load. Reads accept a <=1 MiB regular UTF-8 document, return path/sha256/content/bytes/offset/next_offset/
-has_more, and preserve UTF-8 byte boundaries. Default page 8192 bytes; HTTP max 32768, MCP max 8192.
-Continuation requires the prior sha256. A changed digest returns 409; restart from offset zero to
-read the new version. Listings reflect current files and are not transaction snapshots. Docker Desktop host-file propagation
-can be briefly delayed: a caller coordinating an external edit should wait until the returned digest
-matches the expected host content. Factory adds no document cache.
+Lists show one directory: the documents directly in it, subdirectories holding documents and the fixed
+directories, sorted, with items/next_after/has_more (at most 2000 entries; limit defaults to 20 for HTTP and
+10 for MCP, maximum 100/20). Reads return path/sha256/content/bytes/offset/next_offset/has_more on UTF-8
+boundaries; default page 8192 bytes, HTTP max 32768, MCP max 8192. Continuation requires the prior sha256; a
+changed digest returns 409: restart from offset zero.
 
-Worker omits document bodies from OpenSpec MCP read result telemetry before publishing it, preserving
-path/digest/page metadata; Core also applies that filter before storing runtime events. Codex itself
-still receives original content and manages its own native thread history. This is not general DLP:
-arbitrary trusted shell/model output and manually pasted text may contain document excerpts.
-No specification is automatically copied into Factory RunSpecs, reports or decision records.
+The node omits document bodies from OpenSpec MCP read results in runtime telemetry and Core applies that
+filter again before storing runtime events; this is not general DLP.
 
 ## Verification
 
-`make check`, `make build` and dedicated `NATS_TEST_URL=... go test -race ./internal/worker -run JetStream`
-cover bounded/current reads, stale digests, UTF-8, symlink/traversal confinement, workspace mapping,
-non-destructive init, writer/UNKNOWN boundaries, scoped policies, task links, queue rechecks, lack of
-document copies in domain records, and native preflight before runtime startup.
+`make check` covers storage-backed list/read/check/pagination and path rules, concurrent writes from one base
+(one wins, the other gets 409 with the current digest), moves and deletes, the claim manifest and lease-bound
+blob downloads, node materialization (tree, stale document removal, pinned artifact input, git exclude,
+digest cache, a missing blob ending `setup_failed`), the adapter's sync at exits with an edited, an added and
+a removed document and a conflict refusal, import of this repository's `openspec/` round-tripping digests,
+archive task creation once per change and one orphan event per change.
 
 `scripts/openspec-smoke.py --restart-core` is opt-in and consumes ChatGPT subscription usage. It runs
-Manager -> linked Developer -> Review, uses the official OpenSpec authoring/validation CLI, checks
-Docker/native files and restart, reads current edits, rejects stale digests, verifies explicit task
-acceptance and checks omitted document bodies in runtime telemetry. The script records a local checkpoint before restart/edit and supports `--resume PROJECT` after
-inspection, so verification can continue without recreating completed tasks. Inspect durable state
-rather than blindly retrying a failed or uncertain run.
+Manager -> linked Developer -> Review on a node of this machine, reads the tree only through the owner API,
+edits the proposal in Core with compare-and-set (a stale base gets 409), validates a downloaded copy with the
+official CLI, checks the review's checkbox edit arrived through its exit, the one archive task and omitted
+document bodies in runtime telemetry. `--resume PROJECT` continues after inspection.
