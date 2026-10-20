@@ -91,12 +91,14 @@ type taskDetail struct {
 	Comments  []storage.Comment  `json:"comments"`
 	Events    []storage.FeedItem `json:"recent_events"`
 	Workspace *tasks.Workspace   `json:"workspace,omitempty"`
+	// Costs are the cost rows of the task's ended runs and their total (cost-ledger).
+	Costs storage.CostReport `json:"costs"`
 }
 
 func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
 	var d taskDetail
 	base := "/tasks/" + url.PathEscape(id)
-	for path, v := range map[string]any{base: &d.Task, base + "/why": &d.Why, base + "/attempts": &d.Attempts, base + "/comments": &d.Comments} {
+	for path, v := range map[string]any{base: &d.Task, base + "/why": &d.Why, base + "/attempts": &d.Attempts, base + "/comments": &d.Comments, base + "/costs": &d.Costs} {
 		if err := api.Do(ctx, "GET", path, nil, v); err != nil {
 			return err
 		}
@@ -147,10 +149,19 @@ func show(ctx context.Context, api worker.API, id string, asJSON bool) error {
 			if a.Outcome != "" {
 				status += "/" + a.Outcome
 			}
-			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\t%s\n", i+1, a.Spec.ID, status, usageText(a.Usage), result)
+			cost := "-"
+			for _, c := range d.Costs.Runs {
+				if c.RunID == a.Spec.ID {
+					cost = storage.CostText(c.CostUSD, c.CostSource)
+				}
+			}
+			fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\t%s\t%s\n", i+1, a.Spec.ID, status, usageText(a.Usage), cost, result)
 		}
 		if err = tw.Flush(); err != nil {
 			return err
+		}
+		if t := d.Costs.Total; t.Runs > 0 {
+			fmt.Printf("cost: $%.2f over %d ended runs (%s)\n", t.CostUSD, t.Runs, sourcesText(t.Sources))
 		}
 	}
 	if w := d.Workspace; w != nil {

@@ -1,0 +1,5 @@
+p (Calories)  tasks: IN_PROGRESS 1, READY 1  runnable: 0  inbox: 1
+  RUN                               AGENT  TASK  STATUS   STARTED
+  <id>  demo   a     RUNNING  09:03:30
+  WAITING  STATUS  REASON        WHO     ACTION
+  b        READY   dependencies  task:a  dependency must reach DONE

@@ -29,7 +29,7 @@ All take the run's identity from the run token; none takes a task id (an exit is
 | `factory_exit_done` | `summary` (req.) | DONE (§6) |
 | `factory_exit_ask` | `question` (req.), `options?: [string]`, `category?`, `evidence?` | `ask` park; a question to the owner (after `hierarchy`: the manager chain) |
 | `factory_exit_block` | `on?: [task id]`, `on_children?: bool`, `reason` (req.) | `block` park on open tasks without a cycle, or `children` park with ≥ 1 open child; otherwise accepted as `ask` (the response says so) |
-| `factory_exit_wait` | `reason` (req.), `wake_at` (RFC 3339, req.), `deadline?` | `wait` park until `wake_at` (rules of `waits-events-cost-cli`) |
+| `factory_exit_wait` | `reason`, `deadline` (RFC 3339) (req.), `wake_at` (RFC 3339) or `after` (duration) | `wait` park until the wake time, then `wait_ended` (limits and escalations: task-lifecycle.md, Waits) |
 
 `factory_task_submit`, `factory_task_accept` and `factory_task_reject` leave the agent list when the switch is on;
 the owner's `factory tasks review` maps to a verdict handoff. Managers get `factory_task_direct {task, text, urgent?}`

@@ -99,7 +99,13 @@ func mutate[T any](ctx context.Context, s *Store, company, scope, key string, in
 	return v, nil
 }
 func entityEvent(ctx context.Context, tx *Tx, kind, project, id string, v any) error {
+	return entityEventNote(ctx, tx, kind, project, id, v, "")
+}
+
+// entityEventNote records an entity event whose feed row carries note as its summary (when not empty).
+func entityEventNote(ctx context.Context, tx *Tx, kind, project, id string, v any, note string) error {
 	e := protocol.Wrap(kind, id, "", v)
+	e.At = tx.now().UTC() // Core time comes from the store's clock
 	var state map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &state); err != nil {
 		return err
@@ -118,7 +124,11 @@ func entityEvent(ctx context.Context, tx *Tx, kind, project, id string, v any) e
 	if _, err = tx.ExecContext(ctx, "INSERT INTO entity_events(id,project_id,entity_id,body,company_id) VALUES(?,?,?,?,?)", e.ID, project, id, b, tx.company); err != nil {
 		return err
 	}
-	if err = feed(ctx, tx, feedRow(e, project, id, state)); err != nil {
+	row := feedRow(e, project, id, state)
+	if note != "" {
+		row.Summary = note
+	}
+	if err = feed(ctx, tx, row); err != nil {
 		return err
 	}
 	// Persist full audit snapshots in SQLite; broker notifications carry a bounded pointer.
@@ -405,6 +415,11 @@ func dependencies(ctx context.Context, tx *Tx, t tasks.Task) error {
 	return nil
 }
 func saveTask(ctx context.Context, tx *Tx, t *tasks.Task, kind string) error {
+	return saveTaskNote(ctx, tx, t, kind, "")
+}
+
+// saveTaskNote saves the task with a feed summary of its own (e.g. a run outcome and the retry time).
+func saveTaskNote(ctx context.Context, tx *Tx, t *tasks.Task, kind, note string) error {
 	old := t.Version
 	t.Version++
 	t.UpdatedAt = tx.now().Unix()
@@ -420,7 +435,7 @@ func saveTask(ctx context.Context, tx *Tx, t *tasks.Task, kind string) error {
 	if n != 1 {
 		return ErrConflict
 	}
-	return entityEvent(ctx, tx, kind, t.ProjectID, t.ID, t)
+	return entityEventNote(ctx, tx, kind, t.ProjectID, t.ID, t, note)
 }
 func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Update) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.update:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {

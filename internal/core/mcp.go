@@ -397,6 +397,10 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		}
 		return
 	}
+	if p.Name == "factory_feed_list" {
+		c.feedListTool(w, r, args, run)
+		return
+	}
 	if p.Name == "factory_agent_list" {
 		out := []map[string]any{}
 		for _, name := range config.Names(c.Agents) {

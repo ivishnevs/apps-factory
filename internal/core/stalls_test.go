@@ -67,7 +67,8 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 		return alerts
 	}
 	alerts := sweep(time.Minute)
-	if len(alerts) != 2 || !alerts[0].Attention || !alerts[1].Attention {
+	// Routed to the manager, not the owner: no attention (waits-events-cost-cli D2).
+	if len(alerts) != 2 || alerts[0].Attention || alerts[1].Attention {
 		t.Fatalf("%+v", alerts)
 	}
 	open, err := s.Escalations(ctx, co, true)

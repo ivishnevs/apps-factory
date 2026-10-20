@@ -1,0 +1,10 @@
+09:00:00   task.created                 a                        demo by owner — Build screen
+09:00:00   task.trigger.created_ready   a                        demo by owner — created ready
+09:01:00   task.started                 a                        demo by owner — Build screen
+09:01:30   report.created               a                        by system — Runtime <id> ended failed
+09:01:30   task.retry                   a                        demo by owner — a: run <id> ended failed; retry in 1m0s: build failed
+09:03:30   task.started                 a                        demo by owner — Build screen
+09:03:40   task.waiting                 a                        demo by owner — Build screen
+09:03:40 ! task.parked.ask              a                        demo — waiting for the answer to question <id> from owner
+09:03:40 ! message.created              a                        by demo
+09:03:40   task.trigger.owner_comment   a                        demo by owner — keep it simple

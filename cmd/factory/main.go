@@ -4,6 +4,7 @@ import (
 	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
+	"appfactory/internal/notify/telegram"
 	"appfactory/internal/openspec"
 	"appfactory/internal/policies"
 	"appfactory/internal/storage"
@@ -33,7 +34,7 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|project P|agent A [REASON] | pauses | stop [REASON] | start | pending | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
+		return fmt.Errorf("usage: factory projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate | agents list | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -92,6 +93,12 @@ func run() error {
 	switch args[0] {
 	case "pause", "resume", "pauses", "stop", "start", "pending", "answer", "approve", "reject", "escalations", "direct", "abandon-branch", "rules", "time-zone":
 		return ownerCommand(ctx, api, args)
+	}
+	switch args[0] {
+	case "comment", "run", "retry", "telegram":
+		return ownerTaskCommand(ctx, api, args)
+	case "costs":
+		return costsCommand(ctx, api, args)
 	}
 	if args[0] == "status" || args[0] == "watch" || args[0] == "log" || args[0] == "show" {
 		return consoleCommand(ctx, api, args)
@@ -208,10 +215,26 @@ func run() error {
 		return err
 	}
 	defer b.NC.Close()
-	c := core.Core{Store: s, Bus: b, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1"}
+	prices, err := config.LoadPrices(root)
+	if err != nil {
+		return err
+	}
+	c := core.Core{Store: s, Bus: b, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
+		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT"), DefaultReport: os.Getenv("FACTORY_TELEGRAM_DEFAULT_REPORT")}}
 	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()
+	if token := os.Getenv("FACTORY_TELEGRAM_TOKEN"); token != "" {
+		// The bot token stays in the environment; it is never logged.
+		zone, _ := s.CompanyTimeZone(ctx, storage.DefaultCompany)
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			loc = time.UTC
+		}
+		n := &telegram.Notifier{API: telegram.API{Token: token}, Backend: c.TelegramBackend(), Location: loc, DigestAt: env("FACTORY_TELEGRAM_DIGEST_AT", "18:00"), PollTimeout: 20 * time.Second}
+		go n.Run(ctx)
+		slog.Info("telegram notifier started")
+	}
 	go func() { errs <- server.ListenAndServe() }()
 	slog.Info("core ready", "address", server.Addr)
 	select {

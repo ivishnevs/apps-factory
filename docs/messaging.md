@@ -119,3 +119,37 @@ current permissions. Tool responses retain the existing explicit 64 KiB content 
 The inbox is CLI/HTTP; no UI or external delivery service is included. Questions and notifications
 are communication, not approval grants or decision records. Reports and Decision Registry remain
 future stages. See [verification](messaging-verification.md).
+
+## Telegram
+
+Core runs a Telegram notifier when `FACTORY_TELEGRAM_TOKEN` is set (one bot per company; the token stays in the
+environment and is never logged or put into errors). `factory telegram bind` (`POST /telegram/bind`) returns a
+one-time code valid for 15 minutes; sending `/start CODE` to the bot binds that chat. Only the bound chat is heard.
+
+Outbound, and nothing else:
+
+- attention feed rows (`attention = true`, see [reports and decisions](reports-decisions.md#event-feed-and-costs)):
+  a question or escalation that reached the owner (with its single-choice options as buttons), a node in trouble
+  (`node.restart_loop`, `node.check_failed`, `node.low_disk`, …), a quota pause, a report needing owner action;
+- reminders for a question still waiting for the owner at 4 h and at 24 h (one reminder covers ages already
+  passed);
+- one daily digest at `FACTORY_TELEGRAM_DIGEST_AT` (default 18:00) in the company time zone: done, in progress,
+  waiting for the owner, failures and retries, nodes, cost of the day.
+
+Routine events (handoffs, submits, retries) stay in `factory watch` and `factory log`. A failed send keeps the
+feed cursor and is retried with a backoff (1 s doubling to 1 min).
+
+Inbound:
+
+- a button, or a reply to a question message, answers that question (`request_id` `telegram-<update_id>`); a
+  structured form still needs `factory inbox answer`;
+- `/status` returns the status snapshot in short form;
+- `/stop` asks for confirmation (a button or `/stop confirm` within 5 minutes) and then runs the kill switch;
+  `/stop` alone does nothing;
+- any other text is owner input to a direct report of the owner: `@name text` addresses one, other text goes to
+  `FACTORY_TELEGRAM_DEFAULT_REPORT` (else the first direct report). It is sent as an owner message in the
+  conversation `telegram-<agent>` of `FACTORY_TELEGRAM_PROJECT` (hierarchy's conversation tasks replace this).
+
+Every update is applied once: Core records applied `update_id`s (`notify_updates`, migration 0031) and the answer
+carries the update as its idempotency key. The notifier's state (bound chat, feed cursor, reminders, digest day)
+is `notify_state`.

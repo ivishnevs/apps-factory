@@ -16,7 +16,7 @@ func TestPausesStopDispatchAndShowInWhy(t *testing.T) {
 	ctx := context.Background()
 	co := DefaultCompany
 	a := readyEngineTask(t, s, createEngineTask(t, s, "a"))
-	for _, bad := range []Pause{{Scope: "project"}, {Scope: "company", Target: "x"}, {Scope: "node", Target: "n"}} {
+	for _, bad := range []Pause{{Scope: "project"}, {Scope: "company", Target: "x"}, {Scope: "node"}, {Scope: "region", Target: "n"}} {
 		if err := s.SetPause(ctx, co, bad); !errors.Is(err, ErrInput) {
 			t.Fatal("invalid pause accepted", bad, err)
 		}

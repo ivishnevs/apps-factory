@@ -101,6 +101,8 @@ func TestFailedMigrationLeavesNoRecord(t *testing.T) {
 
 // downs undo migrations from 0009 on, so backfill tests can build a database as an older Core left it.
 var downs = map[int][]string{
+	31: {"DROP TABLE wait_episodes", "DROP TRIGGER run_cost_ended", "DROP TRIGGER run_cost_late", "DROP VIEW run_cost_source", "DROP TABLE run_costs",
+		"DROP TABLE notify_state", "DROP TABLE notify_updates", "DROP TABLE report_reminders"}, // triggers and pauses keep their wider CHECKs (supersets)
 	30: {"DROP TRIGGER run_phase", "DROP INDEX agent_slot", "DROP INDEX workspace_writer", "DROP INDEX session_turn", "DROP INDEX active_task_run",
 		"UPDATE runs SET status=CASE WHEN outcome IN ('succeeded','no_exit') THEN 'COMPLETED' WHEN outcome IN ('revoked','stale','unclaimed') THEN 'CANCELLED' ELSE 'FAILED' END WHERE status='ENDED'",
 		"UPDATE runs SET status='RUNNING' WHERE status='CLAIMED'",

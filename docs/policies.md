@@ -132,3 +132,11 @@ must use the same evaluator and bind approval to concrete parameters and artifac
 
 Full host access means prompt rules and Factory tool filtering are not strict OS isolation.
 The shared Core token identifies trusted service callers; per-agent credentials remain future work.
+
+## Wait and reporting rules
+
+`type: wait` rules set `min_wait_interval` (15m..30m, default 15m) and `max_waits` (default 12) for the agents
+they apply to (task-lifecycle.md, Waits). `type: reporting` rules may name `exits` (e.g. `[submit, done]`) and
+`report_kinds`: a report is then expected from the run on those exits; a missing one never refuses the exit but
+writes `report.missing` for the manager and a reminder in the agent's next brief
+(reports-decisions.md, Event feed and costs).

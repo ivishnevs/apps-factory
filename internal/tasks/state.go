@@ -257,6 +257,8 @@ func park(s Snapshot, kind string) (Verdict, bool) {
 			return hold(p.Reason, p.Who, "answer message "+p.RefID)
 		case ParkBlock:
 			return hold(p.Reason, p.Who, "remove the cause, then factory tasks ready "+t.ID+" VERSION")
+		case ParkWait:
+			return hold(p.Reason, "time", "wakes at its time; a directive or authority comment wakes it now (factory comment "+t.ID+" TEXT)")
 		default:
 			return hold(p.Reason, p.Who, "clear the "+kind+" park")
 		}

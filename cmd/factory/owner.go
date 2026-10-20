@@ -21,10 +21,12 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		switch {
 		case len(args) >= 1 && args[0] == "--all":
 			return "company", "", args[1:], nil
-		case len(args) >= 2 && (args[0] == "project" || args[0] == "agent" || args[0] == "quota_key"):
+		case len(args) >= 2 && (args[0] == "project" || args[0] == "agent" || args[0] == "quota_key" || args[0] == "node"):
 			return args[0], args[1], args[2:], nil
+		case len(args) >= 2 && (args[0] == "--project" || args[0] == "--agent" || args[0] == "--quota-key" || args[0] == "--node"):
+			return strings.ReplaceAll(strings.TrimPrefix(args[0], "--"), "-", "_"), args[1], args[2:], nil
 		}
-		return "", "", nil, fmt.Errorf("scope: --all | project ID | agent NAME | quota_key KEY")
+		return "", "", nil, fmt.Errorf("scope: --all | --project ID | --agent NAME | --quota-key KEY | --node NODE_ID")
 	}
 	var result any
 	switch args[0] {

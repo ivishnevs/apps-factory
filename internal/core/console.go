@@ -3,7 +3,6 @@ package core
 import (
 	"net/http"
 
-	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 )
 
@@ -34,7 +33,7 @@ func (c *Core) consoleRoutes(m *http.ServeMux) {
 			return
 		}
 		q := r.URL.Query()
-		f := storage.FeedFilter{Project: q.Get("project"), Task: q.Get("task"), Attention: q.Get("attention") == "1" || q.Get("attention") == "true"}
+		f := c.feedFilter(q)
 		v, err := c.Store.Feed(r.Context(), c.companyFrom(r), f, a, l)
 		reply(w, v, err)
 	})
