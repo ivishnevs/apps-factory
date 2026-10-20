@@ -27,3 +27,17 @@
 
 ## 5. Docs
 - [x] 5.1 `docs/owner-ui.md` (layout, screens, transcript, errors, links, form, notifications, behaviour, API, tests), README, `docs/development.md` Go 1.25. Verify: docs list every screen, flag and added endpoint. Done: (a27ffc2, 2be0ce0, 99af12b; 6e24797 for development.md).
+
+## 6. Next (owner backlog, 2026-10-21)
+- [ ] 6.1 Why a run is QUEUED: show the blocking cause on the run, task card and agent row (driver disabled on the node until T, node paused for low disk, no free slot, capacity class busy, concurrency cap). Seen live: a CEO chat reply waited 10 min behind a disabled Claude driver with nothing in the UI. Verify: client test per cause; golden.
+- [ ] 6.2 Nodes screen: slots in use, held resources, drivers with state (enabled / transient failures / disabled until T and why), disk with low/critical watermarks, pause with reason; node health events with attention in the feed. Verify: goldens with a healthy, a low-disk and a disabled-driver node.
+- [ ] 6.3 Pauses and kill switch from the UI with confirmation: pause/resume project, agent, quota key, node; stop/start. Verify: action tests; golden of the confirm dialog.
+- [ ] 6.4 Costs screen: by day, agent, model, project with sparklines/bars from the cost ledger. Verify: client test on the cost queries; goldens.
+- [ ] 6.5 Parks from Core: a parks endpoint (or parks in task detail) instead of rebuilding parks from feed events. Verify: Core API test; UI shows Core's parks.
+- [ ] 6.6 Render only on change: no ~10 fps redraw when nothing animates (animations only while something is live). Verify: tick test; CPU-idle check.
+- [ ] 6.7 Feed start without full history replay: start from a recent window and page back on demand. Verify: client test with a large feed.
+- [ ] 6.8 Connection profiles: several Core URLs / companies with a switcher instead of one env file. Verify: config test.
+- [ ] 6.9 Form for multi-field questions (options per field, free text). Verify: inbox test; golden.
+- [ ] 6.10 Help overlay that scrolls on terminals under 30 rows. Verify: golden at 80x24.
+- [ ] 6.11 Live CI status of a task's PR (not only the checks at submission). Verify: client test with fake forge data.
+- [ ] 6.12 glamour markdown once the build image moves past Go 1.25.8. Verify: artifact preview golden.

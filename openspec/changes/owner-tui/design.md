@@ -51,3 +51,4 @@ A run's usage rows are cumulative over every turn, so input + cache read divided
 - Artifact markdown uses an own renderer, not glamour, until the build image moves past Go 1.25.8.
 - `reopen` and `reset-workspace` have no owner endpoint, so the UI does not offer them.
 - Unread chat markers count from the owner's last message and this session; they are not stored.
+- Not shown yet (tasks 6.x): why a run is QUEUED (disabled driver, paused node, no slot), a nodes screen, pauses/kill switch beyond stop/start, a costs screen, parks from Core (rebuilt from the feed today), render-only-on-change (redraws ~10 fps), feed start without full replay, connection profiles, multi-field question forms, scrolling help, live CI status.
