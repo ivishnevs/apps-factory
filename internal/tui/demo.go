@@ -253,7 +253,11 @@ func DemoFixture() Fixture {
 	claude("r-d1-7", 120, "claude/assistant", toolUse("mcp__factory__factory_exit_submit", map[string]any{"summary": "module 1 with an offline store, 42 tests", "reviewer": "pm"}))
 	add("r-d1-7", 118, "agent.progress", protocol.Event{Method: "factory/exit_guard", Data: json.RawMessage(`{"refusal":1,"reason":"submit needs a pushed branch ahead of main"}`)})
 	claude("r-d1-7", 117, "claude/user", toolResult(`409 {"reason":"branch_not_pushed","hint":"push af/P1-3 ahead of main, then submit"}`, true))
-	claude("r-d1-7", 40, "claude/assistant", toolUse("Bash", map[string]any{"command": "go test ./src/... -run TestStore"}))
+	// The last call's usage is the context gauge: 6 + 61,240 cached + 2,310 written.
+	last := toolUse("Bash", map[string]any{"command": "go test ./src/... -run TestStore"})
+	last["message"].(map[string]any)["model"] = "claude-opus-4-7"
+	last["message"].(map[string]any)["usage"] = map[string]any{"input_tokens": 6, "cache_read_input_tokens": 61240, "cache_creation_input_tokens": 2310, "output_tokens": 90}
+	claude("r-d1-7", 40, "claude/assistant", last)
 	f.ToolCalls["r-d1-7"] = []storage.ToolCall{
 		{ID: "tc1", RunID: "r-d1-7", Agent: "developer-1", ProjectID: "project-1", Tool: "factory_task_get", Status: 200, CreatedAt: at.Add(-690 * time.Second).Unix()},
 		{ID: "tc2", RunID: "r-d1-7", Agent: "developer-1", ProjectID: "project-1", Tool: "factory_message_send", Status: 200, CreatedAt: at.Add(-380 * time.Second).Unix()},
@@ -276,6 +280,12 @@ func DemoFixture() Fixture {
 	codex("r-d2-4", 80, map[string]any{"id": "c-7", "type": "commandExecution", "command": "npm test -- module_2", "exitCode": 1, "aggregatedOutput": "FAIL src/module_2_test.ts\n  ✕ parses an empty input (4 ms)\nTests: 1 failed, 11 passed"})
 	codex("r-d2-4", 60, map[string]any{"id": "c-8", "type": "commandExecution", "command": "npm test -- module_2", "exitCode": 0, "aggregatedOutput": "Tests: 12 passed"})
 	codex("r-d2-4", 15, map[string]any{"type": "fileChange", "changes": []any{map[string]any{"path": "src/module_2.ts"}}})
+	tokenUsage := func(id string, sec int, last int64) {
+		b, _ := json.Marshal(map[string]any{"tokenUsage": map[string]any{"last": map[string]any{"inputTokens": last}, "modelContextWindow": 258400}})
+		add(id, sec, "agent.progress", protocol.Event{Method: "thread/tokenUsage/updated", Data: b})
+	}
+	tokenUsage("r-rev-2", 29, 41800)
+	tokenUsage("r-d2-4", 14, 236000)
 	codex("r-lead-c1", 50, map[string]any{"type": "agentMessage", "text": "The owner asks whether P2-2 can be retried after the rebase; checking its last runs first."})
 	b, _ = json.Marshal(map[string]any{"item": map[string]any{"id": "c-1", "type": "commandExecution", "command": "factory why P2-2"}})
 	add("r-lead-c1", 20, "agent.progress", protocol.Event{Method: "item/started", Data: b})

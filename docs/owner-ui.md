@@ -58,8 +58,11 @@ inside a panel, `z` zooms the focused panel to the full screen.
   `[◎]` in review, `[✓]` done, `[ ]` pending), each waiting task with a dim `↳ blocked by: …` or
   `↳ … waits on …` line. On the owner row: everything that waits on you or is in review. `enter` opens
   the task, and the task actions work here too.
-- **Stats** — the selected agent's live run: model, a context gauge (input and cache-read tokens of the
-  context window, green→red), tokens in/out, cache read/write, run cost and duration; today's cost and runs,
+- **Stats** — the selected agent's live run: model, a context gauge (the prompt of the run's last model
+  call — input + cache read + cache write of the last Claude assistant message, `last.inputTokens` of the
+  last Codex `thread/tokenUsage/updated` — of the context window the runtime reports, else of the model's
+  known window; clamped at 100% in red when over, tokens without a percentage for an unknown model, `n/a`
+  before a per-call usage arrives), tokens in/out and cache read/write marked `(run total)`, run cost and duration; today's cost and runs,
   and sparklines of its spend over 24 h and its activity. On the owner row: company totals.
 - **Activity** — one live stream of every agent's steps (from each live run's event stream) and the feed:
   `HH:MM:SS [agent] Tool  argument`, each agent in its color, refusals red, exits green, attention rows
@@ -148,29 +151,29 @@ refusals, the tool error count and the last error). `t` opens the full transcrip
 refusals, `T` opens the task.
 
 ```
-╭─────────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow ────────────────────────────╮╭─────────── Run stats ────────────╮
+╭───────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow · ✗3 ─────────────────────────╮╭─────────── Run stats ────────────╮
 │  ── session started, model claude-opus-4-7 ──                                               14:18:00 ││ Agent      developer-1           │
 │                                                                                                      ││ Task       P1-3                  │
 │  ╭────────────────────────── developer-1 14:18:05 ──────────────────────────╮                        ││ Status     RUNNING               │
 │  │ Resuming P1-3. The owner asked for offline support, so I'll start with   │                        ││ Model      claude-opus-4-7       │
-│  │ the store layer.                                                         │                        ││ Context    █████░░░░░░░░░  34%   │
-│  ╰──────────────────────────────────────────────────────────────────────────╯                        ││ Tokens     45,230 in 12,891 out  │
-│    ⇄ factory_task_get  task=P1-2                                                            14:18:30 ││ Cache R/W  23,102 / 4,620        │
-│    ◇ core factory_task_get ok                                                               14:18:30 ││ Cost       $1.24                 │
-│    ✎ Read  src/module_1.go                                                                  14:19:00 ││ Duration   12m 00s               │
-│    ✎ Edit  src/module_1.go                                                                  14:20:00 ││ Steps      20                    │
-│    ▸  $ go test ./... -run TestModule1 -count=1 -race -timeout 5m                           14:20:40 ││ Shell      4                     │
-│    ▸  $ git push --force origin af/P1-3                                                     14:21:20 ││ Tools      6                     │
-│    ✗ command refused (deny, rule no-force-push): git push --force origin af/P1-3            14:21:21 ││ Refusals   3                     │
-│    ⚠ tool error: command refused by policy no-force-push                                    14:21:22 ││                                  │
-│                                                                                                      ││                                  │
+│  │ the store layer.                                                         │                        ││ Context    █░░░░░░░░░░░░░   6%   │
+│  ╰──────────────────────────────────────────────────────────────────────────╯                        ││ (run total)                      │
+│    ⇄ factory_task_get  task=P1-2                                                            14:18:30 ││ Tokens     45,230 in 12,891 out  │
+│    ◇ core factory_task_get ok                                                               14:18:30 ││ Cache R/W  23,102 / 4,620        │
+│    ✎ Read  src/module_1.go                                                                  14:19:00 ││ Cost       $1.24                 │
+│    ✎ Edit  src/module_1.go                                                                  14:20:00 ││ Duration   12m 00s               │
+│    ▸  $ go test ./... -run TestModule1 -count=1 -race -timeout 5m                           14:20:40 ││ Steps      21                    │
+│    ▸  $ git push --force origin af/P1-3                                                     14:21:20 ││ Shell      4                     │
+│    ✗ command refused (deny, rule no-force-push): git push --force origin af/P1-3            14:21:21 ││ Tools      6                     │
+│    ⚠ tool error: Exit code 126 command refused by policy no-force-push: push a new commit … 14:21:22 ││ Refusals   3                     │
+│                                                                                                      ││ Errors     ✗3                    │
 │  ╭────────────────────────── developer-1 14:22:00 ──────────────────────────╮                        ││                                  │
-│  │ Force push is not allowed; pushing a new commit instead.                 │                        ││                                  │
-│  ╰──────────────────────────────────────────────────────────────────────────╯                        ││                                  │
-│    ▸  $ git push origin af/P1-3                                                             14:22:10 ││                                  │
-│    ⇄ factory_message_send  body="Task 3: the store layer is done; starting the offline cac… 14:23:40 ││                                  │
+│  │ Force push is not allowed; pushing a new commit instead.                 │                        ││ Last error 14:28:02              │
+│  ╰──────────────────────────────────────────────────────────────────────────╯                        ││ exit guard refused the turn's    │
+│    ▸  $ git push origin af/P1-3                                                             14:22:10 ││ end: submit needs a pushed       │
+│    ⇄ factory_message_send  body="Task 3: the store layer is done; starting the offline cac… 14:23:40 ││ branch ahead of main             │
 │    ◇ core factory_message_send ok                                                           14:23:40 ││                                  │
-│    ✎ Grep  "loadItems" in src/**                                                            14:25:00 ││                                  │
+│    ✎ Grep  "loadItems" in src/**                                                            14:25:00 ││ t transcript · e errors only     │
 │                                                                                                      ││                                  │
 │  ╭────────────────────────── developer-1 14:27:30 ──────────────────────────╮                        ││                                  │
 │  │ All 42 tests pass. Submitting for review.                                │                        ││                                  │

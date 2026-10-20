@@ -4,10 +4,10 @@
 │ ◆ owner · you                              ⚠ 5 ││ [→] Task 3 P1-3                  ← ⠋running ││ Agent       developer-1 · developer     │
 │ ├ ● lead: Conversation with owner       1m 00s ││ [ ] Task 7 P1-7                             ││ Model       claude-opus-4-7 · claude    │
 │ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ queued: busy with P1-3                ││ Run         r-d1-7 · P1-3               │
-│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││                                             ││ Context     ███████░░░░░░░░░░░░░ 34.2%  │
-│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││                                             ││ Tokens In   45,230                      │
-│ │ └ ● reviewer: Task 1                  4m 00s ││                                             ││ Tokens Out  12,891                      │
-│ │     └ › Testing Task 1 on a large in… 0m 30s ││                                             ││ Cache R/W   23,102 / 4,620              │
+│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││                                             ││ Context     █░░░░░░░░░░░░░░░░░░░   6%   │
+│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││                                             ││ Tokens In   45,230 (run total)          │
+│ │ └ ● reviewer: Task 1                  4m 00s ││                                             ││ Tokens Out  12,891 (run total)          │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││                                             ││ Cache R/W   23,102 / 4,620 (run total)  │
 │ └ ◐ pm: waits on you · P1-5                 1h ││                                             ││ Run cost    $1.24                       │
 │   ├ ⏸ designer: paused waiting for the… paused ││                                             ││ Duration    12m 00s                     │
 │   ├ ● developer-1: Task 3           ✗3 12m 00s ││                                             ││ Today       $2.44 · 3 runs              │

@@ -132,8 +132,10 @@ type Model struct {
 	// and every live run's steps.
 	agentLast map[string]LogLine
 	runTails  map[string]context.CancelFunc
-	activity  []actRow
-	actSeen   map[string]bool
+	// runCtx is each tailed run's context (its last model call), for the Stats panel.
+	runCtx   map[string]ctxUsage
+	activity []actRow
+	actSeen  map[string]bool
 
 	dash  dashState
 	board boardState
@@ -184,7 +186,7 @@ func New(o Options) *Model {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{c: o.Client, opts: o, ctx: ctx, cancel: cancel, bus: make(chan tea.Msg, 512), width: 100, height: 30,
-		agentLast: map[string]LogLine{}, runTails: map[string]context.CancelFunc{}, actSeen: map[string]bool{},
+		agentLast: map[string]LogLine{}, runTails: map[string]context.CancelFunc{}, runCtx: map[string]ctxUsage{}, actSeen: map[string]bool{},
 		errs: map[string]errTally{}, errAt: map[string]time.Time{}, notif: newNotifier(o.Notify, o.Run),
 		chat: chatState{msgs: map[string][]messaging.Message{}, errs: map[string]string{}, seen: map[string]int64{}},
 		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot))}
@@ -432,6 +434,7 @@ func (m *Model) syncRunTails() tea.Cmd {
 		if !live[id] {
 			cancel()
 			delete(m.runTails, id)
+			delete(m.runCtx, id)
 		}
 	}
 	return tea.Batch(cmds...)
@@ -455,6 +458,9 @@ func (m *Model) onStream(e StreamEvent) tea.Cmd {
 				return nil
 			}
 			m.actSeen[key] = true
+			c := m.runCtx[id]
+			c.observe(e.Run.Envelope)
+			m.runCtx[id] = c
 			lines := describeRunEvent(e.Run.Envelope)
 			agent := m.runAgent(id)
 			task := ""

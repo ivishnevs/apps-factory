@@ -22,6 +22,7 @@ type runState struct {
 	lastSeq int64
 	calls   []storage.ToolCall
 	lines   []LogLine
+	ctx     ctxUsage // the last model call's context, from events
 	dirty   bool
 	ended   bool
 	outcome string
@@ -290,6 +291,7 @@ func (m *Model) runLines(w, h int) []string {
 	}
 	if r.dirty {
 		r.lines = runLog(r.events, r.calls)
+		r.ctx = contextOf(r.events)
 		m.noteErrors(r.id, tallyErrors(transcriptFromEvents(r.events, r.calls)))
 		shown := r.lines
 		if r.errorsOnly {
@@ -378,13 +380,13 @@ func (m *Model) runStats(w int) []string {
 			tools++
 		}
 	}
-	frac := float64(in+cr) / float64(contextWindow(model))
 	lines := []string{
 		kv("Agent", lipgloss.NewStyle().Foreground(agentColor(run.Spec.Agent)).Bold(true).Render(run.Spec.Agent), kw),
 		kv("Task", dash(run.Spec.TaskID), kw),
 		kv("Status", statusStyle(run.Status).Render(status), kw),
 		kv("Model", dash(model), kw),
-		kv("Context", gauge(frac, max(w-kw-7, 4))+fmt.Sprintf(" %3.0f%%", frac*100), kw),
+		kv("Context", contextText(r.ctx, model, max(w-kw-1, 10)), kw),
+		stFaint.Render("(run total)"),
 		kv("Tokens", thousands(in)+stFaint.Render(" in ")+thousands(out)+stFaint.Render(" out"), kw),
 		kv("Cache R/W", thousands(cr)+stFaint.Render(" / ")+thousands(cw), kw),
 		kv("Cost", stBold.Render(money(cost)), kw),

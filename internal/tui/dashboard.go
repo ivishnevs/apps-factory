@@ -484,14 +484,6 @@ func (m *Model) runOf(a agentRow) (storage.Run, bool) {
 	return r, ok
 }
 
-// contextWindow is the context size a usage gauge measures against.
-func contextWindow(model string) int64 {
-	if strings.HasPrefix(model, "claude") {
-		return 200_000
-	}
-	return 272_000
-}
-
 func (m *Model) statsLines(w int) (string, []string) {
 	now := m.now()
 	const kw = 12
@@ -538,14 +530,13 @@ func (m *Model) statsLines(w int) (string, []string) {
 	}
 	lines = append(lines, kv("Model", model+stFaint.Render(" · "+a.Provider), kw))
 	if live {
-		ctxFrac := float64(in+cr) / float64(contextWindow(model))
-		gw := max(w-kw-7, 6)
+		total := stFaint.Render(" (run total)")
 		lines = append(lines,
 			kv("Run", a.run+stFaint.Render(" · "+a.task), kw),
-			kv("Context", gauge(ctxFrac, gw)+fmt.Sprintf(" %4.1f%%", ctxFrac*100), kw),
-			kv("Tokens In", thousands(in), kw),
-			kv("Tokens Out", thousands(out), kw),
-			kv("Cache R/W", thousands(cr)+stFaint.Render(" / ")+thousands(cw), kw),
+			kv("Context", contextText(m.runCtx[a.run], model, max(w-kw-1, 10)), kw),
+			kv("Tokens In", thousands(in)+total, kw),
+			kv("Tokens Out", thousands(out)+total, kw),
+			kv("Cache R/W", thousands(cr)+stFaint.Render(" / ")+thousands(cw)+total, kw),
 			kv("Run cost", stBold.Render(money(cost)), kw),
 			kv("Duration", elapsed(now.Sub(a.runStart)), kw),
 		)

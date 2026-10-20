@@ -18,6 +18,11 @@ The dashboard SHALL show the owner's `reports_to` tree with each agent's state (
 - **WHEN** an agent has a live run whose last event is a shell command
 - **THEN** its tree row SHALL show the run's task and run time and a sub-row with the command and its age, and `enter` SHALL open the run
 
+#### Scenario: Context gauge is the last call, not the run total
+- **WHEN** a live run's events carry per-call usage (a Claude assistant message's `usage`, a Codex `thread/tokenUsage/updated` `last`)
+- **THEN** the context gauge SHALL measure the most recent call's prompt (input + cache read + cache creation; Codex `inputTokens` including cached) against the window the runtime reports (Claude result `modelUsage.contextWindow`, Codex `modelContextWindow`), else the model's known window; it SHALL NOT use the run's cumulative usage, which SHALL be labelled `(run total)`
+- **AND** a prompt over the window SHALL show 100% in the warning color, an unknown model SHALL show tokens without a percentage, and a run without per-call usage SHALL show `n/a`
+
 #### Scenario: Owner row
 - **WHEN** the owner row is selected
 - **THEN** the tasks panel SHALL list what waits on the owner or is in review and the stats SHALL show company totals
