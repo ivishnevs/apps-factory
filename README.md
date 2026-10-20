@@ -165,6 +165,7 @@ OpenSpec в хранилище Core: [API/CLI/MCP, материализация 
 ./bin/factory ui                        # полноэкранный UI против Core (FACTORY_URL, FACTORY_TOKEN)
 ./bin/factory ui --demo                 # демо-компания без Core
 ./bin/factory ui --record state.json    # снимок состояния Core в fixture; --fixture state.json — просмотр без Core
+./bin/factory ui --notify bell          # desktop (уведомление macOS, по умолчанию) | bell | off
 ```
 
 Дашборд (дерево агентов `reports_to` с live-статусами и таймерами, задачи выбранного агента, статистика run'а с
@@ -172,4 +173,9 @@ OpenSpec в хранилище Core: [API/CLI/MCP, материализация 
 действиями владельца (pause/resume/retry/run/cancel/reassign/reprioritize/comment/direct с подтверждением),
 live-транскрипт run'а (`GET /runs/{id}/events/stream`), swimlanes «кто что кому передал», лента и inbox; строка
 ответа на самый старый вопрос/согласование (`Y`/`N`/`A`), палитра команд `ctrl+k`, мышь. Горячие клавиши — `?`.
+Вкладка `6 Chat` — переписка с прямыми подчинёнными владельца (`POST /messages`, `@name`, «… is replying», непрочитанные);
+`t` на run'е — полный транскрипт сессии (рассуждения, каждый вызов инструмента с полным входом и результатом, из событий
+Core или локального файла сессии Claude/Codex на машине узла, с редактированием секретов); счётчики ошибок инструментов
+`✗3` на дереве, карточках и run'ах; `o` открывает PR задачи, `v` — предпросмотр артефакта перед согласованием; `n` на
+доске — форма новой задачи; новые вопросы, согласования и эскалации — уведомлением macOS (`--notify`).
 Подробности и снимки экранов: [docs/owner-ui.md](docs/owner-ui.md).
