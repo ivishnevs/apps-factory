@@ -1,24 +1,24 @@
- ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox … … Company 1 │ ▶ running │ ⚠ 4
 ╭───────────── Agent Tree ─────────────╮╭───────── Tasks · needs you ──────────╮
-│ ◆ owner · you                    ⚠ 4 ││ [→] Markdown export N-1   ← ⠋running │
-│ ├ ◐ calorie-manager: waits on yo… 1h ││ [!] Release notes app 1… ← needs you │
-│ │ ├ ⏸ calorie-designer: paus… paused ││     ↳ escalation · waits on you: an… │
-│ │ ├ ● calorie-ios: Build th… 12m 00s ││ [!] Pick the nutrition … ← needs you │
-│ │ │   └ ▸ swift test --filte… 0m 40s ││     ↳ ask · waits on you: answer m-… │
-│ │ └ ◐ calorie-qa: waits on calor… 4h ││ [◎] Newsletter signup for… in review │
-│ └ ◐ manager: waits on you · N-3  30m ││     ↳ queued: busy with N-1          │
-│   ├ ● demo: Pricing page      7m 00s ││                                      │
-│   │   └ ✎ Edit: src/pages/pr… 0m 15s ││                                      │
+│ ◆ owner · you                    ⚠ 4 ││ [→] Task 1 P2-1           ← ⠋running │
+│ └ ◐ pm: waits on you · P1-5       1h ││ [!] Task 3 P2-3          ← needs you │
+│   ├ ⏸ designer: paused waiti… paused ││     ↳ escalation · waits on you: an… │
+│   ├ ● developer-1: Task 3    12m 00s ││ [!] Task 5 P1-5          ← needs you │
+│   │   └ ▸ go test ./src/... … 0m 40s ││     ↳ ask · waits on you: answer m-… │
+│   ├ ◐ lead: waits on you · P2-3  30m ││ [◎] Task 6 P3-6            in review │
+│   │ ├ ● developer-2: Task 2   7m 00s ││     ↳ queued: busy with P2-1         │
+│   │ │   └ ✎ Edit: src/module… 0m 15s ││                                      │
+│   │ └ ● reviewer: Task 1      4m 00s ││                                      │
 ╰──────────────────────────────────────╯╰──────────────────────────────────────╯
 ╭────────────────────────────────── Activity ──────────────────────────────────╮
-│ 14:28:02  [calorie-ios]      refused       exit guard refused the turn's en… │
-│ 14:28:30  [reviewer]         task_comments task=N-1                          │
-│ 14:29:00  [manager]          answer        → demo  20%, rounded to whole do… │
-│ 14:29:00  [demo]             Bash          $ npx playwright test pricing.sp… │
-│ 14:29:20  [calorie-ios]      Bash          $ swift test --filter MealStoreT… │
-│ 14:29:30  [reviewer]         says          “Testing the export on a 10k-lin… │
-│ 14:29:45  [demo]             Edit          src/pages/pricing.tsx             │
+│ 14:28:02  [developer-1] refused       exit guard refused the turn's end: su… │
+│ 14:28:30  [reviewer]    task_comments task=P2-1                              │
+│ 14:29:00  [lead]        answer        → developer-2  Option B, keep it behi… │
+│ 14:29:00  [developer-2] Bash          $ npm test -- module_2                 │
+│ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore     │
+│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as t… │
+│ 14:29:45  [developer-2] Edit          src/module_2.ts                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +2 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q qu…

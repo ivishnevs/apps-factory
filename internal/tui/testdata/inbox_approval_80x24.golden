@@ -1,24 +1,24 @@
- ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox … … Company 1 │ ▶ running │ ⚠ 4
 ╭───────────────────────────────── Inbox · 3 ──────────────────────────────────╮
-│ ● question  calorie-manager                                           1h ago │
-│   CAL-5 · Which nutrition data API may we pay for? USDA is free but has no … │
+│ ● question  pm                                                        1h ago │
+│   P1-5 · Which option for Task 5: A or B? A is free but slower; B is faster… │
 │                                                                              │
-│ ● approval  manager                                                  20m ago │
-│   N-3 · Approve publishing notes 1.2 to TestFlight.                          │
+│ ● approval  lead                                                     20m ago │
+│   P2-3 · Approve release of Project 2?                                       │
 │                                                                              │
 │ ● escalation  factory                                                30m ago │
-│   N-3 · N-3 stalled: it waits on N-2, which failed 3 times without progress. │
+│   P2-3 · P2-3 stalled: it waits on P2-2, which failed 3 times without progr… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────── Item ────────────────────────────────────╮
-│ ● APPROVAL  from ● manager  to owner   notes   N-3                           │
+│ ● APPROVAL  from ● lead  to owner   project-2   P2-3                         │
 │                                                                              │
-│ Approve publishing notes 1.2 to TestFlight.                                  │
+│ Approve release of Project 2?                                                │
 │                                                                              │
 │ call     factory_release_publish                                             │
-│ args     channel=testflight version=1.2                                      │
-│ reason   release 1.2 is approved by review                                   │
+│ args     channel=beta version=1.2                                            │
+│ reason   release 1.2 of Project 2 passed review                              │
 │ expires  in 24h                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +2 in inbox
  ↑↓ item  ←→ option  enter answer  a text  y/n approve  ^k palette  [ ] project…

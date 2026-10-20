@@ -27,7 +27,7 @@ func TestInteractionOf(t *testing.T) {
 		{storage.FeedItem{Type: "message.read", Summary: "owner → demo (answer): yes"}, "", "", "", "", false},
 		{storage.FeedItem{Type: "task.trigger.directive", Agent: "demo", Actor: "owner", Summary: "ship today"}, "owner", "demo", "directive", "ship today", true},
 		{storage.FeedItem{Type: "task.trigger.dependency_done", Agent: "demo"}, "", "", "", "", false},
-		{storage.FeedItem{Type: "task.reassigned", Agent: "calorie-qa", Actor: "calorie-manager", Summary: "x"}, "calorie-manager", "calorie-qa", "reassigned", "x", true},
+		{storage.FeedItem{Type: "task.reassigned", Agent: "qa", Actor: "pm", Summary: "x"}, "pm", "qa", "reassigned", "x", true},
 		{storage.FeedItem{Type: "task.escalation.stalled", Agent: "manager", Summary: "N-3 waits on N-2 → owner"}, "manager", "owner", "escalate", "N-3 waits on N-2", true},
 		{storage.FeedItem{Type: "approval.requested", Agent: "manager", Summary: "publish"}, "manager", "owner", "approval", "publish", true},
 		{storage.FeedItem{Type: "task.retry", Agent: "demo"}, "", "", "", "", false},
@@ -41,13 +41,13 @@ func TestInteractionOf(t *testing.T) {
 }
 
 func TestEdges(t *testing.T) {
-	ins := interactions(DemoFixture().Feed, FlowFilter{Project: "notes"})
+	ins := interactions(DemoFixture().Feed, FlowFilter{Project: "project-2"})
 	es := edges(ins)
-	if len(es) == 0 || es[0].From != "manager" || es[0].To != "demo" || es[0].Total != 4 || es[0].verbsText() != "create×3 handoff" {
+	if len(es) == 0 || es[0].From != "lead" || es[0].To != "developer-2" || es[0].Total != 4 || es[0].verbsText() != "create×3 handoff" {
 		t.Fatalf("%+v", es)
 	}
 	for _, in := range ins {
-		if in.Project != "notes" {
+		if in.Project != "project-2" {
 			t.Fatal(in)
 		}
 	}

@@ -1,40 +1,40 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                                                  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                                   ● fixture demo │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                          14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
 ╭──────────────────────────────────── Flow · swimlanes · 33 steps · project all · agent all · task all ────────────────────────────────────╮
-│         owner       calorie-designer     calorie-qa           demo                                                                       │
-│             calorie-manager     calorie-ios         manager          reviewer                                                            │
-│ 06:10     │        │        │        │        │        ●────────▶        │     create    N-6    “Full-text search index”                 │
-│ 07:50     │        │        ◆        │        │        │        │        │     done      W-1    landing copy v2 in the repo              │
-│ 09:10     ●────────────────────────────────────────────▶        │        │     create    N-3    “Release notes app 1.2”                  │
-│ 09:30     ●────────▶        │        │        │        │        │        │     create    CAL-1  “Ship calorie calculator v1”             │
-│ 09:50     │        ●────────▶        │        │        │        │        │     create    CAL-2  “Design the meal entry screen”           │
-│ 10:00     │        ●─────────────────▶        │        │        │        │     create    CAL-3  “Build the meal entry screen”            │
-│ 10:05     │        ●──────────────────────────▶        │        │        │     create    CAL-4  “Test meal entry on iPhone SE”           │
-│ 10:10     │        │        │        │        │        │        ◆        │     done      N-6    search index with 40 ms p95              │
-│ 10:30     │        │        │        │        │        ●────────▶        │     create    N-1    “Markdown export”                        │
-│ 10:40     │        │        │        │        │        ●────────▶        │     create    N-2    “Fix the sync conflict on rename”        │
-│ 11:00     │        │        ◆        │        │        │        │        │     done      CAL-2  meal entry mockups in Figma v3           │
-│ 11:10     │        ◆        │        │        │        │        │        │     create    CAL-5  “Pick the nutrition data API”            │
-│ 11:30     │        ●─────────────────▶        │        │        │        │     create    CAL-7  “Barcode scanner spike”                  │
-│ 11:50     │        ◀─────────────────●        │        │        │        │     question  CAL-3  Should the portion picker allow grams a… │
-│ 12:00     │        ●─────────────────▶        │        │        │        │     answer    CAL-3  Grams only for v1.                       │
-│ 12:30     │        │        │        │        │        ●────────▶        │     create    W-2    “Pricing page”                           │
-│ 12:31     │        │        │        │        │        │        ●────────▶     submit    N-1    markdown export with round-trip tests    │
-│ 12:40     │        │        │        │        │        │        ◀────────●     changes   N-1    escape pipes in tables                   │
-│ 12:42     │        │        │        │        │        ●─────────────────▶     create    W-3    “SEO audit of the landing page”          │
-│ 12:50     │        ◆        │        │        │        │        │        │     asked     CAL-5  Which nutrition data API may we pay for? │
-│ 12:55     ◀────────●        │        │        │        │        │        │     question  CAL-5  Which nutrition data API may we pay for… │
-│ 13:05     │        │        │        │        │        │        ●────────▶     submit    W-6    signup form with double opt-in           │
-│ 13:20     ●──────────────────────────▶        │        │        │        │     directive CAL-3  Keep the entry screen offline-first.     │
-│ 13:35     │        │        │        │        │        │        ●────────▶     submit    N-1    pipes escaped, tests added               │
-│ 13:40     │        │        │        │        │        │        ◆        │     blocked   W-5    needs the legal text for the banner      │
-│ 13:50     │        │        │        │        │        ●────────▶        │     handoff   N-3    rebase N-2 on main before retrying       │
-│ 14:00     ◀────────────────────────────────────────────●        │        │     escalate  N-3    N-3 waits on N-2                         │
-│ 14:05     │        │        │        ●────────▶        │        │        │     create    CAL-9  “Crash on empty meal list”               │
-│ 14:10     ◀────────────────────────────────────────────●        │        │     approval  N-3    factory_release_publish: release 1.2 is… │
-│ 14:27     │        │        │        │        │        ◀────────●        │     question  W-2    Yearly discount: 15% or 20%?             │
-│ 14:28     ●──────────────────────────────────────────────────────────────▶     comment   N-1    Please check the export on a 10k-line n… │
-│ 14:29     │        │        │        │        │        ●────────▶        │     answer    W-2    20%, rounded to whole dollars.           │
+│         owner           designer            lead            reviewer                                                                     │
+│                   pm            developer-1       developer-2           qa                                                               │
+│ 06:10     │        │        │        │        ●────────▶        │        │     create    P2-6   “Task 6”                                 │
+│ 07:50     │        │        ◆        │        │        │        │        │     done      P3-1   Task 1 spec v2 in the repo               │
+│ 09:10     ●───────────────────────────────────▶        │        │        │     create    P2-3   “Task 3”                                 │
+│ 09:30     ●────────▶        │        │        │        │        │        │     create    P1-1   “Task 1”                                 │
+│ 09:50     │        ●────────▶        │        │        │        │        │     create    P1-2   “Task 2”                                 │
+│ 10:00     │        ●─────────────────▶        │        │        │        │     create    P1-3   “Task 3”                                 │
+│ 10:05     │        ●─────────────────────────────────────────────────────▶     create    P1-4   “Task 4”                                 │
+│ 10:10     │        │        │        │        │        ◆        │        │     done      P2-6   Task 6 merged, tests pass                │
+│ 10:30     │        │        │        │        ●────────▶        │        │     create    P2-1   “Task 1”                                 │
+│ 10:40     │        │        │        │        ●────────▶        │        │     create    P2-2   “Task 2”                                 │
+│ 11:00     │        │        ◆        │        │        │        │        │     done      P1-2   module 1 mockups v3                      │
+│ 11:10     │        ◆        │        │        │        │        │        │     create    P1-5   “Task 5”                                 │
+│ 11:30     │        ●─────────────────▶        │        │        │        │     create    P1-7   “Task 7”                                 │
+│ 11:50     │        ◀─────────────────●        │        │        │        │     question  P1-3   Should Task 3 support option A or both?  │
+│ 12:00     │        ●─────────────────▶        │        │        │        │     answer    P1-3   Option A only for now.                   │
+│ 12:30     │        │        │        │        ●────────▶        │        │     create    P3-2   “Task 2”                                 │
+│ 12:31     │        │        │        │        │        ●────────▶        │     submit    P2-1   Task 1 is ready for review               │
+│ 12:40     │        │        │        │        │        ◀────────●        │     changes   P2-1   add tests for edge cases                 │
+│ 12:42     │        │        │        │        ●─────────────────▶        │     create    P3-3   “Task 3”                                 │
+│ 12:50     │        ◆        │        │        │        │        │        │     asked     P1-5   Which option for Task 5: A or B?         │
+│ 12:55     ◀────────●        │        │        │        │        │        │     question  P1-5   Which option for Task 5: A or B? A is f… │
+│ 13:05     │        │        │        │        │        ●────────▶        │     submit    P3-6   Task 6 is ready for review               │
+│ 13:20     ●──────────────────────────▶        │        │        │        │     directive P1-3   Keep Task 3 working offline.             │
+│ 13:35     │        │        │        │        │        ●────────▶        │     submit    P2-1   edge-case tests added                    │
+│ 13:40     │        │        │        │        │        ◆        │        │     blocked   P3-5   needs the input data for Task 5          │
+│ 13:50     │        │        │        │        ●────────▶        │        │     handoff   P2-3   rebase P2-2 on main before retrying      │
+│ 14:00     ◀───────────────────────────────────●        │        │        │     escalate  P2-3   P2-3 waits on P2-2                       │
+│ 14:05     │        │        │        ●───────────────────────────────────▶     create    P1-9   “Task 9”                                 │
+│ 14:10     ◀───────────────────────────────────●        │        │        │     approval  P2-3   factory_release_publish: release 1.2 of… │
+│ 14:27     │        │        │        │        ◀────────●        │        │     question  P3-2   Which option for Task 2: A or B?         │
+│ 14:28     ●─────────────────────────────────────────────────────▶        │     comment   P2-1   Please check Task 1 on a large input.    │
+│ 14:29     │        │        │        │        ●────────▶        │        │     answer    P3-2   Option B, keep it behind a flag.         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for? USD… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +2 in inbox
  g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

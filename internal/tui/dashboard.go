@@ -375,7 +375,7 @@ func (m *Model) treeLines(w, h int) []string {
 	return lines[off:]
 }
 
-// subText is a live step as a tree sub-row: "Bash: swift test", "Read: MealStore.swift".
+// subText is a live step as a tree sub-row: "Bash: go test", "Read: module_1.go".
 func subText(l LogLine) string {
 	if l.Tool != "" && l.Kind != lineShell {
 		return l.Tool + ": " + l.Arg
@@ -446,7 +446,7 @@ func (m *Model) isLive(task string) bool {
 	return ok
 }
 
-// whyLine says what a waiting task waits on: "blocked by: CAL-3 (calorie-ios)", "waits on: you — …".
+// whyLine says what a waiting task waits on: "blocked by: P1-3 (developer-1)", "waits on: you — …".
 func (m *Model) whyLine(t Task) string {
 	if terminal(t.Status) || m.isLive(t.ID) || t.Status == "BACKLOG" || t.Reason == "runnable" || t.Reason == "" {
 		return ""

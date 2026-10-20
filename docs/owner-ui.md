@@ -23,7 +23,7 @@ fixture implementations is separate from the views — and `cmd/factory/ui.go`.
 
 ## Layout
 
-- **Header**: the app name, one chip per project — `[ ● calorie 22% ]`: the dot is green while the project
+- **Header**: the app name, one chip per project — `[ ● project-1 22% ]`: the dot is green while the project
   has live runs, the percentage is its done share; the selected chip (`[` / `]`, or a click) narrows every
   screen to that project — and a live clock.
 - **Tabs**: `1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox`, then Core's connection dot, the company,
@@ -67,35 +67,35 @@ inside a panel, `z` zooms the focused panel to the full screen.
 Below 110 columns the dashboard shows Agent Tree, Tasks and Activity; at 80×24 it still fits.
 
 ```
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
 ╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
-│ ◆ owner · you                              ⚠ 4 ││ [→] Markdown export N-1             ← ⠋running │
-│ ├ ◐ calorie-manager: waits on you · CAL-5   1h ││ [!] Release notes app 1.2 N-3      ← needs you │
-│ │ ├ ⏸ calorie-designer: paused waiting… paused ││     ↳ escalation · waits on you: answer m-esc… │
-│ │ ├ ● calorie-ios: Build the meal ent… 12m 00s ││ [!] Pick the nutrition data API C… ← needs you │
-│ │ │   └ ▸ swift test --filter MealStor… 0m 40s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
-│ │ └ ◐ calorie-qa: waits on calorie-ios · C… 4h ││ [◎] Newsletter signup form W-6       in review │
-│ └ ◐ manager: waits on you · N-3            30m ││     ↳ queued: busy with N-1                    │
-│   ├ ● demo: Pricing page                7m 00s ││                                                │
-│   │   └ ✎ Edit: src/pages/pricing.tsx   0m 15s ││                                                │
-│   └ ● reviewer: Markdown export         4m 00s ││                                                │
-│       └ › Testing the export on a 10k-… 0m 30s ││                                                │
+│ ◆ owner · you                              ⚠ 4 ││ [→] Task 1 P2-1                     ← ⠋running │
+│ └ ◐ pm: waits on you · P1-5                 1h ││ [!] Task 3 P2-3                    ← needs you │
+│   ├ ⏸ designer: paused waiting for the… paused ││     ↳ escalation · waits on you: answer m-esc… │
+│   ├ ● developer-1: Task 3              12m 00s ││ [!] Task 5 P1-5                    ← needs you │
+│   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
+│   ├ ◐ lead: waits on you · P2-3            30m ││ [◎] Task 6 P3-6                      in review │
+│   │ ├ ● developer-2: Task 2             7m 00s ││     ↳ queued: busy with P2-1                   │
+│   │ │   └ ✎ Edit: src/module_2.ts       0m 15s ││                                                │
+│   │ └ ● reviewer: Task 1                4m 00s ││                                                │
+│   │     └ › Testing Task 1 on a large … 0m 30s ││                                                │
+│   └ ◐ qa: waits on developer-1 · P1-4       4h ││                                                │
 │                                                ││                                                │
 ╰────────────────────────────────────────────────╯╰────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────── Activity ────────────────────────────────────────────╮
-│ 14:27:30  [reviewer]         Bash          $ go test ./export/...                                │
-│ 14:28:00  [owner]            comment       → reviewer  Please check the export on a 10k-line no… │
-│ 14:28:00  [calorie-ios]      exit_submit   reviewer=calorie-manager summary="meal entry screen,… │
-│ 14:28:02  [calorie-ios]      refused       exit guard refused the turn's end: submit needs a pu… │
-│ 14:28:30  [reviewer]         task_comments task=N-1                                              │
-│ 14:29:00  [manager]          answer        → demo  20%, rounded to whole dollars.                │
-│ 14:29:00  [demo]             Bash          $ npx playwright test pricing.spec.ts                 │
-│ 14:29:20  [calorie-ios]      Bash          $ swift test --filter MealStoreTests                  │
-│ 14:29:30  [reviewer]         says          “Testing the export on a 10k-line note as the owner … │
-│ 14:29:45  [demo]             Edit          src/pages/pricing.tsx                                 │
+│ 14:27:30  [reviewer]    Bash          $ go test ./...                                            │
+│ 14:28:00  [owner]       comment       → reviewer  Please check Task 1 on a large input.          │
+│ 14:28:00  [developer-1] exit_submit   reviewer=pm summary="module 1 with an offline store, 42 t… │
+│ 14:28:02  [developer-1] refused       exit guard refused the turn's end: submit needs a pushed … │
+│ 14:28:30  [reviewer]    task_comments task=P2-1                                                  │
+│ 14:29:00  [lead]        answer        → developer-2  Option B, keep it behind a flag.            │
+│ 14:29:00  [developer-2] Bash          $ npm test -- module_2                                     │
+│ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                         │
+│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │
+│ 14:29:45  [developer-2] Edit          src/module_2.ts                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit
 ```
 
@@ -119,16 +119,16 @@ exit and cost, comments and recent events — with the actions: `p` pause · `u`
  21 tasks  · z shows cancelled                                                                more ▶
 ╭───────── ● Backlog 3 ─────────╮╭──────── ● Ready 4 +1 ─────────╮╭───────── ● Running 2 ──────────╮
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
-│ │ ● Blog engine             │ ││ │ ● Crash on empty meal li… │ ││ ┃ ● Pricing page             ┃ │
-│ │ W-4  website           ▽3 │ ││ │ CAL-9  calorie         ▲8 │ ││ ┃ W-2  website            ▲8 ┃ │
-│ │ ● demo                 1h │ ││ │ ● calorie-qa          25m │ ││ ┃ ● demo                  7m ┃ │
-│ │ ○ not released            │ ││ │ ◌ ready · next free slot  │ ││ ┃ ⠋ ✎ Edit: src/pages/prici… ┃ │
+│ │ ● Task 4                  │ ││ │ ● Task 9                  │ ││ ┃ ● Task 2                   ┃ │
+│ │ P3-4  project-3        ▽3 │ ││ │ P1-9  project-1        ▲8 │ ││ ┃ P3-2  project-3         ▲8 ┃ │
+│ │ ● developer-2          1h │ ││ │ ● qa                  25m │ ││ ┃ ● developer-2           7m ┃ │
+│ │ ○ not released            │ ││ │ ◌ ready · next free slot  │ ││ ┃ ⠋ ✎ Edit: src/module_2.ts  ┃ │
 │ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
-│ │ ● Dark mode icons         │ ││ │ ● Fix the sync conflict … │ ││ │ ● Build the meal entry sc… │ │
-│ │ N-4  notes             ▽3 │ ││ │ N-2  notes             △7 │ ││ │ CAL-3  calorie          △7 │ │
-│ │ ● calorie-designer     3h │ ││ │ ● demo        $0.87 · 45m │ ││ │ ● calorie-ios  $2.44 · 12m │ │
-│ │ ○ not released            │ ││ │ ↳ backoff: retry at 14:34 │ ││ │ ⠋ ▸ swift test --filter M… │ │
+│ │ ● Task 4                  │ ││ │ ● Task 2                  │ ││ │ ● Task 3                   │ │
+│ │ P2-4  project-2        ▽3 │ ││ │ P2-2  project-2        △7 │ ││ │ P1-3  project-1         △7 │ │
+│ │ ● designer             3h │ ││ │ ● developer-2 $0.87 · 45m │ ││ │ ● developer-1  $2.44 · 12m │ │
+│ │ ○ not released            │ ││ │ ↳ backoff: retry at 14:34 │ ││ │ ⠋ ▸ go test ./src/... -ru… │ │
 │ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││ ╰────────────────────────────╯ │
 ```
 
@@ -143,31 +143,31 @@ At 110 columns a side panel shows the run's stats (context gauge, tokens, cache,
 refusals).
 
 ```
-╭────────────────────────── calorie-ios · r-ios-7 · CAL-3 · ● live · follow ───────────────────────────╮╭─────────── Run stats ────────────╮
-│  ── session started, model claude-opus-4-7 ──                                               14:18:00 ││ Agent      calorie-ios           │
-│                                                                                                      ││ Task       CAL-3                 │
-│  ╭────────────────────────── calorie-ios 14:18:05 ──────────────────────────╮                        ││ Status     RUNNING               │
-│  │ Resuming CAL-3. The owner asked for offline-first, so I'll start from    │                        ││ Model      claude-opus-4-7       │
+╭─────────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow ────────────────────────────╮╭─────────── Run stats ────────────╮
+│  ── session started, model claude-opus-4-7 ──                                               14:18:00 ││ Agent      developer-1           │
+│                                                                                                      ││ Task       P1-3                  │
+│  ╭────────────────────────── developer-1 14:18:05 ──────────────────────────╮                        ││ Status     RUNNING               │
+│  │ Resuming P1-3. The owner asked for offline support, so I'll start with   │                        ││ Model      claude-opus-4-7       │
 │  │ the store layer.                                                         │                        ││ Context    █████░░░░░░░░░  34%   │
 │  ╰──────────────────────────────────────────────────────────────────────────╯                        ││ Tokens     45,230 in 12,891 out  │
-│    ⇄ factory_task_get  task=CAL-2                                                           14:18:30 ││ Cache R/W  23,102 / 4,620        │
+│    ⇄ factory_task_get  task=P1-2                                                            14:18:30 ││ Cache R/W  23,102 / 4,620        │
 │    ◇ core factory_task_get ok                                                               14:18:30 ││ Cost       $1.24                 │
-│    ✎ Read  Calorie/MealEntry/MealStore.swift                                                14:19:00 ││ Duration   12m 00s               │
-│    ✎ Edit  Calorie/MealEntry/MealStore.swift                                                14:20:00 ││ Steps      20                    │
-│    ▸  $ xcodebuild -scheme Calorie -destination 'platform=iOS Simulator,name=iPhone 16'…    14:20:40 ││ Shell      4                     │
-│    ▸  $ git push --force origin af/CAL-3                                                    14:21:20 ││ Tools      6                     │
-│    ✗ command refused (deny, rule no-force-push): git push --force origin af/CAL-3           14:21:21 ││ Refusals   3                     │
+│    ✎ Read  src/module_1.go                                                                  14:19:00 ││ Duration   12m 00s               │
+│    ✎ Edit  src/module_1.go                                                                  14:20:00 ││ Steps      20                    │
+│    ▸  $ go test ./... -run TestModule1 -count=1 -race -timeout 5m                           14:20:40 ││ Shell      4                     │
+│    ▸  $ git push --force origin af/P1-3                                                     14:21:20 ││ Tools      6                     │
+│    ✗ command refused (deny, rule no-force-push): git push --force origin af/P1-3            14:21:21 ││ Refusals   3                     │
 │    ⚠ tool error: command refused by policy no-force-push                                    14:21:22 ││                                  │
 │                                                                                                      ││                                  │
-│  ╭────────────────────────── calorie-ios 14:22:00 ──────────────────────────╮                        ││                                  │
+│  ╭────────────────────────── developer-1 14:22:00 ──────────────────────────╮                        ││                                  │
 │  │ Force push is not allowed; pushing a new commit instead.                 │                        ││                                  │
 │  ╰──────────────────────────────────────────────────────────────────────────╯                        ││                                  │
-│    ▸  $ git push origin af/CAL-3                                                            14:22:10 ││                                  │
-│    ⇄ factory_message_send  body="Portion picker done in grams; starting the offline cache.… 14:23:40 ││                                  │
+│    ▸  $ git push origin af/P1-3                                                             14:22:10 ││                                  │
+│    ⇄ factory_message_send  body="Task 3: the store layer is done; starting the offline cac… 14:23:40 ││                                  │
 │    ◇ core factory_message_send ok                                                           14:23:40 ││                                  │
-│    ✎ Grep  "refreshMeals" in Calorie/**                                                     14:25:00 ││                                  │
+│    ✎ Grep  "loadItems" in src/**                                                            14:25:00 ││                                  │
 │                                                                                                      ││                                  │
-│  ╭────────────────────────── calorie-ios 14:27:30 ──────────────────────────╮                        ││                                  │
+│  ╭────────────────────────── developer-1 14:27:30 ──────────────────────────╮                        ││                                  │
 │  │ All 42 tests pass. Submitting for review.                                │                        ││                                  │
 ```
 
@@ -181,22 +181,22 @@ it to an agent or a task (the project is the header chip); `g` switches to pairs
 its count bar, kinds and last time, next to the `reports_to` tree. When the lanes do not fit, a list.
 
 ```
-╭────────────── Flow · swimlanes · 13 steps · project calorie · agent all · task all ──────────────╮
-│          owner         calorie-designer       calorie-qa                                         │
-│               calorie-manager       calorie-ios                                                  │
-│ 09:30      ●─────────▶         │         │         │     create    CAL-1  “Ship calorie calcula… │
-│ 09:50      │         ●─────────▶         │         │     create    CAL-2  “Design the meal entr… │
-│ 10:00      │         ●───────────────────▶         │     create    CAL-3  “Build the meal entry… │
-│ 10:05      │         ●─────────────────────────────▶     create    CAL-4  “Test meal entry on i… │
-│ 11:00      │         │         ◆         │         │     done      CAL-2  meal entry mockups in… │
-│ 11:10      │         ◆         │         │         │     create    CAL-5  “Pick the nutrition d… │
-│ 11:30      │         ●───────────────────▶         │     create    CAL-7  “Barcode scanner spik… │
-│ 11:50      │         ◀───────────────────●         │     question  CAL-3  Should the portion pi… │
-│ 12:00      │         ●───────────────────▶         │     answer    CAL-3  Grams only for v1.     │
-│ 12:50      │         ◆         │         │         │     asked     CAL-5  Which nutrition data … │
-│ 12:55      ◀─────────●         │         │         │     question  CAL-5  Which nutrition data … │
-│ 13:20      ●─────────────────────────────▶         │     directive CAL-3  Keep the entry screen… │
-│ 14:05      │         │         │         ●─────────▶     create    CAL-9  “Crash on empty meal … │
+╭───────────── Flow · swimlanes · 13 steps · project project-1 · agent all · task all ─────────────╮
+│          owner             designer               qa                                             │
+│                     pm              developer-1                                                  │
+│ 09:30      ●─────────▶         │         │         │     create    P1-1   “Task 1”               │
+│ 09:50      │         ●─────────▶         │         │     create    P1-2   “Task 2”               │
+│ 10:00      │         ●───────────────────▶         │     create    P1-3   “Task 3”               │
+│ 10:05      │         ●─────────────────────────────▶     create    P1-4   “Task 4”               │
+│ 11:00      │         │         ◆         │         │     done      P1-2   module 1 mockups v3    │
+│ 11:10      │         ◆         │         │         │     create    P1-5   “Task 5”               │
+│ 11:30      │         ●───────────────────▶         │     create    P1-7   “Task 7”               │
+│ 11:50      │         ◀───────────────────●         │     question  P1-3   Should Task 3 support… │
+│ 12:00      │         ●───────────────────▶         │     answer    P1-3   Option A only for now. │
+│ 12:50      │         ◆         │         │         │     asked     P1-5   Which option for Task… │
+│ 12:55      ◀─────────●         │         │         │     question  P1-5   Which option for Task… │
+│ 13:20      ●─────────────────────────────▶         │     directive P1-3   Keep Task 3 working o… │
+│ 14:05      │         │         │         ●─────────▶     create    P1-9   “Task 9”               │
 ```
 
 ## 4 Feed and 5 Inbox

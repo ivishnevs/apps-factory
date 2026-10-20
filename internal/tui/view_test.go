@@ -29,7 +29,7 @@ func demoModel(t *testing.T, w, h int) (*Model, *FixtureClient) {
 	for i := range f.Feed {
 		m.Update(streamMsg{Stream: "feed", Feed: &f.Feed[i]})
 	}
-	for _, id := range []string{"r-ios-7", "r-rev-2", "r-web-4"} {
+	for _, id := range []string{"r-d1-7", "r-rev-2", "r-d2-4"} {
 		events := f.RunEvents[id]
 		for i := range events {
 			m.Update(streamMsg{Stream: "tail:" + id, Run: &events[i]})
@@ -138,11 +138,11 @@ func TestGoldenScreens(t *testing.T) {
 		{name: "board_100x30", w: 100, h: 30, keys: []string{"2", "right", "right"}},
 		{name: "board_80x24", w: 80, h: 24, keys: []string{"2"}},
 		{name: "board_project_100x30", w: 100, h: 30, keys: []string{"2", "]"}},
-		{name: "task_detail_120x40", w: 120, h: 40, prep: func(m *Model) { m.Update(m.openDetail("CAL-3")()) }},
+		{name: "task_detail_120x40", w: 120, h: 40, prep: func(m *Model) { m.Update(m.openDetail("P1-3")()) }},
 		{name: "confirm_pause_100x30", w: 100, h: 30, keys: []string{"2", "right", "right", "p"}},
 		{name: "input_directive_100x30", w: 100, h: 30, keys: []string{"2", "right", "right", "d"}, prep: func(m *Model) { typeText(m, "!ship the grams-only picker today") }},
-		{name: "run_140x40", w: 140, h: 40, prep: func(m *Model) { openDemoRun(m, "r-ios-7") }},
-		{name: "run_codex_100x30", w: 100, h: 30, prep: func(m *Model) { openDemoRun(m, "r-web-4") }},
+		{name: "run_140x40", w: 140, h: 40, prep: func(m *Model) { openDemoRun(m, "r-d1-7") }},
+		{name: "run_codex_100x30", w: 100, h: 30, prep: func(m *Model) { openDemoRun(m, "r-d2-4") }},
 		{name: "flow_lanes_140x40", w: 140, h: 40, keys: []string{"3"}},
 		{name: "flow_lanes_project_100x30", w: 100, h: 30, keys: []string{"3", "]"}},
 		{name: "flow_pairs_100x30", w: 100, h: 30, keys: []string{"3", "g"}},

@@ -1,18 +1,18 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
  9 tasks  · z shows cancelled                                                                 more ▶
 ╭───────── ● Backlog 1 ─────────╮╭────────── ● Ready 2 ──────────╮╭───────── ● Running 1 ──────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
-│ ┃ ● App Store screenshots   ┃ ││ │ ● Crash on empty meal li… │ ││ │ ● Build the meal entry sc… │ │
-│ ┃ CAL-6  calorie         ▽2 ┃ ││ │ CAL-9  calorie         ▲8 │ ││ │ CAL-3  calorie          △7 │ │
-│ ┃ ● calorie-designer     2h ┃ ││ │ ● calorie-qa          25m │ ││ │ ● calorie-ios  $2.44 · 12m │ │
-│ ┃ ○ not released            ┃ ││ │ ◌ ready · next free slot  │ ││ │ ⠋ ▸ swift test --filter M… │ │
+│ ┃ ● Task 6                  ┃ ││ │ ● Task 9                  │ ││ │ ● Task 3                   │ │
+│ ┃ P1-6  project-1        ▽2 ┃ ││ │ P1-9  project-1        ▲8 │ ││ │ P1-3  project-1         △7 │ │
+│ ┃ ● designer             2h ┃ ││ │ ● qa                  25m │ ││ │ ● developer-1  $2.44 · 12m │ │
+│ ┃ ○ not released            ┃ ││ │ ◌ ready · next free slot  │ ││ │ ⠋ ▸ go test ./src/... -ru… │ │
 │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰───────────────────────────╯ ││ ╰────────────────────────────╯ │
 │                               ││ ╭───────────────────────────╮ ││                                │
-│                               ││ │ ● Barcode scanner spike   │ ││                                │
-│                               ││ │ CAL-7  calorie         △5 │ ││                                │
-│                               ││ │ ● calorie-ios          3h │ ││                                │
-│                               ││ │ ↳ queued: busy with CAL-3 │ ││                                │
+│                               ││ │ ● Task 7                  │ ││                                │
+│                               ││ │ P1-7  project-1        △5 │ ││                                │
+│                               ││ │ ● developer-1          3h │ ││                                │
+│                               ││ │ ↳ queued: busy with P1-3  │ ││                                │
 │                               ││ ╰───────────────────────────╯ ││                                │
 │                               ││                               ││                                │
 │                               ││                               ││                                │
@@ -26,5 +26,5 @@
 │                               ││                               ││                                │
 │                               ││                               ││                                │
 ╰───────────────────────────────╯╰───────────────────────────────╯╰────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
  ←→↑↓ move  enter open  / filter  ! needs you  L live  ^k palette  [ ] project  ? help  q quit

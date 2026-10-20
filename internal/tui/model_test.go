@@ -71,13 +71,13 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 			got[c.key] = append(got[c.key], tk.ID)
 		}
 	}
-	want := map[string]string{"backlog": "W-4 N-4 CAL-6", "running": "W-2 CAL-3", "review": "N-1 W-6", "done": "CAL-2 CAL-8 N-6 W-1"}
+	want := map[string]string{"backlog": "P3-4 P2-4 P1-6", "running": "P3-2 P1-3", "review": "P2-1 P3-6", "done": "P1-2 P1-8 P2-6 P3-1"}
 	for k, v := range want {
 		if strings.Join(got[k], " ") != v {
 			t.Errorf("%s: %v, want %s", k, got[k], v)
 		}
 	}
-	if len(got["waiting"]) != 5 || got["waiting"][0] != "N-3" || got["cancelled"] != nil {
+	if len(got["waiting"]) != 5 || got["waiting"][0] != "P2-3" || got["cancelled"] != nil {
 		t.Fatal(got["waiting"], got["cancelled"])
 	}
 	// Owner-waiting cards first, cancelled hidden until z.
@@ -87,16 +87,16 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 	}
 	// Arrows move between columns and cards.
 	press(m, "right", "right", "down")
-	if tk, _ := m.board.selected(m); tk.ID != "CAL-3" {
+	if tk, _ := m.board.selected(m); tk.ID != "P1-3" {
 		t.Fatal(tk.ID)
 	}
 	// The project chip narrows the board.
 	press(m, "]")
-	if m.project != "calorie" {
+	if m.project != "project-1" {
 		t.Fatal(m.project)
 	}
 	for _, tk := range m.boardTasks() {
-		if tk.ProjectID != "calorie" {
+		if tk.ProjectID != "project-1" {
 			t.Fatal(tk.ID)
 		}
 	}
@@ -106,10 +106,10 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 	}
 	// Filter: words, agent, needs-you.
 	press(m, "/")
-	typeText(m, "a:demo")
+	typeText(m, "a:developer-2")
 	press(m, "enter")
 	for _, tk := range m.boardTasks() {
-		if tk.Assignee != "demo" {
+		if tk.Assignee != "developer-2" {
 			t.Fatal(tk.ID)
 		}
 	}
@@ -122,9 +122,9 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 
 func TestTaskActionsConfirmFirst(t *testing.T) {
 	m, c := demoModel(t, 120, 40)
-	onBoard(t, m, "CAL-3")
+	onBoard(t, m, "P1-3")
 	key(m, "p")
-	if m.confirm == nil || m.confirm.Kind != "pause" || m.confirm.TaskID != "CAL-3" || m.confirm.Version != 3 {
+	if m.confirm == nil || m.confirm.Kind != "pause" || m.confirm.TaskID != "P1-3" || m.confirm.Version != 3 {
 		t.Fatalf("%+v", m.confirm)
 	}
 	key(m, "n")
@@ -134,7 +134,7 @@ func TestTaskActionsConfirmFirst(t *testing.T) {
 	for _, tc := range []struct{ key, kind string }{{"p", "pause"}, {"u", "resume"}, {"r", "retry"}, {"n", "run"}} {
 		key(m, tc.key)
 		run(m, key(m, "y"))
-		if a := lastSent(t, c); a.Kind != tc.kind || a.TaskID != "CAL-3" {
+		if a := lastSent(t, c); a.Kind != tc.kind || a.TaskID != "P1-3" {
 			t.Fatalf("%+v", a)
 		}
 		if !strings.Contains(m.toast, "fixture: not sent") {
@@ -142,20 +142,20 @@ func TestTaskActionsConfirmFirst(t *testing.T) {
 		}
 	}
 	// Cancelling a task with open children cascades (and says so).
-	m.focusTask("CAL-1")
+	m.focusTask("P1-1")
 	key(m, "x")
 	if !m.confirm.Cascade || !strings.Contains(m.confirm.Describe(), "open children") {
 		t.Fatalf("%+v", m.confirm)
 	}
 	run(m, key(m, "enter"))
-	if a := lastSent(t, c); a.Kind != "cancel" || !a.Cascade || a.TaskID != "CAL-1" {
+	if a := lastSent(t, c); a.Kind != "cancel" || !a.Cascade || a.TaskID != "P1-1" {
 		t.Fatalf("%+v", a)
 	}
 }
 
 func TestTaskInputs(t *testing.T) {
 	m, c := demoModel(t, 120, 40)
-	onBoard(t, m, "CAL-3")
+	onBoard(t, m, "P1-3")
 	key(m, "a")
 	typeText(m, "nobody")
 	key(m, "enter")
@@ -165,10 +165,10 @@ func TestTaskInputs(t *testing.T) {
 	for range "nobody" {
 		key(m, "backspace")
 	}
-	typeText(m, "calorie-qa")
+	typeText(m, "qa")
 	key(m, "enter")
 	run(m, key(m, "y"))
-	if a := lastSent(t, c); a.Kind != "reassign" || a.Assignee != "calorie-qa" || a.Version != 3 {
+	if a := lastSent(t, c); a.Kind != "reassign" || a.Assignee != "qa" || a.Version != 3 {
 		t.Fatalf("%+v", a)
 	}
 	key(m, "P")
@@ -220,18 +220,18 @@ func TestTaskInputs(t *testing.T) {
 
 func TestCardDetailModal(t *testing.T) {
 	m, c := demoModel(t, 120, 40)
-	onBoard(t, m, "CAL-3")
+	onBoard(t, m, "P1-3")
 	run(m, key(m, "enter"))
-	if !m.board.open || m.board.detail == nil || m.board.detail.Task.ID != "CAL-3" {
+	if !m.board.open || m.board.detail == nil || m.board.detail.Task.ID != "P1-3" {
 		t.Fatalf("%+v", m.board)
 	}
-	if s := ansi.Strip(m.Render()); !strings.Contains(s, "CAL-3 · Build the meal entry screen") || !strings.Contains(s, "Runs (2)") {
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "P1-3 · Task 3") || !strings.Contains(s, "Runs (2)") {
 		t.Fatal(s)
 	}
 	// Actions work from the modal; q closes it instead of quitting.
 	key(m, "r")
 	run(m, key(m, "y"))
-	if a := lastSent(t, c); a.Kind != "retry" || a.TaskID != "CAL-3" {
+	if a := lastSent(t, c); a.Kind != "retry" || a.TaskID != "P1-3" {
 		t.Fatalf("%+v", a)
 	}
 	if cmd := key(m, "q"); cmd != nil || m.board.open {
@@ -239,7 +239,7 @@ func TestCardDetailModal(t *testing.T) {
 	}
 	// L opens the live run; esc returns.
 	run(m, key(m, "L"))
-	if m.tab != tabRun || m.run.id != "r-ios-7" {
+	if m.tab != tabRun || m.run.id != "r-d1-7" {
 		t.Fatal(m.tab, m.run.id)
 	}
 	key(m, "esc")
@@ -251,29 +251,29 @@ func TestCardDetailModal(t *testing.T) {
 func TestPromptBar(t *testing.T) {
 	m, c := demoModel(t, 140, 40)
 	s := ansi.Strip(m.Render())
-	if !strings.Contains(s, "→ 12:55:00 calorie-manager asks: Which nutrition data API") || !strings.Contains(s, "+2 in inbox") {
+	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+2 in inbox") {
 		t.Fatal(s)
 	}
 	// The oldest item is a question with options: A opens the chooser; 2 picks the second option.
 	key(m, "A")
-	if m.chooser == nil || len(m.chooser.options) != 4 {
+	if m.chooser == nil || len(m.chooser.options) != 3 {
 		t.Fatalf("%+v", m.chooser)
 	}
 	key(m, "2")
 	run(m, key(m, "y"))
-	if a := lastSent(t, c); a.Kind != "answer" || a.MessageID != "m-ask-1" || a.Answers["answer"] != "nutritionix-paid" {
+	if a := lastSent(t, c); a.Kind != "answer" || a.MessageID != "m-ask-1" || a.Answers["answer"] != "option-b" {
 		t.Fatalf("%+v", a)
 	}
 	// The last option is free text.
 	key(m, "A")
-	press(m, "down", "down", "down", "enter")
+	press(m, "down", "down", "enter")
 	if m.input == nil {
 		t.Fatal("no free text input")
 	}
-	typeText(m, "USDA for now")
+	typeText(m, "option A for now")
 	key(m, "enter")
 	run(m, key(m, "y"))
-	if a := lastSent(t, c); a.Text != "USDA for now" || a.Answers != nil {
+	if a := lastSent(t, c); a.Text != "option A for now" || a.Answers != nil {
 		t.Fatalf("%+v", a)
 	}
 	// Y/N do nothing for a question; with the approval first, Y approves.
@@ -300,14 +300,14 @@ func TestInboxAnswersAndApprovals(t *testing.T) {
 	key(m, "enter")
 	run(m, key(m, "y"))
 	a := lastSent(t, c)
-	if a.Kind != "answer" || a.MessageID != "m-ask-1" || a.Text != "nutritionix-paid" || a.Answers["answer"] != "nutritionix-paid" || a.Version != 1 {
+	if a.Kind != "answer" || a.MessageID != "m-ask-1" || a.Text != "option-b" || a.Answers["answer"] != "option-b" || a.Version != 1 {
 		t.Fatalf("%+v", a)
 	}
 	key(m, "a")
-	typeText(m, "USDA for now")
+	typeText(m, "option A for now")
 	key(m, "enter")
 	run(m, key(m, "y"))
-	if a = lastSent(t, c); a.Text != "USDA for now" || a.Answers != nil {
+	if a = lastSent(t, c); a.Text != "option A for now" || a.Answers != nil {
 		t.Fatalf("%+v", a)
 	}
 	key(m, "j")
@@ -360,7 +360,7 @@ func TestKillSwitch(t *testing.T) {
 // new events then leave the view where it is; G follows again.
 func TestRunFollow(t *testing.T) {
 	m, _ := demoModel(t, 100, 20)
-	openDemoRun(m, "r-ios-7")
+	openDemoRun(m, "r-d1-7")
 	base := len(m.run.events)
 	m.Render()
 	if !m.run.follow || !m.run.vp.AtBottom() {
@@ -373,14 +373,14 @@ func TestRunFollow(t *testing.T) {
 	}
 	m.Render()
 	offset := m.run.vp.YOffset()
-	ev := m.c.(*FixtureClient).F.RunEvents["r-ios-7"][1]
+	ev := m.c.(*FixtureClient).F.RunEvents["r-d1-7"][1]
 	ev.Seq = 100
-	m.Update(streamMsg{Stream: "run:r-ios-7", Run: &ev})
+	m.Update(streamMsg{Stream: "run:r-d1-7", Run: &ev})
 	m.Render()
 	if m.run.vp.YOffset() != offset || len(m.run.events) != base+1 {
 		t.Fatal(m.run.vp.YOffset(), offset, len(m.run.events))
 	}
-	m.Update(streamMsg{Stream: "run:r-ios-7", Run: &ev})
+	m.Update(streamMsg{Stream: "run:r-d1-7", Run: &ev})
 	if len(m.run.events) != base+1 {
 		t.Fatal(len(m.run.events))
 	}
@@ -389,7 +389,7 @@ func TestRunFollow(t *testing.T) {
 	if !m.run.follow || !m.run.vp.AtBottom() {
 		t.Fatal("G did not follow")
 	}
-	m.Update(streamMsg{Stream: "run:r-ios-7", End: true, Outcome: "succeeded"})
+	m.Update(streamMsg{Stream: "run:r-d1-7", End: true, Outcome: "succeeded"})
 	if !m.run.ended || !strings.Contains(ansi.Strip(m.Render()), "ended succeeded") {
 		t.Fatal("end not shown")
 	}
@@ -408,8 +408,8 @@ func TestFeedDedupActivityAndToasts(t *testing.T) {
 		t.Fatal("duplicate kept")
 	}
 	// A replayed run step is not added twice.
-	ev := m.c.(*FixtureClient).F.RunEvents["r-web-4"][0]
-	m.Update(streamMsg{Stream: "tail:r-web-4", Run: &ev})
+	ev := m.c.(*FixtureClient).F.RunEvents["r-d2-4"][0]
+	m.Update(streamMsg{Stream: "tail:r-d2-4", Run: &ev})
 	if len(m.activity) != acts {
 		t.Fatal("duplicate step")
 	}
@@ -424,7 +424,7 @@ func TestFeedDedupActivityAndToasts(t *testing.T) {
 	}
 	// A fresh attention event slides in as a toast (the model has been up for a while).
 	m.startAt = DemoAt.Add(-time.Minute)
-	item := storage.FeedItem{Sequence: 999, Type: "approval.requested", ProjectID: "notes", TaskID: "N-9", Agent: "demo", Actor: "demo", Summary: "brand new approval", CreatedAt: DemoAt, Attention: true}
+	item := storage.FeedItem{Sequence: 999, Type: "approval.requested", ProjectID: "project-2", TaskID: "P2-9", Agent: "developer-2", Actor: "developer-2", Summary: "brand new approval", CreatedAt: DemoAt, Attention: true}
 	m.Update(streamMsg{Stream: "feed", Feed: &item})
 	if len(m.toasts) != 1 {
 		t.Fatal(m.toasts)
@@ -437,7 +437,7 @@ func TestFeedDedupActivityAndToasts(t *testing.T) {
 		t.Fatal(s)
 	}
 	key(m, "G")
-	if !strings.Contains(ansi.Strip(m.Render()), "N-9") {
+	if !strings.Contains(ansi.Strip(m.Render()), "P2-9") {
 		t.Fatal("newest not shown")
 	}
 }
@@ -445,24 +445,24 @@ func TestFeedDedupActivityAndToasts(t *testing.T) {
 func TestDashboardPanels(t *testing.T) {
 	m, _ := demoModel(t, 140, 40)
 	// The owner row: tasks that need the owner, company stats.
-	if list := m.panelTasks(); len(list) != 4 || list[0].ID != "N-1" {
+	if list := m.panelTasks(); len(list) != 4 || list[0].ID != "P2-1" {
 		t.Fatalf("%+v", list)
 	}
-	// Select calorie-ios (rows: owner, calorie-manager, calorie-designer, calorie-ios).
+	// Select developer-1 (rows: owner, pm, designer, developer-1).
 	press(m, "j", "j", "j")
 	a, ok := m.selectedAgent()
-	if !ok || a.Name != "calorie-ios" || a.run != "r-ios-7" {
+	if !ok || a.Name != "developer-1" || a.run != "r-d1-7" {
 		t.Fatalf("%+v", a)
 	}
 	s := ansi.Strip(m.Render())
-	for _, want := range []string{"Stats · calorie-ios", "45,230", "12,891", "Context", "Tasks · calorie-ios", "[→] Build the meal entry screen"} {
+	for _, want := range []string{"Stats · developer-1", "45,230", "12,891", "Context", "Tasks · developer-1", "[→] Task 3"} {
 		if !strings.Contains(s, want) {
 			t.Fatal(want, s)
 		}
 	}
 	// enter on a running agent opens its run.
 	run(m, key(m, "enter"))
-	if m.tab != tabRun || m.run.id != "r-ios-7" {
+	if m.tab != tabRun || m.run.id != "r-d1-7" {
 		t.Fatal(m.tab)
 	}
 	key(m, "esc")
@@ -472,13 +472,13 @@ func TestDashboardPanels(t *testing.T) {
 		t.Fatal(m.dash.focus)
 	}
 	key(m, "z")
-	if s := ansi.Strip(m.Render()); !strings.Contains(s, "Tasks · calorie-ios  ⤢") || strings.Contains(s, "Agent Tree") {
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "Tasks · developer-1  ⤢") || strings.Contains(s, "Agent Tree") {
 		t.Fatal(s)
 	}
 	key(m, "esc")
 	// enter on a task opens its detail on the board.
 	run(m, key(m, "enter"))
-	if m.tab != tabBoard || !m.board.open || m.board.detailID != "CAL-3" {
+	if m.tab != tabBoard || !m.board.open || m.board.detailID != "P1-3" {
 		t.Fatal(m.tab, m.board.detailID)
 	}
 }
@@ -489,23 +489,23 @@ func TestPalette(t *testing.T) {
 	if m.palette == nil {
 		t.Fatal("no palette")
 	}
-	typeText(m, "pricing")
+	typeText(m, "P3-2")
 	list := m.palette.matches()
-	if len(list) == 0 || list[0].label != "W-2 Pricing page" {
+	if len(list) == 0 || list[0].label != "P3-2 Task 2" {
 		t.Fatalf("%+v", list)
 	}
 	run(m, key(m, "enter"))
-	if m.palette != nil || m.tab != tabBoard || m.board.detailID != "W-2" {
+	if m.palette != nil || m.tab != tabBoard || m.board.detailID != "P3-2" {
 		t.Fatal(m.tab, m.board.detailID)
 	}
 	key(m, "esc")
 	key(m, "ctrl+k")
-	typeText(m, "r-web")
+	typeText(m, "r-d2-4")
 	run(m, key(m, "enter"))
-	if m.tab != tabRun || m.run.id != "r-web-4" {
+	if m.tab != tabRun || m.run.id != "r-d2-4" {
 		t.Fatal(m.tab, m.run.id)
 	}
-	if fuzzy("cm", "calorie-manager") == 0 || fuzzy("xyz", "calorie") != 0 || fuzzy("cal", "CAL-3") <= fuzzy("cal", "local") {
+	if fuzzy("dv", "developer-1") == 0 || fuzzy("xyz", "project-1") != 0 || fuzzy("dev", "developer-1") <= fuzzy("dev", "undevised") {
 		t.Fatal("fuzzy")
 	}
 }
@@ -525,14 +525,14 @@ func TestMouse(t *testing.T) {
 	}
 	press(m, "1")
 	m.Render()
-	// Click the tree row of calorie-ios: body starts at y=2, the panel's first row at y=3.
+	// Click the tree row of developer-1: body starts at y=2, the panel's first row at y=3.
 	m.Update(tea.MouseClickMsg{X: 10, Y: 3 + 3, Button: tea.MouseLeft})
-	if a, ok := m.selectedAgent(); !ok || a.Name != "calorie-ios" || m.dash.focus != pTree {
+	if a, ok := m.selectedAgent(); !ok || a.Name != "developer-1" || m.dash.focus != pTree {
 		t.Fatalf("%+v %v", a, m.dash.focus)
 	}
 	// Wheel scrolls the focused list.
 	m.Update(tea.MouseWheelMsg{X: 10, Y: 6, Button: tea.MouseWheelDown})
-	if a, _ := m.selectedAgent(); a.Name != "calorie-qa" {
+	if a, _ := m.selectedAgent(); a.Name != "lead" {
 		t.Fatal(a.Name)
 	}
 	// A project chip.
@@ -540,13 +540,13 @@ func TestMouse(t *testing.T) {
 	chips := 0
 	for _, z := range m.zones {
 		if z.y0 == 0 {
-			if chips++; chips == 2 { // all, then calorie
+			if chips++; chips == 2 { // all, then project-1
 				m.Update(tea.MouseClickMsg{X: z.x0, Y: 0, Button: tea.MouseLeft})
 				break
 			}
 		}
 	}
-	if m.project != "calorie" {
+	if m.project != "project-1" {
 		t.Fatal(m.project)
 	}
 	// Board: a click focuses a card (second card of the Ready column), a second click opens it.
@@ -639,7 +639,7 @@ func TestOverviewErrors(t *testing.T) {
 	m.Update(overviewMsg{ov: DemoFixture().Overview})
 	m.Update(overviewMsg{err: errors.New("timeout")})
 	s = ansi.Strip(m.Render())
-	if !strings.Contains(s, "retrying") || !strings.Contains(s, "calorie-ios") {
+	if !strings.Contains(s, "retrying") || !strings.Contains(s, "developer-1") {
 		t.Fatal(s)
 	}
 	for _, tb := range []string{"1", "2", "3", "4", "5", "?"} {

@@ -1,30 +1,30 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
 ╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
-│ ◆ owner · you                              ⚠ 4 ││ [→] Markdown export N-1             ← ⠋running │
-│ ├ ◐ calorie-manager: waits on you · CAL-5   1h ││ [!] Release notes app 1.2 N-3      ← needs you │
-│ │ ├ ⏸ calo╭────────────────────────────────── Keys ──────────────────────────────────╮wer m-esc… │
-│ │ ├ ● calo│ Global        1-5 or tab switch screen · [ ] project · ctrl+k palette ·  │ needs you │
-│ │ │   └ ▸ │               R refresh · K kill switch · q quit · mouse: click, wheel   │sk-1 in t… │
-│ │ └ ◐ calo│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │ in review │
-│ └ ◐ manage│               you                                                        │           │
-│   ├ ● demo│ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │           │
-│   │   └ ✎ │               panel · f flow of agent                                    │           │
-│   └ ● revi│ Board         ←→↑↓ move · enter open card · / filter (a:AGENT s:STATUS ! │           │
-│       └ › │               open words) · ! needs you · z cancelled                    │           │
+│ ◆ owner · you                              ⚠ 4 ││ [→] Task 1 P2-1                     ← ⠋running │
+│ └ ◐ pm: waits on you · P1-5                 1h ││ [!] Task 3 P2-3                    ← needs you │
+│   ├ ⏸ desi╭────────────────────────────────── Keys ──────────────────────────────────╮wer m-esc… │
+│   ├ ● deve│ Global        1-5 or tab switch screen · [ ] project · ctrl+k palette ·  │ needs you │
+│   │   └ ▸ │               R refresh · K kill switch · q quit · mouse: click, wheel   │sk-1 in t… │
+│   ├ ◐ lead│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │ in review │
+│   │ ├ ● de│               you                                                        │           │
+│   │ │   └ │ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │           │
+│   │ └ ● re│               panel · f flow of agent                                    │           │
+│   │     └ │ Board         ←→↑↓ move · enter open card · / filter (a:AGENT s:STATUS ! │           │
+│   └ ◐ qa: │               open words) · ! needs you · z cancelled                    │           │
 │           │ Task actions  p pause · u resume · r retry · n run · x cancel · a        │           │
 ╰───────────│               reassign · P priority · c comment · d directive (!text     │───────────╯
 ╭───────────│               urgent) · L live run · f flow                              │───────────╮
 │ 14:27:30  │ Run           f follow · j/k scroll · G newest · t task · esc back       │           │
-│ 14:28:00  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │k-line no… │
-│ 14:28:00  │ Feed          ! attention · / filter · x clear · j/k G scroll            │y screen,… │
-│ 14:28:02  │ Inbox         ↑↓ item · ←→ option · enter answer · a free text · y       │eeds a pu… │
+│ 14:28:00  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │.          │
+│ 14:28:00  │ Feed          ! attention · / filter · x clear · j/k G scroll            │ore, 42 t… │
+│ 14:28:02  │ Inbox         ↑↓ item · ←→ option · enter answer · a free text · y       │a pushed … │
 │ 14:28:30  │               approve · n reject · t task                                │           │
 │ 14:29:00  │ Confirm       y/enter sends, n/esc cancels — every action asks first     │           │
 │ 14:29:00  ╰──────────────────────────────────────────────────────────────────────────╯           │
-│ 14:29:20  [calorie-ios]      Bash          $ swift test --filter MealStoreTests                  │
-│ 14:29:30  [reviewer]         says          “Testing the export on a 10k-line note as the owner … │
-│ 14:29:45  [demo]             Edit          src/pages/pricing.tsx                                 │
+│ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                         │
+│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │
+│ 14:29:45  [developer-2] Edit          src/module_2.ts                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
  any key close

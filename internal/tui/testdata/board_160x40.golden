@@ -1,40 +1,40 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                                                                      14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                                                       ● fixture demo │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                              14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                                                                  ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
  21 tasks  · z shows cancelled                                                                                                                            more ▶
 ╭──────── ● Backlog 3 ─────────╮╭───────── ● Ready 4 ──────────╮╭──────── ● Running 2 ─────────╮╭──────── ● Waiting 5 ─────────╮╭─────── ● In review 2 ────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ │
-│ ┃ ● Blog engine            ┃ ││ │ ● Crash on empty meal l… │ ││ │ ● Pricing page           │ ││ │ ● ⚠ Release notes app 1… │ ││ │ ● Markdown export        │ │
-│ ┃ W-4  website          ▽3 ┃ ││ │ CAL-9  calorie        ▲8 │ ││ │ W-2  website          ▲8 │ ││ │ N-3  notes            ▲9 │ ││ │ N-1  notes            △6 │ │
-│ ┃ ● demo                1h ┃ ││ │ ● calorie-qa         25m │ ││ │ ● demo                7m │ ││ │ ● manager    $0.13 · 30m │ ││ │ ● reviewer    $1.27 · 4m │ │
-│ ┃ ○ not released           ┃ ││ │ ◌ ready · next free slot │ ││ │ ⠋ ✎ Edit: src/pages/pri… │ ││ │ ↳ you: answer m-esc-1 (… │ ││ │ ⠋ › Testing the export … │ │
+│ ┃ ● Task 4                 ┃ ││ │ ● Task 9                 │ ││ │ ● Task 2                 │ ││ │ ● ⚠ Task 3               │ ││ │ ● Task 1                 │ │
+│ ┃ P3-4  project-3       ▽3 ┃ ││ │ P1-9  project-1       ▲8 │ ││ │ P3-2  project-3       ▲8 │ ││ │ P2-3  project-2       ▲9 │ ││ │ P2-1  project-2       △6 │ │
+│ ┃ ● developer-2         1h ┃ ││ │ ● qa                 25m │ ││ │ ● developer-2         7m │ ││ │ ● lead       $0.13 · 30m │ ││ │ ● reviewer    $1.27 · 4m │ │
+│ ┃ ○ not released           ┃ ││ │ ◌ ready · next free slot │ ││ │ ⠋ ✎ Edit: src/module_2.… │ ││ │ ↳ you: answer m-esc-1 (… │ ││ │ ⠋ › Testing Task 1 on a… │ │
 │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ │
 │ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ │
-│ │ ● Dark mode icons        │ ││ │ ● Fix the sync conflict… │ ││ │ ● Build the meal entry … │ ││ │ ● ⚠ Pick the nutrition … │ ││ │ ● Newsletter signup form │ │
-│ │ N-4  notes            ▽3 │ ││ │ N-2  notes            △7 │ ││ │ CAL-3  calorie        △7 │ ││ │ CAL-5  calorie        ▲8 │ ││ │ W-6  website          △5 │ │
-│ │ ● calorie-designer    3h │ ││ │ ● demo       $0.87 · 45m │ ││ │ ● calorie-i… $2.44 · 12m │ ││ │ ● calorie-ma… $0.07 · 1h │ ││ │ ● reviewer           15m │ │
-│ │ ○ not released           │ ││ │ ↳ backoff: retry at 14:… │ ││ │ ⠋ ▸ swift test --filter… │ ││ │ ↳ you: answer m-ask-1 i… │ ││ │ ◎ review by reviewer     │ │
+│ │ ● Task 4                 │ ││ │ ● Task 2                 │ ││ │ ● Task 3                 │ ││ │ ● ⚠ Task 5               │ ││ │ ● Task 6                 │ │
+│ │ P2-4  project-2       ▽3 │ ││ │ P2-2  project-2       △7 │ ││ │ P1-3  project-1       △7 │ ││ │ P1-5  project-1       ▲8 │ ││ │ P3-6  project-3       △5 │ │
+│ │ ● designer            3h │ ││ │ ● developer… $0.87 · 45m │ ││ │ ● developer… $2.44 · 12m │ ││ │ ● pm          $0.07 · 1h │ ││ │ ● reviewer           15m │ │
+│ │ ○ not released           │ ││ │ ↳ backoff: retry at 14:… │ ││ │ ⠋ ▸ go test ./src/... -… │ ││ │ ↳ you: answer m-ask-1 i… │ ││ │ ◎ review by reviewer     │ │
 │ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ │
 │ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
-│ │ ● App Store screenshots  │ ││ │ ● SEO audit of the land… │ ││                              ││ │ ● Ship calorie calculat… │ ││                              │
-│ │ CAL-6  calorie        ▽2 │ ││ │ W-3  website          △5 │ ││                              ││ │ CAL-1  calorie        ▲9 │ ││                              │
-│ │ ● calorie-designer    2h │ ││ │ ● reviewer            1h │ ││                              ││ │ ● calorie-m… $0.05 · 40m │ ││                              │
-│ │ ○ not released           │ ││ │ ↳ queued: busy with N-1  │ ││                              ││ │ ↳ children · waits on c… │ ││                              │
+│ │ ● Task 6                 │ ││ │ ● Task 3                 │ ││                              ││ │ ● Task 1                 │ ││                              │
+│ │ P1-6  project-1       ▽2 │ ││ │ P3-3  project-3       △5 │ ││                              ││ │ P1-1  project-1       ▲9 │ ││                              │
+│ │ ● designer            2h │ ││ │ ● reviewer            1h │ ││                              ││ │ ● pm         $0.05 · 40m │ ││                              │
+│ │ ○ not released           │ ││ │ ↳ queued: busy with P2-1 │ ││                              ││ │ ↳ children · waits on p… │ ││                              │
 │ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││                              ││ ╰──────────────────────────╯ ││                              │
 │                              ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
-│                              ││ │ ● Barcode scanner spike  │ ││                              ││ │ ● Cookie consent banner  │ ││                              │
-│                              ││ │ CAL-7  calorie        △5 │ ││                              ││ │ W-5  website          △6 │ ││                              │
-│                              ││ │ ● calorie-ios         3h │ ││                              ││ │ ● demo               50m │ ││                              │
-│                              ││ │ ↳ queued: busy with CAL… │ ││                              ││ │ ↳ block · waits on mana… │ ││                              │
+│                              ││ │ ● Task 7                 │ ││                              ││ │ ● Task 5                 │ ││                              │
+│                              ││ │ P1-7  project-1       △5 │ ││                              ││ │ P3-5  project-3       △6 │ ││                              │
+│                              ││ │ ● developer-1         3h │ ││                              ││ │ ● developer-2        50m │ ││                              │
+│                              ││ │ ↳ queued: busy with P1-3 │ ││                              ││ │ ↳ block · waits on lead… │ ││                              │
 │                              ││ ╰──────────────────────────╯ ││                              ││ ╰──────────────────────────╯ ││                              │
 │                              ││                              ││                              ││ ╭──────────────────────────╮ ││                              │
-│                              ││                              ││                              ││ │ ● Test meal entry on iP… │ ││                              │
-│                              ││                              ││                              ││ │ CAL-4  calorie        △6 │ ││                              │
-│                              ││                              ││                              ││ │ ● calorie-qa          4h │ ││                              │
-│                              ││                              ││                              ││ │ ↳ blocked by: CAL-3 (ca… │ ││                              │
+│                              ││                              ││                              ││ │ ● Task 4                 │ ││                              │
+│                              ││                              ││                              ││ │ P1-4  project-1       △6 │ ││                              │
+│                              ││                              ││                              ││ │ ● qa                  4h │ ││                              │
+│                              ││                              ││                              ││ │ ↳ blocked by: P1-3 (dev… │ ││                              │
 │                              ││                              ││                              ││ ╰──────────────────────────╯ ││                              │
 │                              ││                              ││                              ││                              ││                              │
 │                              ││                              ││                              ││                              ││                              │
 │                              ││                              ││                              ││                              ││                              │
 ╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for? USDA is free but has no… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +2 in inbox
  ←→↑↓ move  enter open  / filter  ! needs you  L live  ^k palette  [ ] project  ? help  q quit

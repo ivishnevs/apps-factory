@@ -1,14 +1,14 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                              14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                               ● fixture demo │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                      14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                          ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
 ╭───────────────── Inbox · 3 ──────────────────╮╭──────────────────────────────── Item ────────────────────────────────╮
-│ ● question  calorie-manager           1h ago ││ ● QUESTION  from ● calorie-manager  to owner   calorie   CAL-5       │
-│   CAL-5 · Which nutrition data API may we p… ││ answer due in 23h                                                    │
+│ ● question  pm                        1h ago ││ ● QUESTION  from ● pm  to owner   project-1   P1-5                   │
+│   P1-5 · Which option for Task 5: A or B? A… ││ answer due in 23h                                                    │
 │                                              ││                                                                      │
-│ ● approval  manager                  20m ago ││ Which nutrition data API may we pay for? USDA is free but has no     │
-│   N-3 · Approve publishing notes 1.2 to Tes… ││ barcodes.                                                            │
+│ ● approval  lead                     20m ago ││ Which option for Task 5: A or B? A is free but slower; B is faster   │
+│   P2-3 · Approve release of Project 2?       ││ but paid.                                                            │
 │                                              ││                                                                      │
-│ ● escalation  factory                30m ago ││ ? Which nutrition API?  single_choice                                │
-│   N-3 · N-3 stalled: it waits on N-2, which… ││    usda-free   nutritionix-paid   edamam-paid                        │
+│ ● escalation  factory                30m ago ││ ? Which option for Task 5?  single_choice                            │
+│   P2-3 · P2-3 stalled: it waits on P2-2, wh… ││    option-a   option-b                                               │
 │                                              ││   ←/→ choose · enter answer · a free text                            │
 │                                              ││                                                                      │
 │                                              ││                                                                      │
@@ -26,5 +26,5 @@
 │                                              ││                                                                      │
 │                                              ││                                                                      │
 ╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +2 in inbox
  ↑↓ item  ←→ option  enter answer  a text  y/n approve  ^k palette  [ ] project  ? help  q quit

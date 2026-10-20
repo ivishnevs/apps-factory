@@ -1,17 +1,17 @@
- ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox … … Company 1 │ ▶ running │ ⚠ 4
  21 tasks  · z shows cancelled                                            more ▶
 ╭─────────── ● Backlog 3 +1 ───────────╮╭──────────── ● Ready 4 +2 ────────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭──────────────────────────────────╮ │
-│ ┃ ● Blog engine                    ┃ ││ │ ● Crash on empty meal list       │ │
-│ ┃ W-4  website                  ▽3 ┃ ││ │ CAL-9  calorie                ▲8 │ │
-│ ┃ ● demo                        1h ┃ ││ │ ● calorie-qa                 25m │ │
+│ ┃ ● Task 4                         ┃ ││ │ ● Task 9                         │ │
+│ ┃ P3-4  project-3               ▽3 ┃ ││ │ P1-9  project-1               ▲8 │ │
+│ ┃ ● developer-2                 1h ┃ ││ │ ● qa                         25m │ │
 │ ┃ ○ not released                   ┃ ││ │ ◌ ready · next free slot         │ │
 │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰──────────────────────────────────╯ │
 │ ╭──────────────────────────────────╮ ││ ╭──────────────────────────────────╮ │
-│ │ ● Dark mode icons                │ ││ │ ● Fix the sync conflict on rena… │ │
-│ │ N-4  notes                    ▽3 │ ││ │ N-2  notes                    △7 │ │
-│ │ ● calorie-designer            3h │ ││ │ ● demo               $0.87 · 45m │ │
+│ │ ● Task 4                         │ ││ │ ● Task 2                         │ │
+│ │ P2-4  project-2               ▽3 │ ││ │ P2-2  project-2               △7 │ │
+│ │ ● designer                    3h │ ││ │ ● developer-2        $0.87 · 45m │ │
 │ │ ○ not released                   │ ││ │ ↳ backoff: retry at 14:34        │ │
 │ ╰──────────────────────────────────╯ ││ ╰──────────────────────────────────╯ │
 │                                      ││                                      │
@@ -20,5 +20,5 @@
 │                                      ││                                      │
 │                                      ││                                      │
 ╰──────────────────────────────────────╯╰──────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +2 in inbox
  ←→↑↓ move  enter open  / filter  ! needs you  L live  ^k palette  [ ] project …

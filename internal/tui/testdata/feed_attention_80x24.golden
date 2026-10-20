@@ -1,11 +1,11 @@
- ◆ APP FACTORY   ● all   ● calorie   ● notes   ● website               14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3    ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox … … Company 1 │ ▶ running │ ⚠ 4
 ╭─────────────────── Feed ● live · follow · attention only ────────────────────╮
-│ 12:55:00 ⚠ message.created       CAL-5  calorie-manager  calorie-manager → … │
-│ 13:30:00 ⚠ owner.paused          ·      owner            agent calorie-desi… │
-│ 13:45:00 ⚠ alert.no_progress     N-2    demo             N-2: 3 runs withou… │
-│ 14:00:00 ⚠ escalation.stalled    N-3    manager          N-3 waits on N-2 →… │
-│ 14:10:00 ⚠ approval.requested    N-3    manager          factory_release_pu… │
+│ 12:55:00 ⚠ message.created       P1-5   pm               pm → owner (questi… │
+│ 13:30:00 ⚠ owner.paused          ·      owner            agent designer: wa… │
+│ 13:45:00 ⚠ alert.no_progress     P2-2   developer-2      P2-2: 3 runs witho… │
+│ 14:00:00 ⚠ escalation.stalled    P2-3   lead             P2-3 waits on P2-2… │
+│ 14:10:00 ⚠ approval.requested    P2-3   lead             factory_release_pu… │
 │ 14:24:00 ⚠ node.low_disk         ·      node             mac-mini: 4.1 GiB … │
 │                                                                              │
 │                                                                              │
@@ -20,5 +20,5 @@
 │                                                                              │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +2 in inbox
  ! attention  / filter  j/k scroll  G newest  ^k palette  [ ] project  ? help  …

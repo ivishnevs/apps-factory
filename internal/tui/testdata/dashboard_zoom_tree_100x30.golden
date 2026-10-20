@@ -1,17 +1,17 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
 ╭───────────────────────────────────────── Agent Tree  ⤢ ──────────────────────────────────────────╮
 │ ◆ owner · you                                                                                ⚠ 4 │
-│ ├ ◐ calorie-manager: waits on you · CAL-5                                                     1h │
-│ │ ├ ⏸ calorie-designer: paused waiting for the brand guide                                paused │
-│ │ ├ ● calorie-ios: Build the meal entry screen                                           12m 00s │
-│ │ │   └ ▸ swift test --filter MealStoreTests                                              0m 40s │
-│ │ └ ◐ calorie-qa: waits on calorie-ios · CAL-4                                                4h │
-│ └ ◐ manager: waits on you · N-3                                                              30m │
-│   ├ ● demo: Pricing page                                                                  7m 00s │
-│   │   └ ✎ Edit: src/pages/pricing.tsx                                                     0m 15s │
-│   └ ● reviewer: Markdown export                                                           4m 00s │
-│       └ › Testing the export on a 10k-line note as the owner asked.                       0m 30s │
+│ └ ◐ pm: waits on you · P1-5                                                                   1h │
+│   ├ ⏸ designer: paused waiting for the style guide                                        paused │
+│   ├ ● developer-1: Task 3                                                                12m 00s │
+│   │   └ ▸ go test ./src/... -run TestStore                                                0m 40s │
+│   ├ ◐ lead: waits on you · P2-3                                                              30m │
+│   │ ├ ● developer-2: Task 2                                                               7m 00s │
+│   │ │   └ ✎ Edit: src/module_2.ts                                                         0m 15s │
+│   │ └ ● reviewer: Task 1                                                                  4m 00s │
+│   │     └ › Testing Task 1 on a large input as the owner asked.                           0m 30s │
+│   └ ◐ qa: waits on developer-1 · P1-4                                                         4h │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
@@ -26,5 +26,5 @@
 │                                                                                                  │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit

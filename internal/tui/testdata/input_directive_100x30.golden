@@ -1,24 +1,24 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                        ● │ acme │ ▶ running │ ⚠ 4
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                   ● │ Company 1 │ ▶ running │ ⚠ 4
  21 tasks  · z shows cancelled                                                                more ▶
 ╭───────── ● Backlog 3 ─────────╮╭──────── ● Ready 4 +1 ─────────╮╭───────── ● Running 2 ──────────╮
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
-│ │ ● Blog engine             │ ││ │ ● Crash on empty meal li… │ ││ ┃ ● Pricing page             ┃ │
-│ │ W-4  website           ▽3 │ ││ │ CAL-9  calorie         ▲8 │ ││ ┃ W-2  website            ▲8 ┃ │
-│ │ ● demo                 1h │ ││ │ ● calorie-qa          25m │ ││ ┃ ● demo                  7m ┃ │
-│ │ ○ not released            │ ││ │ ◌ ready · next free slot  │ ││ ┃ ⠋ ✎ Edit: src/pages/prici… ┃ │
+│ │ ● Task 4                  │ ││ │ ● Task 9                  │ ││ ┃ ● Task 2                   ┃ │
+│ │ P3-4  project-3        ▽3 │ ││ │ P1-9  project-1        ▲8 │ ││ ┃ P3-2  project-3         ▲8 ┃ │
+│ │ ● developer-2          1h │ ││ │ ● qa                  25m │ ││ ┃ ● developer-2           7m ┃ │
+│ │ ○ not released            │ ││ │ ◌ ready · next free slot  │ ││ ┃ ⠋ ✎ Edit: src/module_2.ts  ┃ │
 │ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
-│ │ ● Dark mode icons         │ ││ │ ● Fix the sync conflict … │ ││ │ ● Build the meal entry sc… │ │
-│ │ N-4  not╭───────────────────────────────── Input ──────────────────────────────────╮      △7 │ │
-│ │ ● calori│ Directive to W-2 (start with ! for urgent: stops the live run)           │44 · 12m │ │
-│ │ ○ not re│                                                                          │ilter M… │ │
+│ │ ● Task 4                  │ ││ │ ● Task 2                  │ ││ │ ● Task 3                   │ │
+│ │ P2-4  pr╭───────────────────────────────── Input ──────────────────────────────────╮      △7 │ │
+│ │ ● design│ Directive to P3-2 (start with ! for urgent: stops the live run)          │44 · 12m │ │
+│ │ ○ not re│                                                                          │... -ru… │ │
 │ ╰─────────│ › !ship the grams-only picker today                                      │─────────╯ │
 │ ╭─────────╰──────────────────────────────────────────────────────────────────────────╯           │
-│ │ ● App Store screenshots   │ ││ │ ● SEO audit of the landi… │ ││                                │
-│ │ CAL-6  calorie         ▽2 │ ││ │ W-3  website           △5 │ ││                                │
-│ │ ● calorie-designer     2h │ ││ │ ● reviewer             1h │ ││                                │
-│ │ ○ not released            │ ││ │ ↳ queued: busy with N-1   │ ││                                │
+│ │ ● Task 6                  │ ││ │ ● Task 3                  │ ││                                │
+│ │ P1-6  project-1        ▽2 │ ││ │ P3-3  project-3        △5 │ ││                                │
+│ │ ● designer             2h │ ││ │ ● reviewer             1h │ ││                                │
+│ │ ○ not released            │ ││ │ ↳ queued: busy with P2-1  │ ││                                │
 │ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││                                │
 │                               ││                               ││                                │
 │                               ││                               ││                                │
@@ -26,5 +26,5 @@
 │                               ││                               ││                                │
 │                               ││                               ││                                │
 ╰───────────────────────────────╯╰───────────────────────────────╯╰────────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API may we pay for?… [A answer]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +2 in inbox
  enter ok  esc cancel

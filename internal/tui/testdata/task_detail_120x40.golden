@@ -1,40 +1,40 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● calorie 22% ] [ ● notes 16% ] [ ● website 16% ]                              14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                               ● fixture demo │ acme │ ▶ running │ ⚠ 4
- 21 t╭─────────────────────────────────── CAL-3 · Build the meal entry screen ────────────────────────────────────╮ore ▶
-╭────│ ● RUNNING  IN_PROGRESS   calorie   ● calorie-ios  priority 7 · v3 · attempt 2                              │────╮
-│ ╭──│ origin  created by calorie-manager from CAL-1 · 4h ago                                                     │──╮ │
-│ │ ●│ why     live_run — run r-ios-7 is running                                                                  │… │ │
-│ │ W│ clears  calorie-ios — wait for the run                                                                     │9 │ │
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                      14:30:00
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 3                          ● fixture demo │ Company 1 │ ▶ running │ ⚠ 4
+ 21 t╭────────────────────────────────────────────── P1-3 · Task 3 ───────────────────────────────────────────────╮ore ▶
+╭────│ ● RUNNING  IN_PROGRESS   project-1   ● developer-1  priority 7 · v3 · attempt 2                            │────╮
+│ ╭──│ origin  created by pm from P1-1 · 4h ago                                                                   │──╮ │
+│ │ ●│ why     live_run — run r-d1-7 is running                                                                   │  │ │
+│ │ P│ clears  developer-1 — wait for the run                                                                     │9 │ │
 │ │ ●│ triggers directive by owner ★                                                                              │m │ │
-│ │ ○│ needs   CAL-2 DONE                                                                                         │… │ │
+│ │ ○│ needs   P1-2 DONE                                                                                          │… │ │
 │ ╰──│                                                                                                            │──╯ │
 │ ╭──│ ▌ Children (1)                                                                                             │──╮ │
-│ │ ●│   ● CAL-9   READY       ● calorie-qa        Crash on empty meal list                                       │… │ │
-│ │ N│                                                                                                            │8 │ │
+│ │ ●│   ● P1-9    READY       ● qa                Task 9                                                         │  │ │
+│ │ P│                                                                                                            │8 │ │
 │ │ ●│ ▌ Body                                                                                                     │h │ │
-│ │ ○│   Implement the meal entry screen from the CAL-2 mockups.                                                  │… │ │
+│ │ ○│   Implement module 1 from the P1-2 mockups.                                                                │… │ │
 │ ╰──│                                                                                                            │──╯ │
 │ ╭──│   Acceptance:                                                                                              │──╮ │
-│ │ ●│   - portion picker in grams                                                                                │… │ │
-│ │ C│   - works offline                                                                                          │9 │ │
-│ │ ●│   - unit tests for the calorie sum                                                                         │m │ │
+│ │ ●│   - matches the mockups                                                                                    │  │ │
+│ │ P│   - works offline                                                                                          │9 │ │
+│ │ ●│   - unit tests for module 1                                                                                │m │ │
 │ │ ○│                                                                                                            │… │ │
 │ ╰──│ ▌ Runs (2)                                                                                                 │──╯ │
-│    │   ✗ #1 r-ios-6   failed     10-20 12:50  -             $0.61 (reported)                                    │──╮ │
-│    │        xcodebuild: the simulator did not boot                                                              │… │ │
-│    │   ● #2 r-ios-7   RUNNING    10-20 14:18  -             ~$1.24                                              │6 │ │
+│    │   ✗ #1 r-d1-6    failed     10-20 12:50  -             $0.61 (reported)                                    │──╮ │
+│    │        go test: the test database did not start                                                            │  │ │
+│    │   ● #2 r-d1-7    RUNNING    10-20 14:18  -             ~$1.24                                              │6 │ │
 │    │   ended runs cost $0.61 over 1 runs                                                                        │m │ │
 │    │                                                                                                            │… │ │
 │    │ ▌ Comments (2)                                                                                             │──╯ │
-│    │   10-20 12:00 calorie-manager: Grams only for v1; ounces later.                                            │──╮ │
-│    │   10-20 13:20 owner: Keep the entry screen offline-first.                                                  │… │ │
+│    │   10-20 12:00 pm: Option A only for now; option B later.                                                   │──╮ │
+│    │   10-20 13:20 owner: Keep Task 3 working offline.                                                          │  │ │
 │    │                                                                                                            │6 │ │
 │    │ ▌ Recent events                                                                                            │h │ │
-│    │   10:00:00   task.created              Build the meal entry screen                                         │… │ │
-│    │   11:01:00   task.trigger.dependency_d…CAL-2 done                                                          │──╯ │
+│    │   10:00:00   task.created              Task 3                                                              │… │ │
+│    │   11:01:00   task.trigger.dependency_d…P1-2 done                                                           │──╯ │
 │    │ ────────────────────────────────────────────────────────────────────────────────────────────────────────── │    │
 │    │ p pause u resume r retry n run x cancel a reassign P priority c comment d direct L live esc close          │    │
 │    ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯    │
 ╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯
- → 12:55:00 calorie-manager asks: Which nutrition data API… [A usda-free / nutritionix-paid / edamam-paid]  +2 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +2 in inbox
  j/k scroll  p/u pause/resume  r retry  x cancel  d direct  L live  esc close

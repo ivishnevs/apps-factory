@@ -178,10 +178,10 @@ func TestHTTPClientOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Health.Company != "acme" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 3 || len(ov.Inbox) != 3 || len(ov.Nodes) != 2 || len(ov.Approvals) != 1 || ov.Errors != nil {
+	if ov.Health.Company != "Company 1" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 3 || len(ov.Inbox) != 3 || len(ov.Nodes) != 2 || len(ov.Approvals) != 1 || ov.Errors != nil {
 		t.Fatalf("%+v", ov)
 	}
-	if len(ov.Agents) != 7 || ov.Agents[1].Name != "calorie-ios" || ov.Agents[1].ReportsTo != "calorie-manager" || ov.Agents[1].Provider != "claude" {
+	if len(ov.Agents) != 7 || ov.Agents[1].Name != "developer-1" || ov.Agents[1].ReportsTo != "pm" || ov.Agents[1].Provider != "claude" {
 		t.Fatalf("%+v", ov.Agents)
 	}
 	// Today's cost per agent: since the local midnight of the client's clock.
@@ -216,24 +216,24 @@ func TestHTTPClientOverviewPartsAndErrors(t *testing.T) {
 
 func TestHTTPClientTaskDetail(t *testing.T) {
 	_, _, c := newFakeCore(t)
-	d, err := c.TaskDetail(context.Background(), "CAL-3", DemoFixture().Overview.Tasks)
+	d, err := c.TaskDetail(context.Background(), "P1-3", DemoFixture().Overview.Tasks)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Task.ID != "CAL-3" || len(d.Attempts) != 2 || len(d.Comments) != 2 || d.Why.Reason != "live_run" || d.Costs.Total.Runs != 1 {
+	if d.Task.ID != "P1-3" || len(d.Attempts) != 2 || len(d.Comments) != 2 || d.Why.Reason != "live_run" || d.Costs.Total.Runs != 1 {
 		t.Fatalf("%+v", d)
 	}
 	for _, e := range d.Events {
-		if e.TaskID != "CAL-3" {
+		if e.TaskID != "P1-3" {
 			t.Fatalf("%+v", e)
 		}
 	}
-	if len(d.Events) != len(DemoFixture().Details["CAL-3"].Events) {
+	if len(d.Events) != len(DemoFixture().Details["P1-3"].Events) {
 		t.Fatal(len(d.Events))
 	}
-	d, err = c.TaskDetail(context.Background(), "CAL-3", DemoFixture().Overview.Tasks)
-	kids := childrenOf("CAL-1", DemoFixture().Overview.Tasks)
-	if err != nil || len(kids) != 6 || kids[0].ID != "CAL-2" {
+	d, err = c.TaskDetail(context.Background(), "P1-3", DemoFixture().Overview.Tasks)
+	kids := childrenOf("P1-1", DemoFixture().Overview.Tasks)
+	if err != nil || len(kids) != 6 || kids[0].ID != "P1-2" {
 		t.Fatalf("%v %+v", err, kids)
 	}
 }
@@ -252,7 +252,7 @@ func TestHTTPClientActions(t *testing.T) {
 		{Action{Kind: "retry", TaskID: "T-1", Version: 5}, "/tasks/T-1/actions", map[string]any{"version": 5.0, "action": "ready", "reason": "retry by owner"}},
 		{Action{Kind: "run", TaskID: "T-2", Version: 1}, "/tasks/T-2/actions", map[string]any{"action": "ready", "reason": "run by owner"}},
 		{Action{Kind: "cancel", TaskID: "T-3", Version: 2, Cascade: true}, "/tasks/T-3/actions", map[string]any{"action": "cancel", "cascade": true}},
-		{Action{Kind: "reassign", TaskID: "T-1", Version: 6, Assignee: "demo"}, "/tasks/T-1/reassign", map[string]any{"assignee": "demo", "version": 6.0}},
+		{Action{Kind: "reassign", TaskID: "T-1", Version: 6, Assignee: "developer-2"}, "/tasks/T-1/reassign", map[string]any{"assignee": "developer-2", "version": 6.0}},
 		{Action{Kind: "reprioritize", TaskID: "T-1", Version: 7, Priority: 9}, "/tasks/T-1/reprioritize", map[string]any{"priority": 9.0}},
 		{Action{Kind: "comment", TaskID: "T-1", Text: "looks good"}, "/tasks/T-1/comments", map[string]any{"text": "looks good"}},
 		{Action{Kind: "direct", TaskID: "T-1", Text: "stop now", Urgent: true}, "/tasks/T-1/directives", map[string]any{"text": "stop now", "urgent": true}},
@@ -416,11 +416,11 @@ func TestParseSSE(t *testing.T) {
 func TestRecordFixture(t *testing.T) {
 	_, _, c := newFakeCore(t)
 	fc := c
-	// Only CAL-3 has a detail in the fake; record just reads what exists.
+	// Only P1-3 has a detail in the fake; record just reads what exists.
 	fx := DemoFixture()
 	tasks := []Task{}
 	for _, tk := range fx.Overview.Tasks {
-		if tk.ID == "CAL-3" {
+		if tk.ID == "P1-3" {
 			tasks = append(tasks, tk)
 		}
 	}
@@ -440,10 +440,10 @@ func TestRecordFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Feed) != len(fx.Feed) || len(f.Details) != 1 || f.Details["CAL-3"].Task.ID != "CAL-3" {
+	if len(f.Feed) != len(fx.Feed) || len(f.Details) != 1 || f.Details["P1-3"].Task.ID != "P1-3" {
 		t.Fatalf("%d %d", len(f.Feed), len(f.Details))
 	}
-	if _, ok := f.Runs["r-ios-7"]; !ok || len(f.RunEvents["r-ios-7"]) != len(fx.RunEvents["r-ios-7"]) || len(f.ToolCalls["r-ios-7"]) != 3 {
+	if _, ok := f.Runs["r-d1-7"]; !ok || len(f.RunEvents["r-d1-7"]) != len(fx.RunEvents["r-d1-7"]) || len(f.ToolCalls["r-d1-7"]) != 3 {
 		t.Fatalf("%v", f.Runs)
 	}
 	path := filepath.Join(t.TempDir(), "rec")
@@ -459,7 +459,7 @@ func TestRecordFixture(t *testing.T) {
 		t.Fatal(st.Mode())
 	}
 	back, err := LoadFixture(path)
-	if err != nil || len(back.Feed) != len(f.Feed) || back.Overview.Health.Company != "acme" {
+	if err != nil || len(back.Feed) != len(f.Feed) || back.Overview.Health.Company != "Company 1" {
 		t.Fatal(err)
 	}
 }
@@ -474,7 +474,7 @@ func TestDemoFixtureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Name != "demo" || len(f.Overview.Tasks) != 22 || len(f.RunEvents["r-ios-7"]) != len(DemoFixture().RunEvents["r-ios-7"]) || f.Details["CAL-3"].Why.Reason != "live_run" {
+	if f.Name != "demo" || len(f.Overview.Tasks) != 22 || len(f.RunEvents["r-d1-7"]) != len(DemoFixture().RunEvents["r-d1-7"]) || f.Details["P1-3"].Why.Reason != "live_run" {
 		t.Fatalf("%+v", f.Overview.Tasks)
 	}
 	if _, err = LoadFixture(filepath.Join(t.TempDir(), "missing.json")); err == nil {
