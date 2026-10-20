@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"appfactory/internal/approvals"
@@ -14,12 +13,13 @@ import (
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 	ctx := context.Background()
-	s, e := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, e := storage.Open(storagetest.URL(t))
 	if e != nil {
 		t.Fatal(e)
 	}

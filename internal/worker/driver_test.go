@@ -8,6 +8,7 @@ import (
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"context"
 	"encoding/json"
 	"errors"
@@ -60,7 +61,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	defer b.NC.Close()
 	defer b.JS.DeleteStream("FACTORY_COMMANDS")
 	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

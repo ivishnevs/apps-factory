@@ -2,19 +2,19 @@ package core
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"appfactory/internal/clock"
 	"appfactory/internal/config"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func schedulerCore(t *testing.T) (*Core, *storage.Store, *clock.Fake) {
 	t.Helper()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

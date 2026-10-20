@@ -23,6 +23,7 @@ import (
 	"appfactory/internal/policies"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
@@ -64,7 +65,7 @@ func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, 
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = e2eHeartbeat
 	t.Cleanup(func() { storage.HeartbeatSeconds = beat })
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

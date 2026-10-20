@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"appfactory/internal/protocol"
@@ -12,7 +11,7 @@ import (
 
 func TestCompaniesAreIsolated(t *testing.T) {
 	ctx := context.Background()
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

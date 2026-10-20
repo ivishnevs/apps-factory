@@ -24,12 +24,9 @@ func addTrigger(ctx context.Context, tx *Tx, t *tasks.Task, kind string, authori
 	}
 	now := tx.now()
 	// The addressee is the task's assignee when the trigger is written (the agent a handoff or review goes to).
-	res, err := tx.ExecContext(ctx, "INSERT INTO task_triggers(company_id,task_id,kind,authority,actor,ref_id,body,created_at,addressee) VALUES(?,?,?,?,?,?,?,?,?)", tx.company, t.ID, kind, authority, actor, ref, shortText(body, 4096), now.Unix(), t.Assignee)
-	if err != nil {
-		return err
-	}
-	seq, err := res.LastInsertId()
-	if err != nil {
+	var seq int64
+	var err error
+	if err = tx.QueryRowContext(ctx, "INSERT INTO task_triggers(company_id,task_id,kind,authority,actor,ref_id,body,created_at,addressee) VALUES(?,?,?,?,?,?,?,?,?) RETURNING seq", tx.company, t.ID, kind, authority, actor, ref, shortText(body, 4096), now.Unix(), t.Assignee).Scan(&seq); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET wake_seq=? WHERE company_id=? AND id=?", seq, tx.company, t.ID); err != nil {
@@ -112,7 +109,7 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 	if t.Status == "IN_PROGRESS" && t.CurrentRunID != "" {
 		// A run that ended without moving the task (no_exit) left it IN_PROGRESS: the input lets it run again.
 		var live bool
-		if err = tx.QueryRowContext(ctx, "SELECT status!='ENDED' OR unreleased FROM runs WHERE id=?", t.CurrentRunID).Scan(&live); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT status!='ENDED' OR unreleased=1 FROM runs WHERE id=?", t.CurrentRunID).Scan(&live); err != nil {
 			return err
 		}
 		if !live {
@@ -130,7 +127,7 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 	if t.CurrentRunID == "" {
 		return nil // a task that never ran has no progress to record
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE tasks SET body=json_set(body,'$.progress_at',?) WHERE company_id=? AND id=?", t.ProgressAt, tx.company, t.ID)
+	_, err = tx.ExecContext(ctx, "UPDATE tasks SET body=(body::jsonb||jsonb_build_object('progress_at',?::bigint))::json WHERE company_id=? AND id=?", t.ProgressAt, tx.company, t.ID)
 	return err
 }
 
@@ -138,8 +135,8 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 // the feed event of a park that waits on the owner.
 func addPark(ctx context.Context, tx *Tx, t tasks.Task, kind, ref, reason string, attention bool) error {
 	now := tx.now()
-	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO task_parks(id,company_id,task_id,kind,ref_id,reason,park_seq,status,created_at)
- SELECT ?,?,?,?,?,?,wake_seq,'active',? FROM tasks WHERE company_id=? AND id=?`, protocol.ID(), tx.company, t.ID, kind, ref, reason, now.Unix(), tx.company, t.ID)
+	res, err := tx.ExecContext(ctx, `INSERT INTO task_parks(id,company_id,task_id,kind,ref_id,reason,park_seq,status,created_at)
+ SELECT ?,?,?,?,?,?,wake_seq,'active',? FROM tasks WHERE company_id=? AND id=? ON CONFLICT DO NOTHING`, protocol.ID(), tx.company, t.ID, kind, ref, reason, now.Unix(), tx.company, t.ID)
 	if err != nil {
 		return err
 	}
@@ -193,7 +190,7 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 		}
 	}
 	// Open questions of a closed task are cancelled (hierarchy D3); approval requests keep their own lifecycle.
-	questions, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND task_id=? AND message_type='question' AND status IN ('PENDING','UNREAD','ESCALATED') AND id NOT IN (SELECT message_id FROM approvals WHERE company_id=? AND message_id IS NOT NULL)", tx.company, t.ID, tx.company)
+	questions, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND task_id=? AND message_type='question' AND status IN ('PENDING','UNREAD','ESCALATED') AND id NOT IN (SELECT message_id FROM approvals WHERE company_id=? AND message_id IS NOT NULL) ORDER BY seq", tx.company, t.ID, tx.company)
 	if err != nil {
 		return err
 	}
@@ -219,7 +216,7 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 		return err
 	}
 	var open int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND json_extract(body,'$.parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, parent.ID).Scan(&open); err != nil || open > 0 {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND (body->>'parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, parent.ID).Scan(&open); err != nil || open > 0 {
 		return err
 	}
 	// A parent that blocked on its children (factory_exit_block on_children) continues.
@@ -240,7 +237,7 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 	dependents, err := listDocs[tasks.Task](ctx, tx, `SELECT t.body FROM task_dependencies d JOIN tasks t ON t.id=d.task_id
  WHERE d.company_id=? AND d.depends_on=? AND t.status NOT IN ('DONE','CANCELLED')
- AND NOT EXISTS (SELECT 1 FROM task_dependencies o JOIN tasks ot ON ot.id=o.depends_on WHERE o.task_id=t.id AND ot.status!='DONE')`, tx.company, done.ID)
+ AND NOT EXISTS (SELECT 1 FROM task_dependencies o JOIN tasks ot ON ot.id=o.depends_on WHERE o.task_id=t.id AND ot.status!='DONE') ORDER BY t.priority DESC,t.created_at,t.id`, tx.company, done.ID)
 	if err != nil {
 		return err
 	}
@@ -257,7 +254,7 @@ func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 // approved version is input for them, explicit-exits-authority D6). urgent stops their live runs like an
 // urgent directive.
 func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID string, urgent bool) error {
-	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED')", tx.company, project)
+	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED') ORDER BY status,priority DESC,created_at,id", tx.company, project)
 	if err != nil {
 		return err
 	}

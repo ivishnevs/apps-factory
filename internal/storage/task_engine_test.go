@@ -4,10 +4,7 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +13,7 @@ import (
 
 func engineStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "db"))
+	s, err := Open(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,43 +60,6 @@ func finishEngineRun(t *testing.T, s *Store, r protocol.RunSpec, outcome string)
 		t.Fatal(err)
 	}
 	return e
-}
-func TestMigrationPreservesFoundation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	baseline, err := migrationFS.ReadFile("migrations/0001_runs.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(string(baseline) + "PRAGMA user_version=1;"); err != nil {
-		t.Fatal(err)
-	}
-	spec := protocol.RunSpec{ID: "legacy", Project: "legacy", Agent: "demo"}
-	b, _ := json.Marshal(spec)
-	if _, err = db.Exec("INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,result) VALUES('legacy','legacy','demo','/tmp/legacy',?,'COMPLETED',1,'old result')", b); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.DB.Close()
-	r, err := s.Get(context.Background(), DefaultCompany, "legacy")
-	if err != nil || r.Result != "old result" {
-		t.Fatal(r, err)
-	}
-	ms, _ := loadMigrations()
-	var version, recorded int
-	if err = s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(ms) {
-		t.Fatal(version, err)
-	}
-	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&recorded); err != nil || recorded != len(ms) {
-		t.Fatal(recorded, err)
-	}
 }
 func TestDependenciesReviewAndRework(t *testing.T) {
 	s := engineStore(t)

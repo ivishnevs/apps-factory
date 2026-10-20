@@ -66,7 +66,7 @@ func (h *exitHarness) lastTrigger(task string) triggerRow {
 // parkStatus is the status of the task's newest park of kind ("" when it has none).
 func (h *exitHarness) parkStatus(task, kind string) string {
 	var status string
-	_ = h.s.DB.QueryRow("SELECT status FROM task_parks WHERE task_id=? AND kind=? ORDER BY created_at DESC, rowid DESC LIMIT 1", task, kind).Scan(&status)
+	_ = h.s.DB.QueryRow("SELECT status FROM task_parks WHERE task_id=? AND kind=? ORDER BY created_at DESC, seq DESC LIMIT 1", task, kind).Scan(&status)
 	return status
 }
 
@@ -351,7 +351,12 @@ func TestArtifactApprovedIsAuthority(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
-	for id, a := range map[string]tasks.Artifact{"uses": v1, "needs": v2} {
+	// In this order: the older work of "uses" (its trigger) is dispatched before "needs" after the urgent stop.
+	for _, c := range []struct {
+		id string
+		a  tasks.Artifact
+	}{{"uses", v1}, {"needs", v2}} {
+		id, a := c.id, c.a
 		if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: id, ProjectID: "notes", Title: id, Assignee: "demo", RequiredArtifacts: []tasks.Artifact{a}, Ready: true, RequestID: id}); err != nil {
 			t.Fatal(err)
 		}

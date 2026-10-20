@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
@@ -19,7 +19,7 @@ import (
 // shows the node reasons (no_capable_node while no registered node has the assignee's driver).
 func TestNodesCommandAgainstCore(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

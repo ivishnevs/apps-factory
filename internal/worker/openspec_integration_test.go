@@ -9,6 +9,7 @@ import (
 
 	"appfactory/internal/bus"
 	"appfactory/internal/protocol"
+
 	"github.com/nats-io/nats.go"
 )
 

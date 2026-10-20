@@ -229,7 +229,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, "UPDATE runs SET session_id='',spec=json_remove(spec,'$.session_id') WHERE company_id=? AND id=? AND status='QUEUED'", tx.company, t.CurrentRunID)
+		res, err := tx.ExecContext(ctx, "UPDATE runs SET session_id='',spec=(spec::jsonb-'session_id')::json WHERE company_id=? AND id=? AND status='QUEUED'", tx.company, t.CurrentRunID)
 		if err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			return nil
 		}
 		var open int
-		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND json_extract(body,'$.parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, t.ID).Scan(&open); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND (body->>'parent_task_id')=? AND status NOT IN ('DONE','CANCELLED')", tx.company, t.ID).Scan(&open); err != nil {
 			return err
 		}
 		if open > 0 {
@@ -298,7 +298,7 @@ func (s *Store) Escalations(ctx context.Context, company string, open bool) ([]E
 
 // OpenEscalationsByTarget counts open escalations per target (routing to the least loaded manager).
 func (s *Store) OpenEscalationsByTarget(ctx context.Context, company string) (map[string]int, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT target,count(*) FROM escalations WHERE company_id=? AND status='open' GROUP BY target", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT target,count(*) FROM escalations WHERE company_id=? AND status='open' GROUP BY target ORDER BY target", company)
 	if err != nil {
 		return nil, err
 	}
@@ -316,6 +316,9 @@ func (s *Store) OpenEscalationsByTarget(ctx context.Context, company string) (ma
 }
 
 func listEscalations(ctx context.Context, tx *Tx, where string, args ...any) ([]Escalation, error) {
+	if !strings.Contains(where, "ORDER BY") {
+		where += " ORDER BY created_at,id"
+	}
 	rows, err := tx.QueryContext(ctx, "SELECT id,coalesce(task_id,''),reason,ref_id,summary,answers,target,message_id,status,answer,actor,created_at,closed_at FROM escalations "+where, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

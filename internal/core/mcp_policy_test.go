@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
@@ -19,7 +19,7 @@ func TestMCPCapturedPermissionsAndAssignAllowlist(t *testing.T) {
 	for _, scenario := range []string{"captured-tool-deny", "captured-create-deny", "current-create-deny", "assign-only"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := context.Background()
-			s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+			s, err := storage.Open(storagetest.URL(t))
 			if err != nil {
 				t.Fatal(err)
 			}

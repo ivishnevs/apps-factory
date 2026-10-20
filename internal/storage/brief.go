@@ -35,7 +35,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 		id, status, outcome, result string
 		started                     int64
 	}
-	err = tx.QueryRowContext(ctx, "SELECT id,status,outcome,result,started_at FROM runs WHERE company_id=? AND task_id=? AND id!=? AND started_at>0 ORDER BY started_at DESC,rowid DESC LIMIT 1", tx.company, t.ID, spec.ID).Scan(&prev.id, &prev.status, &prev.outcome, &prev.result, &prev.started)
+	err = tx.QueryRowContext(ctx, "SELECT id,status,outcome,result,started_at FROM runs WHERE company_id=? AND task_id=? AND id!=? AND started_at>0 ORDER BY started_at DESC,seq DESC LIMIT 1", tx.company, t.ID, spec.ID).Scan(&prev.id, &prev.status, &prev.outcome, &prev.result, &prev.started)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
@@ -110,7 +110,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			Sender  string         `json:"sender"`
 			Body    string         `json:"body"`
 			Answers map[string]any `json:"answers,omitempty"`
-		}](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", tx.company, g.ref)
+		}](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND (body->>'in_reply_to')=? ORDER BY seq DESC LIMIT 1", tx.company, g.ref)
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
@@ -151,7 +151,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			fmt.Fprintf(&b, "Comment by %s: %s\n", cm.Author, briefExcerpt(cm.Text, 2*1024))
 		}
 	}
-	created, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND json_extract(body,'$.origin_task')=? ORDER BY created_at,id", tx.company, t.ID)
+	created, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (body->>'origin_task')=? ORDER BY created_at,id", tx.company, t.ID)
 	if err != nil {
 		return "", err
 	}
@@ -163,7 +163,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	}
 	// The branch log, from the git facts of the task's last exit (when a run exited from a repository).
 	var facts string
-	if err = tx.QueryRowContext(ctx, "SELECT facts FROM run_exits WHERE company_id=? AND task_id=? AND facts!='' ORDER BY created_at DESC,rowid DESC LIMIT 1", tx.company, t.ID).Scan(&facts); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err = tx.QueryRowContext(ctx, "SELECT facts FROM run_exits WHERE company_id=? AND task_id=? AND facts!='' ORDER BY created_at DESC,seq DESC LIMIT 1", tx.company, t.ID).Scan(&facts); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
 	var f ExitFacts

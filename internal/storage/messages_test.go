@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -38,7 +37,7 @@ func applyMessageRun(t *testing.T, s *Store, run protocol.RunSpec, lease, outcom
 }
 func TestBlockingAnswerRestartAndSameThread(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "db")
+	path := testURL(t)
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)

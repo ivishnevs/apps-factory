@@ -2,18 +2,18 @@ package core
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"appfactory/internal/clock"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 )
 
 func TestSleepGapDoesNotExpireLeasesUntilOneTTLOfContinuousTicks(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

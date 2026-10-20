@@ -183,7 +183,7 @@ func (s *Store) ExpireWaits(ctx context.Context, company string) error {
 	}
 	defer tx.Rollback()
 	now := tx.now()
-	rows, err := tx.QueryContext(ctx, "SELECT task_id,ref_id FROM task_parks WHERE company_id=? AND kind=? AND status='active'", company, tasks.ParkWait)
+	rows, err := tx.QueryContext(ctx, "SELECT task_id,ref_id FROM task_parks WHERE company_id=? AND kind=? AND status='active' ORDER BY seq", company, tasks.ParkWait)
 	if err != nil {
 		return err
 	}

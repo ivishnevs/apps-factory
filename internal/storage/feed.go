@@ -77,12 +77,8 @@ var AttentionKinds = map[string]bool{
 // feed records a feed row and its broker notification in the caller's transaction.
 func feed(ctx context.Context, tx *Tx, item FeedItem) error {
 	item.Attention = item.Attention || AttentionKinds[item.Type]
-	res, err := tx.ExecContext(ctx, "INSERT INTO feed_events(company_id,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-		tx.company, item.EventID, item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Type, item.ProjectID, item.EntityID, item.TaskID, item.RunID, item.Agent, item.Actor, item.Status, item.Summary, item.Attention, item.Ref)
-	if err != nil {
-		return err
-	}
-	if item.Sequence, err = res.LastInsertId(); err != nil {
+	if err := tx.QueryRowContext(ctx, "INSERT INTO feed_events(company_id,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING seq",
+		tx.company, item.EventID, item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Type, item.ProjectID, item.EntityID, item.TaskID, item.RunID, item.Agent, item.Actor, item.Status, item.Summary, item.Attention, item.Ref).Scan(&item.Sequence); err != nil {
 		return err
 	}
 	item.Summary = shortText(item.Summary, 512)
@@ -134,17 +130,17 @@ func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after in
 	if after < 0 || limit < 1 || limit > 100 {
 		return out, inputError("after >= 0 and limit 1..100 required")
 	}
-	agents := ""
+	agents, list := "", "[]" // agents is the filter flag, list the JSON array it holds
 	if f.Agents != nil {
 		b, _ := json.Marshal(f.Agents)
-		agents = string(b)
+		agents, list = string(b), string(b)
 	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT seq,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref FROM feed_events
  WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR task_id=?) AND (?=0 OR attention=1) AND seq>?
- AND (?='' OR agent IN (SELECT value FROM json_each(?)) OR task_id IN (SELECT t.id FROM tasks t WHERE t.company_id=feed_events.company_id
-  AND (t.assignee IN (SELECT value FROM json_each(?)) OR json_extract(t.body,'$.origin_task') IN (SELECT o.id FROM tasks o WHERE o.company_id=t.company_id AND o.assignee IN (SELECT value FROM json_each(?))))))
+ AND (?='' OR agent IN (SELECT jsonb_array_elements_text(?::jsonb)) OR task_id IN (SELECT t.id FROM tasks t WHERE t.company_id=feed_events.company_id
+  AND (t.assignee IN (SELECT jsonb_array_elements_text(?::jsonb)) OR (t.body->>'origin_task') IN (SELECT o.id FROM tasks o WHERE o.company_id=t.company_id AND o.assignee IN (SELECT jsonb_array_elements_text(?::jsonb))))))
  ORDER BY seq LIMIT ?`,
-		company, f.Project, f.Project, f.Task, f.Task, f.Attention, after, agents, agents, agents, agents, limit+1)
+		company, f.Project, f.Project, f.Task, f.Task, f.Attention, after, agents, list, list, list, limit+1)
 	if err != nil {
 		return out, err
 	}

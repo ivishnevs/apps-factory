@@ -91,7 +91,7 @@ type Node struct {
 }
 
 // Incarnation is this database's identity. Store.Open creates it, and replaces it when the database
-// no longer matches the incarnation file next to it (a restored backup).
+// no longer matches the incarnation file in Core's data directory (a restored backup).
 func (s *Store) Incarnation(ctx context.Context) (string, error) {
 	var v string
 	err := s.DB.QueryRowContext(ctx, "SELECT value FROM core_meta WHERE key='incarnation'").Scan(&v)
@@ -104,21 +104,18 @@ func (s *Store) newIncarnation(ctx context.Context) (string, error) {
 	return v, err
 }
 
-// checkIncarnation creates the database's incarnation and keeps a copy in <path>.incarnation. A database
+// checkIncarnation creates the database's incarnation and, given a file, keeps a copy in it. A database
 // whose incarnation differs from that file was restored from a backup (or copied): it gets a new
 // incarnation, so nodes stop and seal their runs and register again (runtime protocol v2 §7).
-func (s *Store) checkIncarnation(ctx context.Context, path string) error {
-	inc, err := s.Incarnation(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		inc, err = s.newIncarnation(ctx)
-	}
-	if err != nil {
+func (s *Store) checkIncarnation(ctx context.Context, file string) error {
+	// Core processes starting together create one incarnation: the first insert wins.
+	if _, err := s.DB.ExecContext(ctx, "INSERT INTO core_meta(key,value) VALUES('incarnation',?) ON CONFLICT(key) DO NOTHING", protocol.ID()); err != nil {
 		return err
 	}
-	if path == "" || strings.HasPrefix(path, ":memory:") || strings.HasPrefix(path, "file:") {
-		return nil
+	inc, err := s.Incarnation(ctx)
+	if err != nil || file == "" {
+		return err
 	}
-	file := path + ".incarnation"
 	b, err := os.ReadFile(file)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -256,7 +253,7 @@ func driverTransitions(ctx context.Context, tx *Tx, node, name string, before, a
 // released: the node's runtime is known to be gone (a new epoch); otherwise the lost runs keep their
 // project, workspace and session until the node confirms.
 func loseNodeRuns(ctx context.Context, tx *Tx, node string, epoch int64, why string, released bool) error {
-	rows, err := tx.QueryContext(ctx, "SELECT id,run_started FROM runs WHERE company_id=? AND node_id=? AND (?=0 OR epoch<?) AND status IN ('CLAIMED','RUNNING','CANCELLING')", tx.company, node, epoch, epoch)
+	rows, err := tx.QueryContext(ctx, "SELECT id,run_started FROM runs WHERE company_id=? AND node_id=? AND (?=0 OR epoch<?) AND status IN ('CLAIMED','RUNNING','CANCELLING') ORDER BY seq", tx.company, node, epoch, epoch)
 	if err != nil {
 		return err
 	}
@@ -436,7 +433,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	}
 	// Concurrency caps over started runs; the run stays QUEUED and the node retries.
 	var busy, busyProject int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
 		return out, err
 	}
 	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); busy >= perAgent || busyProject >= perProject {
@@ -527,7 +524,7 @@ type NodeLoad struct {
 
 func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64) (NodeLoad, error) {
 	l := NodeLoad{Used: map[string]int{}}
-	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('CLAIMED','RUNNING','CANCELLING') OR node_held=1)", tx.company, node, epoch)
+	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('CLAIMED','RUNNING','CANCELLING') OR node_held=1) ORDER BY seq", tx.company, node, epoch)
 	if err != nil {
 		return l, err
 	}
@@ -766,7 +763,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		startBy := "start_by"
 		if started == 0 && (x.State == "claimed" || x.State == "starting") {
 			// Extend the start window, never past MaxStartWindow after the claim.
-			startBy = fmt.Sprintf("max(start_by,min(%d,%d))", now.Add(StartWindow).Unix(), time.Unix(startedAt, 0).Add(MaxStartWindow).Unix())
+			startBy = fmt.Sprintf("GREATEST(start_by,LEAST(%d,%d))", now.Add(StartWindow).Unix(), time.Unix(startedAt, 0).Add(MaxStartWindow).Unix())
 		}
 		if _, err = tx.ExecContext(ctx, "UPDATE runs SET lease_until=?,start_by="+startBy+" WHERE id=?", now.Add(NodeOffline).Unix(), x.RunID); err != nil {
 			return out, err
@@ -779,7 +776,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		}
 	}
 	// A started run of this epoch the node no longer lists is lost.
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND status IN ('RUNNING','CANCELLING') AND run_started>0 AND run_started<?", company, node, hb.Epoch, now.Add(-inventoryGrace).Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND status IN ('RUNNING','CANCELLING') AND run_started>0 AND run_started<? ORDER BY seq", company, node, hb.Epoch, now.Add(-inventoryGrace).Unix())
 	if err != nil {
 		return out, err
 	}
@@ -833,7 +830,7 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 			}
 		}
 	}
-	rrows, err := tx.QueryContext(ctx, "SELECT task_id FROM workspaces WHERE company_id=? AND node_id=? AND reset_pending=1 LIMIT 64", company, node)
+	rrows, err := tx.QueryContext(ctx, "SELECT task_id FROM workspaces WHERE company_id=? AND node_id=? AND reset_pending=1 ORDER BY task_id LIMIT 64", company, node)
 	if err != nil {
 		return out, err
 	}
@@ -891,7 +888,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND protocol=2 AND run_started=0 AND status IN ('CLAIMED','CANCELLING') AND start_by<?", company, cutoff)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND protocol=2 AND run_started=0 AND status IN ('CLAIMED','CANCELLING') AND start_by<? ORDER BY seq", company, cutoff)
 	if err != nil {
 		return err
 	}
@@ -914,7 +911,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 			return err
 		}
 	}
-	nrows, err := tx.QueryContext(ctx, "SELECT id FROM nodes WHERE company_id=? AND online=1 AND last_seen<?", company, cutoff-int64(NodeOffline.Seconds()))
+	nrows, err := tx.QueryContext(ctx, "SELECT id FROM nodes WHERE company_id=? AND online=1 AND last_seen<? ORDER BY id", company, cutoff-int64(NodeOffline.Seconds()))
 	if err != nil {
 		return err
 	}

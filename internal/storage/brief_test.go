@@ -39,7 +39,7 @@ func TestBriefGolden(t *testing.T) {
 	if _, err := s.ReviewTask(ctx, co, "spec", tasks.Review{Version: dep.Version, Accept: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB.Exec(`UPDATE tasks SET body=json_set(body,'$.result','API spec v2 at docs/api.md') WHERE id='spec'`); err != nil {
+	if _, err := s.DB.Exec(`UPDATE tasks SET body=(body::jsonb||jsonb_build_object('result','API spec v2 at docs/api.md'))::json WHERE id='spec'`); err != nil {
 		t.Fatal(err)
 	}
 	s.ExplicitExits = true

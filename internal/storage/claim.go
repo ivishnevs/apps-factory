@@ -114,7 +114,7 @@ func (s *Store) ExpireQueued(ctx context.Context, company string) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status='QUEUED' AND task_id IS NOT NULL AND created_at<=?", company, tx.now().Add(-QueueTTL).Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND status='QUEUED' AND task_id IS NOT NULL AND created_at<=? ORDER BY seq", company, tx.now().Add(-QueueTTL).Unix())
 	if err != nil {
 		return 0, err
 	}

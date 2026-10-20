@@ -23,7 +23,7 @@ func (s *Store) UseCommandGrant(ctx context.Context, company, runID string, argv
 		return approvals.Approval{}, err
 	}
 	grants, err := listDocs[approvals.Approval](ctx, tx, `SELECT body FROM approvals WHERE company_id=? AND kind='command' AND status='APPROVED'
- AND project_id=? AND agent=? AND task_id=? AND json_extract(body,'$.expires_at')>? ORDER BY rowid`, company, spec.Project, spec.Agent, spec.TaskID, tx.now().Unix())
+ AND project_id=? AND agent=? AND task_id=? AND (body->>'expires_at')::bigint>? ORDER BY seq`, company, spec.Project, spec.Agent, spec.TaskID, tx.now().Unix())
 	if err != nil {
 		return approvals.Approval{}, err
 	}

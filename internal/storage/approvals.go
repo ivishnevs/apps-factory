@@ -22,7 +22,7 @@ func (s *Store) Approval(ctx context.Context, company, id string) (approvals.App
 	return getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
 }
 func (s *Store) Approvals(ctx context.Context, company, project string) ([]approvals.Approval, error) {
-	return listDocs[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND (?='' OR project_id=?) ORDER BY rowid", company, project, project)
+	return listDocs[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND (?='' OR project_id=?) ORDER BY seq", company, project, project)
 }
 func (s *Store) RequestApproval(ctx context.Context, company string, in approvals.Request) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "approval.request:"+in.ProjectID+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
@@ -131,7 +131,7 @@ func (s *Store) ExpireApprovals(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind IN ('action','command') OR status='PENDING') AND json_extract(body,'$.expires_at')<=?", company, tx.now().Unix())
+	rows, err := tx.QueryContext(ctx, "SELECT body FROM approvals WHERE company_id=? AND status IN ('PENDING','APPROVED') AND (kind IN ('action','command') OR status='PENDING') AND (body->>'expires_at')::bigint<=? ORDER BY seq", company, tx.now().Unix())
 	if err != nil {
 		return err
 	}

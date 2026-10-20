@@ -168,7 +168,7 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 	if t.Kind == tasks.KindConversation && completed {
 		// A conversation task stays open (hierarchy D5): a completed turn handled what it was briefed on.
 		if !hasExit {
-			if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=GREATEST(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
 				return err
 			}
 		}
@@ -186,7 +186,7 @@ func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {
 	}
 	if completed && !hasExit {
 		// Without explicit exits, a completed turn handles the triggers it was briefed on.
-		if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=max(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=GREATEST(handled_seq,(SELECT brief_to FROM runs WHERE id=?)) WHERE company_id=? AND id=?", runID, tx.company, t.ID); err != nil {
 			return err
 		}
 	}
@@ -278,7 +278,7 @@ func listComments(ctx context.Context, tx *Tx, id string) ([]Comment, error) {
 func comments(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, company, id string) ([]Comment, error) {
-	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,rowid", company, id)
+	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +348,7 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 	}
 	defer tx.Rollback()
 	// v2 leases last NodeOffline and are judged over as much continuous ticking, like the node's silence.
-	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('CLAIMED','RUNNING','CANCELLING') AND (protocol=2 AND lease_until<? OR protocol!=2 AND lease_until<?)", company, s.windowCutoff(NodeOffline), s.leaseCutoff())
+	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('CLAIMED','RUNNING','CANCELLING') AND (protocol=2 AND lease_until<? OR protocol!=2 AND lease_until<?) ORDER BY seq", company, s.windowCutoff(NodeOffline), s.leaseCutoff())
 	if err != nil {
 		return err
 	}

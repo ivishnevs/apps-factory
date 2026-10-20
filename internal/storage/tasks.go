@@ -15,20 +15,11 @@ import (
 	"appfactory/internal/artifacts"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
-
-	"modernc.org/sqlite"
 )
 
 var entityName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$`)
 
 func inputError(message string) error { return fmt.Errorf("%w: %s", ErrInput, message) }
-func constraint(err error) error {
-	var e *sqlite.Error
-	if errors.As(err, &e) && e.Code()&255 == 19 {
-		return fmt.Errorf("%w: %v", ErrConflict, err)
-	}
-	return err
-}
 func getDoc[T any](ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, query string, args ...any) (T, error) {
@@ -347,7 +338,7 @@ func duplicateTask(ctx context.Context, tx *Tx, t tasks.Task, roles map[string]s
 	if t.OriginTask == "" {
 		return nil, nil
 	}
-	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND json_extract(body,'$.origin_task')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id", tx.company, t.ProjectID, t.OriginTask)
+	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND (body->>'origin_task')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id", tx.company, t.ProjectID, t.OriginTask)
 	if err != nil {
 		return nil, err
 	}
@@ -373,10 +364,11 @@ func duplicateTask(ctx context.Context, tx *Tx, t tasks.Task, roles map[string]s
 func waitsFor(ctx context.Context, tx *Tx, start, target string) (bool, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `WITH RECURSIVE reachable(id) AS (
- SELECT ?
- UNION SELECT d.depends_on FROM task_dependencies d JOIN reachable r ON d.task_id=r.id
- UNION SELECT c.id FROM tasks c JOIN reachable r ON json_extract(c.body,'$.parent_task_id')=r.id WHERE c.company_id=?
-) SELECT count(*) FROM reachable WHERE id=?`, start, tx.company, target).Scan(&n)
+ SELECT ?::text
+ UNION SELECT n.id FROM reachable r CROSS JOIN LATERAL (
+  SELECT d.depends_on AS id FROM task_dependencies d WHERE d.company_id=? AND d.task_id=r.id
+  UNION ALL SELECT c.id FROM tasks c WHERE c.company_id=? AND (c.body->>'parent_task_id')=r.id) n
+) SELECT count(*) FROM reachable WHERE id=?`, start, tx.company, tx.company, target).Scan(&n)
 	return n > 0, err
 }
 
@@ -652,7 +644,7 @@ func (s *Store) SubmitTask(ctx context.Context, company, id string, in tasks.Sub
 			if _, err = registerArtifactTx(ctx, tx, t.ProjectID, artifacts.Register{Artifact: a, TaskID: t.ID, RunID: in.RunID, Actor: in.Actor}); err != nil {
 				return t, err
 			}
-			if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO task_artifacts VALUES(?,?,?,?,?,?)", t.ID, in.RunID, a.ID, a.Version, a.URI, tx.company); err != nil {
+			if _, err = tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(company_id,task_id,run_id,id,version) DO UPDATE SET uri=excluded.uri", t.ID, in.RunID, a.ID, a.Version, a.URI, tx.company); err != nil {
 				return t, err
 			}
 		}

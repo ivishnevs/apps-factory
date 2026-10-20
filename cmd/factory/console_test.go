@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +14,7 @@ import (
 	"appfactory/internal/core"
 	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
@@ -40,7 +40,7 @@ func capture(t *testing.T, fn func() error) string {
 
 func TestConsoleCommandsAgainstCore(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

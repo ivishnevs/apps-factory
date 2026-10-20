@@ -39,13 +39,19 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	root := env("FACTORY_ROOT", ".")
+	// FACTORY_COMPANY is the company this Core (and the catalog commands) serve; --company overrides it.
+	company := env("FACTORY_COMPANY", storage.DefaultCompany)
+	if i := slices.Index(args, "--company"); i > 0 && i+1 < len(args) {
+		company = args[i+1]
+		args = slices.Delete(args, i, i+2)
+	}
 	if args[0] == "config" || args[0] == "agents" {
-		c, err := config.LoadCatalog(root)
+		c, err := config.LoadCompanyCatalog(root, company)
 		if err != nil {
 			return err
 		}
 		if len(args) == 2 && args[0] == "config" && args[1] == "validate" {
-			return printJSON(map[string]any{"agents": config.Names(c.Agents), "profiles": len(c.Profiles), "policies": len(c.Policies), "skills": len(c.Skills.Skills), "node_hooks": len(c.NodeHooks)})
+			return printJSON(map[string]any{"company": company, "agents": config.Names(c.Agents), "profiles": len(c.Profiles), "policies": len(c.Policies), "skills": len(c.Skills.Skills), "node_hooks": len(c.NodeHooks)})
 		}
 		if len(args) == 2 && args[0] == "agents" && args[1] == "list" {
 			return printJSON(config.Names(c.Agents))
@@ -196,17 +202,25 @@ func run() error {
 	if args[0] != "serve" {
 		return fmt.Errorf("unknown command")
 	}
-	catalog, err := config.LoadCatalog(root)
+	catalog, err := config.LoadCompanyCatalog(root, company)
 	if err != nil {
 		return err
 	}
-	dbPath := env("FACTORY_DB", "data/factory.db")
-	if err = os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
+	databaseURL := os.Getenv("FACTORY_DATABASE_URL")
+	if databaseURL == "" {
+		return fmt.Errorf("FACTORY_DATABASE_URL required (postgres://user:password@host:5432/factory)")
+	}
+	// Core keeps no database file; its data directory holds only the incarnation copy (restore detection).
+	dataDir := env("FACTORY_DATA_DIR", "data")
+	if err = os.MkdirAll(dataDir, 0700); err != nil {
 		return err
 	}
-	s, err := storage.Open(dbPath)
+	s, err := storage.OpenWith(databaseURL, storage.Options{IncarnationFile: filepath.Join(dataDir, "core.incarnation")})
 	if err != nil {
 		return err
+	}
+	if _, err = s.CompanyTimeZone(ctx, company); err != nil {
+		return fmt.Errorf("company %s: %w", company, err)
 	}
 	defer s.DB.Close()
 	s.OpenSpec = openspec.Access{HostRoot: os.Getenv("FACTORY_WORKSPACE_HOST_ROOT"), LocalRoot: os.Getenv("FACTORY_WORKSPACE_LOCAL_ROOT")}
@@ -219,14 +233,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	c := core.Core{Store: s, Bus: b, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), DefaultReport: catalog.DefaultReport, ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
+	c := core.Core{Store: s, Bus: b, Company: company, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), DefaultReport: catalog.DefaultReport, ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
 		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
 	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()
 	if token := os.Getenv("FACTORY_TELEGRAM_TOKEN"); token != "" {
 		// The bot token stays in the environment; it is never logged.
-		zone, _ := s.CompanyTimeZone(ctx, storage.DefaultCompany)
+		zone, _ := s.CompanyTimeZone(ctx, company)
 		loc, err := time.LoadLocation(zone)
 		if err != nil {
 			loc = time.UTC

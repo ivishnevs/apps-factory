@@ -193,7 +193,7 @@ func TestDirectiveDuringBudgetRun(t *testing.T) {
 		t.Fatal(r)
 	}
 	// The input the run was briefed on does not count again: the next failure at the limit escalates.
-	if _, err = s.DB.Exec("INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,?) ON CONFLICT DO UPDATE SET used=excluded.used", co, "t1", s.Now().UTC().Format("2006-01-02"), DailyBudget-1); err != nil {
+	if _, err = s.DB.Exec("INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,?) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=excluded.used", co, "t1", s.Now().UTC().Format("2006-01-02"), DailyBudget-1); err != nil {
 		t.Fatal(err)
 	}
 	spec = dispatchEngineTask(t, s, taskOf(t, s, "t1"), "r2")

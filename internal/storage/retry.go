@@ -90,7 +90,7 @@ func (s *Store) SetCompanyTimeZone(ctx context.Context, company, zone string) er
 // with progress, which re-arms the alert.
 func (s *Store) NoProgress(ctx context.Context, company string, since time.Time) ([]Alert, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT t.id,min(r.created_at),count(*) FROM tasks t JOIN runs r ON r.company_id=t.company_id AND r.task_id=t.id
- WHERE t.company_id=? AND t.status NOT IN ('DONE','CANCELLED','BACKLOG') AND r.created_at>coalesce(json_extract(t.body,'$.progress_at'),0)
+ WHERE t.company_id=? AND t.status NOT IN ('DONE','CANCELLED','BACKLOG') AND r.created_at>coalesce((t.body->>'progress_at')::bigint,0)
  GROUP BY t.id HAVING min(r.created_at)<=? ORDER BY t.id`, company, since.Unix())
 	if err != nil {
 		return nil, err
@@ -233,7 +233,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	// Authority input the run was not briefed on counts as a retry answer (D2, D5): counters, backoff and
 	// today's budget reset, and the task runs with that input instead of escalating.
 	var fresh bool
-	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM task_triggers WHERE company_id=? AND task_id=? AND authority=1 AND seq>max(?,(SELECT handled_seq FROM tasks WHERE company_id=? AND id=?)))", tx.company, t.ID, briefTo, tx.company, t.ID).Scan(&fresh); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM task_triggers WHERE company_id=? AND task_id=? AND authority=1 AND seq>GREATEST(?::bigint,(SELECT handled_seq FROM tasks WHERE company_id=? AND id=?)))", tx.company, t.ID, briefTo, tx.company, t.ID).Scan(&fresh); err != nil {
 		return err
 	}
 	if fresh {
@@ -295,7 +295,7 @@ func markRecovered(ctx context.Context, tx *Tx, runID string) (bool, error) {
 
 // countBudget counts a run's end against the task's budget for day.
 func countBudget(ctx context.Context, tx *Tx, task, day string) error {
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=used+1", tx.company, task, day)
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_budget(company_id,task_id,day,used) VALUES(?,?,?,1) ON CONFLICT(company_id,task_id,day) DO UPDATE SET used=task_budget.used+1", tx.company, task, day)
 	return err
 }
 
@@ -405,7 +405,7 @@ func releaseLost(ctx context.Context, tx *Tx, id string) error {
 // releaseNodeRuns releases the unreleased lost runs of node that its new state proves gone: runs of an
 // older epoch (the node killed what its previous process left), or runs of this epoch it no longer lists.
 func releaseNodeRuns(ctx context.Context, tx *Tx, node string, olderThan int64, listed map[string]bool, epoch int64) error {
-	rows, err := tx.QueryContext(ctx, "SELECT id,epoch FROM runs WHERE company_id=? AND node_id=? AND unreleased=1", tx.company, node)
+	rows, err := tx.QueryContext(ctx, "SELECT id,epoch FROM runs WHERE company_id=? AND node_id=? AND unreleased=1 ORDER BY seq", tx.company, node)
 	if err != nil {
 		return err
 	}
@@ -470,7 +470,7 @@ func exitProgress(ctx context.Context, tx *Tx, runID, task string) (bool, error)
 	}
 	if sha != "" {
 		var prev string
-		err := tx.QueryRowContext(ctx, "SELECT exit_sha FROM run_exits WHERE company_id=? AND task_id=? AND run_id!=? AND exit_sha!='' AND created_at<=? ORDER BY created_at DESC, rowid DESC LIMIT 1", tx.company, task, runID, at).Scan(&prev)
+		err := tx.QueryRowContext(ctx, "SELECT exit_sha FROM run_exits WHERE company_id=? AND task_id=? AND run_id!=? AND exit_sha!='' AND created_at<=? ORDER BY created_at DESC, seq DESC LIMIT 1", tx.company, task, runID, at).Scan(&prev)
 		if errors.Is(err, sql.ErrNoRows) {
 			return true, nil // the first commit handed over
 		}

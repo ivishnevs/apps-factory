@@ -111,11 +111,12 @@ func (c *Core) Handler() http.Handler {
 	c.authorityRoutes(m)
 	c.conversationRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		if err := c.Store.DB.PingContext(r.Context()); err != nil || !c.Bus.NC.IsConnected() {
+		database, err := c.Store.DatabaseVersion(r.Context())
+		if err != nil || !c.Bus.NC.IsConnected() {
 			http.Error(w, "unavailable", 503)
 			return
 		}
-		write(w, map[string]string{"status": "ok"})
+		write(w, map[string]string{"status": "ok", "database": database, "company": c.company()})
 	})
 	m.HandleFunc("GET /agents", func(w http.ResponseWriter, r *http.Request) { write(w, config.Names(c.Agents)) })
 	m.HandleFunc("POST /runs", c.create)

@@ -18,6 +18,7 @@ import (
 	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
 )
@@ -49,7 +50,7 @@ func TestJetStreamExplicitExitEndToEnd(t *testing.T) {
 	grace := worker.ExitGrace
 	worker.ExitGrace = 500 * time.Millisecond
 	defer func() { worker.ExitGrace = grace }()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

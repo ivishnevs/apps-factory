@@ -59,7 +59,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	}
 	waiting := readyEngineTask(t, s, createEngineTask(t, s, "waiting", "dep"))
 	dispatchEngineTask(t, s, waiting, "waiting-run")
-	if _, err = s.DB.Exec(`UPDATE tasks SET status='READY',body=json_set(body,'$.status','READY') WHERE id='dep'`); err != nil {
+	if _, err = s.DB.Exec(`UPDATE tasks SET status='READY',body=(body::jsonb||jsonb_build_object('status','READY'))::json WHERE id='dep'`); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.ClaimRun(ctx, DefaultCompany, "waiting-run")

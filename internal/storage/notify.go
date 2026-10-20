@@ -32,7 +32,7 @@ func (s *Store) NotifyApplied(ctx context.Context, company, channel string, upda
 }
 
 func (s *Store) MarkNotifyApplied(ctx context.Context, company, channel string, update int64) error {
-	_, err := s.DB.ExecContext(ctx, "INSERT OR IGNORE INTO notify_updates(company_id,channel,update_id,applied_at) VALUES(?,?,?,?)", company, channel, update, s.Now().Unix())
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO notify_updates(company_id,channel,update_id,applied_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING", company, channel, update, s.Now().Unix())
 	return err
 }
 

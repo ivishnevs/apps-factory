@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"appfactory/internal/decisions"
 	"appfactory/internal/protocol"
 	"appfactory/internal/reports"
+	"appfactory/internal/storage/pgtest"
 	"appfactory/internal/tasks"
 )
 
@@ -172,10 +174,10 @@ func TestDecisionsReplacementConcurrencyAndCapturedContext(t *testing.T) {
 		t.Fatal(superseded)
 	}
 	// Persisted decision and captured snapshots survive reopening the database.
-	var dbPath string
-	s.DB.QueryRow("SELECT file FROM pragma_database_list WHERE name='main'").Scan(&dbPath)
+	var name string
+	s.DB.QueryRow("SELECT current_database()").Scan(&name)
 	s.DB.Close()
-	reopened, e := Open(dbPath)
+	reopened, e := Open(pgtest.URLFor(os.Getenv(pgtest.Env), name))
 	if e != nil {
 		t.Fatal(e)
 	}

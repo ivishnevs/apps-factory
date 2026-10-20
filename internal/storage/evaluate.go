@@ -223,7 +223,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 
 // agentLive counts the agent's live runs other than task's, in all projects and in project.
 func agentLive(ctx context.Context, tx *Tx, agent, project, task string) (all, inProject int, err error) {
-	err = tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(json_extract(spec,'$.project')=?),0) FROM runs
+	err = tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs
  WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=?`, project, tx.company, agent, task).Scan(&all, &inProject)
 	return
 }

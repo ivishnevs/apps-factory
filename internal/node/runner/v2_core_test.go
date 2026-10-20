@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/worker"
 
 	"net/http/httptest"
@@ -39,7 +39,7 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = 1
 	defer func() { storage.HeartbeatSeconds = beat }()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

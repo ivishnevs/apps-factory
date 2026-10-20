@@ -68,7 +68,7 @@ func (s *Store) CreateNodeToken(ctx context.Context, company, name, node string)
 
 // NodeTokens lists the company's node tokens (never their secrets).
 func (s *Store) NodeTokens(ctx context.Context, company string) ([]NodeToken, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,node_id,created_at,revoked_at,last_used_at FROM node_tokens WHERE company_id=? ORDER BY created_at,rowid", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,node_id,created_at,revoked_at,last_used_at FROM node_tokens WHERE company_id=? ORDER BY created_at,seq", company)
 	if err != nil {
 		return nil, err
 	}

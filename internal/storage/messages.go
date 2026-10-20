@@ -26,7 +26,7 @@ func conversationTx(ctx context.Context, tx *Tx, id string) (messaging.Conversat
 	return getDoc[messaging.Conversation](ctx, tx, "SELECT body FROM conversations WHERE company_id=? AND id=?", tx.company, id)
 }
 func (s *Store) Conversations(ctx context.Context, company, project string) ([]messaging.Conversation, error) {
-	vs, err := listDocs[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND project_id=? ORDER BY rowid", company, project)
+	vs, err := listDocs[messaging.Conversation](ctx, s.DB, "SELECT body FROM conversations WHERE company_id=? AND project_id=? ORDER BY seq", company, project)
 	for i := range vs {
 		vs[i].TaskID = ConversationID(vs[i].ProjectID, vs[i].Agent)
 	}
@@ -68,10 +68,10 @@ func messageTx(ctx context.Context, tx *Tx, id string) (messaging.Message, error
 	return getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND id=?", tx.company, id)
 }
 func (s *Store) Messages(ctx context.Context, company, conversation string) ([]messaging.Message, error) {
-	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND conversation_id=? ORDER BY rowid", company, conversation)
+	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND conversation_id=? ORDER BY seq", company, conversation)
 }
 func (s *Store) Inbox(ctx context.Context, company, project string) ([]messaging.Message, error) {
-	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,rowid", company, project, project)
+	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,seq", company, project, project)
 }
 
 func (s *Store) presentMessages(ctx context.Context, company, query string, args ...any) ([]messaging.Message, error) {
@@ -357,7 +357,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	}
 	if m.MessageType == "question" && m.Status == "ANSWERED" {
 		// First answer wins (hierarchy D3): the later one learns the recorded answer.
-		answer, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", tx.company, m.ID)
+		answer, err := getDoc[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND (body->>'in_reply_to')=? ORDER BY seq DESC LIMIT 1", tx.company, m.ID)
 		if err != nil {
 			return m, ErrConflict
 		}
@@ -388,7 +388,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		if in.Sender == "owner" {
 			// A manager that escalated can receive the owner's answer in a new run.
 			// Reopen only a known-completed delivery, never timed-out or lost work.
-			rows, e := tx.QueryContext(ctx, "SELECT body FROM messages WHERE conversation_id=? AND recipient=? AND status='ESCALATED' AND delivery_status='COMPLETED'", m.ConversationID, m.Sender)
+			rows, e := tx.QueryContext(ctx, "SELECT body FROM messages WHERE conversation_id=? AND recipient=? AND status='ESCALATED' AND delivery_status='COMPLETED' ORDER BY seq", m.ConversationID, m.Sender)
 			if e != nil {
 				return answer, e
 			}
@@ -465,7 +465,7 @@ func (s *Store) ExpireMessages(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND status='PENDING'", company)
+	rows, err := tx.QueryContext(ctx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND status='PENDING' ORDER BY seq", company)
 	if err != nil {
 		return err
 	}
@@ -504,7 +504,7 @@ func (s *Store) ExpireMessages(ctx context.Context, company string) error {
 }
 
 func (s *Store) AnswerFor(ctx context.Context, company, id string) (messaging.Message, error) {
-	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND json_extract(body,'$.in_reply_to')=? ORDER BY rowid DESC LIMIT 1", company, id)
+	return getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND (body->>'in_reply_to')=? ORDER BY seq DESC LIMIT 1", company, id)
 }
 
 // ReadInbox acknowledges owner notifications without answering or dismissing a question.
@@ -622,7 +622,7 @@ func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	pending, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND recipient!='owner' AND status IN ('PENDING','UNREAD') AND delivery_status!='RUNNING' AND json_extract(body,'$.up_chain')=1", company)
+	pending, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND recipient!='owner' AND status IN ('PENDING','UNREAD') AND delivery_status!='RUNNING' AND (body->>'up_chain')='true' ORDER BY seq", company)
 	if err != nil {
 		return 0, err
 	}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,12 +16,13 @@ import (
 	"appfactory/internal/factorytools"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
+	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
 )
 
 func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) {
 	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "db")
+	dbPath := storagetest.URL(t)
 	s, err := storage.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 
 func TestArtifactWaitersPreserveManualBlocksQuarantineAndDeadlines(t *testing.T) {
 	ctx := context.Background()
-	s, err := storage.Open(filepath.Join(t.TempDir(), "db"))
+	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,8 +3,6 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
-	"reflect"
 	"testing"
 
 	"appfactory/internal/protocol"
@@ -92,46 +90,5 @@ func TestRolledBackCauseLeavesNoFeed(t *testing.T) {
 	}
 	if r, err := s.Get(ctx, DefaultCompany, spec.ID); err == nil {
 		t.Fatal("rolled back run exists", r)
-	}
-}
-
-func TestFeedBackfillKeepsSequencesAndContent(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "db")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.CreateProject(ctx, DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "Project", Workspace: "/tmp/feed-backfill"}); err != nil {
-		t.Fatal(err)
-	}
-	task, err := s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: "a", ProjectID: "p", Title: "Write the onboarding flow", Assignee: "demo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	title := "Write the onboarding flow v2"
-	if _, err = s.UpdateTask(ctx, DefaultCompany, task.ID, tasks.Update{Version: task.Version, Title: &title}); err != nil {
-		t.Fatal(err)
-	}
-	want, err := s.ProjectFeed(ctx, DefaultCompany, "p", 0, 100)
-	if err != nil || len(want.Items) != 3 {
-		t.Fatal(want, err)
-	}
-	rollbackTo(t, s.DB, 8)
-	s.DB.Close()
-	if s, err = Open(path); err != nil {
-		t.Fatal(err)
-	}
-	defer s.DB.Close()
-	got, err := s.ProjectFeed(ctx, DefaultCompany, "p", 0, 100)
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("backfill differs:\n%+v\n%+v\n%v", got.Items, want.Items, err)
-	}
-	if _, err = s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: "b", ProjectID: "p", Title: "next"}); err != nil {
-		t.Fatal(err)
-	}
-	next, _ := s.ProjectFeed(ctx, DefaultCompany, "p", want.NextAfter, 100)
-	if len(next.Items) != 1 || next.Items[0].EntityID != "b" {
-		t.Fatal("cursor from before the upgrade lost or repeated events", next.Items)
 	}
 }
