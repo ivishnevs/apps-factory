@@ -180,3 +180,71 @@ The UI SHALL offer a fuzzy command palette over tasks, agents, live runs, projec
 #### Scenario: Too small
 - **WHEN** the terminal is resized to 50×12
 - **THEN** the UI SHALL ask for a larger terminal instead of a broken layout
+
+### Requirement: Why a run is queued in the UI
+The UI SHALL show Core's reason for a QUEUED run — a pause, the agent's cap, a disabled driver with the time it may come back, a paused or offline node, no free slot, a busy resource class — on the run view (with every node's answer), on its task's card (kept in the Ready column, not Running), in the task's why line and detail, and on its agent's row, instead of a working spinner; without Core's reason it SHALL say the run waits for a node.
+
+#### Scenario: Claude driver disabled
+- **WHEN** a reply run of a direct report waits because the node's claude driver failed its auth check until 14:40
+- **THEN** the agent row, the card and the run view SHALL say `driver disabled` with the node, the check and `until 14:40`
+
+#### Scenario: Each cause has a label
+- **WHEN** Core reports paused, agent busy, no free slot, resource busy, node paused, node offline or no node
+- **THEN** the UI SHALL name that cause before Core's detail
+
+### Requirement: Nodes screen
+A Nodes tab SHALL show each registered node with its online state and last heartbeat, slots in use, held resource classes, each driver (enabled, enabled with transient failures, disabled until when and why), free disk against its low and critical watermarks, load, failing checks and the owner's pause with its reason; the active pauses; and the nodes' health events from the feed with attention marked. The tab SHALL count the nodes that need care.
+
+#### Scenario: Healthy, low-disk and disabled-driver nodes
+- **WHEN** one node is healthy, one is offline below its low watermark and one has its claude driver disabled by an auth failure
+- **THEN** the screen SHALL show them so, the tab SHALL count two, and the feed's `node.low_disk` and `driver_unsupported` rows SHALL be listed with attention
+
+### Requirement: Pauses and kill switch from the UI
+The owner SHALL pause a project, an agent, a quota key or a node (choosing the scope and the target, then a reason) and resume any active pause or paused node from the UI, each after a confirmation (`POST /pauses`, `POST /pauses/resume`), and stop or start the company with the kill switch.
+
+#### Scenario: Pause a node
+- **WHEN** the owner presses `p` on a node, types a reason and confirms
+- **THEN** the UI SHALL send a node pause with that reason, and nothing before the confirmation
+
+#### Scenario: Resume a pause
+- **WHEN** the owner presses `u` on an active pause and cancels
+- **THEN** nothing SHALL be sent
+
+### Requirement: Costs screen
+A Costs tab SHALL show the cost ledger over the last 7 days, 30 days or today by day (a sparkline and bars), agent, model and project (bars with cost and runs), with the total and the runs without a price.
+
+#### Scenario: Range
+- **WHEN** the owner presses `r` on the Costs screen
+- **THEN** the UI SHALL reread the ledger for the next range and show it
+
+### Requirement: Parks from Core
+The task detail SHALL show Core's parks of the task (`GET /tasks/{id}/parks`) with kind, reason, what it waits on, who clears it and since when, and fall back to the parks rebuilt from the task's feed events only when Core has no such route.
+
+#### Scenario: Parked on the owner's answer
+- **WHEN** the owner opens a task parked on a question to the owner
+- **THEN** the detail SHALL show the `ask` park with the message, `clears you` and its age
+
+### Requirement: Render only on change
+The UI SHALL redraw when data, a stream event, a key or the refresh arrives, and SHALL ask for animation frames only while something live is visible: a running run on the Dashboard, Board, Run or Transcript screens, a reply in the chat, a read or send in flight, a toast sliding in. With nothing live it SHALL schedule no animation tick.
+
+#### Scenario: Idle company
+- **WHEN** no run is live and the owner moves between every tab
+- **THEN** the model SHALL schedule no animation tick, and a pending tick SHALL schedule none
+
+#### Scenario: Live run on the Costs screen
+- **WHEN** a run is live but the owner is on the Costs screen
+- **THEN** the animation SHALL stop until a screen that shows the run is open again
+
+### Requirement: Notifications and reports in the inbox
+An inbox item that takes no answer (a message type other than `question`) SHALL be shown as what the agent says, with reply and mark read instead of answer: reply SHALL open the chat with that direct report and the input focused, or a directive on the task for any other agent; mark read SHALL send `POST /inbox/{id}/read`; no answer SHALL be sent.
+
+#### Scenario: CEO notification
+- **WHEN** the oldest inbox item is a notification from a direct report
+- **THEN** the prompt bar SHALL say `<agent> says: …` with `[R reply · M read]`, `R` SHALL open the chat with that agent, and `A` SHALL send nothing
+
+### Requirement: Conflicts explained
+A refused owner action SHALL say what changed — the question answered or withdrawn, the task's version stale, the approval decided — instead of Core's bare state or version conflict, and the UI SHALL refresh.
+
+#### Scenario: Stale answer
+- **WHEN** Core refuses an answer with a version conflict
+- **THEN** the UI SHALL say the question was answered, withdrawn or changed meanwhile and refresh
