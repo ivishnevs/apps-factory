@@ -47,7 +47,10 @@ request carries `node_id`.
 Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 60, "hooks": {"name": "ios", "hash": "…", "missing": false, "spec": {…}}}`.
 
 `drivers` come from each driver's `Probe`; `name` is exactly the provider (`codex`, `claude`); a driver that is not
-`ok` names the failing `check` (`version`, `probe`, `auth`) and its `detail`. `resources` is the capacity from
+`ok` names the failing `check` (`version`, `probe`, `auth`) and its `detail`; `until` (Unix seconds) is the end
+of a run's auth failure hold-off, before which a passing probe does not re-enable it, and `transient_failures`
+counts the checks in a row that failed only transiently (the driver stays as it was until
+`probes.transient_failures` of them). `resources` is the capacity from
 `node.yaml`. `hooks` (optional, node.yaml `hooks`, default `default`) names the company catalog's `NodeHooks`
 document; the answer's `hooks` carries it (`spec`: `on_run_stop`, `on_task_closed`, `prune`
 `[{command, older_than}]`, `checks` `[{name, command, hint, labels}]`; `missing: true` with an empty spec when the
@@ -113,6 +116,7 @@ not started in its window ends as "not started" (§10). `session_id` keeps arriv
 {"epoch": 7,
  "inventory": [{"run_id": "…", "state": "claimed|starting|running|ended_unacked", "elapsed_ms": 81234}],
  "health": {"load1": 2.1, "cpus": 10, "free_disk_bytes": 123456789, "busy_slots": 2, "disk": "ok|low|critical",
+            "disk_low_bytes": 10737418240, "disk_critical_bytes": 2147483648,
             "checks": [{"check": "codex.auth", "status": "fail", "detail": "…", "hint": "…"}], "stalled_seconds": 420},
  "drivers": [{"name": "codex", "version": "codex-cli 0.162.1", "ok": true}],
  "hooks": "ios", "hooks_hash": "…"}
@@ -284,6 +288,12 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   session), `no_capable_node` (no online node without disk pause has the assignee's driver, labels and resources),
   `capacity` (capable nodes are full, or the pinned node is offline for less than the pin timeout). A QUEUED run
   nobody can claim reports these instead of `live_run`.
+- **Why a run is QUEUED** (`queued` on the run in `GET /status`, `GET /runs/{id}` and `GET /tasks/{id}/why`;
+  `storage.QueuedWhy`): the claim's own checks judged without a claim — a pause (`paused`, with the owner's reason
+  and a quota pause's `until`), the agent's cap (`agent_busy`), the pinned node, else each node's answer
+  (`node_offline`, `node_paused` by the owner or at critical disk, `driver_disabled` with the hold-off `until`,
+  `labels`, `no_slot`, `resource_busy`) in `nodes`, the node closest to taking the run giving `reason` and
+  `detail`; `unclaimed` when a node has room, `no_node` without registered nodes.
 - **Node health events** (node-agent D5; company-wide feed rows, entity `node:<id>`, written in the transaction of
   the register, heartbeat or expiry that saw the change; the episode state is in the `nodes` row):
   `node.registered` (every register), `node.online` (a node that was offline is seen again), `node.offline` (silent
