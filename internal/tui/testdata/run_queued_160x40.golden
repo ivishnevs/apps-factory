@@ -1,0 +1,40 @@
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                                 14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs   ▸ run r-qa-1                   ● fixture demo │ Company 1 │ ▶ running │ ⚠ 6
+╭───────────────────────────────────────── qa · r-qa-1 · P1-9 · ◷ queued · follow ─────────────────────────────────────────╮╭─────────── Run stats ────────────╮
+│  waiting for activity…                                                                                                   ││ Agent      qa                    │
+│                                                                                                                          ││ Task       P1-9                  │
+│                                                                                                                          ││ Status     QUEUED                │
+│                                                                                                                          ││ Model      -                     │
+│                                                                                                                          ││ Context    n/a                   │
+│                                                                                                                          ││ (run total)                      │
+│                                                                                                                          ││ Tokens     0 in 0 out            │
+│                                                                                                                          ││ Cache R/W  0 / 0                 │
+│                                                                                                                          ││ Cost       -                     │
+│                                                                                                                          ││ Duration   -                     │
+│                                                                                                                          ││ Steps      0                     │
+│                                                                                                                          ││ Shell      0                     │
+│                                                                                                                          ││ Tools      0                     │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││ Why queued                       │
+│                                                                                                                          ││ driver disabled · mac-studio     │
+│                                                                                                                          ││ (n1): driver claude disabled:    │
+│                                                                                                                          ││ auth check failed: 401 invalid   │
+│                                                                                                                          ││ credentials (and 2 other nodes   │
+│                                                                                                                          ││ cannot take it) · until 14:40:00 │
+│                                                                                                                          ││   mac-studio: driver claude dis… │
+│                                                                                                                          ││   mac-mini: offline since 2026-… │
+│                                                                                                                          ││   linux-1: has no claude driver  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│                                                                                                                          ││                                  │
+│    ◷ queued: driver disabled · mac-studio (n1): driver claude disabled: auth check failed: 401 invalid credentials (an…  ││                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +4 in inbox
+ t transcript  e errors  f follow  j/k scroll  T task  esc back  ^k palette  [ ] project  ? help  q quit

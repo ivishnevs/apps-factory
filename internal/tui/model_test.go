@@ -251,7 +251,7 @@ func TestCardDetailModal(t *testing.T) {
 func TestPromptBar(t *testing.T) {
 	m, c := demoModel(t, 140, 40)
 	s := ansi.Strip(m.Render())
-	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+3 in inbox") {
+	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+4 in inbox") {
 		t.Fatal(s)
 	}
 	// The oldest item is a question with options: A opens the chooser; 2 picks the second option.
@@ -685,7 +685,7 @@ func TestFixtureStreams(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	<-done
-	if got != 7 {
+	if got != 8 {
 		t.Fatal(got)
 	}
 	events := []StreamEvent{}

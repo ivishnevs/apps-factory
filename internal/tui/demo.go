@@ -23,7 +23,9 @@ var DemoAt = time.Date(2026, 10, 20, 14, 30, 0, 0, time.UTC)
 // DemoFixture is a small company at work: three projects, two direct reports of the owner (pm, the default
 // report, and lead), four live runs (one a conversation reply), a question, an action approval and an
 // artifact approval waiting on the owner, an escalation, tool errors, a pull request, owner conversations,
-// a paused agent and an offline node. factory ui --demo renders it.
+// a paused agent and a quota key pause, a notification from the default report, a run QUEUED behind a
+// disabled driver, three nodes (a disabled driver with its hold-off, offline below the low disk watermark,
+// healthy), Core's parks of a task and two weeks of the cost ledger. factory ui --demo renders it.
 func DemoFixture() Fixture {
 	at := DemoAt
 	ago := func(m int) time.Time { return at.Add(-time.Duration(m) * time.Minute) }
@@ -36,7 +38,7 @@ func DemoFixture() Fixture {
 		{Name: "developer-2", Role: "developer", ReportsTo: "lead", Provider: "codex", Model: "gpt-5.5"},
 		{Name: "lead", Role: "tech lead", ReportsTo: "owner", Provider: "codex", Model: "gpt-5.5"},
 		{Name: "pm", Role: "project manager", ReportsTo: "owner", Provider: "codex", Model: "gpt-5.5"},
-		{Name: "qa", Role: "QA engineer", ReportsTo: "pm", Provider: "codex", Model: "gpt-5.5"},
+		{Name: "qa", Role: "QA engineer", ReportsTo: "pm", Provider: "claude", Model: "claude-opus-4-7"},
 		{Name: "reviewer", Role: "code reviewer", ReportsTo: "lead", Provider: "codex", Model: "gpt-5.5"},
 	}
 	type spec struct {
@@ -53,7 +55,7 @@ func DemoFixture() Fixture {
 		{"P1-6", "project-1", "Task 6", "BACKLOG", "designer", "owner", "", 2, 150, 150, "backlog", "owner", "release it to the board"},
 		{"P1-7", "project-1", "Task 7", "READY", "developer-1", "pm", "P1-1", 5, 180, 180, "capacity", "developer-1", "busy with P1-3"},
 		{"P1-8", "project-1", "Task 8", "DONE", "designer", "pm", "P1-1", 4, 260, 230, "terminal", "nobody", "final state"},
-		{"P1-9", "project-1", "Task 9", "READY", "qa", "developer-1", "P1-3", 8, 25, 25, "runnable", "factory", "dispatch on the next tick"},
+		{"P1-9", "project-1", "Task 9", "READY", "qa", "developer-1", "P1-3", 8, 25, 10, "live_run", "run:r-qa-1", "run r-qa-1 is QUEUED"},
 		{"P2-1", "project-2", "Task 1", "IN_REVIEW", "reviewer", "lead", "P2-3", 6, 240, 4, "live_run", "reviewer", "run r-rev-2 is running"},
 		{"P2-2", "project-2", "Task 2", "READY", "developer-2", "lead", "P2-3", 7, 230, 45, "backoff", "nobody", "retry at 14:34"},
 		{"P2-3", "project-2", "Task 3", "READY", "lead", "owner", "", 9, 320, 30, "parked:escalation", "owner", "answer m-esc-1 (unblock or cancel)"},
@@ -84,6 +86,7 @@ func DemoFixture() Fixture {
 	byID("P1-4").Dependencies = []string{"P1-3"}
 	byID("P2-1").Implementer, byID("P2-1").Reviewer, byID("P2-1").CurrentRunID = "developer-2", "reviewer", "r-rev-2"
 	byID("P3-2").CurrentRunID = "r-d2-4"
+	byID("P1-9").CurrentRunID = "r-qa-1"
 	byID("P3-6").Implementer, byID("P3-6").Reviewer = "developer-2", "reviewer"
 	byID("P1-2").Description = "Mockups for module 1: layout, states and the empty view."
 	byID("P1-3").Description = "Implement module 1 from the P1-2 mockups.\n\nAcceptance:\n- matches the mockups\n- works offline\n- unit tests for module 1"
@@ -91,8 +94,17 @@ func DemoFixture() Fixture {
 	byID("P2-1").Submission = &tasks.Submission{Summary: "edge-case tests added", Commit: "9f3c2e1d7a4b", Checks: []string{"go test ./...", "go vet ./..."}}
 	ts = append(ts, Task{Task: tasks.Task{ID: "conv-lead-project-2", ProjectID: "project-2", Title: "Conversation with owner", Status: "IN_PROGRESS", Assignee: "lead", Kind: "conversation", Counterpart: "owner", Version: 4, CreatedAt: unix(400), UpdatedAt: unix(1), CurrentRunID: "r-lead-c1"}, Reason: "live_run", Clearer: tasks.Clearer{Who: "lead", Action: "run r-lead-c1 is running"}})
 
+	// r-qa-1 waits: the claude driver of mac-studio failed its auth check, mac-mini is offline.
+	holdOff := at.Add(10 * time.Minute)
+	queued := &storage.QueuedReason{Reason: storage.QueuedDriverDisabled, Until: holdOff.Unix(),
+		Detail: "mac-studio (n1): driver claude disabled: auth check failed: 401 invalid credentials (until " + holdOff.Format(time.RFC3339) + ") (and 2 other nodes cannot take it)",
+		Nodes: []storage.QueuedNode{
+			{Node: "n1", Name: "mac-studio", Reason: storage.QueuedDriverDisabled, Detail: "driver claude disabled: auth check failed: 401 invalid credentials", Until: holdOff.Unix()},
+			{Node: "n2", Name: "mac-mini", Reason: storage.QueuedNodeOffline, Detail: "offline since " + at.Add(-7*time.Minute).Format(time.RFC3339)},
+			{Node: "n3", Name: "linux-1", Reason: storage.QueuedDriverDisabled, Detail: "has no claude driver"},
+		}}
 	runs := map[string][]core.RunStatus{
-		"project-1": {{ID: "r-d1-7", Agent: "developer-1", TaskID: "P1-3", Status: "RUNNING", StartedAt: unix(12)}},
+		"project-1": {{ID: "r-d1-7", Agent: "developer-1", TaskID: "P1-3", Status: "RUNNING", StartedAt: unix(12)}, {ID: "r-qa-1", Agent: "qa", TaskID: "P1-9", Status: "QUEUED", Queued: queued}},
 		"project-2": {{ID: "r-rev-2", Agent: "reviewer", TaskID: "P2-1", Status: "RUNNING", StartedAt: unix(4)}, {ID: "r-lead-c1", Agent: "lead", TaskID: "conv-lead-project-2", Status: "RUNNING", StartedAt: unix(1)}},
 		"project-3": {{ID: "r-d2-4", Agent: "developer-2", TaskID: "P3-2", Status: "RUNNING", StartedAt: unix(7)}},
 	}
@@ -147,9 +159,29 @@ func DemoFixture() Fixture {
 		{"developer-2", "P2-2", 120, 0.31}, {"developer-1", "P1-3", 81, 0.61}, {"reviewer", "P2-1", 110, 0.12}, {"developer-2", "P2-2", 60, 0.29},
 		{"pm", "P1-5", 96, 0.07}, {"lead", "P2-3", 25, 0.04}, {"developer-2", "P2-1", 55, 0.44},
 	} {
-		recent = append(recent, storage.RunCost{RunID: fmt.Sprintf("r-old-%d", i), TaskID: rc.task, Agent: rc.agent, Outcome: "succeeded", CostUSD: rc.cost, CostSource: "reported", RecordedAt: unix(rc.min)})
+		recent = append(recent, storage.RunCost{RunID: fmt.Sprintf("r-old-%d", i), TaskID: rc.task, ProjectID: byID(rc.task).ProjectID, Agent: rc.agent, Model: modelOf(agents, rc.agent),
+			Outcome: "succeeded", CostUSD: rc.cost, CostSource: "reported", RecordedAt: unix(rc.min)})
 		taskCost[rc.task] += rc.cost
 	}
+	// The ledger of the 13 days before: a few runs a day, more on weekdays (the Costs screen).
+	ledger := []storage.RunCost{}
+	for d := 1; d <= 13; d++ {
+		day := startOfDay(at).AddDate(0, 0, -d)
+		n := 3 + (d*7)%5
+		if wd := day.Weekday(); wd == time.Saturday || wd == time.Sunday {
+			n = 1
+		}
+		for k := 0; k < n; k++ {
+			a := agents[(d+k*3)%len(agents)]
+			p := []string{"project-1", "project-2", "project-3"}[(d+k)%3]
+			ledger = append(ledger, storage.RunCost{RunID: fmt.Sprintf("r-day%d-%d", d, k), ProjectID: p, Agent: a.Name, Model: a.Model, Outcome: "succeeded",
+				InputTokens: int64(20000 + 1000*k), OutputTokens: int64(2000 + 300*d), CostUSD: 0.12 + float64((d*13+k*7)%40)/50, CostSource: "reported",
+				RecordedAt: day.Add(time.Duration(9+k) * time.Hour).Unix()})
+		}
+	}
+	ledger[3].CostSource, ledger[3].CostUSD = "none", 0 // a run without a price
+	f.Costs = append(ledger, recent...)
+	sort.Slice(f.Costs, func(i, j int) bool { return f.Costs[i].RecordedAt < f.Costs[j].RecordedAt })
 	sort.Slice(recent, func(i, j int) bool { return recent[i].RecordedAt < recent[j].RecordedAt })
 	agentCost := map[string]storage.CostGroup{}
 	for _, r := range recent {
@@ -295,16 +327,21 @@ func DemoFixture() Fixture {
 	claude("r-d1-6", 6000, "claude/assistant", toolUse("Bash", map[string]any{"command": "docker compose up -d db"}))
 	add("r-d1-6", 4860, "agent.completed", protocol.Event{Status: "ENDED", Outcome: "failed", ExitState: "none", Result: "go test: the test database did not start"})
 
+	f.Runs["r-qa-1"] = storage.Run{Spec: protocol.RunSpec{ID: "r-qa-1", Agent: "qa", TaskID: "P1-9", Project: "project-1", Provider: protocol.RuntimeClaude}, Status: "QUEUED"}
+	// A notification from the default report: it takes no answer; the owner replies in the chat or marks it read.
+	note := messaging.Message{ID: "m-note-1", ProjectID: "project-1", Sender: "pm", Recipient: "owner", ConversationID: "chain-pm-1", MessageType: "notification",
+		Body: "Module 1 offline store is merged. What next: the cache or the export?", Status: "UNREAD", Version: 1, CreatedAt: unix(14)}
 	f.Overview = Overview{
 		Health: Health{Status: "ok", Database: "postgres 17.6", Company: "Company 1", ExplicitExits: "on", DefaultReport: "pm"},
 		Status: status, Agents: agents, Tasks: ts,
-		Pauses:    []storage.Pause{{Scope: "agent", Target: "designer", Reason: "waiting for the style guide", Actor: "owner", CreatedAt: unix(60)}},
-		Pending:   storage.PendingCounts{Inbox: 4, Approvals: 2, Alerts: 1, Reviews: 2, Total: 5},
+		Pauses: []storage.Pause{{Scope: "agent", Target: "designer", Reason: "waiting for the style guide", Actor: "owner", CreatedAt: unix(60)},
+			{Scope: "quota_key", Target: "codex-team", Reason: "subscription limit reached", Actor: "factory", CreatedAt: unix(25), Until: at.Add(90 * time.Minute).Unix()}},
+		Pending:   storage.PendingCounts{Inbox: 5, Approvals: 2, Alerts: 1, Reviews: 2, Total: 6},
 		Nodes:     demoNodes(at),
-		Inbox:     []messaging.Message{ask, appr, artMsg, esc},
+		Inbox:     []messaging.Message{ask, appr, artMsg, note, esc},
 		Approvals: []approvals.Approval{approval, artApproval},
 		Costs:     costs, TaskCosts: taskCosts, RecentCosts: storage.CostReport{Runs: recent},
-		LiveRuns: map[string]storage.Run{"r-d1-7": f.Runs["r-d1-7"], "r-rev-2": f.Runs["r-rev-2"], "r-d2-4": f.Runs["r-d2-4"], "r-lead-c1": f.Runs["r-lead-c1"]},
+		LiveRuns: map[string]storage.Run{"r-d1-7": f.Runs["r-d1-7"], "r-rev-2": f.Runs["r-rev-2"], "r-d2-4": f.Runs["r-d2-4"], "r-lead-c1": f.Runs["r-lead-c1"], "r-qa-1": f.Runs["r-qa-1"]},
 		At:       at,
 	}
 
@@ -354,6 +391,7 @@ func DemoFixture() Fixture {
 		item(25, "task.created", "project-1", "P1-9", "", "qa", "developer-1", "Task 9", false),
 		item(20, "approval.requested", "project-2", "P2-3", "r-lead-3", "lead", "lead", "factory_release_publish: release 1.2 of Project 2 passed review", true),
 		item(12, "task.started", "project-1", "P1-3", "r-d1-7", "developer-1", "", "Task 3", false),
+		item(10, "driver_unsupported", "", "", "", "", "node:n1", "driver claude disabled on node mac-studio: auth check failed: 401 invalid credentials", true),
 		item(9, "run.command_refused", "project-1", "P1-3", "r-d1-7", "developer-1", "", "git push --force refused by rule no-force-push", false),
 		item(7, "task.started", "project-3", "P3-2", "r-d2-4", "developer-2", "", "Task 2", false),
 		item(6, "node.low_disk", "", "", "", "", "node", "mac-mini: 4.1 GiB free on /", true),
@@ -368,7 +406,9 @@ func DemoFixture() Fixture {
 		case "owner.paused":
 			f.Feed[i].EntityID = "agent:designer"
 		case "node.low_disk":
-			f.Feed[i].EntityID = "node:mac-mini"
+			f.Feed[i].EntityID = "node:n2"
+		case "driver_unsupported":
+			f.Feed[i].EntityID, f.Feed[i].Ref = "node:n1", "claude"
 		}
 	}
 
@@ -395,6 +435,20 @@ func DemoFixture() Fixture {
 		}
 	}
 	f.Details["P2-1"] = p21
+	// P1-5 parked on the owner's answer (Core's parks); P1-9's run queued behind the disabled driver.
+	p15 := TaskDetail{Task: *byID("P1-5"), Why: tasks.Verdict{TaskID: "P1-5", Status: "READY", Reason: "parked:ask", Detail: "waits for the answer to m-ask-1", Clearer: tasks.Clearer{Who: "owner", Action: "answer message m-ask-1"}},
+		Parks: []storage.TaskPark{{ID: "pk-1", Kind: "ask", RefID: "m-ask-1", Reason: "waits for the answer to m-ask-1", Who: "owner", Status: "active", RunID: "r-pm-2", CreatedAt: unix(95)}}}
+	p19 := TaskDetail{Task: *byID("P1-9"), Why: tasks.Verdict{TaskID: "P1-9", Status: "READY", Reason: "no_capable_node", Detail: "capable nodes are unavailable (run r-qa-1 is QUEUED)", Clearer: tasks.Clearer{Who: "owner", Action: "start or fix a node with driver claude"}},
+		Queued: queued, Parks: []storage.TaskPark{}}
+	for _, it := range f.Feed {
+		switch it.TaskID {
+		case "P1-5":
+			p15.Events = append(p15.Events, it)
+		case "P1-9":
+			p19.Events = append(p19.Events, it)
+		}
+	}
+	f.Details["P1-5"], f.Details["P1-9"] = p15, p19
 
 	// The owner's conversations with the direct reports.
 	msg := func(id, conv, project, from, to, kind, body string, min int) messaging.Message {
@@ -413,6 +467,15 @@ func DemoFixture() Fixture {
 		},
 	}
 	return f
+}
+
+func modelOf(agents []Agent, name string) string {
+	for _, a := range agents {
+		if a.Name == name {
+			return a.Model
+		}
+	}
+	return ""
 }
 
 // demoReleaseNotes is the artifact the demo asks the owner to approve.
@@ -436,21 +499,28 @@ factory release publish --channel beta --version 1.2
 ` + "```" + `
 `
 
+// demoNodes: mac-studio with a disabled claude driver (auth hold-off) and a codex driver with a transient
+// failure; mac-mini offline below its low disk watermark; linux-1 healthy.
 func demoNodes(at time.Time) []Node {
-	health := func(load float64, free uint64, failing ...string) json.RawMessage {
+	health := func(load float64, cpus int, free uint64, level string, failing ...string) json.RawMessage {
 		checks := []map[string]string{}
 		for _, c := range failing {
-			checks = append(checks, map[string]string{"check": c, "status": "fail"})
+			checks = append(checks, map[string]string{"check": c, "status": "fail", "detail": "4.1 GiB free on /"})
 		}
-		b, _ := json.Marshal(map[string]any{"load1": load, "free_disk_bytes": free, "disk": "/", "checks": checks})
+		b, _ := json.Marshal(map[string]any{"load1": load, "cpus": cpus, "free_disk_bytes": free, "disk": level, "disk_low_bytes": 10 << 30, "disk_critical_bytes": 2 << 30, "checks": checks})
 		return b
 	}
 	return []Node{
 		{Node: storage.Node{NodeRegistration: storage.NodeRegistration{NodeID: "n1", Name: "mac-studio", Epoch: 4, ProtocolVersion: 2, Slots: 4,
-			Drivers: []storage.NodeDriver{{Name: "codex", OK: true}, {Name: "claude", OK: true}}, Resources: map[string]int{"simulator": 2}},
-			Health: health(1.2, 120<<30), LastSeen: at.Add(-5 * time.Second).Unix(), Online: true}, InUse: storage.NodeUse{Runs: 3, Resources: map[string]int{"simulator": 1}}},
+			Drivers: []storage.NodeDriver{{Name: "codex", Version: "0.162.1", OK: true, TransientFailures: 1},
+				{Name: "claude", Version: "2.1.3", OK: false, Check: "auth", Detail: "401 invalid credentials", Until: at.Add(10 * time.Minute).Unix()}},
+			Resources: map[string]int{"simulator": 2}},
+			Health: health(1.2, 12, 120<<30, "ok"), LastSeen: at.Add(-5 * time.Second).Unix(), Online: true}, InUse: storage.NodeUse{Runs: 3, Resources: map[string]int{"simulator": 1}}},
 		{Node: storage.Node{NodeRegistration: storage.NodeRegistration{NodeID: "n2", Name: "mac-mini", Epoch: 9, ProtocolVersion: 2, Slots: 2,
-			Drivers: []storage.NodeDriver{{Name: "codex", OK: true}}}, Health: health(0.1, 4<<30+100<<20, "disk"), LastSeen: at.Add(-7 * time.Minute).Unix(), Online: false},
+			Drivers: []storage.NodeDriver{{Name: "codex", Version: "0.162.1", OK: true}}}, Health: health(0.1, 8, 4<<30+100<<20, "low", "disk"), LastSeen: at.Add(-7 * time.Minute).Unix(), Online: false},
 			InUse: storage.NodeUse{Resources: map[string]int{}}},
+		{Node: storage.Node{NodeRegistration: storage.NodeRegistration{NodeID: "n3", Name: "linux-1", Epoch: 2, ProtocolVersion: 2, Slots: 2,
+			Drivers: []storage.NodeDriver{{Name: "codex", Version: "0.162.1", OK: true}}}, Health: health(0.6, 16, 410<<30, "ok"), LastSeen: at.Add(-3 * time.Second).Unix(), Online: true},
+			InUse: storage.NodeUse{Runs: 1, Resources: map[string]int{}}},
 	}
 }

@@ -1,12 +1,12 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                              14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1                                                       ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                                 14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs                                  ● fixture demo │ Company 1 │ ▶ running │ ⚠ 6
  21 tasks  · z shows cancelled                                                                                                                            more ▶
 ╭──────── ● Backlog 3 ─────────╮╭───────── ● Ready 4 ──────────╮╭──────── ● Running 2 ─────────╮╭──────── ● Waiting 5 ─────────╮╭─────── ● In review 2 ────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ │
-│ ┃ ● ⚠ Task 4               ┃ ││ │ ● Task 9                 │ ││ │ ● Task 2                 │ ││ │ ● ⚠ Task 3               │ ││ │ ● Task 1                 │ │
+│ ┃ ● ⚠ Task 4               ┃ ││ │ ◷ Task 9                 │ ││ │ ● Task 2                 │ ││ │ ● ⚠ Task 3               │ ││ │ ● Task 1                 │ │
 │ ┃ P2-4  project-2       ▽3 ┃ ││ │ P1-9  project-1       ▲8 │ ││ │ P3-2  project-3    ✗1 ▲8 │ ││ │ P2-3  project-2       ▲9 │ ││ │ P2-1  project-2       △6 │ │
-│ ┃ ● designer            3h ┃ ││ │ ● qa                 25m │ ││ │ ● developer-2         7m │ ││ │ ● lead       $0.13 · 30m │ ││ │ ● reviewer    $1.27 · 4m │ │
-│ ┃ ↳ you: release it to th… ┃ ││ │ ◌ ready · next free slot │ ││ │ ⠋ ✎ Edit: src/module_2.… │ ││ │ ↳ you: answer m-esc-1 (… │ ││ │ ⠋ › Testing Task 1 on a… │ │
+│ ┃ ● designer            3h ┃ ││ │ ● qa                 10m │ ││ │ ● developer-2         7m │ ││ │ ● lead       $0.13 · 30m │ ││ │ ● reviewer    $1.27 · 4m │ │
+│ ┃ ↳ you: release it to th… ┃ ││ │ ◷ queued: driver disabl… │ ││ │ ⠋ ✎ Edit: src/module_2.… │ ││ │ ↳ you: answer m-esc-1 (… │ ││ │ ⠋ › Testing Task 1 on a… │ │
 │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ │
 │ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ │
 │ │ ● Task 4                 │ ││ │ ● Task 2                 │ ││ │ ● Task 3                 │ ││ │ ● ⚠ Task 5               │ ││ │ ● Task 6                 │ │
@@ -36,5 +36,5 @@
 │                              ││                              ││                              ││                              ││                              │
 │                              ││                              ││                              ││                              ││                              │
 ╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +4 in inbox
  ←→↑↓ move  enter open  n new  / filter  ! needs you  L live  ^k palette  [ ] project  ? help  q quit

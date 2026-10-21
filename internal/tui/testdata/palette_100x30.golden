@@ -1,7 +1,7 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1        ● │ Company 1 │ ▶ running │ ⚠ 5
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
 ╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
-│ ◆ owner · you                              ⚠ 5 ││ [→] Task 1 P2-1                     ← ⠋running │
+│ ◆ owner · you                              ⚠ 6 ││ [→] Task 1 P2-1                     ← ⠋running │
 │ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 3 P2-3                    ← needs you │
 │ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ escalation · waits on you: answer m-esc… │
 │ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 5 P1-5                    ← needs you │
@@ -12,7 +12,7 @@
 │   ├ ⏸ designer: paused waiting for the… paused ││                                                │
 │   ├ ● deve╭──────────────────────────── Command palette ─────────────────────────────╮           │
 │   │   └ ▸ │ ❯ cal3                                                                   │           │
-│   └ ◐ qa: │ ──────────────────────────────────────────────────────────────────────── │           │
+│   └ ◷ qa: │ ──────────────────────────────────────────────────────────────────────── │           │
 ╰───────────│   no match                                                               │───────────╯
 ╭───────────╰──────────────────────────────────────────────────────────────────────────╯───────────╮
 │ 14:28:02  [developer-1] refused       exit guard refused the turn's end: submit needs a pushed … │
@@ -26,5 +26,5 @@
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
  type search  ↑↓ choose  enter go  esc close

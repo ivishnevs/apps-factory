@@ -118,6 +118,8 @@ func (m *Model) columnOf(t Task) string {
 		return "backlog"
 	case t.Status == "IN_REVIEW":
 		return "review"
+	case m.isQueued(t.ID):
+		return "ready" // its run waits for a node: it does not run yet
 	case m.isLive(t.ID) || t.Status == "IN_PROGRESS":
 		return "running"
 	case t.Status == "BLOCKED" || strings.HasPrefix(t.Reason, "parked:") || strings.HasPrefix(t.Reason, "paused:") || t.Reason == "dependencies" ||
@@ -481,6 +483,10 @@ func (m *Model) cardLines(t Task, w int, col string, selected bool) []string {
 	if col == "running" || m.isLive(t.ID) {
 		dot = pulse(m.frameN, theme.green)
 	}
+	queued, isQueued := m.queuedOf(t.ID)
+	if isQueued {
+		dot = stYellow.Render("◷")
+	}
 	title := t.Title
 	if m.needsOwner(t) {
 		title = stRedBold.Render("⚠ ") + stBold.Render(title)
@@ -511,6 +517,8 @@ func (m *Model) cardLines(t Task, w int, col string, selected bool) []string {
 	switch {
 	case selected && hasErrs && errs.N > 0:
 		line4 = stRedBold.Render("✗ ") + stRed.Render(errs.Last)
+	case isQueued:
+		line4 = stYellow.Render("◷ queued: ") + stFaint.Render(queued)
 	case m.isLive(t.ID):
 		act := "working…"
 		if l, ok := m.agentLast[t.Assignee]; ok {
@@ -750,7 +758,33 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 		}
 		add(stFaint.Render("triggers ") + strings.Join(parts, ", "))
 	}
-	if parks := activeParks(d.Events); len(parks) > 0 {
+	if d.Queued != nil {
+		add(stFaint.Render("queued  ") + stYellow.Render(m.queuedText(d.Queued)))
+		for _, n := range d.Queued.Nodes {
+			if n.Reason != "" {
+				add(stFaint.Render("        "+dash(n.Name)+": ") + n.Detail)
+			}
+		}
+	}
+	if d.Parks != nil {
+		// Core's parks: kind, what it waits on, who clears it and since when.
+		for i, p := range d.Parks {
+			k := "        "
+			if i == 0 {
+				k = "parks   "
+			}
+			who := p.Who
+			if who == "owner" {
+				who = "you"
+			}
+			line := stYellow.Render(p.Kind) + stFaint.Render(" · "+oneLine(p.Reason))
+			if p.RefID != "" {
+				line += stFaint.Render(" · " + p.RefID)
+			}
+			line += stFaint.Render(" · clears " + who + " · " + ago(m.now(), time.Unix(p.CreatedAt, 0)) + " ago")
+			add(stFaint.Render(k) + line)
+		}
+	} else if parks := activeParks(d.Events); len(parks) > 0 {
 		add(stFaint.Render("parks   ") + stYellow.Render(strings.Join(parks, ", ")))
 	}
 	if len(t.Dependencies) > 0 {

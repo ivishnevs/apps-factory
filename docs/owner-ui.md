@@ -28,11 +28,16 @@ fixture implementations is separate from the views — and `cmd/factory/ui.go`.
 
 - **Header**: the app name, one chip per project — `[ ● project-1 22% ]`: the dot is green while the project
   has live runs, the percentage is its done share; the selected chip (`[` / `]`, or a click) narrows every
-  screen to that project — and a live clock.
-- **Tabs**: `1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox  6 Chat` (unread messages `•1`), then Core's connection dot, the company,
-  `▶ running` or `■ STOPPED …` (the kill switch, never cut off) and the count of what waits on you (`⚠ 4`).
+  screen to that project — and a clock (hours and minutes).
+- **Tabs**: `1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox  6 Chat  7 Nodes  8 Costs` (unread messages `•1`,
+  nodes that need care `⚠2`; short names, then only the current tab's name, on narrower terminals), then
+  Core's connection dot, the company, `▶ running` or `■ STOPPED …` (the kill switch, never cut off) and the
+  count of what waits on you (`⚠ 4`).
 - **Prompt bar** (amber): the oldest item waiting on you, answerable from any screen — `Y`/`N` approve or
-  reject an approval (with a reason), `A` answers a question (a chooser of its options, or free text).
+  reject an approval (with a reason), `A` answers a question (a chooser of its options, or free text). A
+  notification or report (`message_type` other than `question`) takes no answer: the bar says `pm says: …`
+  with `R` reply (the Chat tab with that direct report, the input focused; for an agent that is not a direct
+  report a directive on its task) and `M` mark read (`POST /inbox/{id}/read`); `A` on it only explains.
 - **Footer**: the keys of the current screen, or the result of the last action.
 - **Toasts**: a fresh attention event (approval request, escalation, alert, node trouble) slides in at the
   top right for a few seconds.
@@ -50,7 +55,8 @@ Five panels with thin borders and centered titles; `h`/`l` (or a click) moves th
 inside a panel, `z` zooms the focused panel to the full screen.
 
 - **Agent Tree** — the `reports_to` tree under you. Each agent: a status dot (pulsing `●` running, `◐`
-  waits on someone — you first —, `⏸` paused, `○` idle), its name in its own stable color, what it is doing
+  waits on someone — you first —, `⏸` paused, `◷` its run is QUEUED, with Core's cause: `queued driver
+  disabled · mac-studio: … · until 14:40`, `○` idle), its name in its own stable color, what it is doing
   (the live run's task, what it waits on, or the next task) and a timer (run time, or how long it waits).
   A running agent has a sub-row with its current step (`▸ swift test …`, `✎ Edit: …`, `⇄ factory_…`) and
   that step's age. `enter` on a running agent opens its run, `f` its flow.
@@ -114,10 +120,13 @@ you), id, project chip and priority marker (`▲` ≥ 8, `△` ≥ 5, `▽`), as
 task and its age, and one live line: the run's current step with a spinner, what it waits on, `↳ you: …`,
 or `✓ done 3h ago`. Arrows/`hjkl` move between columns and cards; columns scroll horizontally when they do
 not fit (`◀ more` / `more ▶`). `/` filters (`a:AGENT s:STATUS ! open words`), `!` keeps what waits on you,
-`n` creates a task (below).
+`n` creates a task (below). A task whose run is QUEUED stays in Ready with `◷ queued: …` — why no node claims
+it yet (below).
 
 `enter` opens the card as a modal: state, origin (who created it from which task and run), why it waits and
-who clears it, pending triggers, active parks, dependencies, children, the body, every run with outcome,
+who clears it, the queued run's cause with each node's answer, pending triggers, Core's active parks (kind,
+reason, what it waits on, who clears it, since when; from `GET /tasks/{id}/parks`, an older Core's from the
+feed events), dependencies, children, the body, every run with outcome,
 exit and cost, comments and recent events — with the actions: `p` pause · `u` resume · `r` retry · `n` run
 · `x` cancel (cascading to open children) · `a` reassign · `P` priority · `c` comment · `d` directive
 (`!text` is urgent and stops the live run) · `L` live run · `t` transcript · `o` open the PR · `f` flow.
@@ -149,6 +158,15 @@ view (`f`; scrolling up pauses it, `G` resumes); while the run is live the last 
 At 110 columns a side panel shows the run's stats (context gauge, tokens, cache, cost, duration, steps,
 refusals, the tool error count and the last error). `t` opens the full transcript, `e` keeps only errors and
 refusals, `T` opens the task.
+
+**Why a run is QUEUED.** Core says why no node claims a QUEUED run (`queued` on the run in `GET /status`, on
+`GET /runs/{id}` and in the task's why): a company, project, agent or quota key pause with its reason, the
+agent's concurrency cap, the node holding the task's unpushed work, else what each registered node lacks —
+offline, paused by you or below its critical disk watermark, the driver disabled (`auth check failed: 401 …
+until 14:40`), the labels, every slot held, a resource class held; the node closest to taking the run gives
+the reason (`no free slot` before `node paused` before `driver disabled` before `node offline` before the
+labels). The run view shows `◷ queued` in its title, the cause on its last line and, in the stats, every
+node's answer; the card and the agent row show it in one line.
 
 ```
 ╭───────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow · ✗3 ─────────────────────────╮╭─────────── Run stats ────────────╮
@@ -213,7 +231,35 @@ The **feed** (`GET /feed/stream`, the last 3000 rows) with an icon per event, ag
 attention rows highlighted; `!` keeps only them, `/` filters, scrolling up pauses it and `G` returns to
 the newest. The **inbox** lists questions, escalations and approvals (`GET /inbox`, `GET /approvals`) beside
 the selected item: its body, the approval's call and arguments with `y approve` / `n reject`, or the
-question's options as pills (`←`/`→`, `enter`), `a` for free text.
+question's options as pills (`←`/`→`, `enter`), `a` for free text. A notification or report has no answer:
+`r` (or `enter`) replies — in the Chat tab to a direct report, with a directive on the task to any other
+agent — and `m` marks it read. A refused action says what happened instead of Core's bare `state or version
+conflict`: the question was answered or withdrawn meanwhile, the task changed (its version is stale), the
+approval was decided; the screen has been refreshed.
+
+## 7 Nodes — capacity, drivers, pauses
+
+Each registered node (`GET /nodes`) as a card: online with its last heartbeat (`beat 5s ago`) or `silent 7m`,
+paused (by you, or its disk below the critical watermark); slots in use as a bar (`3/4 in use`), the held
+resource classes (`simulator 1/2`, `full`), each driver — `● codex 0.162.1 enabled`, `◐ … enabled · 1
+transient failure` (failed checks in a row that did not disable it yet), `✗ claude disabled until 14:40: auth
+check failed: 401 …` (the auth hold-off end) —, the free disk against its low and critical watermarks, the
+load and failing node checks. Beside them: the active pauses (`⏸ agent designer  waiting for the style
+guide`, a quota key's `until`) and the nodes' events from the feed (`node.low_disk`, `driver_unsupported`,
+attention marked `⚠`). The tab counts the nodes that need care (offline, a disabled driver, low disk).
+
+`h`/`l` switches between nodes and pauses, `j`/`k` moves; `p` pauses the selected node (or, on the pauses,
+asks for the scope: a project, an agent, a quota key — typed — or a node, then the target), then a reason,
+then the confirmation (`POST /pauses`); `u` resumes the selected pause or paused node after a confirmation
+(`POST /pauses/resume`); `K` is the kill switch (`POST /stop`, `start` lifts it). The palette has `Pause …` and
+`Resume <scope> <target>` for every active pause. New runs of a paused scope wait; live runs continue.
+
+## 8 Costs
+
+The cost ledger (`GET /costs?by=day|agent|model|project&since=…`) over the last 7 days, 30 days or today (`r`
+cycles): the total with runs, tokens and how many runs have no price, the days as a sparkline and a bar per day
+(scaled to the busiest day, today in the accent), and bars of each agent's, model's and project's share of the
+total with cost and runs. The open screen rereads the ledger every 30 s.
 
 ## 6 Chat — the owner's direct reports
 
@@ -434,6 +480,10 @@ are counted into the next: `(+2 more)`); the replay of history at startup does n
 - Streams — the feed, each live run (its last 20 steps, then live) and the opened run — reconnect after an
   error with `Last-Event-ID` (1 s backoff doubling to 15 s) and deliver each event once; a 400/401/404 is
   not retried.
+- Rendering follows changes: the screen is redrawn when data, a stream event, a key or the 3 s refresh
+  arrives. Animation frames (spinners, pulsing dots, run timers, the toast slide) tick only while something
+  live is on the screen — a running run on the Dashboard, Board, Run or Transcript, a reply in the Chat, a
+  read or send in flight; an idle screen asks for none (a pending tick is dropped).
 - The token is sent only in the `Authorization` header; it is not part of a URL, an error or the screen.
 - Every frame is exactly the terminal's size and follows resizes; 100×30 is the designed size, 80×24 works,
   below 60×16 the UI asks for a larger terminal. The palette has a light and a dark variant: the UI asks the
@@ -455,6 +505,15 @@ head_sha, url}}}`; the task detail's pull request), and `default_report` in `GET
 (error counts), `GET /conversations/{id}/messages`, `POST /messages`, `POST /tasks`,
 `GET /projects/{p}/artifacts/{a}/{v}/content`.
 
+Added for the owner backlog (6.1–6.5): `queued` — `{reason, detail, until, nodes: [{node, name, reason,
+detail, until}]}`, reasons `paused`, `agent_busy`, `pinned`, `no_slot`, `resource_busy`, `node_paused`,
+`driver_disabled`, `node_offline`, `labels`, `no_node`, `unclaimed` — on a QUEUED run in `GET /status`,
+`GET /runs/{id}` and `GET /tasks/{id}/why` (`storage.QueuedWhy`: the claim's checks judged without a claim);
+`GET /tasks/{id}/parks` (`?all=1` with the cleared ones: `{id, kind, ref_id, reason, who, status, run_id,
+created_at, cleared_at}`); the node's drivers report `transient_failures` and `until` (the auth hold-off end)
+and its health `disk_low_bytes` / `disk_critical_bytes` (in `GET /nodes`); `GET /costs?by=project`. Used as
+they were: `GET /pauses`, `POST /pauses`, `POST /pauses/resume`, `POST /stop`, `POST /inbox/{id}/read`.
+
 ## Tests
 
 `go test ./internal/tui`: the HTTP client against an `httptest` fake Core (overview, partial failures, task
@@ -474,3 +533,13 @@ refusal), the notifier with a fake command runner (quoting, dedup, rate limit, b
 with a fake opener (PR URL, the preview, a binary artifact) and the client's new routes against the fake Core;
 goldens `chat_*`, `transcript_*`, `run_errors_*`, `task_detail_pr_*`, `inbox_artifact_*`, `preview_*`, `form_*`.
 `GET /tasks/{id}/exits` and `default_report` are tested in `internal/core` (Postgres).
+
+The backlog features are tested in `internal/tui/ops_test.go`: the client's queued reason, parks and cost
+reads, the explained 409s, the queued cause on card, why, agent row and run (a label per cause), the Nodes
+screen with its pause and resume confirmations, the pause chooser, the Costs grouping and range, the
+notification items (`R`, `M`, `A`, `r` on another agent's) and render-on-change (an idle model schedules no
+animation frame on any tab; a live run does); goldens `nodes_*`, `confirm_pause_node_*`, `costs_*`,
+`run_queued_*`, `task_detail_queued_*`, `task_detail_parks_*`, `inbox_notification_*`. Core:
+`TestQueuedWhy`, `TestTaskParks` (`internal/storage`), `TestOwnerUIRoutes` (`internal/core`), the driver
+state in `internal/node/runner` (`TestRunAuthFailureDisablesDriver`, `TestTransientProbeDisablesOnlyWhenRepeated`,
+`TestV2Heartbeat`).

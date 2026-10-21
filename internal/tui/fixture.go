@@ -29,6 +29,8 @@ type Fixture struct {
 	Conversations map[string][]messaging.Message `json:"conversations,omitempty"`
 	// Artifacts are uploaded artifact contents by "project/artifact/version".
 	Artifacts map[string]string `json:"artifacts,omitempty"`
+	// Costs are the cost ledger's rows (the ended runs), grouped for the Costs screen like GET /costs.
+	Costs []storage.RunCost `json:"costs,omitempty"`
 }
 
 // ownerConversation is the owner's conversation with a direct report in a project (POST /messages).
@@ -251,6 +253,11 @@ func (c *FixtureClient) ArtifactContent(_ context.Context, project, artifact, ve
 	return nil, fmt.Errorf("artifact %s %s has no content in the fixture", artifact, version)
 }
 
+// Costs groups the fixture's ledger rows (UTC days) as GET /costs would.
+func (c *FixtureClient) Costs(_ context.Context, since time.Time) (CostView, error) {
+	return groupCosts(c.F.Costs, since, time.UTC), nil
+}
+
 // Record reads the current Core state into a fixture: the overview, the last feed rows, the detail of every
 // open task (and up to 50 closed ones), and the events and tool calls of the live runs and the latest
 // attempts. Run leases are left out.
@@ -322,6 +329,12 @@ func Record(ctx context.Context, c *HTTPClient) (Fixture, error) {
 			return f, err
 		}
 	}
+	// The cost ledger of the last 30 days (the Costs screen).
+	var ledger storage.CostReport
+	if err = c.get(ctx, fmt.Sprintf("/costs?since=%d", c.now().Add(-30*24*time.Hour).Unix()), &ledger); err != nil {
+		return f, err
+	}
+	f.Costs = ledger.Runs
 	// The owner's conversations with each direct report in each project (the chat).
 	f.Conversations = map[string][]messaging.Message{}
 	for _, p := range f.Overview.Status {

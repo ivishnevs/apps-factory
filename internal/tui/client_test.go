@@ -49,7 +49,11 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if failing {
-		http.Error(w, "boom", status)
+		msg := "boom"
+		if status == 409 {
+			msg = storage.ErrConflict.Error()
+		}
+		http.Error(w, msg, status)
 		return
 	}
 	reply := func(v any) {
@@ -111,7 +115,20 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/approvals":
 		reply(ov.Approvals)
 	case p == "/costs":
-		reply(ov.Costs)
+		// The Costs screen and the recorder read the ledger (older than today's and the 24 h reads).
+		q := r.URL.Query()
+		var since int64
+		fmt.Sscan(q.Get("since"), &since)
+		by := q.Get("by")
+		switch {
+		case by == "day" || by == "model" || by == "project" || by == "agent" && since < startOfDay(DemoAt).Unix():
+			v := groupCosts(fc.f.Costs, time.Unix(since, 0), time.UTC)
+			reply(v.report(by))
+		case by == "" && since > 0 && since < DemoAt.Add(-25*time.Hour).Unix():
+			reply(storage.CostReport{Runs: fc.f.Costs})
+		default:
+			reply(ov.Costs)
+		}
 	case p == "/feed":
 		c := &FixtureClient{F: fc.f}
 		var after int64
@@ -131,7 +148,19 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case len(parts) == 1:
 			reply(d.Task)
 		case parts[1] == "why":
-			reply(d.Why)
+			b, _ := json.Marshal(d.Why)
+			var why map[string]any
+			_ = json.Unmarshal(b, &why)
+			if d.Queued != nil {
+				why["queued"] = d.Queued
+			}
+			reply(why)
+		case parts[1] == "parks":
+			if d.Parks == nil {
+				http.Error(w, "no route", 404) // an older Core
+				return
+			}
+			reply(d.Parks)
 		case parts[1] == "attempts":
 			reply(d.Attempts)
 		case parts[1] == "comments":
@@ -206,7 +235,7 @@ func TestHTTPClientOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Health.Company != "Company 1" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 4 || len(ov.Inbox) != 4 || len(ov.Nodes) != 2 || len(ov.Approvals) != 2 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
+	if ov.Health.Company != "Company 1" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 5 || len(ov.Inbox) != 5 || len(ov.Nodes) != 3 || len(ov.Approvals) != 2 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
 		t.Fatalf("%+v", ov)
 	}
 	if len(ov.Agents) != 7 || ov.Agents[1].Name != "developer-1" || ov.Agents[1].ReportsTo != "pm" || ov.Agents[1].Provider != "claude" {
@@ -289,6 +318,10 @@ func TestHTTPClientActions(t *testing.T) {
 		{Action{Kind: "reject", ApprovalID: "ap-1", Version: 1, Text: "no"}, "/approvals/ap-1/decision", map[string]any{"action": "reject"}},
 		{Action{Kind: "stop", Text: "incident"}, "/stop", map[string]any{"reason": "incident"}},
 		{Action{Kind: "start"}, "/pauses/resume", map[string]any{"scope": "company"}},
+		{Action{Kind: "hold", Scope: "node", Target: "n1", Text: "maintenance"}, "/pauses", map[string]any{"scope": "node", "target": "n1", "reason": "maintenance"}},
+		{Action{Kind: "hold", Scope: "quota_key", Target: "codex-team"}, "/pauses", map[string]any{"scope": "quota_key", "target": "codex-team"}},
+		{Action{Kind: "release", Scope: "agent", Target: "designer"}, "/pauses/resume", map[string]any{"scope": "agent", "target": "designer"}},
+		{Action{Kind: "read", MessageID: "m-note-1", Version: 1}, "/inbox/m-note-1/read", map[string]any{"version": 1.0}},
 	} {
 		if _, err := c.Do(ctx, tc.a); err != nil {
 			t.Fatal(tc.a.Kind, err)
@@ -470,6 +503,9 @@ func TestRecordFixture(t *testing.T) {
 	}
 	if len(f.Feed) != len(fx.Feed) || len(f.Details) != 1 || f.Details["P1-3"].Task.ID != "P1-3" {
 		t.Fatalf("%d %d", len(f.Feed), len(f.Details))
+	}
+	if len(f.Costs) != len(fx.Costs) {
+		t.Fatalf("cost ledger: %d rows, want %d", len(f.Costs), len(fx.Costs))
 	}
 	if _, ok := f.Runs["r-d1-7"]; !ok || len(f.RunEvents["r-d1-7"]) != len(fx.RunEvents["r-d1-7"]) || len(f.ToolCalls["r-d1-7"]) != 3 {
 		t.Fatalf("%v", f.Runs)

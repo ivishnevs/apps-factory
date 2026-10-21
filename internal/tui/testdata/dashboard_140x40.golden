@@ -1,18 +1,18 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1                                   ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                             14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 6
 ╭────────────────── Agent Tree ──────────────────╮╭───────────── Tasks · needs you ─────────────╮╭──────────────── Company ────────────────╮
-│ ◆ owner · you                              ⚠ 5 ││ [→] Task 1 P2-1                  ← ⠋running ││ Company     Company 1                   │
-│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 3 P2-3                 ← needs you ││ Agents      7 (4 active)                │
+│ ◆ owner · you                              ⚠ 6 ││ [→] Task 1 P2-1                  ← ⠋running ││ Company     Company 1                   │
+│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 3 P2-3                 ← needs you ││ Agents      7 (5 active)                │
 │ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ escalation · waits on you: answer m-… ││ Open tasks  16                          │
-│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 5 P1-5                 ← needs you ││ Needs you   5                           │
+│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 5 P1-5                 ← needs you ││ Needs you   6                           │
 │ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ ask · waits on you: answer m-ask-1 i… ││ Spend today $5.15 · 14 runs             │
 │ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 4 P2-4                 ← needs you ││ Spend 24h   ▁▁▂▄▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄    │
-│ │     └ › Testing Task 1 on a large in… 0m 30s ││ [◎] Task 6 P3-6                   in review ││ Nodes       1/2 online                  │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││ [◎] Task 6 P3-6                   in review ││ Nodes       2/3 online                  │
 │ └ ◐ pm: waits on you · P1-5                 1h ││     ↳ queued: busy with P2-1                ││                                         │
 │   ├ ⏸ designer: paused waiting for the… paused ││                                             ││                                         │
 │   ├ ● developer-1: Task 3           ✗3 12m 00s ││                                             ││                                         │
 │   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││                                             ││                                         │
-│   └ ◐ qa: waits on developer-1 · P1-4       4h ││                                             ││                                         │
+│   └ ◷ qa: queued driver disabled · mac… queued ││                                             ││                                         │
 │                                                ││                                             ││                                         │
 │                                                ││                                             ││                                         │
 │                                                ││                                             ││                                         │
@@ -36,5 +36,5 @@
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”    ││ pm               ▁▁▁▄█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                                          ││ designer         ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁  │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +4 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit

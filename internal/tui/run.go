@@ -316,7 +316,11 @@ func (m *Model) runLines(w, h int) []string {
 		}
 	}
 	state := stGreen.Render("● live")
+	rs, _ := m.runStatusOf(r.id)
+	queued := !r.ended && rs.Status == "QUEUED"
 	switch {
+	case queued:
+		state = stYellow.Render("◷ queued")
 	case r.ended:
 		state = stYellow.Render("■ ended " + r.outcome)
 	case r.st.seen && !r.st.connected:
@@ -334,7 +338,10 @@ func (m *Model) runLines(w, h int) []string {
 		title += stFaint.Render(" · ") + stRedBold.Render("errors only")
 	}
 	body := strings.Split(r.vp.View(), "\n")
-	if live {
+	switch {
+	case queued:
+		body = append(body, "   "+stYellow.Render("◷ queued: ")+stFaint.Render(cut(m.queuedText(rs.Queued), inner-14)))
+	case live:
 		body = append(body, "   "+lipgloss.NewStyle().Foreground(agentColor(agent)).Render(m.spin.View()+" "+agent+" is working"+strings.Repeat(".", m.frameN%4)))
 	}
 	main := panel(title, body, tw, h, true)
@@ -342,6 +349,14 @@ func (m *Model) runLines(w, h int) []string {
 		return main
 	}
 	return hjoin(0, main, panel("Run stats", m.runStats(sideW-4), sideW, h, false))
+}
+
+// runDuration is how long a run has run; "-" before it started (a QUEUED run).
+func runDuration(started int64, end time.Time) string {
+	if started == 0 {
+		return "-"
+	}
+	return elapsed(end.Sub(time.Unix(started, 0)))
 }
 
 func (m *Model) runStats(w int) []string {
@@ -390,13 +405,26 @@ func (m *Model) runStats(w int) []string {
 		kv("Tokens", thousands(in)+stFaint.Render(" in ")+thousands(out)+stFaint.Render(" out"), kw),
 		kv("Cache R/W", thousands(cr)+stFaint.Render(" / ")+thousands(cw), kw),
 		kv("Cost", stBold.Render(money(cost)), kw),
-		kv("Duration", elapsed(end.Sub(time.Unix(run.StartedAt, 0))), kw),
+		kv("Duration", runDuration(run.StartedAt, end), kw),
 		kv("Steps", fmt.Sprintf("%d", len(r.lines)), kw),
 		kv("Shell", fmt.Sprintf("%d", shells), kw),
 		kv("Tools", fmt.Sprintf("%d", tools), kw),
 	}
 	if refusals > 0 {
 		lines = append(lines, kv("Refusals", stRedBold.Render(fmt.Sprint(refusals)), kw))
+	}
+	if rs, ok := m.runStatusOf(r.id); ok && rs.Status == "QUEUED" {
+		lines = append(lines, "", stYellow.Bold(true).Render("Why queued"))
+		for _, l := range wrap(m.queuedText(rs.Queued), w) {
+			lines = append(lines, stYellow.Render(l))
+		}
+		if rs.Queued != nil {
+			for _, n := range rs.Queued.Nodes {
+				if n.Reason != "" {
+					lines = append(lines, cut(stFaint.Render("  "+dash(n.Name)+": ")+n.Detail, w))
+				}
+			}
+		}
 	}
 	if t, ok := m.runErrs(r.id); ok && t.N > 0 {
 		lines = append(lines, kv("Errors", errBadge(t.N), kw), "", stRedBold.Render("Last error ")+stDim.Render(m.clock(t.At)))

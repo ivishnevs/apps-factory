@@ -334,7 +334,10 @@ func (m *Model) treeLines(w, h int) []string {
 			name := lipgloss.NewStyle().Foreground(agentColor(a.Name)).Bold(a.state == "running").Render(a.Name)
 			var dot, doing string
 			switch a.state {
-			case "running", "queued", "stopping":
+			case "queued":
+				dot, doing = stYellow.Render("◷"), stYellow.Render("queued")+stFaint.Render(" "+a.queued)
+				right = stYellow.Render("queued")
+			case "running", "stopping":
 				dot = pulse(m.frameN, theme.green)
 				doing = a.taskTitle
 				right = elapsed(now.Sub(a.runStart))
@@ -410,7 +413,10 @@ func (m *Model) taskPanelLines(w, h int) []string {
 	for i, t := range list {
 		box, tag, title := "[ ]", "", t.Title
 		st := stFaint
+		_, queued := m.queuedOf(t.ID)
 		switch {
+		case queued:
+			box, tag, st = "[◷]", stYellow.Render("← queued"), stBold
 		case m.isLive(t.ID):
 			box, tag, st = "[→]", stYellow.Render("← "+m.spin.View()+"running"), stBold
 		case m.needsOwner(t):
@@ -457,6 +463,9 @@ func (m *Model) isLive(task string) bool {
 
 // whyLine says what a waiting task waits on: "blocked by: P1-3 (developer-1)", "waits on: you — …".
 func (m *Model) whyLine(t Task) string {
+	if q, ok := m.queuedOf(t.ID); ok {
+		return "↳ queued: " + q
+	}
 	if terminal(t.Status) || m.isLive(t.ID) || t.Status == "BACKLOG" || t.Reason == "runnable" || t.Reason == "" {
 		return ""
 	}

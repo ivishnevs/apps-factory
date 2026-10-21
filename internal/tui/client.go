@@ -85,6 +85,35 @@ type TaskDetail struct {
 	Children []Task             `json:"children,omitempty"`
 	// Exits are the accepted exits with their git and forge facts (the pull request); nil from an older Core.
 	Exits []storage.TaskExit `json:"exits,omitempty"`
+	// Parks are Core's active parks of the task (GET /tasks/{id}/parks); nil from an older Core, which
+	// leaves the parks to the task's feed events.
+	Parks []storage.TaskPark `json:"parks,omitempty"`
+	// Queued is why the task's QUEUED run is not claimed yet (the why's queued), nil when none.
+	Queued *storage.QueuedReason `json:"queued,omitempty"`
+}
+
+// CostView is the Costs screen: the cost ledger since Since grouped by day, agent, model and project.
+type CostView struct {
+	Since    time.Time          `json:"since"`
+	Days     storage.CostReport `json:"days"`
+	Agents   storage.CostReport `json:"agents"`
+	Models   storage.CostReport `json:"models"`
+	Projects storage.CostReport `json:"projects"`
+}
+
+// costGroupings are the groupings of a CostView, in its field order.
+var costGroupings = []string{"day", "agent", "model", "project"}
+
+func (v *CostView) report(by string) *storage.CostReport {
+	switch by {
+	case "day":
+		return &v.Days
+	case "agent":
+		return &v.Agents
+	case "model":
+		return &v.Models
+	}
+	return &v.Projects
 }
 
 // RunEvent is one event of a run stream: its sequence and envelope.
@@ -95,7 +124,7 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create
+	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create, hold, release, read
 	TaskID     string         // task actions
 	Project    string         // say, create
 	Title      string         // create (Text is the description)
@@ -110,6 +139,8 @@ type Action struct {
 	MessageID  string         // answer
 	Answers    map[string]any // answer: structured answers
 	ApprovalID string         // approve, reject
+	Scope      string         // hold, release: project, agent, quota_key or node (the company is the kill switch)
+	Target     string         // hold, release: the project ID, agent name, quota key or node ID
 }
 
 // Describe is the action in words, for confirmations and toasts.
@@ -144,12 +175,30 @@ func (a Action) Describe() string {
 			r = ", ready"
 		}
 		return fmt.Sprintf("create task %q in %s for %s (priority %d%s)", a.Title, a.Project, a.Assignee, a.Priority, r)
+	case "hold":
+		d := "pause " + scopeName(a.Scope) + " " + a.Target + " (new runs stop; live runs continue)"
+		if a.Text != "" {
+			d += ": " + a.Text
+		}
+		return d
+	case "release":
+		return "resume " + scopeName(a.Scope) + " " + a.Target
+	case "read":
+		return "mark " + a.MessageID + " read"
 	case "stop":
 		return "STOP the company (kill switch): pause everything and revoke live runs"
 	case "start":
 		return "start the company (lift the kill switch)"
 	}
 	return a.Kind + " task " + a.TaskID
+}
+
+// scopeName is a pause scope in words.
+func scopeName(scope string) string {
+	if scope == "quota_key" {
+		return "quota key"
+	}
+	return scope
 }
 
 // FeedQuery narrows a feed read or stream on the server.
@@ -207,6 +256,8 @@ type Client interface {
 	Messages(ctx context.Context, conversation string) ([]messaging.Message, error)
 	// ArtifactContent is an uploaded artifact version's content.
 	ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error)
+	// Costs reads the cost ledger since a moment, grouped for the Costs screen.
+	Costs(ctx context.Context, since time.Time) (CostView, error)
 }
 
 // HTTPClient talks to a running Core with the owner token (FACTORY_URL, FACTORY_TOKEN). The token is only
@@ -308,14 +359,19 @@ func startOfDay(t time.Time) time.Time {
 func (c *HTTPClient) TaskDetail(ctx context.Context, id string, all []Task) (TaskDetail, error) {
 	var d TaskDetail
 	base := "/tasks/" + url.PathEscape(id)
+	var why struct {
+		tasks.Verdict
+		Queued *storage.QueuedReason `json:"queued"`
+	}
 	for _, p := range []struct {
 		path string
 		v    any
-	}{{base, &d.Task}, {base + "/why", &d.Why}, {base + "/attempts", &d.Attempts}, {base + "/comments", &d.Comments}, {base + "/costs", &d.Costs}} {
+	}{{base, &d.Task}, {base + "/why", &why}, {base + "/attempts", &d.Attempts}, {base + "/comments", &d.Comments}, {base + "/costs", &d.Costs}} {
 		if err := c.get(ctx, p.path, p.v); err != nil {
 			return d, err
 		}
 	}
+	d.Why, d.Queued = why.Verdict, why.Queued
 	after := int64(0)
 	for {
 		page, err := c.Feed(ctx, FeedQuery{Task: id}, after, 100)
@@ -337,7 +393,23 @@ func (c *HTTPClient) TaskDetail(ctx context.Context, id string, all []Task) (Tas
 	if err := c.get(ctx, base+"/exits", &exits); err == nil {
 		d.Exits = exits
 	}
+	// Core's parks; an older Core has no such route and the view falls back to the feed events.
+	var parks []storage.TaskPark
+	if err := c.get(ctx, base+"/parks", &parks); err == nil {
+		d.Parks = parks
+	}
 	return d, nil
+}
+
+// Costs reads GET /costs since the moment, once per grouping.
+func (c *HTTPClient) Costs(ctx context.Context, since time.Time) (CostView, error) {
+	v := CostView{Since: since}
+	for _, by := range costGroupings {
+		if err := c.get(ctx, fmt.Sprintf("/costs?by=%s&since=%d", by, since.Unix()), v.report(by)); err != nil {
+			return v, err
+		}
+	}
+	return v, nil
 }
 
 func childrenOf(id string, all []Task) []Task {
@@ -470,6 +542,12 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 				return "created " + id + ": " + a.Title, nil
 			}
 		}
+	case "hold":
+		err = c.API.Do(ctx, "POST", "/pauses", map[string]string{"scope": a.Scope, "target": a.Target, "reason": a.Text}, &result)
+	case "release":
+		err = c.API.Do(ctx, "POST", "/pauses/resume", map[string]string{"scope": a.Scope, "target": a.Target}, &result)
+	case "read":
+		err = c.API.Do(ctx, "POST", "/inbox/"+url.PathEscape(a.MessageID)+"/read", map[string]any{"version": a.Version, "request_id": rid}, &result)
 	case "stop":
 		err = c.API.Do(ctx, "POST", "/stop", map[string]string{"reason": a.Text}, &result)
 	case "start":
@@ -478,9 +556,32 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		return "", fmt.Errorf("unknown action %s", a.Kind)
 	}
 	if err != nil {
-		return "", err
+		return "", explainConflict(a, err)
 	}
 	return "done: " + a.Describe(), nil
+}
+
+// explainConflict says what Core's bare 409 (state or version conflict) means for the action: the item
+// changed since the UI read it. The UI refreshes after every action, so the owner sees the new state.
+func explainConflict(a Action, err error) error {
+	he, ok := err.(*worker.HTTPError)
+	if !ok || he.Status != 409 || !strings.Contains(he.Message, storage.ErrConflict.Error()) {
+		return err
+	}
+	var what string
+	switch a.Kind {
+	case "answer":
+		what = "message " + a.MessageID + " was answered, withdrawn or changed meanwhile (or it takes no answer)"
+	case "read":
+		what = "message " + a.MessageID + " was already read or changed meanwhile"
+	case "approve", "reject":
+		what = "approval " + a.ApprovalID + " was decided, expired or changed meanwhile"
+	case "say", "create", "stop", "start", "hold", "release":
+		return err
+	default:
+		what = fmt.Sprintf("task %s changed meanwhile (version %d is stale)", a.TaskID, a.Version)
+	}
+	return fmt.Errorf("%s; refreshed, look again and retry", what)
 }
 
 // StreamFeed follows GET /feed/stream.

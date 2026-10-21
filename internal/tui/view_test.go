@@ -182,6 +182,22 @@ func TestGoldenScreens(t *testing.T) {
 		{name: "form_100x30", w: 100, h: 30, keys: []string{"2", "n"}},
 		{name: "form_errors_80x24", w: 80, h: 24, keys: []string{"2", "n", "ctrl+s"}},
 		{name: "form_filled_160x40", w: 160, h: 40, keys: []string{"2", "]", "n"}, prep: fillDemoForm},
+		// Nodes: a disabled driver with its hold-off, an offline low-disk node, a healthy one; pauses.
+		{name: "nodes_160x40", w: 160, h: 40, keys: []string{"7"}},
+		{name: "nodes_100x30", w: 100, h: 30, keys: []string{"7", "j"}},
+		{name: "nodes_80x24", w: 80, h: 24, keys: []string{"7"}},
+		{name: "confirm_pause_node_100x30", w: 100, h: 30, keys: []string{"7", "p"}, prep: func(m *Model) { typeText(m, "maintenance"); press(m, "enter") }},
+		// Costs by day, agent, model and project.
+		{name: "costs_160x40", w: 160, h: 40, prep: openDemoCosts},
+		{name: "costs_100x30", w: 100, h: 30, prep: openDemoCosts},
+		{name: "costs_80x24", w: 80, h: 24, prep: openDemoCosts},
+		// A QUEUED run's cause on the run, the task detail; Core's parks; a notification in the inbox.
+		{name: "run_queued_100x30", w: 100, h: 30, prep: func(m *Model) { openDemoRun(m, "r-qa-1") }},
+		{name: "run_queued_160x40", w: 160, h: 40, prep: func(m *Model) { openDemoRun(m, "r-qa-1") }},
+		{name: "task_detail_queued_120x40", w: 120, h: 40, prep: func(m *Model) { run(m, m.openDetail("P1-9")) }},
+		{name: "task_detail_parks_120x40", w: 120, h: 40, prep: func(m *Model) { run(m, m.openDetail("P1-5")) }},
+		{name: "inbox_notification_100x30", w: 100, h: 30, keys: []string{"5", "j", "j", "j"}},
+		{name: "inbox_notification_80x24", w: 80, h: 24, keys: []string{"5", "j", "j", "j"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, _ := demoModel(t, tc.w, tc.h)
@@ -212,6 +228,11 @@ func openDemoRun(m *Model, id string) {
 		m.Update(streamMsg{Stream: "run:" + id, Run: &f.RunEvents[id][i]})
 	}
 	m.Update(runMsg{id: id, run: f.Runs[id], calls: f.ToolCalls[id]})
+}
+
+// openDemoCosts opens the Costs tab and delivers its ledger read.
+func openDemoCosts(m *Model) {
+	run(m, m.switchTab(tabCosts))
 }
 
 // openDemoTranscript opens a run's transcript and delivers its load as the stream would.

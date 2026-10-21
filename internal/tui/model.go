@@ -26,6 +26,8 @@ const (
 	tabFeed
 	tabInbox
 	tabChat
+	tabNodes
+	tabCosts
 	tabCount
 	// tabRun is the live run view: opened from a card, a task or an agent, not a tab of its own.
 	tabRun tab = 100
@@ -33,7 +35,10 @@ const (
 	tabTranscript tab = 101
 )
 
-var tabNames = [tabCount]string{"Dashboard", "Board", "Flow", "Feed", "Inbox", "Chat"}
+var tabNames = [tabCount]string{"Dashboard", "Board", "Flow", "Feed", "Inbox", "Chat", "Nodes", "Costs"}
+
+// tabShort are the tab names on a narrow terminal.
+var tabShort = [tabCount]string{"Dash", "Board", "Flow", "Feed", "Inbox", "Chat", "Nodes", "Costs"}
 
 // feedKeep is how many feed rows the UI keeps (feed view and flow).
 const feedKeep = 3000
@@ -145,6 +150,10 @@ type Model struct {
 	inbox inboxState
 	chat  chatState
 	tx    txState
+	nodes nodesState
+	costs costsState
+	// spinning: an animation tick is pending (only while something live is visible).
+	spinning bool
 
 	// errs are the runs' tool error counts; errAt when each was read.
 	errs  map[string]errTally
@@ -211,6 +220,7 @@ func (m *Model) clock(t time.Time) string { return t.In(m.opts.Location).Format(
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.loadOverview(), tea.RequestBackgroundColor}
 	if !m.opts.NoStreams {
+		m.spinning = true // the loading spinner
 		cmds = append(cmds, m.listen(), m.tick(), m.spin.Tick, m.stream(func(ctx context.Context, out func(StreamEvent)) {
 			m.c.StreamFeed(ctx, FeedQuery{}, 0, out)
 		}, m.ctx))
@@ -274,8 +284,72 @@ func (m *Model) setToast(s string, isErr bool) {
 	m.toast, m.toastAt, m.toastEr = oneLine(s), m.now(), isErr
 }
 
-// Update handles a message.
+// Update handles a message. The animation (spinners, pulses, timers) ticks only while something live is
+// visible: an idle screen gets no frames and is redrawn only when data changes.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if t, ok := msg.(spinner.TickMsg); ok {
+		if !m.wantsAnim() {
+			m.spinning = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(t)
+		m.frameN++
+		return m, cmd
+	}
+	model, cmd := m.update(msg)
+	return model, tea.Batch(cmd, m.animCmd())
+}
+
+// animCmd starts the animation when something live became visible and no tick is pending.
+func (m *Model) animCmd() tea.Cmd {
+	if m.spinning || m.opts.NoStreams || !m.wantsAnim() {
+		return nil
+	}
+	m.spinning = true
+	return m.spin.Tick
+}
+
+// wantsAnim: something on the screen moves: a loading spinner, a sliding toast, a reply or a create in
+// flight, or a live run on a screen that shows live runs.
+func (m *Model) wantsAnim() bool {
+	if !m.loaded || m.chat.sending || m.form != nil && m.form.sending || m.preview != nil && m.preview.loading {
+		return true
+	}
+	if m.tab == tabBoard && m.board.open && m.board.detail == nil {
+		return true
+	}
+	for _, t := range m.toasts {
+		if m.now().Sub(t.at) < 400*time.Millisecond {
+			return true
+		}
+	}
+	switch m.tab {
+	case tabDashboard, tabBoard:
+		return m.anyRunning()
+	case tabRun:
+		return m.run.run == nil || !m.run.ended
+	case tabTranscript:
+		return m.tx.run == nil || !m.tx.ended
+	case tabChat:
+		return m.replying(m.chatAgent(), m.chatProject())
+	}
+	return false
+}
+
+// anyRunning: a run is claimed, running or stopping (a QUEUED run does not move).
+func (m *Model) anyRunning() bool {
+	for _, p := range m.ov.Status {
+		for _, r := range p.Runs {
+			if r.Status != "QUEUED" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -283,11 +357,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		applyTheme(msg.IsDark())
 		return m, nil
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spin, cmd = m.spin.Update(msg)
-		m.frameN++
-		return m, cmd
+	case costsMsg:
+		m.onCosts(msg)
+		return m, nil
 	case tickMsg:
 		if m.loading {
 			return m, m.tick() // a slow Core: no second read on top of the first
@@ -295,6 +367,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.loadOverview(), m.tick()}
 		if m.board.open && m.board.detail != nil {
 			cmds = append(cmds, m.loadDetail(m.board.detailID)) // the open task stays current
+		}
+		if m.tab == tabCosts && !m.costs.loading && m.now().Sub(m.costs.at) > costsRefresh {
+			cmds = append(cmds, m.loadCosts())
 		}
 		return m, tea.Batch(cmds...)
 	case overviewMsg:
@@ -584,6 +659,9 @@ func (m *Model) switchTab(t tab) tea.Cmd {
 		return nil
 	}
 	m.prevTab, m.tab = m.tab, t
+	if t == tabCosts && m.costs.view == nil && !m.costs.loading {
+		return m.loadCosts()
+	}
 	return nil
 }
 
@@ -610,9 +688,11 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 				m.setToast("✗ "+err.Error(), true)
 				return nil
 			}
-			m.input = nil
+			if m.input == in {
+				m.input = nil
+			}
 			if in.local {
-				return nil // a view setting, applied by apply
+				return nil // a view setting, applied by apply (which may open the next input)
 			}
 			m.askConfirm(a)
 			return nil
@@ -668,7 +748,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			return m.switchTab((m.baseTab() + 1) % tabCount)
 		case "shift+tab":
 			return m.switchTab((m.baseTab() + tabCount - 1) % tabCount)
-		case "1", "2", "3", "4", "5", "6":
+		case "1", "2", "3", "4", "5", "6", "7", "8":
 			return m.switchTab(tab(key[0] - '1'))
 		case "]":
 			m.project = m.nextProject(m.project)
@@ -679,9 +759,15 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			m.board.clamp(m)
 			return nil
 		case "ctrl+r", "R":
+			// R replies to a notification in the prompt bar; otherwise (and ctrl+r always) it refreshes.
+			if key == "R" {
+				if cmd, ok := m.promptKey(key); ok {
+					return cmd
+				}
+			}
 			m.setToast("↻ refreshing", false)
 			return m.loadOverview()
-		case "Y", "N", "A":
+		case "Y", "N", "A", "M":
 			if cmd, ok := m.promptKey(key); ok {
 				return cmd
 			}
@@ -713,6 +799,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.chat.key(m, k)
 	case tabTranscript:
 		return m.tx.key(m, key)
+	case tabNodes:
+		return m.nodes.key(m, key)
+	case tabCosts:
+		return m.costs.key(m, key)
 	}
 	return nil
 }
@@ -772,6 +862,10 @@ func (m *Model) Render() string {
 		body = m.chatLines(w, bodyH)
 	case tabTranscript:
 		body = m.txLines(w, bodyH)
+	case tabNodes:
+		body = m.nodesLines(w, bodyH)
+	case tabCosts:
+		body = m.costsLines(w, bodyH)
 	}
 	for len(body) < bodyH {
 		body = append(body, "")
@@ -830,7 +924,8 @@ func (m *Model) toastLines(w int) []string {
 func (m *Model) headerLine(w int) string {
 	bar := lipgloss.NewStyle().Background(theme.surface)
 	logo := lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(" ◆ APP FACTORY ")
-	clock := bar.Foreground(theme.dim).Render(m.now().In(m.opts.Location).Format("15:04:05") + " ")
+	// Minutes only: an idle screen is not redrawn every second (owner-ui 6.6).
+	clock := bar.Foreground(theme.dim).Render(m.now().In(m.opts.Location).Format("15:04") + " ")
 	room := w - ansi.StringWidth(logo) - ansi.StringWidth(clock) - 2
 	// Chips: full, then compact (no brackets, no share), then names only, until they fit.
 	var chips []string
@@ -910,21 +1005,92 @@ func (m *Model) attentionCount() int {
 	return len(m.ov.Inbox) + m.ov.Pending.Alerts + m.ov.Pending.Inspect
 }
 
+// tabLabel is a tab's label: "1 Dashboard", "1 Dash", or "1" (mode 2, but the current tab).
+func (m *Model) tabLabel(i int, cur tab, mode int) string {
+	switch {
+	case mode == 0:
+		return fmt.Sprintf("%d %s", i+1, tabNames[i])
+	case mode == 2 && tab(i) != cur:
+		return fmt.Sprint(i + 1)
+	}
+	return fmt.Sprintf("%d %s", i+1, tabShort[i])
+}
+
+// tabBadge is what a tab counts: inbox items, unread chat messages, nodes that need care.
+func (m *Model) tabBadge(t tab) string {
+	switch t {
+	case tabNodes:
+		if n := m.nodesNeedingCare(); n > 0 {
+			return fmt.Sprintf(" ⚠%d", n)
+		}
+	case tabInbox:
+		if len(m.ov.Inbox) > 0 {
+			return fmt.Sprintf(" %d", len(m.ov.Inbox))
+		}
+	case tabChat:
+		if n := m.unreadTotal(); n > 0 {
+			return fmt.Sprintf(" •%d", n)
+		}
+	}
+	return ""
+}
+
+// statusRight is the right of the tabs line: connection (with Core's URL), company, run state, attention.
+func (m *Model) statusRight(withURL bool) string {
+	right := []string{}
+	switch {
+	case m.ovErr != nil && !m.loaded:
+		right = append(right, stRedBold.Render("○ unreachable"))
+	case m.ovErr != nil:
+		right = append(right, stYellow.Render("◐ retrying · "+ago(m.now(), m.lastOK)+" old"))
+	case !m.loaded:
+		right = append(right, stFaint.Render("◌ connecting"))
+	default:
+		feed := stGreen.Render("●")
+		if m.feedSt.seen && !m.feedSt.connected {
+			feed = stYellow.Render("◐")
+		}
+		if withURL {
+			feed += stFaint.Render(" " + m.c.Describe())
+		}
+		right = append(right, feed)
+	}
+	if c := m.ov.Health.Company; c != "" {
+		right = append(right, stBold.Render(c))
+	}
+	if p, stopped := m.companyStopped(); stopped {
+		right = append(right, lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" ■ STOPPED "+p.Reason+" "))
+	} else if m.loaded {
+		right = append(right, stGreen.Render("▶ running"))
+	}
+	if n := m.attentionCount(); n > 0 {
+		right = append(right, stRedBold.Render(fmt.Sprintf("⚠ %d", n)))
+	}
+	return strings.Join(right, stDim.Render(" │ ")) + " "
+}
+
 func (m *Model) tabsLine(w int) string {
 	parts := []string{}
 	cur := m.baseTab()
 	x := 1
-	for i, name := range tabNames {
-		label := fmt.Sprintf("%d %s", i+1, name)
-		badge := ""
-		if tab(i) == tabInbox && len(m.ov.Inbox) > 0 {
-			badge = fmt.Sprintf(" %d", len(m.ov.Inbox))
+	// Full names, short names, then only the current tab named: the first that leaves the status room.
+	mode := 0
+	for ; mode < 2; mode++ {
+		n := 1
+		for i := range tabNames {
+			n += ansi.StringWidth(m.tabLabel(i, cur, mode)+m.tabBadge(tab(i))) + 2
 		}
-		if tab(i) == tabChat {
-			if n := m.unreadTotal(); n > 0 {
-				badge = fmt.Sprintf(" •%d", n)
-			}
+		// Full names leave the whole status; short names may cut its start (the run state and ⚠ stay).
+		reserve := ansi.StringWidth(m.statusRight(false))
+		if mode == 1 && m.ovErr == nil { // a connection problem is never cut
+			reserve = min(reserve, 22)
 		}
+		if n+reserve <= w {
+			break
+		}
+	}
+	for i := range tabNames {
+		label, badge := m.tabLabel(i, cur, mode), m.tabBadge(tab(i))
 		var s string
 		if tab(i) == cur {
 			s = lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(" " + label + badge + " ")
@@ -943,40 +1109,10 @@ func (m *Model) tabsLine(w int) string {
 	if m.tab == tabTranscript {
 		left += stAccent.Render("  ▸ transcript " + m.tx.id)
 	}
-	// Right: connection, company, run state, attention.
-	right := []string{}
-	switch {
-	case m.ovErr != nil && !m.loaded:
-		right = append(right, stRedBold.Render("○ unreachable"))
-	case m.ovErr != nil:
-		right = append(right, stYellow.Render("◐ retrying · "+ago(m.now(), m.lastOK)+" old"))
-	case !m.loaded:
-		right = append(right, stFaint.Render("◌ connecting"))
-	default:
-		feed := stGreen.Render("●")
-		if m.feedSt.seen && !m.feedSt.connected {
-			feed = stYellow.Render("◐")
-		}
-		if w >= 110 {
-			feed += stFaint.Render(" " + m.c.Describe())
-		}
-		right = append(right, feed)
-	}
-	if c := m.ov.Health.Company; c != "" {
-		right = append(right, stBold.Render(c))
-	}
-	if p, stopped := m.companyStopped(); stopped {
-		right = append(right, lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" ■ STOPPED "+p.Reason+" "))
-	} else if m.loaded {
-		right = append(right, stGreen.Render("▶ running"))
-	}
-	if n := m.attentionCount(); n > 0 {
-		right = append(right, stRedBold.Render(fmt.Sprintf("⚠ %d", n)))
-	}
-	r := strings.Join(right, stDim.Render(" │ ")) + " "
+	r := m.statusRight(w >= 110)
 	room := w - ansi.StringWidth(left) - 1
 	if ansi.StringWidth(r) > room {
-		r = ansi.TruncateLeft(r, ansi.StringWidth(r)-max(room, 0), "…")
+		r = ansi.TruncateLeft(r, ansi.StringWidth(r)-max(room, 0)+1, "…") // the "…" takes a cell
 	}
 	return rightAlign(left, r, w)
 }
@@ -1037,7 +1173,14 @@ func (m *Model) hints() [][2]string {
 	case tabFeed:
 		return append([][2]string{{"!", "attention"}, {"/", "filter"}, {"j/k", "scroll"}, {"G", "newest"}}, common...)
 	case tabInbox:
+		if msg, ok := m.inboxSelected(); ok && !answerable(msg) && msg.ApprovalID == "" {
+			return append([][2]string{{"↑↓", "item"}, {"r", "reply"}, {"m", "mark read"}, {"t", "task"}}, common...)
+		}
 		return append([][2]string{{"↑↓", "item"}, {"←→", "option"}, {"enter", "answer"}, {"a", "text"}, {"v", "preview"}, {"y/n", "approve"}}, common...)
+	case tabNodes:
+		return append([][2]string{{"h/l", "nodes/pauses"}, {"j/k", "move"}, {"p", "pause…"}, {"u", "resume"}, {"K", "kill switch"}}, common...)
+	case tabCosts:
+		return append([][2]string{{"r", "range"}}, common...)
 	}
 	return common
 }

@@ -42,6 +42,50 @@ func choices(msg messaging.Message) []string {
 	return nil
 }
 
+// answerable: the item is a question (or an escalation) that takes an answer; notifications and reports
+// are replied to in a conversation and marked read instead.
+func answerable(msg messaging.Message) bool {
+	return msg.MessageType == "question" && msg.ApprovalID == "" && (msg.Status == "PENDING" || msg.Status == "ESCALATED")
+}
+
+func (m *Model) inboxSelected() (messaging.Message, bool) {
+	if len(m.ov.Inbox) == 0 {
+		return messaging.Message{}, false
+	}
+	m.inbox.clamp(m)
+	return m.ov.Inbox[m.inbox.cursor], true
+}
+
+// replyTo answers a notification: a direct report in the Chat tab (its conversation, input focused); any
+// other agent with a directive on its task.
+func (m *Model) replyTo(msg messaging.Message) tea.Cmd {
+	for i, r := range m.chatReports() {
+		if r != msg.Sender {
+			continue
+		}
+		if msg.ProjectID != "" {
+			m.project = msg.ProjectID
+		}
+		m.chat.init(m)
+		m.chat.sel, m.chat.scroll, m.chat.typing = i, 0, true
+		m.switchTab(tabChat)
+		m.markSeen(ownerConversation(r, m.chatProject()))
+		return m.chat.ti.Focus()
+	}
+	if t, ok := m.taskByID(msg.TaskID); ok && t.Kind == "" {
+		return m.taskAction(t, "d")
+	}
+	m.setToast(msg.Sender+" is not your direct report and the message has no task to direct: answer in its conversation", true)
+	return nil
+}
+
+// markRead marks a notification read (POST /inbox/{id}/read); it leaves the inbox.
+func (m *Model) markRead(msg messaging.Message) tea.Cmd {
+	a := Action{Kind: "read", MessageID: msg.ID, Version: msg.Version}
+	m.setToast("… "+a.Describe(), false)
+	return m.send(a)
+}
+
 func (s *inboxState) key(m *Model, key string) tea.Cmd {
 	items := m.ov.Inbox
 	if len(items) == 0 {
@@ -49,6 +93,20 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 	}
 	s.clamp(m)
 	msg := items[s.cursor]
+	if !answerable(msg) && msg.ApprovalID == "" {
+		switch key {
+		case "j", "down", "k", "up", "t":
+		case "r", "enter":
+			return m.replyTo(msg)
+		case "m":
+			return m.markRead(msg)
+		case "a", "y", "n":
+			m.setToast("a "+msg.MessageType+" takes no answer: r replies, m marks it read", true)
+			return nil
+		default:
+			return nil
+		}
+	}
 	opts := choices(msg)
 	ap, isApproval := m.approvalOf(msg)
 	if msg.ApprovalID != "" {
@@ -219,10 +277,26 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 			lines = append(lines, "  options: "+strings.Join(q.Options, ", ")+stFaint.Render(" (answer in free text: a)"))
 		}
 	}
-	if len(msg.Questions) == 0 && msg.ApprovalID == "" {
+	switch {
+	case !answerable(msg) && msg.ApprovalID == "":
+		how := "r  reply in the chat"
+		if !slicesContains(m.chatReports(), msg.Sender) {
+			how = "r  reply with a directive on " + dash(msg.TaskID)
+		}
+		lines = append(lines, "", stFaint.Render(how+"   m  mark read"))
+	case len(msg.Questions) == 0 && msg.ApprovalID == "":
 		lines = append(lines, "", stFaint.Render("a  answer in free text"))
 	}
 	return lines
+}
+
+func slicesContains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // byteSize is a size in B, KiB or MiB.

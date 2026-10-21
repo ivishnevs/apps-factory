@@ -1,5 +1,5 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                          14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1   ▸ run r-d1-7                    ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                             14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs   ▸ run r-d1-7 …ixture demo │ Company 1 │ ▶ running │ ⚠ 6
 ╭───────────────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow · ✗3 ─────────────────────────╮╭─────────── Run stats ────────────╮
 │  ── session started, model claude-opus-4-7 ──                                               14:18:00 ││ Agent      developer-1           │
 │                                                                                                      ││ Task       P1-3                  │
@@ -36,5 +36,5 @@
 │                                                                                                      ││                                  │
 │    ⠋ developer-1 is working                                                                          ││                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +4 in inbox
  t transcript  e errors  f follow  j/k scroll  T task  esc back  ^k palette  [ ] project  ? help  q quit

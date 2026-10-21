@@ -1,5 +1,5 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]  14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat           ● │ Company 1 │ ▶ running │ ⚠ 5
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat  7 Nodes ⚠2  8 Costs  …any 1 │ ▶ running │ ⚠ 6
 ╭──── Direct reports ────╮╭─────────────────────── pm · owner-pm-project-1 ────────────────────────╮
 │ project  project-1     ││                                                                        │
 │ [ ] switches project   ││                                                                        │
@@ -26,5 +26,5 @@
 │                        ││ │ enter to write to pm · @name addresses another report              │ │
 │                        ││ ╰────────────────────────────────────────────────────────────────────╯ │
 ╰────────────────────────╯╰────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
  j/k report  enter write  pgup/dn scroll  t reply run  ^k palette  [ ] project  ? help  q quit

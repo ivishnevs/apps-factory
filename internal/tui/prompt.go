@@ -38,6 +38,10 @@ func (m *Model) promptLine(w int) string {
 	if ap, isApproval := m.approvalOf(msg); isApproval || msg.ApprovalID != "" {
 		text = fmt.Sprintf("%s wants %s %s — approve?", msg.Sender, ap.Call.Name, brief(ap.Call.Arguments))
 		keys = "[Y/N]"
+	} else if !answerable(msg) {
+		// A notification or report: it takes no answer (POST answer would be refused).
+		text = msg.Sender + " says: " + oneLine(msg.Body)
+		keys = "[R reply · M read]"
 	} else {
 		verb := "asks"
 		if msg.EscalationReason != "" {
@@ -84,6 +88,13 @@ func (m *Model) promptKey(key string) (tea.Cmd, bool) {
 			a.Text = text
 			return nil
 		}), true
+	case !isApproval && !answerable(msg) && key == "R":
+		return m.replyTo(msg), true
+	case !isApproval && !answerable(msg) && key == "M":
+		return m.markRead(msg), true
+	case !isApproval && !answerable(msg) && key == "A":
+		m.setToast("a "+msg.MessageType+" takes no answer: R replies, M marks it read", true)
+		return nil, true
 	case !isApproval && key == "A":
 		return m.answer(msg), true
 	}

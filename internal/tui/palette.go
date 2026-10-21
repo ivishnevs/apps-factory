@@ -48,8 +48,22 @@ func (m *Model) paletteItems() []paletteItem {
 	items = append(items,
 		paletteItem{"↻", "action", "Refresh now", "R", func() tea.Cmd { return m.loadOverview() }},
 		paletteItem{"⚠", "action", "Show what needs me", "board filter !", func() tea.Cmd { m.board.setFilter(m, "!"); return m.switchTab(tabBoard) }},
+		paletteItem{"⏸", "action", "Pause a project, agent, quota key or node…", "nodes p", func() tea.Cmd { return m.openPauseChooser("", "") }},
 	)
-	if msg, ok := m.promptItem(); ok {
+	for _, p := range m.ov.Pauses {
+		if p.Scope == "company" {
+			continue
+		}
+		p := p
+		items = append(items, paletteItem{"▶", "action", "Resume " + scopeName(p.Scope) + " " + p.Target, dash(p.Reason), func() tea.Cmd {
+			m.askConfirm(Action{Kind: "release", Scope: p.Scope, Target: p.Target})
+			return nil
+		}})
+	}
+	if msg, ok := m.promptItem(); ok && !answerable(msg) && msg.ApprovalID == "" {
+		items = append(items, paletteItem{"↩", "action", "Reply: " + oneLine(msg.Body), msg.Sender, func() tea.Cmd { return m.replyTo(msg) }},
+			paletteItem{"✓", "action", "Mark read: " + oneLine(msg.Body), msg.Sender, func() tea.Cmd { return m.markRead(msg) }})
+	} else if ok {
 		items = append(items, paletteItem{"?", "action", "Answer: " + oneLine(msg.Body), msg.Sender, func() tea.Cmd {
 			if cmd, ok := m.promptKey("A"); ok {
 				return cmd

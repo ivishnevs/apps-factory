@@ -1,6 +1,6 @@
- ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3       14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •… …│ ▶ running │ ⚠ 5
-╭───────────────────────────────── Inbox · 4 ──────────────────────────────────╮
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3          14:30
+  1  2  3  4  5 Inbox 5  6 •1  7 ⚠2  8          ● │ Company 1 │ ▶ running │ ⚠ 6
+╭───────────────────────────────── Inbox · 5 ──────────────────────────────────╮
 │ ● question  pm                                                        1h ago │
 │   P1-5 · Which option for Task 5: A or B? A is free but slower; B is faster… │
 │                                                                              │
@@ -20,5 +20,5 @@
 │ reason   release 1.2 of Project 2 passed review                              │
 │ expires  in 24h                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +4 in inbox
  ↑↓ item  ←→ option  enter answer  a text  v preview  y/n approve  ^k palette  …

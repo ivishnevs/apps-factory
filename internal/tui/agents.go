@@ -21,6 +21,7 @@ type agentRow struct {
 	activity    string
 	at          time.Time
 	pauseReason string
+	queued      string // why its run is QUEUED (Core's queued reason)
 	waiting     string // what its open work waits on, when it is not running
 }
 
@@ -69,7 +70,7 @@ func (m *Model) agentRow(a Agent, depth int) agentRow {
 			r.run, r.task, r.runStart = run.ID, run.TaskID, time.Unix(run.StartedAt, 0)
 			switch run.Status {
 			case "QUEUED":
-				r.state = "queued"
+				r.state, r.queued = "queued", m.queuedText(run.Queued)
 			case "CANCELLING":
 				r.state = "stopping"
 			default:

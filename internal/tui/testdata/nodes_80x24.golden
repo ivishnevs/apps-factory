@@ -1,0 +1,24 @@
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3          14:30
+  1  2  3  4  5 5  6 •1  7 Nodes ⚠2  8          ● │ Company 1 │ ▶ running │ ⚠ 6
+╭───────────────────────────────── Nodes · 3 ──────────────────────────────────╮
+│ ▸● mac-studio (n1) · online                                      beat 5s ago │
+│    slots    ▇▇▇▇▇▇·· 3/4 in use                                              │
+│    held     simulator 1/2                                                    │
+│    drivers  ◐ codex 0.162.1 enabled · 1 transient failure                    │
+│             ✗ claude disabled until 14:40:00: auth check failed: 401 invali… │
+│    disk     120.0 GiB free (low 10.0 GiB, critical 2.0 GiB)                  │
+│    load     1.2 on 12 cpus                                                   │
+│                                                                              │
+│  ○ mac-mini (n2) · offline                                         silent 7m │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────────── Pauses · 2 ─────────────────────────────────╮
+│ ⏸ agent designer  waiting for the style guide                 owner · 1h ago │
+│ ⏸ quota key codex-team  subscription lim… factory · 25m ago · until 16:00:00 │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────── Node events ─────────────────────────────────╮
+│ 14:24:00 ⚠ node.low_disk mac-mini: 4.1 GiB free on /                         │
+│ 14:20:00 ⚠ driver_unsupported driver claude disabled on node mac-studio: au… │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +4 in inbox
+ h/l nodes/pauses  j/k move  p pause…  u resume  K kill switch  ^k palette  [ ]…

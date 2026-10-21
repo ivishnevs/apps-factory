@@ -1,7 +1,6 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                      14:30:00
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 4  6 Chat •1               ● fixture demo │ Company 1 │ ▶ running │ ⚠ 5
+ ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                         14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 6
 ╭──────────────────────────────────────────────── Feed ● live · follow ────────────────────────────────────────────────╮
-│ 12:42:00 + created               P3-3   lead             Task 3                                                      │
 │ 12:50:00 → exit.asked            P1-5   pm               pm asked: Which option for Task 5: A or B?                  │
 │ 12:55:00 ⚠ message.created       P1-5   pm               pm → owner (question): Which option for Task 5: A or B? A … │
 │ 12:55:00 ⏸ parked.ask            P1-5   pm               waits for the answer to m-ask-1                             │
@@ -17,6 +16,7 @@
 │ 14:05:00 + created               P1-9   developer-1      Task 9                                                      │
 │ 14:10:00 ⚠ approval.requested    P2-3   lead             factory_release_publish: release 1.2 of Project 2 passed r… │
 │ 14:18:00 ▶ started               P1-3   developer-1      Task 3                                                      │
+│ 14:20:00 ⚠ driver_unsupported    ·      node:n1          driver claude disabled on node mac-studio: auth check fail… │
 │ 14:21:00 ✗ run.command_refused   P1-3   developer-1      git push --force refused by rule no-force-push              │
 │ 14:23:00 ▶ started               P3-2   developer-2      Task 2                                                      │
 │ 14:24:00 ⚠ node.low_disk         ·      node             mac-mini: 4.1 GiB free on /                                 │
@@ -26,5 +26,5 @@
 │ 14:28:00 ✎ commented             P2-1   owner            Please check Task 1 on a large input.                       │
 │ 14:29:00 → message.created       P3-2   lead             lead → developer-2 (answer): Option B, keep it behind a fl… │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +3 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +4 in inbox
  ! attention  / filter  j/k scroll  G newest  ^k palette  [ ] project  ? help  q quit
