@@ -267,7 +267,9 @@ not run now and who clears it. `tasks.Evaluate` is a pure function of a snapshot
 transaction; the scheduler dispatches only a `runnable` verdict and claim re-evaluates it
 (trigger-log-scheduling D3).
 `GET /tasks` and `GET /tasks/{id}` (and the Factory MCP task tools built on them) return every task with its
-`reason` and `clearer`.
+`reason` and `clearer`. When the task's run is QUEUED, `GET /tasks/{id}/why` adds `queued`: why no node claims
+it yet (docs/runtime-protocol-v2.md). `GET /tasks/{id}/parks` lists the task's active parks (`?all=1` also the
+cleared and overridden ones) with kind, ref, reason, who clears it and when it was set and cleared.
 
 Order: `terminal`, `backlog`, `unassigned` (no assignee or not a configured agent), `live_run`, parks
 (`parked:escalation` — an open escalation: retries or budget exhausted, inspection of a side-effect task, a
