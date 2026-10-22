@@ -21,6 +21,10 @@ Changes to project documents SHALL reach Core only through MCP with compare-and-
 - **WHEN** two tasks change the same document from the same base and both exit
 - **THEN** the first exit SHALL store its version and the second SHALL be refused with the current digest
 
+#### Scenario: Worktree lost a whole change
+- **WHEN** a run's worktree no longer holds any document of an active change (and no archived copy of it), of an archived change, of `specs/`, or of the tree at all
+- **THEN** its sync SHALL restore those documents from Core instead of deleting them, and the exit SHALL be refused once naming them
+
 ### Requirement: Content-bound artifact versions
 Uploaded artifact versions SHALL record their content digest, and approval SHALL bind to that digest.
 

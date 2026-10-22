@@ -40,11 +40,13 @@ const manifestPath = ".factory/manifest.json"
 // ConflictSuffix names the file holding Core's current version of a conflicting document.
 const ConflictSuffix = ".factory-current"
 
-// SyncResult is what a sync uploaded; Conflicts are the documents Core changed meanwhile.
+// SyncResult is what a sync uploaded; Conflicts are the documents Core changed meanwhile. Restored are the
+// documents of whole parts of the tree the worktree lost, put back from Core instead of deleted there.
 type SyncResult struct {
 	Written   []string       `json:"written"`
 	Deleted   []string       `json:"deleted"`
 	Conflicts []SyncConflict `json:"conflicts,omitempty"`
+	Restored  []string       `json:"restored,omitempty"`
 }
 
 type SyncConflict struct {
@@ -114,6 +116,20 @@ func (a *Adapter) Sync(ctx context.Context) (*SyncResult, error) {
 		return nil, err
 	}
 	out := &SyncResult{Written: []string{}, Deleted: []string{}}
+	// A worktree that lost a whole change, all specs or the tree (a branch switch, a stray rm) must not empty Core:
+	// those documents come back from Core and the exit is refused once so the agent sees it. A deliberate
+	// removal goes through factory_openspec_delete.
+	for _, p := range lost(base, files) {
+		file := filepath.Join(root, filepath.FromSlash(p))
+		if err = os.MkdirAll(filepath.Dir(file), 0o755); err == nil {
+			err = a.fetchBlob(ctx, base[p].SHA256, file)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: restoring Core's version: %w", p, err)
+		}
+		files[p] = local{sha: base[p].SHA256}
+		out.Restored = append(out.Restored, p)
+	}
 	var paths []string
 	for p := range files {
 		paths = append(paths, p)
@@ -174,6 +190,57 @@ func (a *Adapter) Sync(ctx context.Context) (*SyncResult, error) {
 		err = os.Rename(tmp, mfile)
 	}
 	return out, err
+}
+
+// part is the piece of the tree a sync must not empty on its own: changes/<name>, changes/archive/<dir>, or
+// specs as a whole (removing one capability is a normal edit); "" for a top-level document.
+func part(p string) string {
+	b := strings.Split(p, "/")
+	switch {
+	case len(b) >= 3 && b[0] == "specs":
+		return "specs"
+	case len(b) >= 4 && b[0] == "changes" && b[1] == "archive":
+		return strings.Join(b[:3], "/")
+	case len(b) >= 3 && b[0] == "changes" && b[1] != "archive":
+		return strings.Join(b[:2], "/")
+	}
+	return ""
+}
+
+// lost are the manifest documents of parts with no document left in the worktree (every document when the
+// tree is empty), by path. A change whose archived copy (changes/archive/YYYY-MM-DD-<name>) is in the
+// worktree was archived, not lost.
+func lost[L any](base map[string]manifestFile, files map[string]L) []string {
+	kept := map[string]bool{}
+	var local []string
+	for p := range files {
+		kept[part(p)] = true
+		local = append(local, p)
+	}
+	var out []string
+	for p := range base {
+		u := part(p)
+		if _, ok := files[p]; ok || len(files) > 0 && (u == "" || kept[u]) {
+			continue
+		}
+		if name, ok := strings.CutPrefix(u, "changes/"); ok && !strings.HasPrefix(name, "archive/") && archivedLocally(name, local) {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// archivedLocally: some worktree document lies in an archived copy of change.
+func archivedLocally(change string, local []string) bool {
+	var proposals []string
+	for _, p := range local {
+		if u := part(p); strings.HasPrefix(u, "changes/archive/") {
+			proposals = append(proposals, u+"/proposal.md")
+		}
+	}
+	return len(openspec.ArchivedProposals(change, proposals)) > 0
 }
 
 // rebase rebuilds the manifest's files: entries outside the tree as they were and the tree's updated bases
@@ -237,6 +304,11 @@ func syncRefusal(r *SyncResult) error {
 	return fmt.Errorf("exit refused (openspec_conflict): other runs changed these OpenSpec documents since your run started:%s\nThen exit again (your next exit uploads the merged files).", b.String())
 }
 
+// restoreRefusal is the exit refusal of a sync that put lost documents back.
+func restoreRefusal(r *SyncResult) error {
+	return fmt.Errorf("exit refused (openspec_restored): your worktree lost whole OpenSpec changes, all specs or the tree, so they were restored from Core instead of deleted there:\n- %s\nIf you meant to remove them, call factory_openspec_delete for each document; otherwise just exit again.", strings.Join(r.Restored, "\n- "))
+}
+
 // syncTool answers factory_openspec_sync.
 func (a *Adapter) syncTool(ctx context.Context) (any, error) {
 	r, err := a.Sync(ctx)
@@ -248,6 +320,9 @@ func (a *Adapter) syncTool(ctx context.Context) (any, error) {
 	}
 	if len(r.Conflicts) > 0 {
 		return map[string]any{"result": r, "next": syncRefusal(r).Error()}, nil
+	}
+	if len(r.Restored) > 0 {
+		return map[string]any{"result": r, "next": restoreRefusal(r).Error()}, nil
 	}
 	return map[string]any{"result": r, "at": time.Now().UTC()}, nil
 }

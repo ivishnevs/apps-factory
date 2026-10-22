@@ -165,6 +165,8 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 			return nil, fmt.Errorf("submission refused (openspec_sync): %w", err)
 		} else if r != nil && len(r.Conflicts) > 0 {
 			return nil, syncRefusal(r)
+		} else if r != nil && len(r.Restored) > 0 {
+			return nil, restoreRefusal(r)
 		}
 	}
 	status, b, seen, err := a.do(ctx, "POST", "/agent/call", c)
@@ -231,6 +233,8 @@ func (a *Adapter) Exit(ctx context.Context, kind string, args map[string]any) (a
 		return nil, fmt.Errorf("exit refused (openspec_sync): %w", err)
 	} else if r != nil && len(r.Conflicts) > 0 {
 		return nil, syncRefusal(r)
+	} else if r != nil && len(r.Restored) > 0 {
+		return nil, restoreRefusal(r)
 	}
 	facts, err := a.Facts(ctx)
 	if err != nil {
