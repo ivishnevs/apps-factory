@@ -91,6 +91,9 @@ its proposal before linking tasks. Create/update/ready/dispatch check the refere
 rechecks it: a missing/invalid queued reference ends that run `stale` and blocks its task before any runtime
 starts. Restoring the proposal allows an explicit ready action and a new attempt. The node makes one final
 preflight of the materialized proposal before starting the runtime; failure ends the run `setup_failed`.
+If a run of the task archived its change (the final PR often does, while the task is still in review),
+ready, dispatch, claim and the preflight accept the latest `changes/archive/YYYY-MM-DD-<name>/proposal.md`,
+so review and rework go on; creating a task or setting its link still needs an active change.
 
 The brief names the change and its directory; documents are not copied into RunSpecs, reports or decision
 records. Changing Markdown checkboxes never changes Factory task status.

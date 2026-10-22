@@ -291,3 +291,31 @@ func TestOpenSpecReadTelemetryHasMetadataWithoutDocument(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
+
+// TestOpenSpecArchivedTaskChange: a linked task keeps dispatching and claiming after its change moves to
+// changes/archive/YYYY-MM-DD-<name> (the final PR archives it while the task is in review); a new link and the
+// owner check still need an active change.
+func TestOpenSpecArchivedTaskChange(t *testing.T) {
+	s := specStore(t)
+	ctx := context.Background()
+	in := tasks.Create{ProjectID: "p", Title: "linked", Assignee: "demo", OpenSpecChange: "feature", RequestID: "create"}
+	task, e := s.CreateTask(ctx, DefaultCompany, in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	task = readyEngineTask(t, s, task)
+	putSpec(t, s, "p", "changes/archive/2026-10-22-feature-two/proposal.md", "# Another change\n")
+	putSpec(t, s, "p", "changes/archive/2026-10-22-feature/proposal.md", "# Feature\n")
+	dropSpec(t, s, "p", proposalPath)
+	run := dispatchEngineTask(t, s, task, "archived-run")
+	if _, e = s.Claim(ctx, DefaultCompany, run.ID); e != nil {
+		t.Fatal("claim of an archived change refused", e)
+	}
+	in.RequestID, in.Title = "create-2", "new link"
+	if _, e = s.CreateTask(ctx, DefaultCompany, in); !errors.Is(e, ErrInput) {
+		t.Fatal("new link to an archived change", e)
+	}
+	if _, e = s.CheckOpenSpec(ctx, DefaultCompany, "p", "feature"); e == nil {
+		t.Fatal("owner check accepted an archived change")
+	}
+}

@@ -128,16 +128,35 @@ func (s *Store) CheckOpenSpec(ctx context.Context, company, project, change stri
 	if _, err := openSpecProject(s.Project(ctx, company, project)); err != nil {
 		return openspec.Check{Change: change}, err
 	}
-	return s.checkChange(ctx, s.DB, company, project, change)
+	return s.checkChange(ctx, s.DB, company, project, change, false)
 }
 
-func (s *Store) checkChange(ctx context.Context, q rowQuerier, company, project, change string) (openspec.Check, error) {
+func (s *Store) checkChange(ctx context.Context, q querier, company, project, change string, archived bool) (openspec.Check, error) {
 	if !openspec.ValidChange(change) {
 		return openspec.CheckChange(change, nil, false)
 	}
 	d, _, found, err := specDoc(ctx, q, company, project, openspec.ProposalPath(change))
 	if err != nil {
 		return openspec.Check{Change: change}, err
+	}
+	if !found && archived {
+		docs, err := specDocs(ctx, q, company, project, "changes/archive/")
+		if err != nil {
+			return openspec.Check{Change: change}, err
+		}
+		byPath := map[string]openspec.Doc{}
+		paths := make([]string, 0, len(docs))
+		for _, d := range docs {
+			byPath[d.Path] = d
+			paths = append(paths, d.Path)
+		}
+		if a := openspec.ArchivedProposals(change, paths); len(a) > 0 {
+			b, err := s.blobBytes(ctx, company, byPath[a[0]].SHA256, openspec.MaxDocument)
+			if err != nil {
+				return openspec.Check{Change: change}, err
+			}
+			return openspec.CheckArchived(change, a[0], b)
+		}
 	}
 	var b []byte
 	if found {
@@ -149,26 +168,28 @@ func (s *Store) checkChange(ctx context.Context, q rowQuerier, company, project,
 }
 
 // checkTaskChange validates a task's openspec_change against the project's tree (create, update, ready,
-// dispatch).
-func (s *Store) checkTaskChange(ctx context.Context, tx *Tx, t tasks.Task) error {
+// dispatch). archived also accepts the change's archived copy: a linked task keeps working (review, rework)
+// after its run archived the change; a new link must name an active change.
+func (s *Store) checkTaskChange(ctx context.Context, tx *Tx, t tasks.Task, archived bool) error {
 	if t.OpenSpecChange == "" {
 		return nil
 	}
 	if _, err := openSpecProject(projectTx(ctx, tx, t.ProjectID)); err != nil {
 		return err
 	}
-	if _, e := s.checkChange(ctx, tx, tx.company, t.ProjectID, t.OpenSpecChange); e != nil {
+	if _, e := s.checkChange(ctx, tx, tx.company, t.ProjectID, t.OpenSpecChange, archived); e != nil {
 		return fmt.Errorf("%w: openspec: %v", ErrInput, e)
 	}
 	return nil
 }
 
-// runChangeCheck rechecks a run's change at claim; a disabled OpenSpec setting fails it too.
+// runChangeCheck rechecks a run's change at claim (an archived change counts); a disabled OpenSpec setting
+// fails it too.
 func (s *Store) runChangeCheck(ctx context.Context, tx *Tx, project, change string) error {
 	if _, err := openSpecProject(projectTx(ctx, tx, project)); err != nil {
 		return err
 	}
-	_, err := s.checkChange(ctx, tx, tx.company, project, change)
+	_, err := s.checkChange(ctx, tx, tx.company, project, change, true)
 	return err
 }
 

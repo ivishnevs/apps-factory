@@ -18,6 +18,10 @@ Factory SHALL validate active change references when creating, updating, readyin
 - **WHEN** a linked change disappears before claim
 - **THEN** Core SHALL cancel the queued run and block its task before a runtime turn starts
 
+#### Scenario: Archived linked change
+- **WHEN** a run of a linked task archives its change to `changes/archive/YYYY-MM-DD-<name>/`
+- **THEN** readying, dispatching (review runs included), claiming and the node preflight SHALL accept the archived proposal, while creating a task or setting its link SHALL still require an active change
+
 ### Requirement: Existing OpenSpec workflow
 Factory SHALL retain task/runtime state in SQLite and leave document authoring, semantic validation and archiving to the official OpenSpec workflow.
 

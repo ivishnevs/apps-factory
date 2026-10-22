@@ -17,6 +17,7 @@ import (
 
 var ErrConflict = errors.New("document changed; restart the read")
 var changeName = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var archivedName = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}-([a-z0-9]+(?:-[a-z0-9]+)*)$`)
 
 const MaxDocument = 1 << 20
 
@@ -50,6 +51,7 @@ type Check struct {
 	Scope          string `json:"scope"`
 	ProposalSHA256 string `json:"proposal_sha256"`
 	Note           string `json:"note"`
+	Archived       bool   `json:"archived,omitempty"`
 }
 type Initialized struct {
 	ProjectID   string   `json:"project_id"`
@@ -207,6 +209,32 @@ func Read(name string, b []byte, offset, limit int, digest string) (Document, er
 
 // ProposalPath is the proposal of an active change, relative to the tree.
 func ProposalPath(change string) string { return "changes/" + change + "/proposal.md" }
+
+// ArchivedProposals are the proposal paths of change's archived copies (changes/archive/YYYY-MM-DD-<change>/)
+// among paths, latest archive first.
+func ArchivedProposals(change string, paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		dir, ok := strings.CutPrefix(p, "changes/archive/")
+		if !ok {
+			continue
+		}
+		dir, ok = strings.CutSuffix(dir, "/proposal.md")
+		if m := archivedName.FindStringSubmatch(dir); ok && m != nil && m[1] == change {
+			out = append(out, p)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(out)))
+	return out
+}
+
+// CheckArchived is CheckChange for the archived proposal at path: the change a task kept after its last run
+// archived it (the final PR archives the change while the task is still in review).
+func CheckArchived(name, path string, proposal []byte) (Check, error) {
+	out, err := CheckChange(name, proposal, true)
+	out.Path, out.Archived = "openspec/"+path, true
+	return out, err
+}
 
 // CheckChange validates an active change reference from its proposal's content (found reports whether the
 // proposal exists).
