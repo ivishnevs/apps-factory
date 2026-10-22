@@ -45,7 +45,7 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		}
 		return spec, err
 	}
-	if err = s.checkTaskChange(ctx, tx, t); err != nil {
+	if err = s.checkTaskChange(ctx, tx, t, true); err != nil {
 		return spec, err
 	}
 	spec.OpenSpecChange = t.OpenSpecChange

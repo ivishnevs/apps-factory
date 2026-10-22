@@ -298,7 +298,7 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			}
 			return t, err
 		}
-		if err := s.checkTaskChange(ctx, tx, t); err != nil {
+		if err := s.checkTaskChange(ctx, tx, t, false); err != nil {
 			return t, err
 		}
 		if t.ParentTaskID != "" {
@@ -495,7 +495,7 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		}
 		if in.OpenSpecChange != nil {
 			t.OpenSpecChange = *in.OpenSpecChange
-			if err = s.checkTaskChange(ctx, tx, t); err != nil {
+			if err = s.checkTaskChange(ctx, tx, t, false); err != nil {
 				return t, err
 			}
 		}
@@ -581,7 +581,7 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 			if err = editableRun(ctx, tx, t); err != nil {
 				return t, err
 			}
-			if err = s.checkTaskChange(ctx, tx, t); err != nil {
+			if err = s.checkTaskChange(ctx, tx, t, true); err != nil {
 				return t, err
 			}
 			t.Status = "READY"

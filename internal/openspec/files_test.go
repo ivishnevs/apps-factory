@@ -132,3 +132,16 @@ func TestListAndDocumentBounds(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestArchivedProposals(t *testing.T) {
+	paths := []string{"changes/feature/proposal.md", "changes/archive/2026-01-02-feature/proposal.md", "changes/archive/2026-03-04-feature/proposal.md",
+		"changes/archive/2026-03-04-feature-two/proposal.md", "changes/archive/2026-03-04-feature/tasks.md", "changes/archive/feature/proposal.md"}
+	got := ArchivedProposals("feature", paths)
+	if len(got) != 2 || got[0] != "changes/archive/2026-03-04-feature/proposal.md" {
+		t.Fatal(got)
+	}
+	c, e := CheckArchived("feature", got[0], []byte("# Feature\n"))
+	if e != nil || !c.Valid || !c.Archived || c.Path != "openspec/changes/archive/2026-03-04-feature/proposal.md" {
+		t.Fatal(c, e)
+	}
+}

@@ -398,8 +398,23 @@ func preflightChange(cwd string, spec protocol.RunSpec) error {
 	if spec.Materialize != nil && spec.Materialize.OpenSpecDir != "" {
 		dir = spec.Materialize.OpenSpecDir
 	}
-	name := filepath.Join(cwd, filepath.FromSlash(dir), filepath.FromSlash(openspec.ProposalPath(spec.OpenSpecChange)))
+	tree := filepath.Join(cwd, filepath.FromSlash(dir))
+	name := filepath.Join(tree, filepath.FromSlash(openspec.ProposalPath(spec.OpenSpecChange)))
 	info, err := os.Lstat(name)
+	if err != nil && openspec.ValidChange(spec.OpenSpecChange) {
+		// The change may be archived by an earlier run of the task (Core accepted it at claim).
+		found, _ := filepath.Glob(filepath.Join(tree, "changes", "archive", "*-"+spec.OpenSpecChange, "proposal.md"))
+		paths := make([]string, 0, len(found))
+		for _, f := range found {
+			if rel, e := filepath.Rel(tree, f); e == nil {
+				paths = append(paths, filepath.ToSlash(rel))
+			}
+		}
+		if a := openspec.ArchivedProposals(spec.OpenSpecChange, paths); len(a) > 0 {
+			name = filepath.Join(tree, filepath.FromSlash(a[0]))
+			info, err = os.Lstat(name)
+		}
+	}
 	if err != nil {
 		_, err = openspec.CheckChange(spec.OpenSpecChange, nil, false)
 		return err

@@ -125,3 +125,22 @@ func TestManifestPathsStayInside(t *testing.T) {
 		}
 	}
 }
+
+// TestPreflightArchivedChange: the node preflight accepts the linked change's archived copy.
+func TestPreflightArchivedChange(t *testing.T) {
+	cwd := t.TempDir()
+	spec := protocol.RunSpec{OpenSpecChange: "feature"}
+	if e := preflightChange(cwd, spec); e == nil {
+		t.Fatal("missing change passed")
+	}
+	dir := filepath.Join(cwd, "openspec", "changes", "archive", "2026-10-22-feature")
+	if e := os.MkdirAll(dir, 0o755); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(dir, "proposal.md"), []byte("# Feature\n"), 0o644); e != nil {
+		t.Fatal(e)
+	}
+	if e := preflightChange(cwd, spec); e != nil {
+		t.Fatal(e)
+	}
+}
