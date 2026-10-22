@@ -115,6 +115,28 @@ func TestIncarnationRestore(t *testing.T) {
 	}
 }
 
+// TestClaimAgentCap: an agent with max_concurrent_runs 2 holds two claimed runs at once; the third waits.
+func TestClaimAgentCap(t *testing.T) {
+	s, _ := clockStore(t)
+	register(t, s, "n1", 1, func(r *NodeRegistration) { r.Slots = 3 })
+	snap := `{"spec":{"execution":{"max_concurrent_runs":2}}}`
+	for i, id := range []string{"c1", "c2", "c3"} {
+		queue(t, s, id, "p"+id, "dev", snap)
+		_, err := claimV2(s, id, "n1", 1, "1-0-"+id)
+		if i < 2 && err != nil {
+			t.Fatal(id, err)
+		}
+		if i == 2 {
+			refused(t, err, true, "agent_busy")
+		}
+	}
+	for _, id := range []string{"c1", "c2"} {
+		if st, _, _, _ := runRow(t, s, id); st != "CLAIMED" {
+			t.Fatal(id, st)
+		}
+	}
+}
+
 // TestClaimV2: a claim answers lease, start window, RunSpec and brief, is idempotent per claim_id, and
 // every refusal names its reason.
 func TestClaimV2(t *testing.T) {
