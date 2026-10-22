@@ -256,3 +256,59 @@ func TestMaterializationKeepsUnsyncedOpenSpecEdits(t *testing.T) {
 		t.Fatal("Core's version not saved beside the file:", v)
 	}
 }
+
+// TestAdapterRestoresLostOpenSpecParts: a worktree that lost the whole tree, or a whole change, gets those
+// documents back from Core instead of deleting them there, and the exit is refused once to say so; archiving
+// a change (its documents move to changes/archive/YYYY-MM-DD-<name>) is a normal sync.
+func TestAdapterRestoresLostOpenSpecParts(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	server := httptest.NewServer(h.c.Handler())
+	defer server.Close()
+	ownerWrite(t, h.s, "changes/feature/proposal.md", "# Feature\n")
+	ownerWrite(t, h.s, "changes/feature/tasks.md", "- [x] one\n")
+	ownerWrite(t, h.s, "changes/other/proposal.md", "# Other\n")
+	ownerWrite(t, h.s, "specs/a/spec.md", "# A\n")
+	dir := t.TempDir()
+	materializeAt(t, h.s, "notes", dir)
+	h.create("one", "notes", "demo")
+	r := h.start("one")
+	a := &factorytools.Adapter{URL: server.URL, Token: r.token, Workdir: dir}
+
+	// The whole tree is gone (a branch switch): an on-demand sync restores every document.
+	if err := os.RemoveAll(filepath.Join(dir, "openspec")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.Call(ctx, factorytools.Call{Name: "factory_openspec_sync", Arguments: map[string]any{}})
+	if err != nil || !strings.Contains(mustJSON(out), "openspec_restored") {
+		t.Fatal(out, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "openspec/specs/a/spec.md")); string(got) != "# A\n" {
+		t.Fatal("not restored:", string(got))
+	}
+
+	// Archive one change and lose another: the archive syncs, the lost change comes back and the exit is
+	// refused once.
+	for _, f := range []string{"proposal.md", "tasks.md"} {
+		b, _ := os.ReadFile(filepath.Join(dir, "openspec/changes/feature", f))
+		writeFile(t, filepath.Join(dir, "openspec/changes/archive/2026-10-22-feature", f), string(b))
+	}
+	_ = os.RemoveAll(filepath.Join(dir, "openspec/changes/feature"))
+	_ = os.RemoveAll(filepath.Join(dir, "openspec/changes/other"))
+	_, err = a.Call(ctx, factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "archived"}})
+	if err == nil || !strings.Contains(err.Error(), "openspec_restored") || !strings.Contains(err.Error(), "changes/other/proposal.md") || strings.Contains(err.Error(), "changes/feature/") {
+		t.Fatal(err)
+	}
+	if v, _ := current(t, h.s, "changes/other/proposal.md"); v != "# Other\n" {
+		t.Fatal("lost change deleted in Core:", v)
+	}
+	if _, err = a.Call(ctx, factorytools.Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "archived"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := current(t, h.s, "changes/feature/proposal.md"); ok {
+		t.Fatal("archived change still active")
+	}
+	if v, _ := current(t, h.s, "changes/archive/2026-10-22-feature/tasks.md"); v != "- [x] one\n" {
+		t.Fatal(v)
+	}
+}

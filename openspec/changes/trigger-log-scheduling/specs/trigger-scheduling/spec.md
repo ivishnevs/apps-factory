@@ -25,6 +25,10 @@ Core SHALL decide whether a task may run with one pure function over a snapshot 
 - **WHEN** a READY task has `wake_seq` equal to `handled_seq` and nothing else holds it
 - **THEN** it SHALL NOT be dispatched and its reason SHALL be `idle`
 
+#### Scenario: Review run refused for its OpenSpec link
+- **WHEN** a task in review links an OpenSpec change that fails Core's check
+- **THEN** its reason SHALL be `openspec` with the check's error, and the clearer SHALL be the owner
+
 #### Scenario: Escalation and wait together
 - **WHEN** a task has an active wait park and an active escalation park
 - **THEN** its reason SHALL be `parked:escalation`

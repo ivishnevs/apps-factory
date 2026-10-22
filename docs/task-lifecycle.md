@@ -278,8 +278,10 @@ stall; `parked:inspect` — a park from before migration 0029;
 reset (cleared by `node`); `parked:children` — `factory_exit_block on_children`, cleared by the open children's
 assignees (`agent:a,agent:b`, or `children` when unassigned): wait for them to close, or release it early with
 `factory tasks ready ID VERSION`), `dependencies`,
-`artifacts`, `backoff` (failed, automatic retry pending), `idle` (IN_REVIEW, REWORK, a READY task without an
-unhandled trigger, and other states that wait for an explicit action), `capacity` (the agent is busy on another
+`artifacts`, `backoff` (failed, automatic retry pending), `openspec` (a task in review whose linked change
+fails Core's check, so its review run is not dispatched; a READY task is blocked at dispatch instead), `idle`
+(IN_REVIEW, REWORK, a READY task without an unhandled trigger, and other states that wait for an explicit
+action), `capacity` (the agent is busy on another
 task, or another task's run — including a lost one whose runtime may still run — holds the project workspace's
 writer slot; runs in
 other tasks' worktrees never do), else `runnable`. The verdict also

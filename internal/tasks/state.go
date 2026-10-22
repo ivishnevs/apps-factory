@@ -17,6 +17,9 @@ const (
 	ReasonParked       = "parked:" // + park kind
 	ReasonDependencies = "dependencies"
 	ReasonArtifacts    = "artifacts"
+	// ReasonOpenSpec: the linked OpenSpec change of a task in review fails Core's check, so its review run is
+	// not dispatched.
+	ReasonOpenSpec = "openspec"
 	ReasonPaused       = "paused:" // + scope
 	ReasonBackoff      = "backoff"
 	ReasonIdle         = "idle"
@@ -130,6 +133,9 @@ type Snapshot struct {
 	// offline before the task reports pinned_node_unavailable.
 	PinnedNode string
 	PinTimeout time.Duration
+	// OpenSpecRefusal is why the task's openspec_change fails Core's dispatch check ("" when it passes or
+	// the task has no link); it names the reason of a task in review, whose review run is refused.
+	OpenSpecRefusal string
 }
 
 // TaskPause is an authority's pause of one task (hierarchy D2).
@@ -220,6 +226,10 @@ func Evaluate(s Snapshot) Verdict {
 	}
 	switch t.Status {
 	case "IN_REVIEW":
+		// A READY task with a failing link is blocked at dispatch; a review run is refused silently.
+		if s.OpenSpecRefusal != "" {
+			return v(ReasonOpenSpec, s.OpenSpecRefusal+" (the review run is not dispatched)", "owner", "restore the change in Core (factory openspec import "+t.ProjectID+" DIR) or review it yourself (factory tasks review "+t.ID+" VERSION accept|reject)")
+		}
 		return v(ReasonIdle, "submitted, waiting for review", "reviewer", "factory tasks review "+t.ID+" VERSION accept|reject")
 	case "REWORK":
 		return v(ReasonIdle, "review rejected; rework is not released", "owner", "factory tasks ready "+t.ID+" VERSION")

@@ -57,6 +57,11 @@ Writes reach Core only with compare-and-set on the document's digest:
   `FILE.factory-current` and becomes the new base, so the agent merges, deletes that file and exits again.
   `factory_openspec_sync` does the same on demand. Documents the run did not change are never uploaded, so
   an unchanged stale copy cannot overwrite a newer version.
+- A sync never empties a whole part of the tree. If the worktree holds no document of an active change (and no
+  `changes/archive/YYYY-MM-DD-<name>` copy of it), of an archived change, of `specs/`, or of the tree at all
+  (a branch switch, a stray `rm`), the adapter puts those documents back from Core instead of deleting them
+  and refuses the exit once (`openspec_restored`) naming them. Removing one capability or file is a normal
+  edit; a deliberate removal of a whole change uses `factory_openspec_delete` for each document.
 
 The owner writes with `POST /projects/{project}/openspec/write|move|delete` (same bodies and rules).
 

@@ -29,9 +29,25 @@ func (s *Store) TaskSnapshot(ctx context.Context, company, id string) (tasks.Sna
 	snap, err := snapshotTx(ctx, tx, t)
 	snap.Nodes = nodes
 	if err == nil {
+		snap.OpenSpecRefusal, err = s.openSpecRefusal(ctx, tx, t)
+	}
+	if err == nil {
 		err = presentTask(ctx, tx, company, &snap.Task)
 	}
 	return snap, err
+}
+
+// openSpecRefusal is why the linked change of a task in review fails the dispatch check, "" when it passes
+// (the review run is refused without a trace otherwise).
+func (s *Store) openSpecRefusal(ctx context.Context, tx *Tx, t tasks.Task) (string, error) {
+	if t.OpenSpecChange == "" || t.Status != "IN_REVIEW" {
+		return "", nil
+	}
+	err := s.checkTaskChange(ctx, tx, t, true)
+	if errors.Is(err, ErrInput) {
+		return err.Error(), nil
+	}
+	return "", err
 }
 
 // TaskSnapshots loads snapshots of every non-terminal task, optionally of one project.
@@ -53,6 +69,9 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 	for _, t := range ts {
 		snap, err := snapshotTx(ctx, tx, t)
 		if err != nil {
+			return nil, err
+		}
+		if snap.OpenSpecRefusal, err = s.openSpecRefusal(ctx, tx, t); err != nil {
 			return nil, err
 		}
 		if err = presentTask(ctx, tx, company, &snap.Task); err != nil {

@@ -319,3 +319,28 @@ func TestOpenSpecArchivedTaskChange(t *testing.T) {
 		t.Fatal("owner check accepted an archived change")
 	}
 }
+
+// TestOpenSpecReviewRefusalExplained: the review run of a task whose change is gone is refused at dispatch;
+// its why names the OpenSpec check instead of "waiting for review".
+func TestOpenSpecReviewRefusalExplained(t *testing.T) {
+	s := specStore(t)
+	ctx := context.Background()
+	task, e := s.CreateTask(ctx, DefaultCompany, tasks.Create{ProjectID: "p", Title: "linked", Assignee: "demo", OpenSpecChange: "feature", RequestID: "create"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	task = readyEngineTask(t, s, task)
+	finishEngineRun(t, s, dispatchEngineTask(t, s, task, "review-run"), "succeeded")
+	snap, e := s.TaskSnapshot(ctx, DefaultCompany, task.ID)
+	if e != nil || snap.Task.Status != "IN_REVIEW" || snap.OpenSpecRefusal != "" {
+		t.Fatal(snap.Task.Status, snap.OpenSpecRefusal, e)
+	}
+	dropSpec(t, s, "p", proposalPath)
+	if snap, e = s.TaskSnapshot(ctx, DefaultCompany, task.ID); e != nil {
+		t.Fatal(e)
+	}
+	snap.AgentConfigured = true
+	if v := tasks.Evaluate(snap); v.Reason != tasks.ReasonOpenSpec || !strings.Contains(v.Detail, "change feature has no proposal") {
+		t.Fatal(v)
+	}
+}
