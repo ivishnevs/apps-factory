@@ -52,3 +52,22 @@ func TestNodePause(t *testing.T) {
 		t.Fatal("no owner.paused event for the node")
 	}
 }
+
+// TestNodePauseByName: pausing a node by its registered name stores the pause under the node ID, so claims
+// stop; resuming by name lifts it.
+func TestNodePauseByName(t *testing.T) {
+	s, _ := clockStore(t)
+	ctx := context.Background()
+	register(t, s, "n1", 1)
+	if err := s.SetPause(ctx, DefaultCompany, Pause{Scope: "node", Target: "mini-n1", Actor: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	queue(t, s, "r1", "p1", "dev", "")
+	refused(t, func() error { _, err := claimV2(s, "r1", "n1", 1, "1-0-1"); return err }(), true, "paused")
+	if err := s.ClearPause(ctx, DefaultCompany, "node", "mini-n1", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claimV2(s, "r1", "n1", 1, "1-0-2"); err != nil {
+		t.Fatal("still paused after resume by name", err)
+	}
+}

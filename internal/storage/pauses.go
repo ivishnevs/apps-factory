@@ -57,6 +57,9 @@ func (s *Store) SetPause(ctx context.Context, company string, p Pause) error {
 		return err
 	}
 	defer tx.Rollback()
+	if p.Target, err = pauseTarget(ctx, tx, p.Scope, p.Target); err != nil {
+		return err
+	}
 	if p.Actor == "" {
 		p.Actor = "owner"
 	}
@@ -82,6 +85,9 @@ func (s *Store) ClearPause(ctx context.Context, company, scope, target, actor st
 		return err
 	}
 	defer tx.Rollback()
+	if target, err = pauseTarget(ctx, tx, scope, target); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, "DELETE FROM pauses WHERE company_id=? AND scope=? AND target=?", company, scope, target)
 	if err != nil {
 		return err
@@ -144,6 +150,37 @@ func pausedFor(ctx context.Context, tx *Tx, project, agent, quotaKey string) ([]
 }
 
 // nodePaused tells whether the owner paused claims on the node.
+// pauseTarget stores a node pause under the node ID, which claims check: a registered node's name resolves to
+// its ID (an ambiguous name is refused); anything else is kept as given, e.g. the ID of a node not yet registered.
+func pauseTarget(ctx context.Context, tx *Tx, scope, target string) (string, error) {
+	if scope != "node" {
+		return target, nil
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM nodes WHERE company_id=? AND (id=? OR name=?) ORDER BY id=? DESC", tx.company, target, target, target)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return "", err
+		}
+		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil {
+		return "", err
+	}
+	switch {
+	case len(ids) == 0:
+		return target, nil
+	case ids[0] == target || len(ids) == 1:
+		return ids[0], nil
+	}
+	return "", inputError("node name " + target + " matches several nodes; pause by node ID")
+}
+
 func nodePaused(ctx context.Context, tx *Tx, node string) (bool, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pauses WHERE company_id=? AND scope='node' AND target=?", tx.company, node).Scan(&n)
