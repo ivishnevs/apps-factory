@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAction, useOverview, useRun, useRunEvents, useStream, useToolCalls } from "@/lib/api/client";
 import type { Run, RunEvent } from "@/lib/api/types";
-import { tokens, usd } from "@/lib/format";
+import { tokens, usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export default function RunPage() {
@@ -146,7 +146,7 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
           <p className="mt-1 text-sm text-muted-foreground">
             {taskId ? <><Link href={`/tasks/${taskId}`} className="font-medium text-foreground underline-offset-4 hover:underline">{taskId}</Link>{taskTitle && <> · {taskTitle}</>}</> : "No task"}
             <span className="mx-1.5 text-border">/</span>
-            <span className="font-mono text-xs">{run.spec.id}</span>
+            <span className="font-mono text-xs" title={run.spec.id}>{displayId(run.spec.id)}</span>
           </p>
         </div>
         {live && taskId && (

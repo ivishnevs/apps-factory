@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { FeedItem } from "@/lib/api/types";
-import { ago } from "@/lib/format";
+import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "violet" | "muted" | "accent";
@@ -79,7 +79,7 @@ export function FeedRow({ item, fresh, projectName }: { item: FeedItem; fresh?: 
           {who && <><Dot /><span className="font-medium text-foreground/80">{who}</span></>}
           {who && item.actor && item.agent && item.actor !== item.agent && <span>by {item.actor}</span>}
           {(projectName || item.project_id) && <><Dot /><span>{projectName || item.project_id}</span></>}
-          {item.task_id && <><Dot /><span className="font-mono">{item.task_id}</span></>}
+          {item.task_id && <><Dot /><span className="font-mono" title={item.task_id}>{displayId(item.task_id)}</span></>}
           <Dot /><span className="tabular-nums" title={new Date(item.created_at).toLocaleString()}>{ago(item.created_at)}</span>
         </span>
       </span>

@@ -8,7 +8,7 @@ import { clearerName, elapsed, isConversation, reasonLabel, runCost, since } fro
 import { AgentAvatar } from "@/components/app/tasks/parts";
 import type { Agent, Message, Overview, Run } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
-import { usd } from "@/lib/format";
+import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Row, Section } from "./card";
 
@@ -65,7 +65,7 @@ export function NeedsYou({ ov, now }: { ov: Overview; now: number }) {
                   <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
                     <span className="font-medium text-foreground/80">{k.label}</span>
                     <span aria-hidden>·</span><span>{m.sender}</span>
-                    {m.task_id && <><span aria-hidden>·</span><span className="font-mono">{m.task_id}</span></>}
+                    {m.task_id && <><span aria-hidden>·</span><span className="font-mono" title={m.task_id}>{displayId(m.task_id)}</span></>}
                     <span aria-hidden>·</span><span className="tabular-nums">{since(m.created_at, now)}</span>
                     {m.blocking && <span className="rounded-full bg-amber-500/15 px-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">blocking</span>}
                   </span>
@@ -128,7 +128,7 @@ function RunRow({ run, task, queued, now }: { run: Run; task?: BoardTask; queued
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
           <span className="shrink-0 font-medium">{run.spec.agent}</span>
-          {task && !isConversation(task) && <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{task.id.slice(0, 12)}</span>}
+          {task && !isConversation(task) && <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{displayId(task.id)}</span>}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
           {waiting ? <span className="text-sky-700 dark:text-sky-300">Waiting for a node{queued ? ` · ${queued}` : ""}</span> : what}
@@ -184,7 +184,7 @@ export function Projects({ ov }: { ov: Overview }) {
                         const you = w.clearer.who === "owner";
                         return (
                           <li key={w.task_id} className="flex min-w-0 items-baseline gap-2 text-xs">
-                            <span className="shrink-0 font-mono text-muted-foreground">{w.task_id.slice(0, 12)}</span>
+                            <span className="shrink-0 font-mono text-muted-foreground">{displayId(w.task_id)}</span>
                             <span className={cn("min-w-0 truncate", you ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>
                               <span className="font-medium">{you ? "Needs you" : reasonLabel(w.reason)}</span>
                               {" · "}{you ? w.clearer.action : `${clearerName(w.clearer.who)}${w.clearer.action ? `: ${w.clearer.action}` : ""}`}

@@ -6,6 +6,7 @@ import { StatusBadge, toneClass } from "@/components/app/status";
 import type { Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { agentHue, clearerName, columns, type ColumnKey, initials, needsOwner, reasonLabel, showWhy, since } from "./model";
+import { displayId } from "@/lib/format";
 
 export function AgentAvatar({ name, size = "sm", className }: { name?: string; size?: "xs" | "sm" | "md"; className?: string }) {
   const dims = { xs: "size-5 text-[9px]", sm: "size-6 text-[10px]", md: "size-9 text-xs" }[size];
@@ -70,7 +71,7 @@ export function TaskCard({ task, project, now, column, className }: { task: Task
       className={cn("group relative block rounded-xl border bg-card p-3.5 shadow-xs transition-[border-color,box-shadow,transform] duration-150 hover:border-foreground/20 hover:shadow-sm focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.99]",
         needsOwner(task) && "border-amber-500/50 bg-amber-50/40 dark:border-amber-400/30 dark:bg-amber-400/[0.04]", className)}>
       <div className="mb-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="shrink-0 font-mono">{task.id}</span>
+        <span className="shrink-0 font-mono" title={task.id}>{displayId(task.id)}</span>
         <span aria-hidden className="text-muted-foreground/40">·</span>
         <span className="min-w-0 truncate">{project}</span>
         <span className="ml-auto flex shrink-0 items-center gap-2">

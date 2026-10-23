@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { Field, touchInput } from "./field";
 import { isConversation, isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
+import { displayId } from "@/lib/format";
 
 const NONE = "__none";
 
@@ -117,7 +118,7 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
                     className={cn("inline-flex h-10 max-w-full items-center gap-1.5 rounded-full border px-3 text-sm transition-colors md:h-8",
                       on ? "border-foreground bg-foreground text-background" : "bg-background hover:bg-accent")}>
                     {on && <Check className="size-3.5" />}
-                    <span className="font-mono text-xs opacity-70">{t.id}</span>
+                    <span className="font-mono text-xs opacity-70">{displayId(t.id)}</span>
                     <span className="truncate">{t.title}</span>
                   </button>
                 );

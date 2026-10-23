@@ -7,7 +7,7 @@ import { Markdown } from "@/components/app/run/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Approval, Message, Question } from "@/lib/api/types";
-import { ago } from "@/lib/format";
+import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ArtifactPreview } from "./artifact-preview";
 import { Countdown } from "./countdown";
@@ -48,7 +48,7 @@ function Shell({ kind, blocking, from, project, taskId, at, due, dueVerb, childr
       <p className="mt-3 text-xs text-muted-foreground">
         From <span className="font-medium text-foreground">{from}</span>
         {project && <> · {project}</>}
-        {taskId && <> · <Link href={`/tasks/${taskId}`} className="font-mono text-foreground underline-offset-4 hover:underline">{taskId}</Link></>}
+        {taskId && <> · <Link href={`/tasks/${taskId}`} className="font-mono text-foreground underline-offset-4 hover:underline" title={taskId}>{displayId(taskId)}</Link></>}
       </p>
       <div className="mt-3">{children}</div>
     </article>

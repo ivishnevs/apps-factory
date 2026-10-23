@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Comment, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, Task, TaskPark, Verdict } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
-import { usd } from "@/lib/format";
+import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { clearerName, isTerminal, reasonLabel, runCost, since } from "./model";
 import { AgentAvatar, PriorityMark } from "./parts";
@@ -39,7 +39,7 @@ export function Header({ task, project, pr, now, actions }: { task: BoardTask; p
   return (
     <header>
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <span className="font-mono">{task.id}</span>
+        <span className="font-mono" title={task.id}>{displayId(task.id)}</span>
         <StatusBadge value={task.status} />
         {task.paused_by && <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("REWORK"))}>paused by {task.paused_by === "owner" ? "you" : task.paused_by}</span>}
         {task.cancel_requested && !isTerminal(task.status) && <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("BLOCKED"))}>cancelling</span>}
@@ -227,7 +227,7 @@ export function Timeline({ events, now }: { events: FeedItem[]; now: number }) {
             {e.summary && <p className="mt-0.5 text-sm text-muted-foreground break-words">{e.summary}</p>}
             <p className="mt-0.5 text-xs text-muted-foreground/80" title={stamp(e.created_at)}>
               {since(secs(e.created_at), now) === "now" ? "just now" : `${since(secs(e.created_at), now)} ago`}
-              {e.run_id && <> · <Link href={`/runs/${encodeURIComponent(e.run_id)}`} className="font-mono underline-offset-4 hover:underline">{e.run_id}</Link></>}
+              {e.run_id && <> · <Link href={`/runs/${encodeURIComponent(e.run_id)}`} className="font-mono underline-offset-4 hover:underline" title={e.run_id}>{displayId(e.run_id)}</Link></>}
             </p>
           </li>
         ))}
@@ -263,7 +263,7 @@ export function DetailsList({ task, parent, cost, now }: { task: Task; parent?: 
 }
 
 function TaskLink({ id }: { id: string }) {
-  return <Link href={`/tasks/${encodeURIComponent(id)}`} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-accent hover:text-foreground">{id}</Link>;
+  return <Link href={`/tasks/${encodeURIComponent(id)}`} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-accent hover:text-foreground" title={id}>{displayId(id)}</Link>;
 }
 
 export function Attempts({ runs, now }: { runs: Run[]; now: number }) {
@@ -282,7 +282,7 @@ export function Attempts({ runs, now }: { runs: Run[]; now: number }) {
                   <AgentAvatar name={r.spec.agent} size="sm" className="mt-0.5" />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-mono text-xs">{r.spec.id}</span>
+                      <span className="font-mono text-xs" title={r.spec.id}>{displayId(r.spec.id)}</span>
                       <StatusBadge value={live ? r.status : r.outcome || r.status} className="h-5 px-1.5 text-[11px]" />
                     </span>
                     {r.result && <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground">{r.result}</span>}
@@ -310,7 +310,7 @@ export function Children({ tasks }: { tasks: Task[] }) {
         {tasks.map((t) => (
           <li key={t.id}>
             <Link href={`/tasks/${encodeURIComponent(t.id)}`} className="flex min-h-12 items-center gap-2.5 px-4 py-2 transition-colors hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none">
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">{t.id}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground" title={t.id}>{displayId(t.id)}</span>
               <span className={cn("min-w-0 flex-1 truncate text-sm", isTerminal(t.status) && "text-muted-foreground")}>{t.title}</span>
               <StatusBadge value={t.status} className="h-5 shrink-0 px-1.5 text-[11px]" />
             </Link>
@@ -333,7 +333,7 @@ export function Parks({ parks, now }: { parks: TaskPark[]; now: number }) {
               <span className="ml-auto text-xs text-muted-foreground">{since(p.created_at, now)} ago</span>
             </p>
             {p.reason && <p className="mt-1 text-sm text-muted-foreground break-words">{p.reason}</p>}
-            <p className="mt-1 text-xs text-muted-foreground">Waits on {clearerName(p.who)}{p.ref_id && <> · <span className="font-mono">{p.ref_id}</span></>}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Waits on {clearerName(p.who)}{p.ref_id && <> · <span className="font-mono" title={p.ref_id}>{displayId(p.ref_id)}</span></>}</p>
           </li>
         ))}
       </ul>
