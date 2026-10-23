@@ -1,12 +1,12 @@
 ## 1. API
 - [x] 1.1 `factory web` over `tui.Client`: reads, actions with the `X-Factory-Web` header, SSE relays, `--demo`/`--fixture`. Verify: `go build ./...`.
-- [ ] 1.2 API tests against the demo fixture: every read, an action, the header check, a stream.
+- [x] 1.2 API tests against the demo fixture: every read, an action, the header check, a stream. Done: `internal/web/server_test.go` (`TestReads`, `TestActionNeedsTheWebHeader`, `TestFeedStream`); streams send `Cache-Control: no-store, no-transform` so Next's proxy does not compress and hold back events; an unknown conversation answers `[]`.
 
 ## 2. Web app
 - [x] 2.1 Next.js app shell: providers, sidebar and phone tab bar, typed API client, confirmation dialog, status badges, route stubs. Verify: `npm run build`.
-- [ ] 2.2 Home, Tasks board, Task detail with owner actions.
-- [ ] 2.3 Run view (live transcript), Activity feed (live), Inbox (answers, approvals with artifact preview, escalations).
-- [ ] 2.4 Chat with direct reports, Costs, Nodes with pauses and the kill switch, create-task form.
+- [x] 2.2 Home, Tasks board, Task detail with owner actions. Done: Home (needs-you, live runs, projects, team tree, nodes, today's cost), Tasks (desktop board in the terminal board's columns, phone chips + list, project/assignee/search filters in the URL, new-task sheet), Task detail (why card, submission, review feedback, comments, attempts, subtasks, parks, timeline; run, retry, pause/resume, direct, reassign, priority, cancel with cascade, each confirmed).
+- [x] 2.3 Run view (live transcript), Activity feed (live), Inbox (answers, approvals with artifact preview, escalations). Done: transcript parsed like `internal/tui/transcript_parse.go` (Claude and Codex), grouped tool rows, live follow with jump-to-latest, cancel; feed by day with attention/project chips and live rows; inbox with option answers, read, approvals with call arguments or a sandboxed artifact preview, reject needs a note.
+- [x] 2.4 Chat with direct reports, Costs, Nodes with pauses and the kill switch, create-task form. Done: chat per direct report and project (`owner-<agent>-<project>`, @name addressing as in the terminal UI, unread kept in the browser), costs by period with a day chart and agent/model/project breakdowns, node cards (slots, drivers, disk watermarks, health), pauses with resume, pause dialog, kill switch with a typed STOP; the create-task form is in 2.2. Chat send is not confirmed, as in the terminal UI.
 
 ## 3. Delivery
 - [ ] 3.1 Run on the owner's Mac over Tailscale; docs (`docs/owner-web.md`, README).

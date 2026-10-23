@@ -274,7 +274,7 @@ export function Nodes({ ov, now }: { ov: Overview; now: number }) {
             const checks = ((n.health?.checks as { check: string; status: string; detail?: string }[] | undefined) ?? []).filter((c) => c.status === "fail");
             const slots = n.slots ?? 0;
             return (
-              <li key={n.id ?? n.name}>
+              <li key={n.node_id ?? n.name}>
                 <Row href="/nodes">
                   <span aria-hidden className={cn("size-2 shrink-0 rounded-full", n.online ? "bg-emerald-500" : "bg-zinc-400")} />
                   <span className="min-w-0 flex-1">
