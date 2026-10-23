@@ -126,9 +126,9 @@ function RunRow({ run, task, queued, now }: { run: Run; task?: BoardTask; queued
         </span>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-1.5 text-sm">
-          <span className="font-medium">{run.spec.agent}</span>
-          {task && !isConversation(task) && <span className="font-mono text-xs text-muted-foreground">{task.id}</span>}
+        <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
+          <span className="shrink-0 font-medium">{run.spec.agent}</span>
+          {task && !isConversation(task) && <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{task.id.slice(0, 12)}</span>}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
           {waiting ? <span className="text-sky-700 dark:text-sky-300">Waiting for a node{queued ? ` · ${queued}` : ""}</span> : what}
@@ -184,7 +184,7 @@ export function Projects({ ov }: { ov: Overview }) {
                         const you = w.clearer.who === "owner";
                         return (
                           <li key={w.task_id} className="flex min-w-0 items-baseline gap-2 text-xs">
-                            <span className="shrink-0 font-mono text-muted-foreground">{w.task_id}</span>
+                            <span className="shrink-0 font-mono text-muted-foreground">{w.task_id.slice(0, 12)}</span>
                             <span className={cn("min-w-0 truncate", you ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>
                               <span className="font-medium">{you ? "Needs you" : reasonLabel(w.reason)}</span>
                               {" · "}{you ? w.clearer.action : `${clearerName(w.clearer.who)}${w.clearer.action ? `: ${w.clearer.action}` : ""}`}
