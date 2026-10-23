@@ -8,7 +8,7 @@ export interface Verdict {
   task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[];
 }
 
-export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string }
+export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
 export interface Submission { summary: string; commit?: string; checks?: string[]; artifacts?: Artifact[] }
 
 export type TaskStatus = "BACKLOG" | "READY" | "IN_PROGRESS" | "IN_REVIEW" | "REWORK" | "BLOCKED" | "DONE" | "CANCELLED";
@@ -62,7 +62,7 @@ export interface RunCost {
 export interface CostReport { runs?: RunCost[]; groups?: CostGroup[]; total: CostGroup }
 export interface CostView { since: string; days: CostReport; agents: CostReport; models: CostReport; projects: CostReport }
 
-export interface Usage { model: string; input: number; output: number; cache_read?: number; cache_write?: number; cost_usd?: number }
+export interface Usage { model: string; input: number; output: number; cache_read?: number; cache_write?: number; cost_usd?: number; cost_source?: string }
 export interface RunSpec {
   id: string; project: string; agent: string; provider: string; task_id?: string; attempt?: number; openspec_change?: string;
   prompt: string; timeout_seconds: number; session_id?: string; runtime_options?: Record<string, unknown>; [k: string]: unknown;
@@ -77,7 +77,7 @@ export interface Run {
 // stream line (Claude stream-json / Codex JSON-RPC), parsed like internal/tui/transcript_parse.go.
 export interface RunEventPayload {
   run_id: string; session_id?: string; status?: string; result?: string; method?: string; data?: unknown;
-  usage?: Usage[]; outcome?: string; exit_state?: string;
+  usage?: Usage[]; outcome?: string; exit_state?: string; quota?: { resets_at?: number; [k: string]: unknown };
 }
 export interface Envelope {
   event_id: string; schema_version: number; type: string; correlation_id: string; causation_id?: string;

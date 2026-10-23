@@ -135,7 +135,9 @@ func stream(w http.ResponseWriter, r *http.Request, run func(context.Context, fu
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-store")
+	// no-transform: a proxy (Next's rewrites) must not compress the stream, which would hold events back.
+	w.Header().Set("Cache-Control", "no-store, no-transform")
+	w.Header().Set("X-Accel-Buffering", "no")
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	events := make(chan tui.StreamEvent, 64)
