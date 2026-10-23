@@ -1,13 +1,14 @@
 "use client";
 
 import {
-  AlertTriangle, Ban, CheckCircle2, Circle, GitPullRequestArrow, HardDrive, MessageSquare, Pause, Pencil,
+  AlertTriangle, Ban, CheckCircle2, Circle, CircleX, FileText, GitPullRequestArrow, HardDrive, MessageSquare, Pause, Pencil,
   Play, Plus, RotateCcw, ScrollText, ShieldQuestion, SquareTerminal,
 } from "lucide-react";
 import Link from "next/link";
 import type { FeedItem } from "@/lib/api/types";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { feedSummary } from "./summary";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "violet" | "muted" | "accent";
 const toneCls: Record<Tone, string> = {
@@ -30,11 +31,18 @@ export function feedLook(item: FeedItem): { icon: React.ElementType; tone: Tone 
     return { icon: AlertTriangle, tone: "bad" };
   }
   if (t.endsWith(".done")) return { icon: CheckCircle2, tone: "ok" };
+  if (t === "report.created") {
+    const s = item.summary ?? "";
+    if (/ ended succeeded/.test(s)) return { icon: CheckCircle2, tone: "ok" };
+    if (/ ended (failed|setup_failed|lost|max_turns|timeout)/.test(s)) return { icon: CircleX, tone: "bad" };
+    return { icon: ScrollText, tone: "muted" };
+  }
+  if (t.startsWith("openspec.")) return { icon: FileText, tone: "muted" };
   if (t === "task.created") return { icon: Plus, tone: "info" };
   if (t === "task.exit.submitted" || t === "task.exit.handoff") return { icon: GitPullRequestArrow, tone: "violet" };
   if (t.startsWith("task.exit.blocked")) return { icon: Ban, tone: "bad" };
   if (t.startsWith("task.exit.") || t.startsWith("message.")) return { icon: MessageSquare, tone: "violet" };
-  if (t === "task.started") return { icon: Play, tone: "accent" };
+  if (t === "task.started" || t.startsWith("task.unparked.")) return { icon: Play, tone: "accent" };
   if (t.includes("refused")) return { icon: SquareTerminal, tone: "bad" };
   if (t === "task.retry") return { icon: RotateCcw, tone: "warn" };
   if (t.includes("paused") || t.includes("parked")) return { icon: Pause, tone: "warn" };
@@ -58,28 +66,44 @@ function verb(t: string) {
   if (t.startsWith("task.trigger.")) return t.endsWith("directive") ? "Directive" : "Trigger";
   if (t.startsWith("task.alert.")) return "Alert";
   if (t.startsWith("task.escalation.")) return "Escalation";
+  if (t === "task.parked.wait" || t === "task.exit.waiting" || t === "task.waiting") return "Waiting";
   if (t.startsWith("task.parked.")) return "Parked";
+  if (t.startsWith("task.unparked.")) return "Resumed";
+  if (t.startsWith("openspec.")) return "OpenSpec";
+  if (t.startsWith("node.")) return "Node";
+  if (t.startsWith("driver")) return "Driver";
+  if (t.startsWith("run.") || t === "report.created") return "Run";
+  if (t.startsWith("approval.")) return "Approval";
+  if (t.startsWith("artifact.")) return "Artifact";
+  if (t.startsWith("conversation.")) return "Conversation";
   const l = typeLabel(t);
   return l.charAt(0).toUpperCase() + l.slice(1);
 }
 
-export function FeedRow({ item, fresh, projectName }: { item: FeedItem; fresh?: boolean; projectName?: string }) {
+export function FeedRow({ item, fresh, projectName, title }: {
+  item: FeedItem; fresh?: boolean; projectName?: string; title?: (id: string) => string | undefined;
+}) {
   const { icon: Icon, tone } = feedLook(item);
   const href = item.task_id ? `/tasks/${item.task_id}` : item.run_id ? `/runs/${item.run_id}` : undefined;
   const who = item.agent || item.actor;
+  const summary = feedSummary(item, title);
+  // The task by its title, unless the summary already is the title.
+  const taskTitle = item.task_id ? title?.(item.task_id) : undefined;
   const body = (
     <>
       <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full", toneCls[tone])}>
         <Icon className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className={cn("line-clamp-2 text-sm leading-snug", item.attention && "font-medium")}>{item.summary || typeLabel(item.type)}</span>
+        <span className={cn("line-clamp-2 text-sm leading-snug", item.attention && "font-medium")}>{summary}</span>
         <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
           <span className={cn("font-medium", item.attention ? "text-red-600 dark:text-red-400" : "text-foreground/70")}>{verb(item.type)}</span>
           {who && <><Dot /><span className="font-medium text-foreground/80">{who}</span></>}
-          {who && item.actor && item.agent && item.actor !== item.agent && <span>by {item.actor}</span>}
+          {who && item.actor && item.agent && item.actor !== item.agent && <span className="hidden sm:inline">by {item.actor}</span>}
           {(projectName || item.project_id) && <><Dot /><span>{projectName || item.project_id}</span></>}
-          {item.task_id && <><Dot /><span className="font-mono" title={item.task_id}>{displayId(item.task_id)}</span></>}
+          {item.task_id && summary !== taskTitle && (taskTitle
+            ? <><Dot /><span className="min-w-0 max-w-[14rem] truncate sm:max-w-xs" title={taskTitle}>{taskTitle}</span></>
+            : <><Dot /><span className="font-mono" title={item.task_id}>{displayId(item.task_id)}</span></>)}
           <Dot /><span className="tabular-nums" title={new Date(item.created_at).toLocaleString()}>{ago(item.created_at)}</span>
         </span>
       </span>
@@ -93,7 +117,7 @@ export function FeedRow({ item, fresh, projectName }: { item: FeedItem; fresh?: 
         <div className="flex min-h-14 min-w-0 flex-1 items-start gap-3 px-3 py-3 sm:px-4">{body}</div>
       )}
       {item.run_id && item.task_id && (
-        <Link href={`/runs/${item.run_id}`} aria-label={`Open run ${item.run_id}`} title="Open run"
+        <Link href={`/runs/${item.run_id}`} aria-label={`Open run ${displayId(item.run_id)}`} title="Open run"
           className="flex w-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
           <ScrollText className="size-4" />
         </Link>

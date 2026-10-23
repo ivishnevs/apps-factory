@@ -3,7 +3,7 @@
 import { CircleDollarSign, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
-import { Breakdown, pct } from "@/components/app/costs/breakdown";
+import { Breakdown, sharePct } from "@/components/app/costs/breakdown";
 import { costDays, DayChart } from "@/components/app/costs/day-chart";
 import { Segmented } from "@/components/app/costs/segmented";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,7 +37,9 @@ export default function Page() {
   const period = periods.find((p) => p.value === since)!;
   const t = v?.days.total;
   const unpriced = t?.sources?.none ?? 0;
-  const tokIn = (t?.input_tokens ?? 0) + (t?.cache_read_tokens ?? 0);
+  // The ledger counts uncached input, cache reads and cache writes apart (storage/costs.go): the prompt
+  // tokens are all three, and the cache share is the part of them read from the cache.
+  const tokIn = (t?.input_tokens ?? 0) + (t?.cache_read_tokens ?? 0) + (t?.cache_write_tokens ?? 0);
   const days = v ? costDays(v.days, new Date(v.since)) : [];
 
   return (
@@ -62,8 +64,8 @@ export default function Page() {
               sub={t.runs > 0 ? `${usd(t.cost_usd / t.runs)} per run` : "no ended runs"} />
             <Stat label="Runs" value={t.runs.toLocaleString()} sub={unpriced > 0 ? `${unpriced} without a price` : t.runs > 0 ? "all priced" : "ended in this period"} />
             <Stat label="Tokens" value={tokens(tokIn + t.output_tokens)} sub={`${tokens(tokIn)} in · ${tokens(t.output_tokens)} out`} />
-            <Stat label="Cache share" value={pct(t.cache_read_tokens, tokIn)}
-              sub={t.cache_read_tokens > 0 ? `${tokens(t.cache_read_tokens)} read from cache` : "none read from cache"} />
+            <Stat label="Input from cache" value={tokIn > 0 ? sharePct(t.cache_read_tokens, tokIn) : "—"}
+              sub={tokIn > 0 ? `${tokens(t.input_tokens + t.cache_write_tokens)} tokens not cached` : "no input yet"} />
           </div>
 
           {unpriced > 0 && (

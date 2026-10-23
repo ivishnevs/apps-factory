@@ -37,11 +37,14 @@ function group(entries: TxEntry[]): Group[] {
 }
 
 export function Transcript({ entries, live }: { entries: TxEntry[]; live: boolean }) {
+  const groups = group(entries);
   return (
     <ol className="space-y-4" aria-label="Transcript">
-      {group(entries).map((g) => (
+      {groups.map((g, i) => (
         <li key={g.key} className="animate-in fade-in-0 duration-300">
-          {g.kind === "tools" ? <ToolList items={g.items} live={live} /> : <Entry e={g.entry} />}
+          {/* Only the latest calls can still be running: once the agent moved on, a call without a recorded
+              result has finished (results of some calls, e.g. image reads, are not recorded). */}
+          {g.kind === "tools" ? <ToolList items={g.items} live={live && i === groups.length - 1} /> : <Entry e={g.entry} />}
         </li>
       ))}
     </ol>
@@ -163,7 +166,8 @@ function ToolRow({ e, live, first }: { e: TxEntry; live: boolean; first: boolean
           <time className="hidden text-[11px] text-muted-foreground/70 tabular-nums sm:block">{clock(e.at)}</time>
           {running ? <Loader2 className="size-3.5 animate-spin text-blue-500" aria-label="running" />
             : e.isError ? <X className="size-3.5 text-red-500" aria-label="failed" />
-            : e.done ? <Check className="size-3.5 text-emerald-500" aria-label="done" /> : <span className="size-3.5" />}
+            : e.done ? <Check className="size-3.5 text-emerald-500" aria-label="done" />
+            : <Check className="size-3.5 text-muted-foreground/50" aria-label="finished, no result recorded" />}
           <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} />
         </span>
       </button>
@@ -175,7 +179,7 @@ function ToolRow({ e, live, first }: { e: TxEntry; live: boolean; first: boolean
               ? e.result
                 ? <CodeBlock text={prettyResult(e.result)} className={e.isError ? "border-red-500/30 bg-red-500/[0.06] text-red-800 dark:text-red-200" : undefined} />
                 : <p className="text-sm text-muted-foreground">No output</p>
-              : <p className="text-sm text-muted-foreground">{live ? "Waiting for the result…" : "No result recorded"}</p>}
+              : <p className="text-sm text-muted-foreground">{running ? "Waiting for the result…" : "No result recorded"}</p>}
           </Section>
         </div>
       )}
