@@ -155,7 +155,8 @@ func stream(w http.ResponseWriter, r *http.Request, run func(context.Context, fu
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", kind, b)
 		f.Flush()
 	}
-	send("state", map[string]any{"connected": true})
+	w.WriteHeader(http.StatusOK)
+	f.Flush() // the client's own state event says when Core's stream is connected
 	for {
 		select {
 		case <-ctx.Done():
