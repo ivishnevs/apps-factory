@@ -11,7 +11,8 @@ import type { Comment, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, 
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { clearerName, isTerminal, reasonLabel, runCost, since } from "./model";
+import { isTerminal, runCost, since } from "./model";
+import { cleanText, humanize, party as partyOf, taskName, triggerWords, type Lookup, type Party } from "@/lib/humanize";
 import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
 
@@ -46,11 +47,11 @@ export function Header({ task, project, pr, now, actions }: { task: BoardTask; p
         <PriorityMark value={task.priority} className="ml-1" />
       </div>
       <div className="mt-2 flex items-start justify-between gap-4">
-        <h1 className="min-w-0 text-2xl font-semibold leading-tight tracking-tight text-balance break-words sm:text-[28px]">{task.title}</h1>
+        <h1 className="min-w-0 text-2xl font-semibold leading-tight tracking-tight text-balance wrap-anywhere sm:text-[28px]">{task.title}</h1>
         {actions}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-        <span className="inline-flex items-center gap-2"><AgentAvatar name={task.assignee} size="sm" /><span>{task.assignee || "Unassigned"}</span></span>
+        <span className="inline-flex min-w-0 items-center gap-2"><AgentAvatar name={task.assignee} size="sm" /><span className="truncate">{task.assignee || "Unassigned"}</span></span>
         <Link href={`/tasks?project=${encodeURIComponent(task.project_id)}`} className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{project}</Link>
         <span className="text-muted-foreground">Updated {since(task.updated_at, now) === "now" ? "just now" : `${since(task.updated_at, now)} ago`}</span>
       </div>
@@ -65,8 +66,8 @@ export function Header({ task, project, pr, now, actions }: { task: BoardTask; p
             ) : <span className="inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm"><GitPullRequest className="size-4" />PR #{pr.number} · {pr.state}</span>
           )}
           {task.openspec_change && (
-            <span className="inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm"><FileText className="size-4 text-muted-foreground" />
-              <span className="text-muted-foreground">OpenSpec</span><span className="font-mono text-xs">{task.openspec_change}</span></span>
+            <span className="inline-flex h-9 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-3 text-sm" title={task.openspec_change}><FileText className="size-4 shrink-0 text-muted-foreground" />
+              <span className="shrink-0 text-muted-foreground">OpenSpec</span><span className="min-w-0 truncate font-mono text-xs">{task.openspec_change}</span></span>
           )}
         </div>
       )}
@@ -74,16 +75,22 @@ export function Header({ task, project, pr, now, actions }: { task: BoardTask; p
   );
 }
 
-// Why: the verdict on why the task is where it is and who clears it — the first thing the owner reads.
-export function Why({ why, queued, task }: { why: Verdict; queued?: QueuedReason; task: Task }) {
-  const you = why.clearer?.who === "owner" && why.reason !== "backlog";
+// Why: the verdict on why the task is where it is and who clears it — the first thing the owner reads,
+// in product language (lib/humanize).
+export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: QueuedReason; task: Task; look?: Lookup; now?: number }) {
   const done = isTerminal(task.status);
-  const live = why.reason === "live_run" && !queued;
-  const Icon = done ? CheckCircle2 : you ? Hand : live ? Loader2 : queued ? Clock : CircleDot;
+  const h = humanize({ ...why, status: task.status }, look, now);
+  // A queued run explains itself with its node reason.
+  const q = queued ? humanize({ reason: queued.reason, detail: queued.detail, status: task.status }, look, now) : undefined;
+  const you = h.you && !done;
+  const live = h.live && !queued;
+  const Icon = done ? CheckCircle2 : you ? Hand : live ? Loader2 : queued || h.queued ? Clock : CircleDot;
   const triggers = why.pending_triggers ?? [];
   const msg = /\bm-[\w-]+/.exec(why.clearer?.action ?? "")?.[0];
+  const headline = done ? h.headline : queued ? "Waiting for a node" : h.headline;
+  const detail = done ? undefined : q ? q.detail : h.detail;
   return (
-    <section aria-label="Why" className={cn("rounded-2xl border p-4 sm:p-5",
+    <section aria-label="Status" className={cn("rounded-2xl border p-4 sm:p-5",
       you ? "border-amber-500/40 bg-amber-500/[0.06]" : live ? "border-blue-500/25 bg-blue-500/[0.04]" : "bg-muted/30")}>
       <div className="flex items-start gap-3">
         <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full",
@@ -91,23 +98,29 @@ export function Why({ why, queued, task }: { why: Verdict; queued?: QueuedReason
           <Icon aria-hidden className={cn("size-[18px]", live && "animate-spin [animation-duration:2.5s]")} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{done ? "Result" : "Why"}</p>
-          <p className="mt-0.5 text-base font-semibold leading-snug">
-            {done ? (task.status === "DONE" ? "Done" : "Cancelled") : queued ? "Waiting for a node" : you ? "Waiting on you" : reasonLabel(why.reason)}
-          </p>
-          {done && task.result && <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{task.result}</p>}
-          {!done && (queued?.detail || why.detail) && <p className="mt-1 text-sm text-muted-foreground break-words">{queued?.detail || why.detail}</p>}
-          {!done && why.clearer?.action && why.clearer.who !== "nobody" && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-muted-foreground">{you ? "You can" : "Cleared by"}</span>
-              {!you && <span className="inline-flex items-center gap-1.5 font-medium"><AgentAvatar name={why.clearer.who.startsWith("run:") ? undefined : why.clearer.who} size="xs" />{clearerName(why.clearer.who)}</span>}
-              <span className={cn(you && "font-medium")}>{why.clearer.action}</span>
-            </div>
+          <p className={cn("text-xs font-medium", you ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{done ? "Result" : you ? "Needs you" : "Status"}</p>
+          <p className="mt-0.5 text-base font-semibold leading-snug text-balance wrap-anywhere">{headline}</p>
+          {done && task.result && <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap wrap-anywhere">{cleanText(task.result, look)}</p>}
+          {detail && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{detail}</p>}
+          {!done && (h.who && !h.who.you || h.next) && (
+            <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-4">
+              {h.who && !h.who.you && (
+                <>
+                  <dt className="text-muted-foreground">Waiting on</dt>
+                  <dd className="-mt-1.5 min-w-0 sm:mt-0"><PartyChip party={h.who} /></dd>
+                </>
+              )}
+              {h.next && (
+                <>
+                  <dt className="text-muted-foreground">{you ? "What to do" : "Next"}</dt>
+                  <dd className={cn("-mt-1.5 min-w-0 wrap-anywhere sm:mt-0", you && "font-medium")}>{h.next}</dd>
+                </>
+              )}
+            </dl>
           )}
-          {!done && why.clearer?.who === "nobody" && why.clearer.action && <p className="mt-2 text-sm text-muted-foreground">Nothing to do: {why.clearer.action}.</p>}
-          {triggers.length > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {triggers.length} pending trigger{triggers.length > 1 ? "s" : ""}: {triggers.map((t) => `${t.kind.replace(/_/g, " ")} by ${clearerName(t.actor)}`).join(", ")}
+          {!done && triggers.length > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              When it runs next, it picks up {triggers.map((t) => triggerWords(t)).join(", ")}.
             </p>
           )}
           {you && msg && (
@@ -119,20 +132,34 @@ export function Why({ why, queued, task }: { why: Verdict; queued?: QueuedReason
   );
 }
 
+function PartyChip({ party }: { party: Party }) {
+  const inner = (
+    <>
+      {party.agent && <AgentAvatar name={party.agent} size="xs" />}
+      <span className="min-w-0 truncate">{party.label}</span>
+      {party.href && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />}
+    </>
+  );
+  const cls = "inline-flex max-w-full items-center gap-1.5 font-medium";
+  return party.href
+    ? <Link href={party.href} className={cn(cls, "rounded-md underline-offset-4 hover:underline")}>{inner}</Link>
+    : <span className={cls}>{inner}</span>;
+}
+
 export function Description({ text }: { text: string }) {
   return (
     <Block title="Description">
-      {text.trim() ? <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words sm:text-sm">{text}</div>
+      {text.trim() ? <div className="text-[15px] leading-relaxed whitespace-pre-wrap wrap-anywhere sm:text-sm">{text}</div>
         : <p className="text-sm text-muted-foreground">No description.</p>}
     </Block>
   );
 }
 
-export function Submission({ sub }: { sub: Sub }) {
+export function Submission({ sub, look }: { sub: Sub; look?: Lookup }) {
   return (
     <Block title="Submission">
       <div className="rounded-xl border bg-card p-4">
-        <p className="text-sm whitespace-pre-wrap break-words">{sub.summary}</p>
+        <p className="text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(sub.summary, look)}</p>
         {(sub.commit || (sub.checks?.length ?? 0) > 0) && (
           <div className="mt-3 flex flex-wrap gap-2">
             {sub.commit && <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs"><GitBranch className="size-3.5" />{sub.commit.slice(0, 12)}</span>}
@@ -149,27 +176,27 @@ export function Submission({ sub }: { sub: Sub }) {
   );
 }
 
-export function ReviewNotes({ task }: { task: Task }) {
+export function ReviewNotes({ task, look }: { task: Task; look?: Lookup }) {
   if (!task.review_feedback && !task.block_reason) return null;
   return (
     <div className="grid gap-3">
       {task.review_feedback && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-4">
           <p className="mb-1.5 flex items-center gap-2 text-sm font-semibold"><MessageSquareWarning className="size-4 text-amber-600 dark:text-amber-400" />Review feedback</p>
-          <p className="text-sm whitespace-pre-wrap break-words">{task.review_feedback}</p>
+          <p className="text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(task.review_feedback, look)}</p>
         </div>
       )}
       {task.block_reason && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/[0.05] p-4">
           <p className="mb-1.5 flex items-center gap-2 text-sm font-semibold"><OctagonAlert className="size-4 text-red-600 dark:text-red-400" />Blocked</p>
-          <p className="text-sm whitespace-pre-wrap break-words">{task.block_reason}</p>
+          <p className="text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(task.block_reason, look)}</p>
         </div>
       )}
     </div>
   );
 }
 
-export function Comments({ taskId, comments, now }: { taskId: string; comments: Comment[]; now: number }) {
+export function Comments({ taskId, comments, now, look }: { taskId: string; comments: Comment[]; now: number; look?: Lookup }) {
   const [text, setText] = useState("");
   const { run, pending } = useOwnerAction();
   const send = async (e: React.FormEvent) => {
@@ -186,8 +213,8 @@ export function Comments({ taskId, comments, now }: { taskId: string; comments: 
             <li key={c.id} className="flex gap-3">
               <AgentAvatar name={c.author} size="sm" className="mt-0.5" />
               <div className={cn("min-w-0 flex-1 rounded-xl rounded-tl-sm px-3.5 py-2.5", c.author === "owner" ? "bg-foreground/[0.06]" : "bg-muted/60")}>
-                <p className="flex items-baseline gap-2 text-xs"><span className="font-semibold">{c.author === "owner" ? "You" : c.author}</span><span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
-                <p className="mt-0.5 text-sm whitespace-pre-wrap break-words">{c.text}</p>
+                <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? "You" : c.author}</span><span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
+                <p className="mt-0.5 text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(c.text, look)}</p>
               </div>
             </li>
           ))}
@@ -211,7 +238,7 @@ const eventName = (t: string) => {
   return last.replace(/_/g, " ");
 };
 
-export function Timeline({ events, now }: { events: FeedItem[]; now: number }) {
+export function Timeline({ events, now, look }: { events: FeedItem[]; now: number; look?: Lookup }) {
   if (events.length === 0) return null;
   const list = [...events].sort((a, b) => b.sequence - a.sequence);
   return (
@@ -220,14 +247,14 @@ export function Timeline({ events, now }: { events: FeedItem[]; now: number }) {
         {list.map((e) => (
           <li key={e.event_id} className="relative pb-4 pl-5 last:pb-0">
             <span aria-hidden className={cn("absolute top-1.5 -left-[5px] size-2.5 rounded-full border-2 border-background", e.attention ? "bg-amber-500" : "bg-muted-foreground/40")} />
-            <p className="text-sm leading-snug break-words">
-              <span className="font-medium">{e.actor === "owner" ? "You" : e.actor || e.agent || "factory"}</span>{" "}
+            <p className="text-sm leading-snug wrap-anywhere">
+              <span className="font-medium">{e.actor === "owner" ? "You" : e.actor === "system" || (!e.actor && !e.agent) ? "App Factory" : e.actor || e.agent}</span>{" "}
               <span className="text-muted-foreground">{eventName(e.type)}</span>
             </p>
-            {e.summary && <p className="mt-0.5 text-sm text-muted-foreground break-words">{e.summary}</p>}
+            {e.summary && <p className="mt-0.5 text-sm text-muted-foreground wrap-anywhere">{cleanText(e.summary, look)}</p>}
             <p className="mt-0.5 text-xs text-muted-foreground/80" title={stamp(e.created_at)}>
               {since(secs(e.created_at), now) === "now" ? "just now" : `${since(secs(e.created_at), now)} ago`}
-              {e.run_id && <> · <Link href={`/runs/${encodeURIComponent(e.run_id)}`} className="font-mono underline-offset-4 hover:underline" title={e.run_id}>{displayId(e.run_id)}</Link></>}
+              {e.run_id && <> · <Link href={`/runs/${encodeURIComponent(e.run_id)}`} className="underline-offset-4 hover:text-foreground hover:underline" title={e.run_id}>View run</Link></>}
             </p>
           </li>
         ))}
@@ -236,12 +263,12 @@ export function Timeline({ events, now }: { events: FeedItem[]; now: number }) {
   );
 }
 
-export function DetailsList({ task, parent, cost, now }: { task: Task; parent?: string; cost: number; now: number }) {
+export function DetailsList({ task, parent, cost, now, look }: { task: Task; parent?: string; cost: number; now: number; look?: Lookup }) {
   const rows: [string, React.ReactNode][] = [];
   rows.push(["Created", <span key="c" title={stamp(task.created_at)}>{since(task.created_at, now)} ago by {task.created_by === "owner" ? "you" : task.created_by}</span>]);
-  if (parent) rows.push(["Parent", <TaskLink key="p" id={parent} />]);
-  if (task.dependencies?.length) rows.push(["Depends on", <span key="d" className="flex flex-wrap gap-1.5">{task.dependencies.map((d) => <TaskLink key={d} id={d} />)}</span>]);
-  if (task.blocked_on?.length) rows.push(["Blocked on", <span key="b" className="flex flex-wrap gap-1.5">{task.blocked_on.map((d) => <TaskLink key={d} id={d} />)}</span>]);
+  if (parent) rows.push(["Parent", <TaskLink key="p" id={parent} look={look} />]);
+  if (task.dependencies?.length) rows.push(["Depends on", <span key="d" className="flex flex-col items-end gap-1.5">{task.dependencies.map((d) => <TaskLink key={d} id={d} look={look} />)}</span>]);
+  if (task.blocked_on?.length) rows.push(["Blocked on", <span key="b" className="flex flex-col items-end gap-1.5">{task.blocked_on.map((d) => <TaskLink key={d} id={d} look={look} />)}</span>]);
   if (task.implementer) rows.push(["Implementer", task.implementer]);
   if (task.reviewer) rows.push(["Reviewer", task.reviewer]);
   if (task.model) rows.push(["Model", <span key="m" className="font-mono text-xs">{task.model}</span>]);
@@ -254,7 +281,7 @@ export function DetailsList({ task, parent, cost, now }: { task: Task; parent?: 
         {rows.map(([k, v]) => (
           <div key={k} className="flex min-h-11 items-center justify-between gap-4 px-4 py-2">
             <dt className="shrink-0 text-muted-foreground">{k}</dt>
-            <dd className="min-w-0 text-right break-words">{v}</dd>
+            <dd className="min-w-0 text-right wrap-anywhere">{v}</dd>
           </div>
         ))}
       </dl>
@@ -262,8 +289,14 @@ export function DetailsList({ task, parent, cost, now }: { task: Task; parent?: 
   );
 }
 
-function TaskLink({ id }: { id: string }) {
-  return <Link href={`/tasks/${encodeURIComponent(id)}`} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-accent hover:text-foreground" title={id}>{displayId(id)}</Link>;
+function TaskLink({ id, look }: { id: string; look?: Lookup }) {
+  const t = look?.(id);
+  return (
+    <Link href={`/tasks/${encodeURIComponent(id)}`} title={t?.title ?? id}
+      className={cn("inline-block max-w-full truncate align-bottom underline-offset-4 hover:underline", !t && "font-mono text-xs")}>
+      {t ? taskName(id, look) : displayId(id)}
+    </Link>
+  );
 }
 
 export function Attempts({ runs, now }: { runs: Run[]; now: number }) {
@@ -272,7 +305,7 @@ export function Attempts({ runs, now }: { runs: Run[]; now: number }) {
     <Block title={`Attempts${runs.length ? ` · ${runs.length}` : ""}`}>
       {list.length === 0 ? <p className="rounded-xl border border-dashed px-4 py-5 text-center text-sm text-muted-foreground">No run yet.</p> : (
         <ul className="divide-y rounded-xl border bg-card">
-          {list.map((r) => {
+          {list.map((r, i) => {
             const live = !r.finished_at && r.status !== "ENDED";
             const dur = r.started_at ? `${live ? "running " : "took "}${span((r.finished_at || now) - r.started_at)}` : "";
             const cost = runCost(r);
@@ -282,10 +315,10 @@ export function Attempts({ runs, now }: { runs: Run[]; now: number }) {
                   <AgentAvatar name={r.spec.agent} size="sm" className="mt-0.5" />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-mono text-xs" title={r.spec.id}>{displayId(r.spec.id)}</span>
+                      <span className="text-sm font-medium" title={r.spec.id}>Attempt {list.length - i}</span>
                       <StatusBadge value={live ? r.status : r.outcome || r.status} className="h-5 px-1.5 text-[11px]" />
                     </span>
-                    {r.result && <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground">{r.result}</span>}
+                    {r.result && <span className="mt-1 line-clamp-2 text-xs text-muted-foreground wrap-anywhere">{cleanText(r.result)}</span>}
                     <span className="mt-1 block text-xs text-muted-foreground tabular-nums">
                       {r.started_at ? `${stamp(r.started_at)}${dur ? ` · ${dur}` : ""}` : "not started"}{cost > 0 && ` · ${usd(cost)}`}
                     </span>
@@ -309,8 +342,7 @@ export function Children({ tasks }: { tasks: Task[] }) {
       <ul className="divide-y rounded-xl border bg-card">
         {tasks.map((t) => (
           <li key={t.id}>
-            <Link href={`/tasks/${encodeURIComponent(t.id)}`} className="flex min-h-12 items-center gap-2.5 px-4 py-2 transition-colors hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none">
-              <span className="shrink-0 font-mono text-xs text-muted-foreground" title={t.id}>{displayId(t.id)}</span>
+            <Link href={`/tasks/${encodeURIComponent(t.id)}`} title={t.title} className="flex min-h-12 min-w-0 items-center gap-2.5 px-4 py-2 transition-colors hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none">
               <span className={cn("min-w-0 flex-1 truncate text-sm", isTerminal(t.status) && "text-muted-foreground")}>{t.title}</span>
               <StatusBadge value={t.status} className="h-5 shrink-0 px-1.5 text-[11px]" />
             </Link>
@@ -321,19 +353,23 @@ export function Children({ tasks }: { tasks: Task[] }) {
   );
 }
 
-export function Parks({ parks, now }: { parks: TaskPark[]; now: number }) {
+const parkKind: Record<string, string> = {
+  children: "Waiting for subtasks", escalation: "Escalation", inspect: "Inspection", ask: "Question", block: "Blocked", wait: "Sleeping",
+};
+
+export function Parks({ parks, now, look }: { parks: TaskPark[]; now: number; look?: Lookup }) {
   return (
-    <Block title="Parks">
+    <Block title="Holds">
       <ul className="divide-y rounded-xl border bg-card">
         {parks.map((p) => (
           <li key={p.id} className="px-4 py-3">
             <p className="flex items-center gap-2 text-sm">
-              <span className="font-medium capitalize">{p.kind}</span>
+              <span className="font-medium">{parkKind[p.kind] ?? p.kind}</span>
               <span className={cn("rounded-full px-1.5 text-[11px] font-medium leading-5", p.cleared_at ? toneClass("DONE") : toneClass("REWORK"))}>{p.cleared_at ? "cleared" : p.status.toLowerCase()}</span>
               <span className="ml-auto text-xs text-muted-foreground">{since(p.created_at, now)} ago</span>
             </p>
-            {p.reason && <p className="mt-1 text-sm text-muted-foreground break-words">{p.reason}</p>}
-            <p className="mt-1 text-xs text-muted-foreground">Waits on {clearerName(p.who)}{p.ref_id && <> · <span className="font-mono" title={p.ref_id}>{displayId(p.ref_id)}</span></>}</p>
+            {p.reason && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{cleanText(p.reason, look)}</p>}
+            {!p.cleared_at && partyOf(p.who, look) && <p className="mt-1 text-xs text-muted-foreground">Waiting on {partyOf(p.who, look)!.label}</p>}
           </li>
         ))}
       </ul>

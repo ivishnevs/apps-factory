@@ -5,7 +5,8 @@ import Link from "next/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import type { Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { agentHue, clearerName, columns, type ColumnKey, initials, needsOwner, reasonLabel, showWhy, since } from "./model";
+import { agentHue, columns, type ColumnKey, initials, needsOwner, showWhy, since } from "./model";
+import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
 
 export function AgentAvatar({ name, size = "sm", className }: { name?: string; size?: "xs" | "sm" | "md"; className?: string }) {
@@ -40,30 +41,25 @@ export function PriorityMark({ value, showValue = true, className }: { value: nu
   );
 }
 
-// WhyLine: why a task is where it is and who clears it; amber when it waits on the owner.
-export function WhyLine({ task, compact, className }: { task: Pick<Task, "reason" | "clearer" | "status">; compact?: boolean; className?: string }) {
-  const you = needsOwner(task);
-  const queued = task.reason === "live_run" && /QUEUED/.test(task.clearer?.action ?? "");
-  const live = task.reason === "live_run" && !queued;
-  const Icon = you ? Hand : live ? Loader2 : Clock;
+// WhyLine: why a task is where it is, in product words (lib/humanize); amber when it waits on the owner.
+export function WhyLine({ task, look, now, compact, className }: {
+  task: Pick<Task, "reason" | "clearer" | "status">; look?: Lookup; now?: number; compact?: boolean; className?: string;
+}) {
+  const h = humanize(task, look, now);
+  const you = needsOwner(task) && h.you;
+  const Icon = you ? Hand : h.live ? Loader2 : Clock;
   return (
     <p className={cn("flex min-w-0 items-start gap-1.5 text-xs leading-5", you ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground", className)}>
-      <Icon aria-hidden className={cn("mt-[3px] size-3.5 shrink-0", live && "animate-spin [animation-duration:2.5s]")} />
-      <span className={cn("min-w-0", compact && "line-clamp-2")}>
-        <span className="font-medium">{you ? "Needs you" : queued ? "Waiting for a node" : reasonLabel(task.reason)}</span>
-        {task.clearer?.action && (
-          <span className={you ? "" : "text-muted-foreground"}>
-            {" · "}
-            {!you && task.reason !== "live_run" && task.clearer.who && task.clearer.who !== "nobody" && `${clearerName(task.clearer.who)}: `}
-            {task.clearer.action}
-          </span>
-        )}
+      <Icon aria-hidden className={cn("mt-[3px] size-3.5 shrink-0", h.live && "animate-spin [animation-duration:2.5s]")} />
+      <span className={cn("min-w-0 wrap-anywhere", compact && "line-clamp-2")}>
+        <span className="font-medium">{h.headline}</span>
+        {h.brief && <span className={you ? "" : "text-muted-foreground/80"}>{" · "}{h.brief}</span>}
       </span>
     </p>
   );
 }
 
-export function TaskCard({ task, project, now, column, className }: { task: Task; project: string; now: number; column?: ColumnKey; className?: string }) {
+export function TaskCard({ task, project, now, column, look, className }: { task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; className?: string }) {
   const col = column && columns.find((c) => c.key === column);
   const badge = !col && ["CANCELLED", "BLOCKED", "REWORK"].includes(task.status);
   return (
@@ -80,8 +76,8 @@ export function TaskCard({ task, project, now, column, className }: { task: Task
           <PriorityMark value={task.priority} showValue={false} />
         </span>
       </div>
-      <p className="line-clamp-2 text-[15px] font-medium leading-snug text-foreground sm:text-sm">{task.title}</p>
-      {showWhy(task) && <WhyLine task={task} compact className="mt-1.5" />}
+      <p className="line-clamp-2 text-[15px] font-medium leading-snug text-foreground wrap-anywhere sm:text-sm">{task.title}</p>
+      {showWhy(task) && <WhyLine task={task} look={look} now={now} compact className="mt-1.5" />}
       <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <AgentAvatar name={task.assignee} size="xs" />
         <span className="min-w-0 truncate">{task.assignee || "Unassigned"}</span>

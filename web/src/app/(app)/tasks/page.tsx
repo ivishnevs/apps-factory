@@ -1,6 +1,6 @@
 "use client";
 
-import { Hand, Search, X } from "lucide-react";
+import { Hand, PanelLeftClose, Search, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Task } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
+import { lookupFrom } from "@/lib/humanize";
 import { cn } from "@/lib/utils";
 
 const ALL = "all";
@@ -39,6 +40,10 @@ function Tasks() {
   const assignee = params.get("assignee") ?? ALL;
   const view = (params.get("view") as View) ?? "open";
   const [q, setQ] = useState(params.get("q") ?? "");
+  // Board columns the owner opened (Backlog and Done start folded).
+  const [open, setOpen] = useState<Set<ColumnKey>>(() => new Set());
+  const toggle = (k: ColumnKey) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const look = useMemo(() => lookupFrom(ov?.tasks), [ov?.tasks]);
 
   const set = (k: string, v: string, def: string) => {
     const p = new URLSearchParams(params.toString());
@@ -127,26 +132,46 @@ function Tasks() {
             </div>
             {list.length === 0 ? <Empty view={view} filtered={filteredOut} /> : (
               <ul className="grid gap-2.5 sm:grid-cols-2">
-                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
+                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
               </ul>
             )}
           </div>
 
-          {/* Desktop: the Kanban board. */}
+          {/* Desktop: the Kanban board. Backlog and Done fold to slim rails unless opened, and empty columns
+              stay slim, so the working columns get the width. */}
           <div className="relative -mx-8 hidden overflow-x-auto px-8 pb-4 lg:block">
-            <div className="grid min-w-max auto-cols-[17rem] grid-flow-col gap-4 xl:min-w-0 xl:auto-cols-[minmax(15rem,1fr)]">
+            <div className="flex min-w-max gap-3 xl:min-w-0">
               {columns.map((c) => {
                 const items = byCol.get(c.key) ?? [];
+                const foldable = c.key === "backlog" || c.key === "done";
+                const folded = items.length === 0 || (foldable && !open.has(c.key));
+                if (folded) {
+                  return (
+                    <button key={c.key} type="button" disabled={items.length === 0} onClick={() => toggle(c.key)}
+                      aria-label={items.length ? `Show ${c.name} (${items.length})` : `${c.name}: no tasks`}
+                      title={items.length ? `Show ${c.name}` : `No tasks ${c.key === "review" ? "in review" : c.key === "done" ? "done" : `in ${c.name.toLowerCase()}`}`}
+                      className="group flex w-11 shrink-0 flex-col items-center gap-3 rounded-2xl bg-muted/40 py-3.5 text-muted-foreground transition-colors enabled:hover:bg-muted enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default dark:bg-muted/20">
+                      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", items.length ? dot(c.tone) : "bg-muted-foreground/30")} />
+                      <span className="text-xs tabular-nums">{items.length}</span>
+                      <span className="text-sm font-medium [writing-mode:vertical-rl]">{c.name}</span>
+                    </button>
+                  );
+                }
                 return (
-                  <section key={c.key} aria-label={c.name} className="flex min-w-0 flex-col rounded-2xl bg-muted/40 p-2 dark:bg-muted/20">
-                    <header className="flex items-center gap-2 px-2 pt-1 pb-2.5">
+                  <section key={c.key} aria-label={c.name} className="flex w-[16rem] min-w-0 flex-col rounded-2xl bg-muted/40 p-2 xl:w-auto xl:max-w-[26rem] xl:flex-1 xl:basis-0 dark:bg-muted/20">
+                    <header className="flex h-9 items-center gap-2 px-2 pb-1">
                       <span aria-hidden className={cn("size-2 rounded-full", dot(c.tone))} />
                       <h2 className="text-sm font-medium">{c.name}</h2>
                       <span className="text-xs tabular-nums text-muted-foreground">{items.length}</span>
+                      {foldable && (
+                        <button type="button" onClick={() => toggle(c.key)} aria-label={`Hide ${c.name}`} title={`Hide ${c.name}`}
+                          className="-mr-1 ml-auto flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground">
+                          <PanelLeftClose className={cn("size-4", c.key === "done" && "rotate-180")} />
+                        </button>
+                      )}
                     </header>
                     <div className="flex flex-col gap-2">
-                      {items.length === 0 ? <p className="rounded-xl border border-dashed px-3 py-6 text-center text-xs text-muted-foreground">No tasks</p>
-                        : items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} />)}
+                      {items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} />)}
                     </div>
                   </section>
                 );

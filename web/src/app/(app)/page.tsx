@@ -48,13 +48,13 @@ export default function Page() {
         <div className="mb-4"><ErrorState error={`Some data could not be read: ${Object.entries(ov.errors).map(([k, v]) => `${k} (${v})`).join("; ")}`} /></div>
       )}
       <Stats ov={ov} />
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
-        <div className="grid min-w-0 gap-4">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+        <div className="grid min-w-0 grid-cols-1 gap-4">
           <NeedsYou ov={ov} now={now} />
           <LiveRuns ov={ov} now={now} />
           <Projects ov={ov} />
         </div>
-        <div className="grid min-w-0 gap-4">
+        <div className="grid min-w-0 grid-cols-1 gap-4">
           <Team ov={ov} />
           <Nodes ov={ov} now={now} />
         </div>

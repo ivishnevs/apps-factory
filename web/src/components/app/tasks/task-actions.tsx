@@ -45,6 +45,22 @@ const titles: Record<Kind, string> = {
   reassign: "Reassign this task?", reprioritize: "Change the priority?", cancel: "Cancel this task?",
 };
 
+// explain: what an action does to this task, in words, for its confirmation.
+function explain(a: Action, t: Task): string {
+  const name = `“${t.title}”`;
+  switch (a.Kind) {
+    case "run": return `${name} is released to the team and starts as soon as ${t.assignee || "an agent"} is free.`;
+    case "retry": return `${name} is released to run again.`;
+    case "pause": return `No new runs of ${name} start until you resume it. A run in progress continues.`;
+    case "resume": return `${name} can run again.`;
+    case "direct": return `${t.assignee || "The assignee"} gets this directive${a.Urgent ? " now, interrupting the current run" : " on the next run"}: ${a.Text}`;
+    case "reassign": return `${name} moves to ${a.Assignee}.`;
+    case "reprioritize": return `${name} gets priority ${a.Priority}.`;
+    case "cancel": return a.Cascade ? `${name} and its open subtasks stop for good.` : `${name} stops for good.`;
+  }
+  return name;
+}
+
 export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: BoardTask; agents: Agent[]; hasOpenChildren: boolean; failed: boolean }) {
   const { run, pending } = useOwnerAction();
   const [dialog, setDialog] = useState<Kind | null>(null);
@@ -56,11 +72,11 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
     const a: Action = { Kind: k, TaskID: task.id, Version: task.version };
     if (k === "pause") a.Text = "paused by owner";
     if (k === "resume") a.Text = "resumed by owner";
-    void run(a, { title: titles[k], confirm: defs[k].label });
+    void run(a, { title: titles[k], confirm: defs[k].label, description: explain(a, task) });
   };
   const submit = async (a: Action) => {
     setDialog(null);
-    await run(a, { title: titles[a.Kind as Kind], confirm: a.Kind === "cancel" ? "Cancel task" : defs[a.Kind as Kind].label, destructive: a.Kind === "cancel" });
+    await run(a, { title: titles[a.Kind as Kind], confirm: a.Kind === "cancel" ? "Cancel task" : defs[a.Kind as Kind].label, destructive: a.Kind === "cancel", description: explain(a, task) });
   };
   const lead = primary ?? "direct";
   const rest = all.filter((k) => k !== lead);
@@ -131,7 +147,7 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
       onSubmit({ ...base, Text: text.trim(), Urgent: urgent });
     } else if (kind === "reassign") {
       if (!assignee) return setError("Choose an agent");
-      if (assignee === task.assignee) return setError(`${task.id} is already assigned to ${assignee}`);
+      if (assignee === task.assignee) return setError(`Already assigned to ${assignee}`);
       onSubmit({ ...base, Assignee: assignee });
     } else if (kind === "reprioritize") {
       const p = Number(priority.trim());
@@ -144,10 +160,10 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
   };
 
   const head: Record<string, [string, string]> = {
-    direct: ["Direct the assignee", `A directive reaches ${task.assignee || "the assignee"} on their next run of ${task.id}; urgent ones interrupt the current run.`],
-    reassign: ["Reassign", `Who should work on ${task.id}?`],
+    direct: ["Direct the assignee", `${task.assignee || "The assignee"} gets it on their next run of this task; an urgent one interrupts the current run.`],
+    reassign: ["Reassign", "Who should work on this task?"],
     reprioritize: ["Change priority", "Higher runs first. The board orders by it."],
-    cancel: ["Cancel task", `${task.id} stops for good; a live run is revoked.`],
+    cancel: ["Cancel task", "The task stops for good and a run in progress is stopped."],
   };
   return (
     <form onSubmit={submit} className="grid gap-4" noValidate>
