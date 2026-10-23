@@ -103,7 +103,10 @@ class Builder {
       const argv = input.command;
       if (Array.isArray(argv) && argv.length === 3 && (argv[1] === "-lc" || argv[1] === "-c")) cmd = String(argv[2]);
       const d = str(input, "description");
-      return { at, kind: "tool", tool: "Bash", id, input: cmd + (d ? `\n# ${d}` : ""), brief: oneLine(cmd) };
+      // The brief skips a leading "cd <dir> &&" (agents prefix most commands with their worktree), so the
+      // row shows what the command does; the full command stays in the expanded input.
+      const brief = cmd.replace(/^\s*cd\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;|\n)\s*/, "");
+      return { at, kind: "tool", tool: "Bash", id, input: cmd + (d ? `\n# ${d}` : ""), brief: oneLine(brief || cmd) };
     }
     return { at, kind: "tool", tool: shortTool(name), id, input: pretty(input), brief: toolArg(name, input) };
   }
