@@ -4,6 +4,15 @@ import { tokens, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const pct = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : "0%");
+// sharePct is a share with one decimal near the ends, where rounding would hide the difference (99.6%,
+// not 100%), and floored so a share below the whole never reads as all of it.
+export const sharePct = (part: number, whole: number) => {
+  if (whole <= 0) return "0%";
+  const p = (part / whole) * 100;
+  if (p > 0 && p < 1) return "<1%";
+  if (p >= 90 && p < 100) return `${(Math.floor(p * 10) / 10).toFixed(1)}%`;
+  return `${Math.floor(p)}%`;
+};
 
 // Breakdown is one grouping (agent, model, project) as a ranked list: each row its cost, share of the
 // period's total and a proportion bar scaled to the total.
@@ -59,8 +68,8 @@ function Row({ g, total, avatar, rank }: { g: CostGroup; total: number; avatar?:
             </span>
           </div>
           <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-            {tokens(g.input_tokens + g.cache_read_tokens)} in · {tokens(g.output_tokens)} out
-            {g.cache_read_tokens > 0 && ` · ${pct(g.cache_read_tokens, g.input_tokens + g.cache_read_tokens)} cached`}
+            {tokens(g.input_tokens + g.cache_read_tokens + g.cache_write_tokens)} in · {tokens(g.output_tokens)} out
+            {g.cache_read_tokens > 0 && ` · ${sharePct(g.cache_read_tokens, g.input_tokens + g.cache_read_tokens + g.cache_write_tokens)} from cache`}
           </p>
         </div>
       </div>

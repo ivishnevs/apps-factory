@@ -23,6 +23,8 @@ type Server struct {
 	Client tui.Client
 	// Mode is "live" or "demo" (shown by the page).
 	Mode string
+
+	tail feedTail
 }
 
 // Handler is the whole site.
@@ -56,8 +58,21 @@ func (s *Server) Handler() http.Handler {
 		v, err := s.Client.ToolCalls(r.Context(), r.PathValue("id"))
 		reply(w, v, err)
 	})
+	// ?after=N pages forward (Core's GET /feed); ?before=N reads backwards: the newest rows below N, or the
+	// newest of all with before=0 (see feedTail).
 	mux.HandleFunc("GET /api/feed", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Client.Feed(r.Context(), feedQuery(r), num(r, "after", 0), int(num(r, "limit", 100)))
+		limit := int(num(r, "limit", 100))
+		if !r.URL.Query().Has("before") {
+			v, err := s.Client.Feed(r.Context(), feedQuery(r), num(r, "after", 0), limit)
+			reply(w, v, err)
+			return
+		}
+		before := num(r, "before", -1)
+		if before < 0 || limit < 1 || limit > 500 {
+			reply(w, nil, fmt.Errorf("%w: before >= 0 and limit 1..500 required", errInput))
+			return
+		}
+		v, err := s.tail.read(r.Context(), s.Client, feedQuery(r), before, limit)
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/messages", func(w http.ResponseWriter, r *http.Request) {

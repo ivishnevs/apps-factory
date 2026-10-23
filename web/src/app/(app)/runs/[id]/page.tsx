@@ -19,6 +19,10 @@ import type { Run, RunEvent } from "@/lib/api/types";
 import { tokens, usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+// STREAM_TAIL is how many of the run's last events the live stream replays when it connects.
+const STREAM_TAIL = 200;
+const eventKey = (e: RunEvent) => e.envelope.event_id || `seq:${e.seq}`;
+
 export default function RunPage() {
   const { id } = useParams<{ id: string }>();
   const run = useRun(id);
@@ -30,14 +34,12 @@ export default function RunPage() {
   const ended = r?.status === "ENDED";
   const [extra, setExtra] = useState<RunEvent[]>([]);
   const [endedLive, setEndedLive] = useState(false);
-  // The stream starts after the last stored event, once; reconnects keep the same start and duplicates drop.
-  const [after, setAfter] = useState<number | null>(null);
-  useEffect(() => {
-    if (after === null && stored.data) setAfter(stored.data.reduce((m, e) => Math.max(m, e.seq), 0));
-  }, [stored.data, after]);
+  // Stored events number 1..n within the run while the stream carries Core's global event sequence, so the
+  // two cannot be joined by seq: the stream starts at the run's last events (overlapping what is stored, so
+  // nothing between the read and the connect is lost) and every event is kept once by its event ID.
   const live = !!r && !ended && !endedLive;
-  const { connected, ended: streamEnd } = useStream<RunEvent>(live && after !== null ? `/stream/run/${id}?after=${after}` : null, "run",
-    (e) => setExtra((xs) => (xs.some((x) => x.seq === e.seq) ? xs : [...xs, e])));
+  const { connected, ended: streamEnd } = useStream<RunEvent>(live && stored.data ? `/stream/run/${id}?tail=${STREAM_TAIL}` : null, "run",
+    (e) => setExtra((xs) => (xs.some((x) => eventKey(x) === eventKey(e)) ? xs : [...xs, e])));
   useEffect(() => {
     if (streamEnd) {
       setEndedLive(true);
@@ -47,8 +49,10 @@ export default function RunPage() {
   }, [streamEnd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const events = useMemo(() => {
-    const seen = new Set<number>();
-    return [...(stored.data ?? []), ...extra].filter((e) => !seen.has(e.seq) && seen.add(e.seq)).sort((a, b) => a.seq - b.seq);
+    const seen = new Set<string>();
+    const once = (e: RunEvent) => !seen.has(eventKey(e)) && !!seen.add(eventKey(e));
+    // Stored events in their order, then what only the stream delivered, in its order.
+    return [...[...(stored.data ?? [])].sort((a, b) => a.seq - b.seq).filter(once), ...[...extra].sort((a, b) => a.seq - b.seq).filter(once)];
   }, [stored.data, extra]);
   const entries = useMemo(() => {
     const out = transcriptFromEvents(events, calls.data ?? []);
@@ -101,8 +105,8 @@ export default function RunPage() {
 function Back({ taskId }: { taskId?: string }) {
   return (
     <Link href={taskId ? `/tasks/${taskId}` : "/tasks"}
-      className="-ml-2 mb-3 inline-flex h-10 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
-      <ArrowLeft className="size-4" /> {taskId ? `Task ${taskId}` : "Tasks"}
+      className="-ml-2 mb-3 inline-flex h-10 max-w-full items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+      <ArrowLeft className="size-4 shrink-0" /> <span className="truncate">{taskId ? "Back to task" : "Tasks"}</span>
     </Link>
   );
 }
@@ -114,9 +118,10 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
   const confirm = useConfirm();
   const action = useAction();
   const usage = run.usage ?? [];
-  const input = usage.reduce((s, u) => s + u.input, 0);
-  const output = usage.reduce((s, u) => s + u.output, 0);
+  // Usage counts uncached input, cache reads and cache writes apart (storage/costs.go); the prompt is all three.
   const cache = usage.reduce((s, u) => s + (u.cache_read ?? 0), 0);
+  const input = usage.reduce((s, u) => s + u.input + (u.cache_write ?? 0), 0) + cache;
+  const output = usage.reduce((s, u) => s + u.output, 0);
   const hasCost = usage.some((u) => u.cost_usd != null);
   const cost = usage.reduce((s, u) => s + (u.cost_usd ?? 0), 0);
   const models = [...new Set(usage.map((u) => u.model).filter(Boolean))];
@@ -126,10 +131,10 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
 
   const cancel = async () => {
     if (!taskId) return;
-    const ok = await confirm({ title: `Cancel ${taskId}?`, description: `${run.spec.agent} stops this run and the task is cancelled. This cannot be undone.`, confirm: "Cancel task", destructive: true });
+    const ok = await confirm({ title: `Cancel ${taskTitle ? `“${taskTitle}”` : displayId(taskId)}?`, description: `${run.spec.agent} stops this run and the task is cancelled. This cannot be undone.`, confirm: "Cancel task", destructive: true });
     if (!ok) return;
     action.mutate({ Kind: "cancel", TaskID: taskId, Version: taskVersion }, {
-      onSuccess: () => toast.success(`Cancel requested for ${taskId}`),
+      onSuccess: () => toast.success(`Cancel requested for ${taskTitle || displayId(taskId)}`),
       onError: (e) => toast.error(e.message),
     });
   };
@@ -144,9 +149,9 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
             {live && <LiveDot connected={connected} />}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {taskId ? <><Link href={`/tasks/${taskId}`} className="font-medium text-foreground underline-offset-4 hover:underline">{taskId}</Link>{taskTitle && <> · {taskTitle}</>}</> : "No task"}
-            <span className="mx-1.5 text-border">/</span>
-            <span className="font-mono text-xs" title={run.spec.id}>{displayId(run.spec.id)}</span>
+            {taskId ? <Link href={`/tasks/${taskId}`} title={taskId} className="font-medium text-foreground underline-offset-4 hover:underline">{taskTitle || `Task ${displayId(taskId)}`}</Link> : "No task"}
+            <span className="mx-1.5 text-muted-foreground/40">·</span>
+            <span title={run.spec.id}>Run <span className="font-mono text-xs">{displayId(run.spec.id)}</span></span>
           </p>
         </div>
         {live && taskId && (
@@ -159,7 +164,7 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
 
       <dl className="mt-5 grid grid-cols-2 overflow-hidden rounded-xl border bg-card sm:grid-cols-4 [&>div]:border-border">
         <Stat icon={Clock} label="Elapsed" value={elapsed} className="border-r border-b sm:border-b-0" />
-        <Stat icon={Hash} label="Tokens" value={usage.length ? `${tokens(input)} in · ${tokens(output)} out` : "—"} sub={cache ? `${tokens(cache)} cached` : undefined} className="border-b sm:border-r sm:border-b-0" />
+        <Stat icon={Hash} label="Tokens" value={usage.length ? `${tokens(input)} in · ${tokens(output)} out` : "—"} sub={cache && input ? `${Math.floor((cache / input) * 100)}% from cache` : undefined} className="border-b sm:border-r sm:border-b-0" />
         <Stat icon={Coins} label="Cost" value={hasCost ? usd(cost) : "—"} sub={hasCost ? undefined : "not reported"} className="border-r" />
         <Stat icon={Cpu} label="Model" value={models.join(", ") || "—"} sub={run.spec.provider || undefined} />
       </dl>
