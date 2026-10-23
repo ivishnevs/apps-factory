@@ -45,7 +45,7 @@ export interface Health { status: string; database?: string; company: string; ex
 
 export interface NodeUse { runs: number; resources: Record<string, number> }
 export interface FactoryNode {
-  id: string; name: string; labels?: string[]; slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
+  node_id: string; name: string; labels?: string[]; slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
   health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse;
   [k: string]: unknown;
 }

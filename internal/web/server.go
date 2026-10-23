@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/tui"
 )
 
@@ -61,6 +62,9 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/messages", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Client.Messages(r.Context(), r.URL.Query().Get("conversation"))
+		if v == nil {
+			v = []messaging.Message{} // a conversation that does not exist yet has no messages
+		}
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/costs", func(w http.ResponseWriter, r *http.Request) {
