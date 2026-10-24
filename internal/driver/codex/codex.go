@@ -65,6 +65,10 @@ func (d Driver) CheckVersion(ctx context.Context) (string, error) {
 }
 
 func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, error) {
+	if len(l.ExternalMCP) > 0 {
+		// external-mcp-servers: config validation refuses spec.mcp for codex agents; this is the backstop.
+		return nil, fmt.Errorf("codex: external MCP servers are not supported")
+	}
 	args := d.Args
 	if args == nil {
 		args = []string{"app-server", "--listen", "stdio://", "-c", "model_provider=\"openai\""}

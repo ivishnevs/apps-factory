@@ -90,6 +90,9 @@ type Spec struct {
 	// Labels are node labels a run needs (e.g. macos, xcode); Core claims it only on a node whose node.yaml
 	// labels include them all (node-agent D3).
 	Labels []string `yaml:"labels" json:"labels,omitempty"`
+	// MCP names the company's external MCP servers (mcp_servers.yaml) the agent's runs get besides the
+	// Factory server (external-mcp-servers); Claude agents only.
+	MCP []string `yaml:"mcp" json:"mcp,omitempty"`
 }
 type Agent struct {
 	APIVersion      string          `yaml:"apiVersion" json:"apiVersion"`
@@ -103,6 +106,9 @@ type Agent struct {
 	// SkillHashes pins the content of the offered skills on a run ({name: "sha256:…"}, skills.Hash over
 	// Core's registry at dispatch); set only in a run's config snapshot, the node verifies its copies.
 	SkillHashes map[string]string `yaml:"-" json:"skill_hashes,omitempty"`
+	// MCPServers are the definitions of spec.mcp from the company's mcp_servers.yaml, with header secrets as
+	// unresolved ${secret:NAME} references: they travel in the run's config snapshot and the node resolves them.
+	MCPServers map[string]protocol.MCPServer `yaml:"-" json:"mcp_servers,omitempty"`
 }
 type Catalog struct {
 	Agents   map[string]Agent
@@ -113,6 +119,8 @@ type Catalog struct {
 	NodeHooks map[string]protocol.NodeHooks
 	// QuotaKeys are the declared subscriptions (configs/quota_keys.yaml); empty when the file is absent.
 	QuotaKeys map[string]QuotaKey
+	// MCPServers are the company's external MCP servers (mcp_servers.yaml); empty when the file is absent.
+	MCPServers map[string]protocol.MCPServer
 	// DefaultReport is the owner's default direct report (configs/company.yaml owner.default_report): unaddressed
 	// owner messages go to its conversation (hierarchy D5). Required with more than one direct report.
 	DefaultReport string
@@ -143,7 +151,7 @@ var reservedCompanies = map[string]bool{"agents": true, "profiles": true, "polic
 
 // CompanyDir is the directory, relative to root, of company's catalog (postgres-tenancy D3): configs/ for the
 // default company, configs/<company>/ for any other. Each holds agents/, profiles/, policies/, node-hooks/,
-// quota_keys.yaml, company.yaml and skills.yaml (its skills registry; none: the company has no skills, with
+// quota_keys.yaml, mcp_servers.yaml, company.yaml and skills.yaml (its skills registry; none: the company has no skills, with
 // no fallback to configs/skills.yaml); prices.yaml stays shared in configs/.
 func CompanyDir(company string) (string, error) {
 	switch {
@@ -173,6 +181,9 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 		return nil, err
 	}
 	if c.QuotaKeys, err = loadQuotaKeys(root, dir); err != nil {
+		return nil, err
+	}
+	if c.MCPServers, err = loadMCPServers(root, dir); err != nil {
 		return nil, err
 	}
 	rawPolicies := map[string]policies.Policy{}
@@ -297,6 +308,9 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 				return nil, fmt.Errorf("profile %s: unknown skill %s", name, skill)
 			}
 		}
+		if _, err = c.agentMCP(a); err != nil {
+			return nil, fmt.Errorf("profile %s: %w", name, err)
+		}
 		for _, policy := range a.Spec.Policies {
 			if _, ok := c.Policies[policy]; !ok {
 				return nil, fmt.Errorf("profile %s: unknown policy %s", name, policy)
@@ -401,7 +415,7 @@ func merge(parent, child map[string]any, prefix string) map[string]any {
 				continue
 			}
 		}
-		if key == "skills.include" || key == "policies" || key == "tools.deny" || key == "approvals.require" || key == "labels" {
+		if key == "skills.include" || key == "policies" || key == "tools.deny" || key == "approvals.require" || key == "labels" || key == "mcp" {
 			if a, ok := v.([]any); ok {
 				b, _ := out[k].([]any)
 				set := map[any]bool{}
@@ -505,6 +519,9 @@ func (c *Catalog) finish(root string, a *Agent) error {
 		if _, ok := c.Skills.Skills[n]; !ok {
 			return fmt.Errorf("unknown skill %s", n)
 		}
+	}
+	if a.MCPServers, err = c.agentMCP(*a); err != nil {
+		return err
 	}
 	a.AvailableSkills = c.Skills.Available(a.Spec.Skills.Include, a.Spec.Skills.Discover.Enabled, a.Spec.Skills.Discover.Categories)
 	selected := map[string]bool{}

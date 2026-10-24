@@ -55,7 +55,7 @@ type Driver struct {
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }
 func (d Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true, ToolPolicy: true, ExitGuard: true}
+	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true, ToolPolicy: true, ExitGuard: true, ExternalMCP: true}
 }
 
 // ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).
@@ -203,6 +203,37 @@ type launchLine struct {
 	// GuardCommand is factory-shim: a PreToolUse hook runs `GuardCommand --decide` for every Bash
 	// command (driver.Launch.Guards; the PATH shims stay in place).
 	GuardCommand string `json:"guard_command,omitempty"`
+	// MCPServers are the external MCP servers next to the factory one (driver.Launch.ExternalMCP); their
+	// headers reference the environment as ${NAME} and Claude Code expands them, so no secret is in this line.
+	MCPServers map[string]mcpServer `json:"mcp_servers,omitempty"`
+	// DisallowedTools are mcp__<server>__<tool> names of denied external tools (--disallowedTools).
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
+}
+
+// mcpServer is a Claude Code MCP server config of type http.
+type mcpServer struct {
+	Type    string            `json:"type"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// externalServers maps the run's external MCP servers to Claude Code's mcpServers entries and denied tools.
+func externalServers(servers []driver.ExternalMCP) (map[string]mcpServer, []string, error) {
+	if len(servers) == 0 {
+		return nil, nil, nil
+	}
+	out := map[string]mcpServer{}
+	var deny []string
+	for _, s := range servers {
+		if s.Name == "" || s.Name == "factory" || out[s.Name].Type != "" {
+			return nil, nil, fmt.Errorf("invalid or duplicate external MCP server name %q", s.Name)
+		}
+		out[s.Name] = mcpServer{Type: "http", URL: s.URL, Headers: s.Headers}
+		for _, t := range s.DenyTools {
+			deny = append(deny, "mcp__"+s.Name+"__"+t)
+		}
+	}
+	return out, deny, nil
 }
 
 // Launch starts the shim and returns once it reported the session, before the prompt. The run
@@ -224,6 +255,9 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		return nil, err
 	}
 	launch.GuardCommand = guard
+	if launch.MCPServers, launch.DisallowedTools, err = externalServers(l.ExternalMCP); err != nil {
+		return nil, err
+	}
 	line, err := json.Marshal(launch)
 	if err != nil {
 		return nil, err

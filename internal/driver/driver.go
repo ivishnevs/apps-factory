@@ -48,6 +48,8 @@ func ResumeSameNode(prev Outcome, sameNode bool) bool { return sameNode && prev.
 
 type Capabilities struct {
 	Resume, Browser, MCP, Cost, Activity, ToolPolicy, ExitGuard bool
+	// ExternalMCP: the driver passes Launch.ExternalMCP to its runtime.
+	ExternalMCP bool
 }
 
 type Launch struct {
@@ -58,6 +60,11 @@ type Launch struct {
 	// Instructions are the developer instructions, including Factory MCP instructions.
 	Instructions string
 	MCP          *MCPConfig
+	// ExternalMCP are the agent's external MCP servers besides Factory MCP (external-mcp-servers). Header values
+	// hold no secret: the executor replaced each ${secret:NAME} with ${<env var>} and put the value into Env,
+	// so the runtime expands it from its environment (never from its argv or the launch line). Only drivers
+	// with capability ExternalMCP accept them.
+	ExternalMCP []ExternalMCP
 	// Guards are the agent's access rules from the run's config snapshot; drivers with tool_policy
 	// apply their command rules inside the runtime (the PATH shims stay in place).
 	Guards []policies.Rule
@@ -81,6 +88,15 @@ const ExitGuardPrompt = "Factory: your turn ended without a factory_exit_* call.
 // Skill is one materialized skill: Hash is the verified content hash (skills.Hash) of SkillsRoot/<Name>.
 type Skill struct {
 	Name, Hash string
+}
+
+// ExternalMCP is one external streamable-HTTP MCP server of a run: Headers may reference Env as ${NAME};
+// DenyTools are its tool names the runtime must not offer.
+type ExternalMCP struct {
+	Name      string
+	URL       string
+	Headers   map[string]string
+	DenyTools []string
 }
 
 // MCPConfig is the Factory MCP stdio server; EnvVars name variables passed through from Env.

@@ -24,6 +24,14 @@ var (
 	_ driver.Driver    = Driver{}
 )
 
+// TestExternalMCPRefused (external-mcp-servers): Codex runs never get external MCP servers.
+func TestExternalMCPRefused(t *testing.T) {
+	_, err := Driver{Args: []string{"/nonexistent"}}.Launch(context.Background(), driver.Launch{ExternalMCP: []driver.ExternalMCP{{Name: "x", URL: "https://x.test"}}})
+	if err == nil || !strings.Contains(err.Error(), "external MCP servers are not supported") || (Driver{}).Capabilities().ExternalMCP {
+		t.Fatal(err)
+	}
+}
+
 func TestOptionsRegistered(t *testing.T) {
 	if !slices.Equal(config.RuntimeOptions[protocol.RuntimeCodex], Options) {
 		t.Fatalf("config.RuntimeOptions[codex] = %v, driver reads %v", config.RuntimeOptions[protocol.RuntimeCodex], Options)

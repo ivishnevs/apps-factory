@@ -290,6 +290,45 @@ func TestGuardCommandLaunch(t *testing.T) {
 	}
 }
 
+// TestExternalMCPLaunch (external-mcp-servers): external servers reach the shim as http entries next to
+// factory, denied tools as mcp__<server>__<tool>, and the launch line carries the ${VAR} reference only.
+func TestExternalMCPLaunch(t *testing.T) {
+	const secret = "fake-astr-key-0123456789"
+	d, rec := fakeDriver(t, "start", claudetest.Dir())
+	l, _ := scenarioLaunch(t, "start")
+	l.Env = append(l.Env, "FACTORY_MCP_SECRET_ASTR_API_KEY="+secret)
+	l.ExternalMCP = []driver.ExternalMCP{{Name: "appstoretracker", URL: "https://mcp.example.test/api/mcp",
+		Headers: map[string]string{"Authorization": "Bearer ${FACTORY_MCP_SECRET_ASTR_API_KEY}"}, DenyTools: []string{"add_to_watchlist"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := d.Launch(ctx, l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	b, err := os.ReadFile(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Launch launchLine `json:"launch"`
+	}
+	if err = json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	srv := got.Launch.MCPServers["appstoretracker"]
+	if srv.Type != "http" || srv.URL != "https://mcp.example.test/api/mcp" || srv.Headers["Authorization"] != "Bearer ${FACTORY_MCP_SECRET_ASTR_API_KEY}" {
+		t.Fatalf("%+v", got.Launch.MCPServers)
+	}
+	if !slices.Equal(got.Launch.DisallowedTools, []string{"mcp__appstoretracker__add_to_watchlist"}) || strings.Contains(string(b), secret) {
+		t.Fatalf("%s", b)
+	}
+	l.ExternalMCP[0].Name = "factory"
+	if _, err := d.Launch(ctx, l); err == nil {
+		t.Fatal("an external server named factory launched")
+	}
+}
+
 func stream(t *testing.T, lines ...string) string {
 	t.Helper()
 	dir := t.TempDir()
