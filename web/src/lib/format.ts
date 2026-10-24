@@ -11,7 +11,9 @@ export const tokens = (n?: number) => {
   const v = n ?? 0;
   return v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}k` : String(v);
 };
-export const shortId = (id?: string) => (id ?? "").slice(0, 8);
+// fileSize: "27.9 KB" (decimal units, as file browsers show them).
+export const fileSize = (n?: number) => (!n ? "" : n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`);
+export const shortId =(id?: string) => (id ?? "").slice(0, 8);
 
 // displayId: a readable task/run reference. Generated IDs (32 hex) show their first 8 characters; short
 // human IDs ("kc-4") show as they are. Put the full ID in a title.

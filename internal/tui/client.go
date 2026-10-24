@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"appfactory/internal/approvals"
+	"appfactory/internal/artifacts"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
+	"appfactory/internal/reports"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 	"appfactory/internal/worker"
@@ -258,6 +260,16 @@ type Client interface {
 	ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error)
 	// Costs reads the cost ledger since a moment, grouped for the Costs screen.
 	Costs(ctx context.Context, since time.Time) (CostView, error)
+	// Reports are a project's reports, oldest first; task narrows them to one task (library.go).
+	Reports(ctx context.Context, project, task string) ([]reports.Report, error)
+	// Artifacts are a project's artifact versions, oldest first.
+	Artifacts(ctx context.Context, project string) ([]artifacts.Record, error)
+	// ArtifactApproval is an artifact version's owner approval, nil when none was asked for.
+	ArtifactApproval(ctx context.Context, project, artifact, version string) (*approvals.Approval, error)
+	// TaskExits are a task's accepted exits with their facts (the pull request).
+	TaskExits(ctx context.Context, task string) ([]storage.TaskExit, error)
+	// Blob is a stored blob's content (a report attachment).
+	Blob(ctx context.Context, sha256 string) ([]byte, error)
 }
 
 // HTTPClient talks to a running Core with the owner token (FACTORY_URL, FACTORY_TOKEN). The token is only

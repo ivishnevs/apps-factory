@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"appfactory/internal/artifacts"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
+	"appfactory/internal/reports"
 	"appfactory/internal/storage"
 )
 
@@ -31,6 +33,12 @@ type Fixture struct {
 	Artifacts map[string]string `json:"artifacts,omitempty"`
 	// Costs are the cost ledger's rows (the ended runs), grouped for the Costs screen like GET /costs.
 	Costs []storage.RunCost `json:"costs,omitempty"`
+	// Reports are the projects' reports (with their attachments) by project, oldest first.
+	Reports map[string][]reports.Report `json:"reports,omitempty"`
+	// ArtifactRecords are the projects' artifact versions by project, oldest first.
+	ArtifactRecords map[string][]artifacts.Record `json:"artifact_records,omitempty"`
+	// Blobs are blob contents (report attachments) by SHA-256.
+	Blobs map[string]string `json:"blobs,omitempty"`
 }
 
 // ownerConversation is the owner's conversation with a direct report in a project (POST /messages).
