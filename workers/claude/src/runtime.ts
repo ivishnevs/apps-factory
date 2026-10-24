@@ -50,6 +50,10 @@ export interface RuntimeInput {
   instructions: string;
   env: Record<string, string | undefined>;
   mcpCommand?: string;
+  // External MCP servers next to factory (external-mcp-servers); Claude Code expands ${NAME} in their headers
+  // from env. disallowedTools adds their denied tools (mcp__<server>__<tool>).
+  mcpServers?: Record<string, ExternalMcpServer>;
+  disallowedTools?: string[];
   // Aborted by execution timeout, owner cancellation or lost lease.
   signal: AbortSignal;
   emit: Emit;
@@ -76,7 +80,9 @@ export interface RuntimeInput {
   commandGuard?: CommandDecider;
 }
 
-export type CommandDecision = { decision: "allow" | "deny"; reason?: string };
+export type ExternalMcpServer = { type: "http"; url: string; headers?: Record<string, string> };
+
+export type CommandDecision ={ decision: "allow" | "deny"; reason?: string };
 export type CommandDecider = (command: string) => Promise<CommandDecision>;
 
 // The tools whose input runs a shell command line.
@@ -183,7 +189,7 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     // Questions go to the owner through Factory MCP, never through an interactive prompt.
-    disallowedTools: ["AskUserQuestion"],
+    disallowedTools: ["AskUserQuestion", ...(input.disallowedTools ?? [])],
     // User hooks, plugins and MCP servers do not leak into factory runs.
     settingSources: input.settingSources ?? ["project"],
     strictMcpConfig: true,
@@ -191,7 +197,12 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     // being deferred behind ToolSearch (Claude Code defers MCP tools by default); deferred tools were
     // called by name with guessed arguments. Only this server is exempt; ENABLE_TOOL_SEARCH in the
     // run environment still governs any other deferrable tools.
-    mcpServers: input.mcpCommand ? { factory: { type: "stdio", command: input.mcpCommand, alwaysLoad: true } } : {},
+    // External servers (external-mcp-servers) load like any MCP server (deferred behind ToolSearch); factory
+    // is set last so no external entry can replace it.
+    mcpServers: {
+      ...(input.mcpServers ?? {}),
+      ...(input.mcpCommand ? { factory: { type: "stdio" as const, command: input.mcpCommand, alwaysLoad: true } } : {}),
+    },
     ...(typeof model === "string" && model !== "" && model !== "default" ? { model } : {}),
     ...(typeof effort === "string" && effort !== "" ? { effort: effort as Options["effort"] } : {}),
     ...(typeof maxTurns === "number" && Number.isInteger(maxTurns) && maxTurns > 0 ? { maxTurns } : {}),

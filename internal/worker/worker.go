@@ -129,6 +129,9 @@ type Worker struct {
 	// EnvAllow adds variable names (NAME_* for a prefix) to the runtime environment's allowlist RuntimeEnv
 	// (node.yaml runtime_env); credentials stay out regardless.
 	EnvAllow []string
+	// SecretsFile is node.yaml secrets_file: the values of the ${secret:NAME} references of a run's external MCP
+	// servers, read at each run that needs one (node.ReadSecrets).
+	SecretsFile string
 }
 
 // noteAuth reports a runtime authentication failure to AuthFailed.
@@ -497,6 +500,14 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if skillsRoot != "" {
 		defer os.RemoveAll(skillsRoot)
 	}
+	// External MCP servers (external-mcp-servers): node secrets resolved here are redacted from the start.
+	external, err := externalMCP(spec, w.SecretsFile, drv.Capabilities())
+	if err != nil {
+		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
+	}
+	for _, v := range external.Values {
+		rlog.secret(v)
+	}
 
 	// Heartbeats also carry cancellation. Failure stops execution instead of running without ownership.
 	// A v2 run is renewed and stopped by the node's inventory heartbeat.
@@ -605,6 +616,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if spec.Conversation && spec.Workspace != "" {
 		launch.Env = setEnv(launch.Env, "FACTORY_PROJECT_WORKSPACE", spec.Workspace)
 		launch.Instructions += conversationNote(spec.Workspace)
+	}
+	if len(external.Servers) > 0 {
+		launch.ExternalMCP = external.Servers
+		for _, kv := range external.Env {
+			k, v, _ := strings.Cut(kv, "=")
+			launch.Env = setEnv(launch.Env, k, v)
+		}
 	}
 	session, err = drv.Launch(ctx, launch)
 	if err != nil {
@@ -1095,7 +1113,7 @@ var RuntimeEnv = []string{
 // runtimeDenied never reaches a runtime, whatever an allowlist says: the owner's and the node's credentials,
 // the owner CLI's configuration (FACTORY_URL with FACTORY_TOKEN) and NATS. The run's own URL and token are
 // added by runEnvironment.
-var runtimeDenied = []string{"FACTORY_TOKEN", "FACTORY_NODE_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_TELEGRAM_TOKEN", "FACTORY_NODE_CONFIG", "NATS_*"}
+var runtimeDenied = []string{"FACTORY_TOKEN", "FACTORY_NODE_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_TELEGRAM_TOKEN", "FACTORY_NODE_CONFIG", "NATS_*", SecretEnvPrefix + "*"}
 
 // The runtime receives only a run-scoped Factory credential. Host access remains trusted.
 func runEnvironment(env, allow []string, base, token string) []string {

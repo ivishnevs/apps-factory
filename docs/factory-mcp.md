@@ -92,6 +92,13 @@ the approval shims and the adapter read it there. Tokens are not prompt text, co
 Host permissions remain danger-full-access: agents can read host files and local .env. MCP policies
 are enforced for Core tool calls and do not create OS isolation or filter unrelated user MCP servers.
 
+External MCP servers (agent `mcp`, company `mcp_servers.yaml`; agent-configuration.md) run beside `factory`, not
+through Core: their calls are neither audited nor policy-checked by Factory, only their `deny_tools` are
+removed from the runtime. Their header secrets are resolved by the node from its `secrets_file` into
+`FACTORY_MCP_SECRET_<NAME>` in the runtime environment (Claude Code expands `${FACTORY_MCP_SECRET_<NAME>}` in
+the header), redacted from the run's log, events, result and report attachments, and never sent to Core.
+`FACTORY_MCP_SECRET_*` from the node's own environment never passes.
+
 `factory_task_submit` while running saves a draft (summary, declared checks, commit, artifact refs).
 The task stays IN_PROGRESS and retains its writer reservation. Known runtime completion moves it
 to IN_REVIEW and preserves this structured submission. Without a draft, final text is the fallback.

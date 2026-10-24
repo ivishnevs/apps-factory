@@ -440,3 +440,23 @@ process.stdin.on("data", (d) => (input += d)).on("end", () => {
     ["error", "result"],
   );
 });
+
+test("external MCP servers join factory in mcpServers and their denied tools in disallowedTools", async () => {
+  const { query, seen } = replay([], { account, mcp_status: ["connected"] }, new PassThrough());
+  const launch: Launch = {
+    ...baseLaunch(),
+    mcp_servers: { appstoretracker: { type: "http", url: "https://mcp.example.test/api/mcp", headers: { Authorization: "Bearer ${FACTORY_MCP_SECRET_ASTR_KEY}" } } },
+    disallowed_tools: ["mcp__appstoretracker__add_to_watchlist"],
+  };
+  await shim(JSON.stringify(launch), query, { FACTORY_MCP_SECRET_ASTR_KEY: "fake-key-value-123" }, undefined, "s", (stdin) => {
+    setTimeout(() => stdin.write(JSON.stringify({ interrupt: true }) + "\n"), 50);
+  });
+  // The header keeps the ${VAR} reference: Claude Code expands it from the runtime environment.
+  assert.deepEqual(seen.options!.mcpServers, launch.mcp_servers);
+  assert.deepEqual(seen.options!.disallowedTools, ["AskUserQuestion", "mcp__appstoretracker__add_to_watchlist"]);
+  assert.equal(seen.options!.strictMcpConfig, true);
+  assert.equal(seen.options!.env!["FACTORY_MCP_SECRET_ASTR_KEY"], "fake-key-value-123");
+
+  const bad = await shim(JSON.stringify({ ...baseLaunch(), mcp_servers: { factory: { type: "http", url: "https://x.test" } } }), query, {});
+  assert.equal(bad[0]!.event, "error");
+});

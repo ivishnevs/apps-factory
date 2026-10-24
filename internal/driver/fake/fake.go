@@ -130,6 +130,8 @@ type Driver struct {
 	// Launch.ExitGuard reports no exit; each of up to Launch.ExitGuardRetries refusals is an ExitGuardMethod
 	// event (the follow-up turn or blocked stop of a real runtime, which still does not exit).
 	ExitGuard bool
+	// ExternalMCP gives the driver capability ExternalMCP (Launch.ExternalMCP is recorded in Launches).
+	ExternalMCP bool
 
 	mu       sync.Mutex
 	launches []driver.Launch
@@ -142,7 +144,7 @@ func (d *Driver) Name() protocol.RuntimeProvider {
 	return d.Provider
 }
 func (d *Driver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{Resume: true, MCP: d.MCP, Activity: true, ExitGuard: d.ExitGuard}
+	return driver.Capabilities{Resume: true, MCP: d.MCP, Activity: true, ExitGuard: d.ExitGuard, ExternalMCP: d.ExternalMCP}
 }
 
 // ResumePolicy resumes only a started session this node ran (driver.ResumeSameNode).

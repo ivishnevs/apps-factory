@@ -58,6 +58,9 @@ type Config struct {
 	// RuntimeEnv adds environment variable names (NAME_* for a prefix) to the allowlist of what agent runtimes
 	// inherit from the node (worker.RuntimeEnv); the node's and the owner's credentials never pass.
 	RuntimeEnv []string `yaml:"runtime_env"`
+	// SecretsFile is a 0600 KEY=VALUE file of this node's secrets (ReadSecrets), read at each run: the values of
+	// the ${secret:NAME} references in the headers of a run's external MCP servers. They never leave the node.
+	SecretsFile string `yaml:"secrets_file"`
 }
 
 // DefaultCompany is the company of a node whose node.yaml names none.
@@ -244,7 +247,7 @@ func (c *Config) Absolute() error {
 		return abs(p)
 	}
 	return errors.Join(abs(&c.StateDir), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
-		abs(&c.TokenFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
+		abs(&c.TokenFile), abs(&c.SecretsFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
 		abs(&c.NATS.CredsFile), abs(&c.NATS.NkeySeedFile), abs(&c.NATS.TLS.CAFile), abs(&c.NATS.TLS.CertFile), abs(&c.NATS.TLS.KeyFile))
 }
 

@@ -29,7 +29,7 @@ import {
 import { clock, type Timer } from "./clock.js";
 import { shimEnvironment } from "./env.js";
 import type { EventKind, RunEvent, RunSpec, TerminalStatus } from "./protocol.js";
-import { AUTH_ERRORS, RuntimeError, runClaude, type CommandDecider, type CommandDecision, type QueryFn } from "./runtime.js";
+import { AUTH_ERRORS, RuntimeError, runClaude, type CommandDecider, type CommandDecision, type ExternalMcpServer, type QueryFn } from "./runtime.js";
 
 export interface Launch {
   spec: RunSpec;
@@ -45,6 +45,11 @@ export interface Launch {
   exit_guard_retries?: number;
   // Command guard: factory-shim, run as `<guard_command> --decide` for every shell command line.
   guard_command?: string;
+  // External MCP servers next to factory (external-mcp-servers): http only; header values reference the
+  // environment as ${NAME}, which Claude Code expands, so no secret is in the launch line.
+  mcp_servers?: Record<string, ExternalMcpServer>;
+  // mcp__<server>__<tool> names of denied external tools.
+  disallowed_tools?: string[];
 }
 
 // factoryShimDecider decides a command line with `factory-shim --decide` (one matcher for the PATH
@@ -280,6 +285,11 @@ export function parseLaunch(line: string): Launch {
     throw new RuntimeError("launch requires spec.id, spec.prompt and cwd", "launch");
   }
   if (typeof l.instructions !== "string") throw new RuntimeError("launch requires instructions", "launch");
+  for (const [name, s] of Object.entries(l.mcp_servers ?? {})) {
+    if (name === "factory" || s?.type !== "http" || typeof s.url !== "string" || !s.url) {
+      throw new RuntimeError(`invalid external MCP server ${name}: http with a url, not named factory`, "launch");
+    }
+  }
   return l;
 }
 
@@ -352,6 +362,8 @@ export async function runShim(io: ShimIO): Promise<void> {
       instructions: launch.instructions,
       env: shimEnvironment(io.env, launch.allow_api_key),
       mcpCommand: launch.mcp_command,
+      ...(launch.mcp_servers ? { mcpServers: launch.mcp_servers } : {}),
+      ...(launch.disallowed_tools ? { disallowedTools: launch.disallowed_tools } : {}),
       signal: stop.signal,
       emit: n.emit,
       observe: n.observe,

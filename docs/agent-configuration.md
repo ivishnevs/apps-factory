@@ -67,6 +67,30 @@ A run holds its classes until it has ended and the node has sealed it.
 set. Core claims the run only on a node whose node.yaml `labels` include them all (otherwise retry, capacity);
 `factory tasks why` says `no_capable_node` while no online node has the driver, labels and resources.
 
+### External MCP servers
+
+`mcp` lists external MCP servers the agent's runs get next to Factory MCP (OpenSpec `external-mcp-servers`),
+e.g. `mcp: [appstoretracker]`; profiles' and agents' lists merge as a set. Claude agents only: a codex agent with
+`mcp` fails loading. The servers are declared once per company in `mcp_servers.yaml` of its catalog directory
+(`configs/mcp_servers.yaml`, `configs/<company>/mcp_servers.yaml`):
+
+```yaml
+mcp_servers:
+  appstoretracker:
+    transport: http                     # streamable HTTP, the only transport
+    url: https://www.appstoretracker.com/api/mcp   # https; plain http only to 127.0.0.1/localhost (a local proxy)
+    headers:
+      Authorization: "Bearer ${secret:APPSTORETRACKER_API_KEY}"   # a node secret, never a literal
+    deny_tools: [add_to_watchlist]      # Claude: --disallowedTools mcp__appstoretracker__add_to_watchlist
+```
+
+Header values may hold `${secret:NAME}` references and nothing else in `${...}`. A header whose name looks like a
+credential (authorization, token, key, secret, cookie, password, credential, session) must reference a secret;
+a literal there, an unknown server name, a bad URL or the reserved name `factory` fail loading. The run's config
+snapshot carries the server with the reference unresolved; the node that runs it resolves it from its
+`secrets_file` (development.md, node.yaml). A node without the secret fails the run's setup (`setup_failed`,
+naming the secret); nothing schedules around it, so put the secret on every node that may run the agent.
+
 ## Runtime context
 
 Context contains the prompt, deduplicated applicable policy instructions, tool/approval settings,

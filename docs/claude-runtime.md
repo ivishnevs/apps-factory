@@ -200,7 +200,11 @@ platforms. Per-request HTTP timeouts to Core stay on plain timers.
 `permissionMode: bypassPermissions` mirrors Codex `danger-full-access` + `approvalPolicy never`;
 no isolation is claimed. `AskUserQuestion` is disallowed: questions go through Factory MCP.
 `settingSources: ['project']` loads workspace CLAUDE.md/settings but not user hooks or plugins.
-`strictMcpConfig` ignores every MCP server except `factory`. Background tasks are disabled
+`strictMcpConfig` ignores every MCP server except `factory` and the agent's external servers: the launch
+line's `mcp_servers` (type `http`, url, headers referencing the environment as `${FACTORY_MCP_SECRET_<NAME>}`,
+which Claude Code expands, so no secret is on the launch line or Claude Code's argv) and `disallowed_tools`
+(`mcp__<server>__<tool>`, added to `AskUserQuestion`). `factory` is set last and cannot be replaced; external
+servers are not waited for at startup and load deferred like any MCP server. Background tasks are disabled
 (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`): a turn ends only when its work ends.
 Owner/broker secrets are removed from the runtime env; `FACTORY_RUN_TOKEN` reaches `factory-mcp` by
 inheritance and is not part of the MCP configuration. Same-user processes can still read process
