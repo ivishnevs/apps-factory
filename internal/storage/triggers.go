@@ -219,6 +219,9 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 		if err := archiveChangeTask(ctx, tx, t); err != nil {
 			return err
 		}
+		if err := ownerTaskDone(ctx, tx, t); err != nil {
+			return err
+		}
 	}
 	if t.ParentTaskID == "" {
 		return nil
@@ -358,4 +361,29 @@ func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Co
 		}
 		return t, addTrigger(ctx, tx, &t, "owner_comment", true, actor, "", in.Text)
 	})
+}
+
+// ownerTaskDone tells the owner in the inbox that a task they created is DONE, with its result: the owner gave
+// the work directly, so nobody else reports it back (a task created by an agent is reported up its chain).
+func ownerTaskDone(ctx context.Context, tx *Tx, t tasks.Task) error {
+	if t.CreatedBy != "owner" || t.Kind == "conversation" {
+		return nil
+	}
+	result := strings.TrimSpace(t.Result)
+	if result == "" && t.Submission != nil {
+		result = strings.TrimSpace(t.Submission.Summary)
+	}
+	if r := []rune(result); len(r) > 4000 {
+		result = string(r[:4000]) + "…"
+	}
+	body := "Done: " + t.Title
+	if t.Assignee != "" {
+		body += " (" + t.Assignee + ")"
+	}
+	if result != "" {
+		body += "\n\n" + result
+	}
+	_, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: "factory", Recipient: "owner", MessageType: "notification",
+		Body: body, RequestID: "owner-task-done-" + t.ID})
+	return err
 }

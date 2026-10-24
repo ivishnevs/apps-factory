@@ -68,3 +68,10 @@ Managers SHALL see subtree events in their briefs and the event feed and SHALL b
 #### Scenario: Report's task fails once
 - **WHEN** a report's task has a failed attempt that is retried automatically
 - **THEN** the manager SHALL NOT get a run for it and SHALL see it in the next brief
+
+### Requirement: Owner task completion notice
+Core SHALL notify the owner in the inbox when a task the owner created becomes DONE, with the task's result.
+
+#### Scenario: Owner-assigned research finishes
+- **WHEN** a task created by the owner and assigned directly to an agent becomes DONE
+- **THEN** the owner's inbox SHALL get one notification naming the task and its result
