@@ -12,7 +12,8 @@ import (
 )
 
 // OpenSpec change lifecycle (core-owned-project-data D5): when the last task linked to an active change is
-// DONE, Core creates one task to archive the change; a daily check reports active changes nobody works on.
+// DONE and its tasks.md has no unchecked item, Core creates one task to archive the change; a daily check
+// reports active changes nobody works on.
 
 // OrphanWindow: a change linked by a task closed within this window still counts as worked on.
 const OrphanWindow = 7 * 24 * time.Hour
@@ -34,6 +35,19 @@ func archiveChangeTask(ctx context.Context, tx *Tx, done tasks.Task) error {
 	// Only an active change is archived (its proposal is current, not yet moved below changes/archive).
 	if _, _, found, err := specDoc(ctx, tx, tx.company, p.ID, openspec.ProposalPath(change)); err != nil || !found {
 		return err
+	}
+	// Linked tasks being DONE is not enough: the proposal and design tasks of a change close long before its
+	// implementation tasks exist. Its tasks.md must have no unchecked item.
+	if d, _, found, err := specDoc(ctx, tx, tx.company, p.ID, openspec.TasksPath(change)); err != nil {
+		return err
+	} else if found {
+		b, err := tx.store.blobBytes(ctx, tx.company, d.SHA256, openspec.MaxDocument)
+		if err != nil {
+			return err
+		}
+		if openspec.Unchecked(b) > 0 {
+			return nil
+		}
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO openspec_changes(company_id,project_id,change) VALUES(?,?,?) ON CONFLICT (company_id,project_id,change) DO NOTHING", tx.company, p.ID, change); err != nil {
 		return err

@@ -145,3 +145,9 @@ func TestArchivedProposals(t *testing.T) {
 		t.Fatal(c, e)
 	}
 }
+
+func TestUnchecked(t *testing.T) {
+	if n := Unchecked([]byte("## 1\n- [x] a\n- [ ] b\n  * [ ] c\n- [ ]d\ntext - [ ] e\n")); n != 3 {
+		t.Fatal(n)
+	}
+}

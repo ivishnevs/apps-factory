@@ -97,3 +97,20 @@ func TestOrphanChangeReportedOnce(t *testing.T) {
 		t.Fatal(events, agent, ref, err)
 	}
 }
+
+// TestArchiveWaitsForTasksChecklist: closing every linked task (here the proposal task) does not archive a change
+// whose tasks.md still has an unchecked item; once the list is checked off, the next linked task to finish
+// creates the archive task.
+func TestArchiveWaitsForTasksChecklist(t *testing.T) {
+	s := specStore(t)
+	putSpec(t, s, "p", "changes/feature/tasks.md", "## 1. Build\n- [x] 1.1 Propose\n- [ ] 1.2 Implement\n")
+	finishLinked(t, s, "proposal")
+	if got := archiveTasks(t, s); len(got) != 0 {
+		t.Fatal("archive task with unchecked items:", got)
+	}
+	putSpec(t, s, "p", "changes/feature/tasks.md", "## 1. Build\n- [x] 1.1 Propose\n- [x] 1.2 Implement\n")
+	finishLinked(t, s, "implementation")
+	if got := archiveTasks(t, s); len(got) != 1 {
+		t.Fatalf("%+v", got)
+	}
+}

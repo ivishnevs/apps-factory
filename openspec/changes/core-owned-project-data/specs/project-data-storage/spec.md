@@ -63,3 +63,10 @@ A materialization SHALL keep OpenSpec documents that differ from the digest in t
 #### Scenario: Run ends without an exit after editing a spec
 - **WHEN** a run edits an OpenSpec document and ends without an exit, and the next run of the task is materialized in the same worktree
 - **THEN** the edit SHALL stay, untouched documents SHALL take Core's version, and the next exit SHALL upload the edit or refuse with `openspec_conflict` if Core changed that document meanwhile
+
+### Requirement: Archive only finished changes
+Core SHALL create the archive task of an OpenSpec change only when every linked task is DONE and the change's tasks.md has no unchecked item.
+
+#### Scenario: Proposal done, implementation not started
+- **WHEN** the only linked tasks of a change (its proposal and design) are DONE and its tasks.md still lists unchecked items
+- **THEN** Core SHALL NOT create an archive task

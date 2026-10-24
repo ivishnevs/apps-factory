@@ -105,7 +105,7 @@ records. Changing Markdown checkboxes never changes Factory task status.
 
 ## Archive tasks and the daily check
 
-When the last task linked to an active change becomes DONE, Core creates one READY task "Archive OpenSpec
+When the last task linked to an active change becomes DONE and its `tasks.md` has no unchecked item, Core creates one READY task "Archive OpenSpec
 change X" (linked to X, assigned to `openspec.archive_assignee`, else the manager of the last implementer,
 else that implementer), once per change (`openspec_changes`). The assignee runs the official archive on its
 worktree copy; its exit uploads the move below `changes/archive`. The daily check reports every active change

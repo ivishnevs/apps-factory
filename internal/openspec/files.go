@@ -207,6 +207,14 @@ func Read(name string, b []byte, offset, limit int, digest string) (Document, er
 	return out, nil
 }
 
+// TasksPath is the task list of an active change, relative to the tree.
+func TasksPath(change string) string { return "changes/" + change + "/tasks.md" }
+
+var uncheckedItem = regexp.MustCompile(`(?m)^\s*[-*] \[ \]`)
+
+// Unchecked counts the unchecked checklist items ("- [ ]") of a tasks.md.
+func Unchecked(tasksMD []byte) int { return len(uncheckedItem.FindAll(tasksMD, -1)) }
+
 // ProposalPath is the proposal of an active change, relative to the tree.
 func ProposalPath(change string) string { return "changes/" + change + "/proposal.md" }
 
