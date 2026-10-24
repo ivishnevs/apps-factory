@@ -4,6 +4,7 @@ import { ArrowLeft, FileSearch } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
+import { TaskMaterials } from "@/components/app/materials/task-materials";
 import { EmptyState, ErrorState } from "@/components/app/page";
 import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
 import { isTerminal, useClock, useHydrated, useOverviewData } from "@/components/app/tasks/model";
@@ -57,8 +58,10 @@ export default function Page() {
         <div className="grid min-w-0 grid-cols-1 gap-6 lg:col-start-1 lg:row-start-1">
           {!isTerminal(task.status) && <Why why={d.why} queued={d.queued} task={task} look={look} now={now} />}
           {isTerminal(task.status) && task.result && <Why why={d.why} task={task} look={look} now={now} />}
+          {task.status === "DONE" && <TaskMaterials taskId={task.id} featured now={now} />}
           <Description text={task.description} />
           {task.submission && <Submission sub={task.submission} look={look} />}
+          {task.status !== "DONE" && <TaskMaterials taskId={task.id} featured={false} now={now} />}
           <ReviewNotes task={task} look={look} />
           <Comments taskId={task.id} comments={d.comments ?? []} now={now} look={look} />
         </div>

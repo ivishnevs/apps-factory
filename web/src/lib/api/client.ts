@@ -1,8 +1,9 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { Action, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
+import type { Material, MaterialPage } from "./types-materials";
 
 // Every request goes to this app's /api/*, which Next proxies to the owner API (next.config.ts). The browser
 // never holds a token; when the SaaS adds sign-in, the session cookie rides along (credentials: same-origin).
@@ -34,6 +35,19 @@ export const useToolCalls = (id: string) => useQuery({ queryKey: ["tool-calls", 
 export const useMessages = (conversation: string) =>
   useQuery({ queryKey: ["messages", conversation], queryFn: () => api<Message[]>(`/messages${qs({ conversation })}`), refetchInterval: 5000, enabled: !!conversation });
 export const useCosts = (since: string) => useQuery({ queryKey: ["costs", since], queryFn: () => api<CostView>(`/costs${qs({ since })}`) });
+
+// Task materials: what a task produced (refreshes slowly; materials only appear when work is reported), and
+// the Library across the company, newest first, paged with next_before.
+export const useTaskMaterials = (id: string) =>
+  useQuery({ queryKey: ["materials", "task", id], queryFn: () => api<Material[]>(`/tasks/${encodeURIComponent(id)}/materials`), refetchInterval: 30000 });
+export interface LibraryFilter { project?: string; kind?: string; q?: string }
+export const useLibrary = (f: LibraryFilter, limit = 50) =>
+  useInfiniteQuery({
+    queryKey: ["materials", "library", f, limit],
+    queryFn: ({ pageParam }) => api<MaterialPage>(`/materials${qs({ ...f, limit, before: pageParam || undefined })}`),
+    initialPageParam: 0,
+    getNextPageParam: (p) => (p.has_more ? p.next_before : undefined),
+  });
 
 export interface FeedFilter { project?: string; task?: string; subtree?: string; attention?: boolean }
 export const useFeed = (f: FeedFilter, limit = 100) =>

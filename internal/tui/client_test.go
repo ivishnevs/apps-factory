@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"appfactory/internal/artifacts"
 	"appfactory/internal/protocol"
+	"appfactory/internal/reports"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 )
@@ -187,6 +189,37 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte(b))
+	case strings.HasPrefix(p, "/projects/") && strings.HasSuffix(p, "/reports"):
+		// One report a page, so the client must follow next_after; task_id filters.
+		project := strings.Split(strings.TrimPrefix(p, "/projects/"), "/")[0]
+		var after int64
+		fmt.Sscan(r.URL.Query().Get("after"), &after)
+		page := storage.Page[reports.Report]{Items: []reports.Report{}, NextAfter: after}
+		for i, rep := range fc.f.Reports[project] {
+			if seq := int64(i + 1); seq > after && (r.URL.Query().Get("task_id") == "" || rep.TaskID == r.URL.Query().Get("task_id")) {
+				if len(page.Items) == 1 {
+					page.HasMore = true
+					break
+				}
+				page.Items, page.NextAfter = append(page.Items, rep), seq
+			}
+		}
+		reply(page)
+	case strings.HasPrefix(p, "/projects/") && strings.Contains(p, "/artifacts"):
+		parts := strings.Split(strings.TrimPrefix(p, "/projects/"), "/")
+		if len(parts) == 2 {
+			reply(append([]artifacts.Record{}, fc.f.ArtifactRecords[parts[0]]...))
+			return
+		}
+		a, _ := (&FixtureClient{F: fc.f}).ArtifactApproval(r.Context(), parts[0], parts[2], parts[3])
+		reply(map[string]any{"artifact": map[string]any{"id": parts[2]}, "approval": a})
+	case strings.HasPrefix(p, "/blobs/"):
+		b, ok := fc.f.Blobs[strings.TrimPrefix(p, "/blobs/")]
+		if !ok {
+			http.Error(w, "blob not found", 404)
+			return
+		}
 		_, _ = w.Write([]byte(b))
 	case strings.HasPrefix(p, "/runs/"):
 		parts := strings.Split(strings.TrimPrefix(p, "/runs/"), "/")
@@ -582,6 +615,43 @@ func TestHTTPClientChatTranscriptLinks(t *testing.T) {
 	}
 	if _, err = c.ArtifactContent(ctx, "project-2", "nope", "v1"); err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatal(err)
+	}
+}
+
+// TestHTTPClientMaterials (owner-web 2.6): reports are read across pages and narrowed to a task, artifact
+// versions with their approval, a task's exits, and blobs by digest.
+func TestHTTPClientMaterials(t *testing.T) {
+	_, _, c := newFakeCore(t)
+	ctx := context.Background()
+	reps, err := c.Reports(ctx, "project-1", "")
+	if err != nil || len(reps) != 2 {
+		t.Fatal(err, len(reps))
+	}
+	if reps, err = c.Reports(ctx, "project-1", "P1-8"); err != nil || len(reps) != 0 {
+		t.Fatal(err, reps)
+	}
+	recs, err := c.Artifacts(ctx, "project-2")
+	if err != nil || len(recs) != 1 || recs[0].TaskID != "P2-4" {
+		t.Fatal(err, recs)
+	}
+	a, err := c.ArtifactApproval(ctx, "project-2", "release-notes", "v2")
+	if err != nil || a == nil || a.Status != "PENDING" {
+		t.Fatal(err, a)
+	}
+	if a, err = c.ArtifactApproval(ctx, "project-1", "module-1-prototype", "v3"); err != nil || a != nil {
+		t.Fatal(err, a)
+	}
+	exits, err := c.TaskExits(ctx, "P2-6")
+	if err != nil || len(exits) != 1 || exits[0].Facts.PR.State != "merged" {
+		t.Fatal(err, exits)
+	}
+	att := DemoFixture().Reports["project-1"][0].Attachments[0]
+	b, err := c.Blob(ctx, att.SHA256)
+	if err != nil || int64(len(b)) != att.Size || !strings.HasPrefix(string(b), "# Module 1") {
+		t.Fatal(err, len(b))
+	}
+	if _, err = c.Blob(ctx, "../tasks"); err == nil {
+		t.Fatal("a path is not a digest")
 	}
 }
 

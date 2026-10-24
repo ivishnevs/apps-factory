@@ -25,6 +25,7 @@ type Server struct {
 	Mode string
 
 	tail feedTail
+	lib  library
 }
 
 // Handler is the whole site.
@@ -97,9 +98,44 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, err)
 			return
 		}
-		w.Header().Set("Content-Type", http.DetectContentType(b))
-		w.Header().Set("Content-Security-Policy", "sandbox")
-		_, _ = w.Write(b)
+		sendContent(w, r, b, cmp.Or(r.URL.Query().Get("name"), r.PathValue("artifact")))
+	})
+	// Task materials (materials.go): what a task produced, the Library across the company, and the blobs
+	// behind report attachments (raw, typed by the file name, sandboxed).
+	mux.HandleFunc("GET /api/tasks/{id}/materials", func(w http.ResponseWriter, r *http.Request) {
+		d, err := s.Client.TaskDetail(r.Context(), r.PathValue("id"), nil)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		v, err := taskMaterials(r.Context(), s.Client, d)
+		reply(w, v, err)
+	})
+	mux.HandleFunc("GET /api/materials", func(w http.ResponseWriter, r *http.Request) {
+		limit, before := int(num(r, "limit", 50)), num(r, "before", 0)
+		if limit < 1 || limit > 200 || before < 0 {
+			reply(w, nil, fmt.Errorf("%w: limit 1..200 and before >= 0 required", errInput))
+			return
+		}
+		all, err := s.lib.read(r.Context(), s.Client)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		q := r.URL.Query()
+		reply(w, page(all, q.Get("project"), q.Get("kind"), q.Get("q"), before, limit), nil)
+	})
+	mux.HandleFunc("GET /api/blobs/{sha256}", func(w http.ResponseWriter, r *http.Request) {
+		if !tui.ValidSHA256(r.PathValue("sha256")) {
+			reply(w, nil, fmt.Errorf("%w: a SHA-256 digest required", errInput))
+			return
+		}
+		b, err := s.Client.Blob(r.Context(), r.PathValue("sha256"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		sendContent(w, r, b, r.URL.Query().Get("name"))
 	})
 	mux.HandleFunc("POST /api/action", func(w http.ResponseWriter, r *http.Request) {
 		// A plain cross-site form cannot set this header, so a page elsewhere cannot act as the owner.

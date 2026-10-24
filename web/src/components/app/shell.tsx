@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, CircleDollarSign, Home, Inbox, KanbanSquare, MessageSquare, MoreHorizontal, Server } from "lucide-react";
+import { Activity, Bot, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, MessageSquare, MoreHorizontal, Server } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useOverview } from "@/lib/api/client";
@@ -13,6 +13,7 @@ export const nav = [
   { href: "/tasks", label: "Tasks", icon: KanbanSquare },
   { href: "/inbox", label: "Inbox", icon: Inbox, badge: "inbox" as const },
   { href: "/feed", label: "Activity", icon: Activity },
+  { href: "/library", label: "Library", icon: FolderOpen },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/costs", label: "Costs", icon: CircleDollarSign },
   { href: "/nodes", label: "Nodes", icon: Server },
@@ -60,7 +61,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {[...nav.filter((n) => phoneTabs.includes(n.href)), { href: "/more", label: "More", icon: MoreHorizontal }].map((n) => (
             <Link key={n.href} href={n.href}
               className={cn("relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground",
-                (active(path, n.href) || (n.href === "/more" && ["/chat", "/costs", "/nodes", "/more"].some((h) => active(path, h)))) && "text-foreground")}>
+                (active(path, n.href) || (n.href === "/more" && ["/library", "/chat", "/costs", "/nodes", "/more"].some((h) => active(path, h)))) && "text-foreground")}>
               <n.icon className="size-5" />
               {n.label}
               {"badge" in n && n.badge && pending > 0 && (

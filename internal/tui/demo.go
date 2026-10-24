@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"appfactory/internal/approvals"
+	"appfactory/internal/artifacts"
 	"appfactory/internal/core"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
+	"appfactory/internal/reports"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 )
@@ -450,6 +452,53 @@ func DemoFixture() Fixture {
 	}
 	f.Details["P1-5"], f.Details["P1-9"] = p15, p19
 
+	// What the done tasks produced: the designer's report with its files on P1-2 (and an HTML prototype
+	// uploaded as an artifact), the spec on P3-1, Core's runtime reports (no files), the pull request P2-6
+	// merged, and the release notes waiting for approval on P2-4 (owner-web task materials).
+	f.Blobs = map[string]string{}
+	blob := func(content string) (string, int64) {
+		sum := sha256.Sum256([]byte(content))
+		d := hex.EncodeToString(sum[:])
+		f.Blobs[d] = content
+		return d, int64(len(content))
+	}
+	attach := func(path, content string) reports.Attachment {
+		d, n := blob(content)
+		return reports.Attachment{Path: path, SHA256: d, Size: n}
+	}
+	protoSum, protoSize := blob(demoPrototype)
+	f.Artifacts["project-1/module-1-prototype/v3"] = demoPrototype
+	f.Reports = map[string][]reports.Report{
+		"project-1": {
+			{ID: "rep-1", ProjectID: "project-1", TaskID: "P1-2", RunID: "r-des-3", CreatedBy: "designer", Source: "agent", Kind: "stage_completed",
+				Summary: "Module 1 mockups v3: the list, the item screen and the empty view, light and dark.", Result: "mockups ready",
+				Changes:     []string{"docs/module-1-mockups.md", "design/module-1-list.svg", "design/tokens.json"},
+				Attachments: []reports.Attachment{attach("docs/module-1-mockups.md", demoMockupsDoc), attach("design/module-1-list.svg", demoListSVG), attach("design/tokens.json", demoTokens)},
+				CreatedAt:   unix(211)},
+			{ID: "rep-2", ProjectID: "project-1", TaskID: "P1-2", RunID: "r-des-3", CreatedBy: "system", Source: "core", Kind: "runtime", Summary: "Runtime r-des-3 ended succeeded", Result: "succeeded", CreatedAt: unix(210)},
+		},
+		"project-3": {
+			{ID: "rep-3", ProjectID: "project-3", TaskID: "P3-1", RunID: "r-des-1", CreatedBy: "designer", Source: "agent", Kind: "stage_completed",
+				Summary: "Module 2 spec v2: the public API, the error cases and the migration notes.", Result: "spec v2 in the repo",
+				Attachments: []reports.Attachment{attach("docs/module-2-spec.md", demoSpecDoc)}, CreatedAt: unix(401)},
+		},
+	}
+	f.ArtifactRecords = map[string][]artifacts.Record{
+		"project-1": {{Artifact: tasks.Artifact{ID: "module-1-prototype", Version: "v3", URI: "factory://artifacts/module-1-prototype/v3", SHA256: protoSum, Size: protoSize, Name: "module-1-prototype.html"},
+			ProjectID: "project-1", TaskID: "P1-2", RunID: "r-des-3", CreatedBy: "designer", CreatedAt: unix(212)}},
+		"project-2": {{Artifact: *artApproval.Artifact, ProjectID: "project-2", TaskID: "P2-4", RunID: "r-des-5", CreatedBy: "designer", CreatedAt: unix(9)}},
+	}
+	f.Blobs[artApproval.Artifact.SHA256] = notes
+	p26 := TaskDetail{Task: *byID("P2-6"), Why: tasks.Verdict{TaskID: "P2-6", Status: "DONE", Reason: "terminal", Clearer: tasks.Clearer{Who: "nobody", Action: "final state"}},
+		Exits: []storage.TaskExit{{RunID: "r-d2-2", Kind: "done", CreatedAt: unix(260), Facts: &storage.ExitFacts{Head: "4be1c09f2d7a", Branch: "af/P2-6", DefaultBranch: "main", Pushed: true,
+			PR: &storage.PRFacts{Number: 9, State: "merged", HeadSHA: "4be1c09f2d7a", URL: "https://github.com/company-1/project-2/pull/9"}}}}}
+	for _, it := range f.Feed {
+		if it.TaskID == "P2-6" {
+			p26.Events = append(p26.Events, it)
+		}
+	}
+	f.Details["P2-6"] = p26
+
 	// The owner's conversations with the direct reports.
 	msg := func(id, conv, project, from, to, kind, body string, min int) messaging.Message {
 		return messaging.Message{ID: id, ProjectID: project, Sender: from, Recipient: to, ConversationID: conv, MessageType: kind, Body: body, Status: "ANSWERED", Version: 2, CreatedAt: unix(min), DeliveryStatus: "TRIGGERED"}
@@ -497,6 +546,72 @@ const demoReleaseNotes = `# Project 2 · release 1.2
 ` + "```" + `
 factory release publish --channel beta --version 1.2
 ` + "```" + `
+`
+
+// demoMockupsDoc is the designer's report on module 1 (a report attachment).
+const demoMockupsDoc = `# Module 1 · mockups v3
+
+Three screens for the offline item list. Each has a light and a dark variant.
+
+## Screens
+
+| Screen | States | Notes |
+| --- | --- | --- |
+| Item list | loading, list, empty, offline | pull to refresh; the offline banner stays on top |
+| Item | view, edit | the save button waits for the local store |
+| Empty view | first run, filtered | one call to action |
+
+## Decisions
+
+1. **Offline first**: every screen reads the local store; sync runs in the background.
+2. The empty view explains what an item is and offers *Add the first item*.
+3. Spacing follows the 4 pt grid in ` + "`design/tokens.json`" + `.
+
+> The prototype (module-1-prototype v3) shows the list and the empty view.
+
+## Open questions
+
+- Should the list group items by day? Not in v1.
+`
+
+// demoSpecDoc is the module 2 spec (a report attachment).
+const demoSpecDoc = `# Module 2 · spec v2
+
+## Public API
+
+` + "```ts" + `
+export function parse(input: string): Item[]
+export function format(items: Item[]): string
+` + "```" + `
+
+## Errors
+
+- An empty input is an empty list, not an error.
+- A malformed line fails with its line number.
+
+## Migration
+
+Version 1 files load unchanged; the first save writes version 2.
+`
+
+// demoTokens are the design tokens of module 1 (a report attachment).
+const demoTokens = `{"space":{"1":4,"2":8,"3":12,"4":16},"radius":{"card":12,"chip":999},"color":{"accent":"#2563eb","danger":"#dc2626"}}`
+
+// demoListSVG is the list mockup as an image (a report attachment).
+const demoListSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="390" height="300" viewBox="0 0 390 300">
+<rect width="390" height="300" rx="16" fill="#f8fafc"/>
+<rect x="16" y="16" width="358" height="40" rx="10" fill="#2563eb"/><text x="32" y="42" font-family="sans-serif" font-size="16" fill="#fff">Items</text>
+<g font-family="sans-serif" font-size="14" fill="#0f172a">
+<rect x="16" y="72" width="358" height="56" rx="12" fill="#fff" stroke="#e2e8f0"/><text x="32" y="105">Groceries</text>
+<rect x="16" y="140" width="358" height="56" rx="12" fill="#fff" stroke="#e2e8f0"/><text x="32" y="173">Trip to Lisbon</text>
+<rect x="16" y="208" width="358" height="56" rx="12" fill="#fff" stroke="#e2e8f0"/><text x="32" y="241">Birthday ideas</text>
+</g></svg>
+`
+
+// demoPrototype is the module 1 HTML prototype (an uploaded artifact).
+const demoPrototype = `<!doctype html><html><head><meta charset="utf-8"><title>Module 1 prototype</title>
+<style>body{font:15px system-ui,sans-serif;margin:0;padding:24px;background:#f8fafc;color:#0f172a}.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin:0 0 12px}h1{font-size:20px}</style></head>
+<body><h1>Items</h1><div class="card">Groceries</div><div class="card">Trip to Lisbon</div><div class="card">Birthday ideas</div></body></html>
 `
 
 // demoNodes: mac-studio with a disabled claude driver (auth hold-off) and a codex driver with a transient

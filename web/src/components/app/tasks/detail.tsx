@@ -100,7 +100,7 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
         <div className="min-w-0 flex-1">
           <p className={cn("text-xs font-medium", you ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{done ? "Result" : you ? "Needs you" : "Status"}</p>
           <p className="mt-0.5 text-base font-semibold leading-snug text-balance wrap-anywhere">{headline}</p>
-          {done && task.result && <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap wrap-anywhere">{cleanText(task.result, look)}</p>}
+          {done && task.result && <ResultText text={cleanText(task.result, look)} />}
           {detail && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{detail}</p>}
           {!done && (h.who && !h.who.you || h.next) && (
             <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-4">
@@ -129,6 +129,23 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
         </div>
       </div>
     </section>
+  );
+}
+
+// ResultText: a long result folds to a few lines, so what the task produced (Materials) stays near the top.
+function ResultText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 280 || text.split("\n").length > 4;
+  return (
+    <>
+      <p className={cn("mt-1 text-sm text-muted-foreground whitespace-pre-wrap wrap-anywhere", long && !open && "line-clamp-4")}>{text}</p>
+      {long && (
+        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
+          className="-ml-1 mt-1 inline-flex h-9 items-center rounded-md px-1 text-sm font-medium text-foreground underline-offset-4 hover:underline">
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -165,11 +182,6 @@ export function Submission({ sub, look }: { sub: Sub; look?: Lookup }) {
             {sub.commit && <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs"><GitBranch className="size-3.5" />{sub.commit.slice(0, 12)}</span>}
             {sub.checks?.map((c) => <span key={c} className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1 font-mono text-xs text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-3.5" />{c}</span>)}
           </div>
-        )}
-        {(sub.artifacts?.length ?? 0) > 0 && (
-          <ul className="mt-3 space-y-1 text-sm">
-            {sub.artifacts!.map((a) => <li key={a.id + a.version} className="flex items-center gap-2"><FileText className="size-4 text-muted-foreground" />{a.name ?? a.id}<span className="text-xs text-muted-foreground">{a.version}</span></li>)}
-          </ul>
         )}
       </div>
     </Block>
