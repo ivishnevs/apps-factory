@@ -182,6 +182,14 @@ func TestGoldenScreens(t *testing.T) {
 		{name: "form_100x30", w: 100, h: 30, keys: []string{"2", "n"}},
 		{name: "form_errors_80x24", w: 80, h: 24, keys: []string{"2", "n", "ctrl+s"}},
 		{name: "form_filled_160x40", w: 160, h: 40, keys: []string{"2", "]", "n"}, prep: fillDemoForm},
+		// The new project form: empty with refused fields, and an existing project with its fields.
+		{name: "projform_errors_80x24", w: 80, h: 24, prep: func(m *Model) { ctrlN(m); run(m, key(m, "ctrl+s")) }},
+		{name: "projform_existing_100x30", w: 100, h: 30, prep: func(m *Model) {
+			ctrlN(m)
+			typeText(m, "Old App")
+			press(m, "tab", "tab", "tab", "tab", "right", "right", "tab")
+			typeText(m, "/Users/me/projects/old-app")
+		}},
 		// Nodes: a disabled driver with its hold-off, an offline low-disk node, a healthy one; pauses.
 		{name: "nodes_160x40", w: 160, h: 40, keys: []string{"7"}},
 		{name: "nodes_100x30", w: 100, h: 30, keys: []string{"7", "j"}},

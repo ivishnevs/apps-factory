@@ -98,6 +98,42 @@ func TestActionNeedsTheWebHeader(t *testing.T) {
 	}
 }
 
+// TestCreateProject (project-creation 2.1): the web form's create_project action carries the POST /projects
+// body with its request id; the demo adds the project to the overview and refuses a taken ID with a 502 and
+// Core's message.
+func TestCreateProject(t *testing.T) {
+	srv, c := demo(t)
+	post := func(body string) (int, map[string]string) {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/action", strings.NewReader(body))
+		req.Header.Set("X-Factory-Web", "1")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]string
+		_ = json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	body := `{"Kind":"create_project","NewProject":{"id":"advent-gift","name":"Advent gift","description":"","request_id":"r-1","openspec":{"enabled":true},"repo_mode":"existing","repo_url":"https://github.com/me/advent","audit":true}}`
+	code, out := post(body)
+	if code != 200 || out["result"] != "created project advent-gift: Advent gift" {
+		t.Fatal(code, out)
+	}
+	p := c.Sent[0].NewProject
+	if p == nil || p.RequestID != "r-1" || p.RepoMode != "existing" || p.RepoURL != "https://github.com/me/advent" || !p.Audit || !*p.OpenSpec.Enabled {
+		t.Fatalf("%+v", p)
+	}
+	var ov tui.Overview
+	getJSON(t, srv.URL+"/api/overview", &ov)
+	if last := ov.Status[len(ov.Status)-1]; last.Project.ID != "advent-gift" || last.Tasks["READY"] != 1 {
+		t.Fatalf("%+v", last)
+	}
+	if code, out = post(body); code != 502 || !strings.Contains(out["error"], "exists") {
+		t.Fatal(code, out)
+	}
+}
+
 // TestFeedStream: the feed stream starts with a state event and relays feed rows as SSE.
 func TestFeedStream(t *testing.T) {
 	srv, _ := demo(t)

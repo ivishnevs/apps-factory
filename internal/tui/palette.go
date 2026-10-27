@@ -47,6 +47,7 @@ func (m *Model) paletteItems() []paletteItem {
 	}
 	items = append(items,
 		paletteItem{"↻", "action", "Refresh now", "R", func() tea.Cmd { return m.loadOverview() }},
+		paletteItem{"+", "action", "New project…", "ctrl+n", func() tea.Cmd { return m.openProjectForm() }},
 		paletteItem{"⚠", "action", "Show what needs me", "board filter !", func() tea.Cmd { m.board.setFilter(m, "!"); return m.switchTab(tabBoard) }},
 		paletteItem{"⏸", "action", "Pause a project, agent, quota key or node…", "nodes p", func() tea.Cmd { return m.openPauseChooser("", "") }},
 	)

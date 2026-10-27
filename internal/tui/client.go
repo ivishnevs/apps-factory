@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -126,7 +127,7 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create, hold, release, read
+	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
 	TaskID     string         // task actions
 	Project    string         // say, create
 	Title      string         // create (Text is the description)
@@ -143,6 +144,8 @@ type Action struct {
 	ApprovalID string         // approve, reject
 	Scope      string         // hold, release: project, agent, quota_key or node (the company is the kill switch)
 	Target     string         // hold, release: the project ID, agent name, quota key or node ID
+	// NewProject is create_project's POST /projects body; its request_id is set per submit (one is made when empty).
+	NewProject *tasks.ProjectCreate
 }
 
 // Describe is the action in words, for confirmations and toasts.
@@ -177,6 +180,8 @@ func (a Action) Describe() string {
 			r = ", ready"
 		}
 		return fmt.Sprintf("create task %q in %s for %s (priority %d%s)", a.Title, a.Project, a.Assignee, a.Priority, r)
+	case "create_project":
+		return describeNewProject(a.NewProject)
 	case "hold":
 		d := "pause " + scopeName(a.Scope) + " " + a.Target + " (new runs stop; live runs continue)"
 		if a.Text != "" {
@@ -554,6 +559,18 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 				return "created " + id + ": " + a.Title, nil
 			}
 		}
+	case "create_project":
+		if a.NewProject == nil {
+			return "", fmt.Errorf("create_project needs NewProject")
+		}
+		p := *a.NewProject
+		if p.RequestID == "" {
+			p.RequestID = rid
+		}
+		if err = c.API.Do(ctx, "POST", "/projects", p, &result); err == nil {
+			id, _ := result["id"].(string)
+			return "created project " + cmp.Or(id, p.ID) + ": " + p.Name, nil
+		}
 	case "hold":
 		err = c.API.Do(ctx, "POST", "/pauses", map[string]string{"scope": a.Scope, "target": a.Target, "reason": a.Text}, &result)
 	case "release":
@@ -588,7 +605,7 @@ func explainConflict(a Action, err error) error {
 		what = "message " + a.MessageID + " was already read or changed meanwhile"
 	case "approve", "reject":
 		what = "approval " + a.ApprovalID + " was decided, expired or changed meanwhile"
-	case "say", "create", "stop", "start", "hold", "release":
+	case "say", "create", "create_project", "stop", "start", "hold", "release":
 		return err
 	default:
 		what = fmt.Sprintf("task %s changed meanwhile (version %d is stale)", a.TaskID, a.Version)

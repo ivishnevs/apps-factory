@@ -160,6 +160,8 @@ type Model struct {
 	errAt map[string]time.Time
 	notif *notifier
 	form  *formState
+	// projForm is the new project form (ctrl+n).
+	projForm *projFormState
 	// preview is an artifact preview modal.
 	preview *previewState
 
@@ -313,7 +315,7 @@ func (m *Model) animCmd() tea.Cmd {
 // wantsAnim: something on the screen moves: a loading spinner, a sliding toast, a reply or a create in
 // flight, or a live run on a screen that shows live runs.
 func (m *Model) wantsAnim() bool {
-	if !m.loaded || m.chat.sending || m.form != nil && m.form.sending || m.preview != nil && m.preview.loading {
+	if !m.loaded || m.chat.sending || m.form != nil && m.form.sending || m.projForm != nil && m.projForm.sending || m.preview != nil && m.preview.loading {
 		return true
 	}
 	if m.tab == tabBoard && m.board.open && m.board.detail == nil {
@@ -400,6 +402,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onChatSent(msg)
 	case formDoneMsg:
 		return m, m.onFormDone(msg)
+	case projFormDoneMsg:
+		return m, m.onProjectFormDone(msg)
 	case formEditorMsg:
 		m.onFormEditor(msg)
 		return m, nil
@@ -424,6 +428,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case tea.PasteMsg:
+		if m.projForm != nil {
+			return m, m.projForm.paste(msg)
+		}
 		if m.form != nil {
 			var cmd tea.Cmd
 			switch m.form.focus {
@@ -717,6 +724,9 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	if m.form != nil {
 		return m.form.key(m, k)
 	}
+	if m.projForm != nil {
+		return m.projForm.key(m, k)
+	}
 	if m.preview != nil {
 		return m.preview.key(m, key)
 	}
@@ -741,6 +751,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		case "?":
 			m.help = true
 			return nil
+		case "ctrl+n":
+			return m.openProjectForm()
 		case "ctrl+k", ":":
 			m.openPalette()
 			return m.palette.ti.Focus()
@@ -1137,6 +1149,8 @@ func (m *Model) hints() [][2]string {
 	switch {
 	case m.form != nil:
 		return formHint()
+	case m.projForm != nil:
+		return [][2]string{{"tab", "next field"}, {"ctrl+s", "create"}, {"esc", "cancel"}}
 	case m.preview != nil:
 		return [][2]string{{"j/k", "scroll"}, {"o", "open"}, {"y/n", "approve/reject"}, {"esc", "close"}}
 	case m.input != nil:
@@ -1191,6 +1205,8 @@ func (m *Model) modalLines(w, h int) []string {
 	switch {
 	case m.form != nil:
 		return m.formLines(w, h)
+	case m.projForm != nil:
+		return m.projFormLines(w, h)
 	case m.preview != nil:
 		return m.previewLines(w, h)
 	case m.confirm != nil:
@@ -1298,7 +1314,7 @@ func (m *Model) onClick(ms tea.Mouse) tea.Cmd {
 	if ms.Button != tea.MouseLeft {
 		return nil
 	}
-	if m.input != nil || m.confirm != nil || m.palette != nil || m.chooser != nil || m.form != nil || m.preview != nil {
+	if m.input != nil || m.confirm != nil || m.palette != nil || m.chooser != nil || m.form != nil || m.projForm != nil || m.preview != nil {
 		return nil
 	}
 	m.help = false
