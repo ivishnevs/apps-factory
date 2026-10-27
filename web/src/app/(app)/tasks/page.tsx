@@ -8,6 +8,7 @@ import { toneClass } from "@/components/app/status";
 import { columnOf, columns, isConversation, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
 import { NewProject } from "@/components/app/project/new-project";
 import { NewTask } from "@/components/app/tasks/new-task";
+import { SetupNotice } from "@/components/app/project/setup-notice";
 import { TaskCard } from "@/components/app/tasks/parts";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,6 +46,10 @@ function Tasks() {
   const [open, setOpen] = useState<Set<ColumnKey>>(() => new Set());
   const toggle = (k: ColumnKey) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const look = useMemo(() => lookupFrom(ov?.tasks), [ov?.tasks]);
+  // The filtered project, for its repository setup; ?new=task opens the new-task sheet (after creating a project).
+  const current = project === ALL ? undefined : ov?.status.find((s) => s.project.id === project)?.project;
+  const projectHasTasks = (ov?.tasks ?? []).some((t) => t.project_id === project && !isConversation(t as BoardTask));
+  const newTask = params.get("new") === "task";
 
   const set = (k: string, v: string, def: string) => {
     const p = new URLSearchParams(params.toString());
@@ -52,6 +57,7 @@ function Tasks() {
     const s = p.toString();
     router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
   };
+  const onNewTask = (v: boolean) => set("new", v ? "task" : "", "");
 
   const { filtered, byCol } = useMemo(() => {
     const runs = runsByTask(ov);
@@ -79,7 +85,12 @@ function Tasks() {
     <>
       <PageHeader title="Tasks"
         description={ov ? <>{total} open{forYou > 0 && <> · <span className="font-medium text-amber-700 dark:text-amber-300">{forYou} need{forYou === 1 ? "s" : ""} you</span></>}</> : "Loading…"}
-        actions={<><NewProject overview={ov} /><NewTask overview={ov} defaultProject={project === ALL ? undefined : project} /></>} />
+        actions={<><NewProject overview={ov} /><NewTask overview={ov} defaultProject={project === ALL ? undefined : project} open={newTask} onOpenChange={onNewTask} /></>} />
+
+      {current && (
+        <SetupNotice project={current} nodes={ov?.nodes} empty={!projectHasTasks} onAddTask={() => onNewTask(true)}
+          taskTitle={(() => { const id = current.setup?.task_id ?? current.setup?.audit_task_id; return id ? look(id)?.title : undefined; })()} />
+      )}
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
@@ -131,7 +142,7 @@ function Tasks() {
                 );
               })}
             </div>
-            {list.length === 0 ? <Empty view={view} filtered={filteredOut} /> : (
+            {list.length === 0 ? <Empty view={view} filtered={filteredOut} emptyProject={!!current && !projectHasTasks} /> : (
               <ul className="grid gap-2.5 sm:grid-cols-2">
                 {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
               </ul>
@@ -190,7 +201,8 @@ const dot = (tone: string) => ({
   BACKLOG: "bg-zinc-400", READY: "bg-sky-500", REWORK: "bg-amber-500", IN_PROGRESS: "bg-blue-500", IN_REVIEW: "bg-violet-500", DONE: "bg-emerald-500",
 } as Record<string, string>)[tone] ?? toneClass(tone);
 
-function Empty({ view, filtered }: { view: View; filtered: boolean }) {
+function Empty({ view, filtered, emptyProject }: { view: View; filtered: boolean; emptyProject?: boolean }) {
+  if (emptyProject) return <EmptyState title="No tasks in this project yet" hint="Add the first task, or ask the PM for a plan in Chat." />;
   if (filtered) return <EmptyState icon={Search} title="No matching tasks" hint="Try another search, project or assignee." />;
   if (view === "you") return <EmptyState icon={Hand} title="Nothing needs you" hint="No task waits on an answer, an approval or a decision from you." />;
   return <EmptyState title={view === "open" ? "No open tasks" : "No tasks here"} hint="Create a task, or ask the PM for a plan in Chat." />;

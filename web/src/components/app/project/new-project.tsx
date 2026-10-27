@@ -109,11 +109,18 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
     const a: Action = { Kind: "create_project", NewProject: p };
     try {
       await action.mutateAsync(a);
+      // Core sets the repository up on a node when the project's first task runs (project-creation D2).
+      const board = `/tasks?project=${encodeURIComponent(p.id)}`;
+      const withAudit = mode === "existing" && audit;
       toast.success(`Project ${p.name} created`, {
-        description: mode === "existing" ? (audit ? "Core is onboarding it; the audit task follows." : "Core is onboarding it.") : undefined,
+        description: withAudit ? "The audit task runs first and onboards the repository on a node."
+          : mode === "existing" ? "The repository is onboarded when the first task runs. Add a task to start."
+            : "The repository appears when the first task runs. Add a task to start.",
+        action: withAudit ? undefined : { label: "Add a task", onClick: () => router.push(`${board}&new=task`) },
+        duration: 8000,
       });
       onDone();
-      router.push(`/tasks?project=${encodeURIComponent(p.id)}`);
+      router.push(board);
     } catch (err) {
       setRefusal(cleanText(err instanceof Error ? err.message : String(err)) || "Core refused the project");
     }
@@ -126,7 +133,7 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
     <form onSubmit={submit} className="flex h-full min-h-0 flex-col" noValidate>
       <SheetHeader className="border-b px-5 py-4">
         <SheetTitle className="text-lg">New project</SheetTitle>
-        <SheetDescription>Core sets up its repository; then you or your team add tasks.</SheetDescription>
+        <SheetDescription>Its repository is set up on a node when its first task runs; you or your team add the tasks.</SheetDescription>
       </SheetHeader>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
         <Field id="np-name" label="Name" error={err("name")}>

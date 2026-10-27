@@ -19,7 +19,8 @@ export default function FeedPage() {
   const { data: ov } = useOverview();
   const projects = useMemo(() => (ov?.status ?? []).map((s) => s.project), [ov?.status]);
   const projectName = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p.name])), [projects]);
-  const titles = useMemo(() => new Map((ov?.tasks ?? []).map((t) => [t.id, t.title])), [ov?.tasks]);
+  // Task titles by ID, and node names as "node:<id>" (project setup summaries name the node by its ID).
+  const titles = useMemo(() => new Map([...(ov?.tasks ?? []).map((t) => [t.id, t.title] as const), ...(ov?.nodes ?? []).map((n) => [`node:${n.node_id}`, n.name] as const)]), [ov?.tasks, ov?.nodes]);
   const title = useCallback((id: string) => titles.get(id) || undefined, [titles]);
 
   const f: FeedFilter = filter === "attention" ? { attention: true } : filter.startsWith("p:") ? { project: filter.slice(2) } : {};

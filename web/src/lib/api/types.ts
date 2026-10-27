@@ -30,6 +30,16 @@ export interface Agent { name: string; role?: string; reports_to?: string; provi
 export interface Project {
   id: string; name: string; description: string; workspace: string; version: number; created_at: number;
   updated_at: number; repo_url?: string; default_branch?: string; rules?: string;
+  // project-creation: how the repository came to be, who created the project (an agent's request carries its
+  // approval) and its setup on the node; workspace is "" until the setup is ready. No setup: nothing to set up.
+  repo_mode?: RepoMode; created_by?: string; approval_id?: string; setup?: ProjectSetup;
+}
+
+export type SetupState = "pending" | "running" | "ready" | "failed";
+// ProjectSetup is tasks.ProjectSetup: the node that runs the project's first task sets the repository up.
+export interface ProjectSetup {
+  state: SetupState; task_id?: string; run_id?: string; node_id?: string; reason?: string; openspec_imported?: number;
+  openspec_untracked?: "pushed" | "task_branch" | "local" | ""; audit?: boolean; audit_task_id?: string; updated_at?: number;
 }
 
 export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[] }

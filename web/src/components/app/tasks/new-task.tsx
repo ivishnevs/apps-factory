@@ -16,12 +16,18 @@ import { Field, touchInput } from "./field";
 import { isConversation, isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
 import { displayId } from "@/lib/format";
+import { setupView } from "@/lib/project-setup";
 
 const NONE = "__none";
 
 // NewTask: the "New task" button and its sheet (Action Kind "create"), validated like the terminal form.
-export function NewTask({ overview, defaultProject }: { overview?: Overview; defaultProject?: string }) {
-  const [open, setOpen] = useState(false);
+// open/onOpenChange control the sheet from outside (the first task of a new project).
+export function NewTask({ overview, defaultProject, open: openProp, onOpenChange }: {
+  overview?: Overview; defaultProject?: string; open?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (v: boolean) => { setOpenState(v); onOpenChange?.(v); };
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -38,6 +44,8 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
   const router = useRouter();
   const projects = overview.status.map((s) => s.project);
   const [project, setProject] = useState(defaultProject && projects.some((p) => p.id === defaultProject) ? defaultProject : projects[0]?.id ?? "");
+  const chosen = projects.find((p) => p.id === project);
+  const setup = chosen ? setupView(chosen, overview.nodes) : undefined;
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [assignee, setAssignee] = useState(NONE);
@@ -79,7 +87,8 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
         <SheetDescription>It lands in the backlog unless you release it as ready.</SheetDescription>
       </SheetHeader>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-        <Field id="nt-project" label="Project" error={errors.project}>
+        <Field id="nt-project" label="Project" error={errors.project}
+          hint={setup ? (setup.state === "failed" ? "Its repository setup failed; the task that sets it up retries it." : "Its repository is set up when its first task runs.") : undefined}>
           <Select value={project} onValueChange={(v) => { setProject(v); setDeps([]); }}>
             <SelectTrigger id="nt-project" className="w-full data-[size=default]:h-11 md:data-[size=default]:h-9"><SelectValue placeholder="Choose a project" /></SelectTrigger>
             <SelectContent position="popper">{projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>

@@ -253,6 +253,21 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     if (/unpushed work is on node/.test(detail)) return out({ headline: "Waiting for its node", detail: "Its unsaved work is on a node that is busy or offline.", who: { label: "Its node", href: "/nodes" }, next: "It continues on that node when it is back." });
     return out({ headline: "All nodes busy", brief: "Starts when a node frees up", detail: "Every node that can run it is full.", who: undefined, next: "It starts when a run on a capable node ends." });
   }
+  if (reason === "project_setup") {
+    // "the setup of project P's repository failed (REASON); task T retries it" or
+    // "project P's repository is being set up by task T's run" (storage setupWait).
+    const failed = /repository failed \((.*)\); task (\S+) retries it/.exec(detail);
+    const by = failed?.[2] ?? /set up by task (\S+?)'s run/.exec(detail)?.[1];
+    const setter: Party | undefined = by ? { label: taskName(by, look), href: `/tasks/${encodeURIComponent(by)}` } : undefined;
+    if (failed) {
+      return out({ headline: "Repository setup failed", label: "Waiting for the repository", brief: "Setup failed", who: setter,
+        detail: `The project's repository could not be set up: ${cleanText(failed[1], look)}.`,
+        next: `Fix the cause on the node, then retry ${by ? taskName(by, look, true) : "the task that sets it up"}; it starts after that.`, you: false });
+    }
+    return out({ headline: "Waiting for the repository", brief: by ? "Being set up" : undefined, who: setter,
+      detail: by ? `${taskName(by, look, true)} sets up the project's repository first.` : "The project's first task sets up its repository first.",
+      next: "It starts on its own once the repository is ready.", you: false });
+  }
   if (reason === "runnable") return out({ headline: "Starting soon", detail: "It is next in line to run.", who: undefined, you: false });
   return out({ headline: capital(reason.replace(/[:_]/g, " ")), detail: note, next: cleanText(action, look) || undefined });
 }

@@ -71,6 +71,34 @@ function openspecPath(p: string) {
   return p;
 }
 
+// projectSummary: Core's project.created / provisioned / setup_failed notes (storage createdNote,
+// provisionedNote, CompleteProjectSetup) in the owner's words. title("node:<id>") names a node.
+function projectSummary(t: string, raw: string, title: (id: string) => string | undefined): string | undefined {
+  const who = (w: string) => (w === "owner" ? "you" : w.replace(/^agent:/, ""));
+  const node = (id: string) => title(`node:${id}`) ?? (new RegExp(`^${HEX}$`).test(id) ? "" : id);
+  const on = (id: string) => (node(id) ? ` on ${node(id)}` : "");
+  let m: RegExpMatchArray | null;
+  if (t === "project.created" && (m = raw.match(/^project \S+ created by ([^,;]+)(, approved by the owner[^;]*)?(?:;\s*(.*))?$/))) {
+    const repo = (m[3] ?? "")
+      .replace(/^repository:\s*/, "")
+      .replace(/^new local git repository/, "new local repository")
+      .replace(/, created (?:on the node|through the node's gh) when the first task runs$/, ", set up when its first task runs")
+      .replace(/^existing (.+), onboarded on the node before the first task( \(audit first\))?$/, (_, w: string, a?: string) => `existing repository ${w}, onboarded before its first task${a ? ", audit first" : ""}`);
+    return `Created by ${who(m[1].trim())}${m[2] ? ", approved by you" : ""}${repo ? ` · ${cap(repo)}` : ""}`;
+  }
+  if (t === "project.provisioned" && (m = raw.match(/^project \S+ ready on node (\S+): ([\s\S]*)$/))) {
+    const [what, ...rest] = m[2].split("; ");
+    const parts = rest.map((p) => p
+      .replace(/ into Factory$/, "")
+      .replace(/^the repository no longer tracks the OpenSpec tree \((.*)\)$/, "OpenSpec untracked in git: $1"));
+    return [`Repository ready${on(m[1])}: ${what.replace(/^local git repository /, "local repository ")}`, ...parts].join(" · ");
+  }
+  if (t === "project.setup_failed" && (m = raw.match(/^setting up project \S+'s repository failed on node (\S+): ([\s\S]*)$/))) {
+    return `Repository setup failed${on(m[1])}: ${prose(m[2], title)}`;
+  }
+  return undefined;
+}
+
 export function feedSummary(item: FeedItem, title: (id: string) => string | undefined = () => undefined): string {
   const raw = (item.summary ?? "").trim();
   const t = item.type;
@@ -94,7 +122,14 @@ export function feedSummary(item: FeedItem, title: (id: string) => string | unde
   if (t.startsWith("node.") && (m = raw.match(reHex("^node (\\S+) \\(HEX\\):\\s*([\\s\\S]*)$", "")))) {
     return `${m[1]}: ${prose(m[2], title)}`;
   }
-  if (t.startsWith("task.unparked.") && /^(cleared|overridden)$/.test(raw)) {
+  if (t === "approval.requested" && (m = raw.match(/^factory_project_create:\s*([\s\S]*)$/))) {
+    return `Asks to create a project${m[1] ? `: ${prose(m[1], title)}` : ""}`;
+  }
+  if (t.startsWith("project.") && raw) {
+    const s = projectSummary(t, raw, title);
+    if (s) return s;
+  }
+  if (t.startsWith("task.unparked.") &&/^(cleared|overridden)$/.test(raw)) {
     return raw === "overridden" ? "Resumed early" : "Resumed";
   }
   if (!raw) {

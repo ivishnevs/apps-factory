@@ -12,6 +12,7 @@ import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { NewProject } from "@/components/app/project/new-project";
+import { SetupLine } from "@/components/app/project/setup-notice";
 import { Row, Section } from "./card";
 
 const clock = (t?: number) => (t ? format(new Date(t * 1000), "HH:mm") : "");
@@ -199,10 +200,12 @@ export function Projects({ ov }: { ov: Overview }) {
                     <span className="min-w-0 truncate text-xs text-muted-foreground">{open} open · {live} running{s.runnable > 0 ? ` · ${s.runnable} runnable` : ""}</span>
                     <ChevronRight aria-hidden className="ml-auto size-4 shrink-0 self-center text-muted-foreground/60" />
                   </div>
-                  <div className="mt-2.5 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-muted" role="img"
+                  <SetupLine project={s.project} nodes={ov.nodes} />
+                  {total > 0 && <div className="mt-2.5 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-muted" role="img"
                     aria-label={segments.filter((g) => s.tasks[g.key]).map((g) => `${s.tasks[g.key]} ${g.label}`).join(", ")}>
                     {segments.map((g) => s.tasks[g.key] ? <span key={g.key} className={g.color} style={{ flexGrow: s.tasks[g.key] }} /> : null)}
-                  </div>
+                  </div>}
+                  {total === 0 && !s.project.setup && <p className="mt-1.5 text-xs text-muted-foreground">No tasks yet.</p>}
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     {segments.filter((g) => s.tasks[g.key]).map((g) => (
                       <span key={g.key} className="inline-flex items-center gap-1.5"><span aria-hidden className={cn("size-1.5 rounded-full", g.color)} />{s.tasks[g.key]} {g.label}</span>

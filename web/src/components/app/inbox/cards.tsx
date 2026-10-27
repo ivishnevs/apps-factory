@@ -1,12 +1,13 @@
 "use client";
 
-import { Check, CircleAlert, Eye, MessageCircleQuestion, ShieldCheck, ShieldQuestion, Siren, X } from "lucide-react";
+import { Check, CircleAlert, Eye, FolderInput, FolderPlus, GitBranch, Lock, MessageCircleQuestion, ShieldCheck, ShieldQuestion, Siren, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Markdown } from "@/components/app/run/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Approval, Message, Question } from "@/lib/api/types";
+import type { Approval, Message, Question, RepoMode } from "@/lib/api/types";
+import { repoModeWords } from "@/lib/project-setup";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ArtifactPreview } from "./artifact-preview";
@@ -153,7 +154,9 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
       {ap.reason && <p className="mt-1.5 text-sm text-muted-foreground">{ap.reason}</p>}
 
       <div className="mt-4">
-        {artifact && ap.artifact ? <ArtifactPreview project={ap.project_id} artifact={ap.artifact} /> : (
+        {artifact && ap.artifact ? <ArtifactPreview project={ap.project_id} artifact={ap.artifact} /> : ap.call?.name === "factory_project_create" ? (
+          <ProjectRequest args={ap.call.arguments ?? {}} />
+        ) : (
           <div className="overflow-hidden rounded-xl border">
             <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2">
               <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" />
@@ -163,7 +166,7 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
               <dl className="divide-y text-sm">
                 {args.map(([k, v]) => (
                   <div key={k} className="grid grid-cols-[minmax(5rem,auto)_1fr] gap-3 px-3 py-2">
-                    <dt className="text-muted-foreground">{k}</dt>
+                    <dt className="text-muted-foreground">{k.replace(/_/g, " ")}</dt>
                     <dd className="min-w-0 break-words font-mono text-[13px]">
                       {typeof v === "object" && v !== null ? <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(v, null, 2)}</pre> : String(v)}
                     </dd>
@@ -193,5 +196,54 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
         </div>
       </div>
     </Shell>
+  );
+}
+
+// ProjectRequest: an agent's factory_project_create call (project-creation D6) as the project it would create.
+function ProjectRequest({ args }: { args: Record<string, unknown> }) {
+  const str = (k: string) => (typeof args[k] === "string" ? (args[k] as string).trim() : args[k] == null ? "" : String(args[k]));
+  const id = str("project_id"), name = str("name") || id;
+  const mode = (str("repo_mode") || (str("workspace") || str("repo_url") ? "existing" : "local")) as RepoMode;
+  const Icon = mode === "github" ? Lock : mode === "existing" ? FolderInput : GitBranch;
+  const openspec = args.openspec !== false;
+  const rows: [string, string][] = [["Folder on the node", str("workspace")], ["Repository URL", str("repo_url")], ["Branch", str("default_branch")]];
+  const row = "grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-3 px-3 py-2";
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="flex items-start gap-3 border-b bg-muted/40 px-3 py-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground ring-1 ring-border"><FolderPlus className="size-4" /></span>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">New project</p>
+          <p className="break-words font-medium leading-snug">{name}</p>
+          {id && id !== name && <p className="break-all font-mono text-xs text-muted-foreground">{id}</p>}
+        </div>
+      </div>
+      <dl className="divide-y text-sm">
+        {str("description") && (
+          <div className="px-3 py-2.5"><dt className="sr-only">Description</dt><dd className="break-words text-foreground/90">{str("description")}</dd></div>
+        )}
+        <div className={row}>
+          <dt className="text-muted-foreground">Repository</dt>
+          <dd className="flex min-w-0 items-center gap-1.5"><Icon className="size-3.5 shrink-0 text-muted-foreground" />{repoModeWords[mode] ?? mode}</dd>
+        </div>
+        {rows.filter(([, v]) => v).map(([k, v]) => (
+          <div key={k} className={row}>
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="min-w-0 break-all font-mono text-[13px]">{v}</dd>
+          </div>
+        ))}
+        {mode === "existing" && (
+          <div className={row}>
+            <dt className="text-muted-foreground">Audit first</dt>
+            <dd>{args.audit === true ? "Yes, a read-only audit task runs first" : "No"}</dd>
+          </div>
+        )}
+        <div className={row}>
+          <dt className="text-muted-foreground">OpenSpec</dt>
+          <dd>{openspec ? (mode === "existing" ? "On; its openspec/ is imported" : "On") : "Off"}</dd>
+        </div>
+      </dl>
+      <p className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">Nothing is created until you approve. The repository is set up when the project&apos;s first task runs.</p>
+    </div>
   );
 }

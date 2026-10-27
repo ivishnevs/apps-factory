@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AlertTriangle, Ban, CheckCircle2, Circle, CircleX, FileText, GitPullRequestArrow, HardDrive, MessageSquare, Pause, Pencil,
+  AlertTriangle, Ban, CheckCircle2, Circle, CircleX, FileText, FolderCheck, FolderPlus, FolderX, GitPullRequestArrow, HardDrive, MessageSquare, Pause, Pencil,
   Play, Plus, RotateCcw, ScrollText, ShieldQuestion, SquareTerminal,
 } from "lucide-react";
 import Link from "next/link";
@@ -25,6 +25,9 @@ const toneCls: Record<Tone, string> = {
 export function feedLook(item: FeedItem): { icon: React.ElementType; tone: Tone } {
   const t = item.type;
   if (t.startsWith("approval.")) return { icon: ShieldQuestion, tone: "violet" };
+  if (t === "project.created") return { icon: FolderPlus, tone: "info" };
+  if (t === "project.provisioned") return { icon: FolderCheck, tone: "ok" };
+  if (t === "project.setup_failed") return { icon: FolderX, tone: "bad" };
   if (item.attention) {
     if (t.startsWith("node.")) return { icon: HardDrive, tone: "bad" };
     if (t.includes("paused")) return { icon: Pause, tone: "warn" };
@@ -59,7 +62,8 @@ const verbs: Record<string, string> = {
   "task.created": "Created", "task.started": "Started", "task.retry": "Retry", "task.commented": "Comment",
   "task.exit.done": "Done", "task.exit.submitted": "Submitted", "task.exit.handoff": "Handed off", "task.exit.asked": "Asked",
   "task.exit.blocked": "Blocked", "message.created": "Message", "approval.requested": "Approval requested", "owner.paused": "Paused",
-  "run.command_refused": "Command refused",
+  "run.command_refused": "Command refused", "project.created": "New project", "project.provisioned": "Repository ready",
+  "project.setup_failed": "Setup failed",
 };
 function verb(t: string) {
   if (verbs[t]) return verbs[t];
@@ -84,7 +88,8 @@ export function FeedRow({ item, fresh, projectName, title }: {
   item: FeedItem; fresh?: boolean; projectName?: string; title?: (id: string) => string | undefined;
 }) {
   const { icon: Icon, tone } = feedLook(item);
-  const href = item.task_id ? `/tasks/${item.task_id}` : item.run_id ? `/runs/${item.run_id}` : undefined;
+  const href = item.task_id ? `/tasks/${item.task_id}` : item.run_id ? `/runs/${item.run_id}`
+    : item.type.startsWith("project.") && item.project_id ? `/tasks?project=${encodeURIComponent(item.project_id)}` : undefined;
   const who = item.agent || item.actor;
   const summary = feedSummary(item, title);
   // The task by its title, unless the summary already is the title.
@@ -97,7 +102,7 @@ export function FeedRow({ item, fresh, projectName, title }: {
       <span className="min-w-0 flex-1">
         <span className={cn("line-clamp-2 text-sm leading-snug", item.attention && "font-medium")}>{summary}</span>
         <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-          <span className={cn("font-medium", item.attention ? "text-red-600 dark:text-red-400" : "text-foreground/70")}>{verb(item.type)}</span>
+          <span className={cn("font-medium", item.attention || item.type === "project.setup_failed" ? "text-red-600 dark:text-red-400" : "text-foreground/70")}>{verb(item.type)}</span>
           {who && <><Dot /><span className="font-medium text-foreground/80">{who}</span></>}
           {who && item.actor && item.agent && item.actor !== item.agent && <span className="hidden sm:inline">by {item.actor}</span>}
           {(projectName || item.project_id) && <><Dot /><span>{projectName || item.project_id}</span></>}
