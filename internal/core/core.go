@@ -41,6 +41,9 @@ type Core struct {
 	// DefaultReport is the owner's default direct report (owner.default_report, hierarchy D5): unaddressed owner
 	// messages go to its conversation; empty means the only direct report.
 	DefaultReport string
+	// AuditAssignee is the agent of an existing repository's onboarding audit (projects.audit_assignee,
+	// project-creation D5); empty means config.DefaultAuditAssignee.
+	AuditAssignee string
 	// lastStallSweep is touched only by the tick goroutine.
 	lastStallSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).

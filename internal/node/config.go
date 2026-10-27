@@ -61,6 +61,9 @@ type Config struct {
 	// SecretsFile is a 0600 KEY=VALUE file of this node's secrets (ReadSecrets), read at each run: the values of
 	// the ${secret:NAME} references in the headers of a run's external MCP servers. They never leave the node.
 	SecretsFile string `yaml:"secrets_file"`
+	// ProjectsRoot is where the node creates the repositories of new projects and clones existing ones given
+	// by URL (project-creation D3); empty is <state_dir>/projects. A leading ~/ is the user's home.
+	ProjectsRoot string `yaml:"projects_root"`
 }
 
 // DefaultCompany is the company of a node whose node.yaml names none.
@@ -246,7 +249,14 @@ func (c *Config) Absolute() error {
 		}
 		return abs(p)
 	}
-	return errors.Join(abs(&c.StateDir), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
+	if rest, ok := strings.CutPrefix(c.ProjectsRoot, "~/"); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("projects_root: %w", err)
+		}
+		c.ProjectsRoot = filepath.Join(home, rest)
+	}
+	return errors.Join(abs(&c.StateDir), abs(&c.ProjectsRoot), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
 		abs(&c.TokenFile), abs(&c.SecretsFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
 		abs(&c.NATS.CredsFile), abs(&c.NATS.NkeySeedFile), abs(&c.NATS.TLS.CAFile), abs(&c.NATS.TLS.CertFile), abs(&c.NATS.TLS.KeyFile))
 }
@@ -306,6 +316,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Worktrees.Enabled && c.Worktrees.Root == "" && c.StateDir != "" {
 		c.Worktrees.Root = filepath.Join(c.StateDir, "worktrees")
+	}
+	if c.ProjectsRoot == "" && c.StateDir != "" {
+		c.ProjectsRoot = filepath.Join(c.StateDir, "projects")
 	}
 	if len(c.Worktrees.ScanCommand) > 0 && c.Worktrees.ScanCommand[0] == "" {
 		errs = append(errs, errors.New("worktrees.scan_command: empty executable"))

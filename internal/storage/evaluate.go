@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -246,7 +247,12 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		return snap, err // a conversation run does not take the project writer slot
 	}
 	// The workspace_writer index includes unreleased lost runs: they keep the project workspace slot.
-	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND workspace=? AND (status!='ENDED' OR unreleased=1) AND coalesce(task_id,'')!=? ORDER BY unreleased DESC,created_at LIMIT 1", tx.company, p.Workspace, t.ID)
+	// The run that sets the project's repository up holds the project's setup slot (project-creation D2).
+	snap.WriterRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND workspace IN (?,?) AND (status!='ENDED' OR unreleased=1) AND coalesce(task_id,'')!=? ORDER BY unreleased DESC,created_at LIMIT 1", tx.company, cmp.Or(p.Workspace, setupSlot(p.ID)), setupSlot(p.ID), t.ID)
+	if err != nil {
+		return snap, err
+	}
+	snap.ProjectSetup, err = setupWait(ctx, tx, p, t.ID)
 	return snap, err
 }
 

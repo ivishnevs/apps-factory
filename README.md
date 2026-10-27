@@ -100,7 +100,7 @@ First project and task, in another terminal with the same environment:
 
 ```sh
 mkdir -p .cache/my-project
-./bin/factory projects create my-project "$PWD/.cache/my-project"   # add --repo URL [--branch main] for PRs
+./bin/factory projects create my-project "$PWD/.cache/my-project"   # add --repo URL [--branch main] for PRs; without a path the node creates a repository (docs/projects.md)
 ./bin/factory tasks create - <<'JSON'
 {"id":"first-task","project_id":"my-project","title":"First task","description":"Reply TASK_ONE_OK; do not modify files.","assignee":"demo","request_id":"create-first-task"}
 JSON
@@ -211,6 +211,7 @@ The scripts check `GET /health` and refuse to run against the wrong company. Ful
 - [agent-configuration.md](docs/agent-configuration.md) — agents, profiles, hierarchy, runtime and workspace settings.
 - [agent-config-verification.md](docs/agent-config-verification.md) — Agent Config verification results.
 - [approvals.md](docs/approvals.md) — owner approvals of exact MCP actions and shell commands.
+- [projects.md](docs/projects.md) — creating projects (local, private GitHub, existing repositories with onboarding), by the owner or an agent with approval.
 - [approvals-verification.md](docs/approvals-verification.md) — action approval verification results.
 - [architecture.md](docs/architecture.md) — Core, outbox, claims, leases, tenancy and NATS subjects.
 - [artifact-approvals.md](docs/artifact-approvals.md) — versioned artifacts, uploads and approval-gated tasks.

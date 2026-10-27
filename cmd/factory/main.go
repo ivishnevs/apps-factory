@@ -246,7 +246,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	c := core.Core{Store: s, Bus: b, Company: company, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), DefaultReport: catalog.DefaultReport, ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
+	c := core.Core{Store: s, Bus: b, Company: company, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), DefaultReport: catalog.DefaultReport, AuditAssignee: catalog.AuditAssignee, ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
 		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
 	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)

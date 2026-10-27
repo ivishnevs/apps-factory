@@ -115,6 +115,9 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 			if t.Operation == "factory.task.assign" && !a.Spec.Communication.CanAssignTasks {
 				return false
 			}
+			if projectTool(t) && !a.CreatesProjects() {
+				return false
+			}
 		}
 		return true
 	}
@@ -256,7 +259,8 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		}
 		ops["factory.decision.decide."+category] = true
 	}
-	needsApproval := p.Name == "factory_decision_record"
+	// A project is created only with the owner's approval of the exact call (project-creation D4).
+	needsApproval := p.Name == "factory_decision_record" || p.Name == "factory_project_create"
 	for op := range ops {
 		for _, a := range []config.Agent{snapshot, current} {
 			d := a.Authorize(op)
@@ -295,6 +299,11 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 			http.Error(w, "stable request_id required", 400)
 			return
 		}
+	}
+	if p.Name == "factory_project_create" {
+		approval, _ := r.Context().Value(approvalIntentKey{}).(string)
+		c.projectCreateTool(w, r, args, run, approval)
+		return
 	}
 	if strings.HasPrefix(p.Name, "factory_openspec_") {
 		c.openSpecTool(w, r, p, run)
@@ -430,7 +439,12 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	case "factory_task_create":
 		method = "POST"
 		path = "/tasks"
-		args["project_id"] = run.Spec.Project
+		project, err := c.taskProject(r, args, run)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		args["project_id"] = project
 	case "factory_task_update", "factory_task_assign":
 		method = "PATCH"
 		path = "/tasks/" + url.PathEscape(id)

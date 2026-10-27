@@ -231,7 +231,7 @@ func Run(ctx context.Context, n Node) error {
 	names := []string{}
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Bus: n.Bus, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
-			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv, SecretsFile: c.SecretsFile}
+			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv, SecretsFile: c.SecretsFile, ProjectsRoot: c.ProjectsRoot}
 		if c.StateDir != "" {
 			w.BlobCache = filepath.Join(c.StateDir, "blobs") // project data by digest, shared by the slots
 		}

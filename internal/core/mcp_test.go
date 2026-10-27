@@ -103,8 +103,8 @@ func TestRunScopedMCP(t *testing.T) {
 	if w = tool("task_create", map[string]any{"title": "bypass", "actor": "owner", "request_id": "bad"}); w.Code != 400 {
 		t.Fatal("actor accepted", w.Code)
 	}
-	if w = tool("task_create", map[string]any{"title": "bypass", "project_id": "other", "request_id": "bad"}); w.Code != 400 {
-		t.Fatal("project accepted", w.Code)
+	if w = tool("task_create", map[string]any{"title": "bypass", "project_id": "other", "request_id": "bad"}); w.Code != 403 {
+		t.Fatal("project accepted (only the run's project or one the agent created)", w.Code)
 	}
 	if w = tool("task_create", map[string]any{"title": "child", "request_id": ""}); w.Code != 400 {
 		t.Fatal("empty replay key", w.Code)

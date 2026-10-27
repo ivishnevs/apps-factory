@@ -45,8 +45,16 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		}
 		return spec, err
 	}
-	if err = s.checkTaskChange(ctx, tx, t, true); err != nil {
+	p, err := projectTx(ctx, tx, t.ProjectID)
+	if err != nil {
 		return spec, err
+	}
+	// A project whose repository is not set up yet has no OpenSpec tree in Core either (an existing
+	// repository's is imported by the setup): the node's preflight checks the change after the setup.
+	if p.Ready() || t.Kind == tasks.KindConversation {
+		if err = s.checkTaskChange(ctx, tx, t, true); err != nil {
+			return spec, err
+		}
 	}
 	spec.OpenSpecChange = t.OpenSpecChange
 	inputs, reason, err := approvedArtifactInputs(ctx, tx, t)
@@ -72,10 +80,6 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); all >= perAgent || inProject >= perProject {
 		return spec, ErrConflict
 	}
-	p, err := projectTx(ctx, tx, t.ProjectID)
-	if err != nil {
-		return spec, err
-	}
 	spec.Workspace = p.Workspace
 	// Worktrees need a repository: without repo_url the task keeps the shared project workspace.
 	spec.RepoURL, spec.DefaultBranch, spec.WorkspaceMode = p.RepoURL, p.DefaultBranch, ""
@@ -85,6 +89,15 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if t.Kind == tasks.KindConversation {
 		// A conversation runs in the project workspace without its writer slot or a task worktree.
 		spec.Conversation, spec.WorkspaceMode = true, ""
+	} else if !p.Ready() {
+		// The run sets the repository up first (project-creation D2); it holds the project's setup slot, so no
+		// other run of the project starts meanwhile, on any node.
+		spec.ProjectSetup = setupSpec(p)
+		spec.Workspace, spec.RepoURL, spec.DefaultBranch, spec.WorkspaceMode = "", "", "", ""
+		p.Setup.State, p.Setup.TaskID, p.Setup.RunID, p.Setup.UpdatedAt = tasks.SetupRunning, t.ID, spec.ID, tx.now().Unix()
+		if err = saveProjectBody(ctx, tx, p); err != nil {
+			return spec, err
+		}
 	}
 	if t.CurrentRunID != "" {
 		var status string

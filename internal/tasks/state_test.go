@@ -72,6 +72,7 @@ func TestEvaluateReasons(t *testing.T) {
 		{"agent busy", func(s *Snapshot) { s.AgentRun = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"} }, ReasonCapacity, "run:r2"},
 		{"writer busy", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "QUEUED", TaskID: "other"} }, ReasonCapacity, "run:r3"},
 		{"writer lost", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "ENDED", TaskID: "other", Lost: true} }, ReasonCapacity, "node"},
+		{"project setup", func(s *Snapshot) { s.ProjectSetup = "project p's repository is being set up by task t0's run" }, ReasonProjectSetup, "node"},
 		// Order: the first false conjunct wins.
 		{"backlog before unassigned", func(s *Snapshot) { s.Task.Status, s.Task.Assignee = "BACKLOG", "" }, ReasonBacklog, "owner"},
 		{"live run before parks", func(s *Snapshot) { s.CurrentRun = live; s.Parks = []Park{ask} }, ReasonLiveRun, "run:r1"},

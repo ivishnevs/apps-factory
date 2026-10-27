@@ -17,14 +17,7 @@ import (
 )
 
 func (c *Core) taskRoutes(m *http.ServeMux) {
-	m.HandleFunc("POST /projects", func(w http.ResponseWriter, r *http.Request) {
-		var p tasks.ProjectCreate
-		if !decode(w, r, &p) {
-			return
-		}
-		v, err := c.Store.CreateProject(r.Context(), c.companyFrom(r), p)
-		reply(w, v, err)
-	})
+	c.projectRoutes(m)
 	m.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.Projects(r.Context(), c.companyFrom(r))
 		reply(w, v, err)
