@@ -206,6 +206,12 @@ func TestGoldenScreens(t *testing.T) {
 		{name: "task_detail_parks_120x40", w: 120, h: 40, prep: func(m *Model) { run(m, m.openDetail("P1-5")) }},
 		{name: "inbox_notification_100x30", w: 100, h: 30, keys: []string{"5", "j", "j", "j"}},
 		{name: "inbox_notification_80x24", w: 80, h: 24, keys: []string{"5", "j", "j", "j"}},
+		// Project setup (project-creation 2.3): a failed setup and a project waiting for its first task on the
+		// board, a task waiting for the repository, an agent's project request in the inbox.
+		{name: "board_setup_failed_120x30", w: 120, h: 30, keys: []string{"2"}, prep: func(m *Model) { m.project = "project-4" }},
+		{name: "board_setup_pending_100x30", w: 100, h: 30, keys: []string{"2"}, prep: func(m *Model) { m.project = "project-5" }},
+		{name: "task_detail_setup_120x40", w: 120, h: 40, prep: func(m *Model) { run(m, m.openDetail("P4-2")) }},
+		{name: "inbox_project_approval_100x30", w: 100, h: 30, keys: []string{"5", "j", "j", "j", "j", "j"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, _ := demoModel(t, tc.w, tc.h)

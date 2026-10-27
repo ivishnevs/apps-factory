@@ -1,0 +1,30 @@
+ ◆ APP FACTORY   ● all 17%   ● project-1 22%   ● project-2 16%   ● project-3 16%   ✗ project-4 0%   ◌ project-5   14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 7
+ 2 tasks  · z shows cancelled                                                                                     more ▶
+ ✗ repository setup failed on mac-studio: gh is not authenticated on node mac-studio: run gh auth login
+   fix it on the node; P4-1 retries on its own, r on it retries now
+╭─────── ● Backlog 0 ────────╮╭──────── ● Ready 2 ─────────╮╭─────── ● Running 0 ────────╮╭─────── ● Waiting 0 ────────╮
+│   —                        ││ ╭────────────────────────╮ ││   —                        ││   —                        │
+│                            ││ │ ● Task 1               │ ││                            ││                            │
+│                            ││ │ P4-1  project-4     ▲8 │ ││                            ││                            │
+│                            ││ │ ● developer-1      18m │ ││                            ││                            │
+│                            ││ │ ↳ backoff: the retry … │ ││                            ││                            │
+│                            ││ ╰────────────────────────╯ ││                            ││                            │
+│                            ││ ╭────────────────────────╮ ││                            ││                            │
+│                            ││ │ ● Task 2               │ ││                            ││                            │
+│                            ││ │ P4-2  project-4     △6 │ ││                            ││                            │
+│                            ││ │ ● qa               31m │ ││                            ││                            │
+│                            ││ │ ↳ waits for the repos… │ ││                            ││                            │
+│                            ││ ╰────────────────────────╯ ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+│                            ││                            ││                            ││                            │
+╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +5 in inbox
+ ←→↑↓ move  enter open  n new  / filter  ! needs you  L live  ^k palette  [ ] project  ? help  q quit

@@ -91,6 +91,12 @@ func feedIcon(item storage.FeedItem) string {
 	switch {
 	case item.Attention:
 		return stRedBold.Render("⚠")
+	case t == "project.setup_failed":
+		return stRed.Render("✗")
+	case t == "project.provisioned":
+		return stGreen.Render("✓")
+	case t == "project.created":
+		return stCyan.Render("+")
 	case strings.HasSuffix(t, ".done"):
 		return stGreen.Render("✓")
 	case t == "task.created":
@@ -142,6 +148,8 @@ func (m *Model) feedLines(w, h int) []string {
 		ts := stMagenta
 		if item.Attention {
 			ts = stRedBold
+		} else if item.Type == "project.setup_failed" {
+			ts = stRed
 		}
 		summary := oneLine(item.Summary)
 		row := stDim.Render(m.clock(item.CreatedAt)) + " " + feedIcon(item) + " " + ts.Render(fit(typ, 22)) + stFaint.Render(fit(where, 7)) +

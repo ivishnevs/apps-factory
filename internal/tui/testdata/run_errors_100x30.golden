@@ -1,5 +1,5 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
-  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs   ▸ run r-d1-7 … │ ⚠ 6
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs   ▸ run r-d1-7 … │ ⚠ 7
 ╭──────────────── developer-1 · r-d1-7 · P1-3 · ● live · follow · ✗3 · errors only ────────────────╮
 │    ✗ command refused (deny, rule no-force-push): git push --force origin af/P1-3        14:21:21 │
 │    ⚠ tool error: Exit code 126 command refused by policy no-force-push: push a new com… 14:21:22 │
@@ -26,5 +26,5 @@
 │                                                                                                  │
 │    ⠋ developer-1 is working                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
  t transcript  e errors  f follow  j/k scroll  T task  esc back  ^k palette  [ ] project  ? help  q…

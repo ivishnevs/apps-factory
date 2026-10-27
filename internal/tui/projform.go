@@ -273,8 +273,14 @@ func (m *Model) onProjectFormDone(msg projFormDoneMsg) tea.Cmd {
 		return nil
 	}
 	m.projForm = nil
-	m.project = f.body().ID // show the new project
-	m.setToast("✓ "+msg.text, false)
+	b := f.body()
+	m.project = b.ID // show the new project on the board, where n adds its first task
+	m.switchTab(tabBoard)
+	next := " · its repository is set up when the first task runs: n adds it"
+	if b.RepoMode == RepoExisting && b.Audit {
+		next = " · the audit task runs first and onboards the repository"
+	}
+	m.setToast("✓ "+msg.text+next, false)
 	return m.loadOverview()
 }
 

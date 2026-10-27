@@ -37,6 +37,9 @@ func (m *Model) promptLine(w int) string {
 	var text, keys string
 	if ap, isApproval := m.approvalOf(msg); isApproval || msg.ApprovalID != "" {
 		text = fmt.Sprintf("%s wants %s %s — approve?", msg.Sender, ap.Call.Name, brief(ap.Call.Arguments))
+		if ap.Call.Name == "factory_project_create" {
+			text = fmt.Sprintf("%s wants to %s — approve?", msg.Sender, projectCreateBrief(ap.Call.Arguments))
+		}
 		keys = "[Y/N]"
 	} else if !answerable(msg) {
 		// A notification or report: it takes no answer (POST answer would be refused).

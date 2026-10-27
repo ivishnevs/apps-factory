@@ -1,5 +1,5 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
-  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
 ╭─────────────────────────────────────────── Nodes · 3 ────────────────────────────────────────────╮
 │ ▸● mac-studio (n1) · online                                                          beat 5s ago │
 │    slots    ▇▇▇▇▇▇·· 3/4 in use                                                                  │
@@ -26,5 +26,5 @@
 │ 14:20:00 ⚠ driver_unsupported driver claude disabled on node mac-studio: auth check failed: 401… │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
  y confirm  n cancel

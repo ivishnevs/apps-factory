@@ -1,5 +1,5 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                                                 14:30
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs                                  ● fixture demo │ Company 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY  [ ● all 17% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ] [ ✗ project-4 0% ] [ ◌ project-5 ]                              14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs                                  ● fixture demo │ Company 1 │ ▶ running │ ⚠ 7
 ╭───────────────────────────────────────── Nodes · 3 ──────────────────────────────────────────╮╭───────────────────────── Pauses · 2 ─────────────────────────╮
 │ ▸● mac-studio (n1) · online                                                      beat 5s ago ││ ⏸ agent designer  waiting for the style guide owner · 1h ago │
 │    slots    ▇▇▇▇▇▇·· 3/4 in use                                                              ││ ⏸ quota key codex-team  … factory · 25m ago · until 16:00:00 │
@@ -36,5 +36,5 @@
 │                                                                                              ││                                                              │
 │                                                                                              ││                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.                          [A option-a / option-b]  +5 in inbox
  h/l nodes/pauses  j/k move  p pause…  u resume  K kill switch  ^k palette  [ ] project  ? help  q quit

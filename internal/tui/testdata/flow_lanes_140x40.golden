@@ -1,11 +1,8 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                             14:30
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 6
-╭──────────────────────────────────── Flow · swimlanes · 34 steps · project all · agent all · task all ────────────────────────────────────╮
+ ◆ APP FACTORY  [ ● all 17% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ] [ ✗ project-4 0% ] [ ◌ project-5 ]          14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 7
+╭──────────────────────────────────── Flow · swimlanes · 37 steps · project all · agent all · task all ────────────────────────────────────╮
 │         owner          developer-2           pm            developer-1                                                                   │
 │                  lead            reviewer          designer             qa                                                               │
-│ 07:50     │        │        │        │        │        ◆        │        │     done      P3-1   Task 1 spec v2 in the repo               │
-│ 09:10     ●────────▶        │        │        │        │        │        │     create    P2-3   “Task 3”                                 │
-│ 09:30     ●───────────────────────────────────▶        │        │        │     create    P1-1   “Task 1”                                 │
 │ 09:50     │        │        │        │        ●────────▶        │        │     create    P1-2   “Task 2”                                 │
 │ 10:00     │        │        │        │        ●─────────────────▶        │     create    P1-3   “Task 3”                                 │
 │ 10:05     │        │        │        │        ●──────────────────────────▶     create    P1-4   “Task 4”                                 │
@@ -28,13 +25,16 @@
 │ 13:35     │        │        ●────────▶        │        │        │        │     submit    P2-1   edge-case tests added                    │
 │ 13:40     │        │        ◆        │        │        │        │        │     blocked   P3-5   needs the input data for Task 5          │
 │ 13:50     │        ●────────▶        │        │        │        │        │     handoff   P2-3   rebase P2-2 on main before retrying      │
+│ 13:58     │        │        │        │        ●─────────────────▶        │     create    P4-1   “Task 1”                                 │
+│ 13:59     │        │        │        │        ●──────────────────────────▶     create    P4-2   “Task 2”                                 │
 │ 14:00     ◀────────●        │        │        │        │        │        │     escalate  P2-3   P2-3 waits on P2-2                       │
 │ 14:05     │        │        │        │        │        │        ●────────▶     create    P1-9   “Task 9”                                 │
 │ 14:10     ◀────────●        │        │        │        │        │        │     approval  P2-3   factory_release_publish: release 1.2 of… │
 │ 14:22     ◀────────────────────────────────────────────●        │        │     approval  P2-4   release-notes v2: the wording the relea… │
+│ 14:25     ◀───────────────────────────────────●        │        │        │     approval  P1-1   factory_project_create: users of Projec… │
 │ 14:27     │        ◀────────●        │        │        │        │        │     question  P3-2   Which option for Task 2: A or B?         │
 │ 14:28     ●──────────────────────────▶        │        │        │        │     comment   P2-1   Please check Task 1 on a large input.    │
 │ 14:29     │        ●────────▶        │        │        │        │        │     answer    P3-2   Option B, keep it behind a flag.         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +5 in inbox
  g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

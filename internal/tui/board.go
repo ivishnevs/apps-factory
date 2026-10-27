@@ -567,6 +567,7 @@ func (m *Model) boardLines(w, h int) []string {
 		}
 		head = append(head, info)
 	}
+	head = append(head, m.projectSetupLines(w)...)
 	colH := h - len(head)
 	n := len(cols)
 	visible := max(min(n, w/30), 1)
@@ -744,6 +745,26 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 	}
 	add(stFaint.Render("why     ") + stYellow.Render(reason))
 	add(stFaint.Render("clears  ") + who + stFaint.Render(" — ") + why.Clearer.Action)
+	if p, ok := m.projectOf(t.ProjectID); ok {
+		if text, hint, bad := m.setupText(p); text != "" {
+			st := stYellow
+			if bad {
+				st = stRedBold
+			}
+			for i, l := range wrap(text, max(w-8, 20)) {
+				k := "        "
+				if i == 0 {
+					k = "repo    "
+				}
+				add(stFaint.Render(k) + st.Render(l))
+			}
+			if hint != "" {
+				for _, l := range wrap(hint, max(w-8, 20)) {
+					add("        " + stFaint.Render(l))
+				}
+			}
+		}
+	}
 	if t.PausedBy != "" {
 		add(stYellow.Render("⏸ paused by " + t.PausedBy))
 	}

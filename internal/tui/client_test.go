@@ -268,7 +268,7 @@ func TestHTTPClientOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Health.Company != "Company 1" || len(ov.Status) != 3 || len(ov.Tasks) != 22 || len(ov.LiveRuns) != 5 || len(ov.Inbox) != 5 || len(ov.Nodes) != 3 || len(ov.Approvals) != 2 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
+	if ov.Health.Company != "Company 1" || len(ov.Status) != 5 || len(ov.Tasks) != 24 || len(ov.LiveRuns) != 5 || len(ov.Inbox) != 6 || len(ov.Nodes) != 3 || len(ov.Approvals) != 3 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
 		t.Fatalf("%+v", ov)
 	}
 	if len(ov.Agents) != 7 || ov.Agents[1].Name != "developer-1" || ov.Agents[1].ReportsTo != "pm" || ov.Agents[1].Provider != "claude" {
@@ -571,7 +571,7 @@ func TestDemoFixtureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Name != "demo" || len(f.Overview.Tasks) != 22 || len(f.RunEvents["r-d1-7"]) != len(DemoFixture().RunEvents["r-d1-7"]) || f.Details["P1-3"].Why.Reason != "live_run" {
+	if f.Name != "demo" || len(f.Overview.Tasks) != 24 || len(f.RunEvents["r-d1-7"]) != len(DemoFixture().RunEvents["r-d1-7"]) || f.Details["P1-3"].Why.Reason != "live_run" {
 		t.Fatalf("%+v", f.Overview.Tasks)
 	}
 	if _, err = LoadFixture(filepath.Join(t.TempDir(), "missing.json")); err == nil {

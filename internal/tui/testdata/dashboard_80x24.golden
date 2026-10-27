@@ -1,15 +1,15 @@
- ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3          14:30
-  1 Dash  2  3  4  5 5  6 •1  7 ⚠2  8           ● │ Company 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ pro… 14:30
+  1 Dash  2  3  4  5 6  6 •1  7 ⚠2  8           ● │ Company 1 │ ▶ running │ ⚠ 7
 ╭───────────── Agent Tree ─────────────╮╭───────── Tasks · needs you ──────────╮
-│ ◆ owner · you                    ⚠ 6 ││ [→] Task 1 P2-1           ← ⠋running │
-│ ├ ● lead: Conversation with … 1m 00s ││ [!] Task 3 P2-3          ← needs you │
-│ │   └ › The owner asks wheth… 0m 50s ││     ↳ escalation · waits on you: an… │
-│ │ ├ ● developer-2: Task 2  ✗1 7m 00s ││ [!] Task 5 P1-5          ← needs you │
-│ │ │   └ ✎ Edit: src/module_2… 0m 15s ││     ↳ ask · waits on you: answer m-… │
-│ │ └ ● reviewer: Task 1        4m 00s ││ [!] Task 4 P2-4          ← needs you │
-│ │     └ › Testing Task 1 on … 0m 30s ││ [◎] Task 6 P3-6            in review │
-│ └ ◐ pm: waits on you · P1-5       1h ││     ↳ queued: busy with P2-1         │
-│   ├ ⏸ designer: paused waiti… paused ││                                      │
+│ ◆ owner · you                    ⚠ 7 ││ [→] Task 1 P2-1           ← ⠋running │
+│ ├ ● lead: Conversation with … 1m 00s ││ [!] Task 1 P1-1          ← needs you │
+│ │   └ › The owner asks wheth… 0m 50s ││     ↳ children · waits on pm: wait … │
+│ │ ├ ● developer-2: Task 2  ✗1 7m 00s ││ [!] Task 3 P2-3          ← needs you │
+│ │ │   └ ✎ Edit: src/module_2… 0m 15s ││     ↳ escalation · waits on you: an… │
+│ │ └ ● reviewer: Task 1        4m 00s ││ [!] Task 5 P1-5          ← needs you │
+│ │     └ › Testing Task 1 on … 0m 30s ││     ↳ ask · waits on you: answer m-… │
+│ └ ◐ pm: waits on you · P1-5       1h ││ [!] Task 4 P2-4          ← needs you │
+│   ├ ⏸ designer: paused waiti… paused ││ [◎] Task 6 P3-6            in review │
 ╰──────────────────────────────────────╯╰──────────────────────────────────────╯
 ╭────────────────────────────────── Activity ──────────────────────────────────╮
 │ 14:28:40  [developer-2] Bash          $ npm test -- module_2 (exit 1)        │
@@ -20,5 +20,5 @@
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as t… │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +5 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q qu…

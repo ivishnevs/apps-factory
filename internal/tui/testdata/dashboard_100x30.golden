@@ -1,16 +1,16 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
-  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
 ╭────────────────── Agent Tree ──────────────────╮╭────────────── Tasks · needs you ───────────────╮
-│ ◆ owner · you                              ⚠ 6 ││ [→] Task 1 P2-1                     ← ⠋running │
-│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 3 P2-3                    ← needs you │
-│ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ escalation · waits on you: answer m-esc… │
-│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 5 P1-5                    ← needs you │
-│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
-│ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 4 P2-4                    ← needs you │
-│ │     └ › Testing Task 1 on a large in… 0m 30s ││ [◎] Task 6 P3-6                      in review │
-│ └ ◐ pm: waits on you · P1-5                 1h ││     ↳ queued: busy with P2-1                   │
-│   ├ ⏸ designer: paused waiting for the… paused ││                                                │
-│   ├ ● developer-1: Task 3           ✗3 12m 00s ││                                                │
+│ ◆ owner · you                              ⚠ 7 ││ [→] Task 1 P2-1                     ← ⠋running │
+│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 1 P1-1                    ← needs you │
+│ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ children · waits on pm: wait for P1-3, … │
+│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 3 P2-3                    ← needs you │
+│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ escalation · waits on you: answer m-esc… │
+│ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 5 P1-5                    ← needs you │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
+│ └ ◐ pm: waits on you · P1-5                 1h ││ [!] Task 4 P2-4                    ← needs you │
+│   ├ ⏸ designer: paused waiting for the… paused ││ [◎] Task 6 P3-6                      in review │
+│   ├ ● developer-1: Task 3           ✗3 12m 00s ││     ↳ queued: busy with P2-1                   │
 │   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││                                                │
 │   └ ◷ qa: queued driver disabled · mac… queued ││                                                │
 ╰────────────────────────────────────────────────╯╰────────────────────────────────────────────────╯
@@ -26,5 +26,5 @@
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit

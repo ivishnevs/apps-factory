@@ -1,8 +1,8 @@
- ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3          14:30
-  1 Dash  2  3  4  5 5  6 •1  7 ⚠2  8           ● │ Company 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ pro… 14:30
+  1 Dash  2  3  4  5 6  6 •1  7 ⚠2  8           ● │ Company 1 │ ▶ running │ ⚠ 7
 ╭───────────── Agent Tree ─────────────╮╭───────── Tasks · needs you ──────────╮
-│ ◆ owner · you                    ⚠ 6 ││ [→] Task 1 P2-1           ← ⠋running │
-│ ├ ● lead: Conversation with … 1m 00s ││ [!] Task 3 P2-3          ← needs you │
+│ ◆ owner · you                    ⚠ 7 ││ [→] Task 1 P2-1           ← ⠋running │
+│ ├ ● lead: Conversation with … 1m 00s ││ [!] Task 1 P1-1          ← needs you │
 │ ╭────────────────────────────── New project ───────────────────────────────╮ │
 │ │ ▸ Name            Advent gift                                            │ │
 │ │                   ✗ a name is required                                   │ │
@@ -20,5 +20,5 @@
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as t… │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? … [A answer]  +5 in inbox
  tab next field  ctrl+s create  esc cancel

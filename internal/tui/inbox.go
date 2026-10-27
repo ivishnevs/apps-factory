@@ -250,7 +250,25 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 		no := lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" n  reject ")
 		lines = append(lines, view+"  "+yes+"  "+no)
 	} else if ap, ok := m.approvalOf(msg); ok {
-		lines = append(lines, "", stFaint.Render("call     ")+stMagenta.Bold(true).Render(ap.Call.Name), stFaint.Render("args     ")+brief(ap.Call.Arguments))
+		lines = append(lines, "", stFaint.Render("call     ")+stMagenta.Bold(true).Render(ap.Call.Name))
+		if ap.Call.Name == "factory_project_create" {
+			// The project the agent asks to create, field by field (project-creation D6).
+			for _, kv := range projectCreateArgs(ap.Call.Arguments) {
+				for i, l := range wrap(kv[1], max(w-11, 20)) {
+					k := ""
+					if i == 0 {
+						k = kv[0]
+					}
+					st := lipgloss.NewStyle()
+					if kv[0] == "project" {
+						st = stBold
+					}
+					lines = append(lines, stFaint.Render(fmt.Sprintf("%-9s", k))+st.Render(l))
+				}
+			}
+		} else {
+			lines = append(lines, stFaint.Render("args     ")+brief(ap.Call.Arguments))
+		}
 		if ap.Reason != "" {
 			lines = append(lines, stFaint.Render("reason   ")+ap.Reason)
 		}

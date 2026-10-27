@@ -1,13 +1,15 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
-  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
-╭────────────────── Flow · pairs · 34 steps · project all · agent all · task all ──────────────────╮
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
+╭────────────────── Flow · pairs · 37 steps · project all · agent all · task all ──────────────────╮
 │ FROM             TO           N         LAST   KINDS                                             │
 │ lead        ──▶  developer-2  6 ▇▇▇▇▇▇  14:29  create×4 answer handoff                           │
+│ pm          ──▶  developer-1  4 ▇▇▇▇    13:58  create×3 answer                                   │
 │ developer-2 ──▶  reviewer     3 ▇▇▇     13:35  submit×3                                          │
-│ pm          ──▶  developer-1  3 ▇▇▇     12:00  create×2 answer                                   │
 │ designer    ──▶  ·            2 ▇▇      11:00  done×2                                            │
 │ developer-2 ──▶  ·            2 ▇▇      13:40  blocked done                                      │
 │ lead        ──▶  owner        2 ▇▇      14:10  approval escalate                                 │
+│ pm          ──▶  owner        2 ▇▇      14:25  approval question                                 │
+│ pm          ──▶  qa           2 ▇▇      13:59  create×2                                          │
 │ designer    ──▶  owner        1 ▇       14:22  approval                                          │
 │ developer-1 ──▶  pm           1 ▇       11:50  question                                          │
 │ developer-1 ──▶  qa           1 ▇       14:05  create                                            │
@@ -19,12 +21,10 @@
 │ owner       ──▶  pm           1 ▇       09:30  create                                            │
 │ owner       ──▶  reviewer     1 ▇       14:28  comment                                           │
 │ pm          ──▶  designer     1 ▇       09:50  create                                            │
-│ pm          ──▶  owner        1 ▇       12:55  question                                          │
 │ pm          ──▶  pm           1 ▇       11:10  create                                            │
-│ pm          ──▶  qa           1 ▇       10:05  create                                            │
 │ pm          ──▶  ·            1 ▇       12:50  asked                                             │
 │ reviewer    ──▶  developer-2  1 ▇       12:40  changes_requested                                 │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
  g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

@@ -138,6 +138,13 @@ func (c *FixtureClient) TaskDetail(_ context.Context, id string, all []Task) (Ta
 		if t.ID == id {
 			d := TaskDetail{Task: t, Children: childrenOf(id, all)}
 			d.Why.TaskID, d.Why.Status, d.Why.Reason, d.Why.Clearer = t.ID, t.Status, t.Reason, t.Clearer
+			for _, st := range c.F.Overview.Status {
+				for _, v := range st.Waiting {
+					if v.TaskID == id {
+						d.Why.Detail = v.Detail
+					}
+				}
+			}
 			for _, item := range c.F.Feed {
 				if item.TaskID == id {
 					d.Events = append(d.Events, item)
@@ -164,9 +171,27 @@ func feedMatches(q FeedQuery, item storage.FeedItem) bool {
 	return (q.Project == "" || item.ProjectID == q.Project) && (q.Task == "" || item.TaskID == q.Task) && (!q.Attention || item.Attention)
 }
 
+// addFeed appends a feed row at the fixture's time (the caller holds mu).
+func (c *FixtureClient) addFeed(item storage.FeedItem) {
+	var seq int64
+	for _, x := range c.F.Feed {
+		seq = max(seq, x.Sequence)
+	}
+	item.Sequence = seq + 1
+	item.EventID = fmt.Sprintf("e-fixture-%d", item.Sequence)
+	item.CreatedAt = c.F.Overview.At
+	c.F.Feed = append(c.F.Feed, item)
+}
+
+func (c *FixtureClient) feedRows() []storage.FeedItem {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.F.Feed
+}
+
 func (c *FixtureClient) Feed(_ context.Context, q FeedQuery, after int64, limit int) (storage.Page[storage.FeedItem], error) {
 	page := storage.Page[storage.FeedItem]{Items: []storage.FeedItem{}, NextAfter: after}
-	for _, item := range c.F.Feed {
+	for _, item := range c.feedRows() {
 		if item.Sequence <= after || !feedMatches(q, item) {
 			continue
 		}
@@ -182,7 +207,7 @@ func (c *FixtureClient) Feed(_ context.Context, q FeedQuery, after int64, limit 
 
 func (c *FixtureClient) StreamFeed(ctx context.Context, q FeedQuery, after int64, out func(StreamEvent)) {
 	out(StreamEvent{Stream: "feed", State: true, Connected: true})
-	for _, item := range c.F.Feed {
+	for _, item := range c.feedRows() {
 		if item.Sequence > after && feedMatches(q, item) {
 			item := item
 			out(StreamEvent{Stream: "feed", Feed: &item})
@@ -402,8 +427,10 @@ func SaveFixture(path string, f Fixture) error {
 	return os.WriteFile(path, append(b, '\n'), 0o600)
 }
 
-// createProject adds the project to the fixture, as Core would after provisioning its repository; an existing
-// project onboarded with an audit gets the audit task for the default report. Refusals mirror Core's.
+// createProject adds the project to the fixture as Core does: its repository waits for the project's first
+// task (setup pending, no workspace for a new repository), and an existing project onboarded with an audit gets
+// the audit task for the default report, ready and runnable (its run sets the repository up). Refusals mirror
+// Core's.
 func (c *FixtureClient) createProject(in *tasks.ProjectCreate) (string, error) {
 	if in == nil {
 		return "", fmt.Errorf("400 Bad Request: project body required")
@@ -421,26 +448,49 @@ func (c *FixtureClient) createProject(in *tasks.ProjectCreate) (string, error) {
 		return "", fmt.Errorf("400 Bad Request: %s: %s", keys[0], errs[keys[0]])
 	}
 	at := c.F.Overview.At.Unix()
+	mode := in.RepoMode
+	if mode == "" && in.Workspace == "" && in.RepoURL == "" {
+		mode = RepoLocal
+	}
 	p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: in.Workspace, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch,
-		OpenSpec: in.OpenSpec, Version: 1, CreatedAt: at, UpdatedAt: at}
-	switch in.RepoMode {
-	case RepoExisting:
-	case RepoGitHub:
-		p.RepoURL = "https://github.com/" + cmp.Or(c.F.Overview.Health.Company, "company") + "/" + in.ID
-		p.Workspace = "/srv/factory/projects/" + in.ID
-	default:
-		p.Workspace = "/srv/factory/projects/" + in.ID
+		OpenSpec: in.OpenSpec, Version: 1, CreatedAt: at, UpdatedAt: at, RepoMode: mode, CreatedBy: "owner"}
+	if mode != "" {
+		p.Setup = &tasks.ProjectSetup{State: tasks.SetupPending, Audit: in.Audit, UpdatedAt: at}
 	}
 	st := core.ProjectStatus{Project: p, Runs: []core.RunStatus{}, Tasks: map[string]int{}, Waiting: []tasks.Verdict{}}
-	if in.RepoMode == RepoExisting && in.Audit {
-		t := Task{Task: tasks.Task{ID: in.ID + "-1", ProjectID: in.ID, Title: "Audit the existing project", Status: "READY", Assignee: defaultReportOf(c.F.Overview),
+	if mode == RepoExisting && in.Audit {
+		t := Task{Task: tasks.Task{ID: in.ID + "-1", ProjectID: in.ID, Title: "Audit the existing project " + in.Name, Status: "READY", Assignee: defaultReportOf(c.F.Overview),
 			CreatedBy: "owner", Priority: 9, Version: 1, CreatedAt: at, UpdatedAt: at,
-			Description: "Read-only audit: code, build, product state; OpenSpec baseline specs of today's behaviour; a report with options."},
-			Reason: "onboarding", Clearer: tasks.Clearer{Who: "core", Action: "import the repository and its openspec/, then run the audit"}}
+			Description: "Read-only audit with the project-audit skill: code, build, product state; OpenSpec baseline specs of today's behaviour; a report with options."},
+			Reason: tasks.ReasonRunnable, Clearer: tasks.Clearer{Who: "scheduler", Action: "dispatch on the next tick"}}
 		c.F.Overview.Tasks = append(c.F.Overview.Tasks, t)
 		st.Tasks["READY"] = 1
-		st.Waiting = append(st.Waiting, tasks.Verdict{TaskID: t.ID, Status: t.Status, Reason: t.Reason, Clearer: t.Clearer})
+		st.Runnable = 1
+		st.Project.Setup.AuditTaskID = t.ID
 	}
 	c.F.Overview.Status = append(c.F.Overview.Status, st)
+	c.addFeed(storage.FeedItem{Type: "project.created", EntityID: p.ID, ProjectID: p.ID, Actor: "owner", Summary: projectCreatedNote(st.Project)})
 	return "created project " + p.ID + ": " + p.Name, nil
+}
+
+// projectCreatedNote is Core's project.created summary (storage createdNote).
+func projectCreatedNote(p tasks.Project) string {
+	note := "project " + p.ID + " created by " + cmp.Or(p.CreatedBy, "owner")
+	if p.ApprovalID != "" {
+		note += ", approved by the owner (approval " + p.ApprovalID + ")"
+	}
+	switch p.RepoMode {
+	case RepoLocal:
+		note += "; repository: new local git repository, created on the node when the first task runs"
+	case RepoGitHub:
+		note += "; repository: new private GitHub repository, created through the node's gh when the first task runs"
+	case RepoExisting:
+		note += "; repository: existing " + cmp.Or(p.Workspace, p.RepoURL) + ", onboarded on the node before the first task"
+		if p.Setup != nil && p.Setup.Audit {
+			note += " (audit first)"
+		}
+	default:
+		note += "; workspace " + p.Workspace
+	}
+	return note
 }

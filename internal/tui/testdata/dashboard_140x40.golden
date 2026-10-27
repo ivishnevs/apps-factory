@@ -1,16 +1,16 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                                             14:30
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY  [ ● all 17% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ] [ ✗ project-4 0% ] [ ◌ project-5 ]          14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs              ● fixture demo │ Company 1 │ ▶ running │ ⚠ 7
 ╭────────────────── Agent Tree ──────────────────╮╭───────────── Tasks · needs you ─────────────╮╭──────────────── Company ────────────────╮
-│ ◆ owner · you                              ⚠ 6 ││ [→] Task 1 P2-1                  ← ⠋running ││ Company     Company 1                   │
-│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 3 P2-3                 ← needs you ││ Agents      7 (5 active)                │
-│ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ escalation · waits on you: answer m-… ││ Open tasks  16                          │
-│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 5 P1-5                 ← needs you ││ Needs you   6                           │
-│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ ask · waits on you: answer m-ask-1 i… ││ Spend today $5.15 · 14 runs             │
-│ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 4 P2-4                 ← needs you ││ Spend 24h   ▁▁▂▄▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄    │
-│ │     └ › Testing Task 1 on a large in… 0m 30s ││ [◎] Task 6 P3-6                   in review ││ Nodes       2/3 online                  │
-│ └ ◐ pm: waits on you · P1-5                 1h ││     ↳ queued: busy with P2-1                ││                                         │
-│   ├ ⏸ designer: paused waiting for the… paused ││                                             ││                                         │
-│   ├ ● developer-1: Task 3           ✗3 12m 00s ││                                             ││                                         │
+│ ◆ owner · you                              ⚠ 7 ││ [→] Task 1 P2-1                  ← ⠋running ││ Company     Company 1                   │
+│ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 1 P1-1                 ← needs you ││ Agents      7 (5 active)                │
+│ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ children · waits on pm: wait for P1-… ││ Open tasks  18                          │
+│ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 3 P2-3                 ← needs you ││ Needs you   7                           │
+│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ escalation · waits on you: answer m-… ││ Spend today $5.15 · 14 runs             │
+│ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 5 P1-5                 ← needs you ││ Spend 24h   ▁▁▂▄▁▂▁▃▂▁▁▁▃▂▁▁▆▁▂▇▂▆█▄    │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││     ↳ ask · waits on you: answer m-ask-1 i… ││ Nodes       2/3 online                  │
+│ └ ◐ pm: waits on you · P1-5                 1h ││ [!] Task 4 P2-4                 ← needs you ││ Repos       ✗ project-4 failed · ◌ pro… │
+│   ├ ⏸ designer: paused waiting for the… paused ││ [◎] Task 6 P3-6                   in review ││                                         │
+│   ├ ● developer-1: Task 3           ✗3 12m 00s ││     ↳ queued: busy with P2-1                ││                                         │
 │   │   └ ▸ go test ./src/... -run TestS… 0m 40s ││                                             ││                                         │
 │   └ ◷ qa: queued driver disabled · mac… queued ││                                             ││                                         │
 │                                                ││                                             ││                                         │
@@ -20,8 +20,8 @@
 │                                                ││                                             ││                                         │
 ╰────────────────────────────────────────────────╯╰─────────────────────────────────────────────╯╰─────────────────────────────────────────╯
 ╭─────────────────────────────────────────── Activity ───────────────────────────────────────────╮╭──────────────── Pulse ─────────────────╮
-│ 14:27:00  [developer-2] question      → lead  Which option for Task 2: A or B?                 ││ Backlog   ▇▇▇····················   3  │
-│ 14:27:30  [developer-1] says          “All 42 tests pass. Submitting for review.”              ││ Ready     ▇▇▇▇···················   4  │
+│ 14:27:00  [owner]       new project   project project-5 created by owner; repository: new loc… ││ Backlog   ▇▇▇····················   3  │
+│ 14:27:30  [developer-1] says          “All 42 tests pass. Submitting for review.”              ││ Ready     ▇▇▇▇▇▇·················   6  │
 │ 14:27:30  [reviewer]    Bash          $ go test ./...                                          ││ Running   ▇▇·····················   2  │
 │ 14:28:00  [owner]       comment       → reviewer  Please check Task 1 on a large input.        ││ Waiting   ▇▇▇▇▇··················   5  │
 │ 14:28:00  [developer-1] exit_submit   reviewer=pm summary="module 1 with an offline store, 42… ││ In review ▇▇·····················   2  │
@@ -33,8 +33,8 @@
 │ 14:29:00  [developer-2] Bash          $ npm test -- module_2                                   ││ lead             ▁▄▁▁▁▁▁▁▁▁▁▁▁▄▄▁▄▁▁█  │
 │ 14:29:10  [lead]        says          “The owner asks whether P2-2 can be retried after the r… ││ developer-2      ▂▁▁▁▁▂▁▁▁▁▂▂▂▁▁▁▁▁▄█  │
 │ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                       ││ reviewer         ▁▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█  │
-│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”    ││ pm               ▁▁▁▄█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  │
+│ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”    ││ pm               ▁▁▁▃▅▁▁▁▁▁▁▁▁▁█▁▃▁▁▃  │
 │ 14:29:45  [developer-2] Edit          src/module_2.ts                                          ││ designer         ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁  │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is faster but paid.      [A option-a / option-b]  +5 in inbox
  h/l panel  j/k move  enter open  z zoom  ^k palette  [ ] project  ? help  q quit

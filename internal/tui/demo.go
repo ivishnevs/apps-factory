@@ -70,6 +70,10 @@ func DemoFixture() Fixture {
 		{"P3-4", "project-3", "Task 4", "BACKLOG", "developer-2", "owner", "", 3, 90, 90, "backlog", "owner", "release it to the board"},
 		{"P3-5", "project-3", "Task 5", "BLOCKED", "developer-2", "lead", "P3-1", 6, 100, 50, "parked:block", "lead", "send the input data"},
 		{"P3-6", "project-3", "Task 6", "IN_REVIEW", "reviewer", "lead", "P3-1", 5, 85, 15, "capacity", "reviewer", "busy with P2-1"},
+		// Project 4 (created by pm with the owner's approval): its first task's run could not set up the GitHub
+		// repository; the task retries it, the other task waits for the repository.
+		{"P4-1", "project-4", "Task 1", "READY", "developer-1", "pm", "", 8, 32, 18, "backoff", "time", "the retry starts after the backoff"},
+		{"P4-2", "project-4", "Task 2", "READY", "qa", "pm", "", 6, 31, 31, tasks.ReasonProjectSetup, "node", "wait for the project's repository setup (its first task's run); a failed setup names its reason in the project's feed"},
 	}
 	ts := []Task{}
 	for _, s := range specs {
@@ -89,6 +93,8 @@ func DemoFixture() Fixture {
 	byID("P2-1").Implementer, byID("P2-1").Reviewer, byID("P2-1").CurrentRunID = "developer-2", "reviewer", "r-rev-2"
 	byID("P3-2").CurrentRunID = "r-d2-4"
 	byID("P1-9").CurrentRunID = "r-qa-1"
+	byID("P4-1").Attempt, byID("P4-1").FailStreak, byID("P4-1").NotBefore = 1, 1, at.Add(4*time.Minute).Unix()
+	byID("P4-1").Description = "Set up the app skeleton: navigation, theme and an empty onboarding screen."
 	byID("P3-6").Implementer, byID("P3-6").Reviewer = "developer-2", "reviewer"
 	byID("P1-2").Description = "Mockups for module 1: layout, states and the empty view."
 	byID("P1-3").Description = "Implement module 1 from the P1-2 mockups.\n\nAcceptance:\n- matches the mockups\n- works offline\n- unit tests for module 1"
@@ -110,10 +116,39 @@ func DemoFixture() Fixture {
 		"project-2": {{ID: "r-rev-2", Agent: "reviewer", TaskID: "P2-1", Status: "RUNNING", StartedAt: unix(4)}, {ID: "r-lead-c1", Agent: "lead", TaskID: "conv-lead-project-2", Status: "RUNNING", StartedAt: unix(1)}},
 		"project-3": {{ID: "r-d2-4", Agent: "developer-2", TaskID: "P3-2", Status: "RUNNING", StartedAt: unix(7)}},
 	}
-	names := map[string]string{"project-1": "Project 1", "project-2": "Project 2", "project-3": "Project 3"}
+	names := map[string]string{"project-1": "Project 1", "project-2": "Project 2", "project-3": "Project 3", "project-4": "Project 4", "project-5": "Project 5"}
+	// Repository setup (project-creation): project-3 was set up on mac-studio, project-4's setup failed there,
+	// project-5 waits for its first task.
+	gh := "gh is not authenticated on node mac-studio: run gh auth login"
+	setups := map[string]func(*tasks.Project){
+		"project-3": func(p *tasks.Project) {
+			p.RepoMode, p.CreatedBy, p.Workspace = RepoGitHub, "owner", "/Users/owner/projects/project-3"
+			p.Setup = &tasks.ProjectSetup{State: tasks.SetupReady, TaskID: "P3-1", RunID: "r-des-1", NodeID: "n1", UpdatedAt: unix(715)}
+		},
+		"project-4": func(p *tasks.Project) {
+			p.RepoMode, p.CreatedBy, p.ApprovalID, p.RepoURL = RepoGitHub, "pm", "ap-0", ""
+			p.Description = "The onboarding flow of Project 1 as a separate app."
+			p.Setup = &tasks.ProjectSetup{State: tasks.SetupFailed, TaskID: "P4-1", RunID: "r-p4-1", NodeID: "n1", Reason: gh, UpdatedAt: unix(18)}
+		},
+		"project-5": func(p *tasks.Project) {
+			p.RepoMode, p.CreatedBy, p.RepoURL = RepoLocal, "owner", ""
+			p.Description = "A small landing page for the company."
+			p.Setup = &tasks.ProjectSetup{State: tasks.SetupPending, UpdatedAt: unix(3)}
+		},
+	}
+	details := map[string]string{
+		"P4-1": "automatic retry after " + at.Add(4*time.Minute).UTC().Format(time.RFC3339) + " (1 failed in a row, 0 of 3 attempts without progress)",
+		"P4-2": "the setup of project project-4's repository failed (" + gh + "); task P4-1 retries it",
+	}
 	status := []core.ProjectStatus{}
-	for _, p := range []string{"project-1", "project-2", "project-3"} {
+	for _, p := range []string{"project-1", "project-2", "project-3", "project-4", "project-5"} {
 		st := core.ProjectStatus{Project: tasks.Project{ID: p, Name: names[p], RepoURL: "git@github.com:company-1/" + p + ".git"}, Runs: runs[p], Tasks: map[string]int{}, Waiting: []tasks.Verdict{}}
+		if set := setups[p]; set != nil {
+			set(&st.Project)
+		}
+		if st.Runs == nil {
+			st.Runs = []core.RunStatus{}
+		}
 		for _, t := range ts {
 			if t.ProjectID != p || t.Kind != "" {
 				continue
@@ -123,7 +158,7 @@ func DemoFixture() Fixture {
 			case t.Reason == "runnable":
 				st.Runnable++
 			case t.Reason != "live_run" && t.Reason != "terminal":
-				st.Waiting = append(st.Waiting, tasks.Verdict{TaskID: t.ID, Status: t.Status, Reason: t.Reason, Clearer: t.Clearer})
+				st.Waiting = append(st.Waiting, tasks.Verdict{TaskID: t.ID, Status: t.Status, Reason: t.Reason, Detail: details[t.ID], Clearer: t.Clearer})
 			}
 		}
 		status = append(status, st)
@@ -146,6 +181,14 @@ func DemoFixture() Fixture {
 	artApproval := approvals.Approval{ID: "ap-2", Kind: "artifact", ProjectID: "project-2", Agent: "designer", TaskID: "P2-4", RunID: "r-des-5", MessageID: "m-appr-2", Status: "PENDING", Version: 1, CreatedAt: unix(8), ExpiresAt: at.Add(48 * time.Hour).Unix(),
 		Reason: "the wording the release 1.2 announcement uses", Artifact: &tasks.Artifact{ID: "release-notes", Version: "v2", URI: "factory://artifacts/release-notes/v2", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(notes)), Name: "release-notes.md"}}
 	f.Artifacts = map[string]string{"project-2/release-notes/v2": notes}
+	// pm asks to create a project (factory_project_create always needs the owner's approval of the exact call).
+	projMsg := messaging.Message{ID: "m-appr-3", ProjectID: "project-1", TaskID: "P1-1", Sender: "pm", Recipient: "owner", ConversationID: "owner-pm-project-1", MessageType: "question", ApprovalID: "ap-3",
+		Body: "Create Project 6 for the companion app? It onboards the existing repository with an audit first.", Status: "PENDING", Version: 1, CreatedAt: unix(5)}
+	projApproval := approvals.Approval{ID: "ap-3", ProjectID: "project-1", Agent: "pm", TaskID: "P1-1", RunID: "r-pm-3", MessageID: "m-appr-3", Status: "PENDING", Version: 1, CreatedAt: unix(5), ExpiresAt: at.Add(24 * time.Hour).Unix(),
+		Reason: "users of Project 1 keep asking for reminders; a separate app keeps Project 1 small",
+		Call: factorytools.Call{Name: "factory_project_create", Arguments: map[string]any{"project_id": "project-6", "name": "Project 6",
+			"description": "Companion app for Project 1: reminders and offline sync.", "repo_mode": "existing", "repo_url": "https://github.com/company-1/project-6",
+			"default_branch": "main", "openspec": true, "audit": true, "request_id": "pm-project-6"}}}
 
 	// Cost history: the runs that ended in the last 24 h.
 	recent := []storage.RunCost{}
@@ -228,6 +271,7 @@ func DemoFixture() Fixture {
 	f.Runs["r-d2-4"] = run("r-d2-4", "developer-2", "P3-2", "project-3", "RUNNING", "", 7, 0, "", gpt(81000, 7400, 152000))
 	f.Runs["r-lead-c1"] = run("r-lead-c1", "lead", "conv-lead-project-2", "project-2", "RUNNING", "", 1, 0, "", gpt(9000, 400, 12000))
 	f.Runs["r-d2-6"] = run("r-d2-6", "developer-2", "P2-1", "project-2", "ENDED", "succeeded", 70, 55, "edge-case tests added", gpt(52000, 5100, 98000))
+	f.Runs["r-p4-1"] = run("r-p4-1", "developer-1", "P4-1", "project-4", "ENDED", "setup_failed", 19, 18, gh, nil)
 	for _, id := range []string{"r-d1-7", "r-d2-4"} {
 		r := f.Runs[id]
 		r.SessionID = map[string]string{"r-d1-7": "6f1c7a52-3b0e-4d8f-9a61-2c4e8b7d0f13", "r-d2-4": "thread-d2-4"}[id]
@@ -338,10 +382,10 @@ func DemoFixture() Fixture {
 		Status: status, Agents: agents, Tasks: ts,
 		Pauses: []storage.Pause{{Scope: "agent", Target: "designer", Reason: "waiting for the style guide", Actor: "owner", CreatedAt: unix(60)},
 			{Scope: "quota_key", Target: "codex-team", Reason: "subscription limit reached", Actor: "factory", CreatedAt: unix(25), Until: at.Add(90 * time.Minute).Unix()}},
-		Pending:   storage.PendingCounts{Inbox: 5, Approvals: 2, Alerts: 1, Reviews: 2, Total: 6},
+		Pending:   storage.PendingCounts{Inbox: 6, Approvals: 3, Alerts: 1, Reviews: 2, Total: 7},
 		Nodes:     demoNodes(at),
-		Inbox:     []messaging.Message{ask, appr, artMsg, note, esc},
-		Approvals: []approvals.Approval{approval, artApproval},
+		Inbox:     []messaging.Message{ask, appr, artMsg, note, esc, projMsg},
+		Approvals: []approvals.Approval{approval, artApproval, projApproval},
 		Costs:     costs, TaskCosts: taskCosts, RecentCosts: storage.CostReport{Runs: recent},
 		LiveRuns: map[string]storage.Run{"r-d1-7": f.Runs["r-d1-7"], "r-rev-2": f.Runs["r-rev-2"], "r-d2-4": f.Runs["r-d2-4"], "r-lead-c1": f.Runs["r-lead-c1"], "r-qa-1": f.Runs["r-qa-1"]},
 		At:       at,
@@ -357,6 +401,8 @@ func DemoFixture() Fixture {
 		return storage.FeedItem{Sequence: seq, EventID: fmt.Sprintf("e%03d", seq), Type: kind, EntityID: entity, ProjectID: project, CreatedAt: ago(m), TaskID: taskID, RunID: runID, Agent: agent, Actor: actor, Summary: summary, Attention: attention}
 	}
 	f.Feed = []storage.FeedItem{
+		item(720, "project.created", "project-3", "", "", "", "owner", "project project-3 created by owner; repository: new private GitHub repository, created through the node's gh when the first task runs", false),
+		item(715, "project.provisioned", "project-3", "", "", "", "owner", "project project-3 ready on node n1: private GitHub repository https://github.com/company-1/project-3 cloned to /Users/owner/projects/project-3", false),
 		item(600, "task.created", "project-3", "P3-1", "", "designer", "lead", "Task 1", false),
 		item(500, "task.created", "project-2", "P2-6", "", "developer-2", "lead", "Task 6", false),
 		item(400, "task.exit.done", "project-3", "P3-1", "r-des-1", "designer", "designer", "designer done: Task 1 spec v2 in the repo", false),
@@ -389,17 +435,24 @@ func DemoFixture() Fixture {
 		item(50, "task.exit.blocked", "project-3", "P3-5", "r-d2-1", "developer-2", "developer-2", "developer-2 blocked: needs the input data for Task 5", false),
 		item(45, "task.alert.no_progress", "project-2", "P2-2", "", "developer-2", "", "P2-2: 3 runs without progress", true),
 		item(40, "task.exit.handoff", "project-2", "P2-3", "r-lead-2", "lead", "lead", "lead → developer-2 (handoff): rebase P2-2 on main before retrying", false),
+		item(33, "project.created", "project-4", "", "", "", "pm", "project project-4 created by pm, approved by the owner (approval ap-0); repository: new private GitHub repository, created through the node's gh when the first task runs", false),
+		item(32, "task.created", "project-4", "P4-1", "", "developer-1", "pm", "Task 1", false),
+		item(31, "task.created", "project-4", "P4-2", "", "qa", "pm", "Task 2", false),
 		item(30, "task.escalation.stalled", "project-2", "P2-3", "", "lead", "", "P2-3 waits on P2-2 → owner", true),
 		item(25, "task.created", "project-1", "P1-9", "", "qa", "developer-1", "Task 9", false),
 		item(20, "approval.requested", "project-2", "P2-3", "r-lead-3", "lead", "lead", "factory_release_publish: release 1.2 of Project 2 passed review", true),
+		item(18, "project.setup_failed", "project-4", "", "", "", "pm", "setting up project project-4's repository failed on node n1: "+gh, false),
+		item(18, "task.retry", "project-4", "P4-1", "r-p4-1", "developer-1", "", "P4-1: run r-p4-1 ended setup_failed; retry in 4m0s: "+gh, false),
 		item(12, "task.started", "project-1", "P1-3", "r-d1-7", "developer-1", "", "Task 3", false),
 		item(10, "driver_unsupported", "", "", "", "", "node:n1", "driver claude disabled on node mac-studio: auth check failed: 401 invalid credentials", true),
 		item(9, "run.command_refused", "project-1", "P1-3", "r-d1-7", "developer-1", "", "git push --force refused by rule no-force-push", false),
 		item(7, "task.started", "project-3", "P3-2", "r-d2-4", "developer-2", "", "Task 2", false),
 		item(6, "node.low_disk", "", "", "", "", "node", "mac-mini: 4.1 GiB free on /", true),
 		item(8, "approval.requested", "project-2", "P2-4", "r-des-5", "designer", "designer", "release-notes v2: the wording the release 1.2 announcement uses", true),
+		item(5, "approval.requested", "project-1", "P1-1", "r-pm-3", "pm", "pm", "factory_project_create: users of Project 1 keep asking for reminders; a separate app keeps Project 1 small", true),
 		item(4, "task.started", "project-2", "P2-1", "r-rev-2", "reviewer", "", "Task 1", false),
 		item(3, "message.created", "project-3", "P3-2", "", "", "developer-2", "developer-2 → lead (question): Which option for Task 2: A or B?", false),
+		item(3, "project.created", "project-5", "", "", "", "owner", "project project-5 created by owner; repository: new local git repository, created on the node when the first task runs", false),
 		item(2, "task.commented", "project-2", "P2-1", "", "reviewer", "owner", "Please check Task 1 on a large input.", false),
 		item(1, "message.created", "project-3", "P3-2", "", "", "lead", "lead → developer-2 (answer): Option B, keep it behind a flag.", false),
 	}
@@ -411,6 +464,8 @@ func DemoFixture() Fixture {
 			f.Feed[i].EntityID = "node:n2"
 		case "driver_unsupported":
 			f.Feed[i].EntityID, f.Feed[i].Ref = "node:n1", "claude"
+		case "project.created", "project.provisioned", "project.setup_failed":
+			f.Feed[i].EntityID = f.Feed[i].ProjectID
 		}
 	}
 

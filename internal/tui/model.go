@@ -15,6 +15,7 @@ import (
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 type tab int
@@ -990,6 +991,14 @@ func (m *Model) projectChipLabel(p, label string, mode int) string {
 	if live {
 		dot = "●"
 	}
+	// A project whose repository is not set up yet: ◌ (waits for its first task, or being set up), ✗ (failed).
+	setup := ""
+	if pr, ok := m.projectOf(p); ok && p != "" && pr.Setup != nil && pr.Setup.State != tasks.SetupReady {
+		setup, dot = pr.Setup.State, "◌"
+		if setup == tasks.SetupFailed {
+			dot = "✗"
+		}
+	}
 	pct := ""
 	if total > 0 {
 		pct = fmt.Sprintf(" %d%%", done*100/total)
@@ -1006,6 +1015,13 @@ func (m *Model) projectChipLabel(p, label string, mode int) string {
 		return lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(text)
 	}
 	st := lipgloss.NewStyle().Background(theme.surface).Foreground(theme.text)
+	if setup != "" {
+		c := theme.yellow
+		if setup == tasks.SetupFailed {
+			c = theme.red
+		}
+		return st.Render(open) + st.Foreground(c).Render(dot) + st.Foreground(theme.dim).Render(" "+label+pct+shut)
+	}
 	if live {
 		return st.Render(open) + st.Foreground(theme.green).Render(dot) + st.Render(" "+label+pct+shut)
 	}

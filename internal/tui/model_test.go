@@ -115,7 +115,7 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 	}
 	press(m, "esc")
 	key(m, "!")
-	if n := len(m.boardTasks()); n != 3 {
+	if n := len(m.boardTasks()); n != 4 { // P1-1 has pm's project approval
 		t.Fatal(n)
 	}
 }
@@ -251,7 +251,7 @@ func TestCardDetailModal(t *testing.T) {
 func TestPromptBar(t *testing.T) {
 	m, c := demoModel(t, 140, 40)
 	s := ansi.Strip(m.Render())
-	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+4 in inbox") {
+	if !strings.Contains(s, "→ 12:55:00 pm asks: Which option for Task 5") || !strings.Contains(s, "+5 in inbox") {
 		t.Fatal(s)
 	}
 	// The oldest item is a question with options: A opens the chooser; 2 picks the second option.
@@ -445,7 +445,7 @@ func TestFeedDedupActivityAndToasts(t *testing.T) {
 func TestDashboardPanels(t *testing.T) {
 	m, _ := demoModel(t, 140, 40)
 	// The owner row: tasks that need the owner, company stats.
-	if list := m.panelTasks(); len(list) != 5 || list[0].ID != "P2-1" {
+	if list := m.panelTasks(); len(list) != 6 || list[0].ID != "P2-1" {
 		t.Fatalf("%+v", list)
 	}
 	// Select developer-1 (rows: owner, lead, developer-2, reviewer, pm, designer, developer-1).
@@ -685,7 +685,7 @@ func TestFixtureStreams(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	<-done
-	if got != 8 {
+	if got != 9 {
 		t.Fatal(got)
 	}
 	events := []StreamEvent{}

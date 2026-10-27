@@ -1,15 +1,15 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
-  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
 ╭───────────╭────────────────────────────────── Keys ──────────────────────────────────╮───────────╮
 │ ◆ owner · │ Global        1-8 or tab switch screen · [ ] project · ctrl+k palette ·  │← ⠋running │
 │ ├ ● lead: │               ctrl+n new project · R refresh · K kill switch · q quit ·  │ needs you │
-│ │   └ › Th│               mouse: click, wheel                                        │wer m-esc… │
+│ │   └ › Th│               mouse: click, wheel                                        │or P1-3, … │
 │ │ ├ ● deve│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │ needs you │
-│ │ │   └ ✎ │               you · R reply to / M mark read a notification              │sk-1 in t… │
+│ │ │   └ ✎ │               you · R reply to / M mark read a notification              │wer m-esc… │
 │ │ └ ● revi│ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │ needs you │
-│ │     └ › │               panel · f flow of agent                                    │ in review │
-│ └ ◐ pm: wa│ Board         ←→↑↓ move · enter open card · n new task · / filter        │           │
-│   ├ ⏸ desi│               (a:AGENT s:STATUS ! open words) · ! needs you · z          │           │
+│ │     └ › │               panel · f flow of agent                                    │sk-1 in t… │
+│ └ ◐ pm: wa│ Board         ←→↑↓ move · enter open card · n new task · / filter        │ needs you │
+│   ├ ⏸ desi│               (a:AGENT s:STATUS ! open words) · ! needs you · z          │ in review │
 │   ├ ● deve│               cancelled                                                  │           │
 │   │   └ ▸ │ New task      tab/shift+tab field · ←→ choose · space toggle · ctrl+e    │           │
 │   └ ◷ qa: │               description in $EDITOR · ctrl+s create · esc cancel        │           │
@@ -26,5 +26,5 @@
 │ 14:29:30  │               · l local/core source · f follow · T task · esc back       │ked.”      │
 │ 14:29:45  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │           │
 ╰───────────╰──────────────────────────────────────────────────────────────────────────╯───────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
  any key close

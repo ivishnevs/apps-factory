@@ -1,0 +1,40 @@
+ ◆ APP FACTORY   ● all 17%   ● project-1 22%   ● project-2 16%   ● project-3 16%   ✗ project-4 0%   ◌ project-5   14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 7
+ 23 t╭────────────────────────────────────────────── P4-2 · Task 2 ───────────────────────────────────────────────╮ore ▶
+╭────│ ● READY  READY   project-4   ● qa  priority 6 · v3 · attempt 0                                             │────╮
+│ ╭──│ origin  created by pm · 31m ago                                                                            │──╮ │
+│ │ ●│ why     project_setup — the setup of project project-4's repository failed (gh is not authenticated on no… │  │ │
+│ │ P│ clears  node — wait for the project's repository setup (its first task's run); a failed setup names its r… │9 │ │
+│ │ ●│ repo    repository setup failed on mac-studio: gh is not authenticated on node mac-studio: run gh auth     │m │ │
+│ │ ↳│         login                                                                                              │… │ │
+│ ╰──│         fix it on the node; P4-1 retries on its own, r on it retries now                                   │──╯ │
+│ ╭──│                                                                                                            │──╮ │
+│ │ ●│ ▌ Recent events                                                                                            │  │ │
+│ │ P│   13:59:00   task.created              Task 2                                                              │9 │ │
+│ │ ●│                                                                                                            │m │ │
+│ │ ○│                                                                                                            │… │ │
+│ ╰──│                                                                                                            │──╯ │
+│ ╭──│                                                                                                            │──╮ │
+│ │ ●│                                                                                                            │  │ │
+│ │ P│                                                                                                            │8 │ │
+│ │ ●│                                                                                                            │h │ │
+│ │ ○│                                                                                                            │… │ │
+│ ╰──│                                                                                                            │──╯ │
+│    │                                                                                                            │──╮ │
+│    │                                                                                                            │  │ │
+│    │                                                                                                            │6 │ │
+│    │                                                                                                            │m │ │
+│    │                                                                                                            │… │ │
+│    │                                                                                                            │──╯ │
+│    │                                                                                                            │──╮ │
+│    │                                                                                                            │  │ │
+│    │                                                                                                            │6 │ │
+│    │                                                                                                            │h │ │
+│    │                                                                                                            │… │ │
+│    │                                                                                                            │──╯ │
+│    │ ────────────────────────────────────────────────────────────────────────────────────────────────────────── │    │
+│    │ p/u r n x a P c d L t o esc  ? names them                                                                  │    │
+│    ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯    │
+╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯╰────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +5 in inbox
+ j/k scroll  p/u pause/resume  r retry  x cancel  d direct  L live  esc close

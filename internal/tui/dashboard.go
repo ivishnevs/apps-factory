@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 // Dashboard panels.
@@ -92,6 +93,12 @@ func feedActivity(item storage.FeedItem) actRow {
 		r.Agent, r.Tool = "node", strings.TrimPrefix(item.Type, "node.")
 	case item.Type == "run.command_refused":
 		r.Tool = "refused"
+	case item.Type == "project.created":
+		r.Tool = "new project"
+	case item.Type == "project.provisioned":
+		r.Tool = "repo ready"
+	case item.Type == "project.setup_failed":
+		r.Tool = "setup failed"
 	}
 	return r
 }
@@ -480,6 +487,8 @@ func (m *Model) whyLine(t Task) string {
 		return "↳ " + strings.TrimPrefix(t.Reason, "parked:") + " · waits on " + who + ": " + t.Clearer.Action
 	case t.Reason == "capacity":
 		return "↳ queued: " + t.Clearer.Action
+	case t.Reason == tasks.ReasonProjectSetup:
+		return m.projectSetupWhy(t)
 	}
 	return "↳ " + t.Reason + ": " + t.Clearer.Action
 }
@@ -516,7 +525,7 @@ func (m *Model) statsLines(w int) (string, []string) {
 				online++
 			}
 		}
-		return "Company", []string{
+		lines := []string{
 			kv("Company", stBold.Render(m.ov.Health.Company), kw),
 			kv("Agents", fmt.Sprintf("%d (%s)", total, stGreen.Render(fmt.Sprintf("%d active", active))), kw),
 			kv("Open tasks", fmt.Sprint(open), kw),
@@ -525,6 +534,26 @@ func (m *Model) statsLines(w int) (string, []string) {
 			kv("Spend 24h", spark(m.spendBuckets("", 24), theme.accent), kw),
 			kv("Nodes", fmt.Sprintf("%d/%d online", online, len(m.ov.Nodes)), kw),
 		}
+		// Projects whose repository is not set up yet (project-creation): failed first, they need the owner.
+		var failed, waiting []string
+		for _, st := range m.ov.Status {
+			if s := st.Project.Setup; s != nil && s.State == tasks.SetupFailed {
+				failed = append(failed, st.Project.ID)
+			} else if s != nil && s.State != tasks.SetupReady {
+				waiting = append(waiting, st.Project.ID)
+			}
+		}
+		if len(failed)+len(waiting) > 0 {
+			parts := []string{}
+			if len(failed) > 0 {
+				parts = append(parts, stRedBold.Render("✗ "+strings.Join(failed, ", ")+" failed"))
+			}
+			if len(waiting) > 0 {
+				parts = append(parts, stYellow.Render("◌ "+strings.Join(waiting, ", "))+stFaint.Render(" pending"))
+			}
+			lines = append(lines, kv("Repos", strings.Join(parts, stFaint.Render(" · ")), kw))
+		}
+		return "Company", lines
 	}
 	lines := []string{kv("Agent", lipgloss.NewStyle().Foreground(agentColor(a.Name)).Bold(true).Render(a.Name)+stFaint.Render(" · "+a.Role), kw)}
 	model := a.Model

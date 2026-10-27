@@ -1,6 +1,6 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]                         14:30
-  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 6
-╭───────────────── Inbox · 5 ──────────────────╮╭──────────────────────────────── Item ────────────────────────────────╮
+ ◆ APP FACTORY   ● all 17%   ● project-1 22%   ● project-2 16%   ● project-3 16%   ✗ project-4 0%   ◌ project-5   14:30
+  1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 7
+╭───────────────── Inbox · 6 ──────────────────╮╭──────────────────────────────── Item ────────────────────────────────╮
 │ ● question  pm                        1h ago ││ ● APPROVAL  from ● designer  to owner   project-2   P2-4             │
 │   P1-5 · Which option for Task 5: A or B? A… ││                                                                      │
 │                                              ││ Approve the release notes v2 for Project 2?                          │
@@ -16,8 +16,8 @@
 │ ● escalation  factory                30m ago ││                                                                      │
 │   P2-3 · P2-3 stalled: it waits on P2-2, wh… ││                                                                      │
 │                                              ││                                                                      │
-│                                              ││                                                                      │
-│                                              ││                                                                      │
+│ ● approval  pm                        5m ago ││                                                                      │
+│   P1-1 · Create Project 6 for the companion… ││                                                                      │
 │                                              ││                                                                      │
 │                                              ││                                                                      │
 │                                              ││                                                                      │
@@ -26,5 +26,5 @@
 │                                              ││                                                                      │
 │                                              ││                                                                      │
 ╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is free but slower; B is … [A option-a / option-b]  +5 in inbox
  ↑↓ item  ←→ option  enter answer  a text  v preview  y/n approve  ^k palette  [ ] project  ? help  q quit

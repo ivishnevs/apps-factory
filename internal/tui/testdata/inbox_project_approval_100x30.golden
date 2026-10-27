@@ -1,0 +1,30 @@
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
+╭───────────── Inbox · 6 ──────────────╮╭────────────────────────── Item ──────────────────────────╮
+│ ● question  pm                1h ago ││ ● APPROVAL  from ● pm  to owner   project-1   P1-1       │
+│   P1-5 · Which option for Task 5: A… ││                                                          │
+│                                      ││ Create Project 6 for the companion app? It onboards      │
+│ ● approval  lead             20m ago ││ the existing repository with an audit first.             │
+│   P2-3 · Approve release of Project… ││                                                          │
+│                                      ││ call     factory_project_create                          │
+│ ● approval  designer          8m ago ││ project  Project 6                                       │
+│   P2-4 · Approve the release notes … ││ id       project-6                                       │
+│                                      ││ about    Companion app for Project 1: reminders and      │
+│ ● notification  pm           14m ago ││          offline sync.                                   │
+│   - · Module 1 offline store is mer… ││ repo     existing repository                             │
+│                                      ││ url      https://github.com/company-1/project-6          │
+│ ● escalation  factory        30m ago ││ branch   main                                            │
+│   P2-3 · P2-3 stalled: it waits on … ││ audit    yes, before any other work                      │
+│                                      ││ openspec on                                              │
+│ ● approval  pm                5m ago ││ reason   users of Project 1 keep asking for reminders; … │
+│   P1-1 · Create Project 6 for the c… ││ expires  in 24h                                          │
+│                                      ││                                                          │
+│                                      ││  y  approve    n  reject                                 │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+╰──────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
+ ↑↓ item  ←→ option  enter answer  a text  v preview  y/n approve  ^k palette  [ ] project  ? help …

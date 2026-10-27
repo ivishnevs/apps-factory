@@ -1,6 +1,6 @@
- ◆ APP FACTORY  [ ● all 19% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ]     14:30
-  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
-╭───────────── Flow · swimlanes · 13 steps · project project-1 · agent all · task all ─────────────╮
+ ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
+  1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
+╭───────────── Flow · swimlanes · 14 steps · project project-1 · agent all · task all ─────────────╮
 │          owner             designer               qa                                             │
 │                     pm              developer-1                                                  │
 │ 09:30      ●─────────▶         │         │         │     create    P1-1   “Task 1”               │
@@ -16,7 +16,7 @@
 │ 12:55      ◀─────────●         │         │         │     question  P1-5   Which option for Task… │
 │ 13:20      ●─────────────────────────────▶         │     directive P1-3   Keep Task 3 working o… │
 │ 14:05      │         │         │         ●─────────▶     create    P1-9   “Task 9”               │
-│                                                                                                  │
+│ 14:25      ◀─────────●         │         │         │     approval  P1-1   factory_project_creat… │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
@@ -26,5 +26,5 @@
 │                                                                                                  │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
+ → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +5 in inbox
  g lanes/pairs  a agent  t task  x clear  j/k scroll  ^k palette  [ ] project  ? help  q quit

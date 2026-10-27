@@ -52,6 +52,17 @@ func TestCreateProjectForm(t *testing.T) {
 	if ov.Status[len(ov.Status)-1].Project.ID != "advent-gift" {
 		t.Fatal("project not in the fixture")
 	}
+	// Its repository waits for the first task: no workspace yet; the board says so and offers the first task.
+	if np := ov.Status[len(ov.Status)-1].Project; np.Workspace != "" || np.Setup == nil || np.Setup.State != tasks.SetupPending || np.RepoMode != RepoLocal {
+		t.Fatalf("%+v", np)
+	}
+	if !strings.Contains(m.toast, "set up when the first task runs: n adds it") || m.tab != tabBoard {
+		t.Fatal(m.toast)
+	}
+	m.ov = ov
+	if s := ansi.Strip(m.Render()); !strings.Contains(s, "the new local repository is set up when the first task runs · n adds the first task") {
+		t.Fatal(s)
+	}
 
 	// An existing project: the path, URL, branch and audit fields appear; one of path or URL is required.
 	ctrlN(m)
@@ -86,12 +97,24 @@ func TestCreateProjectForm(t *testing.T) {
 		t.Fatal("form open after success:", m.projForm.server)
 	}
 	ov, _ = c.Overview(context.Background())
+	// As Core: the audit task is ready and runnable (its run sets the repository up), the setup waits for it.
 	found := false
 	for _, x := range ov.Tasks {
-		found = found || x.ProjectID == "old-app" && x.Reason == "onboarding"
+		found = found || x.ProjectID == "old-app" && x.Reason == tasks.ReasonRunnable && x.Status == "READY"
 	}
 	if !found {
 		t.Fatal("no audit task in the demo")
+	}
+	np := ov.Status[len(ov.Status)-1].Project
+	if np.RepoMode != RepoExisting || np.Setup == nil || np.Setup.State != tasks.SetupPending || !np.Setup.Audit || np.Setup.AuditTaskID != "old-app-1" || np.CreatedBy != "owner" {
+		t.Fatalf("%+v %+v", np, np.Setup)
+	}
+	if !strings.Contains(m.toast, "audit task runs first") || m.tab != tabBoard || m.project != "old-app" {
+		t.Fatal(m.toast, m.tab, m.project)
+	}
+	page, _ := c.Feed(context.Background(), FeedQuery{Project: "old-app"}, 0, 10)
+	if len(page.Items) != 1 || page.Items[0].Type != "project.created" || !strings.Contains(page.Items[0].Summary, "(audit first)") {
+		t.Fatalf("%+v", page.Items)
 	}
 
 	// A taken ID is refused locally; Core's refusal keeps the form and its values.
