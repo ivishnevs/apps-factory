@@ -130,8 +130,30 @@ func TestExcludeRelativeCwd(t *testing.T) {
 	if err := exclude("data/conv", []string{"openspec"}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(cwd, ".git", "info", "exclude"))
-	if err != nil || !strings.Contains(string(b), "/data/conv/.claude/skills/openspec/") {
-		t.Fatalf("exclude %q %v", b, err)
+	writeFile(t, filepath.Join(cwd, "data/conv/.claude/skills/openspec/SKILL.md"), "x")
+	if s := git(t, cwd, "status", "--porcelain", "--untracked-files=all", "--", "data"); s != "" {
+		t.Fatalf("skill copy not excluded: %q", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(cwd, ".git", "info", "exclude")); strings.Contains(string(b), ".claude/skills") {
+		t.Fatalf("rule written to the shared info/exclude: %q", b)
+	}
+}
+
+// TestExcludeOnlyThisWorktree: skills installed into a linked worktree are ignored there only; the main
+// checkout's own .claude/skills/<name>/ stays visible to git.
+func TestExcludeOnlyThisWorktree(t *testing.T) {
+	cwd, _, _ := skillsFixture(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, cwd, "worktree", "add", "-q", wt)
+	if err := exclude(wt, []string{"openspec"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(wt, ".claude/skills/openspec/SKILL.md"), "copy")
+	if s := git(t, wt, "status", "--porcelain", "--untracked-files=all"); s != "" {
+		t.Fatalf("worktree: %q", s)
+	}
+	writeFile(t, filepath.Join(cwd, ".claude/skills/openspec/SKILL.md"), "owner's new skill")
+	if s := git(t, cwd, "status", "--porcelain", "--untracked-files=all"); !strings.Contains(s, ".claude/skills/openspec/SKILL.md") {
+		t.Fatalf("main checkout lost the owner's new skill: %q", s)
 	}
 }

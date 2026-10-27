@@ -98,6 +98,10 @@ func TestEnsureWorktree(t *testing.T) {
 	if s := run(t, wt.Path, "status", "--porcelain", "--untracked-files=all"); s != "" {
 		t.Fatalf(".factory not excluded: %q", s)
 	}
+	// Excluded per worktree, not in the clone's shared info/exclude.
+	if b, _ := os.ReadFile(filepath.Join(wt.Repo, "info", "exclude")); strings.Contains(string(b), "/.factory/") {
+		t.Fatalf("shared info/exclude: %q", b)
+	}
 	if strings.HasPrefix(wt.Scratch, wt.Path) {
 		t.Fatalf("scratch %s inside worktree", wt.Scratch)
 	}

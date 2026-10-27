@@ -1,0 +1,6 @@
+## 1. Per-worktree excludes
+- [x] 1.1 `internal/gitexclude.Add`: rules in `<git dir>/factory-exclude` named by per-worktree `core.excludesFile` (enables `extensions.worktreeConfig`, moving `core.bare=true`/`core.worktree` to the main `config.worktree`), with a copy of the global excludes file; no-op outside a work tree. Verify: `TestAddOnlyThisWorktree` (factory worktree clean, `git add -A` stages nothing; main checkout and sibling worktree still see their `openspec/` and `.factory/`; global `*.log` still ignored), `TestAddPlainClone`, `TestAddBareWithWorktrees`, `TestAddOutsideRepository`.
+- [x] 1.2 Callers: OpenSpec/`.factory` materialization (`worker.excludeFromGit`), task worktrees (`.factory/` at ensure and before each seal; no longer in the bare clone's `info/exclude`), Claude skills (`/.claude/skills/<name>/`). Verify: `TestExcludeFromGitOnlyThisWorktree`, `TestEnsureWorktree`, `TestExcludeOnlyThisWorktree`, `TestExcludeRelativeCwd` (now checks git status; fixes the relative-cwd anchor), `TestJetStreamMaterializesProjectData` assertion updated.
+
+## 2. Cleanup
+- [x] 2.1 Writing a rule removes the identical line earlier versions left in the shared `info/exclude`; other lines stay. Verify: `TestAddRemovesLegacyLines`, `TestExcludeFromGitOnlyThisWorktree`.

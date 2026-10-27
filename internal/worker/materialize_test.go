@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"appfactory/internal/driver/fake"
+	"appfactory/internal/gitexclude"
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
@@ -88,8 +89,11 @@ func TestJetStreamMaterializesProjectData(t *testing.T) {
 	if err := json.Unmarshal([]byte(read(protocol.ManifestPath)), &saved); err != nil || len(saved.Files) != 2 || saved.OpenSpecDir != "openspec" {
 		t.Fatal(saved, err)
 	}
-	if exclude := read(".git/info/exclude"); !strings.Contains(exclude, "/openspec/\n") || !strings.Contains(exclude, "/.factory/\n") {
+	if exclude := read(".git/" + gitexclude.FileName); !strings.Contains(exclude, "/openspec/\n") || !strings.Contains(exclude, "/.factory/\n") {
 		t.Fatal(exclude)
+	}
+	if shared := read(".git/info/exclude"); strings.Contains(shared, "/openspec/") || strings.Contains(shared, "/.factory/") {
+		t.Fatal("rules in the shared info/exclude:", shared)
 	}
 	if _, err := os.Stat(filepath.Join(cache, files[1].SHA256)); err != nil {
 		t.Fatal("blob not cached", err)
@@ -142,5 +146,61 @@ func TestPreflightArchivedChange(t *testing.T) {
 	}
 	if e := preflightChange(cwd, spec); e != nil {
 		t.Fatal(e)
+	}
+}
+
+// TestExcludeFromGitOnlyThisWorktree: materialization in a task worktree keeps its OpenSpec tree and
+// .factory out of the agent's commits, while the main checkout of the same repository still sees the
+// owner's new files under openspec/ (they were silently ignored when the rules went to the shared
+// info/exclude), and the rules an earlier version left there are removed.
+func TestExcludeFromGitOnlyThisWorktree(t *testing.T) {
+	base := t.TempDir()
+	gc := filepath.Join(base, "gitconfig")
+	if err := os.WriteFile(gc, []byte("[user]\n\tname = T\n\temail = t@example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", gc)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	gitT := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	put := func(p string) {
+		t.Helper()
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	main := filepath.Join(base, "main")
+	gitT(base, "init", "-q", main)
+	gitT(main, "commit", "-q", "--allow-empty", "-m", "init")
+	if err := os.WriteFile(filepath.Join(main, ".git/info/exclude"), []byte("*.tmp\n/openspec/\n/.factory/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(base, "task")
+	gitT(main, "worktree", "add", "-q", "-b", "af/t1", wt)
+	if err := excludeFromGit(context.Background(), wt, "openspec"); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{main, wt} {
+		put(filepath.Join(d, "openspec/changes/x/proposal.md"))
+		put(filepath.Join(d, ".factory/manifest.json"))
+	}
+	gitT(wt, "add", "-A")
+	if s := gitT(wt, "status", "--porcelain", "--untracked-files=all"); s != "" {
+		t.Fatalf("task worktree: %q", s)
+	}
+	if s := gitT(main, "status", "--porcelain", "--untracked-files=all"); !strings.Contains(s, "openspec/changes/x/proposal.md") || !strings.Contains(s, ".factory/manifest.json") {
+		t.Fatalf("main checkout: %q", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(main, ".git/info/exclude")); string(b) != "*.tmp\n" {
+		t.Fatalf("shared info/exclude = %q", b)
 	}
 }

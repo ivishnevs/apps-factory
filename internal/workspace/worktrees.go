@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"appfactory/internal/gitexclude"
 )
 
 var ErrWorktreesDisabled = errors.New("workspace: worktrees allocator is disabled")
@@ -238,6 +240,9 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 	if _, err = git(ctx, path, nil, "config", "--worktree", "core.hooksPath", hooks); err != nil {
 		return Worktree{}, err
 	}
+	if err = gitexclude.Add(ctx, path, "/.factory/"); err != nil {
+		return Worktree{}, err
+	}
 	scratch := filepath.Join(dir, "scratch", r.Task)
 	if err = os.MkdirAll(scratch, 0o755); err != nil {
 		return Worktree{}, err
@@ -295,23 +300,8 @@ func configureRepo(ctx context.Context, repo string) error {
 			return err
 		}
 	}
-	exclude := filepath.Join(repo, "info", "exclude")
-	b, err := os.ReadFile(exclude)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	for _, l := range strings.Split(string(b), "\n") {
-		if strings.TrimSpace(l) == "/.factory/" {
-			return nil
-		}
-	}
-	if err = os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
-		return err
-	}
-	if len(b) > 0 && !strings.HasSuffix(string(b), "\n") {
-		b = append(b, '\n')
-	}
-	return os.WriteFile(exclude, append(b, "/.factory/\n"...), 0o644)
+	// .factory is excluded per worktree (Ensure), not in the clone's shared info/exclude.
+	return nil
 }
 
 func ensureBranch(ctx context.Context, repo, branch, def string) error {
@@ -435,6 +425,11 @@ func snapshot(ctx context.Context, r Request, path string) (SealResult, error) {
 	env := []string{"GIT_INDEX_FILE=" + idx,
 		"GIT_AUTHOR_NAME=App Factory", "GIT_AUTHOR_EMAIL=factory@localhost",
 		"GIT_COMMITTER_NAME=App Factory", "GIT_COMMITTER_EMAIL=factory@localhost"}
+	// .factory never enters a snapshot, also in a worktree made before excludes were per worktree and
+	// sealed before its next Ensure.
+	if err = gitexclude.Add(ctx, path, "/.factory/"); err != nil {
+		return SealResult{}, err
+	}
 	if _, err = git(ctx, path, env, "add", "-A", "--", "."); err != nil {
 		return SealResult{}, err
 	}

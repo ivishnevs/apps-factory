@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"appfactory/internal/driver"
+	"appfactory/internal/gitexclude"
 	"appfactory/internal/skills"
 )
 
@@ -20,7 +21,7 @@ const SkillMarker = ".factory-skill"
 
 // installSkills copies the run's verified skills into <cwd>/.claude/skills/<name>, the project skills
 // directory Claude Code reads with the "project" setting source, and keeps them out of git through the
-// repository's info/exclude. Copies left by a crashed run are replaced first. The returned func removes
+// worktree's own excludes file. Copies left by a crashed run are replaced first. The returned func removes
 // this run's copies.
 func installSkills(cwd, root string, list []driver.Skill, sources []string) (func(), error) {
 	if len(list) == 0 {
@@ -90,28 +91,31 @@ func removeMarked(dir string) error {
 	return nil
 }
 
-// exclude adds /.claude/skills/<name>/ to the info/exclude of the repository containing cwd, so neither
-// the agent's commits nor the worktree seal pick the copies up; outside a repository it does nothing.
+// exclude makes git ignore /.claude/skills/<name>/ in the worktree containing cwd only (per-worktree
+// excludes, see gitexclude; never the shared info/exclude, which the owner's checkout and sibling
+// worktrees read too), so neither the agent's commits nor the worktree seal pick the copies up; outside a
+// repository it does nothing.
 func exclude(cwd string, names []string) error {
-	cwd, err := filepath.EvalSymlinks(cwd)
+	// git prints absolute, symlink-resolved paths: Rel needs cwd the same way. Abs first, or a relative
+	// cwd resolves against an unresolved working directory (/var vs /private/var on macOS).
+	cwd, err := filepath.Abs(cwd)
 	if err != nil {
 		return err
 	}
-	if cwd, err = filepath.Abs(cwd); err != nil { // git prints absolute paths: Rel needs both absolute
+	if cwd, err = filepath.EvalSymlinks(cwd); err != nil {
 		return err
 	}
-	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
+	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--show-toplevel")
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
-		return nil // not a git repository
+		return nil // not a git work tree
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != 2 {
+	top := strings.TrimSpace(string(out))
+	if top == "" {
 		return nil
 	}
-	common, top := lines[0], lines[1]
 	rel, err := filepath.Rel(top, cwd)
 	if err != nil {
 		return err
@@ -120,29 +124,9 @@ func exclude(cwd string, names []string) error {
 	if rel != "." {
 		prefix += filepath.ToSlash(rel) + "/"
 	}
-	p := filepath.Join(common, "info", "exclude")
-	b, err := os.ReadFile(p)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	have := map[string]bool{}
-	for _, l := range strings.Split(string(b), "\n") {
-		have[strings.TrimSpace(l)] = true
-	}
-	var add bytes.Buffer
+	patterns := make([]string, 0, len(names))
 	for _, n := range names {
-		if l := prefix + ".claude/skills/" + n + "/"; !have[l] {
-			add.WriteString(l + "\n")
-		}
+		patterns = append(patterns, prefix+".claude/skills/"+n+"/")
 	}
-	if add.Len() == 0 {
-		return nil
-	}
-	if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	if err = os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(p, append(b, add.Bytes()...), 0o644)
+	return gitexclude.Add(context.Background(), cwd, patterns...)
 }

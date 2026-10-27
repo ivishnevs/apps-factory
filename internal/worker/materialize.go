@@ -11,13 +11,13 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"appfactory/internal/gitexclude"
 	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
 )
@@ -350,46 +350,17 @@ func writeRoot(root *os.Root, name string, b []byte) error {
 	return err
 }
 
-// excludeFromGit adds the OpenSpec directory and .factory to the repository's info/exclude (shared by its
-// worktrees), so materialized files never make the tree dirty or reach a commit. Outside a repository it
-// does nothing.
+// excludeFromGit makes git ignore the OpenSpec directory and .factory in this worktree only — never in the
+// main checkout or sibling worktrees of the same repository (git reads info/exclude from the common
+// directory, so it is not used) — so materialized files never make the tree dirty or reach a commit. The
+// same lines earlier versions left in the shared info/exclude are removed. Outside a repository it does
+// nothing.
 func excludeFromGit(ctx context.Context, cwd, dir string) error {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
-	cmd.Dir = cwd
-	out, err := cmd.Output()
-	if err != nil {
-		return nil // not a repository
+	patterns := []string{"/.factory/"}
+	if dir != "" {
+		patterns = append([]string{"/" + dir + "/"}, patterns...)
 	}
-	file := strings.TrimSpace(string(out))
-	old, err := os.ReadFile(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	lines := strings.Split(string(old), "\n")
-	var add []string
-	for _, want := range []string{"/" + dir + "/", "/.factory/"} {
-		if want == "//" {
-			continue
-		}
-		found := false
-		for _, l := range lines {
-			found = found || strings.TrimSpace(l) == want
-		}
-		if !found {
-			add = append(add, want)
-		}
-	}
-	if len(add) == 0 {
-		return nil
-	}
-	if err = os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return err
-	}
-	text := string(old)
-	if text != "" && !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	return os.WriteFile(file, []byte(text+strings.Join(add, "\n")+"\n"), 0o644)
+	return gitexclude.Add(ctx, cwd, patterns...)
 }
 
 // preflightChange checks the run's linked change in the materialized tree before the runtime starts.
