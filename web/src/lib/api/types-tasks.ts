@@ -13,6 +13,7 @@ export function describe(a: Action): string {
     case "reprioritize": return `Reprioritize ${a.TaskID} to ${a.Priority}`;
     case "cancel": return a.Cascade ? `Cancel ${a.TaskID} and its open children` : `Cancel ${a.TaskID}`;
     case "create": return `Create task “${a.Title}” in ${a.Project}${a.Assignee ? ` for ${a.Assignee}` : ""} (priority ${a.Priority ?? 0}${a.Ready ? ", ready" : ""})`;
+    case "create_project": return `Create project “${a.NewProject?.name ?? ""}” (${a.NewProject?.id ?? ""})`;
     case "pause": return `Pause ${a.TaskID}: no new runs start until you resume it`;
     case "resume": return `Resume ${a.TaskID}`;
     case "retry": return `Retry ${a.TaskID}: release it to run again`;

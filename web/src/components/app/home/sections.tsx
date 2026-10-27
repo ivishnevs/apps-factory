@@ -11,6 +11,7 @@ import type { Agent, Message, Overview, Run } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { NewProject } from "@/components/app/project/new-project";
 import { Row, Section } from "./card";
 
 const clock = (t?: number) => (t ? format(new Date(t * 1000), "HH:mm") : "");
@@ -174,8 +175,14 @@ export function Projects({ ov }: { ov: Overview }) {
   const conv = new Set(ov.tasks.filter((t) => isConversation(t as BoardTask)).map((t) => t.id));
   const look = lookupFrom(ov.tasks);
   return (
-    <Section title="Projects" count={ov.status.length} href="/tasks" linkLabel="Board">
-      {ov.status.length === 0 ? <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No projects yet.</p> : (
+    <Section title="Projects" count={ov.status.length} href="/tasks" linkLabel="Board"
+      action={<NewProject overview={ov} variant="ghost" size="sm" label="New" className="h-10 px-2.5 text-xs text-muted-foreground hover:text-foreground sm:h-8" />}>
+      {ov.status.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 border-t px-4 py-8 text-center">
+          <p className="text-sm text-muted-foreground">No projects yet. Start one and your team takes it from there.</p>
+          <NewProject overview={ov} variant="default" />
+        </div>
+      ) : (
         <ul>
           {ov.status.map((s) => {
             const total = Object.values(s.tasks).reduce((a, b) => a + b, 0);

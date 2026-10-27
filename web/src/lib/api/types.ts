@@ -130,11 +130,21 @@ export interface TaskDetail {
 
 // An owner action (internal/tui.Action; Go field names, no json tags). Kind is one of: pause, resume, retry,
 // run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create,
-// hold, release, read.
+// create_project (NewProject is the POST /projects body), hold, release, read.
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
   Text?: string; Assignee?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
   Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string;
+  NewProject?: ProjectCreate;
+}
+
+// How Core provisions a new project's repository (project-creation).
+export type RepoMode = "local" | "github" | "existing";
+
+// ProjectCreate is tasks.ProjectCreate, the POST /projects body; request_id is one per submit.
+export interface ProjectCreate {
+  id: string; name: string; description: string; workspace?: string; repo_url?: string; default_branch?: string;
+  request_id: string; openspec: { enabled: boolean }; repo_mode: RepoMode; audit?: boolean;
 }
 
 export interface Meta { describe: string; mode: "live" | "demo" }

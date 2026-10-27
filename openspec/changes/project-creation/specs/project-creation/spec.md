@@ -7,6 +7,10 @@ The web and terminal UIs SHALL offer a New project form (id, name, description, 
 - **WHEN** the owner submits the form with id `advent-gift`, a name and the default repository mode
 - **THEN** Core SHALL create the project and it SHALL appear in the projects list and the task form
 
+#### Scenario: Owner adds an existing project from the form
+- **WHEN** the owner picks the repository mode Existing project, gives a folder on the node and/or a repository URL (optionally a branch) and leaves "Run an audit first" on
+- **THEN** the form SHALL send `repo_mode` `existing` with `workspace`, `repo_url`, `default_branch` and `audit` true, and SHALL refuse to send without a folder or URL
+
 ### Requirement: Core provisions the repository
 When no workspace or repository URL is given, Core SHALL provision a git repository for the project: by default a local repository with an initial commit on `main`, or, when the owner chooses it, a private GitHub repository cloned locally with `repo_url` set. An explicit workspace path or repository URL SHALL keep today's behaviour.
 

@@ -6,6 +6,7 @@ import { Suspense, useMemo, useState } from "react";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { toneClass } from "@/components/app/status";
 import { columnOf, columns, isConversation, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
+import { NewProject } from "@/components/app/project/new-project";
 import { NewTask } from "@/components/app/tasks/new-task";
 import { TaskCard } from "@/components/app/tasks/parts";
 import { Input } from "@/components/ui/input";
@@ -78,7 +79,7 @@ function Tasks() {
     <>
       <PageHeader title="Tasks"
         description={ov ? <>{total} open{forYou > 0 && <> · <span className="font-medium text-amber-700 dark:text-amber-300">{forYou} need{forYou === 1 ? "s" : ""} you</span></>}</> : "Loading…"}
-        actions={<NewTask overview={ov} defaultProject={project === ALL ? undefined : project} />} />
+        actions={<><NewProject overview={ov} /><NewTask overview={ov} defaultProject={project === ALL ? undefined : project} /></>} />
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
