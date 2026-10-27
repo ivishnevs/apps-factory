@@ -2,11 +2,12 @@ package tui
 
 // helpText lists the hotkeys (the help modal, ?).
 var helpText = []struct{ section, keys string }{
-	{"Global", "1-8 or tab switch screen · [ ] project · ctrl+k palette · R refresh · K kill switch · q quit · mouse: click, wheel"},
+	{"Global", "1-8 or tab switch screen · [ ] project · ctrl+k palette · ctrl+n new project · R refresh · K kill switch · q quit · mouse: click, wheel"},
 	{"Prompt bar", "Y approve · N reject · A answer the oldest item waiting on you · R reply to / M mark read a notification"},
 	{"Dashboard", "h/l panel · j/k move · enter open (run, task) · z zoom panel · f flow of agent"},
 	{"Board", "←→↑↓ move · enter open card · n new task · / filter (a:AGENT s:STATUS ! open words) · ! needs you · z cancelled"},
 	{"New task", "tab/shift+tab field · ←→ choose · space toggle · ctrl+e description in $EDITOR · ctrl+s create · esc cancel"},
+	{"New project", "tab/shift+tab field · type a name (the ID follows it) · ←→ repository: new local, new private GitHub, existing (path or URL, branch, audit first) · space toggle · ctrl+s create · esc cancel"},
 	{"Task actions", "p pause · u resume · r retry · n run · x cancel · a reassign · P priority · c comment · d directive (!text urgent) · L live run · t transcript · o open PR · f flow"},
 	{"Run", "t transcript · e errors only · f follow · j/k scroll · G newest · T task · esc back"},
 	{"Transcript", "j/k entry · enter expand/collapse · E all · e errors only · l local/core source · f follow · T task · esc back"},

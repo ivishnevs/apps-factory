@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,10 +13,12 @@ import (
 	"time"
 
 	"appfactory/internal/artifacts"
+	"appfactory/internal/core"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/reports"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 // Fixture is a recorded Core state the UI renders without a running Core (factory ui --fixture, --demo).
@@ -118,7 +121,11 @@ type FixtureClient struct {
 
 func (c *FixtureClient) Describe() string { return "fixture " + c.F.Name }
 
-func (c *FixtureClient) Overview(context.Context) (Overview, error) { return c.F.Overview, nil }
+func (c *FixtureClient) Overview(context.Context) (Overview, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.F.Overview, nil
+}
 
 func (c *FixtureClient) TaskDetail(_ context.Context, id string, all []Task) (TaskDetail, error) {
 	if d, ok := c.F.Details[id]; ok {
@@ -216,6 +223,9 @@ func (c *FixtureClient) Do(_ context.Context, a Action) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Sent = append(c.Sent, a)
+	if a.Kind == "create_project" {
+		return c.createProject(a.NewProject)
+	}
 	if a.Kind == "say" {
 		// The demo keeps the owner's message in its conversation, as Core would.
 		def := defaultReportOf(c.F.Overview)
@@ -390,4 +400,47 @@ func SaveFixture(path string, f Fixture) error {
 		path = filepath.Join(path, "fixture.json")
 	}
 	return os.WriteFile(path, append(b, '\n'), 0o600)
+}
+
+// createProject adds the project to the fixture, as Core would after provisioning its repository; an existing
+// project onboarded with an audit gets the audit task for the default report. Refusals mirror Core's.
+func (c *FixtureClient) createProject(in *tasks.ProjectCreate) (string, error) {
+	if in == nil {
+		return "", fmt.Errorf("400 Bad Request: project body required")
+	}
+	ids := []string{}
+	for _, s := range c.F.Overview.Status {
+		ids = append(ids, s.Project.ID)
+	}
+	if errs := ValidateNewProject(*in, ids); len(errs) > 0 {
+		keys := make([]string, 0, len(errs))
+		for k := range errs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return "", fmt.Errorf("400 Bad Request: %s: %s", keys[0], errs[keys[0]])
+	}
+	at := c.F.Overview.At.Unix()
+	p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: in.Workspace, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch,
+		OpenSpec: in.OpenSpec, Version: 1, CreatedAt: at, UpdatedAt: at}
+	switch in.RepoMode {
+	case RepoExisting:
+	case RepoGitHub:
+		p.RepoURL = "https://github.com/" + cmp.Or(c.F.Overview.Health.Company, "company") + "/" + in.ID
+		p.Workspace = "/srv/factory/projects/" + in.ID
+	default:
+		p.Workspace = "/srv/factory/projects/" + in.ID
+	}
+	st := core.ProjectStatus{Project: p, Runs: []core.RunStatus{}, Tasks: map[string]int{}, Waiting: []tasks.Verdict{}}
+	if in.RepoMode == RepoExisting && in.Audit {
+		t := Task{Task: tasks.Task{ID: in.ID + "-1", ProjectID: in.ID, Title: "Audit the existing project", Status: "READY", Assignee: defaultReportOf(c.F.Overview),
+			CreatedBy: "owner", Priority: 9, Version: 1, CreatedAt: at, UpdatedAt: at,
+			Description: "Read-only audit: code, build, product state; OpenSpec baseline specs of today's behaviour; a report with options."},
+			Reason: "onboarding", Clearer: tasks.Clearer{Who: "core", Action: "import the repository and its openspec/, then run the audit"}}
+		c.F.Overview.Tasks = append(c.F.Overview.Tasks, t)
+		st.Tasks["READY"] = 1
+		st.Waiting = append(st.Waiting, tasks.Verdict{TaskID: t.ID, Status: t.Status, Reason: t.Reason, Clearer: t.Clearer})
+	}
+	c.F.Overview.Status = append(c.F.Overview.Status, st)
+	return "created project " + p.ID + ": " + p.Name, nil
 }

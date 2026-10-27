@@ -141,6 +141,12 @@ type ProjectCreate struct {
 	ReviewAfterConflicts string           `json:"review_after_conflicts,omitempty"`
 	Rules                string           `json:"rules,omitempty"`
 	OpenSpec             *ProjectOpenSpec `json:"openspec,omitempty"`
+	// RepoMode is how Core provisions the repository (project-creation): "local" (the default without a
+	// workspace or repo URL) a new local repository, "github" a new private GitHub repository, "existing" an
+	// existing project at Workspace and/or RepoURL.
+	RepoMode string `json:"repo_mode,omitempty"`
+	// Audit (with repo_mode "existing") makes Core create a read-only project-audit task after onboarding.
+	Audit bool `json:"audit,omitempty"`
 }
 type ProjectUpdate struct {
 	Version     int    `json:"version"`

@@ -2,29 +2,29 @@
   1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 5  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 6
 ╭───────────╭────────────────────────────────── Keys ──────────────────────────────────╮───────────╮
 │ ◆ owner · │ Global        1-8 or tab switch screen · [ ] project · ctrl+k palette ·  │← ⠋running │
-│ ├ ● lead: │               R refresh · K kill switch · q quit · mouse: click, wheel   │ needs you │
-│ │   └ › Th│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │wer m-esc… │
-│ │ ├ ● deve│               you · R reply to / M mark read a notification              │ needs you │
-│ │ │   └ ✎ │ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │sk-1 in t… │
-│ │ └ ● revi│               panel · f flow of agent                                    │ needs you │
-│ │     └ › │ Board         ←→↑↓ move · enter open card · n new task · / filter        │ in review │
-│ └ ◐ pm: wa│               (a:AGENT s:STATUS ! open words) · ! needs you · z          │           │
-│   ├ ⏸ desi│               cancelled                                                  │           │
-│   ├ ● deve│ New task      tab/shift+tab field · ←→ choose · space toggle · ctrl+e    │           │
-│   │   └ ▸ │               description in $EDITOR · ctrl+s create · esc cancel        │           │
-│   └ ◷ qa: │ Task actions  p pause · u resume · r retry · n run · x cancel · a        │           │
-╰───────────│               reassign · P priority · c comment · d directive (!text     │───────────╯
-╭───────────│               urgent) · L live run · t transcript · o open PR · f flow   │───────────╮
-│ 14:28:02  │ Run           t transcript · e errors only · f follow · j/k scroll · G   │a pushed … │
-│ 14:28:03  │               newest · T task · esc back                                 │int":"pus… │
-│ 14:28:30  │ Transcript    j/k entry · enter expand/collapse · E all · e errors only  │           │
-│ 14:28:40  │               · l local/core source · f follow · T task · esc back       │           │
-│ 14:29:00  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │           │
-│ 14:29:00  │ Feed          ! attention · / filter · x clear · j/k G scroll            │           │
-│ 14:29:10  │ Inbox         ↑↓ item · ←→ option · enter answer · a free text · v       │r the reb… │
-│ 14:29:20  │               preview artifact · y approve · n reject · t task · r reply │           │
-│ 14:29:30  │               · m mark read (notifications)                              │ked.”      │
-│ 14:29:45  │ Chat          j/k report · enter write · enter send · @name address ·    │           │
+│ ├ ● lead: │               ctrl+n new project · R refresh · K kill switch · q quit ·  │ needs you │
+│ │   └ › Th│               mouse: click, wheel                                        │wer m-esc… │
+│ │ ├ ● deve│ Prompt bar    Y approve · N reject · A answer the oldest item waiting on │ needs you │
+│ │ │   └ ✎ │               you · R reply to / M mark read a notification              │sk-1 in t… │
+│ │ └ ● revi│ Dashboard     h/l panel · j/k move · enter open (run, task) · z zoom     │ needs you │
+│ │     └ › │               panel · f flow of agent                                    │ in review │
+│ └ ◐ pm: wa│ Board         ←→↑↓ move · enter open card · n new task · / filter        │           │
+│   ├ ⏸ desi│               (a:AGENT s:STATUS ! open words) · ! needs you · z          │           │
+│   ├ ● deve│               cancelled                                                  │           │
+│   │   └ ▸ │ New task      tab/shift+tab field · ←→ choose · space toggle · ctrl+e    │           │
+│   └ ◷ qa: │               description in $EDITOR · ctrl+s create · esc cancel        │           │
+╰───────────│ New project   tab/shift+tab field · type a name (the ID follows it) · ←→ │───────────╯
+╭───────────│               repository: new local, new private GitHub, existing (path  │───────────╮
+│ 14:28:02  │               or URL, branch, audit first) · space toggle · ctrl+s       │a pushed … │
+│ 14:28:03  │               create · esc cancel                                        │int":"pus… │
+│ 14:28:30  │ Task actions  p pause · u resume · r retry · n run · x cancel · a        │           │
+│ 14:28:40  │               reassign · P priority · c comment · d directive (!text     │           │
+│ 14:29:00  │               urgent) · L live run · t transcript · o open PR · f flow   │           │
+│ 14:29:00  │ Run           t transcript · e errors only · f follow · j/k scroll · G   │           │
+│ 14:29:10  │               newest · T task · esc back                                 │r the reb… │
+│ 14:29:20  │ Transcript    j/k entry · enter expand/collapse · E all · e errors only  │           │
+│ 14:29:30  │               · l local/core source · f follow · T task · esc back       │ked.”      │
+│ 14:29:45  │ Flow          g lanes/pairs · a agent · t task · x clear · j/k G scroll  │           │
 ╰───────────╰──────────────────────────────────────────────────────────────────────────╯───────────╯
  → 12:55:00 pm asks: Which option for Task 5: A or B? A is fr… [A option-a / option-b]  +4 in inbox
  any key close
