@@ -20,15 +20,17 @@ const (
 	// ReasonOpenSpec: the linked OpenSpec change of a task in review fails Core's check, so its review run is
 	// not dispatched.
 	ReasonOpenSpec = "openspec"
-	ReasonPaused       = "paused:" // + scope
-	ReasonBackoff      = "backoff"
-	ReasonIdle         = "idle"
+	ReasonPaused   = "paused:" // + scope
+	ReasonBackoff  = "backoff"
+	ReasonIdle     = "idle"
 	// ReasonPinnedNode: the node holding the task's unpushed work cannot continue it (task-worktrees D8).
 	ReasonPinnedNode = "pinned_node_unavailable"
 	// ReasonNoCapableNode: no online, unpaused node has the assignee's driver, labels and resources.
 	ReasonNoCapableNode = "no_capable_node"
 	ReasonCapacity      = "capacity"
-	ReasonRunnable      = "runnable"
+	// ReasonProjectSetup: another task's run sets the project's repository up first (project-creation D2).
+	ReasonProjectSetup = "project_setup"
+	ReasonRunnable     = "runnable"
 )
 
 // Park kinds, ordered so that what a human must act on comes first.
@@ -125,6 +127,9 @@ type Snapshot struct {
 	// WriterRun is a run of another task holding the project workspace writer slot, including a lost run
 	// whose runtime may still run (not released).
 	WriterRun *Run
+	// ProjectSetup says why the task waits for its project's repository setup, which another task's run
+	// performs (project-creation D2); "" when it does not wait.
+	ProjectSetup string
 	// Nodes are the company's registered (protocol v2) nodes; none means v1 workers only and no node
 	// reasons. Needs is what the assignee's runs need from a node (Core fills it from the catalog).
 	Nodes []Node
@@ -263,6 +268,9 @@ func Evaluate(s Snapshot) Verdict {
 			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by lost run %s whose runtime may still run (task %s)", r.ID, r.TaskID), "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" continue|retry|cancel EVIDENCE")
 		}
 		return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the run in the project workspace")
+	}
+	if s.ProjectSetup != "" {
+		return v(ReasonProjectSetup, s.ProjectSetup, "node", "wait for the project's repository setup (its first task's run); a failed setup names its reason in the project's feed")
 	}
 	if n := s.nodeReason(true); n.Reason != "" {
 		return v(n.Reason, n.Detail, n.Clearer.Who, n.Clearer.Action)

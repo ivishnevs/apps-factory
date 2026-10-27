@@ -257,6 +257,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   when the two differ at start (a restored database), Core creates a new incarnation. Restoring the file together
   with the database is not detected: after such a restore write any other value into `core.incarnation` (for
   example `echo restored > data/core.incarnation`) before starting Core. Runbook: [development](development.md#restoring-cores-database).
+- **Project setup** (project-creation): a claim answer whose RunSpec carries `project_setup` `{mode, name, description, workspace, repo_url, default_branch, openspec_dir}` (and no workspace) asks the node to create or onboard the project's repository before the runtime starts; the run holds the writer slot `project-setup/<project>`. The node reports `POST /runs/{id}/project-setup` `{lease, node_id, workspace, repo_url, default_branch, openspec: [{path, content}], openspec_untracked}` or `{lease, node_id, error}` (node tokens may call it for their own runs) and continues with the answer `{workspace, repo_url, default_branch, workspace_mode, materialize}`; an error ends the run `setup_failed`. See [projects](projects.md).
 - **Worktrees** (additive register field `worktrees: true`, node.yaml `worktrees.enabled`): a node that runs
   worktree tasks in their own worktree lets tasks of one project run in parallel. A worktree run holds its own
   writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees (or by

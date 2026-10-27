@@ -107,6 +107,19 @@ refuses an unknown target, a self reference and cycles; `owner` is reserved. The
 up to the owner, its subtree the agents whose chain contains it. Every agent may message its chain (the owner
 included) and its direct reports; `communication.can_message` adds peers but never removes these.
 
+Creating projects (project-creation): `communication.can_create_projects` offers `factory_project_create`; unset,
+it is true for the owner's direct reports (`reports_to: owner` or none, i.e. the CEO) and false for everyone else.
+Set it to `false` to take the tool from a direct report, `true` to give it to another agent. A tool deny of
+`factory.project.create` still wins. Every call waits for the owner's approval of the exact call, whatever the
+agent's approvals settings say. The creating agent may then create tasks in its new project (`factory_task_create`
+with `project_id`). The onboarding audit of an existing repository goes to `configs/company.yaml`
+`projects.audit_assignee` (default `product-manager`; it must be an agent). See [projects](projects.md).
+
+```yaml
+communication:
+  can_create_projects: true   # default for the owner's direct reports
+```
+
 Authority over a task belongs to the owner, the agents in its assignee's chain and the assignee of the task it was
 delegated from (`origin_task`). Their comments and `factory_task_direct` directives wake the task; other agents'
 comments only reach its next brief. Recovery and stall escalations go to the assignee's manager (`reports_to`),

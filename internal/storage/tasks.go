@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -145,7 +146,14 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: filepath.Clean(in.Workspace), RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, OpenSpec: in.OpenSpec, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, OpenSpec: in.OpenSpec, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix(),
+			CreatedBy: cmp.Or(in.CreatedBy, "owner"), ApprovalID: in.ApprovalID}
+		if in.Workspace != "" {
+			p.Workspace = filepath.Clean(in.Workspace)
+		}
+		if err := projectRepo(&p, in); err != nil {
+			return p, err
+		}
 		if err := validOpenSpecSetting(p.OpenSpec); err != nil {
 			return p, err
 		}
@@ -158,15 +166,96 @@ func (s *Store) CreateProject(ctx context.Context, company string, in tasks.Proj
 		if err := validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err
 		}
-		if !entityName.MatchString(p.ID) || strings.TrimSpace(p.Name) == "" || !filepath.IsAbs(in.Workspace) {
-			return p, inputError("project requires valid id, name and absolute host workspace")
+		if !entityName.MatchString(p.ID) {
+			return p, inputError("project id: letters, digits, '_' or '-' (at most 96), starting with a letter or digit")
+		}
+		if strings.TrimSpace(p.Name) == "" {
+			return p, inputError("project name required")
+		}
+		var exists int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM projects WHERE id=?", p.ID).Scan(&exists); err != nil {
+			return p, err
+		}
+		if exists > 0 {
+			return p, fmt.Errorf("%w: project %s already exists", ErrConflict, p.ID)
+		}
+		if p.Workspace != "" {
+			var other string
+			err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE company_id=? AND workspace=?", tx.company, p.Workspace).Scan(&other)
+			if err == nil {
+				return p, fmt.Errorf("%w: workspace %s belongs to project %s", ErrConflict, p.Workspace, other)
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return p, err
+			}
 		}
 		b, _ := json.Marshal(p)
 		if _, err := tx.ExecContext(ctx, "INSERT INTO projects(id,workspace,version,body,company_id) VALUES(?,?,?,?,?)", p.ID, p.Workspace, p.Version, b, tx.company); err != nil {
 			return p, err
 		}
-		return p, entityEvent(ctx, tx, "project.created", p.ID, p.ID, p)
+		return p, entityEventNote(ctx, tx, "project.created", p.ID, p.ID, p, createdNote(p))
 	})
+}
+
+// projectRepo checks the repository fields of a new project and sets its repo mode and setup
+// (project-creation D1): without repo_mode, a workspace keeps today's behaviour (no onboarding), neither
+// workspace nor repo_url means a local repository; local and github create the repository, so they take no
+// workspace or repo_url; existing needs one of them. Audit is for repositories that exist.
+func projectRepo(p *tasks.Project, in tasks.ProjectCreate) error {
+	if in.Workspace != "" && !filepath.IsAbs(in.Workspace) {
+		return inputError("workspace must be an absolute path on the node")
+	}
+	mode := in.RepoMode
+	if mode == "" {
+		switch {
+		case in.Workspace == "" && in.RepoURL == "":
+			mode = tasks.RepoLocal
+		case in.Workspace == "" || in.Audit:
+			mode = tasks.RepoExisting // a repo_url alone is cloned by the node; an audit needs the onboarding
+		default:
+			return nil // an existing workspace as before: ready at once, no onboarding
+		}
+	}
+	switch mode {
+	case tasks.RepoLocal, tasks.RepoGitHub:
+		if in.Workspace != "" || in.RepoURL != "" || in.DefaultBranch != "" {
+			return inputError("repo_mode " + mode + " creates the repository: leave workspace, repo_url and default_branch empty (or use repo_mode existing)")
+		}
+		if in.Audit {
+			return inputError("audit is for an existing repository (repo_mode existing)")
+		}
+	case tasks.RepoExisting:
+		if in.Workspace == "" && in.RepoURL == "" {
+			return inputError("repo_mode existing needs workspace (an absolute path on the node) or repo_url")
+		}
+	default:
+		return inputError("repo_mode must be local, github or existing")
+	}
+	p.RepoMode = mode
+	p.Setup = &tasks.ProjectSetup{State: tasks.SetupPending, Audit: in.Audit}
+	return nil
+}
+
+// createdNote is the feed summary of a project's creation: who asked, who approved, the repository.
+func createdNote(p tasks.Project) string {
+	note := "project " + p.ID + " created by " + p.CreatedBy
+	if p.ApprovalID != "" {
+		note += ", approved by the owner (approval " + p.ApprovalID + ")"
+	}
+	switch p.RepoMode {
+	case tasks.RepoLocal:
+		note += "; repository: new local git repository, created on the node when the first task runs"
+	case tasks.RepoGitHub:
+		note += "; repository: new private GitHub repository, created through the node's gh when the first task runs"
+	case tasks.RepoExisting:
+		note += "; repository: existing " + cmp.Or(p.Workspace, p.RepoURL) + ", onboarded on the node before the first task"
+		if p.Setup != nil && p.Setup.Audit {
+			note += " (audit first)"
+		}
+	default:
+		note += "; workspace " + p.Workspace
+	}
+	return note
 }
 func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.ProjectUpdate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.update:"+id, in.RequestID, in, func(tx *Tx) (tasks.Project, error) {

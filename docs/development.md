@@ -230,7 +230,7 @@ enabled driver must pass its version check and probe at start (see Driver checks
 for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
-errors. Relative paths (`state_dir`, `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `token_file`, `secrets_file`,
+errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `token_file`, `secrets_file`,
 `drivers.claude.shim`, the NATS creds, seed and TLS files, and a driver `binary`/`executable` that holds a `/`)
 resolve against the working directory the node starts in, not the config file's directory: start it from the
 checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
@@ -245,6 +245,7 @@ token_file: /etc/factory/node.token  # node token (factory nodes token create); 
 runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)
 secrets_file: /etc/factory/node.secrets  # KEY=VALUE, chmod 600 (refused otherwise): ${secret:NAME} of external MCP servers, read per run, never sent to Core
 state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
+projects_root: ~/projects     # repositories of new projects and clones of existing ones by URL (projects.md); default <state_dir>/projects
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
 skills_root: /opt/factory    # its company catalog's skills.yaml (configs/[<company>/]skills.yaml) + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
 drivers:

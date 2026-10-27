@@ -20,7 +20,56 @@ type Project struct {
 	Rules string `json:"rules,omitempty"`
 	// OpenSpec is the project's OpenSpec setting (core-owned-project-data D2); nil means enabled in openspec/.
 	OpenSpec *ProjectOpenSpec `json:"openspec,omitempty"`
+	// RepoMode is how the project's repository came to be (project-creation D1): "local" (a new git repository
+	// the node creates under its projects_root), "github" (a new private GitHub repository created through the
+	// node's gh, cloned there), "existing" (a repository that exists: workspace path and/or repo_url, onboarded
+	// by the node). Empty for projects created with a workspace and no repo_mode (no onboarding, as before).
+	RepoMode string `json:"repo_mode,omitempty"`
+	// CreatedBy is "owner" or the agent whose approved factory_project_create created the project;
+	// ApprovalID is that approval.
+	CreatedBy  string `json:"created_by,omitempty"`
+	ApprovalID string `json:"approval_id,omitempty"`
+	// Setup is the repository provisioning / onboarding state (project-creation D2); nil when none is needed.
+	Setup *ProjectSetup `json:"setup,omitempty"`
 }
+
+// Ready: the project's repository needs no setup or it finished.
+func (p Project) Ready() bool { return p.Setup == nil || p.Setup.State == SetupReady }
+
+// Project setup states (project-creation D2). The node that claims the project's first task run performs the
+// setup before that run starts; until it is ready no other task of the project starts.
+const (
+	SetupPending = "pending" // waiting for the project's first task run
+	SetupRunning = "running" // a run was dispatched to perform it (RunID, TaskID)
+	SetupReady   = "ready"
+	SetupFailed  = "failed" // Reason says why; the task's next attempt retries it
+)
+
+// ProjectSetup is the provisioning / onboarding state of a project's repository.
+type ProjectSetup struct {
+	State  string `json:"state"`
+	TaskID string `json:"task_id,omitempty"`
+	RunID  string `json:"run_id,omitempty"`
+	NodeID string `json:"node_id,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// OpenSpecImported counts the documents of an existing repository's OpenSpec tree imported into Core;
+	// OpenSpecUntracked says where the commit that stopped tracking the tree went: "pushed" (default branch),
+	// "task_branch" (the first task's branch af/<task>), "local" (no remote, or nothing could be pushed) or ""
+	// (the repository did not track it).
+	OpenSpecImported  int    `json:"openspec_imported,omitempty"`
+	OpenSpecUntracked string `json:"openspec_untracked,omitempty"`
+	// Audit asked for an onboarding audit; AuditTaskID is the task Core created for it.
+	Audit       bool   `json:"audit,omitempty"`
+	AuditTaskID string `json:"audit_task_id,omitempty"`
+	UpdatedAt   int64  `json:"updated_at,omitempty"`
+}
+
+// Repository modes of POST /projects (project-creation D1).
+const (
+	RepoLocal    = "local"
+	RepoGitHub   = "github"
+	RepoExisting = "existing"
+)
 
 // ProjectOpenSpec: Enabled (default true) keeps the project's OpenSpec tree in Core and materializes it into
 // every run's worktree at Dir (default openspec); ArchiveAssignee receives the archive task of a finished
@@ -131,16 +180,24 @@ type Task struct {
 const KindConversation = "conversation"
 
 type ProjectCreate struct {
-	ID                   string           `json:"id"`
-	Name                 string           `json:"name"`
-	Description          string           `json:"description"`
-	Workspace            string           `json:"workspace"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Workspace is an absolute path on the node; optional (project-creation D1).
+	Workspace            string           `json:"workspace,omitempty"`
 	RequestID            string           `json:"request_id,omitempty"`
 	RepoURL              string           `json:"repo_url,omitempty"`
 	DefaultBranch        string           `json:"default_branch,omitempty"`
 	ReviewAfterConflicts string           `json:"review_after_conflicts,omitempty"`
 	Rules                string           `json:"rules,omitempty"`
 	OpenSpec             *ProjectOpenSpec `json:"openspec,omitempty"`
+	// RepoMode: local (the default without workspace and repo_url), github or existing (Project.RepoMode).
+	RepoMode string `json:"repo_mode,omitempty"`
+	// Audit (an existing repository) makes Core create an onboarding audit task for the configured agent.
+	Audit bool `json:"audit,omitempty"`
+	// CreatedBy and ApprovalID are set by Core (an agent's approved factory_project_create), never decoded.
+	CreatedBy  string `json:"-"`
+	ApprovalID string `json:"-"`
 }
 type ProjectUpdate struct {
 	Version     int    `json:"version"`

@@ -54,12 +54,59 @@ type RunSpec struct {
 	// Conversation marks a run of an agent's conversation task (hierarchy D5): it reads the project workspace
 	// but does not hold its writer slot.
 	Conversation bool `json:"conversation,omitempty"`
+	// ProjectSetup asks the node to provision or onboard the project's repository before the run starts
+	// (project-creation D2); Workspace, RepoURL and WorkspaceMode stay empty until the node reported the setup.
+	ProjectSetup *ProjectSetup `json:"project_setup,omitempty"`
 
 	// Company is set in the v2 claim answer (runtime protocol v2 §5); Core does not store it in the spec.
 	Company string `json:"company,omitempty"`
 	// Materialize is set in the claim answer, not stored (core-owned-project-data D3): the files the node
 	// places in the worktree before the runtime starts.
 	Materialize *Manifest `json:"materialize,omitempty"`
+}
+
+// ProjectSetup is what the node sets up for a project (project-creation D2): Mode local or github creates a
+// repository under the node's projects_root (directory = the project ID); existing uses Workspace (an
+// absolute path on the node) or clones RepoURL there. OpenSpecDir (empty when the project disabled OpenSpec)
+// is imported into Core and untracked when the repository tracks it.
+type ProjectSetup struct {
+	Mode          string `json:"mode"`
+	Name          string `json:"name,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	RepoURL       string `json:"repo_url,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	OpenSpecDir   string `json:"openspec_dir,omitempty"`
+}
+
+// ProjectSetupReport is the node's report (POST /runs/{id}/project-setup): the repository it set up, or Error.
+type ProjectSetupReport struct {
+	Lease         string `json:"lease"`
+	NodeID        string `json:"node_id,omitempty"`
+	Error         string `json:"error,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	RepoURL       string `json:"repo_url,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// OpenSpec are the documents of the repository's OpenSpec tree (paths relative to it) to import.
+	OpenSpec []SetupDocument `json:"openspec,omitempty"`
+	// Untracked: "pushed", "task_branch", "local" or "" (tasks.ProjectSetup.OpenSpecUntracked).
+	Untracked string `json:"openspec_untracked,omitempty"`
+}
+
+// SetupDocument is one imported OpenSpec document.
+type SetupDocument struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// ProjectSetupAnswer is Core's answer to a successful report: the run continues in this workspace with this
+// manifest (the imported tree).
+type ProjectSetupAnswer struct {
+	Workspace     string    `json:"workspace"`
+	RepoURL       string    `json:"repo_url,omitempty"`
+	DefaultBranch string    `json:"default_branch,omitempty"`
+	WorkspaceMode string    `json:"workspace_mode,omitempty"`
+	Materialize   *Manifest `json:"materialize,omitempty"`
 }
 
 // Manifest lists the project data a run gets as files: the project's current OpenSpec tree under OpenSpecDir

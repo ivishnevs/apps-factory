@@ -132,6 +132,10 @@ type Worker struct {
 	// SecretsFile is node.yaml secrets_file: the values of the ${secret:NAME} references of a run's external MCP
 	// servers, read at each run that needs one (node.ReadSecrets).
 	SecretsFile string
+	// ProjectsRoot is where the node creates and clones project repositories (node.yaml projects_root,
+	// project-creation D3); empty is <state_dir>/projects. GH is the GitHub CLI (default gh).
+	ProjectsRoot string
+	GH           string
 }
 
 // noteAuth reports a runtime authentication failure to AuthFailed.
@@ -434,6 +438,14 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	v2 := w.Inventory != nil
 	if v2 {
 		w.Inventory.Set(spec.ID, node.RunStarting)
+	}
+	if spec.ProjectSetup != nil && !spec.Conversation {
+		// The project's repository is set up first (project-creation D2); the run continues in it.
+		a, err := w.setupProject(ctx, spec, lease)
+		if err != nil {
+			return emit("failed", protocol.Event{Status: ended, Result: "project setup failed before runtime startup: " + err.Error(), Outcome: outcomeSetupFailed})
+		}
+		spec.Workspace, spec.RepoURL, spec.DefaultBranch, spec.WorkspaceMode, spec.Materialize = a.Workspace, a.RepoURL, a.DefaultBranch, a.WorkspaceMode, a.Materialize
 	}
 	var cwd string
 	if spec.Conversation {

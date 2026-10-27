@@ -10,13 +10,14 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"text/tabwriter"
 )
 
 func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: projects create ID ABS_WORKSPACE [DESCRIPTION] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
+		return fmt.Errorf("usage: projects create ID [ABS_WORKSPACE] [DESCRIPTION] [--repo-mode local|github|existing] [--repo URL] [--branch B] [--audit] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
 	}
 	if args[0] == "tasks" && args[1] == "why" {
 		return whyCommand(ctx, api, args[2:])
@@ -49,25 +50,40 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 		case "create":
 			p := map[string]any{"request_id": protocol.ID()}
 			positional := []string{}
+			usage := fmt.Errorf("projects create ID [ABS_WORKSPACE] [DESCRIPTION] [--repo URL] [--branch BRANCH] [--repo-mode local|github|existing] [--name NAME] [--audit]")
 			for i := 2; i < len(args); i++ {
 				switch args[i] {
-				case "--repo", "--branch":
+				case "--repo", "--branch", "--repo-mode", "--name":
 					if i+1 == len(args) {
 						return fmt.Errorf("%s needs a value", args[i])
 					}
-					p[map[string]string{"--repo": "repo_url", "--branch": "default_branch"}[args[i]]] = args[i+1]
+					p[map[string]string{"--repo": "repo_url", "--branch": "default_branch", "--repo-mode": "repo_mode", "--name": "name"}[args[i]]] = args[i+1]
 					i++
+				case "--audit":
+					p["audit"] = true
 				default:
 					positional = append(positional, args[i])
 				}
 			}
-			if len(positional) < 2 || len(positional) > 3 {
-				return fmt.Errorf("projects create ID ABS_WORKSPACE [DESCRIPTION] [--repo URL] [--branch BRANCH]")
+			if len(positional) < 1 || len(positional) > 3 {
+				return usage
 			}
 			method = "POST"
-			p["id"], p["name"], p["workspace"] = positional[0], positional[0], positional[1]
-			if len(positional) == 3 {
-				p["description"] = positional[2]
+			p["id"] = positional[0]
+			if p["name"] == nil {
+				p["name"] = positional[0]
+			}
+			// ABS_WORKSPACE is optional (project-creation): the second argument is the workspace when it is
+			// an absolute path, else the description.
+			rest := positional[1:]
+			if len(rest) > 0 && filepath.IsAbs(rest[0]) {
+				p["workspace"], rest = rest[0], rest[1:]
+			}
+			if len(rest) > 1 {
+				return usage
+			}
+			if len(rest) == 1 {
+				p["description"] = rest[0]
 			}
 			body = p
 		case "update":

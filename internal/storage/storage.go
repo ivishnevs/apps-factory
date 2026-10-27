@@ -510,6 +510,9 @@ func nullable(s string) any {
 // anything run in the project workspace (shared or scratch mode, message runs, or a node without worktrees)
 // holds the project workspace path and runs one at a time.
 func writerSlot(r protocol.RunSpec, worktrees bool) string {
+	if r.ProjectSetup != nil {
+		return setupSlot(r.Project) // project-creation D2: one setup at a time, nothing else of the project
+	}
 	if r.Conversation && r.Workspace != "" {
 		return r.Workspace + "#conversation/" + r.Agent // a conversation run talks; it does not write the project
 	}

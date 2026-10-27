@@ -75,7 +75,7 @@ run.
 `specs/` and `changes/`) uploads every OpenSpec document whose digest differs from Core's current version,
 with compare-and-set on that digest, and reports written, unchanged and skipped (non-OpenSpec) files.
 Nothing is deleted in Core; a repeated import changes nothing. Projects that track `openspec/` in git
-conflict with materialization: import it, then stop tracking it (or set `openspec.dir`).
+conflict with materialization: import it, then stop tracking it (or set `openspec.dir`). A project created with `repo_mode: existing` does both on the node before its first task runs ([projects](projects.md#onboarding-an-existing-repository)).
 
 Use the installed official OpenSpec CLI on the worktree's copy to author proposals, designs, delta specs and
 tasks; Core has no Node or OpenSpec subprocess dependency. Inspect its help before using commands; Factory

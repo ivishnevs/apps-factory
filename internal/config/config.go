@@ -67,6 +67,9 @@ type Spec struct {
 		CanMessage     []string `yaml:"can_message" json:"can_message"`
 		CanCreateTasks bool     `yaml:"can_create_tasks" json:"can_create_tasks"`
 		CanAssignTasks bool     `yaml:"can_assign_tasks" json:"can_assign_tasks"`
+		// CanCreateProjects lets the agent call factory_project_create, always behind an owner approval
+		// (project-creation D4); unset means true for the owner's direct reports (the CEO), false otherwise.
+		CanCreateProjects *bool `yaml:"can_create_projects" json:"can_create_projects,omitempty"`
 	} `yaml:"communication" json:"communication"`
 	Context struct {
 		Include []string `yaml:"include" json:"include"`
@@ -124,6 +127,20 @@ type Catalog struct {
 	// DefaultReport is the owner's default direct report (configs/company.yaml owner.default_report): unaddressed
 	// owner messages go to its conversation (hierarchy D5). Required with more than one direct report.
 	DefaultReport string
+	// AuditAssignee is the agent of the onboarding audit task of an existing repository (configs/company.yaml
+	// projects.audit_assignee, default product-manager; project-creation D5).
+	AuditAssignee string
+}
+
+// DefaultAuditAssignee is the onboarding audit's agent when company.yaml names none.
+const DefaultAuditAssignee = "product-manager"
+
+// CreatesProjects reports whether the agent may call factory_project_create (project-creation D4).
+func (a Agent) CreatesProjects() bool {
+	if p := a.Spec.Communication.CanCreateProjects; p != nil {
+		return *p
+	}
+	return a.Spec.ReportsTo == "" || a.Spec.ReportsTo == Owner
 }
 
 // QuotaKey is one declared subscription whose limit pauses every agent using it (runtime-drivers D5).
@@ -343,7 +360,7 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 	if err := validTree(c.Agents); err != nil {
 		return nil, err
 	}
-	if c.DefaultReport, err = loadDefaultReport(root, dir, c.Agents); err != nil {
+	if c.DefaultReport, c.AuditAssignee, err = loadCompany(root, dir, c.Agents); err != nil {
 		return nil, err
 	}
 	deriveCommunication(c.Agents)
@@ -587,6 +604,9 @@ func (c *Catalog) finish(root string, a *Agent) error {
 	}
 	fmt.Fprintf(&ctx, "Factory tools: mode=%s; allow=%v; deny=%v. Factory approvals: mode=%s; require=%v. The policy evaluator marks protected operations as requiring parameter-bound approval. For supported mutation tools, request an exact call through factory_owner_request_approval and finish the turn when blocking. Only APPROVED authorizes retry with identical arguments; deny takes precedence. Release, purchase, production-secret and project-deletion executors are not implemented yet.\n", a.Spec.Tools.Mode, a.Spec.Tools.Allow, a.Spec.Tools.Deny, a.Spec.Approvals.Mode, a.Spec.Approvals.Require)
 	fmt.Fprintf(&ctx, "Communication: can_message=%v; can_create_tasks=%t; can_assign_tasks=%t. Core enforces these permissions for Factory messaging and task tools.\n", a.Spec.Communication.CanMessage, a.Spec.Communication.CanCreateTasks, a.Spec.Communication.CanAssignTasks)
+	if a.CreatesProjects() {
+		ctx.WriteString("Projects: you may start a new project with factory_project_create (project_id, name, description, repo_mode local|github|existing). Every call needs the owner's approval of that exact call: request it with factory_owner_request_approval and finish the turn; nothing is created before approval. Then create the project's first tasks with factory_task_create and its project_id.\n")
+	}
 	if len(a.AvailableSkills) > 0 {
 		ctx.WriteString("Available skills (metadata only; read on demand with factory skills read AGENT SKILL [RESOURCE]):\n")
 		for _, s := range c.Skills.Entries(a.AvailableSkills, "", "") {
@@ -804,29 +824,40 @@ func loadQuotaKeys(root, dir string) (map[string]QuotaKey, error) {
 	return doc.QuotaKeys, nil
 }
 
-// loadDefaultReport reads owner.default_report from configs/company.yaml (optional) and checks it: a direct
-// report of the owner, required when the owner has more than one (hierarchy D5).
-func loadDefaultReport(root, dir string, agents map[string]Agent) (string, error) {
+// loadCompany reads configs/company.yaml (optional): owner.default_report, checked to be a direct report of
+// the owner and required when the owner has more than one (hierarchy D5); projects.audit_assignee, an agent
+// (default product-manager, project-creation D5).
+func loadCompany(root, dir string, agents map[string]Agent) (defaultReport, auditAssignee string, err error) {
 	var doc struct {
 		Owner struct {
 			DefaultReport string `yaml:"default_report"`
 		} `yaml:"owner"`
+		Projects struct {
+			AuditAssignee string `yaml:"audit_assignee"`
+		} `yaml:"projects"`
 	}
 	p := filepath.Join(root, dir, "company.yaml")
 	if _, err := os.Stat(p); err == nil {
 		if err = configfile.Read(p, &doc); err != nil {
-			return "", err
+			return "", "", err
 		}
+	}
+	auditAssignee = DefaultAuditAssignee
+	if a := doc.Projects.AuditAssignee; a != "" {
+		if _, ok := agents[a]; !ok {
+			return "", "", fmt.Errorf("company: projects.audit_assignee %s is not an agent", a)
+		}
+		auditAssignee = a
 	}
 	top := DirectReports(agents, Owner)
 	d := doc.Owner.DefaultReport
 	switch {
 	case d != "" && !slices.Contains(top, d):
-		return "", fmt.Errorf("company: owner.default_report %s is not an agent reporting to the owner", d)
+		return "", "", fmt.Errorf("company: owner.default_report %s is not an agent reporting to the owner", d)
 	case d == "" && len(top) > 1:
-		return "", fmt.Errorf("company: the owner has %d direct reports (%s): set owner.default_report in configs/company.yaml", len(top), strings.Join(top, ", "))
+		return "", "", fmt.Errorf("company: the owner has %d direct reports (%s): set owner.default_report in configs/company.yaml", len(top), strings.Join(top, ", "))
 	}
-	return d, nil
+	return d, auditAssignee, nil
 }
 
 // modelName is the accepted shape of a model name or alias.

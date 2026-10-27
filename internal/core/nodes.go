@@ -181,7 +181,7 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 			forbid("v2 claim of the token's node required")
 			return
 		}
-	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"start", "workspace", "credential", "heartbeat"}, parts[2]),
+	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"start", "workspace", "credential", "heartbeat", "project-setup"}, parts[2]),
 		// Project data of the node's runs (core-owned-project-data D3, D6); the run's lease is checked too.
 		r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && parts[2] == "blobs",
 		r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
