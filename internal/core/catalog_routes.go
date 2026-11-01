@@ -150,3 +150,54 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 		reply(w, v, err)
 	})
 }
+
+// catalogTool is factory_catalog_get and the approved factory_catalog_change of an agent (3.7).
+func (c *Core) catalogTool(w http.ResponseWriter, r *http.Request, name string, args map[string]any, run storage.Run) {
+	company := c.companyFrom(r)
+	version := int64(0)
+	if v, ok := args["version"].(float64); ok {
+		version = int64(v)
+	}
+	if name == "factory_catalog_get" {
+		cat, err := c.Store.CatalogAt(r.Context(), company, version)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if p, _ := args["path"].(string); p != "" {
+			content, ok := cat.Docs[p]
+			if !ok {
+				http.Error(w, fmt.Sprintf("no document %q in version %d", p, cat.Version), 404)
+				return
+			}
+			write(w, map[string]any{"version": cat.Version, "path": p, "content": content})
+			return
+		}
+		write(w, catalogView(company, cat))
+		return
+	}
+	ch := CatalogChange{Put: map[string]string{}}
+	if v, ok := args["base"].(float64); ok {
+		ch.Base = int64(v)
+	}
+	ch.Note, _ = args["note"].(string)
+	if put, ok := args["put"].(map[string]any); ok {
+		for p, v := range put {
+			content, ok := v.(string)
+			if !ok {
+				http.Error(w, "put."+p+": string content required", 400)
+				return
+			}
+			ch.Put[p] = content
+		}
+	}
+	if del, ok := args["delete"].([]any); ok {
+		for _, v := range del {
+			if p, ok := v.(string); ok {
+				ch.Delete = append(ch.Delete, p)
+			}
+		}
+	}
+	v, err := c.ApplyCatalogChange(r.Context(), company, run.Spec.Agent, ch)
+	reply(w, v, err)
+}

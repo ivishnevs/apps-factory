@@ -19,7 +19,7 @@ Core, API and CLI, provisioning, review policy, UI.
 - [x] 3.4 Core resolves the catalog per company (D4): `c.catalog(company)` replaces `Core.Agents`/`Skills`/`NodeHooks`/`DefaultReport`/`AuditAssignee`; loops run per company; swap after a save.
 - [x] 3.5 API: `GET /catalog[?version]`, `GET /catalog/document`, `GET /catalog/history`, `POST /catalog` (put/delete on top of a base, `dry_run` validates), `POST /catalog/rollback`; loader errors name the document.
 - [x] 3.6 CLI: `factory catalog [VERSION]|history|get|put|rm|validate|rollback|pull DIR|push DIR`.
-- [ ] 3.7 Agent-proposed catalog changes through owner approval (`factory.config.*`).
+- [x] 3.7 Agent-proposed catalog changes through owner approval: `factory_catalog_get` (read), `factory_catalog_change` (always needs the owner's approval of the exact call; author = the agent).
 
 ## 4. Company provisioning
 - [ ] 4.1 Create a company and its owner token through API and CLI.

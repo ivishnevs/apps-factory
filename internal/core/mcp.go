@@ -260,7 +260,8 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		ops["factory.decision.decide."+category] = true
 	}
 	// A project is created only with the owner's approval of the exact call (project-creation D4).
-	needsApproval := p.Name == "factory_decision_record" || p.Name == "factory_project_create"
+	// A catalog change is applied only with the owner's approval of the exact call (company-self-service 3.7).
+	needsApproval := p.Name == "factory_decision_record" || p.Name == "factory_project_create" || p.Name == "factory_catalog_change"
 	for op := range ops {
 		for _, a := range []config.Agent{snapshot, current} {
 			d := a.Authorize(op)
@@ -303,6 +304,10 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	if p.Name == "factory_project_create" {
 		approval, _ := r.Context().Value(approvalIntentKey{}).(string)
 		c.projectCreateTool(w, r, args, run, approval)
+		return
+	}
+	if p.Name == "factory_catalog_get" || p.Name == "factory_catalog_change" {
+		c.catalogTool(w, r, p.Name, args, run)
 		return
 	}
 	if journalToolName(p.Name) {

@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"appfactory/internal/approvals"
 	"appfactory/internal/config"
+	"appfactory/internal/factorytools"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 )
@@ -165,5 +167,56 @@ func TestCatalogAPI(t *testing.T) {
 	}
 	if c.catalogVersion(storage.DefaultCompany) != 3 || strings.HasPrefix(c.cat(storage.DefaultCompany).Agents["manager"].Instructions, "NEW MANAGER") {
 		t.Fatal("rollback not applied", c.catalogVersion(storage.DefaultCompany))
+	}
+}
+
+// TestAgentCatalogChangeNeedsApproval (company-self-service 3.7): an agent reads the catalog freely; its
+// factory_catalog_change is applied only after the owner approved that exact call, recorded with the agent as
+// author.
+func TestAgentCatalogChangeNeedsApproval(t *testing.T) {
+	ctx := context.Background()
+	h := newProjectHarness(t)
+	h.c.Root, h.c.Agents = "../..", nil
+	if err := h.c.LoadCatalogs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, w := h.create(map[string]any{"id": "team", "name": "Team", "workspace": "/tmp/team"}); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	task := h.readyTask("team", "manager", "tune the team")
+	if err := h.c.Schedule(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, _ := h.s.Get(ctx, storage.DefaultCompany, h.task(task.ID).CurrentRunID)
+	lease, err := h.s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := h.c.runToken(storage.DefaultCompany, run.Spec.ID, lease)
+	call := func(c factorytools.Call) *httptest.ResponseRecorder { return h.http(token, "POST", "/agent/call", c) }
+	var doc struct{ Content string }
+	if w := call(factorytools.Call{Name: "factory_catalog_get", Arguments: map[string]any{"path": "prompts/demo.md"}}); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &doc) != nil || doc.Content == "" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	change := factorytools.Call{Name: "factory_catalog_change", Arguments: map[string]any{"base": float64(1), "put": map[string]any{"prompts/demo.md": "DEMO, TUNED BY THE MANAGER"}, "note": "clearer demo prompt", "request_id": "tune-demo"}}
+	if w := call(change); w.Code != 423 || h.c.catalogVersion(storage.DefaultCompany) != 1 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w := call(factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": change, "reason": "the demo prompt is unclear", "blocking": false, "request_id": "ask-tune"}})
+	var a approvals.Approval
+	if json.Unmarshal(w.Body.Bytes(), &a); w.Code != 200 || a.Status != "PENDING" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w = h.http("owner", "POST", "/approvals/"+a.ID+"/decision", approvals.Decision{Version: a.Version, Action: "approve", Reason: "ok", RequestID: "d-tune"}); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w = call(change); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if !strings.HasPrefix(h.c.cat(storage.DefaultCompany).Agents["demo"].Instructions, "DEMO, TUNED BY THE MANAGER") {
+		t.Fatal("not applied")
+	}
+	if hist, _ := h.s.CatalogHistory(ctx, storage.DefaultCompany); len(hist) != 2 || hist[0].Author != "manager" || hist[0].Note != "clearer demo prompt" {
+		t.Fatalf("%+v", hist)
 	}
 }
