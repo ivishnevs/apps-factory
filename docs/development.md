@@ -43,6 +43,13 @@ Catalog per company: `configs/` is the `default` company's catalog; another comp
 [skills](skills.md)). `configs/prices.yaml` is shared, prompt files are paths relative to the root. `factory config validate --company X` (or `FACTORY_COMPANY=X`) checks one company's catalog; agents of
 the same name in two companies are independent.
 
+These directories are seed data: Core stores each company's catalog as versions ([stored catalogs](catalog.md)).
+When Core starts and its company (`FACTORY_COMPANY`) has no stored version, the repository's directory becomes
+version 1; after that **editing `configs/` changes nothing in a running Core**. Change the catalog with
+`factory catalog pull DIR` / `push DIR` (or the web UI's Team page); to start over from the repository on a
+throwaway database, drop the company's `catalog_versions`/`catalog_documents` rows and restart Core. Starter teams for
+`factory companies create` live in `configs/templates/`.
+
 NATS subjects carry the company: `factory.<company>.commands.agent.run.<driver>` (stream `FACTORY_COMMANDS`,
 `factory.*.commands.>`), `factory.<company>.events.<kind>` and `factory.<company>.feed.<project>.<kind>` (stream
 `FACTORY_EVENTS`, `factory.*.events.>` and `factory.*.feed.>`), and the plain control subject

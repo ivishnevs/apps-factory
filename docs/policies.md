@@ -141,3 +141,31 @@ they apply to (task-lifecycle.md, Waits). `type: reporting` rules may name `exit
 `report_kinds`: a report is then expected from the run on those exits; a missing one never refuses the exit but
 writes `report.missing` for the manager and a reminder in the agent's next brief
 (reports-decisions.md, Event feed and costs).
+
+## Review rules
+
+A `review` rule (company-self-service D3) says, for the roles or agents it covers, whether their work needs
+review before it is done and who reviews it:
+
+```yaml
+    - name: code-review
+      type: review
+      roles: [developer]
+      required: true          # done of a repository task refuses review_required without an approved verdict
+      reviewer: reviewer      # an agent, or role:<role>; the default reviewer of factory_exit_submit
+      instruction: Code changes are reviewed before they are merged.
+    - name: requirements-review
+      type: review
+      roles: [developer]
+      paths:                  # files a pull request changes need that reviewer's approval as well
+        - match: openspec/specs/**
+          reviewer: product-owner
+      instruction: Requirement changes need the product owner's approval.
+```
+
+Core reads the rules from the run's captured configuration. `required`: `factory_exit_done` of a task in a
+project with a repository and something to merge (a pull request, or commits ahead of the default branch) is
+refused (`409 review_required`) unless an approved review verdict is bound to its pull request. `paths`
+(`**` spans directories): when the pull request changes a matching file (the adapter reports the PR's files),
+done also needs an approval by that path's reviewer. A reviewer must be another agent of the catalog. Without
+review rules the agent's prompt decides whether work goes to review.

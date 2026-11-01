@@ -19,6 +19,10 @@ dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run
   of a repository task needs the PR merged. Tasks of one project run in parallel.
 - **Policies and command guards.** One policy catalog covers access, escalation, reporting and recovery rules;
   every MCP call and shell command is checked (deny, allow or owner approval). These are guardrails, not a sandbox.
+- **Companies and their teams in Core.** Each company's agents, prompts and policies are a versioned catalog
+  in Core, edited through the web UI, the CLI or (with the owner's approval) by agents and applied without a
+  restart; one Core serves many companies, each started from a team template with its own owner token, and a
+  review policy can require review before work is done.
 - **OpenSpec in the repository.** Product specs and changes live in each project's git repository and are
   reviewed with the code; tasks link changes the node checks on the checkout, and the manager hears about a change
   left unarchived.
@@ -227,6 +231,7 @@ The scripts check `GET /health` and refuse to run against the wrong company. Ful
 - [foundation-verification.md](docs/foundation-verification.md) — Foundation verification results (historical).
 - [messaging.md](docs/messaging.md) — messages, conversations, owner questions, inbox and Telegram.
 - [messaging-verification.md](docs/messaging-verification.md) — messaging verification results.
+- [catalog.md](docs/catalog.md) — stored catalogs, team templates, companies and owner tokens.
 - [openspec.md](docs/openspec.md) — OpenSpec in the project repository: change workflow, node check, change tracking.
 - [openspec-verification.md](docs/openspec-verification.md) — OpenSpec integration verification results.
 - [owner-ui.md](docs/owner-ui.md) — the owner's terminal UI (`factory ui`): views, keys, fixtures, notifications.

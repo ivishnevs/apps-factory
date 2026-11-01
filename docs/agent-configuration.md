@@ -8,6 +8,10 @@ null agent/profile values, duplicate names, missing references and inheritance c
 Run `factory config validate`, `factory agents get demo`, or
 `factory agents authorize demo factory.release.publish` to inspect resolved configuration.
 
+Core serves these files as each company's stored catalog: the repository's files seed the first version, and
+from then on the catalog is changed through `factory catalog`, the web UI's Team page or the catalog API
+([stored catalogs](catalog.md)); the same loader validates every saved version.
+
 ## Agents and profiles
 
 Agents use apiVersion factory/v1 and kind Agent; profiles use kind AgentProfile.

@@ -1,4 +1,4 @@
-In progress (owner 2026-11-01: D1–D6 confirmed, start). No data migration or backward compatibility: the file
+Done except the optional 6.2 (owner 2026-11-01: D1–D6 confirmed, start). No data migration or backward compatibility: the file
 catalog becomes seed data. Order: loader over fs.FS (no behaviour change), storage and per-company catalogs in
 Core, API and CLI, provisioning, review policy, UI.
 
@@ -10,7 +10,7 @@ Core, API and CLI, provisioning, review policy, UI.
 
 ## 2. Specs and docs
 - [x] 2.1 Delta specs (`company-catalog`, `review-policy`); drop `skip_specs`; `openspec validate --strict`.
-- [ ] 2.2 Update `docs/agent-configuration.md`, `docs/policies.md`, `docs/development.md`, `docs/explicit-exits-contract.md`.
+- [x] 2.2 Update `docs/agent-configuration.md`, `docs/policies.md`, `docs/development.md`, `docs/explicit-exits-contract.md`.
 
 ## 3. Catalog storage and API
 - [x] 3.1 Loader over `fs.FS` (`LoadCompanyCatalogFS`; disk through `os.DirFS`), skills registry included; no behaviour change.
@@ -35,4 +35,4 @@ Core, API and CLI, provisioning, review policy, UI.
 - [ ] 6.2 Terminal UI: read-only view of the catalog (optional).
 
 ## 7. Verification
-- [ ] 7.1 `make check` green plus NATS tests with `-p 1`; tests for storage-backed load, validation errors, apply without restart with running runs keeping their snapshot, two companies side by side, review enforcement at done.
+- [x] 7.1 `make check` green plus NATS tests with `-p 1`; tests for storage-backed load, validation errors, apply without restart with running runs keeping their snapshot, two companies side by side, review enforcement at done.

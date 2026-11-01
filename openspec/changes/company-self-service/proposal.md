@@ -1,5 +1,5 @@
 Status: in progress (owner request 2026-11-01: clients must be able to set up their own company; decisions D1–D6
-confirmed the same day, see design.md). Nothing is implemented yet.
+confirmed the same day, see design.md). Implemented 2026-11-02 except the optional terminal UI view (6.2).
 
 ## Why
 

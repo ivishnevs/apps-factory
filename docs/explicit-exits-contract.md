@@ -106,7 +106,9 @@ build, merge) when `facts.ahead_of_default > 0` and `facts.pr.state != "merged"`
 `abandon_branch` for the task. When the project requires review, `done` also needs an approval bound to
 `facts.pr.number`; with `review_after_conflicts: required` and `facts.pr.head_sha` different from the approved
 head, `409 needs_approval` (submit again before merging). Squash and rebase merges pass (no ancestry check).
-Scratch projects (no remote) have no PR: `done` is accepted with a clean tree.
+Scratch projects (no remote) have no PR: `done` is accepted with a clean tree. A company review policy ([policies](policies.md#review-rules)) adds `409 review_required`:
+without an approved verdict bound to the PR, or, for a PR changing files of a path rule, without that path's
+reviewer's approval.
 
 ## 7. Authority input
 
@@ -133,7 +135,8 @@ Scratch projects (no remote) have no PR: `done` is accepted with a clean tree.
 In the run's working directory: `head = git rev-parse HEAD`; `dirty` = tracked changes or untracked non-ignored
 files (`git status --porcelain`); `branch`; `ahead_of_default = git rev-list --count origin/<default>..HEAD`;
 `pushed` = `origin/<branch>` equals `head` after a fetch; `pr` from `gh pr view <branch> --json
-number,state,headRefOid,url` (null when none); `scan` = the configured scanner over
+number,state,headRefOid,url,files` (null when none; `files` are the paths the PR changes, for review path rules);
+`openspec` for a task linking a change (`{change, state, unchecked, ref}`, see [OpenSpec](openspec.md)); `scan` = the configured scanner over
 `merge-base(default, HEAD)..HEAD`. For `submit`/`handoff` the adapter runs preflight, then pushes the branch
 (pre-push hook scans too) and ensures a PR (`gh pr create` when none), collects facts again and sends the exit.
 A forge or Core failure retries with the same run key.
