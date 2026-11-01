@@ -1,28 +1,34 @@
-Planned: not scheduled. Confirm task 1 before starting the rest. No data migration or backward compatibility:
-remove the old behaviour outright.
+In progress (owner 2026-11-01: decisions confirmed, start). No data migration or backward compatibility:
+remove the old behaviour outright. Order: specs (2), then the switch (3.1–3.3, 4.1–4.4, 5.x) in one change so
+no run checks a change against Core after specs moved to git, then removal (3.4–3.6, 4.5), schema (3.7), UI and
+docs (7).
 
 ## 1. Decide
-- [ ] 1.1 Owner confirms the proposal handoff (D1: own task with a merged PR before executor tasks).
-- [ ] 1.2 Owner confirms who archives (D2: the last task of a change, no Core archive task).
-- [ ] 1.3 Owner confirms change-reference checks (D3: node preflight only, or a node-reported index).
-- [ ] 1.4 Owner confirms that specs are read and edited in git only (D4) and the spec review rules (D5).
+- [x] 1.1 Owner confirms the proposal handoff (D1: own task with a merged PR before executor tasks).
+- [x] 1.2 Owner confirms who archives (D2: the last task of a change; Core notices a missed archive).
+- [x] 1.3 Owner confirms change-reference checks (D3: node preflight; change state through tasks and `done` facts, no node index).
+- [x] 1.4 Owner confirms that specs are read and edited in git only (D4) and the spec review rules (D5).
 
 ## 2. Specs and docs
 - [ ] 2.1 Delta specs for `project-data-storage` (remove Core-owned OpenSpec, materialization, write-back, archive tasks) and `project-creation` (no import/untrack); drop `skip_specs`; `openspec validate --strict`.
 - [ ] 2.2 Rewrite `docs/openspec.md`; update `docs/projects.md`, `docs/architecture.md`, `docs/factory-mcp.md`.
 
 ## 3. Core
-- [ ] 3.1 Remove OpenSpec documents from storage and API (`spec_documents`, owner `openspec/*` endpoints, MCP `factory_openspec_*`), keep blob store for artifacts and logs.
-- [ ] 3.2 Task `openspec_change`: name validation only at create/update/ready/dispatch/claim (or the D3 index).
-- [ ] 3.3 Remove archive task creation and the daily orphan check (`internal/storage/openspec_archive.go`), or rebuild them on the D3 index.
-- [ ] 3.4 Schema migration dropping `spec_documents` and `openspec_changes` (no data migration).
+- [ ] 3.1 Task `openspec_change`: name validation only at create/update/ready/dispatch/claim; remove `runChangeCheck`/`blockOpenSpecRun` (`claim.go`, `nodes.go`) and the IN_REVIEW dispatch check (`evaluate.go` `openSpecRefusal`, `tasks.ReasonOpenSpec` and its `factory openspec import` hint).
+- [ ] 3.2 Run brief (`storage/brief.go`): specs are in the checkout and change with the code in the PR; the last task archives.
+- [ ] 3.3 New run outcome `change_missing`: blocks the task with the node's reason, no attempt, backoff or budget.
+- [ ] 3.4 Remove OpenSpec documents from storage and API (`spec_documents`, owner `openspec/*` endpoints, MCP `factory_openspec_*`, `internal/openspec/audit.go`), keep the blob store for artifacts, attachments and logs.
+- [ ] 3.5 Change tracking over tasks (D2, D3): store `facts.openspec` from `done`; on the last linked task DONE with the change still active, a feed event to the manager (unchecked work / not archived), optionally a mechanical archive task; rebuild the orphan check over tasks. Remove the tree-based `archiveChangeTask`.
+- [ ] 3.6 Remove `ProjectOpenSpec.ArchiveAssignee`, `ProjectSetup.OpenSpecImported/Untracked`, `protocol.Manifest.OpenSpecDir`, `SetupReport.OpenSpec/Untracked`; decide whether `openspec.enabled` stays (`dir` stays for preflight and facts).
+- [ ] 3.7 Schema migration: drop `spec_documents`, reshape `openspec_changes` for D3 bookkeeping (no data migration).
 
 ## 4. Node and adapter
 - [ ] 4.1 Stop materializing OpenSpec and excluding `openspec/` (keep pinned artifact inputs under `.factory/`).
 - [ ] 4.2 Remove the OpenSpec sync at exits (`internal/factorytools/sync.go`) and `openspec_restored`/`openspec_conflict` refusals.
-- [ ] 4.3 Preflight checks the change on the task's checkout (active or archived proposal).
+- [ ] 4.3 Preflight checks the change on the task's checkout (active or archived proposal); a missing change ends the run `change_missing`.
 - [ ] 4.4 Project setup: new repositories stop ignoring `/openspec/`; existing repositories are no longer imported or untracked.
 - [ ] 4.5 Remove `factory openspec import` and the other `factory openspec` owner commands.
+- [ ] 4.6 `done` facts: `openspec {change, state, unchecked}` computed on the checkout after the merge for a task linking a change.
 
 ## 5. Prompts and skills
 - [ ] 5.1 `skills/openspec/SKILL.md`: specs are committed with the code on the task branch; the last task archives in its PR.
@@ -31,5 +37,10 @@ remove the old behaviour outright.
 - [ ] 5.4 `project-audit` skill: commit baseline specs to the repository.
 
 ## 6. Verification
-- [ ] 6.1 `make check` green; tests for preflight on a checkout, setup without import/untrack, absence of OpenSpec sync; OpenSpec smoke updated (run only with the owner's consent).
+- [ ] 6.1 `make check` green plus NATS tests with `-p 1` on a throwaway broker; tests for preflight on a checkout (active, archived, missing → `change_missing`), setup without import/untrack, absence of OpenSpec sync, `done` facts and change notices; OpenSpec smoke rewritten (run only with the owner's consent).
 - [ ] 6.2 Mark `openspec-archive-ownership` as superseded by this change.
+
+## 7. UI and docs
+- [ ] 7.1 Web: project form without the "kept in Core" switch, setup state without import/untrack, feed texts (`summary.ts`, `humanize.ts`, inbox cards); change grouping and progress from tasks (optional).
+- [ ] 7.2 Terminal UI: `projform`, `projsetup`, demo/fixture and goldens.
+- [ ] 7.3 Remaining docs and prompts that describe Core-owned OpenSpec (`runtime-protocol*.md`, `task-lifecycle.md`, `skills.md`, `claude-runtime.md`, verification docs, `prompts/calorie-*.md`).

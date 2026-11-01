@@ -1,5 +1,5 @@
-Status: planned (owner decision 2026-11-01: move OpenSpec back into the project's git repository; not scheduled
-yet). Delta specs are written once the open decisions in design.md are confirmed (task 1). Nothing is implemented.
+Status: in progress (owner decision 2026-11-01: move OpenSpec back into the project's git repository; design
+decisions confirmed the same day). Nothing is implemented yet.
 
 ## Why
 
@@ -34,9 +34,10 @@ independent review (2026-11-01) and the owner concluded that this costs more tha
   design).
 - The manager's proposal reaches executors through git: the proposal is its own task whose PR is merged before
   executor tasks start (they depend on it).
-- The last task of a change archives it in its pull request (the native OpenSpec path); the Core-created
-  archive task and the orphan check go away or move to a node-reported index (design). Supersedes the known
-  issue `openspec-archive-ownership`.
+- The last task of a change archives it in its pull request (the native OpenSpec path). Core tracks changes
+  through the tasks linking them and the OpenSpec facts reported with `done` (state, unchecked items), and
+  tells the manager when a change is left unarchived or with unchecked work; no Core copy of the tree and no
+  node index. Supersedes the known issue `openspec-archive-ownership`.
 - Review of spec edits follows the agents' prompts: a product owner may merge its own spec PR without review
   (`factory_exit_done`); an implementer's spec edits are reviewed with its code, and changes to requirements
   (proposal, `specs/` deltas) by a non-owner of the product go to the product owner. A configurable review
