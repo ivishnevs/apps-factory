@@ -1,4 +1,4 @@
-Implemented and merged (owner 2026-11-01: decisions confirmed, start); open: 6.1 the live smoke run (rewritten, needs the owner's consent to spend usage). No data migration or backward compatibility:
+Done (owner 2026-11-01: decisions confirmed, start). Deployed 2026-11-01 (migration 0006); live smoke passed the same day (project openspec-smoke-19d2150298: 3 model runs and one change_missing run). No data migration or backward compatibility:
 remove the old behaviour outright. Order: specs (2), then the switch (3.1–3.3, 4.1–4.4, 5.x) in one change so
 no run checks a change against Core after specs moved to git, then removal (3.4–3.6, 4.5), schema (3.7), UI and
 docs (7).
@@ -37,7 +37,7 @@ docs (7).
 - [x] 5.4 `project-audit` skill: commit baseline specs to the repository (the skill is not in this repository; the audit task brief and docs say it).
 
 ## 6. Verification
-- [ ] 6.1 (all done except running the rewritten `scripts/openspec-smoke.py`) `make check` green plus NATS tests with `-p 1` on a throwaway broker; tests for preflight on a checkout (active, archived, missing → `change_missing`), setup without import/untrack, absence of OpenSpec sync, `done` facts and change notices; OpenSpec smoke rewritten (run only with the owner's consent).
+- [x] 6.1 `make check` green plus NATS tests with `-p 1` on a throwaway broker; tests for preflight on a checkout (active, archived, missing → `change_missing`), setup without import/untrack, absence of OpenSpec sync, `done` facts and change notices; OpenSpec smoke rewritten (run only with the owner's consent).
 - [x] 6.2 Mark `openspec-archive-ownership` as superseded by this change.
 
 ## 7. UI and docs
