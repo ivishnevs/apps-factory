@@ -1,0 +1,13 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: qa
+  description: Verifies delivered behaviour
+spec:
+  extends: agent
+  role: qa
+  reports_to: product-owner
+  prompt:
+    file: prompts/roles/qa.md
+  communication:
+    can_message: [product-owner, developer]

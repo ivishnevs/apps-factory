@@ -1,0 +1,17 @@
+apiVersion: factory/v1
+kind: NodeHooks
+metadata:
+  name: default
+  description: Hooks and stack checks every node gets unless node.yaml names another NodeHooks document (node-agent D4, D7).
+spec:
+  # Janitor hooks (node.yaml janitor overrides each list it sets); none by default.
+  on_run_stop: []
+  on_task_closed: []
+  prune: []
+  # Stack checks run with the node's self-checks (failures are node.check_failed{stack.<name>}) and by
+  # `factory-node doctor`; a check runs only on nodes with all of its labels.
+  checks:
+    - name: simctl
+      command: xcrun simctl list devices available
+      hint: install Xcode, then sudo xcodebuild -runFirstLaunch
+      labels: [xcode]

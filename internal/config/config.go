@@ -166,7 +166,7 @@ const DefaultCompany = "default"
 
 // reservedCompanies are the names of the catalog's own entries under configs/, which no company directory
 // may take.
-var reservedCompanies = map[string]bool{"agents": true, "profiles": true, "policies": true, "node-hooks": true, "prompts": true, "skills": true}
+var reservedCompanies = map[string]bool{"agents": true, "profiles": true, "policies": true, "node-hooks": true, "prompts": true, "skills": true, "templates": true}
 
 // CompanyDir is the directory, relative to root, of company's catalog (postgres-tenancy D3): configs/ for the
 // default company, configs/<company>/ for any other. Each holds agents/, profiles/, policies/, node-hooks/,

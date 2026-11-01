@@ -130,45 +130,90 @@ func (o overlay) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 // SeedDocuments are the documents of company's catalog on disk (company-self-service D1, seed): every file
-// of its catalog sections and the prompt files its agents and profiles name. The disk catalog must load.
+// of its catalog sections and the prompt files its agents and profiles name.
 func SeedDocuments(root, company string) (map[string]string, error) {
-	c, err := LoadCompanyCatalog(root, company)
+	dir, err := CompanyDir(company)
 	if err != nil {
 		return nil, err
 	}
-	dir, _ := CompanyDir(company)
+	return documentsFrom(root, filepath.ToSlash(dir), company)
+}
+
+// TemplatesDir holds the starter team templates (company-self-service 4.2), one catalog directory each.
+const TemplatesDir = "configs/templates"
+
+// Templates lists the starter team templates.
+func Templates(root string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(TemplatesDir)))
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && namePattern.MatchString(e.Name()) {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
+// TemplateDocuments are the documents of a new company's catalog made from template: the template's catalog
+// sections at the company's catalog directory and the prompt files its agents name.
+func TemplateDocuments(root, template, company string) (map[string]string, error) {
+	if !namePattern.MatchString(template) {
+		return nil, fmt.Errorf("invalid template %q", template)
+	}
+	src := path.Join(TemplatesDir, template)
+	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(src))); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("unknown template %q", template)
+	}
+	return documentsFrom(root, src, company)
+}
+
+// documentsFrom reads the catalog sections of the disk directory src (relative to root) as documents of
+// company's catalog directory, loads them (they must form a valid catalog) and adds the prompt files named.
+func documentsFrom(root, src, company string) (map[string]string, error) {
+	dir, err := CompanyDir(company)
+	if err != nil {
+		return nil, err
+	}
 	dir = filepath.ToSlash(dir)
 	docs := map[string]string{}
-	add := func(p string) error {
-		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
+	add := func(from, to string) error {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(from)))
 		if err != nil {
 			return err
 		}
-		docs[p] = string(b)
+		docs[to] = string(b)
 		return nil
 	}
 	for _, sub := range catalogDirs {
-		paths, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), sub, "*.yaml"))
+		paths, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(src), sub, "*.yaml"))
 		if err != nil {
 			return nil, err
 		}
 		for _, p := range paths {
-			if err = add(path.Join(dir, sub, filepath.Base(p))); err != nil {
+			if err = add(path.Join(src, sub, filepath.Base(p)), path.Join(dir, sub, filepath.Base(p))); err != nil {
 				return nil, err
 			}
 		}
 	}
 	for _, f := range catalogFiles {
-		if p := path.Join(dir, f); fileExists(filepath.Join(root, filepath.FromSlash(p))) {
-			if err = add(p); err != nil {
+		if fileExists(filepath.Join(root, filepath.FromSlash(path.Join(src, f)))) {
+			if err = add(path.Join(src, f), path.Join(dir, f)); err != nil {
 				return nil, err
 			}
 		}
 	}
+	c, err := LoadStoredCatalog(root, company, docs)
+	if err != nil {
+		return nil, err
+	}
 	for _, as := range []map[string]Agent{c.Profiles, c.Agents} {
 		for _, a := range as {
 			if f := a.Spec.Prompt.File; f != "" {
-				if err = add(path.Clean(filepath.ToSlash(f))); err != nil {
+				p := path.Clean(filepath.ToSlash(f))
+				if err = add(p, p); err != nil {
 					return nil, err
 				}
 			}

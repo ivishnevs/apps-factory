@@ -1,0 +1,13 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: designer
+  description: Designs flows and interfaces
+spec:
+  extends: agent
+  role: designer
+  reports_to: product-owner
+  prompt:
+    file: prompts/roles/designer.md
+  communication:
+    can_message: [product-owner, developer]

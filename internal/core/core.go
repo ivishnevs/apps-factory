@@ -120,6 +120,7 @@ func (c *Core) Handler() http.Handler {
 	c.authorityRoutes(m)
 	c.conversationRoutes(m)
 	c.catalogRoutes(m)
+	c.companyRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil || !c.Bus.NC.IsConnected() {
@@ -206,7 +207,12 @@ func (c *Core) Handler() http.Handler {
 		}
 		auth := r.Header.Get("Authorization")
 		if c.Token != "" && subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+c.Token)) == 1 {
-			m.ServeHTTP(w, r)
+			m.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), operatorKey{}, true)))
+			return
+		}
+		// A company owner token (company-self-service 4.1) reaches its company's owner routes.
+		if token, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(token, storage.OwnerTokenPrefix) && c.Store != nil {
+			c.ownerGateway(w, r, m, token)
 			return
 		}
 		// A per-machine node token (node-agent 1.1) reaches only the node routes, for its own node.

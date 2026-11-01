@@ -1,0 +1,13 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: reviewer
+  description: Reviews submitted work
+spec:
+  extends: agent
+  role: reviewer
+  reports_to: product-owner
+  prompt:
+    file: prompts/roles/reviewer.md
+  communication:
+    can_message: [product-owner, developer]

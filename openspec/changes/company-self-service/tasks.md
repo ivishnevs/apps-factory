@@ -22,8 +22,8 @@ Core, API and CLI, provisioning, review policy, UI.
 - [x] 3.7 Agent-proposed catalog changes through owner approval: `factory_catalog_get` (read), `factory_catalog_change` (always needs the owner's approval of the exact call; author = the agent).
 
 ## 4. Company provisioning
-- [ ] 4.1 Create a company and its owner token through API and CLI.
-- [ ] 4.2 Starter team templates (solo builder; PO + developer + reviewer; PO + designer + developer + QA) as seed directories.
+- [x] 4.1 Create a company and its owner token through API and CLI: `POST /companies` (operator token), company owner tokens `fot_…` (`/owner-tokens`), `factory companies|templates|owner-tokens`.
+- [x] 4.2 Starter team templates `configs/templates/{solo,product-team,full-team}` with role prompts in `prompts/roles/`.
 
 ## 5. Review policy
 - [ ] 5.1 Policy rule `type: review` (required/optional per role or agent, default reviewer); validation.

@@ -1,0 +1,15 @@
+apiVersion: factory/v1
+kind: Agent
+metadata:
+  name: builder
+  description: Plans, builds and ships the product alone
+spec:
+  extends: agent
+  role: developer
+  reports_to: owner
+  prompt:
+    file: prompts/roles/builder.md
+  communication:
+    can_message: [owner]
+    can_create_tasks: true
+    can_assign_tasks: true

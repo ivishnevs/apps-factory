@@ -1,0 +1,4 @@
+owner:
+  default_report: product-owner
+projects:
+  audit_assignee: product-owner

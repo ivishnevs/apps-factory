@@ -1,0 +1,11 @@
+# Skills registry of a company created from this template: paths are relative to the company's catalog
+# directory configs/<company>/ (two levels below the factory root), where the template is seeded.
+skills:
+  openspec:
+    path: ../../skills/openspec/SKILL.md
+    description: Read project specifications and keep implementation changes aligned with OpenSpec.
+    categories: [planning, documentation]
+  task-pull-request:
+    path: ../../skills/task-pull-request/SKILL.md
+    description: Finish a code task through its pull request - submit, update from the default branch after approval, gh pr merge, then exit done.
+    categories: [git, review]
