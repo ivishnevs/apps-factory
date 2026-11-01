@@ -2,11 +2,10 @@ package config
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"regexp"
 	"time"
 
-	"appfactory/internal/configfile"
 	"appfactory/internal/protocol"
 )
 
@@ -21,25 +20,25 @@ type NodeHooksDocument struct {
 	Spec       protocol.NodeHooks `yaml:"spec"`
 }
 
-func loadNodeHooks(root, dir string) (map[string]protocol.NodeHooks, error) {
+func loadNodeHooks(src source, dir string) (map[string]protocol.NodeHooks, error) {
 	out := map[string]protocol.NodeHooks{}
-	paths, err := filepath.Glob(filepath.Join(root, dir, "node-hooks", "*.yaml"))
+	paths, err := src.glob(path.Join(dir, "node-hooks"), "*.yaml")
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range paths {
 		var d NodeHooksDocument
-		if err = configfile.Read(p, &d); err != nil {
+		if err = src.decode(p, &d); err != nil {
 			return nil, err
 		}
 		if d.APIVersion != "factory/v1" || d.Kind != "NodeHooks" || !namePattern.MatchString(d.Metadata.Name) {
-			return nil, fmt.Errorf("%s: invalid version, kind or name", p)
+			return nil, fmt.Errorf("%s: invalid version, kind or name", src.name(p))
 		}
 		if _, ok := out[d.Metadata.Name]; ok {
 			return nil, fmt.Errorf("duplicate NodeHooks %s", d.Metadata.Name)
 		}
 		if err = ValidateNodeHooks(d.Spec); err != nil {
-			return nil, fmt.Errorf("%s: %w", p, err)
+			return nil, fmt.Errorf("%s: %w", src.name(p), err)
 		}
 		out[d.Metadata.Name] = d.Spec
 	}

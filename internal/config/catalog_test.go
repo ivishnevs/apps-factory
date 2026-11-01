@@ -2,11 +2,13 @@ package config
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -561,5 +563,65 @@ spec:
 		if _, err := LoadCatalog(root); err == nil {
 			t.Error(name, "accepted")
 		}
+	}
+}
+
+// TestPromptStaysInsideRoot: a prompt file outside the factory root is refused, whether named with ../ or
+// reached through a symlink inside the root (the disk catalog reads through os.Root).
+func TestPromptStaysInsideRoot(t *testing.T) {
+	root := fixture(t)
+	if _, err := LoadCatalog(root); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	put(t, outside, "secret.md", "OUTSIDE")
+	if err := os.Symlink(filepath.Join(outside, "secret.md"), filepath.Join(root, "prompts", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(root, "configs/profiles/base.yaml"))
+	for _, file := range []string{"../secret.md", "prompts/link.md", "/etc/passwd"} {
+		put(t, root, "configs/profiles/base.yaml", strings.Replace(string(b), "file: prompts/agent.md", "file: "+file, 1))
+		if c, err := LoadCatalog(root); err == nil {
+			t.Fatalf("%s accepted: %d agents", file, len(c.Agents))
+		}
+	}
+}
+
+// TestCatalogFromFS: the same loader reads a catalog from any fs.FS (a stored catalog, company-self-service
+// D1); skill contents still resolve on disk.
+func TestCatalogFromFS(t *testing.T) {
+	root := fixture(t)
+	disk, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := fstest.MapFS{}
+	err = filepath.WalkDir(filepath.Join(root, "configs"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		b, err := os.ReadFile(p)
+		mem[filepath.ToSlash(rel)] = &fstest.MapFile{Data: b}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem["prompts/agent.md"] = &fstest.MapFile{Data: []byte("STORED_PROMPT")}
+	stored, err := LoadCompanyCatalogFS(mem, root, DefaultCompany)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Agents) != len(disk.Agents) || len(stored.Skills.Skills) != len(disk.Skills.Skills) {
+		t.Fatalf("%d/%d agents, %d/%d skills", len(stored.Agents), len(disk.Agents), len(stored.Skills.Skills), len(disk.Skills.Skills))
+	}
+	for name, a := range stored.Agents {
+		if !strings.HasPrefix(a.Instructions, "STORED_PROMPT") {
+			t.Fatalf("%s: %q", name, a.Instructions)
+		}
+	}
+	if body, err := stored.Skills.Read("first", ""); err != nil || !strings.Contains(body, "SECRET_SKILL_BODY") {
+		t.Fatal(body, err)
 	}
 }

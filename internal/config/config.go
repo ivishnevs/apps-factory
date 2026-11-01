@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -188,32 +190,52 @@ func LoadCatalog(root string) (*Catalog, error) { return LoadCompanyCatalog(root
 // LoadCompanyCatalog loads company's catalog from root/CompanyDir(company): agents with the same name in two
 // companies are independent.
 func LoadCompanyCatalog(root, company string) (*Catalog, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return LoadCompanyCatalogFS(r.FS(), root, company)
+}
+
+// LoadCompanyCatalogFS loads company's catalog from fsys, the factory root as an fs.FS (configs/..., prompts/...;
+// company-self-service D1). root is the factory root on disk: skill contents are resolved there.
+func LoadCompanyCatalogFS(fsys fs.FS, root, company string) (*Catalog, error) {
 	dir, err := CompanyDir(company)
 	if err != nil {
 		return nil, err
 	}
+	dir = filepath.ToSlash(dir)
+	src := source{fsys: fsys, root: root}
 	c := &Catalog{Agents: map[string]Agent{}, Profiles: map[string]Agent{}}
-	c.Skills, err = skills.Load(filepath.Join(root, dir))
+	registry := path.Join(dir, skills.File)
+	var data []byte
+	if src.exists(registry) {
+		if data, err = src.read(registry); err != nil {
+			return nil, err
+		}
+	}
+	c.Skills, err = skills.Parse(filepath.Join(root, filepath.FromSlash(dir)), data, data != nil)
 	if err != nil {
 		return nil, err
 	}
-	if c.QuotaKeys, err = loadQuotaKeys(root, dir); err != nil {
+	if c.QuotaKeys, err = loadQuotaKeys(src, dir); err != nil {
 		return nil, err
 	}
-	if c.MCPServers, err = loadMCPServers(root, dir); err != nil {
+	if c.MCPServers, err = loadMCPServers(src, dir); err != nil {
 		return nil, err
 	}
 	rawPolicies := map[string]policies.Policy{}
 	for _, p := range policies.Builtins() {
 		rawPolicies[p.Metadata.Name] = p
 	}
-	paths, err := filepath.Glob(filepath.Join(root, dir, "policies", "*.yaml"))
+	paths, err := src.glob(path.Join(dir, "policies"), "*.yaml")
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range paths {
 		var v policies.Policy
-		if err = configfile.Read(p, &v); err != nil {
+		if err = src.decode(p, &v); err != nil {
 			return nil, err
 		}
 		if !namePattern.MatchString(v.Metadata.Name) {
@@ -235,14 +257,14 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.NodeHooks, err = loadNodeHooks(root, dir); err != nil {
+	if c.NodeHooks, err = loadNodeHooks(src, dir); err != nil {
 		return nil, err
 	}
-	profiles, err := documents(root, dir, "profiles", "AgentProfile")
+	profiles, err := documents(src, dir, "profiles", "AgentProfile")
 	if err != nil {
 		return nil, err
 	}
-	agents, err := documents(root, dir, "agents", "Agent")
+	agents, err := documents(src, dir, "agents", "Agent")
 	if err != nil {
 		return nil, err
 	}
@@ -349,18 +371,18 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err = c.finish(root, &a); err != nil {
+		if err = c.finish(src, &a); err != nil {
 			return nil, fmt.Errorf("agent %s: %w", name, err)
 		}
 		c.Agents[name] = a
 	}
 	if len(c.Agents) == 0 {
-		return nil, fmt.Errorf("no agents in %s", filepath.Join(root, dir, "agents"))
+		return nil, fmt.Errorf("no agents in %s", src.name(path.Join(dir, "agents")))
 	}
 	if err := validTree(c.Agents); err != nil {
 		return nil, err
 	}
-	if c.DefaultReport, c.AuditAssignee, err = loadCompany(root, dir, c.Agents); err != nil {
+	if c.DefaultReport, c.AuditAssignee, err = loadCompany(src, dir, c.Agents); err != nil {
 		return nil, err
 	}
 	deriveCommunication(c.Agents)
@@ -376,24 +398,24 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 	}
 	return c, nil
 }
-func documents(root, dir, sub, kind string) (map[string]map[string]any, error) {
+func documents(src source, dir, sub, kind string) (map[string]map[string]any, error) {
 	out := map[string]map[string]any{}
-	paths, err := filepath.Glob(filepath.Join(root, dir, sub, "*.yaml"))
+	paths, err := src.glob(path.Join(dir, sub), "*.yaml")
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range paths {
 		var a Agent
-		if err = configfile.Read(p, &a); err != nil {
+		if err = src.decode(p, &a); err != nil {
 			return nil, err
 		}
 		if a.APIVersion != "factory/v1" || a.Kind != kind || !namePattern.MatchString(a.Metadata.Name) {
-			return nil, fmt.Errorf("%s: invalid version, kind or name", p)
+			return nil, fmt.Errorf("%s: invalid version, kind or name", src.name(p))
 		}
 		if _, ok := out[a.Metadata.Name]; ok {
 			return nil, fmt.Errorf("duplicate %s %s", kind, a.Metadata.Name)
 		}
-		b, err := os.ReadFile(p)
+		b, err := src.read(p)
 		if err != nil {
 			return nil, err
 		}
@@ -402,10 +424,10 @@ func documents(root, dir, sub, kind string) (map[string]map[string]any, error) {
 			return nil, err
 		}
 		if err := nonNull(m); err != nil {
-			return nil, fmt.Errorf("%s: %w", p, err)
+			return nil, fmt.Errorf("%s: %w", src.name(p), err)
 		}
 		if _, ok := m["spec"].(map[string]any); !ok {
-			return nil, fmt.Errorf("%s: spec mapping required", p)
+			return nil, fmt.Errorf("%s: spec mapping required", src.name(p))
 		}
 		out[a.Metadata.Name] = m
 	}
@@ -460,7 +482,7 @@ func decodeAgent(m map[string]any) (Agent, error) {
 	err = configfile.Decode(b, &a)
 	return a, err
 }
-func (c *Catalog) finish(root string, a *Agent) error {
+func (c *Catalog) finish(src source, a *Agent) error {
 	if !protocol.RuntimeProvider(a.Spec.Runtime.Provider).Valid() {
 		return fmt.Errorf("unsupported runtime provider %q: expected codex or claude", a.Spec.Runtime.Provider)
 	}
@@ -569,11 +591,11 @@ func (c *Catalog) finish(root string, a *Agent) error {
 			}
 		}
 	}
-	p, err := configfile.Path(root, a.Spec.Prompt.File)
+	p, err := src.file(a.Spec.Prompt.File)
 	if err != nil {
 		return err
 	}
-	b, err := os.ReadFile(p)
+	b, err := src.read(p)
 	if err != nil {
 		return err
 	}
@@ -799,15 +821,15 @@ func (c *Catalog) DefaultQuotaKey(provider string) string {
 
 // loadQuotaKeys reads configs/quota_keys.yaml (optional): the company's subscriptions, each with the
 // provider whose runs consume it. When the file exists, every agent's explicit quota_key must be declared.
-func loadQuotaKeys(root, dir string) (map[string]QuotaKey, error) {
-	p := filepath.Join(root, dir, "quota_keys.yaml")
-	if _, err := os.Stat(p); os.IsNotExist(err) {
+func loadQuotaKeys(src source, dir string) (map[string]QuotaKey, error) {
+	p := path.Join(dir, "quota_keys.yaml")
+	if !src.exists(p) {
 		return map[string]QuotaKey{}, nil
 	}
 	var doc struct {
 		QuotaKeys map[string]QuotaKey `yaml:"quota_keys"`
 	}
-	if err := configfile.Read(p, &doc); err != nil {
+	if err := src.decode(p, &doc); err != nil {
 		return nil, err
 	}
 	for name, k := range doc.QuotaKeys {
@@ -827,7 +849,7 @@ func loadQuotaKeys(root, dir string) (map[string]QuotaKey, error) {
 // loadCompany reads configs/company.yaml (optional): owner.default_report, checked to be a direct report of
 // the owner and required when the owner has more than one (hierarchy D5); projects.audit_assignee, an agent
 // (default product-manager, project-creation D5).
-func loadCompany(root, dir string, agents map[string]Agent) (defaultReport, auditAssignee string, err error) {
+func loadCompany(src source, dir string, agents map[string]Agent) (defaultReport, auditAssignee string, err error) {
 	var doc struct {
 		Owner struct {
 			DefaultReport string `yaml:"default_report"`
@@ -836,9 +858,8 @@ func loadCompany(root, dir string, agents map[string]Agent) (defaultReport, audi
 			AuditAssignee string `yaml:"audit_assignee"`
 		} `yaml:"projects"`
 	}
-	p := filepath.Join(root, dir, "company.yaml")
-	if _, err := os.Stat(p); err == nil {
-		if err = configfile.Read(p, &doc); err != nil {
+	if p := path.Join(dir, "company.yaml"); src.exists(p) {
+		if err = src.decode(p, &doc); err != nil {
 			return "", "", err
 		}
 	}

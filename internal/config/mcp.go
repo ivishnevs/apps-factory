@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"os"
-	"path/filepath"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
 
-	"appfactory/internal/configfile"
 	"appfactory/internal/protocol"
 )
 
@@ -28,15 +26,15 @@ var mcpToolName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 var credentialHeader = regexp.MustCompile(`(?i)(auth|token|key|secret|cookie|password|credential|session)`)
 
 // loadMCPServers reads <company dir>/mcp_servers.yaml (optional).
-func loadMCPServers(root, dir string) (map[string]protocol.MCPServer, error) {
-	p := filepath.Join(root, dir, "mcp_servers.yaml")
-	if _, err := os.Stat(p); os.IsNotExist(err) {
+func loadMCPServers(src source, dir string) (map[string]protocol.MCPServer, error) {
+	p := path.Join(dir, "mcp_servers.yaml")
+	if !src.exists(p) {
 		return map[string]protocol.MCPServer{}, nil
 	}
 	var doc struct {
 		MCPServers map[string]protocol.MCPServer `yaml:"mcp_servers"`
 	}
-	if err := configfile.Read(p, &doc); err != nil {
+	if err := src.decode(p, &doc); err != nil {
 		return nil, err
 	}
 	for _, name := range sortedKeys(doc.MCPServers) {

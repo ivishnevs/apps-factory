@@ -13,7 +13,7 @@ Core, API and CLI, provisioning, review policy, UI.
 - [ ] 2.2 Update `docs/agent-configuration.md`, `docs/policies.md`, `docs/development.md`, `docs/explicit-exits-contract.md`.
 
 ## 3. Catalog storage and API
-- [ ] 3.1 Loader over `fs.FS` (`LoadCompanyCatalogFS`; disk through `os.DirFS`), skills registry included; no behaviour change.
+- [x] 3.1 Loader over `fs.FS` (`LoadCompanyCatalogFS`; disk through `os.DirFS`), skills registry included; no behaviour change.
 - [ ] 3.2 Migration: `catalog_versions`, `catalog_documents`; store save (validate with the loader, new current version in one transaction), history, read of a version.
 - [ ] 3.3 Seed a company without a stored catalog from its repository directory and the prompts it names (author `seed`).
 - [ ] 3.4 Core resolves the catalog per company (D4): `c.catalog(company)` replaces `Core.Agents`/`Skills`/`NodeHooks`/`DefaultReport`/`AuditAssignee`; loops run per company; swap after a save.

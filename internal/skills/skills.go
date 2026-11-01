@@ -35,17 +35,30 @@ const File = "skills.yaml"
 // SKILL.md, absolute or relative to dir (it may lead outside dir, e.g. ../skills/x/SKILL.md). A directory
 // without skills.yaml has an empty registry: there is no fallback to another catalog's.
 func Load(dir string) (*Registry, error) {
+	p := filepath.Join(dir, File)
+	data, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return Parse(dir, nil, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return Parse(dir, data, true)
+}
+
+// Parse is Load with the registry's content given (a stored catalog, company-self-service D1): data is
+// dir/skills.yaml when found; skill paths resolve against dir on disk, where skill contents live.
+func Parse(dir string, data []byte, found bool) (*Registry, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
 	r := &Registry{Root: root, Skills: map[string]Skill{}}
-	p := filepath.Join(root, File)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
+	if !found {
 		return r, nil
 	}
-	if err := configfile.Read(p, r); err != nil {
-		return nil, err
+	if err := configfile.Decode(data, r); err != nil {
+		return nil, fmt.Errorf("%s: %w", filepath.Join(root, File), err)
 	}
 	r.Root = root
 	for name, s := range r.Skills {
