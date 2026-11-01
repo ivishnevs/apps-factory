@@ -387,6 +387,9 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 	if err := validTree(c.Agents); err != nil {
 		return nil, err
 	}
+	if err := validReviewers(c.Agents); err != nil {
+		return nil, err
+	}
 	if c.DefaultReport, c.AuditAssignee, err = loadCompany(src, dir, c.Agents); err != nil {
 		return nil, err
 	}
@@ -1031,3 +1034,46 @@ func deriveCommunication(agents map[string]Agent) {
 // LockedCategories are decided by the owner only (hierarchy D3): questions in them go straight to the owner
 // and no policy may delegate them.
 var LockedCategories = []string{"release", "money", "deletion", "legal"}
+
+// Review is the agent's review policy (company-self-service D3): whether review is required before done and
+// its default reviewer (an agent, or role:<role>), from the review rules that apply to it.
+func (a Agent) Review() (required bool, reviewer string) {
+	for _, r := range a.Rules {
+		if r.Type != "review" {
+			continue
+		}
+		required = required || r.Required
+		if reviewer == "" {
+			reviewer = r.Reviewer
+		}
+	}
+	return required, reviewer
+}
+
+// ReviewerFor resolves a review rule's reviewer for agent: the named agent, or for role:<role> the first agent
+// of that role other than agent (by name); "" when there is none.
+func ReviewerFor(agents map[string]Agent, agent, reviewer string) string {
+	role, isRole := strings.CutPrefix(reviewer, "role:")
+	if !isRole {
+		if _, ok := agents[reviewer]; ok && reviewer != agent {
+			return reviewer
+		}
+		return ""
+	}
+	for _, name := range Names(agents) {
+		if name != agent && agents[name].Spec.Role == role {
+			return name
+		}
+	}
+	return ""
+}
+
+// validReviewers checks every review rule's reviewer against the catalog.
+func validReviewers(agents map[string]Agent) error {
+	for _, name := range Names(agents) {
+		if _, reviewer := agents[name].Review(); reviewer != "" && ReviewerFor(agents, name, reviewer) == "" {
+			return fmt.Errorf("agent %s: review rule reviewer %s is not another agent of the catalog", name, reviewer)
+		}
+	}
+	return nil
+}

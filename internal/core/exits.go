@@ -114,6 +114,23 @@ func (c *Core) exitRoute(w http.ResponseWriter, r *http.Request, run storage.Run
 func (c *Core) serveExit(w http.ResponseWriter, r *http.Request, run storage.Run, p storage.ExitRequest) {
 	cat := c.cat(c.companyFrom(r))
 	p.Known = func(agent string) bool { _, ok := cat.Agents[agent]; return ok }
+	// Review policy (company-self-service D3) from the run's captured configuration: required before done,
+	// and the default reviewer of a submit that names none.
+	var snapshot config.Agent
+	if len(run.Spec.ConfigSnapshot) > 0 && json.Unmarshal(run.Spec.ConfigSnapshot, &snapshot) == nil {
+		required, reviewer := snapshot.Review()
+		p.ReviewRequired = required
+		if p.Kind == "submit" && reviewer != "" {
+			if named, _ := p.Arguments["reviewer"].(string); named == "" {
+				if name := config.ReviewerFor(cat.Agents, run.Spec.Agent, reviewer); name != "" {
+					if p.Arguments == nil {
+						p.Arguments = map[string]any{}
+					}
+					p.Arguments["reviewer"] = name
+				}
+			}
+		}
+	}
 	v, err := c.Store.Exit(r.Context(), c.companyFrom(r), run.Spec.ID, p)
 	var refusal *storage.ExitRefusal
 	if errors.As(err, &refusal) {

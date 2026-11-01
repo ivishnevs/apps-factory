@@ -26,8 +26,8 @@ Core, API and CLI, provisioning, review policy, UI.
 - [x] 4.2 Starter team templates `configs/templates/{solo,product-team,full-team}` with role prompts in `prompts/roles/`.
 
 ## 5. Review policy
-- [ ] 5.1 Policy rule `type: review` (required/optional per role or agent, default reviewer); validation.
-- [ ] 5.2 Enforce at `factory_exit_done` (`409 review_required` without an approval bound to the PR); default reviewer at `submit`.
+- [x] 5.1 Policy rule `type: review` (required/optional per role or agent, default reviewer); validation.
+- [x] 5.2 Enforce at `factory_exit_done` (`409 review_required` without an approval bound to the PR); default reviewer at `submit`.
 - [ ] 5.3 Path rules (e.g. requirement changes need the product owner): changed files in the exit facts.
 
 ## 6. UI

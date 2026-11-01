@@ -21,4 +21,4 @@ spec:
     include: [openspec, task-pull-request]
   communication:
     can_message: [owner]
-  policies: [engineering]
+  policies: [engineering, review]

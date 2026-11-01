@@ -135,3 +135,31 @@ func TestTemplates(t *testing.T) {
 		t.Fatal("company named templates accepted")
 	}
 }
+
+// TestTemplateReviewPolicy (company-self-service 5.1): the team templates require review of the developer's
+// work by their reviewer; the solo builder has no review rule.
+func TestTemplateReviewPolicy(t *testing.T) {
+	for template, want := range map[string]string{"product-team": "reviewer", "full-team": "qa", "solo": ""} {
+		docs, err := TemplateDocuments("../..", template, "acme")
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := loadStored(t, "../..", "acme", docs)
+		if err != nil {
+			t.Fatal(template, err)
+		}
+		dev := "developer"
+		if template == "solo" {
+			dev = "builder"
+		}
+		required, reviewer := c.Agents[dev].Review()
+		if required != (want != "") || reviewer != want {
+			t.Fatal(template, required, reviewer)
+		}
+		if want != "" {
+			if r, _ := c.Agents[want].Review(); r {
+				t.Fatal(template, "the reviewer itself needs review")
+			}
+		}
+	}
+}

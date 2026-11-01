@@ -1,0 +1,12 @@
+apiVersion: factory/v1
+kind: Policy
+metadata:
+  name: review
+spec:
+  rules:
+    - name: code-review
+      type: review
+      roles: [developer]
+      required: true
+      reviewer: qa
+      instruction: Code changes are reviewed before they are merged; submit for review with factory_exit_submit and merge after an approved verdict.

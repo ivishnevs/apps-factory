@@ -34,6 +34,11 @@ type Rule struct {
 	// limits it to questions of these decision categories (all when empty).
 	EscalateAfter string   `yaml:"escalate_after" json:"escalate_after,omitempty"`
 	Categories    []string `yaml:"categories" json:"categories,omitempty"`
+	// Review rules (company-self-service D3): Required makes factory_exit_done of a repository task refuse
+	// without an approval bound to its pull request; Reviewer (an agent, or role:<role>) is the default reviewer
+	// of factory_exit_submit.
+	Required bool   `yaml:"required" json:"required,omitempty"`
+	Reviewer string `yaml:"reviewer" json:"reviewer,omitempty"`
 }
 
 // EscalateAfterDuration parses an escalation rule's escalate_after (0 when unset).
@@ -87,6 +92,9 @@ func Validate(p Policy) error {
 		if len(r.Exits)+len(r.ReportKinds) > 0 && r.Type != "reporting" {
 			return fmt.Errorf("rule %s: exits and report_kinds only apply to reporting rules", r.Name)
 		}
+		if (r.Required || r.Reviewer != "") && r.Type != "review" {
+			return fmt.Errorf("rule %s: required and reviewer only apply to review rules", r.Name)
+		}
 		if (r.EscalateAfter != "" || len(r.Categories) > 0) && r.Type != "escalation" {
 			return fmt.Errorf("rule %s: escalate_after and categories only apply to escalation rules", r.Name)
 		}
@@ -133,6 +141,13 @@ func Validate(p Policy) error {
 			}
 			if r.Effect != "" || r.Target != "" || len(r.Commands)+len(r.Operations) > 0 {
 				return fmt.Errorf("wait rule %s: only min_wait_interval, max_waits, roles and agents apply", r.Name)
+			}
+		case "review":
+			if r.Effect != "" || r.Target != "" || r.Mode != "" || len(r.Commands)+len(r.Operations) > 0 {
+				return fmt.Errorf("review rule %s: only required, reviewer, roles and agents apply", r.Name)
+			}
+			if !r.Required && r.Reviewer == "" {
+				return fmt.Errorf("review rule %s: required or reviewer needed", r.Name)
 			}
 		case "recovery":
 			if r.Mode != "inspect" {

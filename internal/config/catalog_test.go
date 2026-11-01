@@ -141,6 +141,18 @@ func TestProfilePolicyContext(t *testing.T) {
 }
 func TestInvalidCatalog(t *testing.T) {
 	cases := map[string]func(*testing.T, string){
+		"review-unknown-reviewer": func(t *testing.T, r string) {
+			put(t, r, "configs/policies/restricted.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: restricted\nspec:\n  rules:\n    - name: rv\n      type: review\n      required: true\n      reviewer: nobody\n      instruction: x\n")
+		},
+		"review-with-effect": func(t *testing.T, r string) {
+			put(t, r, "configs/policies/restricted.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: restricted\nspec:\n  rules:\n    - name: rv\n      type: review\n      required: true\n      effect: deny\n      instruction: x\n")
+		},
+		"review-empty": func(t *testing.T, r string) {
+			put(t, r, "configs/policies/restricted.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: restricted\nspec:\n  rules:\n    - name: rv\n      type: review\n      instruction: x\n")
+		},
+		"required-outside-review": func(t *testing.T, r string) {
+			put(t, r, "configs/policies/restricted.yaml", "apiVersion: factory/v1\nkind: Policy\nmetadata:\n  name: restricted\nspec:\n  rules:\n    - name: r\n      type: reporting\n      required: true\n      instruction: x\n")
+		},
 		"missing-profile": func(t *testing.T, r string) {
 			put(t, r, "configs/profiles/base.yaml", "apiVersion: factory/v1\nkind: AgentProfile\nmetadata:\n  name: base\nspec:\n  extends: missing\n")
 		},

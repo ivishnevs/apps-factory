@@ -54,6 +54,8 @@ type ExitRequest struct {
 	Preflight bool `json:"-"`
 	// Known reports whether an agent name is in Core's catalog (handoff targets, reviewers).
 	Known func(agent string) bool `json:"-"`
+	// ReviewRequired: a review rule of the run's agent requires review before done (company-self-service D3).
+	ReviewRequired bool `json:"-"`
 }
 
 type ExitTask struct {
@@ -180,6 +182,18 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	}
 	if r := checkFacts(req, p.RepoURL != "" && t.Kind != tasks.KindConversation, abandoned); r != nil {
 		return out, r
+	}
+	if req.Kind == "done" && req.ReviewRequired && p.RepoURL != "" && t.Kind != tasks.KindConversation && !abandoned && req.Facts != nil && (req.Facts.PR != nil || req.Facts.AheadOfDefault > 0) {
+		// A required review (company-self-service D3): the pull request must carry an approved verdict.
+		var approvals int
+		if req.Facts.PR != nil {
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM pr_approvals WHERE company_id=? AND task_id=? AND pr_number=?", company, t.ID, req.Facts.PR.Number).Scan(&approvals); err != nil {
+				return out, err
+			}
+		}
+		if approvals == 0 {
+			return out, refuse("review_required", "your work needs review before it is done (company review policy): submit it for review with factory_exit_submit, and merge after an approved verdict")
+		}
 	}
 	if req.Kind == "done" && p.ReviewAfterConflicts == "required" && !abandoned && req.Facts != nil && req.Facts.PR != nil {
 		// The merged head must be the approved one; a head changed after the approval needs a new review.
