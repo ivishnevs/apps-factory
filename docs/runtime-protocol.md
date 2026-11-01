@@ -134,7 +134,8 @@ How the executor (v1 and v2, every driver) fills `Event.outcome` on terminal eve
 | v2 heartbeat `stop` `timed_out` / `idle_timeout` stopped the turn, with or without a result | `timed_out` / `idle_timeout` |
 | Core's stop with the runtime's interrupted or failed result: v1 heartbeat `{cancel: true}`, v2 `stop` `revoked`, `terminal`, `unknown_run` | `revoked` |
 | A cancelled turn nobody asked for | `failed` |
-| Before the runtime started: invalid RunSpec, workspace allocation, `workspace_diverged`, OpenSpec preflight, skills refusal, shims or `factory-mcp` missing, run credential | `setup_failed` |
+| Before the runtime started: invalid RunSpec, workspace allocation, `workspace_diverged`, skills refusal, shims or `factory-mcp` missing, run credential | `setup_failed` |
+| Before the runtime started: the task's linked OpenSpec change is not on its checkout (node preflight) | `change_missing` |
 | The same, while the run was being stopped | the stop's outcome (`lost` for a node shutdown) |
 | Launch refused before the prompt (Claude auth, Codex without a ChatGPT login, missing or unsupported runtime executable) | `paused_out` |
 | Other launch, `/start` or `started` failures before the prompt; a broken shim stream | `failed` |

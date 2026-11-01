@@ -18,8 +18,8 @@ The repository is set up **on the node, when the project's first task runs**: Co
 touches the node's disk. Until then the project shows `setup.state: "pending"` and no workspace. The first task's
 run sets the repository up before its runtime starts and reports it to Core; meanwhile no other run of the project
 starts (other tasks show `project_setup` or `capacity` in `factory tasks why`). The feed records
-`project.created` (who asked, who approved, the repository mode), then `project.provisioned` (node, path, URL,
-OpenSpec import) or `project.setup_failed` with the reason. A failed setup ends that run `setup_failed`; its task
+`project.created` (who asked, who approved, the repository mode), then `project.provisioned` (node, path, URL)
+or `project.setup_failed` with the reason. A failed setup ends that run `setup_failed`; its task
 retries with the usual backoff, so fix the cause (for example `gh auth login` on the node) and the next attempt
 continues where the last stopped (every step is idempotent).
 
@@ -29,22 +29,16 @@ github setup never adopts a directory it did not create: `<projects_root>/<id>` 
 
 ## Onboarding an existing repository
 
-Projects that tracked `openspec/` in git lost it when the first run materialized Core's (empty) tree. Onboarding
-(`repo_mode: existing`) prevents that, before any task runs:
-
-1. Every OpenSpec document of the repository's `openspec/` (the project's `openspec.dir`) is imported into Core,
-   as `factory openspec import` does; nothing in Core is deleted.
-2. When git tracks the tree, a commit stops tracking it (`git rm -r --cached openspec`, `/openspec/` added to
-   `.gitignore`); the files stay on disk. The commit is pushed to the default branch when the checkout is exactly
-   the remote default branch; when the remote refuses that push (a protected branch) it is pushed as the first
-   task's branch `af/<task>` and reaches the default branch with that task's pull request; without a remote, or
-   when the checkout holds other unpushed work, it stays a local commit (`setup.openspec_untracked`: `pushed`,
-   `task_branch` or `local`). A checkout with staged changes is refused: commit or unstage them, then retry.
-3. The first run gets the imported tree materialized: what it sees is the repository's tree.
+`repo_mode: existing` sets the repository up on the node before any task runs: the workspace path is checked
+(the top directory of a git repository) or `repo_url` is cloned under `projects_root`. The repository is left as
+it is: nothing is committed or pushed, and its `openspec/` stays tracked, since OpenSpec lives in the
+repository and is reviewed with the code ([OpenSpec](openspec.md)). New `local` and `github` repositories ignore
+only `/.factory/`.
 
 `audit: true` creates a ready task for the configured agent (`configs/company.yaml` `projects.audit_assignee`,
 default `product-manager`) to audit the project with the `project-audit` skill: a read-only audit, OpenSpec
-baseline specs of the current behaviour and a report with options. It is the project's first task, so its run
+baseline specs of the current behaviour committed to the repository with its pull request and a report with
+options. It is the project's first task, so its run
 onboards the repository.
 
 ## Owner
@@ -61,16 +55,15 @@ factory projects create app-ideas /Users/me/projects/app-ideas            # as b
 
 ```json
 {"id": "advent-gift", "name": "Advent gift", "description": "...", "repo_mode": "local",
- "workspace": "", "repo_url": "", "default_branch": "", "audit": false,
- "openspec": {"enabled": true}, "request_id": "..."}
+ "workspace": "", "repo_url": "", "default_branch": "", "audit": false, "request_id": "..."}
 ```
 
 Refusals are 400 (invalid id, empty name, unknown `repo_mode`, `local`/`github` with a workspace or URL,
 `existing` without either, a relative workspace, `audit` outside `existing`, the audit agent not configured) or 409
 (the id exists, the workspace belongs to another project, or a `request_id` reused with other input). The answer
 is the project, with `repo_mode`, `created_by`, `approval_id` (agent requests) and `setup`
-(`state` pending|running|ready|failed, `task_id`, `run_id`, `node_id`, `reason`, `openspec_imported`,
-`openspec_untracked`, `audit`, `audit_task_id`, `updated_at`).
+(`state` pending|running|ready|failed, `task_id`, `run_id`, `node_id`, `reason`, `audit`, `audit_task_id`,
+`updated_at`).
 
 ## Agents
 

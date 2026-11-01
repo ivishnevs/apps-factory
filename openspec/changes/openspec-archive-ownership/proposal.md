@@ -1,4 +1,4 @@
-Status: known issue, to be superseded by `openspec-in-git` (the last task archives; no Core archive task). Not scheduled. Nothing here is implemented.
+Status: superseded by `openspec-in-git` (the last task of a change archives it in its pull request; Core creates no archive task and tells the manager about a change left active). Nothing here is implemented.
 
 ## Why
 

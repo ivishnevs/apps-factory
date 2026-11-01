@@ -38,7 +38,7 @@ Dependencies/assignment/metadata can change before execution, after rejection or
 They cannot change during active execution, review, final state, a lost run whose runtime may still run, or
 an open inspection of a side-effect task.
 Parent tasks must exist in the same project; parent assignment is immutable and does not imply an
-execution dependency. OpenSpec change is a stored reference, not an implemented OpenSpec adapter.
+execution dependency. OpenSpec change is a name; the node checks it on the task's checkout before each run.
 Cycles are checked on "waits for" edges — a task waits for its dependencies and a parent for its children —
 so a dependency that is the task's parent or reaches it is refused with 409 `cycle`, like any DAG cycle.
 
@@ -164,7 +164,8 @@ runtime may still run (no inspection) releases it: `retry` keeps it `lost` and t
 A run's status is its phase: QUEUED → CLAIMED (v2, until `/start`; a v1 claim goes straight to RUNNING) →
 RUNNING → (CANCELLING while a stop is in flight) → ENDED. How it ended is only its outcome (`outcome` in run reads
 and task attempts, `STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded`, `failed`,
-`setup_failed` (OpenSpec preflight, skills or `workspace_diverged` before the runtime started),
+`setup_failed` (skills or `workspace_diverged` before the runtime started), `change_missing` (the linked
+OpenSpec change is not on the checkout: no attempt, escalated to the manager),
 `timed_out`, `idle_timeout`, `max_turns`, `paused_out` (reported by the worker), `lost` (lease, start
 window or node lost, or a worker's end without terminal evidence: no attempt), `revoked` (cancel, kill switch,
 with the runtime's evidence) and `stale`/`unclaimed` (a queued run ended by a claim-time check or never claimed).
@@ -294,7 +295,7 @@ trigger or park in its own transaction, and each appears in the feed (`task.trig
 `task.parked.<kind>`, `task.unparked.<kind>`). Questions and artifact waits are no longer stored as status
 BLOCKED: the `ask` park and the derived `artifacts` reason hold a READY task, and reads (task GET/list, MCP
 task tools, `GET /tasks?status=BLOCKED`) present it as BLOCKED with `block_reason` and its `reason`. Manual,
-OpenSpec, children and UNKNOWN-run blocks are still stored.
+children and UNKNOWN-run blocks are still stored.
 
 - Triggers raise `tasks.wake_seq`: `ready` (ready action; authority when the owner acts), `created_ready`
   (`POST /tasks` with `ready: true`; an agent needs `factory.task.ready`), `assignment` (assignee changed),

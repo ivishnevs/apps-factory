@@ -76,7 +76,7 @@ hard-coded in Core.
 
 The run stores `approved_artifacts`: the approved version (with `sha256` for an uploaded one), the `approval_id`
 and the decision version. They are added to the prompt; before the runtime starts, the node puts uploaded versions
-into the worktree as `.factory/inputs/<id>/<version>/<file name>` (claim manifest, see [OpenSpec](openspec.md)).
+into the worktree as `.factory/inputs/<id>/<version>/<file name>` (claim manifest, see [runtime protocol v2](runtime-protocol-v2.md)).
 A reference in `required_artifacts` may pin `sha256`: then only an approval of that content satisfies it. Core
 checks them inside the dispatch transaction and again at claim, right before the runtime starts. Revocation
 cancels a not-yet-started QUEUED run and returns its task to waiting. A new approval needs a new run with a new

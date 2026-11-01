@@ -14,6 +14,13 @@ change off in its worktree, factory_exit_done uploads the edit); the owner then 
 Core's archive task is cancelled. The executor closing also wakes the manager's conversation (delegated_closed),
 usually one more short run. The first failed step stops the script; --resume PROJECT continues after the plan and
 implementation."""
+import sys
+
+# openspec-in-git removed the Core-stored OpenSpec tree, its owner API and MCP tools this script drives.
+# It must be rewritten for the repository workflow (Manager's proposal task merged -> linked Developer
+# archiving in its pull request) before it runs again (openspec/changes/openspec-in-git task 6.1).
+sys.exit("openspec-smoke.py: outdated since openspec-in-git (OpenSpec lives in the repository); rewrite it first")
+
 import hashlib
 import json
 import os

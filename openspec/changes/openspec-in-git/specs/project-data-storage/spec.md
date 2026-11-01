@@ -35,11 +35,11 @@ A project's OpenSpec tree SHALL be the `openspec/` directory of its git reposito
 - **THEN** its `openspec/` SHALL be the specs that the code of that commit was reviewed against
 
 ### Requirement: Change references checked on the node
-Core SHALL validate only the name of a task's `openspec_change`. Before the runtime starts, the node SHALL check the change on the task's checkout (an active `changes/<name>/proposal.md` or an archived `changes/archive/YYYY-MM-DD-<name>/proposal.md`). A missing change SHALL end the run with outcome `change_missing`, which SHALL block the task with the node's reason without counting an attempt, a backoff or the retry budget.
+Core SHALL validate only the name of a task's `openspec_change`. Before the runtime starts, the node SHALL check the change on the task's checkout (an active `changes/<name>/proposal.md` or an archived `changes/archive/YYYY-MM-DD-<name>/proposal.md`). A missing change SHALL end the run with outcome `change_missing`, which SHALL hold the task with a `change_missing` escalation (answers retry and cancel) to the assignee's manager, naming the node's reason, without counting an attempt, a backoff or the retry budget.
 
 #### Scenario: Executor task before its proposal is merged
 - **WHEN** a task linking change X is claimed while X exists only on an unmerged branch
-- **THEN** the run SHALL end `change_missing` before any runtime turn and the task SHALL be blocked naming X
+- **THEN** the run SHALL end `change_missing` before any runtime turn and the task SHALL be held by an escalation naming X
 
 #### Scenario: Archived change in review
 - **WHEN** the last task of change X archived it in its pull request and its review run is claimed

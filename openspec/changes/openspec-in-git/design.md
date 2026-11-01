@@ -25,8 +25,9 @@ archive task (only `openspec archive`, no re-review) as the safety net.
 Create/update/ready/dispatch/claim validate the name only. The node's preflight checks the proposal (active or
 archived) on the task's checkout before the runtime starts. A missing change does not end the run
 `setup_failed` (that outcome is retried with backoff and budget): it ends with a dedicated outcome
-`change_missing` that blocks the task with the reason, without spending attempts (like today's
-`blockOpenSpecRun`).
+`change_missing` that costs no attempt, backoff or budget and holds the task with a `change_missing`
+escalation to the assignee's manager (retry once the proposal is merged, or cancel), the same mechanism as
+`workspace_diverged`.
 
 Core tracks changes through tasks, without a copy of the tree and without a node-reported index:
 - The changes of a project are the distinct `openspec_change` values of its tasks. Every change starts with its

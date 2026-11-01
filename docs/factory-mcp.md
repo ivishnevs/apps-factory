@@ -136,4 +136,4 @@ see [messaging](messaging.md) for their tools and inbox. Action approval grants 
 
 Reports and Decision Registry tools use the same run-scoped gateway. See [contracts and limits](reports-decisions.md). Decision recording always needs exact owner authorization; proposal/report creation never implies approval.
 
-OpenSpec tools: factory_openspec_init/list/read/check/write/move/delete over the project tree stored in Core; writes use compare-and-set on digests, and the node adapter runs factory_openspec_sync before every exit. factory_artifact_upload and report attachments stream worktree files to Core. See [OpenSpec contract](openspec.md).
+There are no OpenSpec tools: specs are files of the project's repository, read and committed in the run's checkout (the `done` exit facts report the linked change's state). factory_artifact_upload and report attachments stream worktree files to Core. See [OpenSpec contract](openspec.md).

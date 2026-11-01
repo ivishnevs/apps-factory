@@ -83,15 +83,15 @@ in the payload during the transition so v1 workers keep working.
 ```
 
 Under the company lock Core re-checks: the run is QUEUED and is its task's live run; `run.agent == task.assignee`;
-`Evaluate` (ignoring `live_run`) is `runnable`; not paused; OpenSpec and approved artifacts as today; node online
+`Evaluate` (ignoring `live_run`) is `runnable`; not paused; approved artifacts as today (the OpenSpec change is checked by the node); node online
 and of the current epoch; node has the agent's driver and labels; resource capacity and concurrency caps.
 
 - `200 {"lease": "…", "start_by": "2026-10-14T10:00:30Z", "run_spec": {…}, "brief": {"from": 12, "to": 15}}` — run
   CLAIMED. The RunSpec (with the brief built now) replaces `GET /runs/{id}`. Retrying the same
   `(node_id, epoch, claim_id)` returns the same answer; Core does not order claim ids. The RunSpec's
   `materialize` (not stored) lists the project data the node places in the worktree before the runtime starts:
-  `{"openspec_dir": "openspec", "files": [{"path", "sha256", "size"}]}` (core-owned-project-data, see
-  [OpenSpec](openspec.md)). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and
+  `{"files": [{"path", "sha256", "size"}]}`, the pinned approved artifact inputs under `.factory/inputs/`
+  (core-owned-project-data; OpenSpec is in the checkout, see [OpenSpec](openspec.md)). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and
   `X-Factory-Lease: <lease>`; a blob it cannot fetch ends the run `setup_failed` before the runtime starts. It
   uploads the run's log, redacted, with `PUT /runs/{id}/logs?seq=N[&final=1]&redacted=1` and the same header,
   during the run and after its terminal event. Both routes are open to node tokens for the node's own runs.
@@ -228,7 +228,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   agent label → `retry/capacity`; the agent has another live run → `retry/agent_busy`; no free slot or
   resource classes short (`spec.resources` of the run's agent snapshot against node.yaml `resources` minus the
   needs of the runs the node holds, see "Capacity until the seal"; an undeclared class has capacity 0) →
-  `retry/capacity`; OpenSpec or approved-artifact
+  `retry/capacity`; approved-artifact
   checks fail (recorded on the task as in v1) → `drop/not_runnable`. Refusals are JSON:
   `409 {"retry":true,"reason":…}` / `409 {"drop":true,"reason":…}`.
 - **Claim answer**: `run_spec` is the stored RunSpec plus `company`, its prompt the brief built in the claim's
@@ -257,7 +257,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   when the two differ at start (a restored database), Core creates a new incarnation. Restoring the file together
   with the database is not detected: after such a restore write any other value into `core.incarnation` (for
   example `echo restored > data/core.incarnation`) before starting Core. Runbook: [development](development.md#restoring-cores-database).
-- **Project setup** (project-creation): a claim answer whose RunSpec carries `project_setup` `{mode, name, description, workspace, repo_url, default_branch, openspec_dir}` (and no workspace) asks the node to create or onboard the project's repository before the runtime starts; the run holds the writer slot `project-setup/<project>`. The node reports `POST /runs/{id}/project-setup` `{lease, node_id, workspace, repo_url, default_branch, openspec: [{path, content}], openspec_untracked}` or `{lease, node_id, error}` (node tokens may call it for their own runs) and continues with the answer `{workspace, repo_url, default_branch, workspace_mode, materialize}`; an error ends the run `setup_failed`. See [projects](projects.md).
+- **Project setup** (project-creation): a claim answer whose RunSpec carries `project_setup` `{mode, name, description, workspace, repo_url, default_branch}` (and no workspace) asks the node to create or onboard the project's repository before the runtime starts; the run holds the writer slot `project-setup/<project>`. The node reports `POST /runs/{id}/project-setup` `{lease, node_id, workspace, repo_url, default_branch}` or `{lease, node_id, error}` (node tokens may call it for their own runs) and continues with the answer `{workspace, repo_url, default_branch, workspace_mode, materialize}`; an error ends the run `setup_failed`. See [projects](projects.md).
 - **Worktrees** (additive register field `worktrees: true`, node.yaml `worktrees.enabled`): a node that runs
   worktree tasks in their own worktree lets tasks of one project run in parallel. A worktree run holds its own
   writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees (or by

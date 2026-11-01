@@ -5,7 +5,7 @@ Factory SHALL validate the name of a change reference when creating and updating
 
 #### Scenario: Missing change at run start
 - **WHEN** the change linked by a task is not on the checkout of its run
-- **THEN** the run SHALL end `change_missing` before a runtime turn starts and its task SHALL be blocked
+- **THEN** the run SHALL end `change_missing` before a runtime turn starts and its task SHALL be held by a `change_missing` escalation
 
 #### Scenario: Archived linked change
 - **WHEN** a run of a linked task archives its change to `changes/archive/YYYY-MM-DD-<name>/`

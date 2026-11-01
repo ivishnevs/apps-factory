@@ -216,8 +216,7 @@ recorded in `<state_dir>/sessions` and starts others fresh. Core refuses an
 explicit resume of a session created by another provider; scheduled task/conversation continuations
 start a fresh session after an agent changes provider.
 
-OpenSpec `factory_openspec_read` tool results are replaced with `{document_body_omitted: true}` in
-progress events; event data above 256 KiB is replaced with a bounded preview.
+Progress event data above 256 KiB is replaced with a bounded preview.
 
 ## Verification
 

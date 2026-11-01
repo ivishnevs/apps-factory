@@ -24,7 +24,7 @@ A runtime is a Go driver that runs inside the node (`factory-node run`); there a
    Core.
 6. Add driver tests (recorded or scripted streams) and executor tests with `internal/driver/fake`.
 
-The executor in `internal/worker` keeps claim, lease, heartbeat, workspace (lock, worktree, OpenSpec preflight),
+The executor in `internal/worker` keeps claim, lease, heartbeat, workspace (lock, worktree, OpenSpec change preflight),
 the run-scoped credential from `/runs/{id}/credential` (owner and broker credentials never reach the runtime) and
 event publication with correlation/causation IDs and lease, for every driver. `internal/driver/fake` replays
 scripted sessions for executor tests (an activity with `tool` performs that Factory MCP call through `Launch.MCP`

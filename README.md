@@ -19,8 +19,9 @@ dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run
   of a repository task needs the PR merged. Tasks of one project run in parallel.
 - **Policies and command guards.** One policy catalog covers access, escalation, reporting and recovery rules;
   every MCP call and shell command is checked (deny, allow or owner approval). These are guardrails, not a sandbox.
-- **OpenSpec in Core.** Product specs and changes live in Core storage; nodes materialize them into the worktree
-  and sync edits back at exits; tasks link to checked active changes.
+- **OpenSpec in the repository.** Product specs and changes live in each project's git repository and are
+  reviewed with the code; tasks link changes the node checks on the checkout, and the manager hears about a change
+  left unarchived.
 - **Recovery, costs, Telegram.** Failed runs retry with backoff and escalate; every run gets a cost row
   (`configs/prices.yaml`); a Telegram bot sends what needs attention, reminders and a daily digest.
 
@@ -46,7 +47,7 @@ dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run
 ```
 
 Core runs in Docker; nodes run on the machines that have the workspaces and toolchains. Core never reads node
-disks: project data (OpenSpec, artifacts, logs) moves through the API. Details: [architecture](docs/architecture.md).
+disks: project data (artifacts, logs) moves through the API; code and specs stay in git. Details: [architecture](docs/architecture.md).
 
 ## Prerequisites
 
@@ -139,7 +140,7 @@ The workspace is an absolute path on the node's machine, not inside a container.
 ./bin/factory costs [--task T|--agent A|--by task|agent|day|model|project|--day|--model] [--since 24h]
 ./bin/factory rules company|PROJECT [TEXT|-]   # standing rules; time-zone [ZONE] for daily budgets
 ./bin/factory telegram bind                    # one-time code: send /start CODE to the bot
-./bin/factory projects ... | tasks ... | runs ... | inbox ... | approvals ... | artifacts ... | openspec ...
+./bin/factory projects ... | tasks ... | runs ... | inbox ... | approvals ... | artifacts ...
 ./bin/factory reports ... | decisions ... | agents ... | skills ... | nodes ...
 ```
 
@@ -198,7 +199,6 @@ FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
 ./bin/factory config validate --company smoke
 # start a node with company: smoke in its node.yaml, then:
 scripts/messaging-smoke.py --restart-core
-scripts/openspec-smoke.py --restart-core
 scripts/drivers-smoke.py
 ```
 
@@ -226,7 +226,7 @@ The scripts check `GET /health` and refuse to run against the wrong company. Ful
 - [foundation-verification.md](docs/foundation-verification.md) — Foundation verification results (historical).
 - [messaging.md](docs/messaging.md) — messages, conversations, owner questions, inbox and Telegram.
 - [messaging-verification.md](docs/messaging-verification.md) — messaging verification results.
-- [openspec.md](docs/openspec.md) — OpenSpec documents stored in Core: API, CLI, MCP, node materialization.
+- [openspec.md](docs/openspec.md) — OpenSpec in the project repository: change workflow, node check, change tracking.
 - [openspec-verification.md](docs/openspec-verification.md) — OpenSpec integration verification results.
 - [owner-ui.md](docs/owner-ui.md) — the owner's terminal UI (`factory ui`): views, keys, fixtures, notifications.
 - [policies.md](docs/policies.md) — unified policies, command guards, wait and reporting rules.
