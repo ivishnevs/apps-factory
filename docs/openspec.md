@@ -112,6 +112,11 @@ worktree copy; its exit uploads the move below `changes/archive`. The daily chec
 that no open task and no task closed within 7 days links: one `openspec.change_orphaned` feed event per
 change, for the owner's default report.
 
+Known issue (not scheduled): no prompt or skill makes anyone archive a change in the normal flow, so this
+archive task is in practice the only path, it repeats the review, and a change whose `tasks.md` still has an
+unchecked item when its last task closes is never re-evaluated. See the OpenSpec change
+`openspec-archive-ownership`.
+
 ## API, CLI and MCP
 
 Owner endpoints require FACTORY_TOKEN:
