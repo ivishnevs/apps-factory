@@ -199,6 +199,7 @@ FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
 ./bin/factory config validate --company smoke
 # start a node with company: smoke in its node.yaml, then:
 scripts/messaging-smoke.py --restart-core
+scripts/openspec-smoke.py
 scripts/drivers-smoke.py
 ```
 

@@ -1,46 +1,36 @@
 #!/usr/bin/env python3
-"""Opt-in real Codex: Manager authors OpenSpec -> linked Developer -> Review, with explicit exits.
-
-The OpenSpec tree lives in Core (core-owned-project-data): the node materializes it into the run's
-workspace and uploads the run's edits at its exit (compare-and-set against the run's manifest). This script
-runs on the node's machine, reads the tree only through the owner API and validates a downloaded copy with the
-official CLI.
+"""Opt-in real Codex: OpenSpec in the project repository (openspec-in-git), with explicit exits.
 
 Runs against a Core serving the smoke company (FACTORY_COMPANY=smoke, configs/smoke/: cheapest models) with
-FACTORY_EXPLICIT_EXITS=1 (the default); see docs/development.md, Live smokes. A project without a repository
-(scratch). Three model runs: the plan (manager, factory_openspec_sync, then factory_exit_done), the linked
-implementation (demo, factory_exit_submit to the owner's review) and the linked review (manager: checks the
-change off in its worktree, factory_exit_done uploads the edit); the owner then accepts the implementation, and
-Core's archive task is cancelled. The executor closing also wakes the manager's conversation (delegated_closed),
-usually one more short run. The first failed step stops the script; --resume PROJECT continues after the plan and
-implementation."""
-import sys
+FACTORY_EXPLICIT_EXITS=1 (the default) and a node on this machine; see docs/development.md, Live smokes. The
+project is an existing local git repository under .cache (no remote: tasks share its workspace on main, and
+done needs a clean tree with nothing ahead of main).
 
-# openspec-in-git removed the Core-stored OpenSpec tree, its owner API and MCP tools this script drives.
-# It must be rewritten for the repository workflow (Manager's proposal task merged -> linked Developer
-# archiving in its pull request) before it runs again (openspec/changes/openspec-in-git task 6.1).
-sys.exit("openspec-smoke.py: outdated since openspec-in-git (OpenSpec lives in the repository); rewrite it first")
+Two model runs:
+1. Proposal (manager): writes change add-greeting with the official CLI, validates it, commits it on main,
+   creates the linked executor task depending on itself (marked as the last task of the change) and exits done.
+2. Implementation (demo): writes greeting.txt, checks its tasks.md items, archives the change
+   (openspec archive), commits and exits done; its done facts report the change archived.
+The executor closing usually wakes the manager's conversation (delegated_closed), one more short run.
 
-import hashlib
+Then, without a model run: a task linked to a change that is not in the repository ends its run
+change_missing before the runtime starts, opens a change_missing escalation and is cancelled.
+The first failed step stops the script."""
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 import uuid
 
 base = os.environ.get('FACTORY_URL', 'http://127.0.0.1:8080')
 token = os.environ['FACTORY_TOKEN']
-resume = sys.argv[sys.argv.index('--resume') + 1] if '--resume' in sys.argv else None
-project = resume or ('openspec-smoke-' + uuid.uuid4().hex[:10])
-progress_path = Path('.cache/' + project + '-verification-progress.json')
-workspace = Path('.cache/' + project).resolve()
+project = 'openspec-smoke-' + uuid.uuid4().hex[:10]
+repo = Path('.cache/' + project).resolve()
 change = 'add-greeting'
-root = '/projects/' + project
+
 
 def api(method, path, body=None):
     req = urllib.request.Request(base + path, method=method,
@@ -49,15 +39,19 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
-def preflight(exits):
-    """Refuses to start (no model run) unless Core serves the smoke company with the expected exits switch."""
+
+def preflight():
+    """Refuses to start (no model run) unless Core serves the smoke company with explicit exits."""
     health = api('GET', '/health')
     company = os.environ.get('SMOKE_COMPANY', 'smoke')
     assert company == 'any' or health.get('company') == company, f"Core serves company {health.get('company')!r}, not {company!r}: start it with FACTORY_COMPANY={company} (or SMOKE_COMPANY=any)"
-    assert health.get('explicit_exits') == exits, f"Core explicit_exits={health.get('explicit_exits')!r}; this smoke needs FACTORY_EXPLICIT_EXITS={'1' if exits == 'on' else '0'}"
+    assert health.get('explicit_exits') == 'on', f"Core explicit_exits={health.get('explicit_exits')!r}; this smoke needs FACTORY_EXPLICIT_EXITS=1"
+    for tool in ('git', 'openspec'):
+        subprocess.run([tool, '--version'], check=True, capture_output=True)
 
-def wait(path, predicate):
-    deadline = time.monotonic() + 330
+
+def wait(path, predicate, timeout=330):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = api('GET', path)
         if predicate(value):
@@ -67,162 +61,101 @@ def wait(path, predicate):
         time.sleep(.5)
     raise TimeoutError('Inspect durable state before retrying: ' + path)
 
-def create_task(agent, title, prompt, linked=False):
+
+def git(*args):
+    return subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def create_task(agent, title, prompt, link=''):
     body = {'project_id': project, 'title': title, 'description': prompt, 'assignee': agent, 'request_id': project + '-' + title}
-    if linked:
-        body['openspec_change'] = change
-    t = api('POST', '/tasks', body)
-    t = api('GET', '/tasks/' + t['id'])
+    if link:
+        body['openspec_change'] = link
+    t = api('GET', '/tasks/' + api('POST', '/tasks', body)['id'])
     if t['status'] != 'BACKLOG':
         return t
     return api('POST', '/tasks/' + t['id'] + '/actions', {'version': t['version'], 'action': 'ready'})
 
-def download_tree(dest):
-    """Writes Core's current OpenSpec tree below dest/openspec (for the official CLI)."""
-    for doc in api('GET', root + '/openspec/manifest'):
-        content, offset, digest = '', 0, ''
-        while True:
-            query = {'path': doc['path'], 'offset': offset, 'limit': 32768}
-            if offset:
-                query['sha256'] = digest
-            page = api('GET', root + '/openspec/read?' + urllib.parse.urlencode(query))
-            content, offset, digest = content + page['content'], page['next_offset'], page['sha256']
-            if not page['has_more']:
-                break
-        target = dest / 'openspec' / doc['path']
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
-        assert hashlib.sha256(target.read_bytes()).hexdigest() == doc['sha256'], doc
 
-def accept(t):
-    t = api('GET', '/tasks/' + t['id'])
-    if t['status'] == 'DONE':
-        return t
-    t = api('POST', '/tasks/' + t['id'] + '/review', {'version': t['version'], 'accept': True, 'request_id': project + '-accept-' + t['id']})
-    assert t['status'] == 'DONE', t  # a scratch task: the owner's approval ends it
-    return t
+def exits(task_id):
+    return api('GET', '/tasks/' + task_id + '/exits')
 
-def settled(task_id):
-    """The task's runs once none is live (an accepted exit ends the turn; the run ends shortly after)."""
-    return wait('/tasks/' + task_id + '/attempts', lambda rs: all(r['status'] == 'ENDED' for r in rs))
 
-def exits(run_id):
-    return [c['tool'] for c in api('GET', '/runs/' + run_id + '/tool-calls') if c['tool'].startswith('factory_exit_') and c['status'] == 200]
+def feed_types():
+    return [i['type'] for i in api('GET', '/projects/' + project + '/feed?limit=100')['items']]
 
-preflight('on')
-workspace.mkdir(parents=True, exist_ok=True)
-if not resume:
-    api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
-    init_body = {'request_id': 'bootstrap'}
-    initialized = api('POST', root + '/openspec/init', init_body)
-    assert api('POST', root + '/openspec/init', init_body) == initialized
-    assert initialized['directories'][-1] == 'openspec/changes/archive', initialized
-    try:
-        api('POST', '/tasks', {'project_id': project, 'title': 'Invalid link', 'openspec_change': 'missing', 'request_id': 'invalid-link'})
-    except urllib.error.HTTPError as error:
-        assert error.code == 400, error
-    else:
-        raise AssertionError('Missing change reference accepted')
-    plan_prompt = '''This is a bounded OpenSpec integration scenario. Read the shared openspec skill via factory_skills_read and list this project's OpenSpec tree via factory_openspec_list. Create exactly one active change add-greeting using the installed official openspec CLI (inspect new change help first). Author proposal.md, design.md, tasks.md and specs/greeting/spec.md under that change using normal file tools. Do not modify global config. Keep it tiny and valid for the spec-driven schema: proposal sections Why, What Changes, Capabilities (New Capabilities greeting), Impact; delta spec ## ADDED Requirements, ### Requirement: Greeting file, a SHALL requirement that greeting.txt equals HELLO_OPENSPEC followed by one newline, and a #### Scenario with WHEN/THEN bullets. tasks.md should contain one unchecked implementation task and one unchecked verification task. No base spec needs to be created before archive. Upload your edits with factory_openspec_sync (the linked task below needs the proposal in Factory), then use factory_openspec_check for add-greeting and factory_openspec_read to read your proposal. Create exactly one executor task titled OPENSPEC_IMPLEMENT, assignee demo, priority 10, openspec_change add-greeting, request_id executor-PROJECT. Its description must require reading proposal, tasks and the delta spec through Factory MCP, writing greeting.txt with exactly HELLO_OPENSPEC plus newline, checking exact bytes with Python, and ending the run with factory_exit_submit, summary OPENSPEC_IMPLEMENT_OK, no reviewer. Make the executor ready with its current version and a stable request_id. Do not wait for it, do not review work and do not delegate outside Factory. Create a stage_completed report for preparing the change and linked task, request_id plan-report, then end the run with factory_exit_done, summary OPENSPEC_PLAN_OK.'''.replace('PROJECT', project)
-    plan = create_task('manager', 'OPENSPEC_PLAN', plan_prompt)
-    plan = wait('/tasks/' + plan['id'], lambda t: t['status'] == 'DONE')
-    assert 'OPENSPEC_PLAN_OK' in plan['result'], plan
-    children = [t for t in api('GET', '/tasks?project=' + project) if t['title'] == 'OPENSPEC_IMPLEMENT']
-    assert len(children) == 1 and children[0]['openspec_change'] == change, children
-    executor = wait('/tasks/' + children[0]['id'], lambda t: t['status'] == 'IN_REVIEW')
-    assert executor['submission']['summary'] == 'OPENSPEC_IMPLEMENT_OK' and executor['implementer'] == 'demo', executor
-    settled(executor['id'])
-    assert (workspace / 'greeting.txt').read_bytes() == b'HELLO_OPENSPEC\n'
-    assert api('GET', root + '/openspec/check/' + change)['valid']
-    assert api('GET', '/tasks/' + executor['id'])['status'] == 'IN_REVIEW'
-    # Core's copy is the source across restart and subsequent edits.
-    read_path = root + '/openspec/read?' + urllib.parse.urlencode({'path': 'changes/add-greeting/proposal.md'})
-    old = api('GET', read_path)
-    progress = {'project': project, 'plan': plan, 'executor': executor, 'old': old, 'restarted': False}
-    progress_path.write_text(json.dumps(progress, indent=2) + '\n')
-else:
-    progress = json.loads(progress_path.read_text())
-    assert progress['project'] == project
-    plan, executor, old = progress['plan'], progress['executor'], progress['old']
-    read_path = root + '/openspec/read?' + urllib.parse.urlencode({'path': 'changes/add-greeting/proposal.md'})
-if '--restart-core' in sys.argv and not progress['restarted']:
-    subprocess.run(['docker', 'compose', 'restart', 'core'], check=True)
-    deadline = time.monotonic() + 30
-    while True:
-        try:
-            api('GET', '/health')
-            break
-        except (urllib.error.URLError, ConnectionError):
-            if time.monotonic() > deadline:
-                raise
-            time.sleep(.5)
-    assert api('GET', read_path) == old
-    progress['restarted'] = True
-    progress_path.write_text(json.dumps(progress, indent=2) + '\n')
-# The owner edits the proposal in Core with compare-and-set; a write from the old base conflicts.
-note = '\nReview note: verify the exact bytes before accepting the Factory task.\n'
-current = api('GET', read_path + '&limit=32768')
-if note not in current['content']:
-    assert not current['has_more'], 'proposal larger than one page'
-    api('POST', root + '/openspec/write', {'path': 'changes/add-greeting/proposal.md', 'base_sha256': current['sha256'], 'content': current['content'] + note})
-new = api('GET', read_path + '&limit=32768')
-assert old['sha256'] != new['sha256'] and 'Review note:' in new['content']
+
+preflight()
+
+# An existing repository that tracks a minimal openspec/ tree; nothing is pushed anywhere.
+for d in ('specs', 'changes'):
+    (repo / 'openspec' / d).mkdir(parents=True)
+    (repo / 'openspec' / d / '.gitkeep').write_text('')
+(repo / 'openspec/config.yaml').write_text('schema: spec-driven\n')
+(repo / '.gitignore').write_text('/.factory/\n')
+(repo / 'README.md').write_text('# OpenSpec smoke\n')
+subprocess.run(['git', 'init', '-q', '-b', 'main', str(repo)], check=True)
+git('add', '.')
+git('-c', 'user.name=smoke', '-c', 'user.email=smoke@example.com', 'commit', '-q', '-m', 'init')
+start = git('rev-parse', 'HEAD')
+api('POST', '/projects', {'id': project, 'name': project, 'repo_mode': 'existing', 'workspace': str(repo), 'request_id': project})
+
+# Core validates the change name only.
 try:
-    api('POST', root + '/openspec/write', {'path': 'changes/add-greeting/proposal.md', 'base_sha256': old['sha256'], 'content': 'stale'})
+    api('POST', '/tasks', {'project_id': project, 'title': 'Invalid link', 'openspec_change': 'Not A Name', 'request_id': project + '-invalid-link'})
 except urllib.error.HTTPError as error:
-    assert error.code == 409 and json.load(error)['current_sha256'] == new['sha256'], error
+    assert error.code == 400, error
 else:
-    raise AssertionError('Write from a stale base accepted')
-try:
-    api('GET', read_path + '&' + urllib.parse.urlencode({'sha256': old['sha256']}))
-except urllib.error.HTTPError as error:
-    assert error.code == 409, error
-else:
-    raise AssertionError('Changed document accepted with stale digest')
-review = create_task('manager', 'OPENSPEC_REVIEW', '''This is a bounded OpenSpec review. Read current proposal, tasks and delta spec in your worktree's openspec/ directory (or via factory_openspec_read). The proposal must include the current "Review note:" added after implementation. Verify greeting.txt is exactly HELLO_OPENSPEC followed by one newline, using Python. Run official openspec validate add-greeting --strict --json --no-interactive; inspect help if needed. Only after verification passes, mark both OpenSpec tasks complete using file tools (your exit uploads the edit). Read Factory executor TASK_ID via factory_task_get and verify it is still IN_REVIEW despite checked Markdown tasks. Do not review or change that task: the owner accepts it. Create a stage_completed report for the verified change, request_id review-report. Do not archive the change yet, do not create new tasks or delegate. End the run with factory_exit_done, summary OPENSPEC_REVIEW_OK (the exit uploads your tasks.md edit).'''.replace('TASK_ID', executor['id']), linked=True)
-review = wait('/tasks/' + review['id'], lambda t: t['status'] == 'DONE')
-assert 'OPENSPEC_REVIEW_OK' in review['result'], review
-assert api('GET', '/tasks/' + executor['id'])['status'] == 'IN_REVIEW'
-executor = accept(executor)
-# Every task linked to the change is DONE: Core created exactly one archive task (for the manager). It is
-# cancelled at once to keep the scenario bounded (archiving is a separate agent run).
-archive = [t for t in api('GET', '/tasks?project=' + project) if t['title'] == 'Archive OpenSpec change ' + change]
-assert len(archive) == 1 and archive[0]['openspec_change'] == change, archive
-for _ in range(5):  # the scheduler may claim it meanwhile (a new version): cancel the latest one
-    current = api('GET', '/tasks/' + archive[0]['id'])
-    if current['status'] in ('DONE', 'CANCELLED') or current.get('cancel_requested'):
-        break
-    try:
-        api('POST', '/tasks/' + current['id'] + '/actions', {'version': current['version'], 'action': 'cancel', 'reason': 'smoke stays bounded', 'request_id': project + '-cancel-archive-' + str(current['version'])})
-        break
-    except urllib.error.HTTPError as error:
-        assert error.code == 409, error
-tree = Path('.cache/' + project + '-tree').resolve()
-download_tree(tree)
-assert '- [x]' in (tree / 'openspec/changes/add-greeting/tasks.md').read_text(), 'review edits not uploaded at its exit'
-validation = subprocess.run(['openspec', 'validate', change, '--strict', '--json', '--no-interactive'], cwd=tree, capture_output=True, text=True, check=True)
-assert json.loads(validation.stdout)['summary']['totals']['failed'] == 0
+    raise AssertionError('Invalid change name accepted')
+
+plan = create_task('manager', 'OPENSPEC_PLAN', ('This is a bounded OpenSpec scenario. Read the shared openspec skill via factory_skills_read. '
+    'OpenSpec lives in this repository under openspec/ (already initialized). Create exactly one change add-greeting with the installed official openspec CLI '
+    '(inspect openspec new change --help first). Author proposal.md (sections Why, What Changes, Capabilities with New Capabilities greeting, Impact), '
+    'specs/greeting/spec.md (## ADDED Requirements, ### Requirement: Greeting file, a SHALL requirement that greeting.txt equals HELLO_OPENSPEC followed by one newline, '
+    'and a #### Scenario with WHEN/THEN bullets) and tasks.md with one unchecked implementation item and one unchecked verification item. Keep it tiny. '
+    'Run openspec validate add-greeting --strict --no-interactive until it passes, then commit the change on the current branch (main) with git, leaving a clean tree. '
+    'Your own task id is on the Task line of your brief. Create exactly one executor task with factory_task_create: title OPENSPEC_IMPLEMENT, assignee demo, priority 10, '
+    'openspec_change add-greeting, dependencies [your task id], request_id executor-PROJECT. Its description must say: this is the last task of change add-greeting; '
+    'read openspec/changes/add-greeting (proposal, tasks, spec) in the checkout; write greeting.txt with exactly HELLO_OPENSPEC plus a newline and check the bytes with Python; '
+    'mark both tasks.md items done; archive the change with openspec archive add-greeting --yes; commit everything on main with git (clean tree); '
+    'end the run with factory_exit_done, summary OPENSPEC_IMPLEMENT_OK. Make the executor ready (factory_task_ready with its current version and a stable request_id). '
+    'Do not wait for it and do not review work. End your run with factory_exit_done, summary OPENSPEC_PLAN_OK.').replace('PROJECT', project))
+
+plan = wait('/tasks/' + plan['id'], lambda t: t['status'] == 'DONE')
+assert 'OPENSPEC_PLAN_OK' in plan['result'], plan
+assert '## Why' in git('show', 'main:openspec/changes/add-greeting/proposal.md')
+children = [t for t in api('GET', '/tasks?project=' + project) if t['title'] == 'OPENSPEC_IMPLEMENT']
+assert len(children) == 1 and children[0]['openspec_change'] == change and plan['id'] in children[0]['dependencies'], children
+plan_exit = exits(plan['id'])[-1]
+assert plan_exit['kind'] == 'done' and plan_exit['facts']['ahead_of_default'] == 0 and not plan_exit['facts']['dirty'], plan_exit
+
+executor = wait('/tasks/' + children[0]['id'], lambda t: t['status'] == 'DONE')
+assert 'OPENSPEC_IMPLEMENT_OK' in executor['result'], executor
+assert (repo / 'greeting.txt').read_bytes() == b'HELLO_OPENSPEC\n'
+tree = git('ls-tree', '-r', '--name-only', 'main', 'openspec').splitlines()
+archived = [p for p in tree if p.startswith('openspec/changes/archive/') and p.endswith('-add-greeting/proposal.md')]
+assert len(archived) == 1 and 'openspec/changes/add-greeting/proposal.md' not in tree and 'openspec/specs/greeting/spec.md' in tree, tree
+assert '- [ ]' not in git('show', 'main:' + archived[0].replace('proposal.md', 'tasks.md'))
+done = exits(executor['id'])[-1]
+assert done['kind'] == 'done' and done['facts']['openspec'] == {'change': change, 'state': 'archived', 'unchecked': 0, 'ref': 'main'}, done
+types = feed_types()
+assert not any(t in types for t in ('openspec.change_unarchived', 'openspec.change_unfinished')), types
+
+# A change that is not in the repository: change_missing before the runtime, an escalation, no attempt.
+missing = create_task('demo', 'OPENSPEC_MISSING', 'Never runs: its change is not in the repository.', link='not-merged-yet')
+run = wait('/tasks/' + missing['id'] + '/attempts', lambda rs: bool(rs) and rs[-1]['status'] == 'ENDED')[-1]
+assert run['outcome'] == 'change_missing' and "is not on the task's checkout" in run['result'], run
+assert not api('GET', '/runs/' + run['spec']['id'] + '/tool-calls'), 'the runtime started'
+escalations = wait('/escalations', lambda es: any(e['task_id'] == missing['id'] and e['reason'] == 'change_missing' for e in es))
+escalations = [e for e in escalations if e['task_id'] == missing['id'] and e['reason'] == 'change_missing']
+assert len(escalations) == 1 and escalations[0]['answers'] == ['retry', 'cancel'], escalations
+held = api('GET', '/tasks/' + missing['id'])
+assert not held.get('attempts_no_progress') and not held.get('not_before'), held
+api('POST', '/tasks/' + missing['id'] + '/actions', {'version': held['version'], 'action': 'cancel', 'reason': 'smoke stays bounded', 'request_id': project + '-cancel-missing'})
+
 wait('/runs', lambda rs: not any(r['spec']['project'] == project and r['status'] != 'ENDED' for r in rs))
-attempts = [api('GET', '/tasks/' + t['id'] + '/attempts')[-1] for t in (plan, executor, review)]
-assert attempts[1]['spec']['openspec_change'] == change and attempts[2]['spec']['openspec_change'] == change
-run_exits = [(a['status'], a['outcome'], exits(a['spec']['id'])) for a in attempts]
-assert run_exits == [('ENDED', 'succeeded', [e]) for e in ('factory_exit_done', 'factory_exit_submit', 'factory_exit_done')], run_exits
-audits = []
-read_bodies_omitted = 0
-for attempt in attempts:
-    rid = attempt['spec']['id']
-    calls = api('GET', '/runs/' + rid + '/tool-calls')
-    # Writes and syncs must succeed; a read or list of a path the agent guessed may answer 404.
-    reads = ('factory_openspec_read', 'factory_openspec_list')
-    assert all(c['status'] == 200 or (c['tool'] in reads and c['status'] == 404) for c in calls if c['tool'].startswith('factory_openspec_')), calls
-    assert all(0 < c['status'] < 500 for c in calls), calls
-    audits.append({'run_id': rid, 'tools': [{'tool': c['tool'], 'status': c['status']} for c in calls]})
-    events = api('GET', '/runs/' + rid + '/events')
-    read_bodies_omitted += json.dumps(events).count('document_body_omitted')
-assert read_bodies_omitted > 0
-assert not api('GET', '/inbox?project=' + project)
-summary = {'project': project, 'workspace': str(workspace), 'change': change, 'tasks': [t['id'] for t in (plan, executor, review)],
-    'runs': [{'run': a['spec']['id'], 'agent': a['spec']['agent'], 'outcome': a['outcome'], 'exits': e} for a, (_, _, e) in zip(attempts, run_exits)], 'proposal_sha256_before': old['sha256'], 'proposal_sha256_after': new['sha256'],
-    'archive_task': archive[0]['id'], 'all_tasks_done': True, 'semantic_validation_passed': True, 'read_bodies_omitted': read_bodies_omitted, 'tool_audit': audits, 'inbox_empty': True}
+summary = {'project': project, 'repository': str(repo), 'change': change, 'initial_commit': start, 'main': git('rev-parse', 'main'),
+    'tasks': {'plan': plan['id'], 'executor': executor['id'], 'missing': missing['id']}, 'archived': archived[0],
+    'done_facts': done['facts']['openspec'], 'change_missing_run': run['spec']['id'], 'escalation': escalations[0]['id'],
+    'notices': [t for t in types if t.startswith('openspec.')]}
 Path('.cache/openspec-verification.json').write_text(json.dumps(summary, indent=2) + '\n')
 print(json.dumps(summary, indent=2))

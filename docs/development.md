@@ -113,7 +113,7 @@ Versioned artifact verification: `scripts/artifact-approvals-smoke.py --restart-
 
 Reports and decisions: `scripts/journal-smoke.py --restart-core` verifies three real Codex tasks, pending proposal persistence, independent inbox/task review, explicit replacement and captured run contexts. See [reports and decisions](reports-decisions.md).
 
-OpenSpec lives in each project's repository (openspec-in-git; migration `0006_openspec_in_git` dropped `spec_documents`): agents commit specs with their code, the node checks a linked change on the checkout, and `done` facts report the change's state. `scripts/openspec-smoke.py` refuses to run until it is rewritten for this workflow. See [OpenSpec](openspec.md).
+OpenSpec lives in each project's repository (openspec-in-git; migration `0006_openspec_in_git` dropped `spec_documents`): agents commit specs with their code, the node checks a linked change on the checkout, and `done` facts report the change's state. `scripts/openspec-smoke.py` runs the proposal -> implementation -> archive flow on a local repository plus a `change_missing` check. See [OpenSpec](openspec.md).
 
 ### Live smokes (cheap)
 
@@ -148,7 +148,8 @@ CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node run -config data/nod
 # then, in order (each script makes its own project):
 # hierarchy 3.2 (Codex only, 7 runs: owner 2 demo; agent 2 demo + 1 manager; dialog 2 manager):
 scripts/messaging-smoke.py --restart-core
-# openspec-smoke.py is outdated since openspec-in-git (refuses to run until rewritten)
+# openspec-in-git 6.1 (Codex only; plan, implement, usually 1 short manager conversation run for delegated_closed):
+scripts/openspec-smoke.py
 # runtime-drivers 4.2 (Claude developer + Codex reviewer; 3 runs: Claude submit, Codex approve, Claude done):
 scripts/drivers-smoke.py
 ```
@@ -159,9 +160,9 @@ asks the manager with `factory_exit_ask` (the manager's conversation task answer
 `factory_exit_done`), then submits; `owner` asks the owner (`factory_exit_ask`, locked category `release`), then
 submits; the owner accepts both; `dialog` runs end with `factory_exit_done` and the conversation task stays open.
 Overlap: `drivers-smoke.py` repeats the explicit exits of `exits-smoke.py` across two
-runtimes, so a passing `drivers-smoke.py` makes a separate `exits-smoke.py` run unnecessary. About 10 cheap runs in
-all (messaging 7, drivers 3). Results land in `.cache/messaging-verification.json` and
-`.cache/drivers-verification.json` (run ids, sessions, exits,
+runtimes, so a passing `drivers-smoke.py` makes a separate `exits-smoke.py` run unnecessary. About 13 cheap runs in
+all (messaging 7, OpenSpec 2–3, drivers 3). Results land in `.cache/messaging-verification.json`,
+`.cache/openspec-verification.json` and `.cache/drivers-verification.json` (run ids, sessions, exits,
 `GET /tasks/{id}/costs`).
 
 ## Node doctor

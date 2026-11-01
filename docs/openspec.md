@@ -79,6 +79,9 @@ task of the change is open, none for an archived change, facts naming another ch
 reminder once, the claim manifest without OpenSpec, setup of new and existing repositories without import or
 untracking, and the retired `/openspec/` exclude dropped from existing worktrees.
 
-`scripts/openspec-smoke.py` (opt-in, consumes subscription usage, run only with the owner's consent) still
-exercises the removed Core-stored flow and refuses to run until it is rewritten for this workflow (Manager's
-proposal task merged -> linked Developer archiving in its pull request).
+`scripts/openspec-smoke.py` (opt-in, consumes subscription usage, run only with the owner's consent) runs the
+workflow on a local repository under `.cache` and a node of this machine: the manager commits change
+`add-greeting` and creates the linked executor depending on its task; the executor implements, checks its
+items, archives the change and exits done with facts `archived`; no manager notice follows. Then a task linked
+to a change that is not in the repository ends `change_missing` without starting a runtime and opens its
+escalation. Results land in `.cache/openspec-verification.json`.
