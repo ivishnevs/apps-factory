@@ -1,4 +1,4 @@
-Status: known issue (not scheduled; owner decision 2026-11-01: record now, decide later). Nothing here is implemented.
+Status: known issue, to be superseded by `openspec-in-git` (the last task archives; no Core archive task). Not scheduled. Nothing here is implemented.
 
 ## Why
 
