@@ -584,7 +584,7 @@ func (s *Store) AuthorityInputSince(ctx context.Context, company, task string, a
 		if err = rows.Scan(&a.Seq, &a.Author, &a.Kind, &a.Text); err != nil {
 			return nil, err
 		}
-		a.Rank = s.principalRank(a.Author)
+		a.Rank = s.principalRank(company, a.Author)
 		out = append(out, a)
 	}
 	return out, rows.Err()

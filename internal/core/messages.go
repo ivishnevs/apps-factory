@@ -15,7 +15,7 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		if !c.agentExists(w, p.Agent) {
+		if !c.agentExists(w, c.companyFrom(r), p.Agent) {
 			return
 		}
 		v, err := c.Store.CreateConversation(r.Context(), c.companyFrom(r), p)
@@ -53,7 +53,7 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		if !c.agentExists(w, conv.Agent) {
+		if !c.agentExists(w, c.companyFrom(r), conv.Agent) {
 			return
 		}
 		if p.MessageType == "" {
@@ -188,7 +188,7 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		recipient = "owner"
 	}
 	if recipient != "owner" {
-		if !c.agentExists(w, recipient) {
+		if !c.agentExists(w, c.companyFrom(r), recipient) {
 			return
 		}
 	}

@@ -37,7 +37,7 @@ func conversationTaskTx(ctx context.Context, tx *Tx, project, agent string) (tas
 	}
 	counterpart := "owner"
 	if tx.store.ManagerOf != nil {
-		counterpart = tx.store.ManagerOf(agent)
+		counterpart = tx.store.ManagerOf(tx.company, agent)
 	}
 	now := tx.now().Unix()
 	t = tasks.Task{ID: id, ProjectID: project, Kind: tasks.KindConversation, Counterpart: counterpart, Assignee: agent, CreatedBy: "factory", Status: "READY", Version: 1, Dependencies: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -101,7 +101,7 @@ func deliverTx(ctx context.Context, tx *Tx, m *messaging.Message) error {
 	if err != nil {
 		return err
 	}
-	authority := isOwner(m.Sender) || tx.store.ManagerOf != nil && tx.store.ManagerOf(m.Recipient) == m.Sender
+	authority := isOwner(m.Sender) || tx.store.ManagerOf != nil && tx.store.ManagerOf(tx.company, m.Recipient) == m.Sender
 	text := m.MessageType + " " + m.ID + " from " + m.Sender
 	if len(m.Route) > 0 {
 		text += " (forwarded by " + strings.Join(m.Route, ", ") + ")"
@@ -174,7 +174,7 @@ func subtreeSummary(ctx context.Context, tx *Tx, b *strings.Builder, project, ag
 	if tx.store.SubtreeOf == nil {
 		return nil
 	}
-	under := tx.store.SubtreeOf(agent)
+	under := tx.store.SubtreeOf(tx.company, agent)
 	if len(under) == 0 {
 		return nil
 	}

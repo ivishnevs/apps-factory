@@ -18,11 +18,13 @@ import (
 type source struct {
 	fsys fs.FS
 	root string
+	// disk: errors name files by their disk path (a disk catalog), else by document path.
+	disk bool
 }
 
-// name is p as errors show it: the disk path when there is a root.
+// name is p as errors show it: the disk path for a disk catalog, the document path otherwise.
 func (s source) name(p string) string {
-	if s.root == "" {
+	if !s.disk || s.root == "" {
 		return p
 	}
 	return filepath.Join(s.root, filepath.FromSlash(p))

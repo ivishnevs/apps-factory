@@ -19,10 +19,15 @@ import (
 // 2.3): the node materializes each skill from its own registry and refuses the run before the runtime starts
 // when a copy differs. A skill Core cannot hash is left unpinned (logged); the node then materializes it as is.
 func (c *Core) RunSnapshot(a config.Agent) (json.RawMessage, string, error) {
-	if c.Skills != nil && len(a.AvailableSkills) > 0 {
+	return c.RunSnapshotIn(c.company(), a)
+}
+
+// RunSnapshotIn is RunSnapshot with company's skills registry.
+func (c *Core) RunSnapshotIn(company string, a config.Agent) (json.RawMessage, string, error) {
+	if reg := c.cat(company).Skills; reg != nil && len(a.AvailableSkills) > 0 {
 		a.SkillHashes = map[string]string{}
 		for _, name := range a.AvailableSkills {
-			pin, err := c.Skills.Pins([]string{name})
+			pin, err := reg.Pins([]string{name})
 			if err != nil {
 				slog.Warn("skill hash not pinned", "agent", a.Metadata.Name, "skill", name, "error", err)
 				continue
@@ -59,7 +64,7 @@ func (c *Core) modelOverride(w http.ResponseWriter, r *http.Request, p tasks.Upd
 	if p.Assignee != nil {
 		assignee = *p.Assignee
 	}
-	a, ok := c.Agents[assignee]
+	a, ok := c.cat(c.companyFrom(r)).Agents[assignee]
 	if !ok {
 		http.Error(w, "a model override needs a configured assignee", 400)
 		return false

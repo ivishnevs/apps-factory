@@ -14,9 +14,9 @@ Core, API and CLI, provisioning, review policy, UI.
 
 ## 3. Catalog storage and API
 - [x] 3.1 Loader over `fs.FS` (`LoadCompanyCatalogFS`; disk through `os.DirFS`), skills registry included; no behaviour change.
-- [ ] 3.2 Migration: `catalog_versions`, `catalog_documents`; store save (validate with the loader, new current version in one transaction), history, read of a version.
-- [ ] 3.3 Seed a company without a stored catalog from its repository directory and the prompts it names (author `seed`).
-- [ ] 3.4 Core resolves the catalog per company (D4): `c.catalog(company)` replaces `Core.Agents`/`Skills`/`NodeHooks`/`DefaultReport`/`AuditAssignee`; loops run per company; swap after a save.
+- [x] 3.2 Migration: `catalog_versions`, `catalog_documents`; store save (validate with the loader, new current version in one transaction), history, read of a version.
+- [x] 3.3 Seed a company without a stored catalog from its repository directory and the prompts it names (author `seed`).
+- [x] 3.4 Core resolves the catalog per company (D4): `c.catalog(company)` replaces `Core.Agents`/`Skills`/`NodeHooks`/`DefaultReport`/`AuditAssignee`; loops run per company; swap after a save.
 - [ ] 3.5 API: list documents, get, put/delete in a draft and save as a version (or one call with the full set), validate without saving, history, rollback; field-level errors from the loader.
 - [ ] 3.6 CLI: `factory catalog ls|get|put|rm|save|history|rollback|validate`.
 - [ ] 3.7 Agent-proposed catalog changes through owner approval (`factory.config.*`).

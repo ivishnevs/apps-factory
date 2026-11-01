@@ -55,7 +55,12 @@ func TestRunTokenIsBoundToCompany(t *testing.T) {
 	if code := tools(c.runToken("acme", "mine", lease)); code != 401 {
 		t.Fatal("token minted for another company accepted", code)
 	}
-	if code := tools(c.runToken("acme", "theirs", foreignLease)); code != 401 {
-		t.Fatal("another company's run authenticated", code)
+	// One Core serves every company (company-self-service D4): acme's genuine credential authenticates in
+	// acme (its catalog has no agent demo: 403), a credential naming the wrong company does not.
+	if code := tools(c.runToken("acme", "theirs", foreignLease)); code != 403 {
+		t.Fatal("another company's genuine run credential refused at authentication", code)
+	}
+	if code := tools(c.runToken(storage.DefaultCompany, "theirs", foreignLease)); code != 401 {
+		t.Fatal("a credential naming the wrong company authenticated", code)
 	}
 }

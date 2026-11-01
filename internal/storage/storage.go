@@ -38,14 +38,14 @@ type Store struct {
 	Continuity *clock.Continuity
 	// EscalationTarget routes an escalation of a task with this assignee (hierarchy: its manager); Core
 	// sets it from the agent catalog, nil routes to the owner.
-	EscalationTarget func(assignee string) string
+	EscalationTarget func(company, assignee string) string
 	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
-	ManagerOf func(agent string) string
+	ManagerOf func(company, agent string) string
 	// SubtreeOf lists the agents under agent (hierarchy D6, manager briefs); nil means none.
-	SubtreeOf func(agent string) []string
+	SubtreeOf func(company, agent string) []string
 	// EscalateAfterFor is how long agent may leave a question of category unanswered before it moves up
 	// (hierarchy D4, policy escalate_after); nil or 0 means EscalateAfter.
-	EscalateAfterFor func(agent, category string) time.Duration
+	EscalateAfterFor func(company, agent, category string) time.Duration
 	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a succeeded
 	// turn without an accepted exit is no_exit instead of an implicit submission.
 	ExplicitExits bool

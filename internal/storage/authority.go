@@ -44,7 +44,7 @@ func authorityTask(ctx context.Context, tx *Tx, id string, version int) (tasks.T
 
 // principalRank is an authority principal's rank (explicit-exits-authority D6): 0 the owner, otherwise its
 // depth in the reporting tree (1 reports to the owner); 1 for any agent without a catalog.
-func (s *Store) principalRank(actor string) int {
+func (s *Store) principalRank(company, actor string) int {
 	if isOwner(actor) {
 		return 0
 	}
@@ -52,7 +52,7 @@ func (s *Store) principalRank(actor string) int {
 	if s.ManagerOf == nil {
 		return depth
 	}
-	for m := s.ManagerOf(actor); m != "owner" && depth < 32; m = s.ManagerOf(m) {
+	for m := s.ManagerOf(company, actor); m != "owner" && depth < 32; m = s.ManagerOf(company, m) {
 		depth++
 	}
 	return depth

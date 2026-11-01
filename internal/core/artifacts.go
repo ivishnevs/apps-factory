@@ -52,7 +52,7 @@ func (c *Core) artifactRoutes(m *http.ServeMux) {
 				p.Agent = t.Assignee
 			}
 		}
-		if !c.agentExists(w, p.Agent) {
+		if !c.agentExists(w, c.companyFrom(r), p.Agent) {
 			return
 		}
 		if p.Blocking {

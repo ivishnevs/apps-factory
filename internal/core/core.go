@@ -55,6 +55,12 @@ type Core struct {
 	// outboxKick makes the tick loop publish the outbox at once (urgent stops, kickOutbox).
 	outboxKick     chan struct{}
 	outboxKickOnce sync.Once
+	// Root is the factory root on disk. Set, Core serves stored catalogs (company-self-service D1, D4): every
+	// company's current catalog version from storage, seeded from the repository; Agents, Skills, NodeHooks,
+	// DefaultReport and AuditAssignee are then unused. Empty: those fields are the catalog of Company.
+	Root      string
+	catalogMu sync.RWMutex
+	catalogs  map[string]*storedCatalog
 }
 
 // kickOutbox asks the tick loop to publish the outbox now instead of at the next tick, so an urgent stop
@@ -123,9 +129,9 @@ func (c *Core) Handler() http.Handler {
 		if c.ExplicitExits {
 			exits = "on"
 		}
-		write(w, map[string]string{"status": "ok", "database": database, "company": c.company(), "explicit_exits": exits, "default_report": c.defaultReport()})
+		write(w, map[string]string{"status": "ok", "database": database, "company": c.company(), "explicit_exits": exits, "default_report": c.defaultReport(c.companyFrom(r))})
 	})
-	m.HandleFunc("GET /agents", func(w http.ResponseWriter, r *http.Request) { write(w, config.Names(c.Agents)) })
+	m.HandleFunc("GET /agents", func(w http.ResponseWriter, r *http.Request) { write(w, config.Names(c.cat(c.companyFrom(r)).Agents)) })
 	m.HandleFunc("POST /runs", c.create)
 	m.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.List(r.Context(), c.companyFrom(r))
@@ -271,7 +277,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &p) {
 		return
 	}
-	a, ok := c.Agents[p.Agent]
+	a, ok := c.cat(c.companyFrom(r)).Agents[p.Agent]
 	if !ok || strings.TrimSpace(p.Project) == "" || strings.TrimSpace(p.Prompt) == "" || !filepath.IsAbs(p.Workspace) {
 		http.Error(w, "valid agent, project, absolute macOS workspace and prompt required", 400)
 		return
@@ -320,13 +326,34 @@ func (c *Core) run(ctx context.Context) error {
 	if err := c.EnsureConversations(ctx); err != nil {
 		return err
 	}
-	// Core consumes its company's events (postgres-tenancy D3: one durable consumer per company).
-	sub, err := c.Bus.Subscribe(protocol.EventSubject(c.company(), ">"), "core-events-"+c.company())
-	if err != nil {
+	// Core consumes every company's events (postgres-tenancy D3: one durable consumer per company); a
+	// company that gets a catalog later is subscribed at the next tick.
+	errs := make(chan error, 1)
+	consumed := map[string]bool{}
+	subscribe := func() error {
+		for _, company := range c.companies() {
+			if consumed[company] {
+				continue
+			}
+			sub, err := c.Bus.Subscribe(protocol.EventSubject(company, ">"), "core-events-"+company)
+			if err != nil {
+				return err
+			}
+			consumed[company] = true
+			go func() {
+				if err := c.consume(ctx, sub, company); err != nil {
+					select {
+					case errs <- err:
+					default:
+					}
+				}
+			}()
+		}
+		return nil
+	}
+	if err := subscribe(); err != nil {
 		return err
 	}
-	errs := make(chan error, 1)
-	go func() { errs <- c.consume(ctx, sub) }()
 	if c.Store.Continuity == nil {
 		c.Store.Continuity = clock.NewContinuity(3 * tickInterval)
 	}
@@ -339,14 +366,17 @@ func (c *Core) run(ctx context.Context) error {
 		case err := <-errs:
 			return err
 		case <-tick.C:
-			if err = c.maintain(ctx); err != nil {
+			if err := subscribe(); err != nil {
 				return err
 			}
-			if err = c.publishOutbox(ctx); err != nil {
+			if err := c.maintain(ctx); err != nil {
+				return err
+			}
+			if err := c.publishOutbox(ctx); err != nil {
 				return err
 			}
 		case <-c.kick():
-			if err = c.publishOutbox(ctx); err != nil {
+			if err := c.publishOutbox(ctx); err != nil {
 				return err
 			}
 		}
@@ -379,47 +409,58 @@ func (c *Core) maintain(ctx context.Context) error {
 	if c.Store.Continuity != nil {
 		c.Store.Continuity.Observe(c.Store.Now())
 	}
-	if err := c.Store.Expire(ctx, c.company()); err != nil {
-		return err
-	}
-	if err := c.Store.ExpireNodes(ctx, c.company()); err != nil {
-		return err
-	}
-	if _, err := c.Store.StopIdle(ctx, c.company()); err != nil {
-		return err
-	}
-	if err := c.Store.ExpirePauses(ctx, c.company()); err != nil {
-		return err
-	}
-	if err := c.Store.ExpireWaits(ctx, c.company()); err != nil {
-		return err
-	}
-	if err := c.Store.ExpireApprovals(ctx, c.company()); err != nil {
-		return err
+	for _, company := range c.companies() {
+		if err := c.maintainCompany(ctx, company); err != nil {
+			return err
+		}
 	}
 	if err := c.ScheduleMessages(ctx); err != nil {
-		return err
-	}
-	// Reconciler (trigger-log-scheduling D5): a task run nobody claimed within the queue TTL ends unclaimed,
-	// so Schedule dispatches its task again; younger queued runs get their command resent below.
-	if _, err := c.Store.ExpireQueued(ctx, c.company()); err != nil {
 		return err
 	}
 	if err := c.Schedule(ctx); err != nil {
 		return err
 	}
-	if _, err := c.Store.RedeliverQueued(ctx, c.company()); err != nil {
-		return err
+	for _, company := range c.companies() {
+		if _, err := c.Store.RedeliverQueued(ctx, company); err != nil {
+			return err
+		}
 	}
 	if err := c.sweepStalls(ctx); err != nil {
 		return err
 	}
-	if _, err := c.Store.PriceRunCosts(ctx, c.company(), c.Prices); err != nil {
-		return err
+	for _, company := range c.companies() {
+		if _, err := c.Store.PriceRunCosts(ctx, company, c.Prices); err != nil {
+			return err
+		}
 	}
 	return c.checkUnmerged(ctx)
 }
-func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
+
+// maintainCompany expires what timed out in company before scheduling: leases, nodes, idle runs, pauses,
+// waits, approvals and queued runs nobody claimed (the reconciler, trigger-log-scheduling D5).
+func (c *Core) maintainCompany(ctx context.Context, company string) error {
+	if err := c.Store.Expire(ctx, company); err != nil {
+		return err
+	}
+	if err := c.Store.ExpireNodes(ctx, company); err != nil {
+		return err
+	}
+	if _, err := c.Store.StopIdle(ctx, company); err != nil {
+		return err
+	}
+	if err := c.Store.ExpirePauses(ctx, company); err != nil {
+		return err
+	}
+	if err := c.Store.ExpireWaits(ctx, company); err != nil {
+		return err
+	}
+	if err := c.Store.ExpireApprovals(ctx, company); err != nil {
+		return err
+	}
+	_, err := c.Store.ExpireQueued(ctx, company)
+	return err
+}
+func (c *Core) consume(ctx context.Context, sub *nats.Subscription, company string) error {
 	for ctx.Err() == nil {
 		msgs, err := sub.Fetch(1, nats.MaxWait(time.Second))
 		if errors.Is(err, nats.ErrTimeout) {
@@ -435,13 +476,13 @@ func (c *Core) consume(ctx context.Context, sub *nats.Subscription) error {
 				slog.Error("invalid event", "error", err)
 				continue
 			}
-			if !strings.HasPrefix(m.Subject, protocol.EventSubject(c.company(), "agent.")) {
+			if !strings.HasPrefix(m.Subject, protocol.EventSubject(company, "agent.")) {
 				if err = m.AckSync(); err != nil {
 					return err
 				}
 				continue
 			}
-			if err = c.Store.Apply(ctx, c.company(), e); err != nil {
+			if err = c.Store.Apply(ctx, company, e); err != nil {
 				if errors.Is(err, storage.ErrConflict) || errors.Is(err, storage.ErrInvalid) {
 					_ = m.Term()
 				} else {

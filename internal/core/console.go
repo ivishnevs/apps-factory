@@ -36,7 +36,7 @@ func (c *Core) consoleRoutes(m *http.ServeMux) {
 			return
 		}
 		q := r.URL.Query()
-		f := c.feedFilter(q)
+		f := c.feedFilter(c.companyFrom(r), q)
 		v, err := c.Store.Feed(r.Context(), c.companyFrom(r), f, a, l)
 		reply(w, v, err)
 	})
@@ -93,7 +93,7 @@ func (c *Core) status(r *http.Request, only string) ([]ProjectStatus, error) {
 			return nil, err
 		}
 		for _, snap := range snaps {
-			switch v := c.evaluate(snap); v.Reason {
+			switch v := c.evaluateIn(c.companyFrom(r), snap); v.Reason {
 			case tasks.ReasonRunnable:
 				st.Runnable++
 			case tasks.ReasonLiveRun:

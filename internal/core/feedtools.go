@@ -9,13 +9,15 @@ import (
 )
 
 // subtree is the agent and every agent whose reports_to chain reaches it (waits-events-cost-cli D3).
-func (c *Core) subtree(agent string) []string {
-	return append([]string{agent}, config.Subtree(c.Agents, agent)...)
+func (c *Core) subtree(agent string) []string { return c.subtreeIn(c.company(), agent) }
+
+func (c *Core) subtreeIn(company, agent string) []string {
+	return append([]string{agent}, config.Subtree(c.cat(company).Agents, agent)...)
 }
 
 // feedListTool is factory_feed_list: the feed of the run's agent's subtree, across its company's projects.
 func (c *Core) feedListTool(w http.ResponseWriter, r *http.Request, args map[string]any, run storage.Run) {
-	f := storage.FeedFilter{Agents: c.subtree(run.Spec.Agent)}
+	f := storage.FeedFilter{Agents: c.subtreeIn(c.companyFrom(r), run.Spec.Agent)}
 	f.Task, _ = args["task"].(string)
 	f.Attention, _ = args["attention"].(bool)
 	after, limit := int64(0), 20
@@ -34,10 +36,10 @@ func (c *Core) feedListTool(w http.ResponseWriter, r *http.Request, args map[str
 }
 
 // feedFilter reads the owner feed filters: project, task, attention and subtree (an agent's subtree).
-func (c *Core) feedFilter(q url.Values) storage.FeedFilter {
+func (c *Core) feedFilter(company string, q url.Values) storage.FeedFilter {
 	f := storage.FeedFilter{Project: q.Get("project"), Task: q.Get("task"), Attention: q.Get("attention") == "1" || q.Get("attention") == "true"}
 	if a := q.Get("subtree"); a != "" {
-		f.Agents = c.subtree(a)
+		f.Agents = c.subtreeIn(company, a)
 	}
 	return f
 }

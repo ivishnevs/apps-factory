@@ -15,11 +15,11 @@ import (
 // /tasks/{id}/actions with the same authority check. Agents are refused with 403 outside their authority.
 
 // rank is the actor's authority rank: 0 the owner, otherwise its depth in the tree (1 reports to the owner).
-func (c *Core) rank(actor string) int {
+func (c *Core) rank(company, actor string) int {
 	if actor == "" || actor == config.Owner {
 		return 0
 	}
-	return len(config.Chain(c.Agents, actor)) + 1
+	return len(config.Chain(c.cat(company).Agents, actor)) + 1
 }
 
 // authorityOver loads the task and checks actor's authority over it (owner always); it answers the refusal.
@@ -54,16 +54,16 @@ func (c *Core) authorityRoutes(m *http.ServeMux) {
 				return
 			}
 			if name == "reassign" {
-				if !c.agentExists(w, p.Assignee) {
+				if !c.agentExists(w, c.companyFrom(r), p.Assignee) {
 					return
 				}
 				// An agent reassigns within its subtree (or to itself); the owner to anyone.
-				if p.Actor != "" && p.Actor != config.Owner && p.Assignee != p.Actor && !slices.Contains(config.Subtree(c.Agents, p.Actor), p.Assignee) {
+				if p.Actor != "" && p.Actor != config.Owner && p.Assignee != p.Actor && !slices.Contains(config.Subtree(c.cat(c.companyFrom(r)).Agents, p.Actor), p.Assignee) {
 					http.Error(w, "the new assignee must be in your subtree", 403)
 					return
 				}
 			}
-			p.Rank = c.rank(p.Actor)
+			p.Rank = c.rank(c.companyFrom(r), p.Actor)
 			v, err := apply(c.Store, r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 			reply(w, v, err)
 		})
@@ -80,14 +80,14 @@ func (c *Core) authorityRoutes(m *http.ServeMux) {
 			if !decode(w, r, &p) {
 				return
 			}
-			if !c.agentExists(w, name) || !c.taskPermit(w, r, p.Actor, "factory.task."+op, false, false) {
+			if !c.agentExists(w, c.companyFrom(r), name) || !c.taskPermit(w, r, p.Actor, "factory.task."+op, false, false) {
 				return
 			}
 			actor := p.Actor
 			if actor == "" {
 				actor = config.Owner
 			}
-			if actor != config.Owner && !slices.Contains(config.Subtree(c.Agents, actor), name) {
+			if actor != config.Owner && !slices.Contains(config.Subtree(c.cat(c.companyFrom(r)).Agents, actor), name) {
 				http.Error(w, "agents pause only agents of their subtree", 403)
 				return
 			}
@@ -103,7 +103,7 @@ func (c *Core) authorityRoutes(m *http.ServeMux) {
 				return
 			}
 			for _, existing := range pauses {
-				if existing.Scope == "agent" && existing.Target == name && existing.Actor != actor && c.rank(actor) >= c.rank(existing.Actor) {
+				if existing.Scope == "agent" && existing.Target == name && existing.Actor != actor && c.rank(company, actor) >= c.rank(company, existing.Actor) {
 					http.Error(w, "only the pauser ("+existing.Actor+") or a higher authority resumes the agent", 403)
 					return
 				}

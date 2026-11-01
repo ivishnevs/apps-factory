@@ -26,7 +26,16 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 		return nil
 	}
 	c.lastStallSweep = now
-	company := c.company()
+	for _, company := range c.companies() {
+		if err := c.sweepStallsOf(ctx, company, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sweepStallsOf is the stall sweep of one company.
+func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time) error {
 	if _, err := c.Store.AutoForward(ctx, company); err != nil {
 		return err
 	}
@@ -72,13 +81,13 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 				stalled = append(stalled, storage.EscalationWant{TaskID: t.ID, RefID: ch.ID, Summary: fmt.Sprintf("waits on its child %s, which %s", ch.ID, why)})
 			}
 		}
-		if v := c.evaluate(s); v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
+		if v := c.evaluateIn(company, s); v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
 		}
 	}
 	for i := range stalled {
 		if t, err := c.Store.Task(ctx, company, stalled[i].TaskID); err == nil {
-			stalled[i].Target = c.escalationTarget(t.Assignee)
+			stalled[i].Target = c.escalationTargetIn(company, t.Assignee)
 		}
 	}
 	// Stalled waits are escalations now (answers unblock, cancel); alerts of the earlier kind clear.
@@ -88,13 +97,13 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	if err = c.Store.SyncAlerts(ctx, company, "stalled", nil); err != nil {
 		return err
 	}
-	pinned, err := c.Store.PinnedUnavailable(ctx, company, c.needs)
+	pinned, err := c.Store.PinnedUnavailable(ctx, company, func(s *tasks.Snapshot) { c.needs(company, s) })
 	if err != nil {
 		return err
 	}
 	for i := range pinned {
 		if t, err := c.Store.Task(ctx, company, pinned[i].TaskID); err == nil {
-			pinned[i].Target = c.escalationTarget(t.Assignee)
+			pinned[i].Target = c.escalationTargetIn(company, t.Assignee)
 		}
 	}
 	if err = c.Store.SyncEscalations(ctx, company, "pinned_node_unavailable", pinned); err != nil {
@@ -121,19 +130,28 @@ func (c *Core) checkUnmerged(ctx context.Context) error {
 		return nil
 	}
 	c.lastUnmergedCheck = now
-	if _, err := c.Store.ReportUnmergedBranches(ctx, c.company()); err != nil {
-		return err
+	for _, company := range c.companies() {
+		if _, err := c.Store.ReportUnmergedBranches(ctx, company); err != nil {
+			return err
+		}
+		// OpenSpec changes nobody works on (openspec-in-git D3), for the owner's default report.
+		if _, err := c.Store.ReportOrphanChanges(ctx, company, c.defaultReport(company)); err != nil {
+			return err
+		}
 	}
-	// OpenSpec changes nobody works on (core-owned-project-data D5), for the owner's default report.
-	_, err := c.Store.ReportOrphanChanges(ctx, c.company(), c.defaultReport())
-	return err
+	return nil
 }
 
 // escalationTarget routes an escalation of a task to its assignee's manager (hierarchy: reports_to;
 // reliable-recovery D5), the owner for agents reporting to the owner.
 func (c *Core) escalationTarget(assignee string) string {
-	if m := config.Manager(c.Agents, assignee); m != config.Owner {
-		if _, ok := c.Agents[m]; ok {
+	return c.escalationTargetIn(c.company(), assignee)
+}
+
+func (c *Core) escalationTargetIn(company, assignee string) string {
+	agents := c.cat(company).Agents
+	if m := config.Manager(agents, assignee); m != config.Owner {
+		if _, ok := agents[m]; ok {
 			return m
 		}
 	}
@@ -146,7 +164,7 @@ func (c *Core) hasAuthority(ctx context.Context, company, actor string, t tasks.
 	if actor == "" || actor == config.Owner {
 		return true
 	}
-	if slices.Contains(config.Chain(c.Agents, t.Assignee), actor) {
+	if slices.Contains(config.Chain(c.cat(company).Agents, t.Assignee), actor) {
 		return true
 	}
 	if t.OriginTask != "" {

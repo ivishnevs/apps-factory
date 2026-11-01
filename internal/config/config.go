@@ -195,18 +195,23 @@ func LoadCompanyCatalog(root, company string) (*Catalog, error) {
 		return nil, err
 	}
 	defer r.Close()
-	return LoadCompanyCatalogFS(r.FS(), root, company)
+	return loadCompanyCatalog(source{fsys: r.FS(), root: root, disk: true}, company)
 }
 
 // LoadCompanyCatalogFS loads company's catalog from fsys, the factory root as an fs.FS (configs/..., prompts/...;
 // company-self-service D1). root is the factory root on disk: skill contents are resolved there.
+// Errors name documents by their path relative to the factory root.
 func LoadCompanyCatalogFS(fsys fs.FS, root, company string) (*Catalog, error) {
+	return loadCompanyCatalog(source{fsys: fsys, root: root}, company)
+}
+
+func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 	dir, err := CompanyDir(company)
 	if err != nil {
 		return nil, err
 	}
 	dir = filepath.ToSlash(dir)
-	src := source{fsys: fsys, root: root}
+	root := src.root
 	c := &Catalog{Agents: map[string]Agent{}, Profiles: map[string]Agent{}}
 	registry := path.Join(dir, skills.File)
 	var data []byte

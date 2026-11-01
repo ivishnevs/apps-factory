@@ -27,7 +27,7 @@ func exitPath(path string) bool {
 
 // agentTools is the run's tool list: with explicit exits the exit tools replace submit/accept/reject, and
 // the directive tool is listed for managers only.
-func (c *Core) agentTools(agent config.Agent, allowed func(factorytools.Tool) bool) []factorytools.Tool {
+func (c *Core) agentTools(company string, agent config.Agent, allowed func(factorytools.Tool) bool) []factorytools.Tool {
 	out := []factorytools.Tool{}
 	for _, t := range factorytools.Definitions() {
 		if c.ExplicitExits && factorytools.ReplacedByExits[t.Name] {
@@ -41,7 +41,7 @@ func (c *Core) agentTools(agent config.Agent, allowed func(factorytools.Tool) bo
 		return out
 	}
 	for _, t := range factorytools.ExitDefinitions() {
-		if t.Name == "factory_task_direct" && !agent.Spec.Communication.CanCreateTasks && len(config.DirectReports(c.Agents, agent.Metadata.Name)) == 0 {
+		if t.Name == "factory_task_direct" && !agent.Spec.Communication.CanCreateTasks && len(config.DirectReports(c.cat(company).Agents, agent.Metadata.Name)) == 0 {
 			continue
 		}
 		out = append(out, t)
@@ -112,7 +112,8 @@ func (c *Core) exitRoute(w http.ResponseWriter, r *http.Request, run storage.Run
 
 // serveExit runs under approvalMu.
 func (c *Core) serveExit(w http.ResponseWriter, r *http.Request, run storage.Run, p storage.ExitRequest) {
-	p.Known = func(agent string) bool { _, ok := c.Agents[agent]; return ok }
+	cat := c.cat(c.companyFrom(r))
+	p.Known = func(agent string) bool { _, ok := cat.Agents[agent]; return ok }
 	v, err := c.Store.Exit(r.Context(), c.companyFrom(r), run.Spec.ID, p)
 	var refusal *storage.ExitRefusal
 	if errors.As(err, &refusal) {

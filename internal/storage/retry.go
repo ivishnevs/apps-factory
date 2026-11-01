@@ -334,7 +334,7 @@ func retryTarget(tx *Tx, assignee string) string {
 	if tx.store.EscalationTarget == nil {
 		return "owner"
 	}
-	return tx.store.EscalationTarget(assignee)
+	return tx.store.EscalationTarget(tx.company, assignee)
 }
 
 // resetRetry clears the counters, the backoff and today's budget: authority input or a retry answer.

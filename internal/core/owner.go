@@ -65,7 +65,7 @@ func (c *Core) ownerRoutes(m *http.ServeMux) {
 	// Server-sent events over the feed table: `id` is the feed sequence, so a client reconnecting with
 	// Last-Event-ID (or ?after=) receives every later row once.
 	m.HandleFunc("GET /feed/stream", func(w http.ResponseWriter, r *http.Request) {
-		f := c.feedFilter(r.URL.Query())
+		f := c.feedFilter(c.companyFrom(r), r.URL.Query())
 		after, ok := sseCursor(w, r)
 		if !ok {
 			return

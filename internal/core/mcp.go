@@ -65,11 +65,11 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		http.Error(w, "run credential required", 401)
 		return
 	}
-	var lease, status string
+	var company, lease, status string
 	var until int64
-	// A token minted for another company's run fails both the scoped lookup and the HMAC.
-	company := c.company()
-	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, parts[1]).Scan(&lease, &status, &until)
+	// The run names its company (one Core serves many, company-self-service D4); the token's HMAC covers the
+	// company, so a token minted for another company's run fails it.
+	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT company_id,lease,status,lease_until FROM runs WHERE id=? ORDER BY company_id LIMIT 1", parts[1]).Scan(&company, &lease, &status, &until)
 	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
 		http.Error(w, "run credential expired or invalid", 401)
 		return
@@ -90,7 +90,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), runKey{}, run.Spec))
-	current, ok := c.Agents[run.Spec.Agent]
+	current, ok := c.cat(company).Agents[run.Spec.Agent]
 	if !ok {
 		http.Error(w, "agent unavailable", 403)
 		return
@@ -138,7 +138,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		return
 	}
 	if r.URL.Path == "/agent/tools" && r.Method == "GET" {
-		write(w, c.agentTools(current, allowed))
+		write(w, c.agentTools(company, current, allowed))
 		return
 	}
 	if r.URL.Path != "/agent/call" || r.Method != "POST" {
@@ -352,7 +352,8 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		}
 	}
 	if strings.HasPrefix(p.Name, "factory_skills_") {
-		if c.Skills == nil {
+		reg := c.cat(c.companyFrom(r)).Skills
+		if reg == nil {
 			http.Error(w, "skill registry unavailable", 503)
 			return
 		}
@@ -378,7 +379,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 				return
 			}
 			resource, _ := args["resource"].(string)
-			content, err := c.Skills.Read(skill, resource)
+			content, err := reg.Read(skill, resource)
 			if err != nil {
 				http.Error(w, err.Error(), 400)
 				return
@@ -388,7 +389,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		}
 		q, _ := args["q"].(string)
 		category, _ := args["category"].(string)
-		write(w, c.Skills.Entries(available, q, category))
+		write(w, reg.Entries(available, q, category))
 		return
 	}
 	if p.Name == "factory_settings_get" {
@@ -412,8 +413,9 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	if p.Name == "factory_agent_list" {
 		out := []map[string]any{}
-		for _, name := range config.Names(c.Agents) {
-			a := c.Agents[name]
+		agents := c.cat(c.companyFrom(r)).Agents
+		for _, name := range config.Names(agents) {
+			a := agents[name]
 			out = append(out, map[string]any{"name": name, "role": a.Spec.Role, "capabilities": a.Spec.Capabilities})
 		}
 		write(w, out)

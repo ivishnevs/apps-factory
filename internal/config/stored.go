@@ -181,3 +181,18 @@ func fileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
 }
+
+// LoadStoredCatalog loads company's stored documents over the factory root at root (the catalog of a version;
+// its validation is this load).
+func LoadStoredCatalog(root, company string, docs map[string]string) (*Catalog, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	fsys, err := CatalogFS(r.FS(), company, docs)
+	if err != nil {
+		return nil, err
+	}
+	return LoadCompanyCatalogFS(fsys, root, company)
+}

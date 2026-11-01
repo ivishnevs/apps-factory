@@ -19,7 +19,9 @@ import (
 // Both end here; the node sets the repository up when the project's first task runs (storage.Dispatch).
 
 // auditAssignee is the agent of an existing repository's onboarding audit.
-func (c *Core) auditAssignee() string { return cmp.Or(c.AuditAssignee, config.DefaultAuditAssignee) }
+func (c *Core) auditAssignee(company string) string {
+	return cmp.Or(c.cat(company).AuditAssignee, config.DefaultAuditAssignee)
+}
 
 // createProject creates the project and, when asked, its onboarding audit task (ready, assigned to the
 // configured agent): the audit is the project's first task, so its run onboards the repository first. A
@@ -29,15 +31,15 @@ func (c *Core) createProject(ctx context.Context, company string, in tasks.Proje
 		return tasks.Project{}, err
 	}
 	if in.Audit {
-		if _, ok := c.Agents[c.auditAssignee()]; !ok {
-			return tasks.Project{}, fmt.Errorf("%w: the onboarding audit needs agent %s (configs/company.yaml projects.audit_assignee), which is not configured", storage.ErrInput, c.auditAssignee())
+		if _, ok := c.cat(company).Agents[c.auditAssignee(company)]; !ok {
+			return tasks.Project{}, fmt.Errorf("%w: the onboarding audit needs agent %s (configs/company.yaml projects.audit_assignee), which is not configured", storage.ErrInput, c.auditAssignee(company))
 		}
 	}
 	p, err := c.Store.CreateProject(ctx, company, in)
 	if err != nil || p.Setup == nil || !p.Setup.Audit {
 		return p, err
 	}
-	t, err := c.Store.CreateTask(ctx, company, tasks.Create{ProjectID: p.ID, Title: "Audit the existing project " + p.Name, Description: auditBrief(p), Assignee: c.auditAssignee(), CreatedBy: p.CreatedBy, Ready: true, RequestID: "project-audit:" + p.ID})
+	t, err := c.Store.CreateTask(ctx, company, tasks.Create{ProjectID: p.ID, Title: "Audit the existing project " + p.Name, Description: auditBrief(p), Assignee: c.auditAssignee(company), CreatedBy: p.CreatedBy, Ready: true, RequestID: "project-audit:" + p.ID})
 	if err != nil {
 		return p, fmt.Errorf("project %s created; its audit task failed: %w", p.ID, err)
 	}

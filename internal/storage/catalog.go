@@ -134,3 +134,21 @@ func (s *Store) SaveCatalog(ctx context.Context, company string, in CatalogSave)
 	}
 	return out, tx.Commit()
 }
+
+// CatalogCompanies are the companies with a stored catalog.
+func (s *Store) CatalogCompanies(ctx context.Context) ([]string, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT DISTINCT company_id FROM catalog_versions ORDER BY company_id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var co string
+		if err = rows.Scan(&co); err != nil {
+			return nil, err
+		}
+		out = append(out, co)
+	}
+	return out, rows.Err()
+}

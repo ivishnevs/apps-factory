@@ -65,7 +65,7 @@ func changeTaskDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 	}
 	manager := "owner"
 	if tx.store.ManagerOf != nil {
-		if m := tx.store.ManagerOf(done.Assignee); m != "" {
+		if m := tx.store.ManagerOf(tx.company, done.Assignee); m != "" {
 			manager = m
 		}
 	}

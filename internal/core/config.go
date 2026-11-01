@@ -8,7 +8,7 @@ import (
 
 func (c *Core) configRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /agents/{agent}", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := c.Agents[r.PathValue("agent")]
+		a, ok := c.cat(c.companyFrom(r)).Agents[r.PathValue("agent")]
 		if !ok {
 			http.Error(w, "agent not found", 404)
 			return
@@ -16,7 +16,7 @@ func (c *Core) configRoutes(m *http.ServeMux) {
 		write(w, a)
 	})
 	m.HandleFunc("POST /agents/{agent}/authorize", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := c.Agents[r.PathValue("agent")]
+		a, ok := c.cat(c.companyFrom(r)).Agents[r.PathValue("agent")]
 		if !ok {
 			http.Error(w, "agent not found", 404)
 			return
@@ -42,7 +42,7 @@ func (c *Core) configRoutes(m *http.ServeMux) {
 		if !ok {
 			return
 		}
-		write(w, c.Skills.Entries(a.AvailableSkills, r.URL.Query().Get("q"), r.URL.Query().Get("category")))
+		write(w, c.cat(c.companyFrom(r)).Skills.Entries(a.AvailableSkills, r.URL.Query().Get("q"), r.URL.Query().Get("category")))
 	})
 	m.HandleFunc("GET /agents/{agent}/skills/{skill}", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := c.skillAccess(w, r, "factory.skills.read")
@@ -60,7 +60,7 @@ func (c *Core) configRoutes(m *http.ServeMux) {
 			http.Error(w, "skill not available to agent", 403)
 			return
 		}
-		content, err := c.Skills.Read(name, r.URL.Query().Get("resource"))
+		content, err := c.cat(c.companyFrom(r)).Skills.Read(name, r.URL.Query().Get("resource"))
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return
@@ -69,12 +69,12 @@ func (c *Core) configRoutes(m *http.ServeMux) {
 	})
 }
 func (c *Core) skillAccess(w http.ResponseWriter, r *http.Request, op string) (config.Agent, bool) {
-	a, ok := c.Agents[r.PathValue("agent")]
+	a, ok := c.cat(c.companyFrom(r)).Agents[r.PathValue("agent")]
 	if !ok {
 		http.Error(w, "agent not found", 404)
 		return a, false
 	}
-	if c.Skills == nil {
+	if c.cat(c.companyFrom(r)).Skills == nil {
 		http.Error(w, "skill registry unavailable", 503)
 		return a, false
 	}

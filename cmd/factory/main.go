@@ -207,10 +207,7 @@ func run() error {
 	if args[0] != "serve" {
 		return fmt.Errorf("unknown command")
 	}
-	catalog, err := config.LoadCompanyCatalog(root, company)
-	if err != nil {
-		return err
-	}
+	var err error
 	databaseURL := os.Getenv("FACTORY_DATABASE_URL")
 	if databaseURL == "" {
 		return fmt.Errorf("FACTORY_DATABASE_URL required (postgres://user:password@host:5432/factory)")
@@ -243,8 +240,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	c := core.Core{Store: s, Bus: b, Company: company, Agents: catalog.Agents, Skills: catalog.Skills, NodeHooks: catalog.NodeHooks, Token: os.Getenv("FACTORY_TOKEN"), DefaultReport: catalog.DefaultReport, AuditAssignee: catalog.AuditAssignee, ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
+	// Catalogs live in storage (company-self-service D1, D4): every company's current version, the own company
+	// seeded from the repository on its first start.
+	c := core.Core{Store: s, Bus: b, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
 		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
+	if err = c.LoadCatalogs(ctx); err != nil {
+		return err
+	}
 	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()

@@ -31,7 +31,7 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 		nodeReply(w, struct {
 			storage.NodeRegistered
 			Hooks protocol.NodeHooksDelivery `json:"hooks"`
-		}{v, config.DeliverNodeHooks(c.NodeHooks, p.Hooks)}, err)
+		}{v, config.DeliverNodeHooks(c.cat(c.companyFrom(r)).NodeHooks, p.Hooks)}, err)
 	})
 	m.HandleFunc("POST /nodes/{id}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -45,7 +45,7 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 		v, err := c.Store.NodeHeartbeat(r.Context(), c.companyFrom(r), r.PathValue("id"), p.NodeHeartbeat)
 		// The NodeHooks document again only when the node applied another version (the catalog changed).
 		var hooks *protocol.NodeHooksDelivery
-		if d := config.DeliverNodeHooks(c.NodeHooks, p.Hooks); d.Hash != p.HooksHash {
+		if d := config.DeliverNodeHooks(c.cat(c.companyFrom(r)).NodeHooks, p.Hooks); d.Hash != p.HooksHash {
 			hooks = &d
 		}
 		nodeReply(w, struct {

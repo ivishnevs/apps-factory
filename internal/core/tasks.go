@@ -75,7 +75,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, p.Actor, "factory.task.create", true, false) {
 			return
 		}
-		if p.Assignee != "" && !c.agentExists(w, p.Assignee) {
+		if p.Assignee != "" && !c.agentExists(w, c.companyFrom(r), p.Assignee) {
 			return
 		}
 		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
@@ -92,7 +92,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if run, ok := r.Context().Value(runKey{}).(protocol.RunSpec); ok {
 			p.OriginRun, p.OriginTask = run.ID, run.TaskID
 			p.Roles = map[string]string{}
-			for name, a := range c.Agents {
+			for name, a := range c.cat(c.companyFrom(r)).Agents {
 				p.Roles[name] = a.Spec.Role
 			}
 		}
@@ -116,7 +116,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		}
 		verdicts := map[string]tasks.Verdict{}
 		for _, snap := range snaps {
-			verdicts[snap.Task.ID] = c.evaluate(snap)
+			verdicts[snap.Task.ID] = c.evaluateIn(company, snap)
 		}
 		out := make([]taskView, 0, len(list))
 		for _, t := range list {
@@ -137,7 +137,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		v := c.evaluate(snap)
+		v := c.evaluateIn(c.companyFrom(r), snap)
 		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer})
 	})
 	// Diagnostics only: why a task does not run now and who clears it (trigger-log-scheduling D3).
@@ -150,7 +150,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		v := c.evaluate(snap)
+		v := c.evaluateIn(c.companyFrom(r), snap)
 		// The task's QUEUED run: why no node claims it yet (owner-ui 6.1).
 		var q *storage.QueuedReason
 		if run := snap.CurrentRun; run != nil && run.Status == "QUEUED" {
@@ -187,7 +187,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		}
 		out := make([]tasks.Verdict, 0, len(snaps))
 		for _, snap := range snaps {
-			out = append(out, c.evaluate(snap))
+			out = append(out, c.evaluateIn(c.companyFrom(r), snap))
 		}
 		write(w, out)
 	})
@@ -240,7 +240,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		if p.Assignee != nil {
-			if *p.Assignee != "" && !c.agentExists(w, *p.Assignee) {
+			if *p.Assignee != "" && !c.agentExists(w, c.companyFrom(r), *p.Assignee) {
 				return
 			}
 			if !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
@@ -293,7 +293,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				reply(w, nil, err)
 				return
 			}
-			if !c.agentExists(w, t.Assignee) {
+			if !c.agentExists(w, c.companyFrom(r), t.Assignee) {
 				return
 			}
 		}
@@ -358,16 +358,19 @@ type taskView struct {
 }
 
 // needs fills what the assignee's runs need from a node (node-agent D3) from the agent catalog.
-func (c *Core) needs(snap *tasks.Snapshot) {
-	if a, ok := c.Agents[snap.Task.Assignee]; ok {
+func (c *Core) needs(company string, snap *tasks.Snapshot) {
+	if a, ok := c.cat(company).Agents[snap.Task.Assignee]; ok {
 		snap.Needs = tasks.NodeNeeds{Provider: a.Spec.Runtime.Provider, Labels: a.Spec.Labels, Resources: a.Spec.Resources}
 	}
 }
 
-func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
+// evaluate is evaluateIn for Core's own company.
+func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict { return c.evaluateIn(c.company(), snap) }
+
+func (c *Core) evaluateIn(company string, snap tasks.Snapshot) tasks.Verdict {
 	var a config.Agent
-	a, snap.AgentConfigured = c.Agents[snap.Task.Assignee]
-	c.needs(&snap)
+	a, snap.AgentConfigured = c.cat(company).Agents[snap.Task.Assignee]
+	c.needs(company, &snap)
 	if snap.AgentConfigured {
 		b, _ := json.Marshal(a)
 		snap.AgentCap, snap.AgentProjectCap = storage.AgentCaps(b)
@@ -381,8 +384,8 @@ func (c *Core) evaluate(snap tasks.Snapshot) tasks.Verdict {
 	}
 	return tasks.Evaluate(snap)
 }
-func (c *Core) agentExists(w http.ResponseWriter, name string) bool {
-	if _, ok := c.Agents[name]; !ok {
+func (c *Core) agentExists(w http.ResponseWriter, company, name string) bool {
+	if _, ok := c.cat(company).Agents[name]; !ok {
 		http.Error(w, "valid assignee required", 400)
 		return false
 	}
@@ -392,7 +395,7 @@ func (c *Core) taskPermit(w http.ResponseWriter, r *http.Request, actor, operati
 	if actor == "" {
 		return true
 	} // Existing shared service token authorizes owner requests; no agent identity isolation.
-	a, ok := c.Agents[actor]
+	a, ok := c.cat(c.companyFrom(r)).Agents[actor]
 	if !ok {
 		http.Error(w, "actor agent not found", 404)
 		return false
@@ -414,8 +417,18 @@ func (c *Core) taskPermit(w http.ResponseWriter, r *http.Request, actor, operati
 	}
 	return true
 }
+
+// Schedule dispatches the runnable tasks of every company Core serves.
 func (c *Core) Schedule(ctx context.Context) error {
-	company := c.company()
+	for _, company := range c.companies() {
+		if err := c.scheduleCompany(ctx, company); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Core) scheduleCompany(ctx context.Context, company string) error {
 	if err := c.Store.ReconcileArtifactTasks(ctx, company); err != nil {
 		return err
 	}
@@ -431,7 +444,7 @@ func (c *Core) Schedule(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if v := c.evaluate(snap); v.Reason == tasks.ReasonRunnable {
+		if v := c.evaluateIn(company, snap); v.Reason == tasks.ReasonRunnable {
 			runnable = append(runnable, snap)
 		}
 	}
@@ -483,7 +496,7 @@ func oldestTrigger(s tasks.Snapshot) int64 {
 // dispatchTask dispatches the run of a READY task (or a review run of a task in review). Its brief is built
 // at claim (trigger-log-scheduling D8), so the prompt stays empty here.
 func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, review bool) error {
-	a, ok := c.Agents[t.Assignee]
+	a, ok := c.cat(company).Agents[t.Assignee]
 	if !ok {
 		return nil
 	}
@@ -491,7 +504,7 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	if err != nil {
 		return err
 	}
-	snapshot, hash, err := c.RunSnapshot(a)
+	snapshot, hash, err := c.RunSnapshotIn(company, a)
 	if err != nil {
 		return err
 	}

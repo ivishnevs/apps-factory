@@ -558,7 +558,7 @@ func routeUp(tx *Tx, agent, category string) string {
 	if slices.Contains(config.LockedCategories, category) || tx.store.ManagerOf == nil || agent == "owner" {
 		return "owner"
 	}
-	return tx.store.ManagerOf(agent)
+	return tx.store.ManagerOf(tx.company, agent)
 }
 
 // ForwardQuestion passes a pending question its recipient cannot decide one level up the chain (hierarchy
@@ -631,7 +631,7 @@ func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
 	for _, m := range pending {
 		after := EscalateAfter
 		if f := tx.store.EscalateAfterFor; f != nil {
-			if d := f(m.Recipient, m.Category); d > 0 {
+			if d := f(tx.company, m.Recipient, m.Category); d > 0 {
 				after = d
 			}
 		}
@@ -658,7 +658,7 @@ func inChain(tx *Tx, agent, principal string) bool {
 	if tx.store.ManagerOf == nil {
 		return false
 	}
-	for i, m := 0, tx.store.ManagerOf(agent); i < 32 && m != "owner"; i, m = i+1, tx.store.ManagerOf(m) {
+	for i, m := 0, tx.store.ManagerOf(tx.company, agent); i < 32 && m != "owner"; i, m = i+1, tx.store.ManagerOf(tx.company, m) {
 		if m == principal {
 			return true
 		}

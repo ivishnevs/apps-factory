@@ -203,7 +203,7 @@ func (b telegramBackend) OwnerInput(ctx context.Context, agent, text, key string
 		return "", fmt.Errorf("empty message")
 	}
 	if agent != "" {
-		if reports := config.DirectReports(b.c.Agents, config.Owner); !slices.Contains(reports, agent) {
+		if reports := config.DirectReports(b.c.cat(b.company).Agents, config.Owner); !slices.Contains(reports, agent) {
 			return "", fmt.Errorf("@%s is not one of your direct reports (%s)", agent, strings.Join(reports, ", "))
 		}
 		text = "@" + agent + " " + text // the address stays in the body, as with factory conversations say

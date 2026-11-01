@@ -18,29 +18,42 @@ import (
 // ScheduleMessages expires overdue questions. Delivery to agents is a trigger on the recipient's conversation
 // task, scheduled like any task; separate message delivery runs are retired.
 func (c *Core) ScheduleMessages(ctx context.Context) error {
-	return c.Store.ExpireMessages(ctx, c.company())
+	for _, co := range c.companies() {
+		if err := c.Store.ExpireMessages(ctx, co); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // hierarchyHooks gives storage what it needs from the agent catalog.
 func (c *Core) hierarchyHooks() {
-	c.Store.EscalationTarget = c.escalationTarget
-	c.Store.ManagerOf = c.escalationTarget
-	c.Store.SubtreeOf = func(agent string) []string { return config.Subtree(c.Agents, agent) }
-	c.Store.EscalateAfterFor = func(agent, category string) time.Duration { return c.Agents[agent].EscalateAfter(category) }
+	c.Store.EscalationTarget = c.escalationTargetIn
+	c.Store.ManagerOf = c.escalationTargetIn
+	c.Store.SubtreeOf = func(company, agent string) []string { return config.Subtree(c.cat(company).Agents, agent) }
+	c.Store.EscalateAfterFor = func(company, agent, category string) time.Duration {
+		return c.cat(company).Agents[agent].EscalateAfter(category)
+	}
 	c.Store.ExplicitExits = c.ExplicitExits
 }
 
 // EnsureConversations creates every agent's conversation task in every project (catalog load).
 func (c *Core) EnsureConversations(ctx context.Context) error {
-	return c.Store.EnsureConversationTasks(ctx, c.company(), config.Names(c.Agents))
+	for _, co := range c.companies() {
+		if err := c.Store.EnsureConversationTasks(ctx, co, config.Names(c.cat(co).Agents)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // defaultReport is the owner's default direct report: owner.default_report, or the only direct report.
-func (c *Core) defaultReport() string {
-	if c.DefaultReport != "" {
-		return c.DefaultReport
+func (c *Core) defaultReport(company string) string {
+	cat := c.cat(company)
+	if cat.DefaultReport != "" {
+		return cat.DefaultReport
 	}
-	if top := config.DirectReports(c.Agents, config.Owner); len(top) == 1 {
+	if top := config.DirectReports(cat.Agents, config.Owner); len(top) == 1 {
 		return top[0]
 	}
 	return ""
@@ -48,16 +61,16 @@ func (c *Core) defaultReport() string {
 
 // ownerAddressee picks the direct report an owner message goes to: "@name ..." names one, otherwise the
 // default report. The address stays in the body.
-func (c *Core) ownerAddressee(body string) (string, bool) {
+func (c *Core) ownerAddressee(company, body string) (string, bool) {
 	if strings.HasPrefix(body, "@") {
 		name, _, _ := strings.Cut(strings.TrimPrefix(body, "@"), " ")
 		name = strings.TrimRight(name, ",:")
-		if slices.Contains(config.DirectReports(c.Agents, config.Owner), name) {
+		if slices.Contains(config.DirectReports(c.cat(company).Agents, config.Owner), name) {
 			return name, true
 		}
 		return "", false
 	}
-	d := c.defaultReport()
+	d := c.defaultReport(company)
 	return d, d != ""
 }
 
@@ -89,7 +102,7 @@ var errNoAddressee = errors.New("address a direct report with @name, or set owne
 // @name, on the owner conversation with that agent in project; delivery is a trigger on the agent's
 // conversation task there.
 func (c *Core) ownerMessage(ctx context.Context, company, project, body, messageType, requestID string) (messaging.Message, error) {
-	agent, ok := c.ownerAddressee(strings.TrimSpace(body))
+	agent, ok := c.ownerAddressee(company, strings.TrimSpace(body))
 	if !ok {
 		return messaging.Message{}, errNoAddressee
 	}
