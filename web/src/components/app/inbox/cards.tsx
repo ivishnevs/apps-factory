@@ -205,7 +205,6 @@ function ProjectRequest({ args }: { args: Record<string, unknown> }) {
   const id = str("project_id"), name = str("name") || id;
   const mode = (str("repo_mode") || (str("workspace") || str("repo_url") ? "existing" : "local")) as RepoMode;
   const Icon = mode === "github" ? Lock : mode === "existing" ? FolderInput : GitBranch;
-  const openspec = args.openspec !== false;
   const rows: [string, string][] = [["Folder on the node", str("workspace")], ["Repository URL", str("repo_url")], ["Branch", str("default_branch")]];
   const row = "grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-3 px-3 py-2";
   return (
@@ -238,10 +237,6 @@ function ProjectRequest({ args }: { args: Record<string, unknown> }) {
             <dd>{args.audit === true ? "Yes, a read-only audit task runs first" : "No"}</dd>
           </div>
         )}
-        <div className={row}>
-          <dt className="text-muted-foreground">OpenSpec</dt>
-          <dd>{openspec ? (mode === "existing" ? "On; its openspec/ is imported" : "On") : "Off"}</dd>
-        </div>
       </dl>
       <p className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">Nothing is created until you approve. The repository is set up when the project&apos;s first task runs.</p>
     </div>

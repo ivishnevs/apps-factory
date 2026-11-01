@@ -55,7 +55,7 @@ func repoWithOpenSpec(t *testing.T) (dir, origin string) {
 func TestSetupLocalRepository(t *testing.T) {
 	ctx := context.Background()
 	w := &Worker{ProjectsRoot: t.TempDir(), NodeID: "mini"}
-	spec := protocol.RunSpec{Project: "advent-gift", ProjectSetup: &protocol.ProjectSetup{Mode: "local", Name: "Advent gift", Description: "A gift", OpenSpecDir: "openspec"}}
+	spec := protocol.RunSpec{Project: "advent-gift", ProjectSetup: &protocol.ProjectSetup{Mode: "local", Name: "Advent gift", Description: "A gift"}}
 	rep, err := w.prepareRepository(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
@@ -71,8 +71,8 @@ func TestSetupLocalRepository(t *testing.T) {
 		t.Fatal(n)
 	}
 	ignore, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if !strings.Contains(string(ignore), "/openspec/") {
-		t.Fatal(string(ignore))
+	if string(ignore) != "/.factory/\n" {
+		t.Fatalf("openspec/ is tracked like code: %q", ignore)
 	}
 	if _, err = w.prepareRepository(ctx, spec); err != nil {
 		t.Fatal("retry", err)
@@ -148,65 +148,42 @@ func TestSetupGitHubRepository(t *testing.T) {
 	}
 }
 
-// TestSetupExistingRepository (project-creation 1.3): an existing workspace that tracks openspec/ reports its
-// documents for the import and stops tracking them in a commit pushed to the default branch; when the
-// remote refuses that push the commit goes to the first task's branch; a repo_url alone is cloned under
-// projects_root (and reused on a retry).
+// TestSetupExistingRepository (project-creation 1.3, openspec-in-git): an existing workspace is reported as
+// it is: a tracked openspec/ stays tracked, nothing is committed or pushed; a repo_url alone is cloned under
+// projects_root (and reused on a retry); a directory below the repository's top is refused.
 func TestSetupExistingRepository(t *testing.T) {
 	ctx := context.Background()
 	w := &Worker{ProjectsRoot: t.TempDir(), NodeID: "mini"}
 	dir, origin := repoWithOpenSpec(t)
-	spec := protocol.RunSpec{Project: "kickclimb", TaskID: "t1", ProjectSetup: &protocol.ProjectSetup{Mode: "existing", Workspace: dir, OpenSpecDir: "openspec"}}
+	head := gitT(t, dir, "rev-parse", "HEAD")
+	spec := protocol.RunSpec{Project: "kickclimb", TaskID: "t1", ProjectSetup: &protocol.ProjectSetup{Mode: "existing", Workspace: dir}}
 	rep, err := w.prepareRepository(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Workspace != dir || len(rep.OpenSpec) != 1 || rep.OpenSpec[0].Path != "specs/login/spec.md" || rep.OpenSpec[0].Content != "# Login\n" || rep.Untracked != "pushed" {
+	if rep.Workspace != dir {
 		t.Fatalf("%+v", rep)
 	}
-	if out := gitT(t, dir, "ls-files", "openspec"); out != "" {
-		t.Fatal("still tracked", out)
+	if out := gitT(t, dir, "ls-files", "openspec"); !strings.Contains(out, "openspec/specs/login/spec.md") {
+		t.Fatal("openspec/ no longer tracked", out)
 	}
-	if _, err = os.Stat(filepath.Join(dir, "openspec/specs/login/spec.md")); err != nil {
-		t.Fatal("files removed", err)
+	if now := gitT(t, dir, "rev-parse", "HEAD"); now != head {
+		t.Fatal("setup committed", now)
 	}
-	if out := gitT(t, origin, "ls-tree", "-r", "--name-only", "main"); strings.Contains(out, "openspec/") || !strings.Contains(out, ".gitignore") {
+	if out := gitT(t, origin, "ls-tree", "-r", "--name-only", "main"); !strings.Contains(out, "openspec/specs/login/spec.md") {
 		t.Fatal("origin main", out)
-	}
-	// A retry: nothing tracked any more, the documents are still reported.
-	if rep, err = w.prepareRepository(ctx, spec); err != nil || rep.Untracked != "" || len(rep.OpenSpec) != 1 {
-		t.Fatalf("%+v %v", rep, err)
-	}
-
-	// The remote refuses pushes to main: the commit goes to af/<task>.
-	dir, origin = repoWithOpenSpec(t)
-	hook := filepath.Join(origin, "hooks", "pre-receive")
-	_ = os.WriteFile(hook, []byte("#!/bin/sh\nwhile read old new ref; do [ \"$ref\" = refs/heads/main ] && { echo protected >&2; exit 1; }; done\nexit 0\n"), 0o755)
-	spec.ProjectSetup.Workspace = dir
-	if rep, err = w.prepareRepository(ctx, spec); err != nil || rep.Untracked != "task_branch" {
-		t.Fatalf("%+v %v", rep, err)
-	}
-	if out := gitT(t, origin, "ls-tree", "-r", "--name-only", "af/t1"); strings.Contains(out, "openspec/") {
-		t.Fatal(out)
-	}
-
-	// Staged changes of the owner are never committed with the untracking.
-	dir, _ = repoWithOpenSpec(t)
-	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main // edited\n"), 0o644)
-	gitT(t, dir, "add", "main.go")
-	spec.ProjectSetup.Workspace = dir
-	if _, err = w.prepareRepository(ctx, spec); err == nil || !strings.Contains(err.Error(), "staged changes") {
-		t.Fatal(err)
 	}
 
 	// A repo_url alone is cloned under projects_root.
-	_, origin = repoWithOpenSpec(t)
-	clone := protocol.RunSpec{Project: "remote-app", TaskID: "t2", ProjectSetup: &protocol.ProjectSetup{Mode: "existing", RepoURL: origin, OpenSpecDir: "openspec"}}
+	clone := protocol.RunSpec{Project: "remote-app", TaskID: "t2", ProjectSetup: &protocol.ProjectSetup{Mode: "existing", RepoURL: origin}}
 	if rep, err = w.prepareRepository(ctx, clone); err != nil {
 		t.Fatal(err)
 	}
-	if rep.Workspace != filepath.Join(w.ProjectsRoot, "remote-app") || rep.RepoURL != origin || rep.Untracked != "pushed" || len(rep.OpenSpec) != 1 {
+	if rep.Workspace != filepath.Join(w.ProjectsRoot, "remote-app") || rep.RepoURL != origin {
 		t.Fatalf("%+v", rep)
+	}
+	if _, err = os.Stat(filepath.Join(rep.Workspace, "openspec/specs/login/spec.md")); err != nil {
+		t.Fatal("clone lacks openspec/", err)
 	}
 	if _, err = w.prepareRepository(ctx, clone); err != nil {
 		t.Fatal("retry", err)
@@ -245,7 +222,7 @@ func TestJetStreamFirstTaskRunsInFreshRepository(t *testing.T) {
 		pendingSetup(t, s, tasks.ProjectCreate{ID: "fake-project", Name: "Fresh"}, "fake-run")
 	})
 	setup := stored(func(s *protocol.RunSpec) {
-		s.Workspace, s.ProjectSetup = "", &protocol.ProjectSetup{Mode: "local", Name: "Fresh", OpenSpecDir: "openspec"}
+		s.Workspace, s.ProjectSetup = "", &protocol.ProjectSetup{Mode: "local", Name: "Fresh"}
 	})
 	root := t.TempDir()
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
@@ -269,10 +246,10 @@ func TestJetStreamFirstTaskRunsInFreshRepository(t *testing.T) {
 	}
 }
 
-// TestJetStreamOnboardsTrackedOpenSpec (project-creation 1.3): an existing repository that tracks openspec/
-// gets its tree imported into Core before the first run, which sees it materialized (no wipe), and the
-// repository stops tracking it. A failing setup ends the run setup_failed with the reason in the project.
-func TestJetStreamOnboardsTrackedOpenSpec(t *testing.T) {
+// TestJetStreamOnboardsExistingRepository (project-creation 1.3, openspec-in-git): an existing repository
+// that tracks openspec/ is set up before the first run, which runs in it with its openspec/ as committed and
+// still tracked. A failing setup ends the run setup_failed with the reason in the project.
+func TestJetStreamOnboardsExistingRepository(t *testing.T) {
 	url := os.Getenv("NATS_TEST_URL")
 	if url == "" {
 		t.Skip("set NATS_TEST_URL to dedicated broker")
@@ -284,30 +261,21 @@ func TestJetStreamOnboardsTrackedOpenSpec(t *testing.T) {
 		pendingSetup(t, s, tasks.ProjectCreate{ID: "fake-project", Name: "Kick", RepoMode: "existing", Workspace: dir}, "fake-run")
 	})
 	setup := stored(func(s *protocol.RunSpec) {
-		s.Workspace, s.ProjectSetup = "", &protocol.ProjectSetup{Mode: "existing", Workspace: dir, OpenSpecDir: "openspec"}
+		s.Workspace, s.ProjectSetup = "", &protocol.ProjectSetup{Mode: "existing", Workspace: dir}
 	})
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
 	r, _ := runDriver(t, url, Worker{Driver: d, NodeID: "mini", ProjectsRoot: t.TempDir()}, false, prepare, setup)
 	if r.Outcome != "succeeded" || len(d.Launches()) != 1 || !samePath(d.Launches()[0].Cwd, dir) {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}
-	docs, err := store.OpenSpecManifest(context.Background(), storage.DefaultCompany, "fake-project")
-	if err != nil || len(docs) != 1 || docs[0].Path != "specs/login/spec.md" {
-		t.Fatal(docs, err)
-	}
-	b, _ := os.ReadFile(filepath.Join(dir, protocol.ManifestPath))
-	var m protocol.Manifest
-	if json.Unmarshal(b, &m) != nil || len(m.Files) != 1 || m.Files[0].Path != "openspec/specs/login/spec.md" {
-		t.Fatal("the first run did not get the imported tree", string(b))
-	}
 	if got, _ := os.ReadFile(filepath.Join(dir, "openspec/specs/login/spec.md")); string(got) != "# Login\n" {
 		t.Fatal("wiped", string(got))
 	}
-	if out := gitT(t, dir, "ls-files", "openspec"); out != "" {
+	if out := gitT(t, dir, "ls-files", "openspec"); !strings.Contains(out, "openspec/specs/login/spec.md") {
 		t.Fatal(out)
 	}
 	p, _ := store.Project(context.Background(), storage.DefaultCompany, "fake-project")
-	if p.Setup.State != tasks.SetupReady || p.Setup.OpenSpecImported != 1 || p.Setup.OpenSpecUntracked != "pushed" {
+	if p.Setup.State != tasks.SetupReady {
 		t.Fatalf("%+v", p.Setup)
 	}
 

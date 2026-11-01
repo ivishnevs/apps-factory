@@ -42,7 +42,7 @@ func TestCreateProjectForm(t *testing.T) {
 	a := lastSent(t, c)
 	p := a.NewProject
 	if a.Kind != "create_project" || p == nil || p.ID != "advent-gift" || p.Name != "Advent Gift!" || p.Description != "A gift calendar." || p.RepoMode != RepoLocal ||
-		p.RequestID == "" || p.OpenSpec == nil || p.OpenSpec.Enabled == nil || !*p.OpenSpec.Enabled || p.Workspace != "" || p.Audit {
+		p.RequestID == "" || p.Workspace != "" || p.Audit {
 		t.Fatalf("%+v", p)
 	}
 	if m.projForm != nil || m.project != "advent-gift" || !strings.Contains(m.toast, "created project advent-gift") {
@@ -67,9 +67,9 @@ func TestCreateProjectForm(t *testing.T) {
 	// An existing project: the path, URL, branch and audit fields appear; one of path or URL is required.
 	ctrlN(m)
 	typeText(m, "Old App")
-	press(m, "tab", "tab", "tab", "space", "tab", "right", "right")
-	if m.projForm.repoMode() != RepoExisting || m.projForm.openspec {
-		t.Fatal(m.projForm.repoMode(), m.projForm.openspec)
+	press(m, "tab", "tab", "tab", "right", "right")
+	if m.projForm.repoMode() != RepoExisting {
+		t.Fatal(m.projForm.repoMode())
 	}
 	run(m, key(m, "ctrl+s"))
 	if m.projForm.errs[pPath] == "" {
@@ -90,7 +90,7 @@ func TestCreateProjectForm(t *testing.T) {
 	typeText(m, "develop")
 	runDeep(m, key(m, "ctrl+s"), 3)
 	p = lastSent(t, c).NewProject
-	if p.ID != "old-app" || p.RepoMode != RepoExisting || p.RepoURL != "git@github.com:me/old-app.git" || p.DefaultBranch != "develop" || !p.Audit || *p.OpenSpec.Enabled {
+	if p.ID != "old-app" || p.RepoMode != RepoExisting || p.RepoURL != "git@github.com:me/old-app.git" || p.DefaultBranch != "develop" || !p.Audit {
 		t.Fatalf("%+v", p)
 	}
 	if m.projForm != nil {
@@ -143,13 +143,12 @@ func TestCreateProjectForm(t *testing.T) {
 // TestHTTPClientCreateProject: create_project is POST /projects with the body and a request id.
 func TestHTTPClientCreateProject(t *testing.T) {
 	fc, _, c := newFakeCore(t)
-	on := true
-	text, err := c.Do(context.Background(), Action{Kind: "create_project", NewProject: &tasks.ProjectCreate{ID: "advent-gift", Name: "Advent gift", RepoMode: RepoGitHub, OpenSpec: &tasks.ProjectOpenSpec{Enabled: &on}}})
+	text, err := c.Do(context.Background(), Action{Kind: "create_project", NewProject: &tasks.ProjectCreate{ID: "advent-gift", Name: "Advent gift", RepoMode: RepoGitHub}})
 	if err != nil || text != "created project advent-gift: Advent gift" {
 		t.Fatal(text, err)
 	}
 	b := fc.bodies["/projects"]
-	if b["id"] != "advent-gift" || b["name"] != "Advent gift" || b["repo_mode"] != "github" || b["request_id"] == "" || b["openspec"].(map[string]any)["enabled"] != true {
+	if b["id"] != "advent-gift" || b["name"] != "Advent gift" || b["repo_mode"] != "github" || b["request_id"] == "" || b["openspec"] != nil {
 		t.Fatal(b)
 	}
 	if _, err = c.Do(context.Background(), Action{Kind: "create_project", NewProject: &tasks.ProjectCreate{ID: "x", Name: "x", RequestID: "r-1"}}); err != nil || fc.bodies["/projects"]["request_id"] != "r-1" {

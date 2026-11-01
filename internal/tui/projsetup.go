@@ -173,11 +173,6 @@ func projectCreateArgs(a map[string]any) [][2]string {
 	if mode == RepoExisting && on("audit", false) {
 		out = append(out, [2]string{"audit", "yes, before any other work"})
 	}
-	openspec := "on"
-	if !on("openspec", true) {
-		openspec = "off"
-	}
-	out = append(out, [2]string{"openspec", openspec})
 	return out
 }
 

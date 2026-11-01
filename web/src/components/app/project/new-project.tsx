@@ -87,7 +87,6 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [audit, setAudit] = useState(true);
-  const [openspec, setOpenspec] = useState(true);
   const [errors, setErrors] = useState<Errors>({});
   const [refusal, setRefusal] = useState("");
   const refusalRef = useRef<HTMLDivElement>(null);
@@ -100,7 +99,7 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (action.isPending) return;
-    const p: ProjectCreate = { id: id.trim(), name: name.trim(), description: description.trim(), request_id: requestId(), openspec: { enabled: openspec }, repo_mode: mode };
+    const p: ProjectCreate = { id: id.trim(), name: name.trim(), description: description.trim(), request_id: requestId(), repo_mode: mode };
     if (mode === "existing") Object.assign(p, { workspace: workspace.trim() || undefined, repo_url: repoUrl.trim() || undefined, default_branch: branch.trim() || undefined, audit });
     const errs = validateProject(p, taken);
     setErrors(errs);
@@ -198,14 +197,6 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
             </label>
           </div>
         )}
-
-        <label htmlFor="np-openspec" className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border p-4">
-          <span>
-            <span className="block text-sm font-medium">OpenSpec</span>
-            <span className="block text-xs text-muted-foreground">Specs and changes are kept in Core and given to every run{mode === "existing" ? "; an existing openspec/ is imported" : ""}.</span>
-          </span>
-          <Switch id="np-openspec" checked={openspec} onCheckedChange={setOpenspec} />
-        </label>
 
         {refusal && (
           <div ref={refusalRef} role="alert" className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm">

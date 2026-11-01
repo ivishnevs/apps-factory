@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"appfactory/internal/openspec"
 )
 
 // Adapter is the per-run Factory MCP adapter (docs/explicit-exits-contract.md): it forwards tool calls to
@@ -29,6 +31,8 @@ type Adapter struct {
 	Conversation bool
 	// DefaultBranch of the project; empty asks origin/HEAD, then "main".
 	DefaultBranch string
+	// OpenSpecChange is the task's linked change (FACTORY_OPENSPEC_CHANGE): its state is part of the facts.
+	OpenSpecChange string
 	// ScanCommand gets the revision range as its last argument and exits 1 on a finding (empty: no scan).
 	ScanCommand []string
 	// ExitFile receives the exit state (FACTORY_EXIT_FILE); empty skips it.
@@ -152,21 +156,10 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 		return a.Exit(ctx, kind, c.Arguments)
 	}
 	switch c.Name {
-	case "factory_openspec_sync":
-		return a.syncTool(ctx)
 	case "factory_artifact_upload", "factory_report_create":
 		// The adapter streams the named worktree files to Core first (core-owned-project-data D4, D6).
 		if err := a.upload(ctx, &c); err != nil {
 			return nil, err
-		}
-	case "factory_task_submit":
-		// Without explicit exits a submission ends the work: the OpenSpec edits go first, as before an exit.
-		if r, err := a.Sync(ctx); err != nil {
-			return nil, fmt.Errorf("submission refused (openspec_sync): %w", err)
-		} else if r != nil && len(r.Conflicts) > 0 {
-			return nil, syncRefusal(r)
-		} else if r != nil && len(r.Restored) > 0 {
-			return nil, restoreRefusal(r)
 		}
 	}
 	status, b, seen, err := a.do(ctx, "POST", "/agent/call", c)
@@ -227,14 +220,6 @@ func (a *Adapter) Exit(ctx context.Context, kind string, args map[string]any) (a
 	}
 	if args == nil {
 		args = map[string]any{}
-	}
-	// The run's OpenSpec edits reach Core before any exit; a conflict refuses the exit (D4).
-	if r, err := a.Sync(ctx); err != nil {
-		return nil, fmt.Errorf("exit refused (openspec_sync): %w", err)
-	} else if r != nil && len(r.Conflicts) > 0 {
-		return nil, syncRefusal(r)
-	} else if r != nil && len(r.Restored) > 0 {
-		return nil, restoreRefusal(r)
 	}
 	facts, err := a.Facts(ctx)
 	if err != nil {
@@ -345,6 +330,17 @@ type Facts struct {
 	AheadOfDefault              int
 	PR                          *PRFacts
 	Scan                        *ScanResult
+	OpenSpec                    *OpenSpecFacts
+}
+
+// OpenSpecFacts are the linked change's state where the task's work is (openspec-in-git D3): the default
+// branch once the work is merged (or nothing is ahead of it), HEAD otherwise. State is active, archived or
+// missing; Unchecked counts the unchecked items of an active change's tasks.md.
+type OpenSpecFacts struct {
+	Change    string `json:"change"`
+	State     string `json:"state"`
+	Unchecked int    `json:"unchecked"`
+	Ref       string `json:"ref"`
 }
 
 type PRFacts struct {
@@ -361,7 +357,7 @@ type ScanResult struct {
 
 func (f *Facts) core() map[string]any {
 	return map[string]any{"head": f.Head, "dirty": f.Dirty, "branch": f.Branch, "default_branch": f.DefaultBranch,
-		"ahead_of_default": f.AheadOfDefault, "pushed": f.Pushed, "pr": f.PR, "scan": f.Scan}
+		"ahead_of_default": f.AheadOfDefault, "pushed": f.Pushed, "pr": f.PR, "scan": f.Scan, "openspec": f.OpenSpec}
 }
 
 func (a *Adapter) git(ctx context.Context, args ...string) (string, error) {
@@ -427,7 +423,46 @@ func (a *Adapter) Facts(ctx context.Context) (*Facts, error) {
 	if len(a.ScanCommand) > 0 && f.AheadOfDefault > 0 {
 		f.Scan = a.scan(ctx, base)
 	}
+	if a.OpenSpecChange != "" {
+		ref := "HEAD"
+		if f.AheadOfDefault == 0 || f.PR != nil && f.PR.State == "merged" {
+			ref = base
+		}
+		f.OpenSpec = a.openSpecFacts(ctx, ref)
+	}
 	return f, nil
+}
+
+// openSpecFacts reads the linked change at ref: active (changes/<name>/proposal.md), archived
+// (changes/archive/YYYY-MM-DD-<name>/proposal.md) or missing.
+func (a *Adapter) openSpecFacts(ctx context.Context, ref string) *OpenSpecFacts {
+	ch := a.OpenSpecChange
+	o := &OpenSpecFacts{Change: ch, State: "missing", Ref: ref}
+	if !openspec.ValidChange(ch) {
+		return o
+	}
+	root := openspec.DefaultDir + "/changes/"
+	if _, err := a.git(ctx, "cat-file", "-e", ref+":"+root+ch+"/proposal.md"); err == nil {
+		o.State = "active"
+		if b, err := a.git(ctx, "show", ref+":"+root+ch+"/tasks.md"); err == nil {
+			o.Unchecked = openspec.Unchecked([]byte(b))
+		}
+		return o
+	}
+	names, err := a.git(ctx, "ls-tree", "-d", "--name-only", ref+":"+root+"archive/")
+	if err != nil {
+		return o
+	}
+	var paths []string
+	for _, n := range strings.Split(names, "\n") {
+		if n = strings.TrimSpace(n); n != "" {
+			paths = append(paths, "changes/archive/"+n+"/proposal.md")
+		}
+	}
+	if a := openspec.ArchivedProposals(ch, paths); len(a) > 0 {
+		o.State = "archived"
+	}
+	return o
 }
 
 // pr reads the branch's pull request with gh; nil when there is none or gh is unavailable.
@@ -495,7 +530,7 @@ func (e *notFound) Error() string { return e.name + ": executable not found" }
 // AdapterFromEnv builds the adapter of cmd/factory-mcp from the run environment.
 func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	a := &Adapter{URL: getenv("FACTORY_URL"), Token: getenv("FACTORY_RUN_TOKEN"), Workdir: getenv("FACTORY_WORKDIR"),
-		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
+		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), OpenSpecChange: getenv("FACTORY_OPENSPEC_CHANGE"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
 	if a.Token == "" || a.URL == "" {
 		return nil, errors.New("FACTORY_RUN_TOKEN and FACTORY_URL required")
 	}

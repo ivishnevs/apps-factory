@@ -104,7 +104,6 @@ func (c *Core) Handler() http.Handler {
 	c.approvalRoutes(m)
 	c.artifactRoutes(m)
 	c.journalRoutes(m)
-	c.openSpecRoutes(m)
 	c.blobRoutes(m)
 	c.consoleRoutes(m)
 	c.ownerRoutes(m)
@@ -214,6 +213,9 @@ func (c *Core) Handler() http.Handler {
 func decode(w http.ResponseWriter, r *http.Request, v any) bool { return decodeMax(w, r, v, 1<<20) }
 
 // decodeMax is decode of a body up to max bytes (documents and tool calls carrying them).
+// maxToolCallBody bounds an agent tool call.
+const maxToolCallBody = 8 << 20
+
 func decodeMax(w http.ResponseWriter, r *http.Request, v any, max int64) bool {
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, max))
 	d.DisallowUnknownFields()

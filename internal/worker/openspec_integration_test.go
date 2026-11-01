@@ -13,6 +13,8 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// TestJetStreamOpenSpecPreflightBeforeRuntime (openspec-in-git D3): a linked change that is not on the
+// checkout ends the run change_missing before the runtime starts.
 func TestJetStreamOpenSpecPreflightBeforeRuntime(t *testing.T) {
 	url := os.Getenv("NATS_TEST_URL")
 	if url == "" {
@@ -45,7 +47,7 @@ func TestJetStreamOpenSpecPreflightBeforeRuntime(t *testing.T) {
 		t.Fatal(e)
 	}
 	json.Unmarshal(envelope.Payload, &event)
-	if envelope.Type != "agent.failed" || event.Status != "ENDED" || event.Outcome != "setup_failed" || event.SessionID != "" || !strings.Contains(event.Result, "before runtime startup") {
+	if envelope.Type != "agent.failed" || event.Status != "ENDED" || event.Outcome != "change_missing" || event.SessionID != "" || !strings.Contains(event.Result, "is not on the task's checkout") {
 		t.Fatal(envelope, event)
 	}
 	msgs[0].AckSync()

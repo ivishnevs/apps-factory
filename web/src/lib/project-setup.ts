@@ -30,7 +30,7 @@ export function setupView(p: Project, nodes?: FactoryNode[]): SetupView | undefi
   const what = p.repo_mode === "existing" ? "Repository is onboarded" : "Repository is created";
   if (s.state === "running") {
     return { state: "running", tone: "info", title: node ? `Setting up on ${node}` : "Setting up the repository", taskId: s.task_id,
-      detail: p.repo_mode === "existing" ? "Its OpenSpec tree is imported before the first task's run starts." : "The first task's run starts once it is ready." };
+      detail: p.repo_mode === "existing" ? "The first task's run starts in it once the node has checked it." : "The first task's run starts once it is ready." };
   }
   if (s.state === "failed") {
     return { state: "failed", tone: "bad", title: node ? `Setup failed on ${node}` : "Repository setup failed", taskId: s.task_id,

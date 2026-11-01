@@ -44,7 +44,7 @@ export interface Verdictish {
 const HEX = /\b[0-9a-f]{20,}\b/g;
 // A `factory …` command: the binary, its subcommand words, then arguments that look like IDs, placeholders
 // (VERSION, EVIDENCE), choices (accept|reject) or flags.
-const CLI = /`?\bfactory(?:-node)? (?:(?:tasks|runs|artifacts|openspec|messages|nodes) [a-z][\w-]*|answer|comment|resume|pause|stop|start|run|retry|doctor|web|status)(?: (?:[0-9a-f]{8,}|[A-Z][A-Z_]*|\S*\|\S*|[\w-]*\d[\w-]*|--?[a-z][\w-]*|\.\.\.|now))*`?/g;
+const CLI = /`?\bfactory(?:-node)? (?:(?:tasks|runs|artifacts|messages|nodes) [a-z][\w-]*|answer|comment|resume|pause|stop|start|run|retry|doctor|web|status)(?: (?:[0-9a-f]{8,}|[A-Z][A-Z_]*|\S*\|\S*|[\w-]*\d[\w-]*|--?[a-z][\w-]*|\.\.\.|now))*`?/g;
 const isHex = (s: string) => /^[0-9a-f]{20,}$/.test(s);
 
 // statusWords: a task or run status in words ("IN_PROGRESS" → "in progress").
@@ -215,10 +215,6 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     return out({ headline: w ? `Retrying ${w}` : "Retrying soon", brief: fails ? `${fails} failed attempt${fails === "1" ? "" : "s"}` : undefined,
       detail: fails ? `The last ${fails === "1" ? "attempt" : `${fails} attempts`} failed, so it waits before trying again.` : "It waits before trying again.",
       next: `It retries on its own; ${release(v.status)} in the task menu starts it now.`, who: undefined, you: false });
-  }
-  if (reason === "openspec") {
-    return out({ headline: "Review on hold", brief: "OpenSpec change missing", detail: `${note ? `${note.replace(/\s*\(the review run is not dispatched\)/, "")}. ` : ""}Its review cannot start.`,
-      next: "Restore its OpenSpec change, or review the work yourself." });
   }
   if (reason === "idle") {
     if (/waiting for review/.test(detail) || who === "reviewer") {

@@ -146,7 +146,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		return
 	}
 	var p factorytools.Call
-	if !decodeMax(w, r, &p, maxDocumentBody) { // factory_openspec_write carries a whole document
+	if !decodeMax(w, r, &p, maxToolCallBody) {
 		return
 	}
 	// Audit before dispatch. Store only identity/tool/key/status, never tokens or model arguments.
@@ -303,10 +303,6 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	if p.Name == "factory_project_create" {
 		approval, _ := r.Context().Value(approvalIntentKey{}).(string)
 		c.projectCreateTool(w, r, args, run, approval)
-		return
-	}
-	if strings.HasPrefix(p.Name, "factory_openspec_") {
-		c.openSpecTool(w, r, p, run)
 		return
 	}
 	if journalToolName(p.Name) {

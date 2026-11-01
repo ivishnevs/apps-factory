@@ -3,13 +3,13 @@
 ╭───────────── Agent Tree ─────────────╮╭───────── Tasks · needs you ──────────╮
 │ ◆ owner · you                    ⚠ 7 ││ [→] Task 1 P2-1           ← ⠋running │
 │ ├ ● lead: Conversation with … 1m 00s ││ [!] Task 1 P1-1          ← needs you │
+│ │   └ › The owner asks wheth… 0m 50s ││     ↳ children · waits on pm: wait … │
 │ ╭────────────────────────────── New project ───────────────────────────────╮ │
 │ │ ▸ Name            Advent gift                                            │ │
 │ │                   ✗ a name is required                                   │ │
 │ │   ID              follows the name                                       │ │
 │ │                   ✗ an ID is required                                    │ │
 │ │   Description     what it is, for whom                                   │ │
-│ │   OpenSpec        ● on — specs and changes kept in Core                  │ │
 ╰─│   Repository      New local repository                                   │─╯
 ╭─│                                                                          │─╮
 │ │                   Create project                                         │ │

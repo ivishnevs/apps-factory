@@ -10,7 +10,6 @@ import (
 
 	"appfactory/internal/blobstore"
 	"appfactory/internal/clock"
-	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
 )
 
@@ -283,7 +282,6 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	if token == "" || token != p.Lease {
 		return ErrConflict
 	}
-	p.Data = openspec.AuditData(p.Data)
 	e.Payload, err = json.Marshal(p)
 	if err != nil {
 		return err
@@ -370,7 +368,7 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 // workerOutcomes are the outcomes a worker reports on its terminal event (status ENDED); no_exit, stale and
 // unclaimed are Core's. lost: the run ended without terminal evidence (docs/runtime-protocol-v2.md §8).
 var workerOutcomes = map[string]bool{"succeeded": true, "failed": true, "timed_out": true, "idle_timeout": true, "max_turns": true,
-	"setup_failed": true, "paused_out": true, "revoked": true, "lost": true}
+	"setup_failed": true, "change_missing": true, "paused_out": true, "revoked": true, "lost": true}
 
 // endOutcome is the result and outcome a terminal event gives a live (or lost) run. A run Core stopped for
 // inactivity (stop_reason idle_timeout) that the worker reports revoked, or ended without evidence, ended

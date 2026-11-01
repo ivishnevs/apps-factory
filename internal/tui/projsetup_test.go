@@ -57,10 +57,10 @@ func TestProjectSetupViews(t *testing.T) {
 	for _, kv := range projectCreateArgs(args) {
 		got = append(got, kv[0]+"="+kv[1])
 	}
-	if strings.Join(got, "|") != "project=Project 6|id=project-6|about=Companion app for Project 1: reminders and offline sync.|repo=existing repository|url=https://github.com/company-1/project-6|branch=main|audit=yes, before any other work|openspec=on" {
+	if strings.Join(got, "|") != "project=Project 6|id=project-6|about=Companion app for Project 1: reminders and offline sync.|repo=existing repository|url=https://github.com/company-1/project-6|branch=main|audit=yes, before any other work" {
 		t.Fatal(got)
 	}
-	if b := projectCreateBrief(map[string]any{"project_id": "p", "name": "P", "openspec": false}); b != "create project P (new local repository)" {
+	if b := projectCreateBrief(map[string]any{"project_id": "p", "name": "P"}); b != "create project P (new local repository)" {
 		t.Fatal(b)
 	}
 	// The prompt bar asks about the project in words.

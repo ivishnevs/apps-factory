@@ -48,7 +48,7 @@ func (c *Core) createProject(ctx context.Context, company string, in tasks.Proje
 func auditBrief(p tasks.Project) string {
 	return "Onboard project " + p.ID + " (an existing repository) before any new work, with the project-audit skill: " +
 		"a read-only audit of the code, build, product state and (if it is live) store presence; OpenSpec baseline specs " +
-		"describing the current behaviour, written to the project's OpenSpec tree; a report with options for what to do " +
+		"describing the current behaviour, committed to the repository's openspec/ with your pull request; a report with options for what to do " +
 		"next (factory_report_create, needs_owner_action when the owner must choose). Do not change product code."
 }
 
@@ -61,8 +61,7 @@ func (c *Core) projectRoutes(m *http.ServeMux) {
 		v, err := c.createProject(r.Context(), c.companyFrom(r), p)
 		reply(w, v, err)
 	})
-	// The node reports the repository setup of a run's project (project-creation D2), with the run's lease;
-	// the body carries an existing repository's OpenSpec tree.
+	// The node reports the repository setup of a run's project (project-creation D2), with the run's lease.
 	m.HandleFunc("POST /runs/{id}/project-setup", func(w http.ResponseWriter, r *http.Request) {
 		var p protocol.ProjectSetupReport
 		if !decodeMax(w, r, &p, maxSetupBody) {
@@ -73,8 +72,8 @@ func (c *Core) projectRoutes(m *http.ServeMux) {
 	})
 }
 
-// maxSetupBody bounds a setup report (an existing repository's OpenSpec tree).
-const maxSetupBody = 64 << 20
+// maxSetupBody bounds a setup report.
+const maxSetupBody = 1 << 20
 
 // projectCreateTool runs an approved factory_project_create (the gateway checked the approval of this exact
 // call): one project per request_id of the agent.
@@ -84,9 +83,6 @@ func (c *Core) projectCreateTool(w http.ResponseWriter, r *http.Request, args ma
 		RequestID: "agent:" + run.Spec.Agent + ":" + str("request_id"), CreatedBy: run.Spec.Agent, ApprovalID: approval}
 	if b, ok := args["audit"].(bool); ok {
 		in.Audit = b
-	}
-	if b, ok := args["openspec"].(bool); ok {
-		in.OpenSpec = &tasks.ProjectOpenSpec{Enabled: &b}
 	}
 	v, err := c.createProject(r.Context(), c.companyFrom(r), in)
 	reply(w, v, err)

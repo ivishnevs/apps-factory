@@ -59,7 +59,8 @@ func TestOutcomeTable(t *testing.T) {
 		{"timed_out", "", 1, 1, time.Minute, 1, "READY"},
 		{"idle_timeout", "", 1, 1, time.Minute, 1, "READY"},
 		{"max_turns", "", 1, 1, time.Minute, 1, "READY"},
-		{"setup_failed", "OpenSpec preflight failed", 1, 1, time.Minute, 1, "READY"},
+		{"setup_failed", "worktree: clone failed", 1, 1, time.Minute, 1, "READY"},
+		{"change_missing", "OpenSpec change x is not on the task's checkout", 0, 0, 0, 0, "READY"}, // escalated
 		{"lost", "lost: worker lease expired", 0, 1, time.Minute, 1, "READY"},
 		{"lost", "lost: node n1 restarted (epoch 2)", 0, 1, time.Minute, 0, "READY"}, // new epoch: no budget
 		{"revoked", "", 0, 0, 0, 0, "CANCELLED"},

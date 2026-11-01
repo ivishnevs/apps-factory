@@ -48,7 +48,7 @@ func TestOutcomes(t *testing.T) {
 	}{
 		{"done", protocol.Event{Status: "ENDED", Outcome: "succeeded"}, "ENDED", "succeeded"},
 		{"crash", protocol.Event{Status: "ENDED", Outcome: "failed", Result: "codex exited"}, "ENDED", "failed"},
-		{"preflight", protocol.Event{Status: "ENDED", Outcome: "setup_failed", Result: "OpenSpec preflight failed before runtime startup: x"}, "ENDED", "setup_failed"},
+		{"preflight", protocol.Event{Status: "ENDED", Outcome: "setup_failed", Result: "OpenSpec change x is not on the task's checkout"}, "ENDED", "setup_failed"},
 		{"stopped", protocol.Event{Status: "ENDED", Outcome: "revoked"}, "ENDED", "revoked"},
 		{"timeout", protocol.Event{Status: "ENDED", Outcome: "timed_out"}, "ENDED", "timed_out"},
 		{"turns", protocol.Event{Status: "ENDED", Outcome: "max_turns"}, "ENDED", "max_turns"},

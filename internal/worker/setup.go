@@ -12,21 +12,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
-	"appfactory/internal/workspace"
 )
 
 // Project setup on the node (project-creation D2, D3): a run whose spec carries ProjectSetup first creates or
 // onboards the project's repository, then reports it to Core (POST /runs/{id}/project-setup with the run's
-// lease) and continues in the workspace Core answers, with the manifest of the (imported) OpenSpec tree.
+// lease) and continues in the workspace Core answers, with its manifest.
 //
 //   - local: a git repository <projects_root>/<project> with an initial commit on main (README, .gitignore).
 //   - github: the same, plus a private GitHub repository <gh user>/<project> created with the node's gh,
 //     pushed and set as repo_url.
-//   - existing: the workspace path as it is, or a clone of repo_url at <projects_root>/<project>. Its OpenSpec
-//     tree is imported into Core; when git tracks it, a commit stops tracking it (git rm --cached, .gitignore)
-//     and goes to the default branch, else to the first task's branch af/<task>, else stays local.
+//   - existing: the workspace path as it is, or a clone of repo_url at <projects_root>/<project>, left as it is
+//     (its openspec/ included: OpenSpec lives in the repository, openspec-in-git).
 //
 // Every step is idempotent: a retry after a crash reuses what an earlier attempt made (a repository is
 // recognized as this project's by .git/factory-project).
@@ -118,13 +115,6 @@ func (w *Worker) prepareRepository(ctx context.Context, spec protocol.RunSpec) (
 			return rep, err
 		}
 		rep.Workspace, rep.RepoURL, rep.DefaultBranch = dir, s.RepoURL, s.DefaultBranch
-		if s.OpenSpecDir != "" {
-			docs, untracked, err := onboardOpenSpec(ctx, dir, s.OpenSpecDir, s.DefaultBranch, spec.TaskID)
-			if err != nil {
-				return rep, err
-			}
-			rep.OpenSpec, rep.Untracked = docs, untracked
-		}
 	default:
 		return rep, fmt.Errorf("unknown repo_mode %q", s.Mode)
 	}
@@ -206,11 +196,8 @@ func initRepository(ctx context.Context, dir, marker string, s *protocol.Project
 	if s.Description != "" {
 		readme += "\n" + s.Description + "\n"
 	}
-	// OpenSpec lives in App Factory and is materialized into every run's worktree; it is not tracked.
+	// .factory holds what the node materializes into a run's worktree; openspec/ is tracked like code.
 	ignore := "/.factory/\n"
-	if s.OpenSpecDir != "" {
-		ignore += "/" + s.OpenSpecDir + "/\n"
-	}
 	for name, content := range map[string]string{"README.md": readme, ".gitignore": ignore} {
 		if err = os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			return err
@@ -293,113 +280,4 @@ func cloneRepository(ctx context.Context, dir, url, branch string) error {
 		return fmt.Errorf("cloning %s: %w", url, err)
 	}
 	return os.Rename(tmp, dir)
-}
-
-// onboardOpenSpec reads the repository's OpenSpec tree (to import into Core) and, when git tracks it, stops
-// tracking it in a commit, so that materializing Core's tree never conflicts with the repository's copy.
-// The commit goes to the default branch when the repository's HEAD was exactly the remote default branch,
-// else (a refused push) to the first task's branch af/<task>; otherwise it stays local.
-func onboardOpenSpec(ctx context.Context, dir, tree, branch, task string) ([]protocol.SetupDocument, string, error) {
-	base := filepath.Join(dir, filepath.FromSlash(tree))
-	if info, err := os.Stat(base); err != nil || !info.IsDir() {
-		return nil, "", nil
-	}
-	var docs []protocol.SetupDocument
-	err := filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !d.Type().IsRegular() {
-			return err
-		}
-		rel, _ := filepath.Rel(base, p)
-		rel = filepath.ToSlash(rel)
-		if !openspec.ValidPath(rel) {
-			return nil // not an OpenSpec document (as factory openspec import skips it)
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if err = openspec.ValidContent(b); err != nil {
-			return fmt.Errorf("%s/%s: %w", tree, rel, err)
-		}
-		docs = append(docs, protocol.SetupDocument{Path: rel, Content: string(b)})
-		return nil
-	})
-	if err != nil {
-		return nil, "", err
-	}
-	tracked, err := git(ctx, dir, "ls-files", "--", tree)
-	if err != nil || tracked == "" {
-		return docs, "", err
-	}
-	// Only the untracking goes into the commit: refuse when the owner has staged other changes.
-	if _, err = git(ctx, dir, "diff", "--cached", "--quiet"); err != nil {
-		return nil, "", fmt.Errorf("the repository %s has staged changes: commit or unstage them, then retry the task", dir)
-	}
-	if _, err = git(ctx, dir, "rm", "-r", "--cached", "--quiet", "--", tree); err != nil {
-		return nil, "", err
-	}
-	if err = ignoreTree(dir, tree); err != nil {
-		return nil, "", err
-	}
-	if _, err = git(ctx, dir, "add", "--", ".gitignore"); err != nil {
-		return nil, "", err
-	}
-	if err = commit(ctx, dir, "Keep OpenSpec in App Factory: stop tracking "+tree+"/"); err != nil {
-		return nil, "", err
-	}
-	return docs, pushUntrack(ctx, dir, branch, task), nil
-}
-
-// ignoreTree adds /<tree>/ to the repository's .gitignore.
-func ignoreTree(dir, tree string) error {
-	p := filepath.Join(dir, ".gitignore")
-	b, err := os.ReadFile(p)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	for _, l := range strings.Split(string(b), "\n") {
-		if l = strings.TrimSpace(l); l == "/"+tree+"/" || l == tree+"/" || l == "/"+tree {
-			return nil
-		}
-	}
-	if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
-		b = append(b, '\n')
-	}
-	return os.WriteFile(p, append(b, "/"+tree+"/\n"...), 0o644)
-}
-
-// pushUntrack pushes the untracking commit: "pushed" to the default branch, "task_branch" to af/<task>, or
-// "local". Nothing is pushed when the commit's parent is not the remote default branch (the checkout holds
-// other unpushed work).
-func pushUntrack(ctx context.Context, dir, branch, task string) string {
-	if _, err := git(ctx, dir, "remote", "get-url", "origin"); err != nil {
-		return "local"
-	}
-	_, _ = git(ctx, dir, "fetch", "--quiet", "origin")
-	if branch == "" {
-		head, err := git(ctx, dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-		if err != nil {
-			if head, err = git(ctx, dir, "symbolic-ref", "--short", "HEAD"); err != nil {
-				return "local"
-			}
-			head = "origin/" + head
-		}
-		branch = strings.TrimPrefix(head, "origin/")
-	}
-	parent, err1 := git(ctx, dir, "rev-parse", "HEAD^")
-	remote, err2 := git(ctx, dir, "rev-parse", "refs/remotes/origin/"+branch)
-	if err1 != nil || err2 != nil || parent != remote {
-		return "local"
-	}
-	if _, err := git(ctx, dir, "push", "--quiet", "origin", "HEAD:refs/heads/"+branch); err == nil {
-		return "pushed"
-	} else {
-		slog.Warn("pushing the OpenSpec untracking to the default branch", "dir", dir, "error", err)
-	}
-	if task != "" {
-		if _, err := git(ctx, dir, "push", "--quiet", "origin", "HEAD:refs/heads/"+workspace.BranchName(task, "")); err == nil {
-			return "task_branch"
-		}
-	}
-	return "local"
 }

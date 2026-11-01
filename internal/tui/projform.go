@@ -128,7 +128,7 @@ func nonEmpty(s ...string) []string {
 }
 
 // projFormState is the new project form (ctrl+n anywhere, or the palette): name, ID (follows the name until
-// edited), description, OpenSpec, repository mode and, for an existing project, its path, URL, branch and
+// edited), description, repository mode and, for an existing project, its path, URL, branch and
 // the audit. It sends POST /projects with a request id per submit; errors are shown at their field, Core's
 // refusal under the form, which stays open.
 type projFormState struct {
@@ -137,7 +137,6 @@ type projFormState struct {
 	id       textinput.Model
 	idEdited bool
 	desc     textinput.Model
-	openspec bool
 	mode     int
 	path     textinput.Model
 	url      textinput.Model
@@ -152,7 +151,6 @@ const (
 	pName = iota
 	pID
 	pDesc
-	pOpenSpec
 	pRepo
 	pPath
 	pURL
@@ -162,7 +160,7 @@ const (
 	pCount
 )
 
-var projLabels = [pCount]string{"Name", "ID", "Description", "OpenSpec", "Repository", "Path on node", "Repository URL", "Branch", "Audit first", ""}
+var projLabels = [pCount]string{"Name", "ID", "Description", "Repository", "Path on node", "Repository URL", "Branch", "Audit first", ""}
 
 var projErrField = map[string]int{"id": pID, "name": pName, "description": pDesc, "workspace": pPath, "repo_url": pURL, "default_branch": pBranch}
 
@@ -181,7 +179,7 @@ func newInput(placeholder string, limit int) textinput.Model {
 
 // openProjectForm opens the new project form.
 func (m *Model) openProjectForm() tea.Cmd {
-	f := &projFormState{openspec: true, audit: true, errs: map[int]string{}}
+	f := &projFormState{audit: true, errs: map[int]string{}}
 	f.name = newInput("Advent gift", 200)
 	f.id = newInput("follows the name", 96)
 	f.desc = newInput("what it is, for whom", 64*1024)
@@ -196,7 +194,7 @@ func (f *projFormState) repoMode() string { return repoModes[f.mode] }
 
 // visible are the fields shown: the existing-project fields only for that mode.
 func (f *projFormState) visible() []int {
-	out := []int{pName, pID, pDesc, pOpenSpec, pRepo}
+	out := []int{pName, pID, pDesc, pRepo}
 	if f.repoMode() == RepoExisting {
 		out = append(out, pPath, pURL, pBranch, pAudit)
 	}
@@ -228,9 +226,8 @@ func (f *projFormState) focusField() tea.Cmd {
 
 // body is the POST /projects body of the form's values (without a request id).
 func (f *projFormState) body() tasks.ProjectCreate {
-	on := f.openspec
 	p := tasks.ProjectCreate{ID: strings.TrimSpace(f.id.Value()), Name: strings.TrimSpace(f.name.Value()), Description: strings.TrimSpace(f.desc.Value()),
-		RepoMode: f.repoMode(), OpenSpec: &tasks.ProjectOpenSpec{Enabled: &on}}
+		RepoMode: f.repoMode()}
 	if p.RepoMode == RepoExisting {
 		p.Workspace, p.RepoURL, p.DefaultBranch, p.Audit = strings.TrimSpace(f.path.Value()), strings.TrimSpace(f.url.Value()), strings.TrimSpace(f.branch.Value()), f.audit
 	}
@@ -342,8 +339,6 @@ func (f *projFormState) afterInput() {
 
 func (f *projFormState) choose(d int) {
 	switch f.focus {
-	case pOpenSpec:
-		f.openspec = !f.openspec
 	case pAudit:
 		f.audit = !f.audit
 	case pRepo:
@@ -394,8 +389,6 @@ func (m *Model) projFormLines(w, h int) []string {
 	}
 	for _, i := range f.visible() {
 		switch i {
-		case pOpenSpec:
-			lines = append(lines, label(i)+" "+toggle(f.openspec, "on — specs and changes kept in Core", "off"))
 		case pAudit:
 			lines = append(lines, label(i)+" "+toggle(f.audit, "yes — a read-only audit task for the product manager", "no"))
 		case pRepo:

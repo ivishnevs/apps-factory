@@ -64,13 +64,6 @@ function prose(text: string, title: (id: string) => string | undefined): string 
   return s;
 }
 
-// openspecPath: "changes/android/tasks.md" → "tasks.md in change android".
-function openspecPath(p: string) {
-  const m = p.match(/^changes\/([^/]+)\/(.+)$/);
-  if (m) return `${m[2]} in change ${m[1]}`;
-  return p;
-}
-
 // projectSummary: Core's project.created / provisioned / setup_failed notes (storage createdNote,
 // provisionedNote, CompleteProjectSetup) in the owner's words. title("node:<id>") names a node.
 function projectSummary(t: string, raw: string, title: (id: string) => string | undefined): string | undefined {
@@ -87,11 +80,7 @@ function projectSummary(t: string, raw: string, title: (id: string) => string | 
     return `Created by ${who(m[1].trim())}${m[2] ? ", approved by you" : ""}${repo ? ` · ${cap(repo)}` : ""}`;
   }
   if (t === "project.provisioned" && (m = raw.match(/^project \S+ ready on node (\S+): ([\s\S]*)$/))) {
-    const [what, ...rest] = m[2].split("; ");
-    const parts = rest.map((p) => p
-      .replace(/ into Factory$/, "")
-      .replace(/^the repository no longer tracks the OpenSpec tree \((.*)\)$/, "OpenSpec untracked in git: $1"));
-    return [`Repository ready${on(m[1])}: ${what.replace(/^local git repository /, "local repository ")}`, ...parts].join(" · ");
+    return `Repository ready${on(m[1])}: ${m[2].replace(/^local git repository /, "local repository ")}`;
   }
   if (t === "project.setup_failed" && (m = raw.match(/^setting up project \S+'s repository failed on node (\S+): ([\s\S]*)$/))) {
     return `Repository setup failed${on(m[1])}: ${prose(m[2], title)}`;
@@ -134,8 +123,6 @@ export function feedSummary(item: FeedItem, title: (id: string) => string | unde
   }
   if (!raw) {
     switch (true) {
-      case t === "openspec.written": return `Updated ${openspecPath(item.entity_id)}`;
-      case t === "openspec.deleted": return `Removed ${openspecPath(item.entity_id)}`;
       case t === "artifact.registered": return `Registered artifact ${item.entity_id}`;
       case t === "project.created": return `Project ${item.entity_id} created`;
       case t === "approval.requested": return taskTitle ? `Approval needed for ${quote(taskTitle)}` : "Waiting for an approval";

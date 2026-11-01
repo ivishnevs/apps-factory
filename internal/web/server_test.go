@@ -115,13 +115,13 @@ func TestCreateProject(t *testing.T) {
 		_ = json.NewDecoder(res.Body).Decode(&out)
 		return res.StatusCode, out
 	}
-	body := `{"Kind":"create_project","NewProject":{"id":"advent-gift","name":"Advent gift","description":"","request_id":"r-1","openspec":{"enabled":true},"repo_mode":"existing","repo_url":"https://github.com/me/advent","audit":true}}`
+	body := `{"Kind":"create_project","NewProject":{"id":"advent-gift","name":"Advent gift","description":"","request_id":"r-1","repo_mode":"existing","repo_url":"https://github.com/me/advent","audit":true}}`
 	code, out := post(body)
 	if code != 200 || out["result"] != "created project advent-gift: Advent gift" {
 		t.Fatal(code, out)
 	}
 	p := c.Sent[0].NewProject
-	if p == nil || p.RequestID != "r-1" || p.RepoMode != "existing" || p.RepoURL != "https://github.com/me/advent" || !p.Audit || !*p.OpenSpec.Enabled {
+	if p == nil || p.RequestID != "r-1" || p.RepoMode != "existing" || p.RepoURL != "https://github.com/me/advent" || !p.Audit {
 		t.Fatalf("%+v", p)
 	}
 	var ov tui.Overview

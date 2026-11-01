@@ -146,15 +146,12 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, OpenSpec: in.OpenSpec, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix(),
+		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix(),
 			CreatedBy: cmp.Or(in.CreatedBy, "owner"), ApprovalID: in.ApprovalID}
 		if in.Workspace != "" {
 			p.Workspace = filepath.Clean(in.Workspace)
 		}
 		if err := projectRepo(&p, in); err != nil {
-			return p, err
-		}
-		if err := validOpenSpecSetting(p.OpenSpec); err != nil {
 			return p, err
 		}
 		if err := validReviewPolicy(p.ReviewAfterConflicts); err != nil {
@@ -289,12 +286,6 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 			}
 			p.ReviewAfterConflicts = *in.ReviewAfterConflicts
 		}
-		if in.OpenSpec != nil {
-			if err = validOpenSpecSetting(in.OpenSpec); err != nil {
-				return p, err
-			}
-			p.OpenSpec = in.OpenSpec
-		}
 		if err = validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err
 		}
@@ -387,7 +378,7 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			}
 			return t, err
 		}
-		if err := s.checkTaskChange(ctx, tx, t, false); err != nil {
+		if err := checkTaskChange(t); err != nil {
 			return t, err
 		}
 		if t.ParentTaskID != "" {
@@ -584,7 +575,7 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		}
 		if in.OpenSpecChange != nil {
 			t.OpenSpecChange = *in.OpenSpecChange
-			if err = s.checkTaskChange(ctx, tx, t, false); err != nil {
+			if err = checkTaskChange(t); err != nil {
 				return t, err
 			}
 		}
@@ -668,9 +659,6 @@ func (s *Store) TaskAction(ctx context.Context, company, id string, in tasks.Act
 				return t, inputError("assignee required")
 			}
 			if err = editableRun(ctx, tx, t); err != nil {
-				return t, err
-			}
-			if err = s.checkTaskChange(ctx, tx, t, true); err != nil {
 				return t, err
 			}
 			t.Status = "READY"

@@ -49,13 +49,7 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if err != nil {
 		return spec, err
 	}
-	// A project whose repository is not set up yet has no OpenSpec tree in Core either (an existing
-	// repository's is imported by the setup): the node's preflight checks the change after the setup.
-	if p.Ready() || t.Kind == tasks.KindConversation {
-		if err = s.checkTaskChange(ctx, tx, t, true); err != nil {
-			return spec, err
-		}
-	}
+	// The linked OpenSpec change is checked by the node's preflight on the task's checkout.
 	spec.OpenSpecChange = t.OpenSpecChange
 	inputs, reason, err := approvedArtifactInputs(ctx, tx, t)
 	if err != nil {

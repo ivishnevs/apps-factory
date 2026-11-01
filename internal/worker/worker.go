@@ -25,7 +25,6 @@ import (
 	"appfactory/internal/node"
 	"appfactory/internal/node/sessions"
 	"appfactory/internal/node/shim"
-	"appfactory/internal/openspec"
 	"appfactory/internal/policies"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
@@ -492,13 +491,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer allocation.Release()
 		cwd = allocation.Path
 	}
-	// Project data from Core (OpenSpec tree, artifact inputs) before anything reads the worktree.
+	// Project data from Core (pinned artifact inputs) before anything reads the worktree.
 	if err := w.Materialize(ctx, spec, lease, cwd); err != nil {
 		return emit("failed", protocol.Event{Status: ended, Result: "materializing project data failed before runtime startup: " + err.Error(), Outcome: outcomeSetupFailed})
 	}
 	if spec.OpenSpecChange != "" {
 		if e := preflightChange(cwd, spec); e != nil {
-			return emit("failed", protocol.Event{Status: ended, Result: "OpenSpec preflight failed before runtime startup: " + e.Error(), Outcome: outcomeSetupFailed})
+			return emit("failed", protocol.Event{Status: ended, Result: "OpenSpec change " + spec.OpenSpecChange + " is not on the task's checkout (merge its proposal to the default branch first, or fix the task's openspec_change): " + e.Error(), Outcome: outcomeChangeMissing})
 		}
 	}
 	skillsRoot, skillList, err := w.stageSkills(spec)
@@ -600,6 +599,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			launch.Env = setEnv(launch.Env, "FACTORY_DEFAULT_BRANCH", spec.DefaultBranch)
 			launch.Env = setEnv(launch.Env, "FACTORY_REDACT_FILE", redactFile)
 			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH", "FACTORY_REDACT_FILE"}
+			if spec.OpenSpecChange != "" {
+				// The adapter reports the linked change's state with the exit facts (openspec-in-git D3).
+				launch.Env = setEnv(launch.Env, "FACTORY_OPENSPEC_CHANGE", spec.OpenSpecChange)
+				vars = append(vars, "FACTORY_OPENSPEC_CHANGE")
+			}
 			if spec.Conversation {
 				// No git facts for a conversation run's exits: it owns no branch or PR.
 				launch.Env = setEnv(launch.Env, "FACTORY_CONVERSATION", "1")
@@ -728,7 +732,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			if w.RuntimeActivity != nil {
 				w.RuntimeActivity()
 			}
-			p := protocol.Event{Method: e.Method, Data: openspec.AuditData(e.Data)}
+			p := protocol.Event{Method: e.Method, Data: e.Data}
 			switch e.Kind {
 			case driver.EventUsage, driver.EventCost:
 				meter.add(e)
@@ -764,7 +768,9 @@ const (
 	outcomeTimedOut    = "timed_out"
 	outcomeIdleTimeout = "idle_timeout"
 	outcomeSetupFailed = "setup_failed"
-	outcomeRevoked     = "revoked"
+	// outcomeChangeMissing: the task's linked OpenSpec change is not on its checkout (openspec-in-git D3).
+	outcomeChangeMissing = "change_missing"
+	outcomeRevoked       = "revoked"
 	// outcomeLost: the run ended without terminal evidence; Core records it lost (no attempt).
 	outcomeLost = "lost"
 )

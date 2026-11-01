@@ -106,7 +106,7 @@ func runLease(ctx context.Context, q rowQuerier, company, run, lease string) (st
 }
 
 // RunBlob opens a blob for a live run's materialization: the run's lease must match and the blob must belong
-// to the run's project (an OpenSpec document version or an artifact version of it).
+// to the run's project (an artifact version of it).
 func (s *Store) RunBlob(ctx context.Context, company, run, lease, sha string) (io.ReadCloser, Blob, error) {
 	status, project, err := runLease(ctx, s.DB, company, run, lease)
 	if err != nil {
@@ -118,11 +118,10 @@ func (s *Store) RunBlob(ctx context.Context, company, run, lease, sha string) (i
 	return s.ProjectBlob(ctx, company, project, sha)
 }
 
-// ProjectBlob opens a blob that belongs to project (an OpenSpec document version or an artifact version).
+// ProjectBlob opens a blob that belongs to project (an artifact version).
 func (s *Store) ProjectBlob(ctx context.Context, company, project, sha string) (io.ReadCloser, Blob, error) {
 	var refs int
-	if err := s.DB.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM spec_documents WHERE company_id=? AND project_id=? AND sha256=?)
- + (SELECT count(*) FROM artifact_versions WHERE company_id=? AND project_id=? AND sha256=?)`, company, project, sha, company, project, sha).Scan(&refs); err != nil {
+	if err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM artifact_versions WHERE company_id=? AND project_id=? AND sha256=?", company, project, sha).Scan(&refs); err != nil {
 		return nil, Blob{}, err
 	}
 	if refs == 0 {

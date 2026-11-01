@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -103,5 +104,15 @@ func TestArtifactUploadBindsApprovalToContent(t *testing.T) {
 	w := h.do(h.c.Token, "GET", "/projects/notes/artifacts/mockup/v1/content", nil, nil)
 	if w.Code != 200 || w.Body.String() != "<svg>v1</svg>" {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func writeFile(t *testing.T, name, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

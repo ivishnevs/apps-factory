@@ -164,7 +164,7 @@ func TestProjectSetupGate(t *testing.T) {
 		t.Fatal("exactly one run sets the project up", first, second)
 	}
 	run, _ := h.s.Get(ctx, storage.DefaultCompany, setupTask.CurrentRunID)
-	if run.Spec.ProjectSetup == nil || run.Spec.ProjectSetup.Mode != "local" || run.Spec.Workspace != "" || run.Spec.ProjectSetup.OpenSpecDir != "openspec" {
+	if run.Spec.ProjectSetup == nil || run.Spec.ProjectSetup.Mode != "local" || run.Spec.Workspace != "" {
 		t.Fatalf("%+v", run.Spec)
 	}
 	if err := h.c.Schedule(ctx); err != nil {
@@ -187,7 +187,7 @@ func TestProjectSetupGate(t *testing.T) {
 	}
 	w := h.http("owner", "POST", "/runs/"+run.Spec.ID+"/project-setup", report)
 	var answer protocol.ProjectSetupAnswer
-	if json.Unmarshal(w.Body.Bytes(), &answer); w.Code != 200 || answer.Workspace != report.Workspace || answer.Materialize == nil || answer.Materialize.OpenSpecDir != "openspec" {
+	if json.Unmarshal(w.Body.Bytes(), &answer); w.Code != 200 || answer.Workspace != report.Workspace || answer.Materialize == nil || len(answer.Materialize.Files) != 0 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	if w = h.http("owner", "POST", "/runs/"+run.Spec.ID+"/project-setup", report); w.Code != 200 {

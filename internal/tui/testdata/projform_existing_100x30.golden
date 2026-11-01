@@ -5,22 +5,22 @@
 │ ├ ● lead: Conversation with owner       1m 00s ││ [!] Task 1 P1-1                    ← needs you │
 │ │   └ › The owner asks whether P2-2 ca… 0m 50s ││     ↳ children · waits on pm: wait for P1-3, … │
 │ │ ├ ● developer-2: Task 2            ✗1 7m 00s ││ [!] Task 3 P2-3                    ← needs you │
-│ │ │╭───────────────────────────────────── New project ──────────────────────────────────────╮sc… │
-│ │ └│   Name            Old App                                                              │you │
-│ │  │   ID              old-app                                                              │ t… │
-│ └ ◐│   Description     what it is, for whom                                                 │you │
-│   ├│   OpenSpec        ● on — specs and changes kept in Core                                │iew │
-│   ├│   Repository      Existing project (path or URL)                                       │    │
-│   ││                  a path on the node, a URL the node clones, or both                    │    │
-│   └│ ▸ Path on node    /Users/me/projects/old-app                                           │    │
-╰────│   Repository URL  git@github.com:me/app.git                                            │────╯
-╭────│   Branch          main (the remote's default when empty)                               │────╮
-│ 14:│   Audit first     ● yes — a read-only audit task for the product manager               │d … │
-│ 14:│                                                                                        │us… │
-│ 14:│                   Create project                                                       │    │
-│ 14:│ ────────────────────────────────────────────────────────────────────────────────────── │    │
-│ 14:│ tab next ←→ choose space toggle ctrl+s create esc cancel                               │    │
+│ │ │   └ ✎ Edit: src/module_2.ts         0m 15s ││     ↳ escalation · waits on you: answer m-esc… │
+│ │ └ ● reviewer: Task 1                  4m 00s ││ [!] Task 5 P1-5                    ← needs you │
+│ │     └ › Testing Task 1 on a large in… 0m 30s ││     ↳ ask · waits on you: answer m-ask-1 in t… │
+│ └ ◐╭───────────────────────────────────── New project ──────────────────────────────────────╮you │
+│   ├│ ▸ Name            Old App/Users/me/projects/old-app                                    │iew │
+│   ├│   ID              old-app-users-me-projects-old-app                                    │    │
+│   ││   Description     what it is, for whom                                                 │    │
+│   └│   Repository      New local repository                                                 │    │
+╰────│                                                                                        │────╯
+╭────│                   Create project                                                       │────╮
+│ 14:│ ────────────────────────────────────────────────────────────────────────────────────── │d … │
+│ 14:│ tab next ←→ choose space toggle ctrl+s create esc cancel                               │us… │
 │ 14:╰────────────────────────────────────────────────────────────────────────────────────────╯    │
+│ 14:28:40  [developer-2] Bash          $ npm test -- module_2 (exit 1)                            │
+│ 14:29:00  [lead]        answer        → developer-2  Option B, keep it behind a flag.            │
+│ 14:29:00  [developer-2] Bash          $ npm test -- module_2                                     │
 │ 14:29:10  [lead]        says          “The owner asks whether P2-2 can be retried after the reb… │
 │ 14:29:20  [developer-1] Bash          $ go test ./src/... -run TestStore                         │
 │ 14:29:30  [reviewer]    says          “Testing Task 1 on a large input as the owner asked.”      │

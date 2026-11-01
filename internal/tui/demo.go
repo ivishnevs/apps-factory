@@ -188,7 +188,7 @@ func DemoFixture() Fixture {
 		Reason: "users of Project 1 keep asking for reminders; a separate app keeps Project 1 small",
 		Call: factorytools.Call{Name: "factory_project_create", Arguments: map[string]any{"project_id": "project-6", "name": "Project 6",
 			"description": "Companion app for Project 1: reminders and offline sync.", "repo_mode": "existing", "repo_url": "https://github.com/company-1/project-6",
-			"default_branch": "main", "openspec": true, "audit": true, "request_id": "pm-project-6"}}}
+			"default_branch": "main", "audit": true, "request_id": "pm-project-6"}}}
 
 	// Cost history: the runs that ended in the last 24 h.
 	recent := []storage.RunCost{}

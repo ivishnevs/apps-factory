@@ -38,8 +38,8 @@ export interface Project {
 export type SetupState = "pending" | "running" | "ready" | "failed";
 // ProjectSetup is tasks.ProjectSetup: the node that runs the project's first task sets the repository up.
 export interface ProjectSetup {
-  state: SetupState; task_id?: string; run_id?: string; node_id?: string; reason?: string; openspec_imported?: number;
-  openspec_untracked?: "pushed" | "task_branch" | "local" | ""; audit?: boolean; audit_task_id?: string; updated_at?: number;
+  state: SetupState; task_id?: string; run_id?: string; node_id?: string; reason?: string;
+  audit?: boolean; audit_task_id?: string; updated_at?: number;
 }
 
 export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[] }
@@ -154,7 +154,7 @@ export type RepoMode = "local" | "github" | "existing";
 // ProjectCreate is tasks.ProjectCreate, the POST /projects body; request_id is one per submit.
 export interface ProjectCreate {
   id: string; name: string; description: string; workspace?: string; repo_url?: string; default_branch?: string;
-  request_id: string; openspec: { enabled: boolean }; repo_mode: RepoMode; audit?: boolean;
+  request_id: string; repo_mode: RepoMode; audit?: boolean;
 }
 
 export interface Meta { describe: string; mode: "live" | "demo" }

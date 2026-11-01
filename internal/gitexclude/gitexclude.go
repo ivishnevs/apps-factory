@@ -1,9 +1,9 @@
-// Package gitexclude makes git ignore the files the node materializes into a worktree (the OpenSpec
-// tree, .factory, pinned skills) in that worktree only.
+// Package gitexclude makes git ignore the files the node materializes into a worktree (.factory, pinned
+// skills) in that worktree only.
 //
 // git reads info/exclude from the repository's common directory, so a rule written there applies to the
 // main checkout and every linked worktree of the repository: a factory worktree created from the owner's
-// checkout would make the owner's own new files under openspec/ silently ignored. Instead the rules go to
+// checkout would make the owner's own new files there silently ignored. Instead the rules go to
 // a file inside the worktree's own git directory (<git-dir>/factory-exclude) that the worktree's
 // per-worktree configuration (extensions.worktreeConfig + `git config --worktree`) names as
 // core.excludesFile. That setting replaces the user's global excludes file for this worktree, so the
@@ -24,6 +24,11 @@ import (
 
 // FileName is the per-worktree excludes file, inside the worktree's git directory.
 const FileName = "factory-exclude"
+
+// Retired are patterns earlier node versions wrote that must stop applying: every Add drops them from the
+// per-worktree file and the shared info/exclude. "/openspec/": OpenSpec is tracked in the repository since
+// openspec-in-git, so an existing worktree must not keep ignoring it.
+var Retired = []string{"/openspec/"}
 
 const (
 	header     = "# App Factory: files the node materializes into this worktree; git ignores them in this worktree only."
@@ -59,7 +64,7 @@ func Add(ctx context.Context, dir string, patterns ...string) error {
 			return err
 		}
 	}
-	return removeLegacy(filepath.Join(common, "info", "exclude"), patterns)
+	return removeLegacy(filepath.Join(common, "info", "exclude"), append(append([]string{}, patterns...), Retired...))
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
@@ -128,6 +133,9 @@ func writeFile(file, base string, patterns []string) error {
 	}
 	var keep []string
 	seen := map[string]bool{}
+	for _, r := range Retired {
+		seen[r] = true
+	}
 	for _, l := range strings.Split(string(old), "\n") {
 		if strings.HasPrefix(l, copyHeader) {
 			break

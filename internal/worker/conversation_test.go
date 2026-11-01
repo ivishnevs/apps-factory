@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,20 +28,24 @@ func TestJetStreamConversationBesideWriter(t *testing.T) {
 	if url == "" {
 		t.Skip("set NATS_TEST_URL to dedicated broker")
 	}
-	const proposal = "# Feature\nCore-owned\n"
+	const design = "<svg>v1</svg>"
 	var files []protocol.ManifestFile
 	prepare := withStore(func(s *storage.Store) {
 		ctx := context.Background()
 		if _, err := s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "fake-project", Name: "p", Workspace: "/nodes/p"}); err != nil {
 			t.Fatal(err)
 		}
-		w, err := s.WriteOpenSpec(ctx, storage.DefaultCompany, "fake-project", storage.OpenSpecChange{Path: "changes/feature/proposal.md", Content: []byte(proposal), Actor: "owner"})
+		blob, err := s.PutBlob(ctx, storage.DefaultCompany, strings.NewReader(design), storage.MaxBlob)
 		if err != nil {
 			t.Fatal(err)
 		}
-		files = []protocol.ManifestFile{{Path: "openspec/changes/feature/proposal.md", SHA256: w.SHA256, Size: w.Size}}
+		body, _ := json.Marshal(map[string]any{"id": "mockup", "version": "v1"})
+		if _, err = s.DB.Exec("INSERT INTO artifact_versions(project_id,id,version,uri,body,company_id,sha256,size) VALUES('fake-project','mockup','v1','factory://artifacts/mockup/v1',?,'default',?,?)", body, blob.SHA256, blob.Size); err != nil {
+			t.Fatal(err)
+		}
+		files = []protocol.ManifestFile{{Path: ".factory/inputs/mockup/v1/landing.svg", SHA256: blob.SHA256, Size: blob.Size}}
 	})
-	const writerManifest = `{"openspec_dir":"openspec","files":[]}`
+	const writerManifest = `{"files":[]}`
 	var ws string
 	var writer workspace.Allocation
 	conversation := func(session string) func(*protocol.RunSpec) {
@@ -58,7 +63,7 @@ func TestJetStreamConversationBesideWriter(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.Conversation, s.TaskID, s.SessionID = true, "conv-demo", session
-			s.Materialize = &protocol.Manifest{OpenSpecDir: "openspec", Files: files}
+			s.Materialize = &protocol.Manifest{Files: files}
 		}
 	}
 	state := t.TempDir()
@@ -84,7 +89,7 @@ func TestJetStreamConversationBesideWriter(t *testing.T) {
 		if !slices.Contains(l.Env, "FACTORY_PROJECT_WORKSPACE="+ws) || !strings.Contains(l.Instructions, ws) {
 			t.Fatalf("project workspace not passed: %q", l.Instructions)
 		}
-		if b, err := os.ReadFile(filepath.Join(want, "openspec/changes/feature/proposal.md")); err != nil || string(b) != proposal {
+		if b, err := os.ReadFile(filepath.Join(want, ".factory/inputs/mockup/v1/landing.svg")); err != nil || string(b) != design {
 			t.Fatal("not materialized in the conversation directory", err)
 		}
 		if b, err := os.ReadFile(filepath.Join(want, protocol.ManifestPath)); err != nil || !strings.Contains(string(b), files[0].SHA256) {
@@ -94,7 +99,7 @@ func TestJetStreamConversationBesideWriter(t *testing.T) {
 		if b, err := os.ReadFile(filepath.Join(ws, protocol.ManifestPath)); err != nil || string(b) != writerManifest {
 			t.Fatalf("writer manifest changed: %q %v", b, err)
 		}
-		for _, p := range []string{"openspec", "notes.md"} {
+		for _, p := range []string{".factory/inputs", "notes.md"} {
 			if _, err := os.Stat(filepath.Join(ws, p)); !os.IsNotExist(err) {
 				t.Fatalf("%s written into the project workspace: %v", p, err)
 			}

@@ -18,8 +18,6 @@ type Project struct {
 	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
 	// Rules are the project's standing conventions, facts and fixed decisions, carried by every brief.
 	Rules string `json:"rules,omitempty"`
-	// OpenSpec is the project's OpenSpec setting (core-owned-project-data D2); nil means enabled in openspec/.
-	OpenSpec *ProjectOpenSpec `json:"openspec,omitempty"`
 	// RepoMode is how the project's repository came to be (project-creation D1): "local" (a new git repository
 	// the node creates under its projects_root), "github" (a new private GitHub repository created through the
 	// node's gh, cloned there), "existing" (a repository that exists: workspace path and/or repo_url, onboarded
@@ -52,12 +50,6 @@ type ProjectSetup struct {
 	RunID  string `json:"run_id,omitempty"`
 	NodeID string `json:"node_id,omitempty"`
 	Reason string `json:"reason,omitempty"`
-	// OpenSpecImported counts the documents of an existing repository's OpenSpec tree imported into Core;
-	// OpenSpecUntracked says where the commit that stopped tracking the tree went: "pushed" (default branch),
-	// "task_branch" (the first task's branch af/<task>), "local" (no remote, or nothing could be pushed) or ""
-	// (the repository did not track it).
-	OpenSpecImported  int    `json:"openspec_imported,omitempty"`
-	OpenSpecUntracked string `json:"openspec_untracked,omitempty"`
 	// Audit asked for an onboarding audit; AuditTaskID is the task Core created for it.
 	Audit       bool   `json:"audit,omitempty"`
 	AuditTaskID string `json:"audit_task_id,omitempty"`
@@ -70,28 +62,6 @@ const (
 	RepoGitHub   = "github"
 	RepoExisting = "existing"
 )
-
-// ProjectOpenSpec: Enabled (default true) keeps the project's OpenSpec tree in Core and materializes it into
-// every run's worktree at Dir (default openspec); ArchiveAssignee receives the archive task of a finished
-// change (default: the manager of its last implementer).
-type ProjectOpenSpec struct {
-	Enabled         *bool  `json:"enabled,omitempty"`
-	Dir             string `json:"dir,omitempty"`
-	ArchiveAssignee string `json:"archive_assignee,omitempty"`
-}
-
-// OpenSpecEnabled is the project's openspec.enabled, true by default.
-func (p Project) OpenSpecEnabled() bool {
-	return p.OpenSpec == nil || p.OpenSpec.Enabled == nil || *p.OpenSpec.Enabled
-}
-
-// OpenSpecDir is the project's openspec.dir, "openspec" by default.
-func (p Project) OpenSpecDir() string {
-	if p.OpenSpec == nil || p.OpenSpec.Dir == "" {
-		return "openspec"
-	}
-	return p.OpenSpec.Dir
-}
 
 type Artifact struct {
 	ID      string `json:"id"`
@@ -184,13 +154,12 @@ type ProjectCreate struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// Workspace is an absolute path on the node; optional (project-creation D1).
-	Workspace            string           `json:"workspace,omitempty"`
-	RequestID            string           `json:"request_id,omitempty"`
-	RepoURL              string           `json:"repo_url,omitempty"`
-	DefaultBranch        string           `json:"default_branch,omitempty"`
-	ReviewAfterConflicts string           `json:"review_after_conflicts,omitempty"`
-	Rules                string           `json:"rules,omitempty"`
-	OpenSpec             *ProjectOpenSpec `json:"openspec,omitempty"`
+	Workspace            string `json:"workspace,omitempty"`
+	RequestID            string `json:"request_id,omitempty"`
+	RepoURL              string `json:"repo_url,omitempty"`
+	DefaultBranch        string `json:"default_branch,omitempty"`
+	ReviewAfterConflicts string `json:"review_after_conflicts,omitempty"`
+	Rules                string `json:"rules,omitempty"`
 	// RepoMode: local (the default without workspace and repo_url), github or existing (Project.RepoMode).
 	RepoMode string `json:"repo_mode,omitempty"`
 	// Audit (an existing repository) makes Core create an onboarding audit task for the configured agent.
@@ -209,8 +178,6 @@ type ProjectUpdate struct {
 	DefaultBranch        *string `json:"default_branch,omitempty"`
 	ReviewAfterConflicts *string `json:"review_after_conflicts,omitempty"`
 	Rules                *string `json:"rules,omitempty"`
-	// OpenSpec replaces the whole OpenSpec setting.
-	OpenSpec *ProjectOpenSpec `json:"openspec,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

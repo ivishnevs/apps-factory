@@ -453,7 +453,7 @@ func (c *FixtureClient) createProject(in *tasks.ProjectCreate) (string, error) {
 		mode = RepoLocal
 	}
 	p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, Workspace: in.Workspace, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch,
-		OpenSpec: in.OpenSpec, Version: 1, CreatedAt: at, UpdatedAt: at, RepoMode: mode, CreatedBy: "owner"}
+		Version: 1, CreatedAt: at, UpdatedAt: at, RepoMode: mode, CreatedBy: "owner"}
 	if mode != "" {
 		p.Setup = &tasks.ProjectSetup{State: tasks.SetupPending, Audit: in.Audit, UpdatedAt: at}
 	}
@@ -461,7 +461,7 @@ func (c *FixtureClient) createProject(in *tasks.ProjectCreate) (string, error) {
 	if mode == RepoExisting && in.Audit {
 		t := Task{Task: tasks.Task{ID: in.ID + "-1", ProjectID: in.ID, Title: "Audit the existing project " + in.Name, Status: "READY", Assignee: defaultReportOf(c.F.Overview),
 			CreatedBy: "owner", Priority: 9, Version: 1, CreatedAt: at, UpdatedAt: at,
-			Description: "Read-only audit with the project-audit skill: code, build, product state; OpenSpec baseline specs of today's behaviour; a report with options."},
+			Description: "Read-only audit with the project-audit skill: code, build, product state; OpenSpec baseline specs of today's behaviour committed to the repository; a report with options."},
 			Reason: tasks.ReasonRunnable, Clearer: tasks.Clearer{Who: "scheduler", Action: "dispatch on the next tick"}}
 		c.F.Overview.Tasks = append(c.F.Overview.Tasks, t)
 		st.Tasks["READY"] = 1

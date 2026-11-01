@@ -450,18 +450,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	} else if short != "" {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: short}
 	}
-	// OpenSpec and approved artifacts as in v1; a failed check is recorded on the task.
-	if spec.OpenSpecChange != "" {
-		if e := s.runChangeCheck(ctx, tx, spec.Project, spec.OpenSpecChange); e != nil {
-			if err = blockOpenSpecRun(ctx, tx, id, spec.TaskID, e.Error()); err != nil {
-				return out, err
-			}
-			if err = tx.Commit(); err != nil {
-				return out, err
-			}
-			return out, drop("not_runnable")
-		}
-	}
+	// Approved artifacts as in v1 (the OpenSpec change is checked by the node on the checkout).
 	valid, err := approvedRunArtifacts(ctx, tx, spec)
 	if err != nil {
 		return out, err
@@ -525,7 +514,7 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 // OpenSpec tree (when enabled) and the uploaded contents of the run's pinned approved artifact inputs. A run
 // outside a registered project gets none.
 func runManifest(ctx context.Context, tx *Tx, spec protocol.RunSpec) (*protocol.Manifest, error) {
-	p, err := projectTx(ctx, tx, spec.Project)
+	_, err := projectTx(ctx, tx, spec.Project)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -533,16 +522,6 @@ func runManifest(ctx context.Context, tx *Tx, spec protocol.RunSpec) (*protocol.
 		return nil, err
 	}
 	m := &protocol.Manifest{Files: []protocol.ManifestFile{}}
-	if p.OpenSpecEnabled() {
-		m.OpenSpecDir = p.OpenSpecDir()
-		docs, err := specDocs(ctx, tx, tx.company, p.ID, "")
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range docs {
-			m.Files = append(m.Files, protocol.ManifestFile{Path: m.OpenSpecDir + "/" + d.Path, SHA256: d.SHA256, Size: d.Size})
-		}
-	}
 	for _, in := range spec.ApprovedArtifacts {
 		if a := in.Artifact; a.SHA256 != "" {
 			m.Files = append(m.Files, protocol.ManifestFile{Path: protocol.InputPath(a), SHA256: a.SHA256, Size: a.Size})

@@ -180,17 +180,6 @@ func (s *Store) ClaimRun(ctx context.Context, company, id string) (Claimed, erro
 	} else if why != "" {
 		return out, claimStale(ctx, tx, id, why)
 	}
-	if spec.OpenSpecChange != "" {
-		if e := s.runChangeCheck(ctx, tx, spec.Project, spec.OpenSpecChange); e != nil {
-			if err = blockOpenSpecRun(ctx, tx, id, spec.TaskID, e.Error()); err != nil {
-				return out, err
-			}
-			if err = tx.Commit(); err != nil {
-				return out, err
-			}
-			return out, drop("not_runnable")
-		}
-	}
 	valid, err := approvedRunArtifacts(ctx, tx, spec)
 	if err != nil {
 		return out, err

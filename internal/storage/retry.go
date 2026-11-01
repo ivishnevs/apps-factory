@@ -43,6 +43,7 @@ func init() {
 	escalationAnswers["retries_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["no_exit"] = []string{"retry", "reassign", "accept", "cancel"}
+	escalationAnswers["change_missing"] = []string{"retry", "cancel"}
 	escalationAnswers["inspect"] = []string{"retry", "continue", "cancel"}
 }
 
@@ -250,6 +251,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	case outcome == "setup_failed" && strings.HasPrefix(result, "workspace_diverged"):
 		// Retrying cannot help: the worktree changed outside any run (task-worktrees D4).
 		reason, summary = "workspace_diverged", excerpt512(result)
+	case outcome == "change_missing":
+		// Retrying cannot help until the change reaches the default branch (openspec-in-git D3).
+		reason, summary = "change_missing", excerpt512(result)+" — retry once the change's proposal is merged, or cancel"
 	case fresh:
 	case outcome == "no_exit" && t.AttemptsNoProgress < RetryAttempts:
 		reason, summary = "no_exit", "the agent's run ended without a factory_exit_* call (for review: the agent did not finish): "+excerpt512(result)

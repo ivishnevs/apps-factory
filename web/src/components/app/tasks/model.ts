@@ -82,7 +82,7 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
   if (runs.queued.has(t.id)) return "ready";
   if (runs.live.has(t.id) || t.status === "IN_PROGRESS") return "running";
   if (t.status === "BLOCKED" || t.status === "REWORK" || t.reason.startsWith("parked:") || t.reason.startsWith("paused:") ||
-    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "openspec", "no_capable_node"].includes(t.reason)) return "waiting";
+    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node"].includes(t.reason)) return "waiting";
   return "ready";
 }
 
@@ -90,7 +90,7 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
 const reasonLabels: Record<string, string> = {
   live_run: "Running", dependencies: "Blocked by dependencies", artifacts: "Waiting for artifacts", unassigned: "No assignee",
   backoff: "Backing off", capacity: "Queued", idle: "Idle", runnable: "Runnable", backlog: "In backlog", terminal: "Closed",
-  openspec: "OpenSpec check fails", pinned_node_unavailable: "Its node is unavailable", no_capable_node: "No node can run it",
+  pinned_node_unavailable: "Its node is unavailable", no_capable_node: "No node can run it",
   "parked:escalation": "Escalated", "parked:inspect": "Needs inspection", "parked:wait": "Waiting", "parked:ask": "Question asked",
   "parked:block": "Blocked", "parked:children": "Waiting for subtasks",
 };

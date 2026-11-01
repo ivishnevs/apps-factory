@@ -1,16 +1,13 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
-	"appfactory/internal/openspec"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
@@ -21,18 +18,14 @@ import (
 // keeps a second setup and every other run of the project out until it ends; tasks of the project other than
 // the one whose run performs the setup wait with reason project_setup. The node reports the repository (or
 // the reason it failed) with the run's lease; Core then records the workspace, imports an existing
-// repository's OpenSpec tree and hands the run its workspace and manifest.
+// repository is left as it is (its openspec/ included) and Core hands the run its workspace and manifest.
 
 // setupSlot is the writer slot of the run that sets project's repository up.
 func setupSlot(project string) string { return "project-setup/" + project }
 
 // setupSpec is what the node sets up for p.
 func setupSpec(p tasks.Project) *protocol.ProjectSetup {
-	s := &protocol.ProjectSetup{Mode: p.RepoMode, Name: p.Name, Description: p.Description, Workspace: p.Workspace, RepoURL: p.RepoURL, DefaultBranch: p.DefaultBranch}
-	if p.OpenSpecEnabled() {
-		s.OpenSpecDir = p.OpenSpecDir()
-	}
-	return s
+	return &protocol.ProjectSetup{Mode: p.RepoMode, Name: p.Name, Description: p.Description, Workspace: p.Workspace, RepoURL: p.RepoURL, DefaultBranch: p.DefaultBranch}
 }
 
 // saveProjectBody stores p's body as it is (no version change: setup state is Core's, not an owner edit).
@@ -90,32 +83,10 @@ func (s *Store) SetProjectAuditTask(ctx context.Context, company, project, task 
 
 // CompleteProjectSetup records the node's report of the setup a run performed, authenticated by the run's
 // lease. A failure is recorded with its reason (the run then ends setup_failed and its task retries). A
-// success sets the project's workspace (and repo_url, default_branch), imports the reported OpenSpec documents
-// (those that differ from Core's current version; nothing is deleted), marks the setup ready, and answers the
+// success sets the project's workspace (and repo_url, default_branch), marks the setup ready, and answers the
 // run's workspace and manifest. A repeated report of a ready setup by the same run answers the same.
 func (s *Store) CompleteProjectSetup(ctx context.Context, company, runID string, in protocol.ProjectSetupReport) (protocol.ProjectSetupAnswer, error) {
 	var out protocol.ProjectSetupAnswer
-	type doc struct {
-		path string
-		blob Blob
-	}
-	var docs []doc
-	if in.Error == "" {
-		for _, d := range in.OpenSpec {
-			content := []byte(d.Content)
-			if !openspec.ValidPath(d.Path) {
-				return out, inputError("invalid OpenSpec path " + d.Path)
-			}
-			if err := openspec.ValidContent(content); err != nil {
-				return out, inputError(d.Path + ": " + err.Error())
-			}
-			blob, err := s.PutBlob(ctx, company, bytes.NewReader(content), openspec.MaxDocument)
-			if err != nil {
-				return out, err
-			}
-			docs = append(docs, doc{d.Path, blob})
-		}
-	}
 	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return out, err
@@ -184,25 +155,11 @@ func (s *Store) CompleteProjectSetup(ctx context.Context, company, runID string,
 	if !errors.Is(err, sql.ErrNoRows) {
 		return out, err
 	}
-	imported := 0
-	for _, d := range docs {
-		cur, version, found, err := specDoc(ctx, tx, company, p.ID, d.path)
-		if err != nil {
-			return out, err
-		}
-		if found && cur.SHA256 == d.blob.SHA256 {
-			continue
-		}
-		if _, err = putSpecDoc(ctx, tx, p.ID, d.path, d.blob, version, OpenSpecChange{Actor: "project-setup", RunID: runID}); err != nil {
-			return out, err
-		}
-		imported++
-	}
 	p.Workspace, p.RepoURL = in.Workspace, in.RepoURL
 	if in.DefaultBranch != "" {
 		p.DefaultBranch = in.DefaultBranch
 	}
-	p.Setup.State, p.Setup.Reason, p.Setup.OpenSpecImported, p.Setup.OpenSpecUntracked = tasks.SetupReady, "", imported, in.Untracked
+	p.Setup.State, p.Setup.Reason = tasks.SetupReady, ""
 	p.Version++
 	p.UpdatedAt = now
 	if err = saveProjectBody(ctx, tx, p); err != nil {
@@ -245,21 +202,5 @@ func provisionedNote(p tasks.Project, node string) string {
 			what += " (" + p.RepoURL + ")"
 		}
 	}
-	note := "project " + p.ID + " ready on node " + node + ": " + what
-	var parts []string
-	if n := p.Setup.OpenSpecImported; n > 0 {
-		parts = append(parts, fmt.Sprintf("%d OpenSpec documents imported into Factory", n))
-	}
-	switch p.Setup.OpenSpecUntracked {
-	case "pushed":
-		parts = append(parts, "the repository no longer tracks the OpenSpec tree (commit pushed to the default branch)")
-	case "task_branch":
-		parts = append(parts, "the repository no longer tracks the OpenSpec tree (commit on the first task's branch af/"+p.Setup.TaskID+"; it reaches the default branch with that task's pull request)")
-	case "local":
-		parts = append(parts, "the repository no longer tracks the OpenSpec tree (local commit, not pushed)")
-	}
-	if len(parts) > 0 {
-		note += "; " + strings.Join(parts, "; ")
-	}
-	return note
+	return "project " + p.ID + " ready on node " + node + ": " + what
 }

@@ -29,6 +29,8 @@ type ExitFacts struct {
 	Pushed         bool       `json:"pushed"`
 	PR             *PRFacts   `json:"pr"`
 	Scan           *ScanFacts `json:"scan,omitempty"`
+	// OpenSpec is the linked change's state where the work is (openspec-in-git D3).
+	OpenSpec *OpenSpecFacts `json:"openspec,omitempty"`
 }
 
 type PRFacts struct {
@@ -418,6 +420,8 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		t.Status, t.Result = "DONE", str(a, "summary")
 		if t.Kind == tasks.KindConversation {
 			t.Status = "READY" // input handled up to ack_seq; the conversation stays open (hierarchy D5)
+		} else if err := recordChangeFacts(ctx, tx, t, req.Facts); err != nil {
+			return out, err
 		}
 	case "ask":
 		if err := exitAsk(ctx, tx, runID, agent, &t, str(a, "question"), strs(a, "options"), str(a, "evidence"), str(a, "category")); err != nil {

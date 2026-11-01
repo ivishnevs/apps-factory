@@ -54,7 +54,7 @@ func repo(t *testing.T) (main, globalIgnore string) {
 
 // TestAddOnlyThisWorktree: rules added in a factory worktree hide its materialized files from status and
 // `git add -A`, while the main checkout and a sibling worktree of the same repository still see their own
-// openspec/ and .factory/ files; the user's global excludes keep working in the factory worktree.
+// .cache/ and .factory/ files; the user's global excludes keep working in the factory worktree.
 func TestAddOnlyThisWorktree(t *testing.T) {
 	main, _ := repo(t)
 	ctx := context.Background()
@@ -63,12 +63,12 @@ func TestAddOnlyThisWorktree(t *testing.T) {
 	git(t, main, "worktree", "add", "-q", "-b", "factory", wt)
 	git(t, main, "worktree", "add", "-q", "-b", "other", sib)
 	for i := 0; i < 2; i++ { // idempotent
-		if err := Add(ctx, wt, "/openspec/", "/.factory/"); err != nil {
+		if err := Add(ctx, wt, "/.cache/", "/.factory/"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, d := range []string{main, wt, sib} {
-		write(t, filepath.Join(d, "openspec/changes/x/proposal.md"), "p")
+		write(t, filepath.Join(d, ".cache/x/data"), "p")
 		write(t, filepath.Join(d, ".factory/state"), "s")
 		write(t, filepath.Join(d, "debug.log"), "l")
 	}
@@ -81,7 +81,7 @@ func TestAddOnlyThisWorktree(t *testing.T) {
 	}
 	for _, d := range []string{main, sib} {
 		s := status(t, d)
-		if !strings.Contains(s, "openspec/changes/x/proposal.md") || !strings.Contains(s, ".factory/state") || strings.Contains(s, "debug.log") {
+		if !strings.Contains(s, ".cache/x/data") || !strings.Contains(s, ".factory/state") || strings.Contains(s, "debug.log") {
 			t.Fatalf("%s affected: %q", d, s)
 		}
 	}
@@ -90,20 +90,21 @@ func TestAddOnlyThisWorktree(t *testing.T) {
 		t.Fatalf("core.excludesFile = %q", got)
 	}
 	b, _ := os.ReadFile(filepath.Join(gitDir, FileName))
-	if strings.Count(string(b), "/openspec/") != 1 || !strings.Contains(string(b), "*.log") {
+	if strings.Count(string(b), "/.cache/") != 1 || !strings.Contains(string(b), "*.log") {
 		t.Fatalf("excludes file %q", b)
 	}
 }
 
 // TestAddRemovesLegacyLines: the lines earlier versions wrote to the shared info/exclude are removed,
-// the user's own lines stay, and the main checkout sees its new openspec/ files again.
+// the user's own lines stay (the retired "/openspec/" goes too), and the main checkout sees its new
+// openspec/ files again.
 func TestAddRemovesLegacyLines(t *testing.T) {
 	main, _ := repo(t)
 	exclude := filepath.Join(main, ".git", "info", "exclude")
 	write(t, exclude, "# comment\n*.tmp\n/openspec/\n/.factory/\n/.claude/skills/openspec/\n/.claude/skills/own/\n")
 	wt := filepath.Join(filepath.Dir(main), "wt")
 	git(t, main, "worktree", "add", "-q", "-b", "factory", wt)
-	if err := Add(context.Background(), wt, "/openspec/", "/.factory/", "/.claude/skills/openspec/"); err != nil {
+	if err := Add(context.Background(), wt, "/.factory/", "/.claude/skills/openspec/"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(exclude)
@@ -121,21 +122,46 @@ func TestAddRemovesLegacyLines(t *testing.T) {
 func TestAddPlainClone(t *testing.T) {
 	main, _ := repo(t)
 	ctx := context.Background()
-	if err := Add(ctx, main, "/openspec/", "/.factory/"); err != nil {
+	if err := Add(ctx, main, "/.cache/", "/.factory/"); err != nil {
 		t.Fatal(err)
 	}
 	if err := Add(ctx, filepath.Join(main), "/.claude/skills/x/"); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(main, "openspec/a.md"), "a")
+	write(t, filepath.Join(main, ".cache/a.md"), "a")
 	write(t, filepath.Join(main, ".factory/state"), "s")
 	write(t, filepath.Join(main, ".claude/skills/x/SKILL.md"), "s")
 	write(t, filepath.Join(main, "debug.log"), "l")
 	if s := status(t, main); s != "" {
 		t.Fatalf("status %q", s)
 	}
-	if b, _ := os.ReadFile(filepath.Join(main, ".git", "info", "exclude")); strings.Contains(string(b), "openspec") {
+	if b, _ := os.ReadFile(filepath.Join(main, ".git", "info", "exclude")); strings.Contains(string(b), ".cache") {
 		t.Fatalf("info/exclude %q", b)
+	}
+}
+
+// TestRetiredPatternDropped (openspec-in-git): a worktree whose excludes file an earlier node version wrote
+// with "/openspec/" tracks openspec/ again after the next Add, even when a caller still passes the pattern.
+func TestRetiredPatternDropped(t *testing.T) {
+	main, _ := repo(t)
+	ctx := context.Background()
+	wt := filepath.Join(filepath.Dir(main), "wt")
+	git(t, main, "worktree", "add", "-q", "-b", "factory", wt)
+	if err := Add(ctx, wt, "/.factory/"); err != nil {
+		t.Fatal(err)
+	}
+	gitDir := git(t, wt, "rev-parse", "--path-format=absolute", "--git-dir")
+	write(t, filepath.Join(gitDir, FileName), header+"\n/openspec/\n/.factory/\n")
+	if err := Add(ctx, wt, "/openspec/", "/.factory/"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(wt, "openspec/changes/x/proposal.md"), "p")
+	write(t, filepath.Join(wt, ".factory/state"), "s")
+	if s := status(t, wt); s != "?? openspec/changes/x/proposal.md" {
+		t.Fatalf("status %q", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(gitDir, FileName)); strings.Contains(string(b), "/openspec/") {
+		t.Fatalf("excludes file %q", b)
 	}
 }
 

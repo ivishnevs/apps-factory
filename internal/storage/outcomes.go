@@ -23,11 +23,14 @@ var Outcomes = map[string]OutcomeRule{
 	"idle_timeout": {Attempt: true, Backoff: true, Budget: true},
 	"max_turns":    {Attempt: true, Backoff: true, Budget: true},
 	"setup_failed": {Attempt: true, Backoff: true, Budget: true},
-	"lost":         {Backoff: true, Budget: true},
-	"revoked":      {},
-	"paused_out":   {},
-	"stale":        {},
-	"unclaimed":    {},
+	// change_missing: the linked OpenSpec change is not on the task's checkout (openspec-in-git D3); retrying
+	// cannot help until its proposal is merged, so it escalates without an attempt, backoff or budget.
+	"change_missing": {},
+	"lost":           {Backoff: true, Budget: true},
+	"revoked":        {},
+	"paused_out":     {},
+	"stale":          {},
+	"unclaimed":      {},
 }
 
 // IdleTimeout is how long a started run may go without any applied event before Core stops it as

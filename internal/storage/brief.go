@@ -28,7 +28,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	var b strings.Builder
 	fmt.Fprintf(&b, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
 	if t.OpenSpecChange != "" {
-		fmt.Fprintf(&b, "OpenSpec change: %s (%s/changes/%s). Your worktree holds the project's OpenSpec tree as of this run's start: read the proposal and relevant specs before implementation (factory_openspec_read shows the current version). Edits of those files are uploaded at your exit.\n", t.OpenSpecChange, p.OpenSpecDir(), t.OpenSpecChange)
+		fmt.Fprintf(&b, "OpenSpec change: %s (openspec/changes/%s, or changes/archive/ once archived). The specs are files of the repository: read the proposal and relevant specs in your checkout before implementing. Spec edits are committed on your branch and reviewed with your code in the pull request; do not change requirements (proposal, specs deltas) without the product owner. If this task is marked as the last one of the change, archive it (openspec archive %s) in your pull request.\n", t.OpenSpecChange, t.OpenSpecChange, t.OpenSpecChange)
 	}
 	// The previous run of the task (the latest that started), whatever its outcome.
 	var prev struct {

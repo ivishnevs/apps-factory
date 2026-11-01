@@ -15,11 +15,11 @@
 │                                      ││ url      https://github.com/company-1/project-6          │
 │ ● escalation  factory        30m ago ││ branch   main                                            │
 │   P2-3 · P2-3 stalled: it waits on … ││ audit    yes, before any other work                      │
-│                                      ││ openspec on                                              │
-│ ● approval  pm                5m ago ││ reason   users of Project 1 keep asking for reminders; … │
-│   P1-1 · Create Project 6 for the c… ││ expires  in 24h                                          │
-│                                      ││                                                          │
+│                                      ││ reason   users of Project 1 keep asking for reminders; … │
+│ ● approval  pm                5m ago ││ expires  in 24h                                          │
+│   P1-1 · Create Project 6 for the c… ││                                                          │
 │                                      ││  y  approve    n  reject                                 │
+│                                      ││                                                          │
 │                                      ││                                                          │
 │                                      ││                                                          │
 │                                      ││                                                          │

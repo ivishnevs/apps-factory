@@ -1,6 +1,6 @@
 ---
 name: openspec
-description: Work with a project's existing OpenSpec specifications and changes.
+description: Work with a project's OpenSpec specifications and changes in its repository.
 ---
 
 Read the relevant project specification and active change before changing behavior.
@@ -8,6 +8,12 @@ Keep proposals, design decisions, requirements and tasks consistent with the del
 Mark tasks complete only when implementation and relevant verification have passed.
 Do not invent an OpenSpec CLI command; inspect the installed command's help when needed.
 
-Factory keeps the project's OpenSpec tree; your worktree holds a copy as of your run's start (openspec/ unless the project sets another directory, with .factory/manifest.json recording the digests). Read it as files, or the current Factory version with factory_openspec_list/read (paths relative to the openspec directory; continue paged reads with next_offset and the returned sha256, restart if content changed); factory_openspec_check checks an active change reference. Edits of those files are uploaded before your exit (factory_openspec_sync uploads earlier): if another run changed the same document meanwhile, the exit is refused, Factory's version is saved beside your file as FILE.factory-current; merge it into your file, delete the .factory-current file and exit again. factory_openspec_write/move/delete change single documents with compare-and-set on base_sha256. Never commit the openspec directory or .factory to git; they are excluded for you.
+OpenSpec lives in the project's repository under openspec/, like code: read it in your checkout, author it with normal file tools or the installed official OpenSpec CLI, commit spec edits on your task branch and they are reviewed with your code in the same pull request. There is no Factory copy of the specs and no OpenSpec tool in Factory MCP. Run the official validation (for example openspec validate CHANGE --strict) before you submit.
 
-Author documents with normal file tools or the installed official OpenSpec CLI on your worktree's copy. Inspect its help before using it. Factory's check verifies a change name, directory and nonempty proposal only; it does not replace OpenSpec schema/semantic validation. Custom schemas and existing files are preserved. Task openspec_change is the active change name, not a path or archived change. Create its proposal before linking tasks. Relevant specs and the current change must be read before implementing a linked task. Keep product requirements in these files; keep task status, dependencies, execution and review in Factory. A Markdown checkbox never accepts a Factory task. Do not paste entire specifications into reports or decision values. When every task linked to a change is done, Factory creates one "Archive OpenSpec change NAME" task: check the delivered behavior against the change, run the official archive command on your worktree's copy and exit (the move below changes/archive is uploaded then).
+A task's openspec_change names a change (kebab-case, not a path). The node checks it on your checkout before your run starts: the change must be on the default branch (changes/NAME/proposal.md, or its archived copy under changes/archive/). A change written on an unmerged branch is invisible to other tasks, so a change is proposed in its own task whose pull request is merged before the tasks that implement it start; they depend on that task.
+
+Requirements belong to the product owner. When you implement a change, keep tasks.md checkboxes of your own items current and fix specs your code made inaccurate, but do not change requirements (proposal.md, the specs/ deltas) on your own: ask first (factory_exit_ask) or leave it to the reviewer to hand to the product owner. A product owner (or the manager that owns the change) may merge its own spec pull request without review.
+
+The last task of a change archives it: when your task says it is the final one of the change, run the official archive command (openspec archive NAME) after the work is done and commit the result in the same pull request. Factory tells the manager when every task of a change is done but the change is still active (unarchived, or with unchecked tasks.md items).
+
+Keep product requirements in these files; keep task status, dependencies, execution and review in Factory. A Markdown checkbox never accepts a Factory task. Do not paste entire specifications into reports or decision values.

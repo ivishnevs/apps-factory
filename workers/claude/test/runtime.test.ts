@@ -249,17 +249,10 @@ test("a run stopped by its timeout reports timed_out; max turns and quota refine
   assert.equal(quota.events.at(-1)!.outcome, "paused_out");
 });
 
-test("OpenSpec bodies are omitted and large events bounded", () => {
+test("large events are bounded", () => {
   const redactor = new Redactor();
-  redactor.data({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "mcp__factory__factory_openspec_read" }] } });
-  const out = redactor.data({
-    type: "user",
-    message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "SECRET SPEC BODY" }] },
-    tool_use_result: "SECRET SPEC BODY",
-  });
-  assert.doesNotMatch(JSON.stringify(out), /SECRET SPEC BODY/);
-  const other = redactor.data({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t2", content: "visible" }] } });
-  assert.match(JSON.stringify(other), /visible/);
+  const small = redactor.data({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t2", content: "visible" }] } });
+  assert.match(JSON.stringify(small), /visible/);
   const big = redactor.data({ type: "assistant", message: { content: "x".repeat(MAX_EVENT_DATA) } }) as { truncated: boolean };
   assert.equal(big.truncated, true);
 });

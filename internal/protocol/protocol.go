@@ -67,8 +67,7 @@ type RunSpec struct {
 
 // ProjectSetup is what the node sets up for a project (project-creation D2): Mode local or github creates a
 // repository under the node's projects_root (directory = the project ID); existing uses Workspace (an
-// absolute path on the node) or clones RepoURL there. OpenSpecDir (empty when the project disabled OpenSpec)
-// is imported into Core and untracked when the repository tracks it.
+// absolute path on the node) or clones RepoURL there, leaving it as it is.
 type ProjectSetup struct {
 	Mode          string `json:"mode"`
 	Name          string `json:"name,omitempty"`
@@ -76,7 +75,6 @@ type ProjectSetup struct {
 	Workspace     string `json:"workspace,omitempty"`
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
-	OpenSpecDir   string `json:"openspec_dir,omitempty"`
 }
 
 // ProjectSetupReport is the node's report (POST /runs/{id}/project-setup): the repository it set up, or Error.
@@ -87,20 +85,10 @@ type ProjectSetupReport struct {
 	Workspace     string `json:"workspace,omitempty"`
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
-	// OpenSpec are the documents of the repository's OpenSpec tree (paths relative to it) to import.
-	OpenSpec []SetupDocument `json:"openspec,omitempty"`
-	// Untracked: "pushed", "task_branch", "local" or "" (tasks.ProjectSetup.OpenSpecUntracked).
-	Untracked string `json:"openspec_untracked,omitempty"`
-}
-
-// SetupDocument is one imported OpenSpec document.
-type SetupDocument struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
 }
 
 // ProjectSetupAnswer is Core's answer to a successful report: the run continues in this workspace with this
-// manifest (the imported tree).
+// manifest.
 type ProjectSetupAnswer struct {
 	Workspace     string    `json:"workspace"`
 	RepoURL       string    `json:"repo_url,omitempty"`
@@ -109,13 +97,11 @@ type ProjectSetupAnswer struct {
 	Materialize   *Manifest `json:"materialize,omitempty"`
 }
 
-// Manifest lists the project data a run gets as files: the project's current OpenSpec tree under OpenSpecDir
-// (empty when the project disabled OpenSpec) and the run's pinned approved artifact inputs under
+// Manifest lists the project data a run gets as files: the run's pinned approved artifact inputs under
 // .factory/inputs/<id>/<version>/. Paths are relative to the worktree. The node keeps it in
-// .factory/manifest.json; the MCP adapter syncs the OpenSpec tree back against its digests.
+// .factory/manifest.json. OpenSpec is not part of it: it is in the checkout (openspec-in-git).
 type Manifest struct {
-	OpenSpecDir string         `json:"openspec_dir,omitempty"`
-	Files       []ManifestFile `json:"files"`
+	Files []ManifestFile `json:"files"`
 }
 
 type ManifestFile struct {
@@ -171,7 +157,7 @@ type Event struct {
 	// until ResetsAt.
 	Quota *Quota `json:"quota,omitempty"`
 	// Outcome, required on the terminal event and only there, is how the run ended (reliable-recovery D1):
-	// succeeded, failed, timed_out, idle_timeout, max_turns, setup_failed, paused_out, revoked, or lost when
+	// succeeded, failed, timed_out, idle_timeout, max_turns, setup_failed, change_missing, paused_out, revoked, or lost when
 	// terminal evidence never arrived (docs/runtime-protocol-v2.md §8).
 	Outcome string `json:"outcome,omitempty"`
 	// ExitState, on a terminal event, is the MCP adapter's exit state (docs/explicit-exits-contract.md §5):
