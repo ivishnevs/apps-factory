@@ -1,8 +1,11 @@
 package core
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -92,5 +95,75 @@ func TestStoredCatalogs(t *testing.T) {
 	}
 	if c.catalogVersion("acme") != 2 {
 		t.Fatal(c.catalogVersion("acme"))
+	}
+}
+
+// TestCatalogAPI (company-self-service 3.5): the owner reads the catalog and a document, changes a prompt on
+// top of the version it read, validates a broken change without saving, conflicts on a stale base, lists
+// history and rolls back.
+func TestCatalogAPI(t *testing.T) {
+	s, err := storage.Open(storagetest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.DB.Close() })
+	c := &Core{Store: s, Root: "../..", Token: "owner"}
+	h := c.Handler()
+	if err = c.LoadCatalogs(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, path string, body any, out any) int {
+		t.Helper()
+		var rd *bytes.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = bytes.NewReader(b)
+		} else {
+			rd = bytes.NewReader(nil)
+		}
+		r := httptest.NewRequest(method, path, rd)
+		r.Header.Set("Authorization", "Bearer owner")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if out != nil && w.Code == 200 {
+			_ = json.Unmarshal(w.Body.Bytes(), out)
+		}
+		if w.Code != 200 {
+			t.Log(method, path, w.Code, w.Body.String())
+		}
+		return w.Code
+	}
+	var view CatalogView
+	if code := call("GET", "/catalog", nil, &view); code != 200 || view.Version != 1 || len(view.Documents) == 0 {
+		t.Fatal(code, view)
+	}
+	var doc struct{ Content string }
+	if code := call("GET", "/catalog/document?path=prompts/manager.md", nil, &doc); code != 200 || doc.Content == "" {
+		t.Fatal(code)
+	}
+	if code := call("POST", "/catalog", CatalogChange{Base: 1, Put: map[string]string{"configs/agents/manager.yaml": "kind: nonsense\n"}, DryRun: true}, nil); code != 400 {
+		t.Fatal("broken dry run accepted", code)
+	}
+	if code := call("POST", "/catalog", CatalogChange{Base: 1, Put: map[string]string{"prompts/manager.md": "NEW MANAGER"}, Note: "shorter"}, nil); code != 200 {
+		t.Fatal(code)
+	}
+	if !strings.HasPrefix(c.cat(storage.DefaultCompany).Agents["manager"].Instructions, "NEW MANAGER") {
+		t.Fatal("not applied")
+	}
+	if code := call("POST", "/catalog", CatalogChange{Base: 1, Put: map[string]string{"prompts/manager.md": "LOST"}}, nil); code != 409 {
+		t.Fatal("stale base", code)
+	}
+	if code := call("POST", "/catalog", CatalogChange{Base: 2, Delete: []string{"configs/agents/nowhere.yaml"}}, nil); code != 400 {
+		t.Fatal("unknown delete", code)
+	}
+	var history []storage.CatalogVersion
+	if code := call("GET", "/catalog/history", nil, &history); code != 200 || len(history) != 2 || history[0].Note != "shorter" {
+		t.Fatal(code, history)
+	}
+	if code := call("POST", "/catalog/rollback", map[string]any{"base": 2, "to": 1}, nil); code != 200 {
+		t.Fatal(code)
+	}
+	if c.catalogVersion(storage.DefaultCompany) != 3 || strings.HasPrefix(c.cat(storage.DefaultCompany).Agents["manager"].Instructions, "NEW MANAGER") {
+		t.Fatal("rollback not applied", c.catalogVersion(storage.DefaultCompany))
 	}
 }

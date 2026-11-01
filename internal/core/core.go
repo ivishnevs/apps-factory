@@ -119,6 +119,7 @@ func (c *Core) Handler() http.Handler {
 	c.telegramRoutes(m)
 	c.authorityRoutes(m)
 	c.conversationRoutes(m)
+	c.catalogRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil || !c.Bus.NC.IsConnected() {

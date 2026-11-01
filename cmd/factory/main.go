@@ -92,6 +92,9 @@ func run() error {
 	if args[0] == "conversations" || args[0] == "messages" || args[0] == "inbox" || args[0] == "approvals" {
 		return communicationCommand(ctx, api, args)
 	}
+	if args[0] == "catalog" {
+		return catalogCommand(ctx, api, args)
+	}
 	if args[0] == "reports" || args[0] == "decisions" {
 		return journalCommand(ctx, api, args)
 	}
