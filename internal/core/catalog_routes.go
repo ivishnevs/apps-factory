@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 
+	"appfactory/internal/config"
 	"appfactory/internal/storage"
 )
 
@@ -21,6 +22,21 @@ type CatalogChange struct {
 	Delete []string          `json:"delete,omitempty"`
 	Note   string            `json:"note,omitempty"`
 	DryRun bool              `json:"dry_run,omitempty"`
+}
+
+// TeamMember is one agent of the resolved catalog.
+type TeamMember struct {
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	Role           string   `json:"role"`
+	ReportsTo      string   `json:"reports_to"`
+	Prompt         string   `json:"prompt"`
+	Provider       string   `json:"provider"`
+	Model          string   `json:"model,omitempty"`
+	CreatesTasks   bool     `json:"creates_tasks,omitempty"`
+	ReviewRequired bool     `json:"review_required,omitempty"`
+	Reviewer       string   `json:"reviewer,omitempty"`
+	ReviewPaths    []string `json:"review_paths,omitempty"`
 }
 
 // CatalogDocument is a document's path and size (and content when read).
@@ -96,6 +112,23 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 			return
 		}
 		write(w, catalogView(company, cat))
+	})
+	// The team as the catalog resolves it (company-self-service 6.1): who does what and reports to whom.
+	m.HandleFunc("GET /catalog/team", func(w http.ResponseWriter, r *http.Request) {
+		company := c.companyFrom(r)
+		cat := c.cat(company)
+		out := []TeamMember{}
+		for _, name := range config.Names(cat.Agents) {
+			a := cat.Agents[name]
+			required, reviewer := a.Review()
+			m := TeamMember{Name: name, Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(cat.Agents, name), Prompt: a.Spec.Prompt.File,
+				Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(cat.Agents, name, reviewer)}
+			for _, p := range a.ReviewPaths() {
+				m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(cat.Agents, name, p.Reviewer))
+			}
+			out = append(out, m)
+		}
+		write(w, map[string]any{"company": company, "version": c.catalogVersion(company), "default_report": c.defaultReport(company), "agents": out})
 	})
 	m.HandleFunc("GET /catalog/history", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.CatalogHistory(r.Context(), c.companyFrom(r))

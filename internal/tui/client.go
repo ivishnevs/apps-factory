@@ -5,6 +5,7 @@ package tui
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -699,4 +700,37 @@ func (c *HTTPClient) follow(ctx context.Context, name, path string, after int64,
 			delay = 15 * time.Second
 		}
 	}
+}
+
+// CatalogClient reads and changes the company's stored catalog (company-self-service 6.1): path is a Core
+// path below /catalog, /templates or /companies, passed through as JSON.
+type CatalogClient interface {
+	CatalogGet(ctx context.Context, path string) (json.RawMessage, error)
+	CatalogPost(ctx context.Context, path string, body any) (json.RawMessage, error)
+}
+
+// catalogPath accepts only the catalog's Core paths.
+func catalogPath(p string) bool {
+	for _, prefix := range []string{"/catalog", "/templates", "/companies"} {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") || strings.HasPrefix(p, prefix+"?") {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *HTTPClient) CatalogGet(ctx context.Context, path string) (json.RawMessage, error) {
+	if !catalogPath(path) {
+		return nil, fmt.Errorf("not a catalog path: %s", path)
+	}
+	var v json.RawMessage
+	return v, c.API.Do(ctx, "GET", path, nil, &v)
+}
+
+func (c *HTTPClient) CatalogPost(ctx context.Context, path string, body any) (json.RawMessage, error) {
+	if !catalogPath(path) {
+		return nil, fmt.Errorf("not a catalog path: %s", path)
+	}
+	var v json.RawMessage
+	return v, c.API.Do(ctx, "POST", path, body, &v)
 }

@@ -31,7 +31,7 @@ Core, API and CLI, provisioning, review policy, UI.
 - [x] 5.3 Path rules (`paths: [{match, reviewer}]`, `**` spans directories): the PR's files in the exit facts (`gh pr view --json files`); done needs that reviewer's approval. Templates: requirement changes need the product owner.
 
 ## 6. UI
-- [ ] 6.1 Web: company setup from a template, team editor (agents, roles, reporting lines), prompt and policy editors with diff and history.
+- [x] 6.1 Web: Team (the resolved team, every document in an editor with diff, validate and save on top of the read version, history with rollback) and Companies (the operator creates a company from a template; the owner token is shown once). Core `GET /catalog/team`; `factory web` passes catalog routes through.
 - [ ] 6.2 Terminal UI: read-only view of the catalog (optional).
 
 ## 7. Verification

@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useRef, useState } from "react";
 import type { Action, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
+import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Team } from "./types-catalog";
 
 // Every request goes to this app's /api/*, which Next proxies to the owner API (next.config.ts). The browser
 // never holds a token; when the SaaS adds sign-in, the session cookie rides along (credentials: same-origin).
@@ -80,4 +81,23 @@ export function useStream<T>(path: string | null, kind: "feed" | "run", onItem: 
     return () => es.close();
   }, [path, kind]);
   return { connected, ended };
+}
+
+// The company's catalog (company-self-service): the team, documents and history; writes refresh them.
+export const useTeam = () => useQuery({ queryKey: ["catalog", "team"], queryFn: () => api<Team>("/catalog/team") });
+export const useCatalog = () => useQuery({ queryKey: ["catalog", "listing"], queryFn: () => api<CatalogListing>("/catalog") });
+export const useCatalogHistory = () => useQuery({ queryKey: ["catalog", "history"], queryFn: () => api<CatalogVersion[]>("/catalog/history") });
+export const useCatalogDocument = (path: string | null, version?: number) =>
+  useQuery({ queryKey: ["catalog", "document", path, version], queryFn: () => api<CatalogDocument>(`/catalog/document${qs({ path: path ?? "", version })}`), enabled: !!path });
+export const useTemplates = () => useQuery({ queryKey: ["templates"], queryFn: () => api<string[]>("/templates"), staleTime: Infinity });
+export const useCompanies = () => useQuery({ queryKey: ["companies"], queryFn: () => api<Company[]>("/companies"), retry: false });
+
+// usePost posts JSON to an owner route that changes the catalog or companies (X-Factory-Web: see useAction).
+export function usePost<T>(path: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) =>
+      api<T>(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Factory-Web": "1" }, body: JSON.stringify(body) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog"] }).then(() => qc.invalidateQueries({ queryKey: ["companies"] })),
+  });
 }

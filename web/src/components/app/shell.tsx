@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, MessageSquare, MoreHorizontal, Server } from "lucide-react";
+import { Activity, Bot, Building2, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, MessageSquare, MoreHorizontal, Server, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useOverview } from "@/lib/api/client";
@@ -17,6 +17,8 @@ export const nav = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/costs", label: "Costs", icon: CircleDollarSign },
   { href: "/nodes", label: "Nodes", icon: Server },
+  { href: "/team", label: "Team", icon: Users },
+  { href: "/companies", label: "Companies", icon: Building2 },
 ];
 const phoneTabs = ["/", "/tasks", "/inbox", "/feed"];
 

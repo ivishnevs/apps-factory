@@ -151,6 +151,50 @@ func (s *Server) Handler() http.Handler {
 		out, err := s.Client.Do(r.Context(), a)
 		reply(w, map[string]string{"result": out}, err)
 	})
+	// The company's catalog (company-self-service 6.1): reads and changes pass through to Core's catalog,
+	// template and company routes; a demo client has none.
+	catalog := func(w http.ResponseWriter) (tui.CatalogClient, bool) {
+		cc, ok := s.Client.(tui.CatalogClient)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotImplemented)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "the catalog needs a live Core"})
+		}
+		return cc, ok
+	}
+	for _, p := range []string{"/catalog", "/catalog/team", "/catalog/history", "/catalog/document", "/templates", "/companies"} {
+		mux.HandleFunc("GET /api"+p, func(w http.ResponseWriter, r *http.Request) {
+			cc, ok := catalog(w)
+			if !ok {
+				return
+			}
+			path := p
+			if r.URL.RawQuery != "" {
+				path += "?" + r.URL.RawQuery
+			}
+			v, err := cc.CatalogGet(r.Context(), path)
+			reply(w, v, err)
+		})
+	}
+	for _, p := range []string{"/catalog", "/catalog/rollback", "/companies"} {
+		mux.HandleFunc("POST /api"+p, func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Factory-Web") != "1" {
+				reply(w, nil, fmt.Errorf("%w: X-Factory-Web header required", errInput))
+				return
+			}
+			cc, ok := catalog(w)
+			if !ok {
+				return
+			}
+			var body json.RawMessage
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<20)).Decode(&body); err != nil {
+				reply(w, nil, fmt.Errorf("%w: JSON body required", errInput))
+				return
+			}
+			v, err := cc.CatalogPost(r.Context(), p, body)
+			reply(w, v, err)
+		})
+	}
 	mux.HandleFunc("GET /api/stream/feed", func(w http.ResponseWriter, r *http.Request) {
 		stream(w, r, func(ctx context.Context, out func(tui.StreamEvent)) {
 			s.Client.StreamFeed(ctx, feedQuery(r), num(r, "after", 0), out)
