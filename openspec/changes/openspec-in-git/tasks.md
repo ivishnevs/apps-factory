@@ -10,8 +10,8 @@ docs (7).
 - [x] 1.4 Owner confirms that specs are read and edited in git only (D4) and the spec review rules (D5).
 
 ## 2. Specs and docs
-- [ ] 2.1 Delta specs for `project-data-storage` (remove Core-owned OpenSpec, materialization, write-back, archive tasks) and `project-creation` (no import/untrack); drop `skip_specs`; `openspec validate --strict`.
-- [ ] 2.2 Rewrite `docs/openspec.md`; update `docs/projects.md`, `docs/architecture.md`, `docs/factory-mcp.md`.
+- [x] 2.1 Delta specs for `project-data-storage` (remove Core-owned OpenSpec, materialization, write-back, archive tasks) and `project-creation` (no import/untrack), `openspec-integration` (node check, no file access tools); drop `skip_specs`; `openspec validate --strict`.
+- [ ] 2.2 (with 7.3, after the code) Rewrite `docs/openspec.md`; update `docs/projects.md`, `docs/architecture.md`, `docs/factory-mcp.md`.
 
 ## 3. Core
 - [ ] 3.1 Task `openspec_change`: name validation only at create/update/ready/dispatch/claim; remove `runChangeCheck`/`blockOpenSpecRun` (`claim.go`, `nodes.go`) and the IN_REVIEW dispatch check (`evaluate.go` `openSpecRefusal`, `tasks.ReasonOpenSpec` and its `factory openspec import` hint).
@@ -19,7 +19,7 @@ docs (7).
 - [ ] 3.3 New run outcome `change_missing`: blocks the task with the node's reason, no attempt, backoff or budget.
 - [ ] 3.4 Remove OpenSpec documents from storage and API (`spec_documents`, owner `openspec/*` endpoints, MCP `factory_openspec_*`, `internal/openspec/audit.go`), keep the blob store for artifacts, attachments and logs.
 - [ ] 3.5 Change tracking over tasks (D2, D3): store `facts.openspec` from `done`; on the last linked task DONE with the change still active, a feed event to the manager (unchecked work / not archived), optionally a mechanical archive task; rebuild the orphan check over tasks. Remove the tree-based `archiveChangeTask`.
-- [ ] 3.6 Remove `ProjectOpenSpec.ArchiveAssignee`, `ProjectSetup.OpenSpecImported/Untracked`, `protocol.Manifest.OpenSpecDir`, `SetupReport.OpenSpec/Untracked`; decide whether `openspec.enabled` stays (`dir` stays for preflight and facts).
+- [ ] 3.6 Remove `ProjectOpenSpec.ArchiveAssignee`, `ProjectSetup.OpenSpecImported/Untracked`, `protocol.Manifest.OpenSpecDir`, `SetupReport.OpenSpec/Untracked`; and the whole project setting `openspec` (D6: always `openspec/`).
 - [ ] 3.7 Schema migration: drop `spec_documents`, reshape `openspec_changes` for D3 bookkeeping (no data migration).
 
 ## 4. Node and adapter

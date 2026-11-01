@@ -53,6 +53,11 @@ Product owner: may self-merge spec PRs. Implementers: spec edits ride in the cod
 (proposal, `specs/` deltas) are not made silently: the reviewer hands them to the product owner, or the
 implementer asks first (`factory_exit_ask`). Enforcement as policy is `company-self-service`.
 
+### D6. No OpenSpec project setting
+The project setting `openspec` (`enabled`, `dir`, `archive_assignee`) goes away: OpenSpec is always the
+repository's `openspec/` directory, and a project "without OpenSpec" simply has no task linking a change. The
+New project form loses its OpenSpec switch.
+
 ## Risks / Trade-offs
 
 - Proposal handoff is slower (one PR cycle) — accepted: the spec is agreed before work starts.
