@@ -1,34 +1,38 @@
-Planned: not scheduled. Confirm task 1 before starting the rest. No data migration or backward compatibility:
-replace the file-based catalog outright.
+In progress (owner 2026-11-01: D1–D6 confirmed, start). No data migration or backward compatibility: the file
+catalog becomes seed data. Order: loader over fs.FS (no behaviour change), storage and per-company catalogs in
+Core, API and CLI, provisioning, review policy, UI.
 
 ## 1. Decide
-- [ ] 1.1 Owner confirms catalog in Core storage with versions and apply without restart (D1, D2).
-- [ ] 1.2 Owner decides one Core per company or one Core for many companies.
-- [ ] 1.3 Owner decides which catalog sections clients may edit (node hooks, MCP servers, quota keys, command guards).
-- [ ] 1.4 Owner confirms the review rule type (D3) and its first scope (required/optional and default reviewer; paths later).
+- [x] 1.1 Owner confirms catalog in Core storage with versions and apply without restart (D1, D2).
+- [x] 1.2 One Core serves many companies (D4).
+- [x] 1.3 Clients edit their whole catalog, node hooks, MCP servers, quota keys and command guards included (D5).
+- [x] 1.4 Review rule type (D3), first scope required/optional and default reviewer; paths later.
 
 ## 2. Specs and docs
-- [ ] 2.1 Delta specs for agent configuration, policies and exits; drop `skip_specs`; `openspec validate --strict`.
+- [x] 2.1 Delta specs (`company-catalog`, `review-policy`); drop `skip_specs`; `openspec validate --strict`.
 - [ ] 2.2 Update `docs/agent-configuration.md`, `docs/policies.md`, `docs/development.md`, `docs/explicit-exits-contract.md`.
 
 ## 3. Catalog storage and API
-- [ ] 3.1 Catalog tables (agents, profiles, policies, prompts, skills registry, company settings) with versions, author and time.
-- [ ] 3.2 Load and validate from storage with the existing validator; seed from the repository's `configs/`.
-- [ ] 3.3 API: list, get, create, update, delete, history and rollback; field-level validation errors; apply without restart.
-- [ ] 3.4 Agent-proposed catalog changes go through owner approval (`factory.config.*`).
+- [ ] 3.1 Loader over `fs.FS` (`LoadCompanyCatalogFS`; disk through `os.DirFS`), skills registry included; no behaviour change.
+- [ ] 3.2 Migration: `catalog_versions`, `catalog_documents`; store save (validate with the loader, new current version in one transaction), history, read of a version.
+- [ ] 3.3 Seed a company without a stored catalog from its repository directory and the prompts it names (author `seed`).
+- [ ] 3.4 Core resolves the catalog per company (D4): `c.catalog(company)` replaces `Core.Agents`/`Skills`/`NodeHooks`/`DefaultReport`/`AuditAssignee`; loops run per company; swap after a save.
+- [ ] 3.5 API: list documents, get, put/delete in a draft and save as a version (or one call with the full set), validate without saving, history, rollback; field-level errors from the loader.
+- [ ] 3.6 CLI: `factory catalog ls|get|put|rm|save|history|rollback|validate`.
+- [ ] 3.7 Agent-proposed catalog changes through owner approval (`factory.config.*`).
 
 ## 4. Company provisioning
-- [ ] 4.1 Create a company and its owner through API and CLI.
-- [ ] 4.2 Starter team templates (solo builder; PO + developer + reviewer; PO + designer + developer + QA).
+- [ ] 4.1 Create a company and its owner token through API and CLI.
+- [ ] 4.2 Starter team templates (solo builder; PO + developer + reviewer; PO + designer + developer + QA) as seed directories.
 
 ## 5. Review policy
 - [ ] 5.1 Policy rule `type: review` (required/optional per role or agent, default reviewer); validation.
-- [ ] 5.2 Enforce at `factory_exit_done` (refuse without an approval bound to the PR when review is required); default reviewer at `submit`.
-- [ ] 5.3 Path rules (e.g. requirement changes need the product owner) once specs live in git (`openspec-in-git`).
+- [ ] 5.2 Enforce at `factory_exit_done` (`409 review_required` without an approval bound to the PR); default reviewer at `submit`.
+- [ ] 5.3 Path rules (e.g. requirement changes need the product owner): changed files in the exit facts.
 
 ## 6. UI
 - [ ] 6.1 Web: company setup from a template, team editor (agents, roles, reporting lines), prompt and policy editors with diff and history.
 - [ ] 6.2 Terminal UI: read-only view of the catalog (optional).
 
 ## 7. Verification
-- [ ] 7.1 `make check` green; tests for storage-backed load, validation errors, apply without restart with running runs keeping their snapshot, review enforcement at done.
+- [ ] 7.1 `make check` green plus NATS tests with `-p 1`; tests for storage-backed load, validation errors, apply without restart with running runs keeping their snapshot, two companies side by side, review enforcement at done.

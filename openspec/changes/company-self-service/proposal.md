@@ -1,5 +1,5 @@
-Status: planned (owner request 2026-11-01: clients must be able to set up their own company; not scheduled).
-Delta specs are written once the open decisions in design.md are confirmed (task 1). Nothing is implemented.
+Status: in progress (owner request 2026-11-01: clients must be able to set up their own company; decisions D1–D6
+confirmed the same day, see design.md). Nothing is implemented yet.
 
 ## Why
 
