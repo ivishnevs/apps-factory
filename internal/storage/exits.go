@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -34,10 +35,11 @@ type ExitFacts struct {
 }
 
 type PRFacts struct {
-	Number  int    `json:"number"`
-	State   string `json:"state"`
-	HeadSHA string `json:"head_sha"`
-	URL     string `json:"url,omitempty"`
+	Number  int      `json:"number"`
+	State   string   `json:"state"`
+	HeadSHA string   `json:"head_sha"`
+	URL     string   `json:"url,omitempty"`
+	Files   []string `json:"files,omitempty"`
 }
 
 type ScanFacts struct {
@@ -56,6 +58,9 @@ type ExitRequest struct {
 	Known func(agent string) bool `json:"-"`
 	// ReviewRequired: a review rule of the run's agent requires review before done (company-self-service D3).
 	ReviewRequired bool `json:"-"`
+	// ReviewPaths are the agent's path rules with resolved reviewers (company-self-service 5.3): a pull
+	// request changing a matching file needs an approval by that reviewer.
+	ReviewPaths []ReviewPath `json:"-"`
 }
 
 type ExitTask struct {
@@ -193,6 +198,21 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 		}
 		if approvals == 0 {
 			return out, refuse("review_required", "your work needs review before it is done (company review policy): submit it for review with factory_exit_submit, and merge after an approved verdict")
+		}
+	}
+	if req.Kind == "done" && len(req.ReviewPaths) > 0 && p.RepoURL != "" && t.Kind != tasks.KindConversation && !abandoned && req.Facts != nil && req.Facts.PR != nil {
+		for _, rp := range req.ReviewPaths {
+			files := rp.Matching(req.Facts.PR.Files)
+			if len(files) == 0 {
+				continue
+			}
+			var approvals int
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM pr_approvals WHERE company_id=? AND task_id=? AND pr_number=? AND approver=?", company, t.ID, req.Facts.PR.Number, rp.Reviewer).Scan(&approvals); err != nil {
+				return out, err
+			}
+			if approvals == 0 {
+				return out, refuse("review_required", fmt.Sprintf("your pull request changes %s, which %s must approve (company review policy): submit it for review with factory_exit_submit and reviewer %s, and merge after an approved verdict", strings.Join(files, ", "), rp.Reviewer, rp.Reviewer))
+			}
 		}
 	}
 	if req.Kind == "done" && p.ReviewAfterConflicts == "required" && !abandoned && req.Facts != nil && req.Facts.PR != nil {
@@ -780,4 +800,48 @@ func (s *Store) CreatedBy(ctx context.Context, company, task string) ([]tasks.Ta
 		err = presentTasks(ctx, s.DB, company, ts)
 	}
 	return ts, err
+}
+
+// ReviewPath is a review path rule with its reviewer resolved to an agent: files matching Match (a slash
+// pattern where ** spans directories) need that agent's approval.
+type ReviewPath struct {
+	Match    string
+	Reviewer string
+}
+
+// Matching are the files the rule covers.
+func (rp ReviewPath) Matching(files []string) []string {
+	var out []string
+	for _, f := range files {
+		if MatchPath(rp.Match, f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// MatchPath matches a slash path against pattern: path.Match per segment, ** matching any number of segments.
+func MatchPath(pattern, name string) bool {
+	return matchSegments(strings.Split(pattern, "/"), strings.Split(name, "/"))
+}
+
+func matchSegments(p, n []string) bool {
+	for len(p) > 0 {
+		if p[0] == "**" {
+			for i := 0; i <= len(n); i++ {
+				if matchSegments(p[1:], n[i:]) {
+					return true
+				}
+			}
+			return false
+		}
+		if len(n) == 0 {
+			return false
+		}
+		if ok, err := path.Match(p[0], n[0]); err != nil || !ok {
+			return false
+		}
+		p, n = p[1:], n[1:]
+	}
+	return len(n) == 0
 }

@@ -45,3 +45,22 @@ func TestCatalogVersions(t *testing.T) {
 		t.Fatalf("%+v %v", h, err)
 	}
 }
+
+func TestMatchPath(t *testing.T) {
+	for _, c := range []struct {
+		pattern, name string
+		want          bool
+	}{
+		{"openspec/specs/**", "openspec/specs/a/spec.md", true},
+		{"openspec/specs/**", "openspec/specs", true},
+		{"openspec/specs/**", "openspec/changes/a/proposal.md", false},
+		{"**/*.md", "docs/a/b.md", true},
+		{"**/*.md", "README.md", true},
+		{"src/*.go", "src/a/b.go", false},
+		{"openspec/changes/*/proposal.md", "openspec/changes/x/proposal.md", true},
+	} {
+		if got := MatchPath(c.pattern, c.name); got != c.want {
+			t.Errorf("%s %s: %v", c.pattern, c.name, got)
+		}
+	}
+}

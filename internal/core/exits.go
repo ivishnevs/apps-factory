@@ -120,6 +120,11 @@ func (c *Core) serveExit(w http.ResponseWriter, r *http.Request, run storage.Run
 	if len(run.Spec.ConfigSnapshot) > 0 && json.Unmarshal(run.Spec.ConfigSnapshot, &snapshot) == nil {
 		required, reviewer := snapshot.Review()
 		p.ReviewRequired = required
+		for _, pr := range snapshot.ReviewPaths() {
+			if name := config.ReviewerFor(cat.Agents, run.Spec.Agent, pr.Reviewer); name != "" {
+				p.ReviewPaths = append(p.ReviewPaths, storage.ReviewPath{Match: pr.Match, Reviewer: name})
+			}
+		}
 		if p.Kind == "submit" && reviewer != "" {
 			if named, _ := p.Arguments["reviewer"].(string); named == "" {
 				if name := config.ReviewerFor(cat.Agents, run.Spec.Agent, reviewer); name != "" {

@@ -156,6 +156,9 @@ func TestTemplateReviewPolicy(t *testing.T) {
 		if required != (want != "") || reviewer != want {
 			t.Fatal(template, required, reviewer)
 		}
+		if paths := c.Agents[dev].ReviewPaths(); (want != "") != (len(paths) == 3) || want != "" && paths[0].Reviewer != "product-owner" {
+			t.Fatal(template, paths)
+		}
 		if want != "" {
 			if r, _ := c.Agents[want].Review(); r {
 				t.Fatal(template, "the reviewer itself needs review")

@@ -348,6 +348,8 @@ type PRFacts struct {
 	State   string `json:"state"`
 	HeadSHA string `json:"head_sha"`
 	URL     string `json:"url,omitempty"`
+	// Files are the paths the pull request changes (review path rules, company-self-service 5.3).
+	Files []string `json:"files,omitempty"`
 }
 
 type ScanResult struct {
@@ -467,7 +469,7 @@ func (a *Adapter) openSpecFacts(ctx context.Context, ref string) *OpenSpecFacts 
 
 // pr reads the branch's pull request with gh; nil when there is none or gh is unavailable.
 func (a *Adapter) pr(ctx context.Context, branch string) *PRFacts {
-	out, err := a.run(ctx, "gh", "pr", "view", branch, "--json", "number,state,headRefOid,url")
+	out, err := a.run(ctx, "gh", "pr", "view", branch, "--json", "number,state,headRefOid,url,files")
 	if err != nil {
 		return nil
 	}
@@ -476,11 +478,18 @@ func (a *Adapter) pr(ctx context.Context, branch string) *PRFacts {
 		State      string `json:"state"`
 		HeadRefOid string `json:"headRefOid"`
 		URL        string `json:"url"`
+		Files      []struct {
+			Path string `json:"path"`
+		} `json:"files"`
 	}
 	if json.Unmarshal([]byte(out), &v) != nil || v.Number == 0 {
 		return nil
 	}
-	return &PRFacts{Number: v.Number, State: strings.ToLower(v.State), HeadSHA: v.HeadRefOid, URL: v.URL}
+	pr := &PRFacts{Number: v.Number, State: strings.ToLower(v.State), HeadSHA: v.HeadRefOid, URL: v.URL}
+	for _, f := range v.Files {
+		pr.Files = append(pr.Files, f.Path)
+	}
+	return pr
 }
 
 // scan runs the scanner over merge-base(base, HEAD)..HEAD (task-worktrees D6).

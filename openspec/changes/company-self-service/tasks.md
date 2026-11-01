@@ -28,7 +28,7 @@ Core, API and CLI, provisioning, review policy, UI.
 ## 5. Review policy
 - [x] 5.1 Policy rule `type: review` (required/optional per role or agent, default reviewer); validation.
 - [x] 5.2 Enforce at `factory_exit_done` (`409 review_required` without an approval bound to the PR); default reviewer at `submit`.
-- [ ] 5.3 Path rules (e.g. requirement changes need the product owner): changed files in the exit facts.
+- [x] 5.3 Path rules (`paths: [{match, reviewer}]`, `**` spans directories): the PR's files in the exit facts (`gh pr view --json files`); done needs that reviewer's approval. Templates: requirement changes need the product owner.
 
 ## 6. UI
 - [ ] 6.1 Web: company setup from a template, team editor (agents, roles, reporting lines), prompt and policy editors with diff and history.

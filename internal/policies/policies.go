@@ -39,6 +39,15 @@ type Rule struct {
 	// of factory_exit_submit.
 	Required bool   `yaml:"required" json:"required,omitempty"`
 	Reviewer string `yaml:"reviewer" json:"reviewer,omitempty"`
+	// Paths of a review rule (company-self-service 5.3): a pull request changing a file that matches needs the
+	// approval of that path's reviewer, whatever else approved it.
+	Paths []ReviewPathRule `yaml:"paths" json:"paths,omitempty"`
+}
+
+// ReviewPathRule: files matching Match (a slash pattern; ** spans directories) need Reviewer's approval.
+type ReviewPathRule struct {
+	Match    string `yaml:"match" json:"match"`
+	Reviewer string `yaml:"reviewer" json:"reviewer"`
 }
 
 // EscalateAfterDuration parses an escalation rule's escalate_after (0 when unset).
@@ -92,8 +101,8 @@ func Validate(p Policy) error {
 		if len(r.Exits)+len(r.ReportKinds) > 0 && r.Type != "reporting" {
 			return fmt.Errorf("rule %s: exits and report_kinds only apply to reporting rules", r.Name)
 		}
-		if (r.Required || r.Reviewer != "") && r.Type != "review" {
-			return fmt.Errorf("rule %s: required and reviewer only apply to review rules", r.Name)
+		if (r.Required || r.Reviewer != "" || len(r.Paths) > 0) && r.Type != "review" {
+			return fmt.Errorf("rule %s: required, reviewer and paths only apply to review rules", r.Name)
 		}
 		if (r.EscalateAfter != "" || len(r.Categories) > 0) && r.Type != "escalation" {
 			return fmt.Errorf("rule %s: escalate_after and categories only apply to escalation rules", r.Name)
@@ -146,8 +155,18 @@ func Validate(p Policy) error {
 			if r.Effect != "" || r.Target != "" || r.Mode != "" || len(r.Commands)+len(r.Operations) > 0 {
 				return fmt.Errorf("review rule %s: only required, reviewer, roles and agents apply", r.Name)
 			}
-			if !r.Required && r.Reviewer == "" {
-				return fmt.Errorf("review rule %s: required or reviewer needed", r.Name)
+			if !r.Required && r.Reviewer == "" && len(r.Paths) == 0 {
+				return fmt.Errorf("review rule %s: required, reviewer or paths needed", r.Name)
+			}
+			for _, pr := range r.Paths {
+				if pr.Match == "" || pr.Reviewer == "" {
+					return fmt.Errorf("review rule %s: every path needs match and reviewer", r.Name)
+				}
+				for _, seg := range strings.Split(pr.Match, "/") {
+					if _, err := path.Match(seg, "x"); err != nil || seg == "" {
+						return fmt.Errorf("review rule %s: invalid path pattern %q", r.Name, pr.Match)
+					}
+				}
 			}
 		case "recovery":
 			if r.Mode != "inspect" {

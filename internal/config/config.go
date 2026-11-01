@@ -1068,11 +1068,29 @@ func ReviewerFor(agents map[string]Agent, agent, reviewer string) string {
 	return ""
 }
 
-// validReviewers checks every review rule's reviewer against the catalog.
+// ReviewPaths are the path rules of the agent's review rules.
+func (a Agent) ReviewPaths() []policies.ReviewPathRule {
+	var out []policies.ReviewPathRule
+	for _, r := range a.Rules {
+		if r.Type == "review" {
+			out = append(out, r.Paths...)
+		}
+	}
+	return out
+}
+
+// validReviewers checks every review rule's reviewers against the catalog.
 func validReviewers(agents map[string]Agent) error {
 	for _, name := range Names(agents) {
-		if _, reviewer := agents[name].Review(); reviewer != "" && ReviewerFor(agents, name, reviewer) == "" {
-			return fmt.Errorf("agent %s: review rule reviewer %s is not another agent of the catalog", name, reviewer)
+		_, reviewer := agents[name].Review()
+		reviewers := []string{reviewer}
+		for _, p := range agents[name].ReviewPaths() {
+			reviewers = append(reviewers, p.Reviewer)
+		}
+		for _, rv := range reviewers {
+			if rv != "" && ReviewerFor(agents, name, rv) == "" {
+				return fmt.Errorf("agent %s: review rule reviewer %s is not another agent of the catalog", name, rv)
+			}
 		}
 	}
 	return nil
