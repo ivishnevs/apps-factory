@@ -1,5 +1,5 @@
 ## Context
-`${secret:NAME}` references in `mcp_servers.yaml` travel unresolved in the config snapshot; the node resolves them from its `secrets_file`, passes values only through the runtime environment (`FACTORY_MCP_SECRET_<NAME>`) and redacts them (`internal/worker/external_mcp.go`). Nodes are always hosted by us; customers manage keys on the website. Claims are `POST /runs/{id}/claim` over HTTPS (TLS ends at the CapRover proxy); after `node-identity`, claims are signed and each node has an X25519 encryption key.
+`${secret:NAME}` references in `mcp_servers.yaml` travel unresolved in the config snapshot; the node resolves them from its `secrets_file`, passes values only through the runtime environment (`FACTORY_MCP_SECRET_<NAME>`) and redacts them (`internal/worker/external_mcp.go`). Nodes are the customers' own machines (later virtual machines we create for them), each serving one company and all its teams (`node-identity`, `company-teams`); customers manage keys on the website and every node of the company may receive them for its runs. Claims are `POST /runs/{id}/claim` over HTTPS (TLS ends at the CapRover proxy); after `node-identity`, claims are signed and each node has an X25519 encryption key.
 
 Threats addressed: stolen database or backup; someone pretending to be a node (`node-identity`); anyone reading traffic or logs between the proxy, Core and the node; a node keeping secrets it no longer needs. Accepted: a compromised running node sees the secrets of its live runs; a compromised Core sees all secrets (KMS narrows this later).
 
@@ -12,16 +12,16 @@ Threats addressed: stolen database or backup; someone pretending to be a node (`
 - Master key rotation re-wraps company keys only (operator command, `factory secrets rotate-master`).
 
 ### D2. Owner surface
-- Routes (owner token or operator): `PUT /secrets/{name}` `{kind, value}` (file values base64, at most 64 KiB), `GET /secrets` (name, kind, version, updated_by, updated_at, used_by: MCP servers and agents that reference it), `DELETE /secrets/{name}`. No route returns a value.
+- Routes (owners and admins by session or owner token; the operator token for support; members get `GET /secrets` names only): `PUT /secrets/{name}` `{kind, value}` (file values base64, at most 64 KiB), `GET /secrets` (name, kind, version, updated_by, updated_at, used_by: MCP servers and agents that reference it), `DELETE /secrets/{name}`. No route returns a value.
 - CLI `factory secrets set NAME [--file path]` (value from stdin or file, never an argument), `list`, `delete`.
-- Web: Secrets page (list, add/replace with a masked field or file upload, delete); the MCP server and agent views show which secrets they need and whether they are set.
+- Web: Secrets page of the company (`/c/{company}/secrets`; list, add/replace with a masked field or file upload, delete); the MCP server and agent views show which secrets they need and whether they are set.
 - Names: `[A-Za-z_][A-Za-z0-9_]{0,127}` (`protocol.SecretRef`).
 
 ### D3. What a run needs
-The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars; a missing secret is reported by `factory agents check` and at claim.
+The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars; a missing secret is reported by `factory agents check`, by the setup status (`team-builder`), before dispatch (D9) and at claim.
 
 ### D4. Delivery sealed to the node
-At claim (after `node-identity` verified the signature) Core decrypts the needed secrets and adds `secrets: [{name, kind, version, sealed}]` to the claim answer. `sealed` = HPKE (RFC 9180, `crypto/hpke`: DHKEM X25519, HKDF-SHA256, ChaCha20-Poly1305) to the claiming node's active encryption key with `info = company | run_id | node_id | name | version`, so a sealed value opens only on that node and only for that run. The claim answer is not stored; a needed secret that is not set fails the claim with `setup_failed` naming the secret, never a value. The go directive moves to 1.26 for `crypto/hpke`.
+At claim (after `node-identity` verified the signature) Core decrypts the needed secrets and adds `secrets: [{name, kind, version, sealed}]` to the claim answer. `sealed` = HPKE (RFC 9180, `crypto/hpke`: DHKEM X25519, HKDF-SHA256, ChaCha20-Poly1305) to the claiming node's active encryption key with `info = company | run_id | node_id | name | version`, so a sealed value opens only on that node and only for that run. The claim answer is not stored; a needed secret that is not set at claim (deleted after dispatch) fails the claim with `setup_failed` naming the secret, never a value. The go directive moves to 1.26 for `crypto/hpke`.
 
 ### D5. On the node
 The node opens each sealed value with its private key, checks the `info` binding, and:
@@ -38,6 +38,9 @@ A test plants a known value as a secret, runs a fake-driver run that prints it, 
 
 ### D8. Removal
 `node.yaml` `secrets_file`, `internal/node/secrets.go` and the "Node secrets file" requirement are removed; resolution reads only the claim answer.
+
+### D9. Wait before dispatch
+The scheduler dispatches a task's run only when every secret the run needs (D3) is set. Otherwise the task stays queued with a waiting reason `secret_missing: NAME (agent)`, shown on the task and in the setup status; no run is created and no retry is spent (the auto-retry of failed runs would otherwise burn attempts on a setup the owner has not finished). Setting the secret wakes the waiting tasks. The claim check (D4) remains for a secret deleted between dispatch and claim.
 
 ## Risks / Trade-offs
 - A lost master key loses every secret → gopass backup is part of Core setup; startup refuses a key that cannot unwrap existing company keys.

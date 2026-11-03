@@ -14,15 +14,23 @@ Every company SHALL have the built-in Factory source, indexed by Core from the r
 - **WHEN** a company is created
 - **THEN** the Factory skills SHALL be listed in its library
 
-### Requirement: Git skill sources
-A company owner SHALL be able to add a git repository as a skill source by URL, optional ref, subpath and secret. Core SHALL fetch only over `https` or `ssh` to public addresses, shallowly, without submodules, LFS or hooks, within time and size limits.
+### Requirement: Skill sources
+An owner or admin SHALL be able to add a skill source once per company: a public git repository fetched by Core, a private git repository fetched by an online node of the company and uploaded to Core, or an uploaded archive. Core SHALL fetch only over `https` from public addresses, shallowly, without submodules, LFS or hooks, within time and size limits, and SHALL keep no git credentials.
 
 #### Scenario: Private address refused
-- **WHEN** an owner adds a source whose host resolves to a private address
+- **WHEN** an owner adds a public source whose host resolves to a private address
 - **THEN** Core SHALL refuse the sync and record the error on the source
 
+#### Scenario: Private repository
+- **WHEN** an owner adds a private repository and a node of the company is online
+- **THEN** the node SHALL fetch it with its own git access and upload the tree, and Core SHALL index it
+
+#### Scenario: No node online
+- **WHEN** a private source is synced and no node of the company is online
+- **THEN** the sync SHALL wait and the source SHALL show that it needs an online node
+
 ### Requirement: Deterministic indexing
-A sync SHALL resolve the ref to a commit and discover skills by the first matching layout: `.claude-plugin/marketplace.json`, then `skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md`, then a root `SKILL.md`. Each skill SHALL be validated against the Agent Skills format and the size limits; invalid skills SHALL be reported individually and the others indexed. Indexing the same commit twice SHALL give the same names and hashes.
+Indexing SHALL discover skills by the first matching layout: `.claude-plugin/marketplace.json`, then `skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md`, then a root `SKILL.md`. Each skill SHALL be validated against the Agent Skills format and the size limits; invalid skills SHALL be reported individually and the others indexed. Indexing the same tree twice SHALL give the same names and hashes.
 
 #### Scenario: Collection with one broken skill
 - **WHEN** a repository has `skills/a/SKILL.md` valid and `skills/b/SKILL.md` whose name differs from its directory
@@ -51,21 +59,21 @@ A sync of a `pinned` source SHALL report available updates without changing inst
 - **THEN** the skill SHALL be shown with an update and agents SHALL keep the installed hash until the owner installs the update
 
 ### Requirement: Skills managed apart from agents
-Sources SHALL be managed on the company's Skills page, API and CLI. The agent editor SHALL offer only installed skills, built-in and the company's own.
+Sources SHALL be managed on the company's Skills page, API and CLI. The agent editor SHALL offer only installed skills available to the agent's team and SHALL NOT accept a repository URL.
 
 #### Scenario: Picking skills for a new agent
-- **WHEN** an owner creates an agent
-- **THEN** the skill picker SHALL list installed Factory and company skills and SHALL NOT accept a repository URL
+- **WHEN** an owner creates an agent in team `gamedev`
+- **THEN** the skill picker SHALL list installed Factory and company skills not scoped to another team or agent
 
-### Requirement: Per-agent scope
-An installed skill with `scope: agent:<name>` SHALL be available only to that agent.
+### Requirement: Team and agent scope
+An installed skill with `scope: team:<name>` SHALL be available only to agents of that team, and one with `scope: agent:<name>` only to that agent.
 
-#### Scenario: Other agent includes a scoped skill
-- **WHEN** agent `qa` includes a skill scoped to agent `writer`
+#### Scenario: Other team includes a scoped skill
+- **WHEN** an agent of team `gamedev` includes a skill scoped to team `saas`
 - **THEN** catalog validation SHALL fail
 
 ### Requirement: Delivery to nodes by hash
-A node SHALL obtain a run's skills from Core by the hashes pinned on the run, keep them in a content-addressed store under `~/.app-factory/skills`, verify each with `skills.Hash` before use, and give each run a view containing only its agent's skills. Core SHALL serve a skill blob only to a run that pinned its hash.
+A node SHALL obtain a run's skills from Core by the hashes pinned on the run, keep them in a content-addressed store under `~/.app-factory/skills`, verify each with `skills.Hash` before use, and give each run a view containing only its agent's skills. Core SHALL serve a skill blob only to the node of a run that pinned its hash.
 
 #### Scenario: Node without the skill
 - **WHEN** a run pins a hash the node's store lacks
@@ -76,5 +84,5 @@ A node SHALL obtain a run's skills from Core by the hashes pinned on the run, ke
 - **THEN** Core SHALL answer not found
 
 #### Scenario: Agents see only their skills
-- **WHEN** two runs of different agents run on one node
+- **WHEN** runs of agents of two teams run on one node
 - **THEN** each runtime SHALL see only its own agent's skills

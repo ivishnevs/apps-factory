@@ -1,0 +1,16 @@
+## MODIFIED Requirements
+
+### Requirement: Review rule
+A policy rule of type `review` SHALL name the roles, agents or teams it applies to, whether review is `required`, and optionally a default `reviewer` (an agent or role). A reviewer role SHALL resolve to the agent with that role in the project's team, and a reviewer agent SHALL belong to that team. Without any review rule the agent's prompt decides whether work goes to review.
+
+#### Scenario: Required review before done
+- **WHEN** a developer covered by a required review rule calls `factory_exit_done` for a repository task without an approval bound to its pull request
+- **THEN** Core SHALL refuse the exit with `review_required` and a hint to submit for review
+
+#### Scenario: Approved and merged
+- **WHEN** the reviewer approved the pull request and the developer merged it
+- **THEN** `factory_exit_done` SHALL be accepted
+
+#### Scenario: Default reviewer
+- **WHEN** a covered agent calls `factory_exit_submit` without a reviewer
+- **THEN** the task SHALL go to the rule's reviewer resolved in the project's team

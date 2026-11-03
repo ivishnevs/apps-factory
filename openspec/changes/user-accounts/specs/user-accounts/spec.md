@@ -5,7 +5,7 @@ Core SHALL sign users in as an OIDC relying party of one configured issuer using
 
 #### Scenario: First sign-in with Google
 - **WHEN** a person signs in with Google for the first time
-- **THEN** Core SHALL create a user, an identity for the connector and subject, a personal account, and a session, and SHALL redirect to company creation
+- **THEN** Core SHALL create a user, an identity for the connector and subject, a personal account, one company with the user as `owner`, and a session, and SHALL open that company's setup
 
 #### Scenario: Forged callback
 - **WHEN** a callback arrives with a `state` that does not match the browser's login cookie
@@ -29,19 +29,19 @@ A web session SHALL be a random identifier in an HttpOnly, Secure cookie whose h
 - **WHEN** a user signs out
 - **THEN** the session SHALL be revoked and any further request with that cookie SHALL be unauthenticated
 
-### Requirement: Several companies per user
-A signed-in user SHALL be able to create companies in their account, becoming each one's `owner`, and SHALL see all companies they are a member of.
+### Requirement: Several companies behind a setting
+Core SHALL serve users with several companies, each addressed explicitly. Creating another company and the company selector SHALL be available only when the multi-company setting is on.
 
-#### Scenario: Second company
-- **WHEN** a user who owns company A creates company B
-- **THEN** both A and B SHALL be listed for the user and B SHALL get its own empty data and catalog
+#### Scenario: Setting off
+- **WHEN** a user tries to create a second company while the setting is off
+- **THEN** Core SHALL refuse it and the web UI SHALL show no selector
+
+#### Scenario: Setting on
+- **WHEN** the setting is on and a user who owns company A creates company B
+- **THEN** both SHALL be listed for the user and B SHALL get its own empty data, catalog, secrets, skills and nodes
 
 ### Requirement: Company context per request
 Every owner API request SHALL be resolved to exactly one company: a token's own company, or for a session the company the request names if the user is a member of it. A request naming a company the user is not a member of SHALL be answered as not found.
-
-#### Scenario: Switching companies
-- **WHEN** a user selects company B in the web UI while viewing company A's tasks
-- **THEN** tasks, chats, team, skills, projects, nodes and live updates SHALL show only company B's data
 
 #### Scenario: Foreign company
 - **WHEN** a user requests `/c/x/tasks` for a company `x` they are not a member of
@@ -51,9 +51,13 @@ Every owner API request SHALL be resolved to exactly one company: a token's own 
 - **WHEN** a company owner token of A is sent with a header naming company B
 - **THEN** Core SHALL refuse the request
 
-### Requirement: Membership roles
-An `owner` SHALL be able to change the company's catalog, skills, secrets and tokens; a `member` SHALL be able to work with tasks, chats and approvals and read the catalog.
+### Requirement: Company roles
+A membership SHALL have role `owner`, `admin` or `member`. Owners and admins SHALL manage the catalog, skills, secrets, nodes, projects and owner tokens; only owners SHALL change roles or delete the company; members SHALL work with tasks, chats and approvals, read the catalog and see secret names only.
 
 #### Scenario: Member edits the catalog
 - **WHEN** a member saves a catalog version
 - **THEN** Core SHALL refuse it as forbidden
+
+#### Scenario: Admin sets a secret
+- **WHEN** an admin sets a company secret
+- **THEN** Core SHALL accept it and record the admin as its author

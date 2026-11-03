@@ -15,16 +15,16 @@ credential, session) whose value holds no `${secret:NAME}` reference.
 - **THEN** loading SHALL fail naming `nope`
 
 ### Requirement: Missing secret fails setup
-A run whose servers need a secret the company has not set in Core, or whose sealed value the node cannot open,
-SHALL end `setup_failed` before the runtime starts, with a reason naming the server and the secret and never a
+A run whose servers need a secret that is missing in Core at claim (deleted after dispatch; before dispatch the task
+waits, `core-secret-store`), or whose sealed value the node cannot open, SHALL end `setup_failed` before the runtime starts, with a reason naming the server and the secret and never a
 value.
 
 #### Scenario: Missing secret
-- **WHEN** a run's server references `${secret:ASTR_API_KEY}` and the company has no such secret
+- **WHEN** a run's server references `${secret:ASTR_API_KEY}` and the secret is deleted after the run was dispatched
 - **THEN** the run SHALL end `setup_failed` with a reason naming `ASTR_API_KEY` and no runtime SHALL be launched
 
 ## REMOVED Requirements
 
 ### Requirement: Node secrets file
-**Reason**: Nodes are always hosted by us and customers set keys on the website; Core is the only source of secrets (`core-secret-store`). Redaction of delivered values moves to `core-secret-store`.
+**Reason**: Customers set keys once on the website and Core delivers them to whichever of the company's nodes claims the run; Core is the only source of secrets (`core-secret-store`). Redaction of delivered values moves to `core-secret-store`.
 **Migration**: None (not released). node.yaml `secrets_file` and `internal/node/secrets.go` are removed.

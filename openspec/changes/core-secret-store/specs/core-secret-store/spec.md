@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Company secrets held by Core
-Core SHALL store each company secret encrypted with that company's key, itself encrypted with a master key that is not stored in the database, and SHALL never return a secret value through any route, event or log.
+Core SHALL store each company secret encrypted with that company's key, itself encrypted with a master key that is not stored in the database, and SHALL never return a secret value through any route, event or log. Only owners and admins of the company SHALL set or delete secrets; members SHALL see names only.
 
 #### Scenario: Owner sets a key
 - **WHEN** the owner sets secret APPSTORETRACKER_KEY on the website
@@ -33,9 +33,20 @@ Core SHALL resolve the secrets a run needs at claim and deliver them only in tha
 - **WHEN** the claim answer is read at the proxy or written to a log
 - **THEN** it SHALL hold only sealed values that open with no key but the claiming node's
 
-#### Scenario: Missing secret
-- **WHEN** a run needs secret ASTR_API_KEY that the company has not set
+#### Scenario: Secret deleted after dispatch
+- **WHEN** secret ASTR_API_KEY is deleted after a run needing it was dispatched and before it is claimed
 - **THEN** the run SHALL end `setup_failed` with a reason naming `ASTR_API_KEY` and no runtime SHALL be launched
+
+### Requirement: Runs wait for missing secrets
+Core SHALL dispatch a run only when every secret it needs is set. A task whose run needs a missing secret SHALL wait with a reason naming the secret and the agent, without creating a run or spending a retry, and SHALL be dispatched once the secret is set.
+
+#### Scenario: Team created before its key
+- **WHEN** a researcher needs ASTR_API_KEY, the company has not set it, and a task is assigned to the researcher
+- **THEN** the task SHALL wait with reason `secret_missing: ASTR_API_KEY (researcher)` and no run SHALL be created
+
+#### Scenario: Key set later
+- **WHEN** the owner then sets ASTR_API_KEY
+- **THEN** the waiting task SHALL be dispatched without any other action
 
 ### Requirement: No secrets kept on nodes
 A node SHALL hold delivered values only for the run that received them and SHALL keep none on disk after the run ends; a rotated or deleted secret SHALL take effect from the next claim.
