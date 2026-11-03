@@ -34,11 +34,15 @@ Core SHALL serve node routes only to requests signed with the node's active sign
 - **THEN** Core SHALL refuse it as a replay and emit `node.signature_refused`
 
 ### Requirement: NATS authorization by node key
-A node SHALL connect to NATS with its signing key as nkey, and Core SHALL authorize the connection only for an active node, with permissions limited to its company's command subjects and its own control subject.
+A node SHALL connect to NATS with its signing key as nkey, and Core SHALL authorize the connection only for an active node, with permissions limited to its company's command consumers and acks, its company's agent events, its own control subject and its own inbox.
 
 #### Scenario: Public key without the private key
 - **WHEN** a client connects to NATS naming an active node's public key without a valid signature of the server's nonce
 - **THEN** Core SHALL refuse the connection
+
+#### Scenario: Node of another company
+- **WHEN** a modified node of company A tries to fetch or acknowledge a command of company B, to create a consumer filtered on B's commands under any name, or to read another node's inbox
+- **THEN** the NATS server SHALL refuse it and B's command SHALL stay available to B's nodes
 
 #### Scenario: Revoked node on NATS
 - **WHEN** an owner revokes a connected node

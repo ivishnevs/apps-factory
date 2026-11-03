@@ -9,7 +9,7 @@
 - [ ] 2.3 Doctor checks clock offset against Core's `Date` header.
 
 ## 3. NATS
-- [ ] 3.1 Node connects with its signing key as nkey; Core serves the NATS auth callout (active node with a valid signature of the server's nonce → permissions on its company's command subjects and its own control subject). Verify: a connection naming a node's public key without its private key is refused and the server presents a nonce in our configuration; `TestNodeControlSubjectIsPerNode` and `scripts/nats-secure-test.sh` reworked for callout users; pending and revoked keys refused.
+- [ ] 3.1 Node connects with its signing key as nkey; Core serves the NATS auth callout (active node with a valid signature of the server's nonce → the exact permissions of design D4: company consumers and acks, company agent events, own control subject, own inbox prefix). Verify: against a real NATS server, a node of company A cannot fetch, acknowledge or create a consumer on company B's commands (also under A's consumer name), nor read another node's inbox, and a normal node still runs; a connection naming a node's public key without its private key is refused and the server presents a nonce in our configuration; `TestNodeControlSubjectIsPerNode` and `scripts/nats-secure-test.sh` reworked for callout users; pending and revoked keys refused.
 - [ ] 3.2 Revocation kicks live NATS connections. Verify: revoked node disconnected, reconnect refused.
 
 ## 4. Revocation, rotation, removal
