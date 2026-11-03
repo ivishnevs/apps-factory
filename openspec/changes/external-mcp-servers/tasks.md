@@ -15,4 +15,4 @@
 - [x] 4.2 tvorog: App Store Tracker in the company's `mcp_servers.yaml`, product-researcher `mcp: [appstoretracker]`, `deny_tools: [add_to_watchlist]`. Done: snippets handed to the integrator (configs/tvorog is not tracked in the repository).
 
 ## 5. Live
-- [ ] 5.1 Owner: key in the node's secrets file, `secrets_file` in node.yaml, refreshed node and shim, one Product Researcher run shows `appstoretracker` connected (else switch `url` to the local proxy, design D7).
+- [ ] 5.1 Superseded by `core-secret-store` (no node secrets file): owner sets the key in Core, refreshed node and shim, one Product Researcher run shows `appstoretracker` connected (else switch `url` to the local proxy, design D7).
