@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: One node process with worker slots
-Each machine SHALL run one node process that registers with Core under a boot epoch and executes up to its configured number of runs concurrently in worker slots, using one Core connection and one NATS connection, both authenticated with the node's keys.
+Each machine SHALL run one node process that registers with Core under a boot epoch and executes up to its configured number of runs concurrently in worker slots, using one Core connection, authenticated with the node's keys, and one NATS connection.
 
 #### Scenario: Relative paths in node.yaml
 - **WHEN** node.yaml names `state_dir: data/factory-node` (or another relative path: worktrees root, keys, shim, NATS files) and the node starts from the checkout

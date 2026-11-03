@@ -9,26 +9,31 @@ Threats addressed: stolen database or backup; someone pretending to be a node (`
 - **Master key**: 32 bytes from Core's env `FACTORY_SECRETS_KEY` (base64), backed up in gopass by the operator. Core refuses to start the secret routes without it. Accessed only through a `KeyProvider` interface (`Wrap`, `Unwrap`) so a KMS provider can replace it without touching callers.
 - **Company key**: random 32 bytes per company, created with the company's first secret, stored wrapped by the master key in `company_keys(company_id, wrapped, key_version, created_at)`. Deleting a company deletes its key, which makes its secrets in the live database unreadable. A database copy made earlier also holds the wrapped key, so it stays readable with the master key.
 - **Secret value**: `AES-256-GCM(company key, random 96-bit nonce, value, AAD = company_id | name | version)` in `company_secrets(company_id, name, kind, version, nonce, ciphertext, updated_by, updated_at)`. The AAD makes a ciphertext moved to another row fail to decrypt.
-- Master key rotation re-wraps company keys only: `factory secrets rotate-master` (operator) reads the new key from `FACTORY_SECRETS_KEY_NEW` on Core and re-wraps every company key in one transaction under it; the operator then makes it `FACTORY_SECRETS_KEY`, restarts Core and updates the gopass backup.
+- Master key rotation re-wraps company keys only: `factory secrets rotate-master` (operator) reads the new key from `FACTORY_SECRETS_KEY_NEW` on Core and re-wraps every company key in one transaction under it; from then on the running Core tries both keys, so claims keep working until the operator makes it `FACTORY_SECRETS_KEY`, restarts Core and updates the gopass backup.
 
 ### D2. Owner surface
-- Routes (owners and admins by session or owner token; the operator token for support; members get `GET /secrets` names only): `PUT /secrets/{name}` `{kind, value}` (file values base64, at most 64 KiB), `GET /secrets` (name, kind, version, updated_by, updated_at, used_by: MCP servers and agents that reference it), `DELETE /secrets/{name}`. No route returns a value.
+- Routes (owners and admins by session or owner token; the operator token for support; members get `GET /secrets` names only): `PUT /secrets/{name}` `{kind, value}` (file values base64, at most 64 KiB; a string shorter than 8 bytes is refused, because redaction ignores shorter values), `GET /secrets` (name, kind, version, updated_by, updated_at, used_by: MCP servers and agents that reference it), `DELETE /secrets/{name}`. No route returns a value.
 - CLI `factory secrets set NAME [--file path]` (value from stdin or file, never an argument), `list`, `delete`.
 - Web: Secrets page of the company (`/c/{company}/secrets`; list, add/replace with a masked field or file upload, delete); the MCP server and agent views show which secrets they need and whether they are set.
 - Names: `[A-Za-z_][A-Za-z0-9_]{0,127}` (`protocol.SecretRef`).
 
 ### D3. What a run needs
-The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars; a missing secret is reported by `factory config validate`, by the setup status (`team-builder`), before dispatch (D9) and at claim.
+The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars. A secret of the wrong kind (a file in an MCP header or a string entry; a string in a file entry) refuses the entry at save when the secret exists, and the claim fails the same way otherwise; a missing secret is reported by `factory config validate`, by the setup status (`team-builder`), before dispatch (D9) and at claim.
 
 ### D4. Delivery sealed to the node
-At claim (after `node-identity` verified the signature) Core decrypts the needed secrets and adds `secrets: [{name, kind, version, sealed}]` to the claim answer. `sealed` = HPKE (RFC 9180, `crypto/hpke`: DHKEM X25519, HKDF-SHA256, ChaCha20-Poly1305) to the claiming node's active encryption key with `info = company | run_id | node_id | name | version`, so a sealed value opens only on that node and only for that run. The claim answer is not stored; a needed secret that is not set at claim (deleted after dispatch) fails the claim with `setup_failed` naming the secret, never a value. The go directive moves to 1.26 for `crypto/hpke`.
+At claim (after `node-identity` verified the signature) Core decrypts the needed secrets and adds `secrets: [{name, kind, version, sealed}]` to the claim answer. `sealed` = HPKE (RFC 9180, `crypto/hpke`: DHKEM X25519, HKDF-SHA256, ChaCha20-Poly1305) to the claiming node's active encryption key with `info = company | run_id | node_id | name | version`, so a sealed value opens only on that node and only for that run. The claim answer is not stored. The go directive, `Dockerfile` and `docs/development.md` move to Go 1.26 for `crypto/hpke`.
+
+Core checks and decrypts **before** committing the claim, because `ClaimV2` commits CLAIMED and a run must not stay CLAIMED with no answer:
+- a needed secret that is not set (deleted after dispatch), of the wrong kind or failing to decrypt: the run ends `setup_failed` naming the secret, never a value, in one transaction, and the claim is refused with `drop`;
+- no master key available: the claim is refused with `retry` and the run stays QUEUED, so no attempt is spent.
+A repeated claim with the same claim id seals again and records `secret.delivered` only once.
 
 ### D5. On the node
 The node opens each sealed value with its private key, checks the `info` binding, and:
 - MCP header secrets: `FACTORY_MCP_SECRET_<NAME>` in the runtime environment, header rewritten to `${FACTORY_MCP_SECRET_<NAME>}` (unchanged from `external-mcp-servers`).
 - `spec.secrets` strings: the named env var in the runtime environment only.
-- Files: `<run tmp>/secrets/<NAME>` mode 0600, path in the named env var; the directory is removed when the run ends and leftovers are removed at node start.
-- Every value joins the run's redaction. Values are held only for the run and dropped when it ends; nothing is written to the node's disk except file secrets as above and the existing `redact.json`, the owner-only file in the run's directory from which the run's Factory MCP adapter learns the values to redact from attachments. It is removed when the run ends, and leftovers are removed at node start.
+- Files: `<state_dir>/runs/<run>/secrets/<NAME>` mode 0600, path in the named env var. This run directory is created for every run that receives secrets, is removed when the run ends, and leftovers are removed at node start from this node's own `state_dir` only.
+- Every value, `spec.secrets` included, joins the run's redaction before `redact.json` is written. Values are held only for the run and dropped when it ends; nothing is written to the node's disk except file secrets as above and the existing `redact.json`, the owner-only file in the run's directory from which the run's Factory MCP adapter learns the values to redact from attachments. It is removed when the run ends, and leftovers are removed at node start.
 
 ### D6. Audit
 Feed events `secret.set`, `secret.deleted` (name, kind, version, actor) and `secret.delivered` (names, run, node). Never values.
@@ -40,7 +45,7 @@ A test plants a known value as a secret, runs a fake-driver run that prints it, 
 `node.yaml` `secrets_file`, `internal/node/secrets.go` and the "Node secrets file" requirement are removed; resolution reads only the claim answer.
 
 ### D9. Wait before dispatch
-The scheduler dispatches a task's run only when every secret the run needs (D3) is set. Otherwise the task stays queued with a waiting reason `secret_missing: NAME (agent)`, shown on the task and in the setup status; no run is created and no retry is spent (the auto-retry of failed runs would otherwise burn attempts on a setup the owner has not finished). Setting the secret wakes the waiting tasks. The claim check (D4) remains for a secret deleted between dispatch and claim.
+The scheduler dispatches a task's run only when every secret the run needs (D3) is set. Otherwise the task stays queued with a waiting reason `secret_missing: NAME (agent)`, shown on the task and in the setup status; no run is created and no retry is spent (the auto-retry of failed runs would otherwise burn attempts on a setup the owner has not finished). Setting the secret wakes the waiting tasks. The claim check (D4) remains for a secret deleted between dispatch and claim. `POST /runs`, which creates a run without the scheduler, refuses with `409 secret_missing` naming the secret.
 
 ## Risks / Trade-offs
 - A lost master key loses every secret → gopass backup is part of Core setup; startup refuses a key that cannot unwrap existing company keys.

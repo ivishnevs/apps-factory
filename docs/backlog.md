@@ -1,5 +1,25 @@
 # Backlog
 
+## Known issues
+
+### NATS does not isolate companies (must be solved before the first external node)
+
+Nodes connect to one shared NATS account. A security review on NATS 2.11.4 showed that subject permissions do not
+stop a modified node: the server does not check the reply address of a permitted request, and its own answer can
+trigger server API actions. In that test, a node with permissions for one company damaged the consumers and streams
+of the others. A holder of any node's NATS login can do this. Secrets do not pass through NATS: they go in the signed
+HTTP claim answer. Revoking a node (`node-identity`) does not cut its NATS login.
+
+**Current risk:** low while only our own nodes connect and NATS is not reachable from outside.
+
+**Rule:** do not expose NATS to, or give a NATS login to, a machine we do not control until this is solved.
+
+**Decision postponed** (owner, 2026-11-04). Nothing is planned, and no active change reworks or removes NATS.
+Options: nodes use only HTTP with long polling and NATS is removed or stays inside Core (the recommendation of that
+review); nodes only listen on NATS in an account without JetStream; one NATS account per company.
+
+## Optional work
+
 Optional work moved out of finished OpenSpec changes. Nothing here is planned; give an item its own
 OpenSpec change when it is picked up.
 
