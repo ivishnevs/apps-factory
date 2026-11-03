@@ -72,7 +72,7 @@ A node SHALL obtain a run's skills from Core by the hashes pinned on the run, ke
 - **THEN** the node SHALL download, verify and store it before the runtime starts
 
 #### Scenario: Blob of another run
-- **WHEN** a run credential requests a hash not pinned on that run
+- **WHEN** a node requests a hash not pinned on the run it names
 - **THEN** Core SHALL answer not found
 
 #### Scenario: Agents see only their skills

@@ -31,6 +31,8 @@ Skills are managed by the operator through files today:
   `~/.app-factory/skills/store/sha256-…`, verifies them, and each run gets a view with only its agent's skills.
 - Optional per-agent scope of an installed skill (`scope: agent:<name>`).
 
+Depends on `node-identity` (signed node requests for blob downloads).
+
 ## Out of scope
 
 A public marketplace UI across companies (later: a curated list of sources in the same format), editing skill
@@ -41,6 +43,6 @@ scripts beyond today's runtime policies.
 
 `internal/skills` (indexer, registry by source/hash), `internal/storage` (sources, index), `internal/blobstore`
 (skill blobs), `internal/core` (sources/sync/library API, blob download for runs, hash pins), `internal/worker`
-and `internal/node` (store, download, per-run view, GC), `internal/driver/claude` and `codex` (install from the
+and `internal/node` (store, download, per-run view, GC; `skills_root` removed), `internal/driver/claude` and `codex` (install from the
 view), `configs/templates/*/skills.yaml`, `internal/web` + `web/` (Skills page, picker), docs `skills.md`,
 `catalog.md`, `development.md`.

@@ -10,7 +10,7 @@ updates and private repositories.
 ## 2. Specs and docs
 - [x] 2.1 Delta spec `skill-registry`; `openspec validate --strict`.
 - [ ] 2.2 Docs: `skills.md` (formats, sources, installed skills, delivery), `catalog.md` (skills.yaml shape,
-  D5 change), `development.md` (node store, GC, `skills_root` fallback).
+  D5 change), `development.md` (node store, GC, `skills_root` removed).
 
 ## 3. Blobs and delivery
 - [ ] 3.1 Skill blobs in `internal/blobstore` keyed by `skills.Hash` (tar of the directory, deterministic);
@@ -19,9 +19,10 @@ updates and private repositories.
   `source: factory` instead of `../../skills/...`.
 - [ ] 3.3 Loader: installed skills by source and hash (`path:` kept for disk catalogs); Core reads served from
   blobs; `skill_hashes` pinned from the installed hashes.
-- [ ] 3.4 `GET /skills/blobs/{hash}` for run credentials, only hashes pinned on the run.
+- [ ] 3.4 `GET /skills/blobs/{hash}` for signed node requests (`node-identity`), only hashes pinned on the named run.
 - [ ] 3.5 Node store `~/.app-factory/skills/store/sha256-*` (download to `tmp/`, verify, atomic rename,
-  read-only), per-run view, drivers install from the view; GC of unused entries; `skills_root` fallback.
+  read-only), per-run view, drivers install from the view; GC of unused entries; remove `skills_root` and `path:`
+  entries.
 
 ## 4. Sources and indexer
 - [ ] 4.1 Migration: `skill_sources`, `skill_index`.

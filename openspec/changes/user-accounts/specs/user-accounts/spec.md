@@ -52,7 +52,7 @@ Every owner API request SHALL be resolved to exactly one company: a token's own 
 - **THEN** Core SHALL refuse the request
 
 ### Requirement: Membership roles
-An `owner` SHALL be able to change the company's catalog, skills, nodes and tokens; a `member` SHALL be able to work with tasks, chats and approvals and read the catalog.
+An `owner` SHALL be able to change the company's catalog, skills, secrets and tokens; a `member` SHALL be able to work with tasks, chats and approvals and read the catalog.
 
 #### Scenario: Member edits the catalog
 - **WHEN** a member saves a catalog version

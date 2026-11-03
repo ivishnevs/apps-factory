@@ -20,7 +20,8 @@ the same format.
 Every indexed skill version is a tar of its directory stored in `internal/blobstore` under the key
 `skills.Hash` (the hash nodes already verify). Built-in skills are stored once under the reserved scope
 `factory`; a company's own under its company. Core reads (`factory_skills_read`, owner UI) serve the blob, not
-disk. The operator's disk registry (`path:` entries) stays only for self-hosted catalogs.
+disk. Removed (no migration, not released): `path:` entries in `skills.yaml` and the node's disk registry
+(`skills_root`); nodes are always ours in the cloud (`node-identity`), so there is no self-hosted case.
 
 ### D3. Sources and the indexer
 `skill_sources (company_id, id, kind builtin|git, url, ref, subpath, secret, update pinned|track, commit,
@@ -64,14 +65,13 @@ version. A `track` source installs new hashes on sync automatically (a catalog v
 runs keep their pinned `skill_hashes`.
 
 ### D7. Delivery to nodes: store plus per-run view
-Core pins `skill_hashes` in the run snapshot (exists). `GET /skills/blobs/{hash}` with the run credential serves
-only hashes pinned on that run. The node keeps `~/.app-factory/skills/store/sha256-<hex>/` (read-only,
+Core pins `skill_hashes` in the run snapshot (exists). `GET /skills/blobs/{hash}`, a node request signed with
+the node's key (`node-identity`) and naming the run, serves only hashes pinned on that run of the node's company. The node keeps `~/.app-factory/skills/store/sha256-<hex>/` (read-only,
 immutable): a missing hash is downloaded to `tmp/`, unpacked, verified with `skills.Hash`, then renamed into the
 store. Each run gets a view with only its agent's skills (`~/.app-factory/runs/<run>/skills/<name>`); the
 drivers install from it (Claude: `<cwd>/.claude/skills/<name>` with `.factory-skill` and per-worktree excludes,
 as today; Codex: from the same view). The user's own `~/.claude/skills` is never touched. GC removes store
-entries unused for N days and not pinned by an active run. `skills_root` remains a fallback for self-hosted
-nodes.
+entries unused for N days and not pinned by an active run.
 
 ### D8. Per-agent scope
 An installed skill may carry `scope: agent:<name>`: only that agent may include it, and discovery offers it to
@@ -81,7 +81,8 @@ no other agent. Loading fails otherwise.
 
 - Fetching user-provided URLs from Core: SSRF and resource abuse are contained by D3's limits; git runs as a
   subprocess without hooks.
-- Skill content is untrusted prompt and script material of the client; it runs on the client's own nodes under
-  the agent's policies (as today). Built-in skills are ours.
+- Skill content is untrusted prompt and script material of the client and runs on our cloud nodes under the
+  agent's policies; a node serves one company (`node-identity` enrollment), so one company's skills never reach
+  another company's runs. Built-in skills are ours.
 - Core storage grows with skill versions; blobs are deduplicated by hash and old unreferenced versions can be
   collected later.

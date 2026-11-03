@@ -47,7 +47,8 @@ Live streams subscribe per company. The last used company is remembered per user
 (`users.last_company_id`).
 
 ### D6. Who may do what
-`owner`: everything of the company (catalog, skills, nodes, tokens, members later). `member`: work with tasks,
+`owner`: everything of the company (catalog, skills, secrets, tokens, members later; nodes are ours and
+enrolled by the operator, `node-identity`). `member`: work with tasks,
 chats, approvals; read the catalog. The operator token keeps operator-only endpoints (prices, built-in content).
 Users create companies themselves (`POST /companies` with a session); the operator path stays for support.
 
