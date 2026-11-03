@@ -2,8 +2,8 @@
 
 A project is a repository the team works in, with its tasks, OpenSpec tree, rules and feed. Projects are created
 by the owner (`POST /projects`, `factory projects create`, the New project forms of the web and terminal UIs) or
-by an agent allowed to, with the owner's approval (`factory_project_create`). OpenSpec change:
-`openspec/changes/project-creation`.
+by an agent allowed to, with the owner's approval (`factory_project_create`). OpenSpec spec:
+`openspec/specs/project-creation`.
 
 ## Repository modes
 

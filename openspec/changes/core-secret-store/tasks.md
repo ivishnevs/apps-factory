@@ -16,3 +16,6 @@
 
 ## 4. Docs
 - [ ] 4.1 `docs/agent-configuration.md` (`spec.secrets`, secrets in Core), `docs/development.md` (master key setup and gopass backup; no `secrets_file`), `docs/factory-mcp.md`, `docs/runtime-protocol-v2.md` (claim `secrets`).
+
+## 5. Owner check
+- [ ] 5.1 Owner sets the key in Core, refreshed node and shim, one Product Researcher run shows `appstoretracker` connected (else switch `url` to the local proxy, design D7).

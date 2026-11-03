@@ -32,7 +32,8 @@ Core, API and CLI, provisioning, review policy, UI.
 
 ## 6. UI
 - [x] 6.1 Web: Team (the resolved team, every document in an editor with diff, validate and save on top of the read version, history with rollback) and Companies (the operator creates a company from a template; the owner token is shown once). Core `GET /catalog/team`; `factory web` passes catalog routes through.
-- [ ] 6.2 Terminal UI: read-only view of the catalog (optional).
 
 ## 7. Verification
 - [x] 7.1 `make check` green plus NATS tests with `-p 1`; tests for storage-backed load, validation errors, apply without restart with running runs keeping their snapshot, two companies side by side, review enforcement at done.
+
+Optional leftovers moved to `docs/backlog.md`.

@@ -3,7 +3,7 @@
 ### Requirement: Checked task references
 Factory SHALL validate the name of a change reference when creating and updating linked tasks, and the node SHALL check that the change exists on the task's checkout before every run of a linked task.
 
-#### Scenario: Missing change at run start
+#### Scenario: Missing queued change
 - **WHEN** the change linked by a task is not on the checkout of its run
 - **THEN** the run SHALL end `change_missing` before a runtime turn starts and its task SHALL be held by a `change_missing` escalation
 

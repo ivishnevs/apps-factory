@@ -597,3 +597,10 @@ journalctl --user -u factory-node -f
 Values are escaped for systemd (`%` specifiers, `$` in `ExecStart`, quotes and backslashes); paths must be
 absolute, and control characters or a secret in `Environment=` refuse the unit. `systemd-analyze verify` accepts
 the output (checked on systemd 252; the unit test runs it when installed).
+
+## OpenSpec in this repository
+
+`openspec/specs/` describes how the system works now; `openspec/changes/` holds only work in progress.
+Whoever finishes the last task of a change archives it with `openspec archive NAME` in a separate commit
+and fixes any conflict the command reports. A change that modifies a capability is archived after the
+change that creates it. Optional leftovers go to `docs/backlog.md`.

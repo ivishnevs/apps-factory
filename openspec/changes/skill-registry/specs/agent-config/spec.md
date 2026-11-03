@@ -7,6 +7,10 @@ Only skill metadata SHALL be included at startup. Reads SHALL be scoped to the s
 - **WHEN** an agent reads a resource path that escapes the skill's directory
 - **THEN** the read SHALL be refused
 
+#### Scenario: Company without a registry
+- **WHEN** an agent of a company without its own `skills.yaml` includes a skill
+- **THEN** loading SHALL fail with `unknown skill`
+
 #### Scenario: Skill not installed
 - **WHEN** an agent of a company includes a skill the company has not installed
 - **THEN** loading SHALL fail with `unknown skill`

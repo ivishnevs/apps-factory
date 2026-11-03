@@ -2,7 +2,7 @@ import type { FactoryNode, Project, RepoMode } from "@/lib/api/types";
 import { cleanText } from "@/lib/humanize";
 
 // A project created without a ready repository is set up on the node that runs its first task
-// (openspec/changes/project-creation design D2). setupView says where that stands, in product language.
+// (archived OpenSpec change project-creation, design D2). setupView says where that stands, in product language.
 
 export const repoModeWords: Record<RepoMode, string> = {
   local: "New local repository",
