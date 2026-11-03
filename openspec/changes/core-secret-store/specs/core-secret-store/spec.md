@@ -55,6 +55,13 @@ A node SHALL hold delivered values only for the run that received them and SHALL
 - **WHEN** the owner replaces a secret's value
 - **THEN** every run claimed afterwards SHALL receive the new value without any node action
 
+### Requirement: Delivered values redacted
+A node SHALL redact every delivered value, matched exactly, from the run's log, events, result and report attachments.
+
+#### Scenario: Secret printed by the agent
+- **WHEN** a command of the run prints a delivered value
+- **THEN** the uploaded run log and published events SHALL contain `[REDACTED]` instead of it
+
 ### Requirement: Secret audit
 Core SHALL record every secret write, deletion and delivery as a feed event naming the secret, actor, run and node, never its value.
 

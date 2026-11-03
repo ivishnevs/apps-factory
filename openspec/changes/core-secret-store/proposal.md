@@ -16,7 +16,7 @@ Credentials for agent tools (MCP server keys such as App Store Tracker, store an
 KMS (interface only), rotation reminders and expiry dates, browser-side encryption to node keys, importing secrets from elsewhere.
 
 ## Dependencies
-`node-identity` (signed claims, node encryption keys), `external-mcp-servers` (`${secret:NAME}` references), `owner-web` (UI), `postgres-tenancy` (per-company storage).
+`node-identity` (signed claims, node encryption keys), `external-mcp-servers` (`${secret:NAME}` references), `owner-web` (UI), `postgres-tenancy` (per-company storage), `user-accounts` (owner, admin and member roles, company web pages: until it lands, secrets work through the CLI and API with an owner token, and the web page and member rule wait).
 
 ## Capabilities
 ### New Capabilities

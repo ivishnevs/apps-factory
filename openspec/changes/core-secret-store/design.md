@@ -7,9 +7,9 @@ Threats addressed: stolen database or backup; someone pretending to be a node (`
 
 ### D1. Key hierarchy
 - **Master key**: 32 bytes from Core's env `FACTORY_SECRETS_KEY` (base64), backed up in gopass by the operator. Core refuses to start the secret routes without it. Accessed only through a `KeyProvider` interface (`Wrap`, `Unwrap`) so a KMS provider can replace it without touching callers.
-- **Company key**: random 32 bytes per company, created with the company's first secret, stored wrapped by the master key in `company_keys(company_id, wrapped, key_version, created_at)`. Deleting a company deletes its key, which makes every copy of its secrets unreadable, backups included.
+- **Company key**: random 32 bytes per company, created with the company's first secret, stored wrapped by the master key in `company_keys(company_id, wrapped, key_version, created_at)`. Deleting a company deletes its key, which makes its secrets in the live database unreadable. A database copy made earlier also holds the wrapped key, so it stays readable with the master key.
 - **Secret value**: `AES-256-GCM(company key, random 96-bit nonce, value, AAD = company_id | name | version)` in `company_secrets(company_id, name, kind, version, nonce, ciphertext, updated_by, updated_at)`. The AAD makes a ciphertext moved to another row fail to decrypt.
-- Master key rotation re-wraps company keys only (operator command, `factory secrets rotate-master`).
+- Master key rotation re-wraps company keys only: `factory secrets rotate-master` (operator) reads the new key from `FACTORY_SECRETS_KEY_NEW` on Core and re-wraps every company key in one transaction under it; the operator then makes it `FACTORY_SECRETS_KEY`, restarts Core and updates the gopass backup.
 
 ### D2. Owner surface
 - Routes (owners and admins by session or owner token; the operator token for support; members get `GET /secrets` names only): `PUT /secrets/{name}` `{kind, value}` (file values base64, at most 64 KiB), `GET /secrets` (name, kind, version, updated_by, updated_at, used_by: MCP servers and agents that reference it), `DELETE /secrets/{name}`. No route returns a value.
@@ -18,7 +18,7 @@ Threats addressed: stolen database or backup; someone pretending to be a node (`
 - Names: `[A-Za-z_][A-Za-z0-9_]{0,127}` (`protocol.SecretRef`).
 
 ### D3. What a run needs
-The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars; a missing secret is reported by `factory agents check`, by the setup status (`team-builder`), before dispatch (D9) and at claim.
+The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars; a missing secret is reported by `factory config validate`, by the setup status (`team-builder`), before dispatch (D9) and at claim.
 
 ### D4. Delivery sealed to the node
 At claim (after `node-identity` verified the signature) Core decrypts the needed secrets and adds `secrets: [{name, kind, version, sealed}]` to the claim answer. `sealed` = HPKE (RFC 9180, `crypto/hpke`: DHKEM X25519, HKDF-SHA256, ChaCha20-Poly1305) to the claiming node's active encryption key with `info = company | run_id | node_id | name | version`, so a sealed value opens only on that node and only for that run. The claim answer is not stored; a needed secret that is not set at claim (deleted after dispatch) fails the claim with `setup_failed` naming the secret, never a value. The go directive moves to 1.26 for `crypto/hpke`.
@@ -28,7 +28,7 @@ The node opens each sealed value with its private key, checks the `info` binding
 - MCP header secrets: `FACTORY_MCP_SECRET_<NAME>` in the runtime environment, header rewritten to `${FACTORY_MCP_SECRET_<NAME>}` (unchanged from `external-mcp-servers`).
 - `spec.secrets` strings: the named env var in the runtime environment only.
 - Files: `<run tmp>/secrets/<NAME>` mode 0600, path in the named env var; the directory is removed when the run ends and leftovers are removed at node start.
-- Every value joins the run's redaction. Values are held only for the run and dropped when it ends; nothing is written to the node's disk except file secrets as above.
+- Every value joins the run's redaction. Values are held only for the run and dropped when it ends; nothing is written to the node's disk except file secrets as above and the existing `redact.json`, the owner-only file in the run's directory from which the run's Factory MCP adapter learns the values to redact from attachments. It is removed when the run ends, and leftovers are removed at node start.
 
 ### D6. Audit
 Feed events `secret.set`, `secret.deleted` (name, kind, version, actor) and `secret.delivered` (names, run, node). Never values.
@@ -46,3 +46,5 @@ The scheduler dispatches a task's run only when every secret the run needs (D3) 
 - A lost master key loses every secret → gopass backup is part of Core setup; startup refuses a key that cannot unwrap existing company keys.
 - Core decrypts at every claim → negligible cost; no node-side cache (no sync, immediate revocation).
 - A run that started before a rotation keeps the old value until it ends.
+- **Accepted in v1:** redaction matches a value exactly, so a multi-line file printed in parts or a base64 form may reach the run log (uploaded to Core), and the pre-push scan (gitleaks) finds credential shapes, not the company's values. No per-line redaction or scan of known values.
+- **Accepted in v1:** agents run as the node's OS user, so an agent can read the env and secret files of other live runs on its node (`node-identity`, Risks). A node serves one company, so this stays inside the company.

@@ -14,7 +14,7 @@ A node proves who it is with a bearer token (`fnt_…`, `node-agent` 1.1) that t
 Keys in Secure Enclave / TPM (private keys are 0600 files on an encrypted disk for now), short-lived node certificates, the agent-facing run token, a node serving several companies, provisioning virtual nodes (Fly Sprites; later, D8).
 
 ## Dependencies
-`node-agent` (registration, node routes, control subject), `postgres-tenancy` (company scope). `core-secret-store` builds on the encryption key.
+`node-agent` (registration, node routes, control subject), `postgres-tenancy` (company scope), `user-accounts` (owner and admin roles, company web pages: until it lands, enrollment works through the CLI and API with an owner token, and the web page waits). `core-secret-store` builds on the encryption key.
 
 ## Capabilities
 ### New Capabilities

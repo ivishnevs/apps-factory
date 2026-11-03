@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Node key pairs
-A node SHALL generate an Ed25519 signing key pair and an X25519 encryption key pair on first start, keep the private keys only on the node in files readable by its user alone, and SHALL refuse to start when a private key file grants access to group or others.
+A node SHALL generate an Ed25519 signing key pair and an X25519 encryption key pair at enrollment, keep the private keys only on the node in files readable by its user alone, and SHALL refuse to start when a private key file grants access to group or others.
 
 #### Scenario: Loose key file
 - **WHEN** a node's private key file is readable by its group
@@ -35,6 +35,10 @@ Core SHALL serve node routes only to requests signed with the node's active sign
 
 ### Requirement: NATS authorization by node key
 A node SHALL connect to NATS with its signing key as nkey, and Core SHALL authorize the connection only for an active node, with permissions limited to its company's command subjects and its own control subject.
+
+#### Scenario: Public key without the private key
+- **WHEN** a client connects to NATS naming an active node's public key without a valid signature of the server's nonce
+- **THEN** Core SHALL refuse the connection
 
 #### Scenario: Revoked node on NATS
 - **WHEN** an owner revokes a connected node
