@@ -73,8 +73,9 @@ version. A `track` source installs new hashes on sync automatically (a catalog v
 runs keep their pinned `skill_hashes`.
 
 ### D8. Delivery to nodes: store plus per-run view
-Core pins `skill_hashes` in the run snapshot (exists). `GET /skills/blobs/{hash}`, a node request signed with the
-node's key (`node-identity`) and naming the run, serves only hashes pinned on that run of the node. The node keeps
+Core pins `skill_hashes` in the run snapshot (exists). `GET /runs/{run}/skills/{hash}`, a node request signed with the
+node's key (`node-identity`) and naming the run in its path, serves only hashes pinned on that run of the node (the
+node gateway already refuses a run the node did not claim, as for `/runs/{id}/blobs/{sha256}`). The node keeps
 `~/.app-factory/skills/store/sha256-<hex>/` (read-only, immutable): a missing hash is downloaded to `tmp/`,
 unpacked, verified with `skills.Hash`, then renamed into the store. Each run gets a view with only its agent's
 skills (`~/.app-factory/runs/<run>/skills/<name>`); the drivers install from it (Claude: `<cwd>/.claude/skills/<name>`

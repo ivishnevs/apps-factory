@@ -20,7 +20,7 @@ hash with the built-in source (default skills on any node), then sources, indexe
   `source: factory` instead of `../../skills/...`.
 - [ ] 3.3 Loader: installed skills by source and hash; Core reads served from blobs; `skill_hashes` pinned from the
   installed hashes; `path:` entries removed.
-- [ ] 3.4 `GET /skills/blobs/{hash}` for signed node requests (`node-identity`), only hashes pinned on the named run
+- [ ] 3.4 `GET /runs/{run}/skills/{hash}` for signed node requests (`node-identity`), only hashes pinned on the named run
   of that node.
 - [ ] 3.5 Node store `~/.app-factory/skills/store/sha256-*` (download to `tmp/`, verify, atomic rename, read-only),
   per-run view, drivers install from the view; GC of unused entries; `skills_root` removed.
