@@ -107,6 +107,17 @@ func TestSessionSignIn(t *testing.T) {
 		me.Companies[0] != (storage.Membership{Company: company, Name: "Ann Lee's company", Role: storage.RoleOwner}) || me.LastCompany != company || me.MultiCompany {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	// The setup wizard opens once (saas-web-ui P3): welcomed_at is 0 until the person finishes or skips it.
+	if me.User.WelcomedAt != 0 {
+		t.Fatal("welcomed before the wizard", me.User.WelcomedAt)
+	}
+	if w := ann.do("POST", "/me/welcomed", nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	_ = json.Unmarshal(ann.do("GET", "/me", nil).Body.Bytes(), &me)
+	if me.User.WelcomedAt == 0 {
+		t.Fatal("not welcomed")
+	}
 	// The company got the sign-up template's catalog, authored by the user.
 	ann.company = company
 	var view CatalogView

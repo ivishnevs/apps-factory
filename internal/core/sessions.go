@@ -152,6 +152,9 @@ func (c *Core) sessionGateway(w http.ResponseWriter, r *http.Request, m *http.Se
 	case r.URL.Path == "/me":
 		c.me(w, r.WithContext(ctx))
 		return
+	case r.URL.Path == "/me/welcomed" && r.Method == http.MethodPost:
+		reply(w, map[string]bool{"ok": true}, c.Store.MarkWelcomed(r.Context(), sess.User))
+		return
 	case r.URL.Path == "/companies" && r.Method == http.MethodPost:
 		c.createUserCompany(w, r.WithContext(ctx), sess.User)
 		return

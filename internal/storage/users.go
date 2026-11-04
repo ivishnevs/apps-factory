@@ -40,6 +40,8 @@ type User struct {
 	Name        string `json:"name"`
 	LastCompany string `json:"last_company,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
+	// WelcomedAt is when the person finished or skipped the setup wizard; 0 opens it after sign-in.
+	WelcomedAt int64 `json:"welcomed_at"`
 }
 
 // Identity is what a verified ID token says about the person: the connector (provider) and its subject.
@@ -148,12 +150,18 @@ func userBy(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, id string) (User, error) {
 	var u User
-	err := q.QueryRowContext(ctx, "SELECT id,account_id,email,name,last_company_id,created_at FROM users WHERE id=?", id).
-		Scan(&u.ID, &u.Account, &u.Email, &u.Name, &u.LastCompany, &u.CreatedAt)
+	err := q.QueryRowContext(ctx, "SELECT id,account_id,email,name,last_company_id,created_at,welcomed_at FROM users WHERE id=?", id).
+		Scan(&u.ID, &u.Account, &u.Email, &u.Name, &u.LastCompany, &u.CreatedAt, &u.WelcomedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return u, ErrNotFound
 	}
 	return u, err
+}
+
+// MarkWelcomed records that user finished or skipped the setup wizard (the first time only).
+func (s *Store) MarkWelcomed(ctx context.Context, user string) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE users SET welcomed_at=? WHERE id=? AND welcomed_at=0", s.Now().Unix(), user)
+	return err
 }
 
 // User returns one user.

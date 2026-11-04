@@ -72,8 +72,9 @@ function Wizard() {
   const [newTeam, setNewTeam] = useState(false);
   const manage = canManage(info.data?.role);
   const owner = info.data?.role === "owner";
-  const finish = () => {
-    try { localStorage.setItem(welcomeSeenKey(me.data?.user?.id ?? me.data?.kind ?? ""), "1"); } catch { /* storage blocked */ }
+  const finish = async () => {
+    if (me.data?.user) await core("/me/welcomed", { method: "POST", body: "{}" }).catch(() => undefined);
+    else try { localStorage.setItem(welcomeSeenKey(me.data?.kind ?? ""), "1"); } catch { /* storage blocked */ }
     router.push("/");
   };
   const header = welcome

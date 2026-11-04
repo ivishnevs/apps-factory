@@ -3,7 +3,7 @@ export type Role = "owner" | "admin" | "member";
 
 export interface Membership { company: string; name: string; role: Role }
 
-export interface User { id: string; account: string; email: string; name: string; last_company?: string; created_at: number }
+export interface User { id: string; account: string; email: string; name: string; last_company?: string; created_at: number; welcomed_at?: number }
 
 export interface Me {
   kind: "session" | "token" | "operator";

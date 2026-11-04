@@ -124,5 +124,5 @@ The open questions got these defaults so work goes on; each can be changed later
 - **P2. Telegram per company (decision needed).** One bot per Core (`FACTORY_TELEGRAM_TOKEN`) serves the default
   company only. Proposal: one shared bot; Settings → Integrations issues a bind code per company and person
   (`/start <code>`), notifications go per membership. Until decided, the web shows no Telegram settings.
-- **P3. "Seen the wizard" in Core.** `/welcome` remembers in the browser; proposal: a `welcomed_at` on the user so a
-  second device does not open the wizard again. Small; done when the user table next changes.
+- **P3. "Seen the wizard" in Core — done.** `users.welcomed_at` (migration 0018), `POST /me/welcomed` when the wizard
+  is finished or skipped; a token keeps the browser flag.
