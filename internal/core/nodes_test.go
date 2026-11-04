@@ -8,12 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/clock"
 	"appfactory/internal/config"
 	"appfactory/internal/messaging"
@@ -332,19 +330,7 @@ func TestNodeGateway(t *testing.T) {
 
 // TestHealthGateway: /health answers a signed node and a token, nobody else.
 func TestHealthGateway(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	c, s, _ := nodeCore(t)
-	c.Bus = b
 	ctx := context.Background()
 	n := testnode.Enroll(t, s, storage.DefaultCompany)
 	if code, out := signedCall(t, c, n, "GET", "/health", nil); code != 200 {

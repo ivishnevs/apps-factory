@@ -1,5 +1,7 @@
 # OpenSpec integration verification
 
+> Note: NATS was removed by `http-node-transport`; the NATS test commands below are history (the `TestJetStream*` tests were renamed when they moved to HTTP). Today the same tests run without a broker: `make test-services` (Postgres only), then `make check`.
+
 Verified 2026-10-12 on macOS arm64, native Go/Codex Worker with Docker Core and authenticated NATS.
 SQLite remains schema 7; no document storage table or new dependency was added. Before deployment,
 the stopped Core data directory was copied to .cache/pre-openspec-integration-backup/data. Existing

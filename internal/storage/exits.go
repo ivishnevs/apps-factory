@@ -12,7 +12,6 @@ import (
 
 	"appfactory/internal/artifacts"
 	"appfactory/internal/messaging"
-	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
 
@@ -662,8 +661,8 @@ func (s *Store) Directive(ctx context.Context, company, task, actor, text string
 }
 
 // stopUrgently revokes the task's live run for urgent authority input (D7): the run becomes CANCELLING with
-// the stop reason, and the node holding it gets run.stop on its control subject at once; the heartbeat
-// answer stays the guarantee. The revoked run ends revoked and the next run starts with the input.
+// the stop reason, and the commit wakes the node's poll, which answers the stop at once; the heartbeat answer
+// stays the guarantee. The revoked run ends revoked and the next run starts with the input.
 func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) error {
 	if t.CurrentRunID == "" {
 		return nil
@@ -675,18 +674,8 @@ func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) erro
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil
 	}
-	tx.wakeNodes()
-	var node string
-	if err = tx.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&node); err != nil {
-		return err
-	}
-	e := protocol.Wrap("run.stop", t.CurrentRunID, "", protocol.RunStop{RunID: t.CurrentRunID, Reason: "revoked"})
-	b, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.NodeControlSubject(tx.company, node), b, tx.company)
-	return err
+	tx.wakeNodes() // the node's waiting poll answers the stop (http-node-transport D4)
+	return nil
 }
 
 // PendingDirectives are the task's directives above handled_seq, oldest first (for the next brief).

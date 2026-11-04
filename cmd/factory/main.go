@@ -3,7 +3,6 @@ package main
 import (
 	"appfactory/internal/auth"
 	"appfactory/internal/blobstore"
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/notify/telegram"
@@ -241,18 +240,13 @@ func run() error {
 		return fmt.Errorf("company %s: %w", company, err)
 	}
 	defer s.DB.Close()
-	b, err := bus.Connect(env("NATS_URL", "nats://127.0.0.1:4222"))
-	if err != nil {
-		return err
-	}
-	defer b.NC.Close()
 	prices, err := config.LoadPrices(root)
 	if err != nil {
 		return err
 	}
 	// Catalogs live in storage (company-self-service D1, D4): every company's current version, the own company
 	// seeded from the repository on its first start.
-	c := core.Core{Store: s, Bus: b, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
+	c := core.Core{Store: s, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
 		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
 	if c.Auth, err = signIn(); err != nil {
 		return err

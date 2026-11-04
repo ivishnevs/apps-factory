@@ -80,8 +80,8 @@ running run carries as `authority_input` until the agent has seen them, and that
 (409, [Factory MCP](factory-mcp.md#explicit-exits)). Each input has its author's rank (owner 0, then depth in
 the reporting tree); among conflicting directives the one nearest the owner is marked `winning`. A parked task
 is woken at once: authority input overrides its wait, ask, block and children parks and its retry and no_exit
-escalations (task-lifecycle.md, Trigger log and parks). `--urgent` revokes the running run (a stop on the node's
-control subject, the heartbeat as guarantee; outcome `revoked`, not an attempt) and the next run's brief starts
+escalations (task-lifecycle.md, Trigger log and parks). `--urgent` revokes the running run (a stop in the node's
+poll answer at once, the heartbeat as guarantee; outcome `revoked`, not an attempt) and the next run's brief starts
 with the directive; `factory approve APPROVAL REASON --urgent` does the same for the tasks an approved artifact
 version wakes. Comments by agents outside the authority set add no trigger; the next brief lists them.
 
@@ -157,7 +157,7 @@ questions per conversation/task can be dispatched; further questions escalate di
 Normalized repeated question text/forms in a conversation or task are rejected (including repeated
 owner text with a new key). Reusing the original key replays the original response. Each message
 chain has conversation_id and message events use it as correlation_id. Full snapshots remain in
-the database; outbox notifications contain pointers. Validating permissions/config snapshots never mutates
+the database. Validating permissions/config snapshots never mutates
 current permissions. Tool responses retain the existing explicit 64 KiB content limit.
 
 The inbox is CLI/HTTP; no UI or external delivery service is included. Questions and notifications

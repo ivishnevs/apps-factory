@@ -91,38 +91,6 @@ func TestDriverHealthRunsOnIntervals(t *testing.T) {
 	eventually(t, "driver re-enabled", func() bool { return h.usable("codex") && changes.Load() == 2 })
 }
 
-// TestPoolSkipsDisabledSource: slots stop fetching a disabled driver's subject and keep claiming the other.
-func TestPoolSkipsDisabledSource(t *testing.T) {
-	codexQ, claudeQ := &queue{}, &queue{}
-	codexQ.push("c1", "c2")
-	claudeQ.push("k1")
-	runs := &fakeRuns{running: map[string]bool{}, release: make(chan struct{})}
-	close(runs.release)
-	var claudeOK atomic.Bool
-	p := &Pool{Slots: 1, Pause: time.Millisecond, Sources: []*Source{
-		{Name: "codex", Fetch: codexQ.fetch, Process: runs.process},
-		{Name: "claude", Fetch: claudeQ.fetch, Process: runs.process, Claimable: claudeOK.Load},
-	}}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- p.Run(ctx) }()
-	ended := func(n int) func() bool {
-		return func() bool { runs.mu.Lock(); defer runs.mu.Unlock(); return len(runs.ended) == n }
-	}
-	eventually(t, "codex runs", ended(2))
-	time.Sleep(20 * time.Millisecond)
-	if !ended(2)() {
-		t.Fatal("disabled driver's command was claimed")
-	}
-	claudeOK.Store(true)
-	eventually(t, "claude run after re-enable", ended(3))
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
 // TestRunNeedsAUsableDriver: a node whose drivers all fail at start does not start.
 func TestRunNeedsAUsableDriver(t *testing.T) {
 	d := newFlip(protocol.RuntimeCodex)

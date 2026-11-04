@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -23,27 +21,16 @@ import (
 	"appfactory/internal/worker"
 )
 
-// TestJetStreamExplicitExitEndToEnd: Core with explicit exits, a v2 node, a runtime (fake) that calls
+// TestExplicitExitEndToEnd: Core with explicit exits, a v2 node, a runtime (fake) that calls
 // factory_exit_submit through the real factory-mcp binary. The exit is accepted, the task is in review,
 // and the run ends succeeded with exit_state accepted, although the turn kept running after the exit.
-func TestJetStreamExplicitExitEndToEnd(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
+func TestExplicitExitEndToEnd(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{"factory-mcp", "factory-shim"} {
 		if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, name), "appfactory/cmd/"+name).CombinedOutput(); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
 	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = 1
 	defer func() { storage.HeartbeatSeconds = beat }()
@@ -59,7 +46,7 @@ func TestJetStreamExplicitExitEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token", ExplicitExits: true}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token", ExplicitExits: true}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -82,7 +69,7 @@ func TestJetStreamExplicitExitEndToEnd(t *testing.T) {
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
+		done <- Run(nodeCtx, Node{Config: cfg, API: api, Drivers: []driver.Driver{perRunSessions{d}}})
 	}()
 	var run storage.Run
 	for {

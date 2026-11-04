@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -44,20 +43,9 @@ func TestDriversClaudeBinDir(t *testing.T) {
 	t.Fatal("claude driver not built")
 }
 
-// TestJetStreamNodeSlots runs three hanging fake-driver runs concurrently on a node with three slots,
+// TestNodeSlots runs three hanging fake-driver runs concurrently on a node with three slots,
 // then shuts the node down, which interrupts all of them (node-agent 1.1).
-func TestJetStreamNodeSlots(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+func TestNodeSlots(t *testing.T) {
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +55,7 @@ func TestJetStreamNodeSlots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -87,7 +75,7 @@ func TestJetStreamNodeSlots(t *testing.T) {
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}})
+		done <- Run(nodeCtx, Node{Config: cfg, API: api, Drivers: []driver.Driver{perRunSessions{d}}})
 	}()
 	for running := 0; running < len(runs); {
 		select {

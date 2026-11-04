@@ -127,8 +127,8 @@ active run.
 
 HTTP: `GET/POST /projects/PROJECT/artifacts`, `GET /projects/PROJECT/artifacts/ID/VERSION`,
 `GET /projects/PROJECT/artifacts/ID/VERSION/content` (uploaded content), `POST /projects/PROJECT/artifacts/approval`;
-all require the owner token. Events: `factory.<company>.events.artifact.registered` and the existing `approval.*`,
-`task.artifact_waiting`. History and outbox are stored in Core's database.
+all require the owner token. Events: `artifact.registered` and the existing `approval.*`,
+`task.artifact_waiting`. History is stored in Core's database.
 
 ## Limits and checks
 
@@ -145,5 +145,5 @@ URI for one version in the project, use a new version. A historical URI is never
 
 `make check` covers versions, policy, independence from acceptance, waiting, restart, rejection/revocation/expiry
 and quarantine. `scripts/artifact-approvals-smoke.py --restart-core` checks with real Codex: v1 approve → QA,
-v2 reject → waiting, v3 approve → QA. Core/NATS and a node must be running. Results:
+v2 reject → waiting, v3 approve → QA. Core and a node must be running. Results:
 [verification](artifact-approvals-verification.md).

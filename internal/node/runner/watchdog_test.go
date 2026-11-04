@@ -3,12 +3,10 @@ package runner
 import (
 	"context"
 	"net/http/httptest"
-	"os"
 	"syscall"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -20,21 +18,10 @@ import (
 	"appfactory/internal/worker"
 )
 
-// TestJetStreamWatchdogKilledRuntime (node-agent 3b.2): a run's real runtime process is killed from outside
+// TestWatchdogKilledRuntime (node-agent 3b.2): a run's real runtime process is killed from outside
 // the node while the run is in progress; the watchdog cancels the run, the run ends, and the node's only
 // slot is free again: the next run is claimed and starts.
-func TestJetStreamWatchdogKilledRuntime(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+func TestWatchdogKilledRuntime(t *testing.T) {
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +31,7 @@ func TestJetStreamWatchdogKilledRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -81,8 +68,7 @@ func TestJetStreamWatchdogKilledRuntime(t *testing.T) {
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}},
-			FetchWait: 200 * time.Millisecond, Watchdog: &node.Watchdog{Interval: 100 * time.Millisecond}})
+		done <- Run(nodeCtx, Node{Config: cfg, API: api, Drivers: []driver.Driver{perRunSessions{d}}, Watchdog: &node.Watchdog{Interval: 100 * time.Millisecond}})
 	}()
 	defer func() { stopNode(); <-done }()
 

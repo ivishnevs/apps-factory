@@ -13,8 +13,8 @@ import (
 )
 
 // Systemd is a systemd service running `factory-node run` with Restart=always (node-agent D7, the launchd
-// KeepAlive equivalent on Linux). Secrets (NATS_URL with its password) are never written into the
-// unit: they come from EnvFile, an owner-only (0600) KEY=value file. Logs go to journald.
+// KeepAlive equivalent on Linux). Secrets are never written into the unit: they come from EnvFile, an owner-only
+// (0600) KEY=value file (the node's own keys live in its state_dir). Logs go to journald.
 type Systemd struct {
 	Description, Executable, Config, WorkingDir string
 	// EnvFile is the absolute path of the secrets file; required.
@@ -27,7 +27,7 @@ type Systemd struct {
 }
 
 // SystemdSecrets are the variables Systemd never inlines; they belong in EnvFile.
-var SystemdSecrets = []string{"NATS_URL", "NATS_PASSWORD"}
+var SystemdSecrets = []string{"FACTORY_TOKEN"}
 
 var unit = template.Must(template.New("unit").Parse(`# factory-node {{if .System}}system{{else}}user{{end}} unit (node-agent D7). Secrets come from EnvironmentFile (chmod 600), never from this file.
 [Unit]

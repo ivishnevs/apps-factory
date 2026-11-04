@@ -13,14 +13,10 @@ import (
 	"appfactory/internal/skills"
 )
 
-// TestJetStreamResumePolicy: a run resumes its session only when this node ran it for the same
+// TestResumePolicy: a run resumes its session only when this node ran it for the same
 // (task, agent) and its prompt reached the runtime; otherwise it starts a fresh session with the note
 // that the context comes from Core. The node records the session it ran.
-func TestJetStreamResumePolicy(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestResumePolicy(t *testing.T) {
 	cases := map[string]struct {
 		prev   *sessions.Record
 		resume bool
@@ -47,7 +43,7 @@ func TestJetStreamResumePolicy(t *testing.T) {
 				}
 			}
 			d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-			r, _ := runDriver(t, url, Worker{Driver: d, Sessions: store}, false, func(s *protocol.RunSpec) { s.TaskID, s.SessionID = "t1", "s-prev" })
+			r, _ := runDriver(t, Worker{Driver: d, Sessions: store}, false, func(s *protocol.RunSpec) { s.TaskID, s.SessionID = "t1", "s-prev" })
 			l := d.Launches()
 			if r.Status != "ENDED" || r.Outcome != "succeeded" || len(l) != 1 {
 				t.Fatalf("%+v, %d launches", r, len(l))
@@ -100,13 +96,9 @@ func skillRegistry(t *testing.T) (*skills.Registry, string) {
 	return r, hash
 }
 
-// TestJetStreamSkillsPinned: offered skills reach the driver as a verified copy; a pinned hash that
+// TestSkillsPinned: offered skills reach the driver as a verified copy; a pinned hash that
 // differs from the node's skill, or a skill the node lacks, fails the run before the runtime starts.
-func TestJetStreamSkillsPinned(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestSkillsPinned(t *testing.T) {
 	registry, hash := skillRegistry(t)
 	snapshot := func(pin string) stored {
 		return func(s *protocol.RunSpec) {
@@ -126,7 +118,7 @@ func TestJetStreamSkillsPinned(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-			r, _ := runDriver(t, url, Worker{Driver: d, Skills: registry}, false, c.mods...)
+			r, _ := runDriver(t, Worker{Driver: d, Skills: registry}, false, c.mods...)
 			if r.Outcome != c.status || !strings.Contains(r.Result, c.result) {
 				t.Fatalf("%s: %q", r.Outcome, r.Result)
 			}

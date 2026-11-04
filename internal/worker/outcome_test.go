@@ -121,13 +121,9 @@ func TestEndError(t *testing.T) {
 	}
 }
 
-// TestJetStreamRunOutcomes runs the executor with the fake driver against Core's store and checks the
+// TestRunOutcomes runs the executor with the fake driver against Core's store and checks the
 // terminal event's status/outcome and the run as Core records it.
-func TestJetStreamRunOutcomes(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestRunOutcomes(t *testing.T) {
 	load := func(name string) fake.Script {
 		sc, err := fake.Load(filepath.Join("testdata", "fake", name))
 		if err != nil {
@@ -156,7 +152,7 @@ func TestJetStreamRunOutcomes(t *testing.T) {
 		"missing binary": {Worker{Driver: &fake.Driver{Script: load("completed.json"), MCP: true}, MCPBinary: filepath.Join(t.TempDir(), "no-factory-mcp")}, nil, "ENDED", "setup_failed", "ENDED", "setup_failed"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r, events := runDriver(t, url, c.w, false, c.mods...)
+			r, events := runDriver(t, c.w, false, c.mods...)
 			var terminal protocol.Event
 			if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
 				t.Fatal(err)

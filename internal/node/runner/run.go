@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/claude"
@@ -22,7 +21,6 @@ import (
 	"appfactory/internal/skills"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
-	"github.com/nats-io/nats.go"
 )
 
 // Drivers builds the enabled drivers of c. getenv supplies CODEX_BIN.
@@ -48,8 +46,8 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 	return r
 }
 
-// Main checks the environment (the node's keys from enrollment; FACTORY_URL; NATS_URL when node.yaml has no nats.url), connects and runs the node until
-// ctx ends; Run checks the drivers.
+// Main checks the environment (the node's keys from enrollment, FACTORY_URL) and runs the node until ctx ends; Run
+// checks the drivers.
 func Main(ctx context.Context, c node.Config, getenv func(string) string) error {
 	env := func(k, d string) string {
 		if v := getenv(k); v != "" {
@@ -77,14 +75,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return node.ErrNoKeys
 	}
 	slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
-	natsURL := c.NATS.ResolveURL(getenv)
-	slog.Info("connecting to NATS", "url", bus.Redact(natsURL), "auth", c.NATS.Auth(natsURL), "tls", c.NATS.TLS.Enabled())
-	b, err := bus.ConnectWith(natsURL, c.NATS.Options)
-	if err != nil {
-		return fmt.Errorf("nats %s: %w", bus.Redact(natsURL), err)
-	}
-	defer b.NC.Close()
-	return Run(ctx, Node{Config: c, Bus: b, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
+	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
 }
 
 // SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml for the default
@@ -125,12 +116,9 @@ func LoadSkills(c node.Config) (*skills.Registry, error) {
 // Node is a connected node process.
 type Node struct {
 	Config  node.Config
-	Bus     *bus.Bus
 	API     worker.API
 	Drivers []driver.Driver
 	Host    node.Host
-	// FetchWait bounds one fetch; default 1 s.
-	FetchWait time.Duration
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
 
@@ -158,10 +146,6 @@ func Run(ctx context.Context, n Node) error {
 	}
 	if err := worker.KillOrphans(c.StateDir); err != nil {
 		return err
-	}
-	wait := n.FetchWait
-	if wait <= 0 {
-		wait = time.Second
 	}
 	mcp, shim := "", ""
 	if c.BinDir != "" {
@@ -228,17 +212,17 @@ func Run(ctx context.Context, n Node) error {
 		s.onHooks(*s.hooks)
 	}
 	go checks.run(ctx, c.Probes.Interval)
-	// Core's urgent stops arrive on the node's control subject, outside the command stream (a plain
-	// subscription: missed while disconnected, then the heartbeat answer stops the run).
-	control, err := n.Bus.NC.Subscribe(protocol.NodeControlSubject(company, s.inv.NodeID), func(m *nats.Msg) { s.control(m.Data) })
-	if err != nil {
-		return err
+	// Run events are spooled under state_dir/runs and sent in order (http-node-transport D5); spools a previous
+	// process left are sent first.
+	events := &worker.Events{API: n.API}
+	if c.StateDir != "" {
+		events.Dir = filepath.Join(c.StateDir, "runs")
 	}
-	defer control.Unsubscribe()
+	go events.Run(ctx, time.Second)
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
-		w := &worker.Worker{Bus: n.Bus, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
+		w := &worker.Worker{Events: events, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
 			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv, SecretsFile: c.SecretsFile, ProjectsRoot: c.ProjectsRoot}
 		if c.StateDir != "" {
 			w.BlobCache = filepath.Join(c.StateDir, "blobs") // project data by digest, shared by the slots
@@ -249,13 +233,8 @@ func Run(ctx context.Context, n Node) error {
 		if s != nil {
 			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
 		}
-		sub, err := w.Subscribe()
-		if err != nil {
-			return err
-		}
 		name := string(d.Name())
-		pool.Sources = append(pool.Sources, &Source{Name: name, Process: w.Process,
-			Fetch:     func() ([]*nats.Msg, error) { return sub.Fetch(1, nats.MaxWait(wait)) },
+		pool.Sources = append(pool.Sources, &Source{Name: name, Process: w.ProcessRun,
 			Claimable: func() bool { return n.health.usable(name) }})
 		names = append(names, name)
 	}
@@ -291,7 +270,10 @@ func Run(ctx context.Context, n Node) error {
 	} else {
 		close(done)
 	}
-	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root)
+	if s != nil {
+		go s.poll(ctx, pool)
+	}
+	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root, "poll_wait_seconds", c.Poll.WaitSeconds)
 	err = pool.Run(ctx)
 	stop()
 	<-done

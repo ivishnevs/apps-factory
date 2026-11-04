@@ -25,11 +25,7 @@ func buildShim(t *testing.T) string {
 }
 
 // Scripted shell commands run through the per-run shim directory built from the captured rules.
-func TestJetStreamCommandGuards(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestCommandGuards(t *testing.T) {
 	bin := buildShim(t)
 	tools := t.TempDir()
 	for name, body := range map[string]string{"cliclick": "echo clicked", "mytool": `echo "real $*"`} {
@@ -43,7 +39,7 @@ func TestJetStreamCommandGuards(t *testing.T) {
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "done", Activity: []fake.Activity{
 		{Exec: []string{"cliclick", "c:1,1"}}, {Exec: []string{"mytool", "build"}}, {Exec: []string{"mytool", "push", "x"}},
 	}}}
-	r, events := runDriver(t, url, Worker{Driver: d, ShimBinary: bin}, false, stored(func(s *protocol.RunSpec) { s.ConfigSnapshot = snapshot }))
+	r, events := runDriver(t, Worker{Driver: d, ShimBinary: bin}, false, stored(func(s *protocol.RunSpec) { s.ConfigSnapshot = snapshot }))
 	if r.Outcome != "succeeded" {
 		t.Fatalf("%+v", r)
 	}

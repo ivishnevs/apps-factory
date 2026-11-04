@@ -1,6 +1,6 @@
-Status: planned (owner decision 2026-11-04: remove NATS, nodes talk to Core over signed HTTPS only; this takes the
-postponed decision of the known issue in `docs/backlog.md`). Not started. Must land before the first node of an
-external customer connects.
+Status: done (owner decision 2026-11-04: remove NATS, nodes talk to Core over signed HTTPS only; this takes the
+postponed decision of the known issue in `docs/backlog.md`). Landed before the first node of an external customer
+connects.
 
 ## Why
 

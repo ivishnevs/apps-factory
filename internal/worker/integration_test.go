@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/protocol"
@@ -17,10 +16,9 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 func TestFakeAppServer(t *testing.T) {
@@ -56,20 +54,8 @@ func TestFakeAppServer(t *testing.T) {
 	}
 	os.Exit(0)
 }
-func TestJetStreamFoundation(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
+func TestFoundation(t *testing.T) {
 	t.Setenv("FACTORY_FAKE_SERVER", "1")
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	// This integration test requires a dedicated broker: reset its streams for isolation.
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
@@ -79,21 +65,22 @@ func TestJetStreamFoundation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	errs := make(chan error, 2)
-	go func() { errs <- c.Run(ctx) }()
+	coreDone := startCore(ctx, c)
+	go func() { errs <- <-coreDone }()
 	bin, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	api := API{URL: server.URL, Token: "test-token"}
-	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
+	w := Worker{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
 	asNode(t, s, &w, server.URL)
-	go func() { errs <- w.Run(ctx) }()
+	go func() { errs <- runOffers(ctx, &w) }()
 	var spec protocol.RunSpec
 	if err = api.Do(ctx, "POST", "/runs", map[string]string{"project": "test", "agent": "demo", "workspace": t.TempDir(), "prompt": "Reply foundation ok"}, &spec); err != nil {
 		t.Fatal(err)
@@ -146,25 +133,14 @@ func TestJetStreamFoundation(t *testing.T) {
 	}
 }
 
-func TestJetStreamCancellation(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestCancellation(t *testing.T) {
 	t.Setenv("FACTORY_FAKE_SERVER", "1")
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.DB.Close()
-	c := &core.Core{Store: s, Bus: b, Token: "test-token"}
+	c := &core.Core{Store: s, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	spec := protocol.RunSpec{ID: "cancel-run", Project: "cancel-project", Agent: "demo", Provider: protocol.RuntimeCodex, Workspace: t.TempDir(), Prompt: "CANCEL_TEST", TimeoutSeconds: 30}
@@ -173,12 +149,8 @@ func TestJetStreamCancellation(t *testing.T) {
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	consumer, err := b.Subscribe("factory.default.events.>", "cancel-test")
-	if err != nil {
-		t.Fatal(err)
-	}
 	bin, _ := os.Executable()
-	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}
+	w := Worker{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}
 	n := asNode(t, s, &w, server.URL)
 	epoch, claim, err := w.ClaimV2(ctx, spec.ID, 0)
 	if err != nil {
@@ -189,52 +161,35 @@ func TestJetStreamCancellation(t *testing.T) {
 	if !w.Inventory.AddCause(spec.ID, epoch, stopRun) {
 		t.Fatal("claim not recorded")
 	}
-	done := make(chan error, 1)
-	go func() { done <- w.execute(runCtx, claim.RunSpec, claim.Lease, "cancel-command") }()
 	// Request cancellation only after start is confirmed. The node's heartbeat answer must deliver it.
-	cancelled := false
-	terminal := false
-	for !terminal {
-		msgs, e := consumer.Fetch(1, nats.MaxWait(15*time.Second))
-		if e != nil {
-			t.Fatal(e)
+	var once sync.Once
+	var stopRunning func()
+	w.onEmit = func(_ string, payload protocol.Event) {
+		if payload.SessionID == "" {
+			return
 		}
-		for _, msg := range msgs {
-			var event protocol.Envelope
-			if err = json.Unmarshal(msg.Data, &event); err != nil {
-				t.Fatal(err)
-			}
-			if err = s.Apply(ctx, storage.DefaultCompany, event); err != nil {
-				t.Fatal(err)
-			}
-			_ = msg.AckSync()
-			var payload protocol.Event
-			_ = json.Unmarshal(event.Payload, &payload)
-			if payload.SessionID != "" && !cancelled {
-				if err = s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
-					t.Fatal(err)
-				}
-				cancelled = true
-				var answer storage.HeartbeatAnswer
-				hb := storage.NodeHeartbeat{Epoch: epoch, Inventory: []storage.InventoryRun{{RunID: spec.ID, State: "running"}}}
-				if err = w.API.Do(ctx, "POST", "/nodes/"+n.ID+"/heartbeat", hb, &answer); err != nil {
-					t.Fatal(err)
-				}
-				if !slices.Contains(answer.Stop, storage.Stop{RunID: spec.ID, Reason: "revoked"}) {
-					t.Fatalf("%+v", answer)
-				}
-				for _, stop := range answer.Stop {
-					w.Inventory.Stop(stop.RunID, stop.Reason)
-				}
-			}
-			if payload.Status != "" {
-				if payload.Status != "ENDED" || payload.Outcome != "revoked" {
-					t.Fatalf("unexpected terminal %+v", payload)
-				}
-				terminal = true
-			}
+		once.Do(func() { go stopRunning() })
+	}
+	stopRunning = func() {
+		if err := s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
+			t.Error(err)
+			return
+		}
+		var answer storage.HeartbeatAnswer
+		hb := storage.NodeHeartbeat{Epoch: epoch, Inventory: []storage.InventoryRun{{RunID: spec.ID, State: "running"}}}
+		if err := w.API.Do(ctx, "POST", "/nodes/"+n.ID+"/heartbeat", hb, &answer); err != nil {
+			t.Error(err)
+			return
+		}
+		if !slices.Contains(answer.Stop, storage.Stop{RunID: spec.ID, Reason: "revoked"}) {
+			t.Errorf("%+v", answer)
+		}
+		for _, stop := range answer.Stop {
+			w.Inventory.Stop(stop.RunID, stop.Reason)
 		}
 	}
+	done := make(chan error, 1)
+	go func() { done <- w.execute(runCtx, claim.RunSpec, claim.Lease, "cancel-command") }()
 	select {
 	case err = <-done:
 		if err != nil {
@@ -246,5 +201,14 @@ func TestJetStreamCancellation(t *testing.T) {
 	saved, err := s.Get(ctx, storage.DefaultCompany, spec.ID)
 	if err != nil || saved.Outcome != "revoked" {
 		t.Fatal(saved, err)
+	}
+	events, err := s.Events(ctx, storage.DefaultCompany, spec.ID)
+	if err != nil || len(events) == 0 {
+		t.Fatal(events, err)
+	}
+	var terminal protocol.Event
+	_ = json.Unmarshal(events[len(events)-1].Payload, &terminal)
+	if terminal.Status != "ENDED" || terminal.Outcome != "revoked" {
+		t.Fatalf("unexpected terminal %+v", terminal)
 	}
 }

@@ -72,8 +72,8 @@ counted only once the response reached the runtime). Core answers:
 While the task has authority input above `ack_seq`, every tool result of the run is wrapped as `{"result",
 "authority_input": [{seq, author, rank, kind, text}], "winning"}`: rank is the author's depth (owner 0, then
 the reporting tree), and among conflicting directives the one nearest the owner wins. An urgent directive (or
-urgent artifact approval) revokes the run: `run.stop` goes out at once on the node's control subject
-`factory.<company>.nodes.<node_id>.control` (plain NATS, outside the command stream), the heartbeat answer is the guarantee, and the next run starts with the directive.
+urgent artifact approval) revokes the run: the stop reaches the node's waiting poll at once ([runtime protocol v2](runtime-protocol-v2.md)
+§4), the heartbeat answer is the guarantee, and the next run starts with the directive.
 
 ## Identity and execution
 
@@ -87,7 +87,7 @@ invoke owner routes, list all projects, claim runs or reconcile unknown work.
 The runtime's environment is an allowlist of the node's (`worker.RuntimeEnv`: session, locale, provider,
 git/forge, proxy and toolchain variables; node.yaml `runtime_env` adds names or `PREFIX_*`), plus
 FACTORY_RUN_TOKEN and FACTORY_URL for the run. The owner token (FACTORY_TOKEN),
-the owner CLI's configuration, other run tokens and NATS_* never pass, whatever the list says, and the
+the owner CLI's configuration, other run tokens and leftover NATS_* variables never pass, whatever the list says, and the
 `owner-cli` policy refuses `factory` on the agent's PATH. The run token stays in the runtime environment:
 the approval shims and the adapter read it there. Tokens are not prompt text, config values or command-line arguments.
 Host permissions remain danger-full-access: agents can read host files and local .env. MCP policies
@@ -120,7 +120,7 @@ HTTP outcome and time. Audit inserts before dispatch with status 0 and finalizes
 after a crash means outcome unknown; inspect state or replay the mutation's same key. Arguments,
 tokens and arbitrary result text are omitted. Domain events retain state snapshots independently.
 
-Run with Core/NATS and native Worker active, .env loaded in the caller terminal:
+Run with Core and a node active, .env loaded in the caller terminal:
 
 ```sh
 python3 scripts/mcp-smoke.py

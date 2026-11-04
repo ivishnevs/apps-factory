@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/codex"
 	"appfactory/internal/factorytools"
@@ -34,8 +33,6 @@ import (
 	"appfactory/internal/workspace"
 
 	"appfactory/internal/nodesig"
-
-	"github.com/nats-io/nats.go"
 )
 
 type API struct {
@@ -116,11 +113,14 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Core HTTP %d: %s", e.St
 
 type Worker struct {
 	Allocator workspace.Allocator
-	Bus       *bus.Bus
-	// Company is the company whose run commands this worker executes (its subjects factory.<company>...);
-	// empty means storage.DefaultCompany.
+	// Company is the company of the node this executor belongs to; empty means storage.DefaultCompany.
 	Company string
 	API     API
+	// Events spools and sends the runs' events (http-node-transport D5); nil sends through an in-memory spool
+	// over API.
+	Events *Events
+	// onEmit, when set (tests), sees every event a run emits after it was spooled.
+	onEmit func(kind string, p protocol.Event)
 	// Driver runs the runtime; nil means Codex configured by Binary and Args.
 	Driver    driver.Driver
 	Binary    string
@@ -186,44 +186,12 @@ func (w *Worker) driver() (driver.Driver, bool) {
 	return codex.Driver{Binary: w.Binary, Args: w.Args}, w.Args == nil || w.MCPBinary != ""
 }
 
-func (w *Worker) Run(ctx context.Context) error {
-	if w.StateDir != "" {
-		if err := KillOrphans(w.StateDir); err != nil {
-			return err
-		}
+// events is the worker's event spool.
+func (w *Worker) events() *Events {
+	if w.Events == nil {
+		w.Events = &Events{API: w.API}
 	}
-	sub, err := w.Subscribe()
-	if err != nil {
-		return err
-	}
-	for ctx.Err() == nil {
-		msgs, err := sub.Fetch(1, nats.MaxWait(time.Second))
-		if errors.Is(err, nats.ErrTimeout) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		for _, m := range msgs {
-			if err = w.Process(ctx, m, nil); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// Subscribe binds the driver's run command subject of the worker's company with its durable consumer.
-// Executors of one driver and company share that consumer, so node slots and standalone workers compete for
-// the same commands.
-func (w *Worker) Subscribe() (*nats.Subscription, error) {
-	drv, _ := w.driver()
-	return w.Bus.Subscribe(protocol.CommandSubject(w.company(), drv.Name()), WorkerDurable(w.company(), drv.Name()))
-}
-
-// WorkerDurable is the durable consumer shared by the executors of provider in company.
-func WorkerDurable(company string, provider protocol.RuntimeProvider) string {
-	return string(provider) + "-worker-" + company
+	return w.Events
 }
 
 func (w *Worker) company() string {
@@ -233,12 +201,6 @@ func (w *Worker) company() string {
 	return w.Company
 }
 
-// Process validates, claims and executes one run command. running, when set, receives the claimed run
-// and the cancel func of its execution before the runtime starts. Process fails only when the command
-// cannot be acknowledged; run failures go to Core as events.
-func (w *Worker) Process(ctx context.Context, m *nats.Msg, running func(run string, cancel context.CancelFunc)) error {
-	return w.processV2(ctx, m, running)
-}
 func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, cause string) (runErr error) {
 	// Timeouts and heartbeats run on Go's monotonic clock, which stops during system sleep
 	// (clock_test.go); never derive them from wall-clock time.
@@ -376,9 +338,15 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		// Known credentials never leave the node: not in events, not in the log.
 		rlog.clean(&p)
 		rlog.add(kind, p)
-		pubCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stop()
-		return w.Bus.Event(pubCtx, w.company(), kind, cause, p)
+		// Spooled first, then sent in order (http-node-transport D5): Core being unreachable delays the event,
+		// it does not lose it.
+		if err := w.events().Append(ctx, spec.ID, lease, protocol.Wrap("agent."+kind, p.RunID, cause, p), p.Status != ""); err != nil {
+			return err
+		}
+		if w.onEmit != nil {
+			w.onEmit(kind, p)
+		}
+		return nil
 	}
 	// A run that ends without a runtime result reports what is known (docs/runtime-protocol-v2.md §8): an
 	// endError names its outcome, or, when the run failed before the runtime started because it was being
@@ -1065,7 +1033,7 @@ var RuntimeEnv = []string{
 }
 
 // runtimeDenied never reaches a runtime, whatever an allowlist says: the owner's and the node's credentials,
-// the owner CLI's configuration (FACTORY_URL with FACTORY_TOKEN) and NATS. The run's own URL and token are
+// the owner CLI's configuration (FACTORY_URL with FACTORY_TOKEN) and a leftover NATS_* of older setups. The run's own URL and token are
 // added by runEnvironment.
 var runtimeDenied = []string{"FACTORY_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_TELEGRAM_TOKEN", "FACTORY_NODE_CONFIG", "NATS_*", SecretEnvPrefix + "*"}
 

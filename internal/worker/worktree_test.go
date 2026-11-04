@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver/fake"
@@ -86,11 +85,7 @@ func TestWorktreeRequest(t *testing.T) {
 
 // Runs of one task share its worktree and are sealed onto the local WIP ref; another task gets its own
 // worktree; shared mode keeps the project workspace.
-func TestJetStreamWorktreeRuns(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestWorktreeRuns(t *testing.T) {
 	sc, err := fake.Load(filepath.Join("testdata", "fake", "completed.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +98,7 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 	run := func(task, mode string, files map[string]string) (string, []string) {
 		t.Helper()
 		d := &fake.Driver{Script: sc, Files: files, Command: []string{"sleep", "60"}}
-		r, _ := runDriver(t, url, Worker{Driver: d, Worktrees: trees}, false, func(s *protocol.RunSpec) {
+		r, _ := runDriver(t, Worker{Driver: d, Worktrees: trees}, false, func(s *protocol.RunSpec) {
 			s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = task, remote, "main", mode
 		})
 		l := d.Launches()
@@ -167,7 +162,7 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 	moved := gitOut(t, cwd, "rev-parse", "HEAD")
 	d := &fake.Driver{Script: sc}
 	var stopped []string
-	r, _ := runDriver(t, url, Worker{Driver: d, Worktrees: trees, RunStopped: func(s protocol.RunSpec, wt string) { stopped = append(stopped, s.TaskID+":"+wt) }}, false, func(s *protocol.RunSpec) {
+	r, _ := runDriver(t, Worker{Driver: d, Worktrees: trees, RunStopped: func(s protocol.RunSpec, wt string) { stopped = append(stopped, s.TaskID+":"+wt) }}, false, func(s *protocol.RunSpec) {
 		s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = "t1", remote, "main", "worktree"
 	})
 	if r.Outcome != "setup_failed" || !strings.Contains(r.Result, "workspace_diverged") || !strings.Contains(r.Result, "HEAD changed outside any run") || len(d.Launches()) != 0 {
@@ -179,22 +174,11 @@ func TestJetStreamWorktreeRuns(t *testing.T) {
 }
 
 // A task run of a worktree agent, dispatched by a real Core, reports its sealed workspace to Core.
-func TestJetStreamWorktreeReport(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated JetStream")
-	}
+func TestWorktreeReport(t *testing.T) {
 	sc, err := fake.Load(filepath.Join("testdata", "fake", "completed.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
@@ -207,23 +191,22 @@ func TestJetStreamWorktreeReport(t *testing.T) {
 	demo := agents["demo"]
 	demo.Spec.Workspace.Mode = "worktree"
 	agents["demo"] = demo
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	api := API{URL: server.URL, Token: "test"}
 	ctx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
-	engineDone := make(chan error, 1)
-	go func() { engineDone <- c.Run(ctx) }()
+	engineDone := startCore(ctx, c)
 	root := t.TempDir()
 	trees, err := workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: root, ScanCommand: []string{"true"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := Worker{Bus: b, Driver: &fake.Driver{Script: sc, Files: map[string]string{"draft.txt": "x\n"}}, Worktrees: trees, NodeID: "mini-1", ShimBinary: buildShim(t)}
+	w := Worker{Driver: &fake.Driver{Script: sc, Files: map[string]string{"draft.txt": "x\n"}}, Worktrees: trees, NodeID: "mini-1", ShimBinary: buildShim(t)}
 	asNode(t, s, &w, server.URL)
 	workerDone := make(chan error, 1)
-	go func() { workerDone <- w.Run(ctx) }()
+	go func() { workerDone <- runOffers(ctx, &w) }()
 	defer func() { stop(); <-workerDone; <-engineDone }()
 
 	remote := bareRemote(t)

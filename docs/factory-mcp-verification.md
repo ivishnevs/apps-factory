@@ -1,5 +1,7 @@
 # Factory MCP verification — 2026-10-12
 
+> Note: NATS was removed by `http-node-transport`; the NATS test commands below are history (the `TestJetStream*` tests were renamed when they moved to HTTP). Today the same tests run without a broker: `make test-services` (Postgres only), then `make check`.
+
 Environment: native macOS arm64, Go 1.24.1, Codex CLI 0.162.1 with existing ChatGPT login,
 Docker Core and authenticated NATS JetStream. No API key or login mutation. No new dependencies.
 Core data was backed up while stopped to .cache/mcp-backup/data before migration 2 → 3.

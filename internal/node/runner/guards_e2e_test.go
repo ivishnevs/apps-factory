@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"appfactory/internal/approvals"
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -43,25 +42,12 @@ var e2eHeartbeat = 1
 
 func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, d *fake.Driver) *e2e {
 	t.Helper()
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
 	bin := t.TempDir()
 	for _, name := range []string{"factory-mcp", "factory-shim"} {
 		if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, name), "appfactory/cmd/"+name).CombinedOutput(); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
 	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = b.JS.DeleteStream("FACTORY_COMMANDS")
-		_ = b.JS.DeleteStream("FACTORY_EVENTS")
-		b.NC.Close()
-	})
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = e2eHeartbeat
 	t.Cleanup(func() { storage.HeartbeatSeconds = beat })
@@ -69,7 +55,7 @@ func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token", ExplicitExits: explicitExits}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token", ExplicitExits: explicitExits}
 	server := httptest.NewServer(c.Handler())
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	go c.Run(ctx)
@@ -79,7 +65,7 @@ func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, 
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
+		done <- Run(nodeCtx, Node{Config: cfg, API: api, Drivers: []driver.Driver{perRunSessions{d}}})
 	}()
 	t.Cleanup(func() {
 		stopNode()
@@ -144,10 +130,10 @@ func (e *e2e) activity(runID, method string) []protocol.Event {
 	return out
 }
 
-// TestJetStreamNoExitEndToEnd (runtime-drivers 2.4): a session that keeps trying to stop without an exit
+// TestNoExitEndToEnd (runtime-drivers 2.4): a session that keeps trying to stop without an exit
 // is refused ExitGuardRetries times by the exit guard, then the run ends and Core records no_exit with a
 // no_exit escalation for the task.
-func TestJetStreamNoExitEndToEnd(t *testing.T) {
+func TestNoExitEndToEnd(t *testing.T) {
 	agents, err := config.Load("../../..")
 	if err != nil {
 		t.Fatal(err)
@@ -178,11 +164,11 @@ func TestJetStreamNoExitEndToEnd(t *testing.T) {
 	})
 }
 
-// TestJetStreamCommandGrantEndToEnd (node-agent 4.2): through a real Core, the node executor and
+// TestCommandGrantEndToEnd (node-agent 4.2): through a real Core, the node executor and
 // factory-shim, an approval-gated command is refused (126) without a grant; the agent requests the
 // grant through factory-mcp, the owner approves it, and the exact command then runs once; a second
 // run and changed arguments are refused.
-func TestJetStreamCommandGrantEndToEnd(t *testing.T) {
+func TestCommandGrantEndToEnd(t *testing.T) {
 	tools := t.TempDir()
 	approved := filepath.Join(t.TempDir(), "approved")
 	for name, body := range map[string]string{
@@ -279,10 +265,10 @@ func TestJetStreamCommandGrantEndToEnd(t *testing.T) {
 	}
 }
 
-// TestJetStreamHostUIRefusalEndToEnd (node-agent 4.1): through a real Core, the node executor and
+// TestHostUIRefusalEndToEnd (node-agent 4.1): through a real Core, the node executor and
 // factory-shim, a run of a catalog agent calling cliclick (mandatory host-ui policy) gets exit 126 with the
 // policy's instruction, the real cliclick never runs, and Core records the refusal on the run.
-func TestJetStreamHostUIRefusalEndToEnd(t *testing.T) {
+func TestHostUIRefusalEndToEnd(t *testing.T) {
 	tools := t.TempDir()
 	clicked := filepath.Join(t.TempDir(), "clicked")
 	if err := os.WriteFile(filepath.Join(tools, "cliclick"), []byte("#!/bin/sh\ntouch "+clicked+"\necho clicked\n"), 0o755); err != nil {

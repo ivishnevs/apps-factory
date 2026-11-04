@@ -310,7 +310,7 @@ worktrees: {enabled: true}
 drivers:
   codex: {binary: codex}
   claude: {enabled: true, executable: ./bin/claude, shim: workers/shim.js}
-nats: {creds_file: secrets/node.creds}
+poll: {wait_seconds: 10}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -320,11 +320,26 @@ nats: {creds_file: secrets/node.creds}
 	for got, want := range map[string]string{
 		c.StateDir: j("data/factory-node-tvorog"), c.Disk.Path: j("data/factory-node-tvorog"),
 		c.Worktrees.Root: j("data/factory-node-tvorog/worktrees"), c.BinDir: j("bin"),
-		c.Drivers.Claude.Executable: j("bin/claude"), c.Drivers.Claude.Shim: j("workers/shim.js"), c.NATS.CredsFile: j("secrets/node.creds"),
+		c.Drivers.Claude.Executable: j("bin/claude"), c.Drivers.Claude.Shim: j("workers/shim.js"),
 		c.Drivers.Codex.Binary: "codex",
 	} {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+}
+
+// TestPollWait (http-node-transport 4.1): poll.wait_seconds defaults to 25 and must be 1-25.
+func TestPollWait(t *testing.T) {
+	c := Defaults()
+	if err := c.Validate(); err != nil || c.Poll.WaitSeconds != MaxPollWait {
+		t.Fatal(c.Poll, err)
+	}
+	for _, bad := range []int{-1, 26} {
+		c := Defaults()
+		c.Poll.WaitSeconds = bad
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "poll.wait_seconds") {
+			t.Fatal(bad, err)
 		}
 	}
 }

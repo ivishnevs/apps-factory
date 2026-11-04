@@ -120,20 +120,7 @@ func entityEventNote(ctx context.Context, tx *Tx, kind, project, id string, v an
 	if note != "" {
 		row.Summary = note
 	}
-	if err = feed(ctx, tx, row); err != nil {
-		return err
-	}
-	// Persist full audit snapshots in SQLite; broker notifications carry a bounded pointer.
-	e.Payload, err = json.Marshal(map[string]any{"entity_id": id, "project_id": project, "conversation_id": state["conversation_id"], "status": state["status"], "version": state["version"]})
-	if err != nil {
-		return err
-	}
-	notification, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.EventSubject(tx.company, kind), notification, tx.company)
-	return err
+	return feed(ctx, tx, row)
 }
 func (s *Store) Project(ctx context.Context, company, id string) (tasks.Project, error) {
 	return getDoc[tasks.Project](ctx, s.DB, "SELECT body FROM projects WHERE company_id=? AND id=?", company, id)

@@ -1,7 +1,7 @@
 # App Factory
 
 App Factory runs a company of AI agents that build software. A Go **Core** owns all state in **Postgres** and
-dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run each agent as a **Codex** or
+hands work to **nodes** (`factory-node`) over signed HTTPS, which run each agent as a **Codex** or
 **Claude** session next to the code, Git and Xcode. The owner (you) steers it through a CLI, an inbox and Telegram.
 
 - **Companies and catalogs.** One Core serves one company (`FACTORY_COMPANY`). Its catalog is `configs/` for the
@@ -38,11 +38,11 @@ dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run
   ┌─────────▼─────────┐      ┌──────────────┐
   │ Core (Docker)     │─────▶│ Postgres 17  │  all state, per-company rows
   │ API, scheduler,   │      └──────────────┘
-  │ outbox, blobs     │      ┌──────────────┐
-  │                   │◀────▶│ NATS JS 2.11 │  commands, events, feed, node control
-  └─────────▲─────────┘      └──────▲───────┘
-            │ claim/lease/exits     │ pull consumers
-  ┌─────────┴───────────────────────┴────────┐
+  │ blobs             │
+  └─────────▲─────────┘
+            │ signed HTTPS: long poll for offers and stops,
+            │ claim/lease/heartbeat, run events, exits
+  ┌─────────┴────────────────────────────────┐
   │ factory-node (macOS host, N slots)        │
   │  Codex driver ─ codex app-server          │
   │  Claude driver ─ factory-shim + Agent SDK │
@@ -70,16 +70,15 @@ disks: project data (artifacts, logs) moves through the API; code and specs stay
 
 ```sh
 cp .env.example .env           # only if .env does not exist yet
-# Replace FACTORY_TOKEN, NATS_PASSWORD, POSTGRES_PASSWORD with random values, e.g. openssl rand -hex 32
+# Replace FACTORY_TOKEN, POSTGRES_PASSWORD with random values, e.g. openssl rand -hex 32
 chmod 600 .env
 set -a; source .env; set +a
 export FACTORY_URL=http://127.0.0.1:8080
-export NATS_URL="nats://factory:${NATS_PASSWORD}@127.0.0.1:4222"
 
 make build                     # bin/factory, factory-node, factory-mcp, factory-shim + Claude shim
-make up                        # docker compose: postgres, nats, core
+make up                        # docker compose: postgres, core (and dex for the website sign-in)
 ./bin/factory config validate  # --company C for another company's catalog
-./bin/factory doctor           # Core, its Postgres and NATS
+./bin/factory doctor           # Core and its Postgres
 ```
 
 Start a node (relative paths resolve against the directory you start it in, so run it from the checkout):
@@ -98,12 +97,12 @@ YAML
 ./bin/factory-node enroll -config data/node.yaml CODE   # prints the fingerprint and waits for approval
 # in another terminal, after comparing the fingerprint (NODE_ID is printed by the enroll command above):
 ./bin/factory nodes approve NODE_ID FINGERPRINT
-./bin/factory-node doctor -config data/node.yaml   # git, gh, disk, drivers, keys, Core, NATS
+./bin/factory-node doctor -config data/node.yaml   # git, gh, disk, drivers, keys, Core
 ./bin/factory-node run -config data/node.yaml
 ```
 
 A node has no token: it signs its requests with keys it creates at enrollment. See
-[node identity](docs/development.md#node-identity) and [node process](docs/development.md#node-process) for every `node.yaml` key, outbound TLS/WebSocket NATS,
+[node identity](docs/development.md#node-identity) and [node process](docs/development.md#node-process) for every `node.yaml` key, the poll,
 `factory-node launchd` / `systemd` units and `factory-node workspace reset`.
 
 First project and task, in another terminal with the same environment:
@@ -124,13 +123,13 @@ The workspace is an absolute path on the node's machine, not inside a container.
 
 ### Security notes
 
-- Postgres, NATS and Core publish their ports on loopback (`127.0.0.1`) only.
-- `.env` is excluded from Git and the Docker build context; keep it `0600`. Never print `.env`, database URLs with
-  passwords or authenticated NATS URLs in reports or logs.
+- Postgres and Core publish their ports on loopback (`127.0.0.1`) only.
+- `.env` is excluded from Git and the Docker build context; keep it `0600`. Never print `.env` or database URLs
+  with passwords in reports or logs.
 - `FACTORY_TOKEN` is the owner token; runs get scoped, company-bound run tokens; nodes have no token and sign every
-  request with their own keys (`state_dir/keys`, `0600`, enforced). NATS creds files should be `0600` (`factory-node doctor` warns).
-  A node outside this machine needs an HTTPS `FACTORY_URL`.
-- Data lives in the volumes `postgres-data`, `nats-data`, `core-blobs` and `core-data`. `make down` keeps them;
+  request with their own keys (`state_dir/keys`, `0600`, enforced); a node reaches only its own company's runs.
+  A node outside this machine needs an HTTPS `FACTORY_URL` and nothing else open.
+- Data lives in the volumes `postgres-data`, `core-blobs` and `core-data`. `make down` keeps them;
   `docker compose down -v` deletes them. Backups: [development](docs/development.md).
 
 ## Owner CLI
@@ -183,21 +182,16 @@ Details and screenshots: [docs/owner-ui.md](docs/owner-ui.md).
 
 ```sh
 make hooks                     # once per clone: gofmt pre-commit hook
-make test-services             # throwaway Postgres (127.0.0.1:15432) and NATS (127.0.0.1:14231) in tmpfs
+make test-services             # throwaway Postgres (127.0.0.1:15432) in tmpfs
 export FACTORY_TEST_DATABASE_URL='postgres://postgres:factory@127.0.0.1:15432/postgres?sslmode=disable'
-export NATS_TEST_URL=nats://127.0.0.1:14231
-go test -p 1 -count=1 ./...    # -p 1: packages share the JetStream streams
+go test -count=1 ./...
 make check                     # gofmt, go test -race, go vet, shim checks and tests
 make test-services-down
 ```
 
-The Makefile exports `FACTORY_TEST_DATABASE_URL` for `make test`/`make check`; without these variables the
-storage and JetStream tests are skipped. Point them only at servers you can throw away: tests create and drop
-databases and delete streams. Normal tests use fake runtimes, never a real model.
-
-Secure NATS tests (TLS, WebSocket, nkeys, creds): `scripts/nats-secure-test.sh up` prints the `NATS_TEST_*`
-exports for the gated tests in `internal/bus` and `internal/node`; `scripts/nats-secure-test.sh down` removes the
-servers. More: [development](docs/development.md).
+The Makefile exports `FACTORY_TEST_DATABASE_URL` for `make test`/`make check`; without it the storage tests are
+skipped. Point it only at a server you can throw away: tests create and drop databases. Normal tests use fake
+runtimes, never a real model. More: [development](docs/development.md).
 
 ### Live smokes
 
@@ -224,13 +218,13 @@ The scripts check `GET /health` and refuse to run against the wrong company. Ful
 - [approvals.md](docs/approvals.md) — owner approvals of exact MCP actions and shell commands.
 - [projects.md](docs/projects.md) — creating projects (local, private GitHub, existing repositories with onboarding), by the owner or an agent with approval.
 - [approvals-verification.md](docs/approvals-verification.md) — action approval verification results.
-- [architecture.md](docs/architecture.md) — Core, outbox, claims, leases, tenancy and NATS subjects.
+- [architecture.md](docs/architecture.md) — Core, the node transport, claims, leases and tenancy.
 - [artifact-approvals.md](docs/artifact-approvals.md) — versioned artifacts, uploads and approval-gated tasks.
 - [artifact-approvals-verification.md](docs/artifact-approvals-verification.md) — artifact approval verification results.
 - [calorie-calculator-e2e.md](docs/calorie-calculator-e2e.md) — test-project autonomous-team E2E log.
 - [claude-runtime.md](docs/claude-runtime.md) — Claude Go driver, Agent SDK shim, login and limits.
 - [decision-autonomy-verification.md](docs/decision-autonomy-verification.md) — delegated autonomy verification results.
-- [development.md](docs/development.md) — storage, tests, node process, worktrees, NATS security, backups, smokes.
+- [development.md](docs/development.md) — storage, tests, node process, worktrees, backups, smokes.
 - [explicit-exits-contract.md](docs/explicit-exits-contract.md) — adapter ↔ Core contract for `factory_exit_*`.
 - [factory-mcp.md](docs/factory-mcp.md) — Factory MCP server, run tokens and tools.
 - [factory-mcp-verification.md](docs/factory-mcp-verification.md) — Factory MCP verification results.

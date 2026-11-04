@@ -209,13 +209,9 @@ func pendingSetup(t *testing.T, s *storage.Store, in tasks.ProjectCreate, run st
 	}
 }
 
-// TestJetStreamFirstTaskRunsInFreshRepository (project-creation 1.1): the first run of a project created
+// TestFirstTaskRunsInFreshRepository (project-creation 1.1): the first run of a project created
 // without a workspace sets up a local repository on main, reports it to Core and runs there.
-func TestJetStreamFirstTaskRunsInFreshRepository(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestFirstTaskRunsInFreshRepository(t *testing.T) {
 	var store *storage.Store
 	prepare := withStore(func(s *storage.Store) {
 		store = s
@@ -226,7 +222,7 @@ func TestJetStreamFirstTaskRunsInFreshRepository(t *testing.T) {
 	})
 	root := t.TempDir()
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ := runDriver(t, url, Worker{Driver: d, ProjectsRoot: root, NodeID: "mini"}, false, prepare, setup)
+	r, _ := runDriver(t, Worker{Driver: d, ProjectsRoot: root, NodeID: "mini"}, false, prepare, setup)
 	if r.Outcome != "succeeded" || len(d.Launches()) != 1 {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}
@@ -246,14 +242,10 @@ func TestJetStreamFirstTaskRunsInFreshRepository(t *testing.T) {
 	}
 }
 
-// TestJetStreamOnboardsExistingRepository (project-creation 1.3, openspec-in-git): an existing repository
+// TestOnboardsExistingRepository (project-creation 1.3, openspec-in-git): an existing repository
 // that tracks openspec/ is set up before the first run, which runs in it with its openspec/ as committed and
 // still tracked. A failing setup ends the run setup_failed with the reason in the project.
-func TestJetStreamOnboardsExistingRepository(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestOnboardsExistingRepository(t *testing.T) {
 	dir, _ := repoWithOpenSpec(t)
 	var store *storage.Store
 	prepare := withStore(func(s *storage.Store) {
@@ -264,7 +256,7 @@ func TestJetStreamOnboardsExistingRepository(t *testing.T) {
 		s.Workspace, s.ProjectSetup = "", &protocol.ProjectSetup{Mode: "existing", Workspace: dir}
 	})
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ := runDriver(t, url, Worker{Driver: d, NodeID: "mini", ProjectsRoot: t.TempDir()}, false, prepare, setup)
+	r, _ := runDriver(t, Worker{Driver: d, NodeID: "mini", ProjectsRoot: t.TempDir()}, false, prepare, setup)
 	if r.Outcome != "succeeded" || len(d.Launches()) != 1 || !samePath(d.Launches()[0].Cwd, dir) {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}
@@ -289,7 +281,7 @@ func TestJetStreamOnboardsExistingRepository(t *testing.T) {
 		s.Workspace, s.ProjectSetup = "", &protocol.ProjectSetup{Mode: "existing", Workspace: missing}
 	})
 	d = &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ = runDriver(t, url, Worker{Driver: d, NodeID: "mini"}, false, prepare, setup)
+	r, _ = runDriver(t, Worker{Driver: d, NodeID: "mini"}, false, prepare, setup)
 	if r.Outcome != "setup_failed" || !strings.Contains(r.Result, "project setup failed") || len(d.Launches()) != 0 {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}

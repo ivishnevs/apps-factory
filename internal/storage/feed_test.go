@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"appfactory/internal/protocol"
@@ -23,16 +22,6 @@ func TestFeedIsWrittenWithItsCause(t *testing.T) {
 	if last.Type != "task.started" || last.TaskID != "a" || last.RunID != run.ID || last.Agent != "demo" || last.Status != "IN_PROGRESS" || last.Summary != "a" {
 		t.Fatalf("%+v", last)
 	}
-	var subject string
-	var body []byte
-	if err = s.DB.QueryRow("SELECT subject,body FROM outbox WHERE id=?", "feed-"+last.EventID).Scan(&subject, &body); err != nil {
-		t.Fatal("feed notification not in outbox", err)
-	}
-	var e protocol.Envelope
-	var item FeedItem
-	if json.Unmarshal(body, &e) != nil || json.Unmarshal(e.Payload, &item) != nil || subject != "factory.default.feed.p.task.started" || item.Sequence != last.Sequence {
-		t.Fatal(subject, string(body))
-	}
 	// A mutation that rolls back leaves no feed row.
 	before := len(page.Items)
 	if _, err = s.CreateTask(ctx, DefaultCompany, tasks.Create{ID: "bad", ProjectID: "p", Title: "bad", Dependencies: []string{"missing"}}); err == nil {
@@ -50,14 +39,14 @@ func TestFeedIsWrittenWithItsCause(t *testing.T) {
 }
 
 // TestRolledBackCauseLeavesNoFeed (trigger-log-scheduling D10): a cause transaction that wrote its trigger,
-// its run command and their feed rows, then rolled back, leaves no feed row and no outbox message.
+// its run and their feed rows, then rolled back, leaves no feed row and no run.
 func TestRolledBackCauseLeavesNoFeed(t *testing.T) {
 	s := engineStore(t)
 	ctx := context.Background()
 	task := readyEngineTask(t, s, createEngineTask(t, s, "a"))
 	count := func() (feeds, outbox int) {
 		t.Helper()
-		if err := s.DB.QueryRow("SELECT (SELECT count(*) FROM feed_events),(SELECT count(*) FROM outbox)").Scan(&feeds, &outbox); err != nil {
+		if err := s.DB.QueryRow("SELECT (SELECT count(*) FROM feed_events),(SELECT count(*) FROM runs)").Scan(&feeds, &outbox); err != nil {
 			t.Fatal(err)
 		}
 		return

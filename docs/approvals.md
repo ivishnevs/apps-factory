@@ -81,8 +81,8 @@ Identical repeats are allowed until revocation/expiry; the original `request_id`
 This permits one logical action; it is not a one-time token. Revocation prevents further calls; an action already
 performed is not rolled back. Check and execution within one Core are serialized with the owner's decision.
 
-Core's database keeps requests, decisions, their inbox link and the `approval_id` in the tool audit. Outbox events:
-`factory.<company>.events.approval.requested`, `.resolved`, `.expired`. An owner decision (approve or reject) on a
+Core's database keeps requests, decisions, their inbox link and the `approval_id` in the tool audit. Feed events:
+`approval.requested`, `.resolved`, `.expired`. An owner decision (approve or reject) on a
 task's request (`task_id`) adds the authority trigger `approval_decided` with the decision and reason to that task:
 it lifts the task's wait/ask parks, and the next brief shows the decision (likewise for artifact approvals;
 revocation and expiry add no trigger). The default timeout is 24 hours, the maximum 7 days; the time check applies
@@ -101,5 +101,5 @@ the trusted full-access model; MCP grants are not an OS sandbox. Reports and the
 
 Results: [verification](approvals-verification.md).
 
-Checks: `make check`; end-to-end with real Codex: `python3 scripts/approvals-smoke.py --restart-core` (Core/NATS and
+Checks: `make check`; end-to-end with real Codex: `python3 scripts/approvals-smoke.py --restart-core` (Core and
 a node must be running).

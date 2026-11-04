@@ -469,17 +469,12 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 		return err
 	}
 	if len(b) > 900*1024 {
-		return inputError("run context exceeds broker message budget")
+		return inputError("run context exceeds the 900 KiB run spec budget")
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id,command_at) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?,?)", r.ID, r.Project, r.Agent, writerSlot(*r, true), b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company, tx.now().Unix()); err != nil {
 		return fmt.Errorf("project already active or insert failed: %w", err)
 	}
 	tx.wakeNodes()
-	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
-	b, _ = json.Marshal(e)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.CommandSubject(tx.company, r.Provider), b, tx.company); err != nil {
-		return err
-	}
 	return nil
 }
 

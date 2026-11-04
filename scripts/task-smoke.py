@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in real Codex task chain. Start Core/NATS and a native Worker first."""
+"""Opt-in real Codex task chain. Start Core and a node first."""
 import json
 import os
 from pathlib import Path

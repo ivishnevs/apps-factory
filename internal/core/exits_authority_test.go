@@ -14,7 +14,6 @@ import (
 	"appfactory/internal/artifacts"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
-	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 )
@@ -641,10 +640,10 @@ func TestAuthorityOverridesParks(t *testing.T) {
 	}
 }
 
-// TestUrgentStopOnControlSubjectAndHeartbeat (3.5): an urgent directive to a run of a v2 node queues run.stop
-// on that node's control subject and stops it through the heartbeat answer as well (the guarantee when the
-// control message is lost).
-func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
+// TestUrgentStopThroughPollAndHeartbeat (3.5, http-node-transport D4): an urgent directive to a run of a node wakes
+// the company's node polls, whose answer lists the stop, and stops it through the heartbeat answer as well (the
+// guarantee when the node's poll was not waiting).
+func TestUrgentStopThroughPollAndHeartbeat(t *testing.T) {
 	h := newExitHarness(t)
 	ctx := context.Background()
 	co := storage.DefaultCompany
@@ -662,17 +661,17 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 	if _, err := h.s.ClaimV2(ctx, co, run, storage.ClaimRequest{NodeID: "n1", Epoch: 1, ClaimID: "1-0-1"}); err != nil {
 		t.Fatal(err)
 	}
+	woken := h.c.wakeups.channel(co)
 	if w := h.do(h.c.Token, "POST", "/tasks/urgent/directives", map[string]any{"text": "stop: the API changed", "urgent": true, "request_id": "u"}, nil); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	var subject, body string
-	if err := h.s.DB.QueryRow("SELECT subject,body FROM outbox WHERE subject LIKE 'factory.default.nodes.%'").Scan(&subject, &body); err != nil {
-		t.Fatal(err)
+	select {
+	case <-woken:
+	default:
+		t.Fatal("the urgent stop did not wake the node polls")
 	}
-	var e protocol.Envelope
-	var stop protocol.RunStop
-	if subject != "factory.default.nodes.n1.control" || json.Unmarshal([]byte(body), &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID != run || stop.Reason != "revoked" {
-		t.Fatal(subject, body)
+	if work, err := h.s.NodeWork(ctx, co, "n1", 1); err != nil || !slices.Contains(work.Stop, storage.Stop{RunID: run, Reason: "revoked"}) {
+		t.Fatalf("%+v %v", work, err)
 	}
 	answer, err := h.s.NodeHeartbeat(ctx, co, "n1", storage.NodeHeartbeat{Epoch: 1, Inventory: []storage.InventoryRun{{RunID: run, State: "claimed"}}})
 	if err != nil || !slices.Contains(answer.Stop, storage.Stop{RunID: run, Reason: "revoked"}) {

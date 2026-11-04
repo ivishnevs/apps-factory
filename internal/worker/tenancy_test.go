@@ -2,97 +2,82 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
+	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
-	"appfactory/internal/driver/fake"
+	"appfactory/internal/core"
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
-
-	"github.com/nats-io/nats.go"
+	"appfactory/internal/testnode"
 )
 
-// TestJetStreamCompaniesDoNotShareCommands (postgres-tenancy 2.5): two companies' run commands go through
-// the same stream on factory.<company>.commands...; each company's executors receive only their company's
-// commands, and an event of one company never reaches the other company's Core consumer.
-func TestJetStreamCompaniesDoNotShareCommands(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+// TestCompaniesDoNotShareRuns (postgres-tenancy 2.5, http-node-transport): each company's node is offered only its
+// company's queued runs, and a node of one company can neither claim nor send events for another company's run.
+func TestCompaniesDoNotShareRuns(t *testing.T) {
 	s := storagetest.Open(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	const acme = "acme"
-	if err = s.CreateCompany(ctx, acme, "Acme"); err != nil {
+	if err := s.CreateCompany(ctx, acme, "Acme"); err != nil {
 		t.Fatal(err)
 	}
+	server := httptest.NewServer((&core.Core{Store: s, Token: "test-token"}).Handler())
+	defer server.Close()
 	companies := []string{storage.DefaultCompany, acme}
+	apis := map[string]API{}
 	for _, co := range companies {
 		for i := range 3 {
 			spec := protocol.RunSpec{ID: co + "-run-" + string(rune('a'+i)), Project: "p", Agent: "demo", Provider: protocol.RuntimeCodex, Workspace: "/tmp/" + co + "-" + string(rune('a'+i)), Prompt: "work", TimeoutSeconds: 30}
-			if err = s.Create(ctx, co, spec); err != nil {
+			if err := s.Create(ctx, co, spec); err != nil {
 				t.Fatal(err)
 			}
 		}
-	}
-	// Core's outbox publisher serves every company.
-	if n, err := s.PublishOutbox(ctx, func(ctx context.Context, o storage.Outbox) error { return b.Publish(ctx, o.Subject, o.ID, o.Body) }, nil); err != nil || n != 6 {
-		t.Fatal(n, err)
-	}
-	for _, co := range companies {
-		w := &Worker{Bus: b, Company: co, Driver: &fake.Driver{}}
-		sub, err := w.Subscribe()
-		if err != nil {
+		n := testnode.Enroll(t, s, co)
+		if _, err := s.RegisterNode(ctx, co, storage.NodeRegistration{NodeID: n.ID, Name: n.ID, Epoch: 1, ProtocolVersion: 2, Slots: 4,
+			Drivers: []storage.NodeDriver{{Name: "codex", Version: "test", OK: true}}, Resources: map[string]int{}, Labels: []string{}}); err != nil {
 			t.Fatal(err)
 		}
-		got := map[string]bool{}
-		for {
-			msgs, err := sub.Fetch(1, nats.MaxWait(500*time.Millisecond))
-			if errors.Is(err, nats.ErrTimeout) {
-				break
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, run := pointer(msgs[0].Data)
-			if msgs[0].Subject != protocol.CommandSubject(co, protocol.RuntimeCodex) || len(run) < len(co) || run[:len(co)] != co {
-				t.Fatalf("%s's executor got %s on %s", co, run, msgs[0].Subject)
-			}
-			got[run] = true
-			_ = msgs[0].AckSync()
+		apis[co] = API{URL: server.URL, Node: n.ID, Key: n.Key, Now: s.Now}
+	}
+	for _, co := range companies {
+		var a struct {
+			Offers []struct {
+				RunID string `json:"run_id"`
+			} `json:"offers"`
 		}
-		if len(got) != 3 {
-			t.Fatalf("%s's executor got %v", co, got)
+		if err := apis[co].Do(ctx, "POST", "/nodes/"+apis[co].Node+"/poll", map[string]any{"epoch": 1, "free": map[string]int{"codex": 10}, "wait_seconds": 1}, &a); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, o := range a.Offers {
+			got = append(got, o.RunID)
+		}
+		slices.Sort(got)
+		if want := []string{co + "-run-a", co + "-run-b", co + "-run-c"}; !slices.Equal(got, want) {
+			t.Fatalf("%s's node was offered %v, want %v", co, got, want)
 		}
 	}
-	// An event of acme (its executor's terminal event) is not on the default company's Core subject.
-	events, err := b.Subscribe(protocol.EventSubject(storage.DefaultCompany, ">"), "core-events-test")
-	if err != nil {
-		t.Fatal(err)
+	// acme's node cannot take or report the default company's run.
+	w := &Worker{Company: acme, API: apis[acme], Inventory: node.NewInventory(apis[acme].Node, 1)}
+	_, _, err := w.ClaimV2(ctx, storage.DefaultCompany+"-run-a", 0)
+	var h *HTTPError
+	if !errors.As(err, &h) || h.Status != 404 {
+		t.Fatalf("cross-company claim: %v", err)
 	}
-	if err = b.Event(ctx, acme, "completed", "", protocol.Event{RunID: acme + "-run-a", Status: "ENDED", Outcome: "succeeded"}); err != nil {
-		t.Fatal(err)
+	lease := "some-lease"
+	err = apis[acme].Do(ctx, "POST", "/runs/"+storage.DefaultCompany+"-run-a/events", map[string]any{"lease": lease, "events": []storage.SeqEvent{{Seq: 1,
+		Event: protocol.Wrap("agent.completed", storage.DefaultCompany+"-run-a", "", protocol.Event{RunID: storage.DefaultCompany + "-run-a", Lease: lease, Status: "ENDED", Outcome: "succeeded"})}}}, nil)
+	if !errors.As(err, &h) || h.Status != 404 && h.Status != 403 {
+		t.Fatalf("cross-company events: %v", err)
 	}
-	if msgs, err := events.Fetch(1, nats.MaxWait(500*time.Millisecond)); !errors.Is(err, nats.ErrTimeout) {
-		var e protocol.Envelope
-		if len(msgs) > 0 {
-			_ = json.Unmarshal(msgs[0].Data, &e)
-		}
-		t.Fatalf("default company's Core received %+v (%v)", e, err)
-	}
-	if got := protocol.SubjectCompany(protocol.EventSubject(acme, "agent.completed")); got != acme {
-		t.Fatal(got)
+	r, err := s.Get(ctx, storage.DefaultCompany, storage.DefaultCompany+"-run-a")
+	if err != nil || r.Status != "QUEUED" || strings.Contains(r.Result, "succeeded") {
+		t.Fatalf("%+v %v", r, err)
 	}
 }

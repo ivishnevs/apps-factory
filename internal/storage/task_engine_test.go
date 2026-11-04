@@ -188,7 +188,7 @@ func TestDispatchAtomicAndSingleWriter(t *testing.T) {
 		t.Fatal("writer or agent slot bypass", err)
 	}
 	var commands, attempts int
-	_ = s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.default.commands.%'").Scan(&commands)
+	_ = s.DB.QueryRow("SELECT count(*) FROM runs WHERE status='QUEUED'").Scan(&commands)
 	_ = s.DB.QueryRow("SELECT count(*) FROM task_attempts").Scan(&attempts)
 	if commands != 1 || attempts != 1 {
 		t.Fatal("non-atomic dispatch", commands, attempts)
@@ -300,15 +300,6 @@ func TestLargeResultsKeepBrokerNotificationsBounded(t *testing.T) {
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
 	if a.Status != "IN_REVIEW" || len(a.Result) != len(text) {
 		t.Fatal("large result lost")
-	}
-	out, err := s.Pending(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, o := range out {
-		if strings.HasPrefix(o.Subject, "factory.default.events.") && len(o.Body) > 4096 {
-			t.Fatal("unbounded entity notification", len(o.Body))
-		}
 	}
 }
 

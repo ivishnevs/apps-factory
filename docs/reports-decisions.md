@@ -66,8 +66,7 @@ Owner endpoints use FACTORY_TOKEN:
 
 The feed is the `feed_events` table (migration 0009): one row per entity event, written in the
 transaction of its cause, with `task_id`, `run_id`, `agent`, `actor`, `status`, `summary` and
-reserved `attention`/`ref`. Each row is also published as `factory.<company>.feed.<project>.<kind>`
-(outbox ID `feed-<event_id>`, carrying the row's `seq`; `TestJetStreamFeedDeliversEachRowWithItsSeq`).
+reserved `attention`/`ref`. Clients read it through `GET /feed` and `GET /feed/stream` (below).
 
 Lists return items, next_after, has_more. after is a stable row/event sequence (`seq`); default limit
 20, maximum 100. Report filters: kind/task_id/run_id; decision filters: status/topic (owner list
@@ -193,7 +192,7 @@ transaction of their cause:
 their cause: a question or escalation routed to the owner (an escalation to a manager has none), `node.offline`
 after 10 minutes, a report with `needs_owner_action`, owner pauses, parks that wait on the owner.
 
-Delivery: each row is also an outbox message on `factory.<company>.feed.<project>.<kind>`; `GET /feed` and
+Delivery: `GET /feed` and
 `GET /feed/stream` (SSE) filter by `project`, `task`, `attention` and `subtree=AGENT` (the agent and everyone
 reporting to it). Agents read their own subtree with `factory_feed_list` (tasks assigned within the subtree or
 delegated by it, through `origin_task`); a lead never sees a sibling team's events.

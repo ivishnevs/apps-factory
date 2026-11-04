@@ -113,11 +113,7 @@ func TestAwaitExitDelivery(t *testing.T) {
 // A turn that ends with its exit pending keeps the runtime (and factory-mcp in its group) until the
 // delivery settles; the terminal event carries the settled state. Without a settle the runtime is stopped
 // after ExitDeliveryWait and the terminal event says pending.
-func TestJetStreamPendingExitDelivered(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestPendingExitDelivered(t *testing.T) {
 	defer func(w time.Duration) { ExitDeliveryWait = w }(ExitDeliveryWait)
 	wait := `while ! grep -q pending "$FACTORY_EXIT_FILE" 2>/dev/null; do sleep 0.05; done; `
 	for name, c := range map[string]struct {
@@ -134,7 +130,7 @@ func TestJetStreamPendingExitDelivered(t *testing.T) {
 			mcp := mcpScript(t, c.body)
 			sc := fake.Script{SessionID: "s", Status: "COMPLETED", Text: "queued", Activity: []fake.Activity{pendingExit("submit")}}
 			start := time.Now()
-			r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc, MCP: true, Command: []string{mcp}}, MCPBinary: mcp}, false)
+			r, events := runDriver(t, Worker{Driver: &fake.Driver{Script: sc, MCP: true, Command: []string{mcp}}, MCPBinary: mcp}, false)
 			el := time.Since(start)
 			var terminal protocol.Event
 			if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {

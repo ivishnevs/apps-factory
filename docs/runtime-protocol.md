@@ -33,11 +33,10 @@ error and fail the run (outcome `failed`, retried automatically). This is a docu
 separate from the Core [inbox/action approval workflow](approvals.md). Full access means shell actions can
 bypass behavioral instructions; no claim of isolation is made.
 
-NATS subjects: factory.<company>.commands.agent.run.codex; factory.<company>.events.agent.started/progress/completed/failed.
-Durables: codex-worker-<company>, core-events-<company>. Provider suffix is a deliberate extension of the original
-single command subject, enabling independent runtime consumers without Codex fields in RunSpec.
-Cancellation currently uses Core's durable CANCELLING state + heartbeat response, not a second broker
-consumer. It survives restarts. Task and message events are published through Core transactional outbox; approval subjects remain for a later stage.
+Transport (current, `http-node-transport`): no broker. A queued run is a `QUEUED` row; nodes get it as an offer of
+their signed long poll and send run events (started/progress/completed/failed) to `POST /runs/{run}/events`
+([runtime protocol v2](runtime-protocol-v2.md) §4, §8). Cancellation uses Core's durable CANCELLING state, answered
+by the node's poll and the heartbeat; it survives restarts.
 
 Endpoints require Authorization: Bearer FACTORY_TOKEN:
 GET /health, /agents, /runs, /runs/{id}, /runs/{id}/events;

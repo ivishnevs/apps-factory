@@ -5,9 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -15,22 +13,18 @@ import (
 	"time"
 
 	"appfactory/internal/auth"
-	"appfactory/internal/bus"
 	"appfactory/internal/clock"
 	"appfactory/internal/config"
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
-
-	"github.com/nats-io/nats.go"
 )
 
 type Core struct {
 	approvalMu sync.Mutex
 	Skills     *skills.Registry
 	Store      *storage.Store
-	Bus        *bus.Bus
 	Agents     map[string]config.Agent
 	// NodeHooks are the catalog's NodeHooks documents, served to nodes in the register and heartbeat answers.
 	NodeHooks map[string]protocol.NodeHooks
@@ -54,8 +48,6 @@ type Core struct {
 	Prices config.Prices
 	// Telegram routes owner messages from the Telegram channel (waits-events-cost-cli D4).
 	Telegram TelegramConfig
-	// outboxKick makes the tick loop publish the outbox at once (urgent stops, kickOutbox).
-	outboxKick chan struct{}
 	// wakeups wakes the waiting node polls of a company; pollers keeps one poll per node (http-node-transport).
 	wakeups        notifier
 	pollers        polls
@@ -72,21 +64,6 @@ type Core struct {
 	MultiCompany bool
 	// SignupTemplate is the starter catalog of a company created at sign-up (default DefaultSignupTemplate).
 	SignupTemplate string
-}
-
-// kickOutbox asks the tick loop to publish the outbox now instead of at the next tick, so an urgent stop
-// reaches its node's control subject without waiting (explicit-exits-authority D7). Without a running loop it
-// does nothing.
-func (c *Core) kickOutbox() {
-	select {
-	case c.kick() <- struct{}{}:
-	default:
-	}
-}
-
-func (c *Core) kick() chan struct{} {
-	c.outboxKickOnce.Do(func() { c.outboxKick = make(chan struct{}, 1) })
-	return c.outboxKick
 }
 
 type companyKey struct{}
@@ -139,7 +116,7 @@ func (c *Core) Handler() http.Handler {
 	c.accountRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
-		if err != nil || !c.Bus.NC.IsConnected() {
+		if err != nil {
 			http.Error(w, "unavailable", 503)
 			return
 		}
@@ -364,79 +341,23 @@ func (c *Core) run(ctx context.Context) error {
 	if err := c.EnsureConversations(ctx); err != nil {
 		return err
 	}
-	// Core consumes every company's events (postgres-tenancy D3: one durable consumer per company); a
-	// company that gets a catalog later is subscribed at the next tick.
-	errs := make(chan error, 1)
-	consumed := map[string]bool{}
-	subscribe := func() error {
-		for _, company := range c.companies() {
-			if consumed[company] {
-				continue
-			}
-			sub, err := c.Bus.Subscribe(protocol.EventSubject(company, ">"), "core-events-"+company)
-			if err != nil {
-				return err
-			}
-			consumed[company] = true
-			go func() {
-				if err := c.consume(ctx, sub, company); err != nil {
-					select {
-					case errs <- err:
-					default:
-					}
-				}
-			}()
-		}
-		return nil
-	}
-	if err := subscribe(); err != nil {
-		return err
-	}
 	if c.Store.Continuity == nil {
 		c.Store.Continuity = clock.NewContinuity(3 * tickInterval)
 	}
+	// Waiting node polls re-read Postgres on this beat too, for wake-ups another Core process committed
+	// (http-node-transport D6).
 	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case err := <-errs:
-			return err
 		case <-tick.C:
-			if err := subscribe(); err != nil {
-				return err
-			}
 			if err := c.maintain(ctx); err != nil {
-				return err
-			}
-			if err := c.publishOutbox(ctx); err != nil {
-				return err
-			}
-		case <-c.kick():
-			if err := c.publishOutbox(ctx); err != nil {
 				return err
 			}
 		}
 	}
-}
-
-// publishOutbox publishes a batch of due outbox messages of every company (storage.PublishOutbox: several
-// Core processes may publish in parallel, each message is taken by one of them).
-func (c *Core) publishOutbox(ctx context.Context) error {
-	_, err := c.Store.PublishOutbox(ctx, func(ctx context.Context, o storage.Outbox) error {
-		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if protocol.IsNodeControl(o.Subject) {
-			return c.Bus.Notify(pubCtx, o.Subject, o.Body) // control subjects are not in a stream
-		}
-		return c.Bus.Publish(pubCtx, o.Subject, o.ID, o.Body)
-	}, func(o storage.Outbox, err error) {
-		// One message that cannot be published (a broker outage, an invalid subject) is retried with a
-		// backoff; the rest of the queue moves on.
-		slog.Warn("outbox publish", "id", o.ID, "subject", o.Subject, "error", err)
-	})
-	return err
 }
 
 const tickInterval = time.Second
@@ -457,11 +378,6 @@ func (c *Core) maintain(ctx context.Context) error {
 	}
 	if err := c.Schedule(ctx); err != nil {
 		return err
-	}
-	for _, company := range c.companies() {
-		if _, err := c.Store.RedeliverQueued(ctx, company); err != nil {
-			return err
-		}
 	}
 	if err := c.sweepStalls(ctx); err != nil {
 		return err
@@ -497,42 +413,4 @@ func (c *Core) maintainCompany(ctx context.Context, company string) error {
 	}
 	_, err := c.Store.ExpireQueued(ctx, company)
 	return err
-}
-func (c *Core) consume(ctx context.Context, sub *nats.Subscription, company string) error {
-	for ctx.Err() == nil {
-		msgs, err := sub.Fetch(1, nats.MaxWait(time.Second))
-		if errors.Is(err, nats.ErrTimeout) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		for _, m := range msgs {
-			var e protocol.Envelope
-			if err = json.Unmarshal(m.Data, &e); err != nil || e.Version != 1 {
-				_ = m.Term()
-				slog.Error("invalid event", "error", err)
-				continue
-			}
-			if !strings.HasPrefix(m.Subject, protocol.EventSubject(company, "agent.")) {
-				if err = m.AckSync(); err != nil {
-					return err
-				}
-				continue
-			}
-			if err = c.Store.Apply(ctx, company, e); err != nil {
-				if errors.Is(err, storage.ErrConflict) || errors.Is(err, storage.ErrInvalid) {
-					_ = m.Term()
-				} else {
-					_ = m.NakWithDelay(time.Second)
-				}
-				slog.Error("event apply", "event", e.ID, "error", err)
-				continue
-			}
-			if err = m.AckSync(); err != nil {
-				return fmt.Errorf("event ack: %w", err)
-			}
-		}
-	}
-	return nil
 }

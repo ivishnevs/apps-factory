@@ -46,7 +46,7 @@ EOF
 ./bin/factory-node run -config data/node.yaml
 ```
 
-Environment as for every node: `FACTORY_TOKEN`, `FACTORY_URL`, `NATS_URL` (see
+Environment as for every node: `FACTORY_URL` (see
 [development](development.md#node-process)). `drivers.claude` keys: `node` (default `node`), `shim` (default
 `<bin_dir>/../workers/claude/dist/src/shim.js`), `executable` (another Claude Code binary; else
 `CLAUDE_CODE_EXECUTABLE`), `allow_api_key` (otherwise API-key auth is refused and
@@ -178,8 +178,8 @@ Tests replay the recorded `.events.jsonl` streams through a fake shim process
 failures without evidence, and the built shim's launch refusal when `workers/claude` is built.
 `TestBuiltShimDecider` runs the built shim's decider against a real `factory-shim --decide` and a fake Core
 (deny, allow, one grant consumed and handed over, then refused). `internal/worker` runs Claude runs end to
-end through the executor against a fake Core (`NATS_TEST_URL`): completed and owner-cancelled.
-`internal/node/runner` (`NATS_TEST_URL`, real Core and node) verifies with the fake driver that a session
+end through the executor against a Core handler over HTTP: completed and owner-cancelled.
+`internal/node/runner` (real Core handler and node) verifies with the fake driver that a session
 refused `ExitGuardRetries` stops without an exit ends with Core recording `no_exit` and a `no_exit`
 escalation, and that an approval-gated command runs through `factory-shim` once after the owner's grant.
 

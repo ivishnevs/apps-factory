@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"appfactory/internal/bus"
 	"appfactory/internal/core"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
@@ -83,25 +82,14 @@ func TestInvalidPidfileIsRemoved(t *testing.T) {
 	}
 }
 
-func TestJetStreamRestartKillsRunningAppServer(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestRestartKillsRunningAppServer(t *testing.T) {
 	t.Setenv("FACTORY_FAKE_SERVER", "1")
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.DB.Close()
-	server := httptest.NewServer((&core.Core{Store: s, Bus: b, Token: "test-token"}).Handler())
+	server := httptest.NewServer((&core.Core{Store: s, Token: "test-token"}).Handler())
 	defer server.Close()
 	spec := protocol.RunSpec{ID: "orphan-run", Project: "orphan-project", Agent: "demo", Provider: protocol.RuntimeCodex, Workspace: t.TempDir(), Prompt: "CANCEL_TEST", TimeoutSeconds: 30}
 	ctx, stop := context.WithTimeout(context.Background(), 20*time.Second)
@@ -111,7 +99,7 @@ func TestJetStreamRestartKillsRunningAppServer(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin, _ := os.Executable()
-	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, StateDir: dir}
+	w := Worker{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, StateDir: dir}
 	asNode(t, s, &w, server.URL)
 	_, claim, err := w.ClaimV2(ctx, spec.ID, 0)
 	if err != nil {

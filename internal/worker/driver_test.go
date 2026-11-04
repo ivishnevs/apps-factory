@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -15,14 +14,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 // asNode makes w an enrolled, registered node of the Core at url (epoch 1), as `factory-node run` sets it up. Nobody
@@ -36,6 +33,9 @@ func asNode(t testing.TB, s *storage.Store, w *Worker, url string) testnode.Node
 		t.Fatal(err)
 	}
 	w.API = API{URL: url, Node: n.ID, Key: n.Key, Now: s.Now}
+	// A first signed request fixes when Core started accepting signatures, so the test's next request, signed later,
+	// is never refused as created before Core started (signatures carry whole seconds).
+	_ = w.API.Do(context.Background(), "GET", "/health", nil, nil)
 	w.Inventory = node.NewInventory(n.ID, 1)
 	if w.NodeID == "" {
 		w.NodeID = n.ID
@@ -47,16 +47,12 @@ func asNode(t testing.TB, s *storage.Store, w *Worker, url string) testnode.Node
 // to Core's store until the run is terminal. cancel cancels the run after it started.
 func runFake(t *testing.T, script string, cancel bool) (storage.Run, *fake.Driver) {
 	t.Helper()
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
 	sc, err := fake.Load(filepath.Join("testdata", "fake", script))
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := &fake.Driver{Script: sc}
-	r, events := runDriver(t, url, Worker{Driver: d}, cancel)
+	r, events := runDriver(t, Worker{Driver: d}, cancel)
 	if want := len(sc.Activity) + 2; len(events) != want {
 		t.Fatalf("%d events, want started + %d progress + terminal", len(events), len(sc.Activity))
 	}
@@ -75,15 +71,9 @@ type withStore func(*storage.Store)
 type stopCause struct{ cause error }
 
 // mods (func(*protocol.RunSpec) or stored) change the spec the executor receives; a stopCause stops it.
-func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (storage.Run, []protocol.Envelope) {
+// Events reach Core over the signed HTTP event route as the run emits them.
+func runDriver(t *testing.T, w Worker, cancel bool, mods ...any) (storage.Run, []protocol.Envelope) {
 	t.Helper()
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +84,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 			m(s)
 		}
 	}
-	c := &core.Core{Store: s, Bus: b, Token: "test-token", Agents: map[string]config.Agent{"demo": {Spec: config.Spec{Role: "executor"}}}}
+	c := &core.Core{Store: s, Token: "test-token", Agents: map[string]config.Agent{"demo": {Spec: config.Spec{Role: "executor"}}}}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	spec := protocol.RunSpec{ID: "fake-run", Project: "fake-project", Agent: "demo", Provider: w.Driver.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30}
@@ -108,17 +98,12 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	w.Bus = b
 	asNode(t, s, &w, server.URL)
 	epoch, claim, err := w.ClaimV2(ctx, spec.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lease := claim.Lease
-	consumer, err := b.Subscribe("factory.default.events.>", "fake-test")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, mod := range mods {
 		switch m := mod.(type) {
 		case stored:
@@ -139,39 +124,27 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	if !w.Inventory.AddCause(spec.ID, epoch, stopExec) {
 		t.Fatal("claim not recorded")
 	}
-	done := make(chan error, 1)
-	go func() { done <- w.execute(execCtx, spec, lease, "fake-command") }()
-	for {
-		msgs, e := consumer.Fetch(1, nats.MaxWait(15*time.Second))
-		if e != nil {
-			t.Fatal(e)
+	var once sync.Once
+	w.onEmit = func(_ string, p protocol.Event) {
+		if p.SessionID == "" || !cancel && cause == nil {
+			return
 		}
-		var event protocol.Envelope
-		if err = json.Unmarshal(msgs[0].Data, &event); err != nil {
-			t.Fatal(err)
-		}
-		if err = s.Apply(ctx, storage.DefaultCompany, event); err != nil {
-			t.Fatal(err)
-		}
-		_ = msgs[0].AckSync()
-		var p protocol.Event
-		_ = json.Unmarshal(event.Payload, &p)
-		if p.SessionID != "" && cancel {
-			if err = s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
-				t.Fatal(err)
+		once.Do(func() {
+			if cancel {
+				if err := s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
+					t.Error(err)
+				}
+				// What the node does with the poll or heartbeat answer to a cancelled run (TestCancellation goes
+				// through the heartbeat itself).
+				stopExec(&node.StopCause{Reason: "revoked"})
+				return
 			}
-			// What the node does with the heartbeat answer to a cancelled run (TestJetStreamCancellation goes through
-			// the heartbeat itself).
-			stopExec(&node.StopCause{Reason: "revoked"})
-		}
-		if p.SessionID != "" && cause != nil {
 			stopExec(cause)
-		}
-		if p.Status != "" {
-			break
-		}
+		})
 	}
-	<-done
+	if err = w.execute(execCtx, spec, lease, "fake-command"); err != nil {
+		t.Log("execute:", err)
+	}
 	// The run as Core serves it, so tests see what an owner sees (usage included).
 	var r storage.Run
 	if err = (API{URL: server.URL, Token: "test-token"}).Do(ctx, "GET", "/runs/"+spec.ID, nil, &r); err != nil {
@@ -184,7 +157,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	return r, events
 }
 
-func TestJetStreamFakeDriverOutcomes(t *testing.T) {
+func TestFakeDriverOutcomes(t *testing.T) {
 	for script, want := range map[string]struct{ outcome, result string }{
 		"completed.json":    {"succeeded", "foundation ok"},
 		"failed.json":       {"failed", "\n{\"message\":\"model error\"}"},
@@ -203,9 +176,9 @@ func TestJetStreamFakeDriverOutcomes(t *testing.T) {
 	}
 }
 
-// TestJetStreamRuntimeEnvWithoutCredential: a driver without MCP and without command shims gets no
+// TestRuntimeEnvWithoutCredential: a driver without MCP and without command shims gets no
 // run credential, yet its runtime still must not inherit the node's FACTORY_TOKEN or NATS settings.
-func TestJetStreamRuntimeEnvWithoutCredential(t *testing.T) {
+func TestRuntimeEnvWithoutCredential(t *testing.T) {
 	t.Setenv("FACTORY_TOKEN", "owner-secret")
 	t.Setenv("NATS_URL", "nats://user:nats-secret@nats:4222")
 	t.Setenv("NATS_PASSWORD", "nats-secret")
@@ -228,16 +201,12 @@ func TestJetStreamRuntimeEnvWithoutCredential(t *testing.T) {
 
 // Usage and quota go on their progress events and on the terminal event, here one without a result
 // after a quota hit (paused_out); the run's total cost prices its single model.
-func TestJetStreamFakeDriverUsageWithoutResult(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestFakeDriverUsageWithoutResult(t *testing.T) {
 	sc, err := fake.Load(filepath.Join("testdata", "fake", "usage_disconnected.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc}}, false)
+	r, events := runDriver(t, Worker{Driver: &fake.Driver{Script: sc}}, false)
 	if r.Status != "ENDED" || r.Outcome != "paused_out" || len(r.Usage) != 1 || r.Usage[0].Model != "gpt-5.5" || r.Usage[0].Input != 150 || r.Usage[0].CostUSD != 0.25 {
 		t.Fatalf("%+v", r)
 	}
@@ -292,19 +261,15 @@ func (s *endedSession) Interrupt(context.Context) error {
 	return errors.New("no active turn to interrupt")
 }
 
-// TestJetStreamInterruptAfterTurnEnded: a refused interrupt is not terminal; the result that follows is.
-func TestJetStreamInterruptAfterTurnEnded(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
-	r, _ := runDriver(t, url, Worker{Driver: endedDriver{&fake.Driver{}}}, false, func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 })
+// TestInterruptAfterTurnEnded: a refused interrupt is not terminal; the result that follows is.
+func TestInterruptAfterTurnEnded(t *testing.T) {
+	r, _ := runDriver(t, Worker{Driver: endedDriver{&fake.Driver{}}}, false, func(s *protocol.RunSpec) { s.TimeoutSeconds = 1 })
 	if r.Outcome != "succeeded" || r.Result != "finished just in time" {
 		t.Fatalf("%+v", r)
 	}
 }
 
-func TestJetStreamFakeDriverCancellation(t *testing.T) {
+func TestFakeDriverCancellation(t *testing.T) {
 	r, _ := runFake(t, "hanging.json", true)
 	if r.Status != "ENDED" || r.Outcome != "revoked" {
 		t.Fatalf("%+v", r)
@@ -312,11 +277,7 @@ func TestJetStreamFakeDriverCancellation(t *testing.T) {
 }
 
 // A scripted tool call goes through the real factory-mcp adapter with the run credential.
-func TestJetStreamFakeDriverToolCall(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestFakeDriverToolCall(t *testing.T) {
 	mcp := filepath.Join(t.TempDir(), "factory-mcp")
 	if out, err := exec.Command("go", "build", "-o", mcp, "appfactory/cmd/factory-mcp").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -325,7 +286,7 @@ func TestJetStreamFakeDriverToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: mcp}, false)
+	r, events := runDriver(t, Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: mcp}, false)
 	if r.Outcome != "succeeded" || len(events) != len(sc.Activity)+2 {
 		t.Fatalf("%+v, %d events", r, len(events))
 	}

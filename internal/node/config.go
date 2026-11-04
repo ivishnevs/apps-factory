@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/configfile"
 	"appfactory/internal/node/janitor"
 )
@@ -47,8 +46,8 @@ type Config struct {
 	// Janitor: run-stop and task-closed hooks, worktree removal after seal, prune (node-agent D4). A hook list
 	// set here overrides the NodeHooks document's.
 	Janitor janitor.Config `yaml:"janitor"`
-	// NATS is the outbound connection (node-agent D1, task 1.5); without url, NATS_URL, else nats://127.0.0.1:4222.
-	NATS NATS `yaml:"nats"`
+	// Poll is the node's long poll for work (http-node-transport D2).
+	Poll Poll `yaml:"poll"`
 	// RuntimeEnv adds environment variable names (NAME_* for a prefix) to the allowlist of what agent runtimes
 	// inherit from the node (worker.RuntimeEnv); the node's and the owner's credentials never pass.
 	RuntimeEnv []string `yaml:"runtime_env"`
@@ -63,45 +62,14 @@ type Config struct {
 // DefaultCompany is the company of a node whose node.yaml names none.
 const DefaultCompany = "default"
 
-// NATS: url is nats://, tls://, ws:// or wss:// (a comma-separated list is allowed) without user info: the
-// per-node user comes from creds_file or nkey_seed_file, so node.yaml holds no secret. The NATS_URL fallback
-// may still carry user:password, as for the local worker.
-type NATS struct {
-	URL         string `yaml:"url"`
-	bus.Options `yaml:",inline"`
+// Poll: WaitSeconds is how long Core may hold a poll open waiting for work (1-25, default 25); lower it behind a
+// proxy that cuts requests sooner.
+type Poll struct {
+	WaitSeconds int `yaml:"wait_seconds"`
 }
 
-// DefaultNATSURL is the local NATS of `make up`.
-const DefaultNATSURL = "nats://127.0.0.1:4222"
-
-// ResolveURL is url, else NATS_URL from getenv, else DefaultNATSURL.
-func (n NATS) ResolveURL(getenv func(string) string) string {
-	if n.URL != "" {
-		return n.URL
-	}
-	if v := getenv("NATS_URL"); v != "" {
-		return v
-	}
-	return DefaultNATSURL
-}
-
-func (n NATS) validate() error {
-	if n.URL != "" {
-		us, err := bus.ParseURLs(n.URL)
-		if err != nil {
-			return fmt.Errorf("nats.url: %w", err)
-		}
-		for _, u := range us {
-			if u.User != nil {
-				return fmt.Errorf("nats.url %s: no user info in node.yaml; use creds_file or nkey_seed_file", bus.RedactURL(u))
-			}
-		}
-	}
-	if err := n.Options.Validate(n.URL); err != nil {
-		return fmt.Errorf("nats: %w", err)
-	}
-	return nil
-}
+// MaxPollWait is the longest poll wait Core grants.
+const MaxPollWait = 25
 
 // Worktrees: Root defaults to <state_dir>/worktrees; ScanCommand (pre-push secret scan) to gitleaks.
 type Worktrees struct {
@@ -225,8 +193,7 @@ func (c *Config) Absolute() error {
 		c.ProjectsRoot = filepath.Join(home, rest)
 	}
 	return errors.Join(abs(&c.StateDir), abs(&c.ProjectsRoot), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
-		abs(&c.SecretsFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
-		abs(&c.NATS.CredsFile), abs(&c.NATS.NkeySeedFile), abs(&c.NATS.TLS.CAFile), abs(&c.NATS.TLS.CertFile), abs(&c.NATS.TLS.KeyFile))
+		abs(&c.SecretsFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary))
 }
 
 var (
@@ -292,6 +259,12 @@ func (c *Config) Validate() error {
 	case c.Disk.CriticalGiB > c.Disk.LowGiB:
 		errs = append(errs, fmt.Errorf("disk.critical_watermark_gib %g must not exceed disk.low_watermark_gib %g", c.Disk.CriticalGiB, c.Disk.LowGiB))
 	}
-	errs = append(errs, c.Janitor.Validate(), c.NATS.validate())
+	if c.Poll.WaitSeconds == 0 {
+		c.Poll.WaitSeconds = MaxPollWait
+	}
+	if c.Poll.WaitSeconds < 1 || c.Poll.WaitSeconds > MaxPollWait {
+		errs = append(errs, fmt.Errorf("poll.wait_seconds %d: must be between 1 and %d", c.Poll.WaitSeconds, MaxPollWait))
+	}
+	errs = append(errs, c.Janitor.Validate())
 	return errors.Join(errs...)
 }

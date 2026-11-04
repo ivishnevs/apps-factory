@@ -185,7 +185,7 @@ func TestQuestionLoopGuardTimeoutAndTransactionalOutbox(t *testing.T) {
 		t.Fatal(m)
 	}
 	var count int
-	if err = s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject='factory.default.events.message.created'").Scan(&count); err != nil || count != 10 {
+	if err = s.DB.QueryRow("SELECT count(*) FROM entity_events WHERE body->>'type'='message.created'").Scan(&count); err != nil || count != 10 {
 		t.Fatal(count, err)
 	}
 }
@@ -235,7 +235,7 @@ func TestMessageEventsShareConversationCorrelation(t *testing.T) {
 	if _, err = s.ReplyMessage(ctx, DefaultCompany, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Answer", RequestID: "correlate-answer"}); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := s.DB.Query("SELECT body FROM outbox WHERE subject LIKE 'factory.default.events.message.%'")
+	rows, err := s.DB.Query("SELECT body FROM entity_events WHERE body->>'type' LIKE 'message.%'")
 	if err != nil {
 		t.Fatal(err)
 	}

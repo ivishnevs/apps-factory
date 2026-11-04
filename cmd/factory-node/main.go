@@ -167,7 +167,7 @@ func launchd(args []string) (int, error) {
 	home, _ := os.UserHomeDir()
 	l.Log = filepath.Join(home, "Library", "Logs", "factory-node.log")
 	// launchd starts agents with a minimal PATH; runtimes need node, codex and git.
-	for _, k := range []string{"PATH", "NATS_URL", "FACTORY_URL", "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
+	for _, k := range []string{"PATH", "FACTORY_URL", "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
 		if v := os.Getenv(k); v != "" {
 			l.Env[k] = v
 		}
@@ -178,8 +178,8 @@ func launchd(args []string) (int, error) {
 	return 0, nil
 }
 
-// systemd prints a systemd service for `run`. Secrets are not inlined: FACTORY_TOKEN and NATS_URL go into the
-// 0600 environment file the unit names.
+// systemd prints a systemd service for `run`. Settings are not inlined: FACTORY_URL goes into the 0600 environment
+// file the unit names.
 func systemd(args []string) (int, error) {
 	fs := flag.NewFlagSet("systemd", flag.ContinueOnError)
 	path := fs.String("config", "", "node.yaml passed to run (default $"+node.ConfigEnv+")")
@@ -246,7 +246,7 @@ func systemd(args []string) (int, error) {
 	if *system {
 		ctl = "sudo systemctl"
 	}
-	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put NATS_URL=... in %s (chmod 600) and enroll the node first with factory-node enroll CODE; then %s daemon-reload && %s enable --now %s\n",
+	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put FACTORY_URL=... in %s (chmod 600) and enroll the node first with factory-node enroll CODE; then %s daemon-reload && %s enable --now %s\n",
 		unitDir, *name, s.EnvFile, ctl, ctl, *name)
 	return 0, nil
 }
@@ -259,7 +259,7 @@ func doctor(args []string) (int, error) {
 	critical := fs.Float64("critical-gib", 5, "disk.critical_watermark in GiB")
 	repo := fs.String("repo", "", "repository URL checked with git ls-remote (optional)")
 	drivers := fs.String("drivers", "", "comma list of drivers to require (default: every installed one)")
-	path := fs.String("config", "", "node.yaml whose nats section the NATS check uses (default $"+node.ConfigEnv+"; else NATS_URL alone)")
+	path := fs.String("config", "", "node.yaml of the node (default $"+node.ConfigEnv+")")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
 	}
@@ -269,7 +269,7 @@ func doctor(args []string) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	d.NATS, d.Labels, d.StateDir = c.NATS, c.Labels, c.StateDir
+	d.Labels, d.StateDir = c.Labels, c.StateDir
 	// Stack checks of the catalog's NodeHooks document, as Core last delivered it to this node.
 	if hooks, ok, err := node.LoadHooks(c.StateDir); err != nil {
 		fmt.Fprintf(os.Stderr, "stack checks skipped: %s: %v\n", filepath.Join(c.StateDir, node.HooksFile), err)

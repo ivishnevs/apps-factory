@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/node"
@@ -35,14 +34,10 @@ func (d launchHook) Launch(ctx context.Context, l driver.Launch) (driver.Session
 	return d.Driver.Launch(ctx, l)
 }
 
-// TestJetStreamWorktreeNextRunWaitsForGroupAndSeal (task-worktrees 1.3): two slots of a node get runs of the
+// TestWorktreeNextRunWaitsForGroupAndSeal (task-worktrees 1.3): two slots of a node get runs of the
 // same task. The second run waits while the first run's runtime process group is alive; when the first run
 // is stopped, its group is killed and its worktree sealed before the second run's runtime starts.
-func TestJetStreamWorktreeNextRunWaitsForGroupAndSeal(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestWorktreeNextRunWaitsForGroupAndSeal(t *testing.T) {
 	hanging, err := fake.Load(filepath.Join("testdata", "fake", "hanging.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -51,13 +46,6 @@ func TestJetStreamWorktreeNextRunWaitsForGroupAndSeal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	// Core's HTTP side as the executor needs it here: the sealed workspace reports.
 	var reports atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +69,7 @@ func TestJetStreamWorktreeNextRunWaitsForGroupAndSeal(t *testing.T) {
 		spec := protocol.RunSpec{ID: id, Project: "fake-project", Agent: "demo", Provider: d.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30,
 			TaskID: "t1", RepoURL: remote, DefaultBranch: "main", WorkspaceMode: "worktree"}
 		// Executor level: the runs are executed directly; their events go to JetStream unapplied.
-		w := Worker{Bus: b, API: api, Driver: d, Worktrees: trees, Inventory: node.NewInventory("n1", 1)}
+		w := Worker{API: api, Driver: d, Worktrees: trees, Inventory: node.NewInventory("n1", 1)}
 		done := make(chan error, 1)
 		go func() { done <- w.execute(runCtx, spec, "lease-"+id, "cmd-"+id) }()
 		return done

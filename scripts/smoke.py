@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in real Codex smoke; Core/JetStream and a native Worker must already run."""
+"""Opt-in real Codex smoke; Core and a node must already run."""
 import json
 import os
 import sys

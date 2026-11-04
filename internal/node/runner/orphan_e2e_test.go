@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -27,7 +26,7 @@ import (
 	"appfactory/internal/worker"
 )
 
-// TestHelperCrashableNode is the node process TestJetStreamOrphanGoneBeforeRetry starts and kills: a v2
+// TestHelperCrashableNode is the node process TestOrphanGoneBeforeRetry starts and kills: a v2
 // node whose runtime is a real process group (a shell with a child) that runs until stopped.
 func TestHelperCrashableNode(t *testing.T) {
 	if os.Getenv("FACTORY_HELPER_NODE") != "1" {
@@ -35,11 +34,6 @@ func TestHelperCrashableNode(t *testing.T) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	b, err := bus.Connect(os.Getenv("NATS_TEST_URL"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
 	cfg := node.Defaults()
 	cfg.Name, cfg.Slots, cfg.StateDir = "crash-node", 1, os.Getenv("FACTORY_HELPER_STATE")
 	keys, err := node.LoadKeys(cfg.StateDir)
@@ -52,27 +46,16 @@ func TestHelperCrashableNode(t *testing.T) {
 	}
 	api := worker.API{URL: os.Getenv("FACTORY_HELPER_CORE"), Node: id, Key: keys.Sign}
 	d := &fake.Driver{Command: []string{"sh", "-c", "sleep 60 & wait"}}
-	if err = Run(ctx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond}); err != nil {
+	if err = Run(ctx, Node{Config: cfg, API: api, Drivers: []driver.Driver{perRunSessions{d}}}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// TestJetStreamOrphanGoneBeforeRetry (reliable-recovery 3.3): the node process is killed mid-run, so its
+// TestOrphanGoneBeforeRetry (reliable-recovery 3.3): the node process is killed mid-run, so its
 // runtime's process group survives as an orphan. While the node is unreachable the task is not retried. The
 // restarted node kills the orphaned group before it registers its new epoch; only then does Core end the
 // old run lost (no budget) and let the task run again, and the retry is claimed with the old group gone.
-func TestJetStreamOrphanGoneBeforeRetry(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+func TestOrphanGoneBeforeRetry(t *testing.T) {
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = 1
 	defer func() { storage.HeartbeatSeconds = beat }()
@@ -88,7 +71,7 @@ func TestJetStreamOrphanGoneBeforeRetry(t *testing.T) {
 	demo := agents["demo"]
 	demo.Rules = nil // no guarded commands: the node needs no factory-shim build
 	agents["demo"] = demo
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -101,7 +84,7 @@ func TestJetStreamOrphanGoneBeforeRetry(t *testing.T) {
 		t.Helper()
 		bin, _ := os.Executable()
 		cmd := exec.Command(bin, "-test.run=^TestHelperCrashableNode$")
-		cmd.Env = append(os.Environ(), "FACTORY_HELPER_NODE=1", "FACTORY_HELPER_STATE="+state, "FACTORY_HELPER_CORE="+server.URL, "NATS_TEST_URL="+url)
+		cmd.Env = append(os.Environ(), "FACTORY_HELPER_NODE=1", "FACTORY_HELPER_STATE="+state, "FACTORY_HELPER_CORE="+server.URL)
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)

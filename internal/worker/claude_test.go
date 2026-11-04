@@ -42,10 +42,6 @@ func runClaude(t *testing.T, scenario string, cancel bool) (string, string, stri
 }
 
 func runClaudeEvents(t *testing.T, scenario string, cancel bool) (storage.Run, []protocol.Envelope, int) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
 	t.Setenv("FACTORY_FAKE_CLAUDE_SHIM", scenario)
 	bin, err := os.Executable()
 	if err != nil {
@@ -57,11 +53,11 @@ func runClaudeEvents(t *testing.T, scenario string, cancel bool) (storage.Run, [
 	}
 	d := claude.Driver{Node: bin, Args: []string{"-test.run=^TestFakeClaudeShim$", "--"}}
 	// MCPBinary only has to exist: the fake shim never starts it.
-	r, events := runDriver(t, url, Worker{Driver: d, MCPBinary: bin}, cancel)
+	r, events := runDriver(t, Worker{Driver: d, MCPBinary: bin}, cancel)
 	return r, events, strings.Count(string(b), "\n")
 }
 
-func TestJetStreamClaudeDriver(t *testing.T) {
+func TestClaudeDriver(t *testing.T) {
 	status, result, session, events, lines := runClaude(t, "start", false)
 	if status != "ENDED" || result != "FOUNDATION_OK" || session != "6f1c7a52-3b0e-4d8f-9a61-2c4e8b7d0f13" {
 		t.Fatal(status, result, session)
@@ -73,7 +69,7 @@ func TestJetStreamClaudeDriver(t *testing.T) {
 }
 
 // End to end: the cancelled run's terminal event carries the usage the shim reported before and with its result.
-func TestJetStreamClaudeDriverCancellation(t *testing.T) {
+func TestClaudeDriverCancellation(t *testing.T) {
 	r, events, _ := runClaudeEvents(t, "interrupt", true)
 	if r.Status != "ENDED" || r.Outcome != "revoked" {
 		t.Fatal(r.Status, r.Outcome)

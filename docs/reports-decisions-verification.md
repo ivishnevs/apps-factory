@@ -1,5 +1,7 @@
 # Reports and Decision Registry verification
 
+> Note: NATS was removed by `http-node-transport`; the NATS test commands below are history (the `TestJetStream*` tests were renamed when they moved to HTTP). Today the same tests run without a broker: `make test-services` (Postgres only), then `make check`.
+
 Verified 2026-10-12, macOS arm64 native Codex Worker against Docker Core and authenticated NATS
 JetStream. Before migration 7, the stopped Core data directory was copied to
 .cache/pre-reports-decisions-backup/data. Core was rebuilt and migrated without resetting volumes.

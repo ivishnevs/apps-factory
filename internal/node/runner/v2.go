@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,7 +56,7 @@ type DriverInfo struct {
 
 type Registered struct {
 	Incarnation string `json:"incarnation"`
-	// Company is the company of the node's token: the node's subjects are factory.<company>....
+	// Company is the company of the node's key.
 	Company            string `json:"company,omitempty"`
 	HeartbeatSeconds   int    `json:"heartbeat_seconds"`
 	StartWindowSeconds int    `json:"start_window_seconds"`
@@ -100,15 +99,18 @@ type Health struct {
 // StallReport is how long heartbeats must fail before the node reports node.heartbeat_stalled (node-agent D7).
 var StallReport = 5 * time.Minute
 
+// stop is a run Core wants stopped, with the reason.
+type stop struct {
+	RunID  string `json:"run_id"`
+	Reason string `json:"reason"`
+}
+
 type HeartbeatAnswer struct {
-	Incarnation string `json:"incarnation"`
-	Stop        []struct {
-		RunID  string `json:"run_id"`
-		Reason string `json:"reason"`
-	} `json:"stop"`
-	Acked   []string `json:"acked"`
-	Cleanup []string `json:"cleanup"`
-	Pause   bool     `json:"pause"`
+	Incarnation string   `json:"incarnation"`
+	Stop        []stop   `json:"stop"`
+	Acked       []string `json:"acked"`
+	Cleanup     []string `json:"cleanup"`
+	Pause       bool     `json:"pause"`
 	// Reset: tasks whose worktree must be reset from the remote branch (workspace_diverged, reset_workspace).
 	Reset []string `json:"reset"`
 	// Hooks: the NodeHooks document changed since the hash the node sent.
@@ -154,6 +156,7 @@ type session struct {
 
 	// hooks is the last NodeHooks document Core delivered (register, heartbeat); onHooks applies it.
 	hooks   *protocol.NodeHooksDelivery
+	hooksMu sync.Mutex // hooks is read by the poll loop too
 	onHooks func(protocol.NodeHooksDelivery)
 	// checks returns the failing node self-checks for health.checks (git, git.user, forge.auth, ps, stack.*);
 	// nil reports none. Driver probes are not among them: drivers carries them.
@@ -264,10 +267,13 @@ func (s *session) run(ctx context.Context) error {
 
 // deliverHooks keeps the NodeHooks document Core delivered and applies it when it changed.
 func (s *session) deliverHooks(d protocol.NodeHooksDelivery) {
+	s.hooksMu.Lock()
 	if s.hooks != nil && s.hooks.Hash == d.Hash {
+		s.hooksMu.Unlock()
 		return
 	}
 	s.hooks = &d
+	s.hooksMu.Unlock()
 	slog.Info("NodeHooks document from Core", "name", d.Name, "hash", d.Hash, "missing", d.Missing, "on_run_stop", len(d.Spec.OnRunStop),
 		"on_task_closed", len(d.Spec.OnTaskClosed), "prune", len(d.Spec.Prune), "checks", len(d.Spec.Checks))
 	if s.onHooks != nil {
@@ -276,6 +282,8 @@ func (s *session) deliverHooks(d protocol.NodeHooksDelivery) {
 }
 
 func (s *session) hooksHash() string {
+	s.hooksMu.Lock()
+	defer s.hooksMu.Unlock()
 	if s.hooks == nil {
 		return ""
 	}
@@ -342,7 +350,31 @@ func (s *session) beat(ctx context.Context) error {
 		}
 		s.resetMu.Unlock()
 	}
-	for _, task := range a.Reset {
+	s.queueResets(a.Reset)
+	if a.Hooks != nil {
+		s.deliverHooks(*a.Hooks)
+	}
+	s.inv.Ack(a.Acked)
+	s.stopRuns(a.Stop, "heartbeat")
+	if was := s.paused.Swap(a.Pause); was != a.Pause {
+		slog.Info("claiming paused by Core", "paused", a.Pause)
+	}
+	s.queueCleanups(a.Cleanup)
+	return nil
+}
+
+// stopRuns stops the listed runs of the inventory (from a heartbeat or a poll answer).
+func (s *session) stopRuns(stops []stop, via string) {
+	for _, x := range stops {
+		if s.inv.Stop(x.RunID, x.Reason) {
+			slog.Info("run stopped by Core", "run", x.RunID, "reason", x.Reason, "via", via)
+		}
+	}
+}
+
+// queueResets queues the worktree resets Core listed that are not queued, running or awaiting confirmation.
+func (s *session) queueResets(tasks []string) {
+	for _, task := range tasks {
 		s.resetMu.Lock()
 		if s.resetting[task] {
 			s.resetMu.Unlock()
@@ -355,25 +387,15 @@ func (s *session) beat(ctx context.Context) error {
 		}
 		s.resetMu.Unlock()
 	}
-	if a.Hooks != nil {
-		s.deliverHooks(*a.Hooks)
-	}
-	s.inv.Ack(a.Acked)
-	for _, x := range a.Stop {
-		if s.inv.Stop(x.RunID, x.Reason) {
-			slog.Info("run stopped by Core", "run", x.RunID, "reason", x.Reason)
-		}
-	}
-	if was := s.paused.Swap(a.Pause); was != a.Pause {
-		slog.Info("claiming paused by Core", "paused", a.Pause)
-	}
-	for _, task := range a.Cleanup {
+}
+
+func (s *session) queueCleanups(tasks []string) {
+	for _, task := range tasks {
 		select {
 		case s.cleanups <- task:
 		default: // full: Core lists it again
 		}
 	}
-	return nil
 }
 
 // reregister stops and seals every run, then registers a new epoch that reports nothing older.
@@ -468,19 +490,5 @@ func (s *session) janitor(ctx context.Context) {
 			}
 			s.cleaned[task] = true
 		}
-	}
-}
-
-// control acts on a message of the node's control subject (protocol.NodeControlSubject; explicit-exits-authority
-// D7): run.stop stops the run at once instead of at the next heartbeat answer, which stays the guarantee.
-func (s *session) control(data []byte) {
-	var e protocol.Envelope
-	var stop protocol.RunStop
-	if json.Unmarshal(data, &e) != nil || e.Type != "run.stop" || json.Unmarshal(e.Payload, &stop) != nil || stop.RunID == "" {
-		slog.Warn("invalid control message")
-		return
-	}
-	if s.inv.Stop(stop.RunID, stop.Reason) {
-		slog.Info("run stopped by Core over the control subject", "run", stop.RunID, "reason", stop.Reason)
 	}
 }

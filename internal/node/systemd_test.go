@@ -56,8 +56,7 @@ func TestSystemdUnit(t *testing.T) {
 func TestSystemdRefuses(t *testing.T) {
 	ok := Systemd{Executable: "/bin/factory-node", WorkingDir: "/srv", EnvFile: "/etc/factory-node/env"}
 	for name, mut := range map[string]func(*Systemd){
-		"secret inlined":      func(s *Systemd) { s.Env = map[string]string{"NATS_PASSWORD": "t"} },
-		"nats url inlined":    func(s *Systemd) { s.Env = map[string]string{"NATS_URL": "nats://u:p@h"} },
+		"secret inlined":      func(s *Systemd) { s.Env = map[string]string{"FACTORY_TOKEN": "t"} },
 		"newline in value":    func(s *Systemd) { s.Env = map[string]string{"PATH": "/bin\nExecStartPre=/bin/evil"} },
 		"newline in path":     func(s *Systemd) { s.WorkingDir = "/srv\nUser=root" },
 		"bad variable name":   func(s *Systemd) { s.Env = map[string]string{"A B": "x"} },

@@ -78,24 +78,14 @@ var AttentionKinds = map[string]bool{
 	"task.alert.no_progress": true, "task.alert.idle": true, "approval.requested": true, "task.unmerged_branch": true,
 }
 
-// feed records a feed row and its broker notification in the caller's transaction.
+// feed records a feed row in the caller's transaction.
 func feed(ctx context.Context, tx *Tx, item FeedItem) error {
 	item.Attention = item.Attention || AttentionKinds[item.Type]
 	if err := tx.QueryRowContext(ctx, "INSERT INTO feed_events(company_id,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING seq",
 		tx.company, item.EventID, item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Type, item.ProjectID, item.EntityID, item.TaskID, item.RunID, item.Agent, item.Actor, item.Status, item.Summary, item.Attention, item.Ref).Scan(&item.Sequence); err != nil {
 		return err
 	}
-	item.Summary = shortText(item.Summary, 512)
-	e := protocol.Wrap("feed."+item.Type, item.EntityID, "", item)
-	b, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-	// Company-prefixed subjects (factory.<company>.feed...) arrive with the NATS subject change. A company-wide
-	// event (no project, e.g. a pause) uses the token _company: an empty token is not a valid subject, and the
-	// outbox publisher would stop at it.
-	_, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", "feed-"+item.EventID, feedSubject(tx.company, item), b, tx.company)
-	return err
+	return nil
 }
 
 // FeedFilter narrows a feed read; empty fields match everything.
@@ -211,15 +201,4 @@ func (s *Store) ProjectContext(ctx context.Context, company, project string) (Pr
 	}
 	out.Decisions, out.MoreDecisions, err = decisionContext(ctx, tx, project)
 	return out, err
-}
-
-// CompanyFeedToken is the project token of company-wide feed events in NATS subjects.
-const CompanyFeedToken = "_company"
-
-func feedSubject(company string, item FeedItem) string {
-	project := item.ProjectID
-	if project == "" {
-		project = CompanyFeedToken
-	}
-	return protocol.FeedSubject(company, project, item.Type)
 }

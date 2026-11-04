@@ -192,7 +192,7 @@ original response in the mutation transaction. Same key/input replays that respo
 with the same key returns 409. A replay response can be older than current state: GET if needed.
 CLI generates a fresh key per invocation unless a JSON mutation supplies request_id. CLI does not
 blindly retry a failed HTTP request. Scheduler dispatch and Worker event replay are independently
-idempotent. Invalid mutation rollback also rolls back dependency edits, events and outbox.
+idempotent. Invalid mutation rollback also rolls back dependency edits and events.
 
 ## CLI
 

@@ -3,18 +3,13 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"os"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 	"appfactory/internal/testnode"
-
-	"github.com/nats-io/nats.go"
 )
 
 // TestUnclaimedRunIsDispatchedAgain (trigger-log-scheduling D5): a task run nobody claims within the queue
@@ -59,73 +54,34 @@ func TestUnclaimedRunIsDispatchedAgain(t *testing.T) {
 	}
 }
 
-// TestJetStreamPurgedCommandStream (D5, restored stream): the command stream is purged while a run is
-// QUEUED; after redeliver_after the reconciler publishes a new command (<run>/2) and the run is claimed and
-// completes once.
-func TestJetStreamPurgedCommandStream(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+// TestQueuedRunOfferedWithoutCommand (D5, http-node-transport D7): a dispatched task's run is a QUEUED row and
+// nothing else; a node's poll offers it, one claim takes it, a second is refused, and the task runs once.
+func TestQueuedRunOfferedWithoutCommand(t *testing.T) {
 	ctx := context.Background()
 	c, s, fake := schedulerCore(t)
-	c.Bus, c.Token = b, "owner"
+	c.Token = "owner"
 	co := storage.DefaultCompany
-	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "purged", ProjectID: "p", Title: "purged", Assignee: "demo", Ready: true}); err != nil {
+	if _, err := s.CreateTask(ctx, co, tasks.Create{ID: "purged", ProjectID: "p", Title: "purged", Assignee: "demo", Ready: true}); err != nil {
 		t.Fatal(err)
 	}
-	tick := func(d time.Duration) {
-		t.Helper()
-		fake.Advance(d)
-		if err := c.maintain(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := c.publishOutbox(ctx); err != nil {
-			t.Fatal(err)
-		}
+	fake.Advance(0)
+	if err := c.maintain(ctx); err != nil {
+		t.Fatal(err)
 	}
-	tick(0)
 	task, _ := s.Task(ctx, co, "purged")
 	run := task.CurrentRunID
 	if run == "" {
 		t.Fatal("not dispatched")
 	}
-	if err = b.JS.PurgeStream("FACTORY_COMMANDS"); err != nil {
-		t.Fatal(err)
-	}
-	sub, err := b.Subscribe("factory.default.commands.agent.run.codex", "purge-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = sub.Fetch(1, nats.MaxWait(time.Second)); !errors.Is(err, nats.ErrTimeout) {
-		t.Fatal("the purged command is still there:", err)
-	}
-	tick(30 * time.Second)
-	if _, err = sub.Fetch(1, nats.MaxWait(time.Second)); !errors.Is(err, nats.ErrTimeout) {
-		t.Fatal("resent before redeliver_after:", err)
-	}
-	tick(31 * time.Second)
-	msgs, err := sub.Fetch(1, nats.MaxWait(5*time.Second))
-	if err != nil {
-		t.Fatal("no command after redeliver_after:", err)
-	}
-	var e protocol.Envelope
-	if err = json.Unmarshal(msgs[0].Data, &e); err != nil || e.CorrelationID != run || msgs[0].Header.Get(nats.MsgIdHdr) != run+"/2" {
-		t.Fatal(e, msgs[0].Header, err)
-	}
-	_ = msgs[0].AckSync()
-	// The worker's claim and end: the task runs once.
 	n := testnode.Enroll(t, s, co)
-	if _, err = s.RegisterNode(ctx, co, registration(n.ID, 1)); err != nil {
+	if _, err := s.RegisterNode(ctx, co, registration(n.ID, 1)); err != nil {
 		t.Fatal(err)
 	}
+	offers, err := s.Offers(ctx, co, n.ID, 1, map[string]int{"codex": 1}, nil)
+	if err != nil || len(offers) != 1 || offers[0].RunID != run {
+		t.Fatalf("%+v %v", offers, err)
+	}
+	// The worker's claim and end: the task runs once.
 	claim := storage.ClaimRequest{NodeID: n.ID, Epoch: 1, ClaimID: "1-0-1"}
 	code, body := signedCall(t, c, n, "POST", "/runs/"+run+"/claim", claim)
 	var claimed storage.Claimed

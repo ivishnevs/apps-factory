@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/storage"
@@ -14,19 +13,8 @@ import (
 	"time"
 )
 
-func TestJetStreamTaskEngineRestart(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated JetStream")
-	}
+func TestTaskEngineRestart(t *testing.T) {
 	t.Setenv("FACTORY_FAKE_SERVER", "1")
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
 	path := storagetest.URL(t)
 	s, err := storage.Open(path)
 	if err != nil {
@@ -37,7 +25,7 @@ func TestJetStreamTaskEngineRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	api := API{URL: server.URL, Token: "test"}
@@ -45,15 +33,14 @@ func TestJetStreamTaskEngineRestart(t *testing.T) {
 	defer stop()
 	engineCtx, stopEngine := context.WithCancel(root)
 	defer stopEngine()
-	engineDone := make(chan error, 1)
-	go func() { engineDone <- c.Run(engineCtx) }()
+	engineDone := startCore(engineCtx, c)
 	workerCtx, stopWorker := context.WithCancel(root)
 	defer stopWorker()
 	bin, _ := os.Executable()
-	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
+	w := Worker{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
 	asNode(t, s, &w, server.URL)
 	workerDone := make(chan error, 1)
-	go func() { workerDone <- w.Run(workerCtx) }()
+	go func() { workerDone <- runOffers(workerCtx, &w) }()
 	var project tasks.Project
 	if err = api.Do(root, "POST", "/projects", tasks.ProjectCreate{ID: "engine", Name: "Engine", Workspace: t.TempDir()}, &project); err != nil {
 		t.Fatal(err)
@@ -116,17 +103,21 @@ func TestJetStreamTaskEngineRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c = &core.Core{Store: s, Bus: b, Agents: agents, Token: "test"}
+	c = &core.Core{Store: s, Agents: agents, Token: "test"}
 	server = httptest.NewServer(c.Handler())
 	defer server.Close()
 	api.URL = server.URL
 	w.API.URL = server.URL
+	if w.Events != nil {
+		w.Events.API.URL = server.URL // the run event spool sends to the new Core too
+	}
+	_ = w.API.Do(root, "GET", "/health", nil, nil) // the new Core's first signature (see asNode)
 	engineCtx, stopEngine = context.WithCancel(root)
 	defer stopEngine()
-	go func() { engineDone <- c.Run(engineCtx) }()
+	engineDone = startCore(engineCtx, c)
 	workerCtx, stopWorker = context.WithCancel(root)
 	defer stopWorker()
-	go func() { workerDone <- w.Run(workerCtx) }()
+	go func() { workerDone <- runOffers(workerCtx, &w) }()
 	a = wait(a.ID, "IN_REVIEW")
 	if err = api.Do(root, "POST", "/tasks/"+a.ID+"/review", tasks.Review{Version: a.Version, Accept: true, RequestID: "review-first"}, &a); err != nil {
 		t.Fatal(err)

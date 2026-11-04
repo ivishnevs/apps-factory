@@ -133,7 +133,7 @@ func TestHealthyNode(t *testing.T) {
 	}
 	rs := d.Run(context.Background())
 	for _, r := range rs {
-		if r.Status != Pass && !(r.Status == Skip && (r.Check == "core" || r.Check == "nats")) { // no FACTORY_URL, NATS_URL
+		if r.Status != Pass && !(r.Status == Skip && r.Check == "core") { // no FACTORY_URL
 			t.Errorf("%s = %s %s", r.Check, r.Status, r.Detail)
 		}
 	}

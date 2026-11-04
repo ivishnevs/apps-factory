@@ -1,6 +1,6 @@
 # Development
 
-Go 1.25 (the floor of the owner UI's Charm v2 libraries: bubbletea 2.0.9, bubbles 2.2.1, lipgloss 2.0.6); nats.go 1.41.2, pgx 5.7.5 (`pgx/v5/stdlib` behind
+Go 1.25 (the floor of the owner UI's Charm v2 libraries: bubbletea 2.0.9, bubbles 2.2.1, lipgloss 2.0.6); pgx 5.7.5 (`pgx/v5/stdlib` behind
 `database/sql`), yaml.v3 3.0.1. pgx is pure Go; no CGO toolchain is needed in the Core container.
 
 Storage is Postgres only (postgres-tenancy). `FACTORY_DATABASE_URL` (`postgres://user:password@host:5432/factory`)
@@ -32,10 +32,9 @@ Locking: every Store transaction (`Store.begin`) takes `pg_advisory_xact_lock(<c
 Transactions that read state and decide on it (dispatch, claim, lease expiry, approval expiry, message scheduling,
 every mutation) therefore run one at a time per company, as they did on the single SQLite connection, while
 different companies never wait for each other; plain reads take no lock. Unique partial indexes remain the last
-line of defence. The outbox publisher (`Store.PublishOutbox`) takes up to 100 due rows `FOR UPDATE SKIP LOCKED`
-in a short transaction, publishes each with its outbox ID as the JetStream message ID and marks it sent in the
-same transaction: several Core processes publish in parallel, each row once; a crash before the commit republishes
-the same IDs (deduplicated by JetStream, idempotent at consumers).
+line of defence. A transaction that queues a run or changes what a node must do (`Tx.wakeNodes`) wakes the company's
+waiting node polls after its commit (`Store.Wake`); the polls re-read every 2 s, so another Core process's commits
+reach them too.
 
 Catalog per company: `configs/` is the `default` company's catalog; another company's lives in
 `configs/<company>/` with the same layout (`teams/`, `agents/`, `profiles/`, `policies/`, `node-hooks/`, `quota_keys.yaml`,
@@ -50,16 +49,14 @@ version 1; after that **editing `configs/` changes nothing in a running Core**. 
 throwaway database, drop the company's `catalog_versions`/`catalog_documents` rows and restart Core. Starter teams for
 `factory companies create` live in `configs/templates/`.
 
-NATS subjects carry the company: `factory.<company>.commands.agent.run.<driver>` (stream `FACTORY_COMMANDS`,
-`factory.*.commands.>`), `factory.<company>.events.<kind>` and `factory.<company>.feed.<project>.<kind>` (stream
-`FACTORY_EVENTS`, `factory.*.events.>` and `factory.*.feed.>`), and the plain control subject
-`factory.<company>.nodes.<node_id>.control`. Core consumes its company's events with the durable
-`core-events-<company>`; executors share `<driver>-worker-<company>` per driver. Core updates the streams' subjects
-at start; consumers of the old unprefixed subjects are not reused (upgrade workers, nodes and Core together).
+Nodes and Core: there is no broker. A node signs every request with its own key ([Node identity](#node-identity)),
+long-polls `POST /nodes/{node_id}/poll` for offers of queued runs and stops, claims an offer, and sends run events
+to `POST /runs/{run}/events` from its spool ([runtime protocol](runtime-protocol-v2.md) §4, §8). The node's key
+fixes its company; node routes refuse another company's or another node's runs.
 
 Backups: back up the Postgres database (`pg_dump`, below), the blob store (`FACTORY_BLOB_DIR`, default
 `<data dir>/blobs`, the `core-blobs` volume: artifact contents, attachments and run logs by
-digest; back it up after the database, a blob newer than the dump is harmless) and the NATS volume; Core's data
+digest; back it up after the database, a blob newer than the dump is harmless); Core's data
 directory (`FACTORY_DATA_DIR`, default `data`, the `core-data` volume) holds only `core.incarnation`. Core mounts
 no project workspace. Back up before upgrading; a downgrade requires restoring a compatible backup (an older Core refuses a newer schema).
 
@@ -72,30 +69,28 @@ docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.d
 gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
 FACTORY_ROOT selects config root; FACTORY_DATABASE_URL the database; FACTORY_COMPANY the company Core serves;
 FACTORY_DATA_DIR Core's data directory; FACTORY_BLOB_DIR Core's blob store; FACTORY_LISTEN selects HTTP bind.
-FACTORY_URL is the native CLI/node endpoint. NATS_URL is the authenticated broker URL.
+FACTORY_URL is the native CLI/node endpoint.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required by Core and the owner CLI; a node
 does not use it (see [Node identity](#node-identity)).
 Core uses signal cancellation, HTTP shutdown deadlines and structured JSON logs.
 The node handles SIGTERM/SIGINT by requesting turn interruption before closing its process group.
 
-Tests: every test that touches storage needs Postgres, like the JetStream tests need NATS. `make test-services`
-starts both in tmpfs containers (Postgres on 127.0.0.1:15432, NATS on 127.0.0.1:14231); the Makefile exports
+Tests: every test that touches storage needs Postgres. `make test-services` starts it in a tmpfs container
+(127.0.0.1:15432); the Makefile exports
 `FACTORY_TEST_DATABASE_URL=postgres://postgres:factory@127.0.0.1:15432/postgres?sslmode=disable` (export it yourself
-for a plain `go test`); set `NATS_TEST_URL=nats://127.0.0.1:14231` for the JetStream tests and run them with
-`-p 1` (packages share the streams). Without these variables those tests are
-skipped with a message. Each test gets its own database cloned from a template database built once per schema
+for a plain `go test`). Without it those tests are skipped with a message. No broker is needed: node and executor
+tests run a real Core handler over `httptest` and packages run in parallel. Each test gets its own database cloned from a template database built once per schema
 (`ft_<schema hash>`, kept on the server; `internal/storage/pgtest`, `storagetest.Open(t)`), and dropped at the
 end. Use a server you can throw away: tests create and drop databases on it. Full suite:
-`go test -p 1 -count=1 ./...`.
+`go test -race -count=1 ./...` (or `make check`).
 
-Normal tests use fake RPC subprocesses or the internal/driver/fake scripted driver, with no model/network. NATS_TEST_URL enables the integration
-test on an isolated broker; the test deletes its streams. scripts/smoke.py is a separately invoked
+Normal tests use fake RPC subprocesses or the internal/driver/fake scripted driver, with no model/network.
+scripts/smoke.py is a separately invoked
 real ChatGPT smoke test and consumes subscription usage. It verifies start, streaming, completion
 and thread resume, and prints only run metadata and requested final text.
 
-Logs: `docker compose logs core`, `docker compose logs postgres`, `docker compose logs nats`; Worker logs to stderr.
-Do not print .env, database URLs with passwords or authenticated NATS URLs in reports. Back up both Postgres and
-the broker volume.
+Logs: `docker compose logs core`, `docker compose logs postgres`; the node logs to stderr.
+Do not print .env or database URLs with passwords in reports. Back up Postgres and the blob volume.
 `docker compose down -v` deletes durable state and is not the normal stop command.
 
 Foundation limitations: no remote machine path mapping (one canonical node path per project), no event
@@ -103,7 +98,7 @@ retention policy. Factory MCP enforces run-scoped Core access. Skill operations 
 Do not proceed to later stages until Foundation checks pass.
 
 Task Engine adds scripts/task-smoke.py (opt-in real model chain; --restart-core tests persistence),
-migration/DAG/version/idempotency/review/retry tests and a JetStream fake-runtime restart test.
+migration/DAG/version/idempotency/review/retry tests and a fake-runtime restart test.
 See task-lifecycle.md for the supported API/CLI and retry constraints.
 
 Factory MCP builds a native sibling factory-mcp executable. See factory-mcp.md for scoped auth,
@@ -135,7 +130,7 @@ start a model run against the wrong Core (`SMOKE_COMPANY=any` skips the company 
 failed step.
 
 ```sh
-# .env: FACTORY_TOKEN, POSTGRES_PASSWORD, NATS_PASSWORD as usual. One Core for the smoke company, exits on:
+# .env: FACTORY_TOKEN, POSTGRES_PASSWORD as usual. One Core for the smoke company, exits on:
 FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
 ./bin/factory config validate --company smoke
 cat > data/node-smoke.yaml <<'YAML'
@@ -144,7 +139,7 @@ drivers:
   codex: {enabled: true}
   claude: {enabled: true}
 YAML
-# Node environment as usual (FACTORY_URL, NATS_URL); once per state_dir, enroll it with this Core (Node identity):
+# Node environment as usual (FACTORY_URL); once per state_dir, enroll it with this Core (Node identity):
 ./bin/factory nodes enroll --name smoke
 ./bin/factory-node enroll -config data/node-smoke.yaml CODE     # then factory nodes approve NODE_ID FINGERPRINT
 # Claude on the personal subscription (claude-runtime.md, Personal subscription):
@@ -200,8 +195,8 @@ real Dex when `DEX_TEST_ISSUER` (and `DEX_TEST_SECRET`) name one started from `d
 
 ## Node doctor
 
-`./bin/factory-node doctor` runs the node self-checks locally (node-agent D7); Core and NATS are checked only when
-their variables are set. It prints a
+`./bin/factory-node doctor` runs the node self-checks locally (node-agent D7); Core is checked only when
+`FACTORY_URL` is set. It prints a
 STATUS/CHECK/DETAIL table with a remediation hint under every `fail`/`warn` row and exits 1 when any check fails.
 Checks: `git` and `git.user`; `forge.auth` (`gh auth status`, warn only) and, with `-repo URL`, `forge.repo`
 (`git ls-remote`); `disk` free space at `-disk-path` (default `$HOME`) against `-low-gib 20` (warn) and
@@ -213,14 +208,9 @@ children, and the node logs that once; hint: install procps).
 `node.keys`: the keys in `state_dir/keys` and their fingerprint (warn when the node has not enrolled, fail when a key
 file is invalid or readable by group or others).
 `core` (with `FACTORY_URL`): a `GET /health` signed with the node's keys (fails when the keys are missing, the
-signature is refused, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS; the
-clock offset from Core's `Date` header warns above 60 s and fails above 120 s). `nats` (with
-`nats.url` of `-config node.yaml` / `FACTORY_NODE_CONFIG`, else `NATS_URL`): one connection without reconnects
-with the node's own NATS settings (credentials, nkey, TLS; see [Outbound NATS](#outbound-nats-tls-websocket-per-node-user))
-and a JetStream account info read (fails when unreachable, the user or certificate is rejected, or JetStream is
-off); `nats_credentials` warns when the creds, nkey seed or TLS key file is readable by group or others. Both are
-read-only, time out after 5 s, never print keys, URL credentials or file contents, and are `skip` when their
-variable is unset.
+signature is refused, Core is unreachable, or Core answers 503 because it cannot reach its database; the
+clock offset from Core's `Date` header warns above 60 s and fails above 120 s). It is read-only, times out after
+5 s, never prints keys, and is `skip` without `FACTORY_URL`.
 Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
 injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
 `codex-cli 0.162.1`, `codex login status`) and `claude.*` (what the Go driver runs: Node 22+, the built
@@ -245,21 +235,22 @@ delivered `missing` with an empty spec. Hooks and checks are trusted template da
 ## Node process
 
 `./bin/factory-node run [-config node.yaml] [-slots N]` (`make node`) is one process with N slot goroutines
-(node-agent 1.1; registration and the inventory heartbeat, below; the node also
-subscribes to its control subject `factory.<company>.nodes.<node_id>.control`, which carries Core's urgent
-`run.stop`; the heartbeat answer's `stop` stays the guarantee). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute); the slots share one pull
-subscription per enabled driver on `factory.<company>.commands.agent.run.<driver>` with the durable
-`<driver>-worker-<company>` (the company in `state_dir/company`, stored at enrollment; the node refuses to run when the register answer names another
-company for its key), so they
-compete for commands. A free slot polls the drivers in turn, one fetch at a time.
-Environment: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL` (default `http://127.0.0.1:8080`; HTTPS unless on this machine), `CODEX_BIN`.
+(node-agent 1.1; registration and the inventory heartbeat, below). One long poll (`POST /nodes/{node_id}/poll`,
+[runtime protocol](runtime-protocol-v2.md) §4) sends the idle slots per usable driver and gets offers of queued runs,
+which go to idle slots; each slot runs the existing executor (`worker.Worker.ProcessRun`: claim, execute). The poll
+answer also carries Core's urgent stops, worktree resets and cleanups; the heartbeat answer stays the guarantee. A
+claim Core refuses with `retry` keeps the run off the node's offers for 5 s. Run events are spooled in
+`<state_dir>/runs/<run>/events.jsonl` and sent in order to `POST /runs/{run}/events`; while Core is unreachable runs
+go on and the spool waits; a restarted node resends what it finds there. The company is `state_dir/company`, stored
+at enrollment; the node refuses to run when the register answer names another company for its key.
+Environment: `FACTORY_URL` (default `http://127.0.0.1:8080`; HTTPS unless on this machine), `CODEX_BIN`.
 The node has no token and refuses to start before it has enrolled (see Node identity below). At least one
 enabled driver must pass its version check and probe at start (see Driver checks below). SIGINT/SIGTERM interrupt running runs and wait
 for them.
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
 errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `secrets_file`,
-`drivers.claude.shim`, the NATS creds, seed and TLS files, and a driver `binary`/`executable` that holds a `/`)
+`drivers.claude.shim`, and a driver `binary`/`executable` that holds a `/`)
 resolve against the working directory the node starts in, not the config file's directory: start it from the
 checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
 
@@ -280,10 +271,7 @@ drivers:
 probes: {interval: 10m, version_interval: 1h, attempts: 3, retry_backoff: 5s, transient_failures: 3}  # driver check periods (at least 1m) and transient-failure handling (defaults)
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
 worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
-nats:                        # outbound connection (below); without url: NATS_URL, else nats://127.0.0.1:4222
-  url: wss://nats.example.com:443  # nats://, tls://, ws:// or wss://, comma list allowed; no user info here
-  creds_file: /etc/factory/node.creds    # or nkey_seed_file: /etc/factory/node.nk (exclusive)
-  tls: {ca_file: /etc/factory/nats-ca.pem, server_name: nats.example.com}  # cert_file + key_file for mutual TLS
+poll: {wait_seconds: 25}      # how long Core may hold the poll open (1..25, default 25); lower behind a proxy that cuts requests sooner
 hooks: default               # NodeHooks document of the company catalog (protocol v2; default: default)
 janitor:                     # local override of the NodeHooks lists it sets; each command runs with /bin/sh -c
   interval: 10m              # prune period (default 10m)
@@ -301,8 +289,8 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
 - Start: runtime process groups recorded in `state_dir` by a previous process are killed (`worker.KillOrphans`).
 - Driver checks (runtime-drivers D4): each enabled driver's version check (`CheckVersion`) runs at start and every
   `probes.version_interval`, its `Probe` (binary, version range, authentication; never a model call) at start and
-  every `probes.interval`. A failing check disables that driver on this node: free slots stop fetching its
-  subject (one error log), the other drivers keep claiming, running runs continue; the next passing check
+  every `probes.interval`. A failing check disables that driver on this node: the poll stops asking offers for it
+  (one error log), the other drivers keep claiming, running runs continue; the next passing check
   re-enables it (one info log). A transient failure (the probe killed by its timeout, as on a loaded machine,
   no output at all, or a process that could not start for lack of resources; `CheckResult.transient`) is not a
   finding: the check is retried up to `probes.attempts` times in all, `probes.retry_backoff` apart (doubling),
@@ -372,51 +360,11 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   identifier) from the shared `mobile-app-testing` skill ([skills](skills.md#mobile-app-testing)). Executor tests
   script shell commands with `fake.Activity.Exec` (`internal/worker/shim_test.go`).
 
-### Outbound NATS (TLS, WebSocket, per-node user)
+### Outbound connection
 
-node-agent 1.5, node side: the node only dials out, so a machine needs no inbound port. `nats.url` takes
-`nats://`, `tls://` (TCP with TLS), `ws://` or `wss://` (WebSocket, e.g. through an HTTPS reverse proxy). The user is
-a per-node NATS user from `creds_file` (a `.creds` file with user JWT and seed, re-read on every reconnect, for an
-operator/JWT setup) or `nkey_seed_file` (an nkey user seed; the server lists the public key). Any `tls` key makes TLS
-required: `ca_file` replaces the system roots (private CA), `server_name` is the name expected in the server
-certificate (when the URL is an IP or a proxy address), `cert_file`/`key_file` present a client certificate. Secrets
-come only from files: `nats.url` in `node.yaml` must not carry user info (the `NATS_URL` fallback still may, as for
-the local Worker), errors and logs name files, never their contents, and the start log shows the redacted URL, the
-auth kind (`creds`, `nkey`, `url`, `none`) and whether TLS is on. Keep the files `0600` (doctor warns otherwise).
-`tls` with `ws://` is refused (use `wss://`). Core keeps `NATS_URL` (`bus.Connect`); nodes use
-`bus.ConnectWith(url, bus.Options)`.
-
-The node's user needs (company `<company>`): publish `$JS.API.INFO`,
-`$JS.API.STREAM.NAMES`, `$JS.API.STREAM.INFO.FACTORY_COMMANDS`, `$JS.API.STREAM.INFO.FACTORY_EVENTS`,
-`$JS.API.CONSUMER.CREATE.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.DURABLE.CREATE.FACTORY_COMMANDS.>`,
-`$JS.API.CONSUMER.INFO.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.MSG.NEXT.FACTORY_COMMANDS.>`,
-`$JS.ACK.FACTORY_COMMANDS.>`, `factory.<company>.events.agent.>`; subscribe `_INBOX.>` and its own control subject
-`factory.<company>.nodes.<node_id>.control` only. The streams must exist (Core creates them); a node user cannot
-create streams, publish commands or subscribe to another node's control subject (`scripts/nats-secure-test.sh`
-issues two such node users; `TestNodeControlSubjectIsPerNode`). Narrowing the consumer API to one company's
-durables and a per-node inbox prefix are infra work. Example server configuration for a TLS client port and a TLS WebSocket listener with nkey users
-(the local `compose.yaml` is unchanged):
-
-```
-listen: 0.0.0.0:4222
-jetstream { store_dir: /data }
-tls { cert_file: /certs/server.pem, key_file: /certs/server-key.pem }
-websocket { port: 8443, tls { cert_file: /certs/server.pem, key_file: /certs/server-key.pem } }
-authorization {
-  users = [
-    { nkey: UCORE... }                      # Core: all subjects
-    { nkey: UNODE..., permissions: { publish: { allow: [ "$JS.API.INFO", ... the list above ... ] }
-                                    subscribe: { allow: [ "_INBOX.>", "factory.default.nodes.<node_id>.control" ] } } }
-  ]
-}
-```
-
-`scripts/nats-secure-test.sh up` starts two throwaway servers (JetStream in tmpfs; generated CA, server certificate
-for `nats.test`, nkey users `admin` and `node` with exactly that permission set; and an operator-mode server with a
-`.creds` user) in `.nats-secure-test/` and prints the `NATS_TEST_SECURE_*`, `NATS_TEST_ADMIN_SEED`,
-`NATS_TEST_NODE_SEED` and `NATS_TEST_CREDS_*` exports for `TestSecureConnect`, `TestCredsConnect`
-(`internal/bus`) and `TestNATSCheckSecure` (`internal/node`); `scripts/nats-secure-test.sh down` removes them.
-The directory must be shared with the Docker VM (Colima/Docker Desktop share `$HOME`).
+The node only dials out, so a machine needs no inbound port: every exchange with Core is a signed HTTPS request
+to `FACTORY_URL` (plain HTTP only to this machine). A reverse proxy in front of Core must keep a request open at
+least `poll.wait_seconds` + a few seconds (25 s by default) or the node's `poll.wait_seconds` must be lowered.
 
 ### Explicit exits on the node
 
@@ -491,7 +439,7 @@ Core accepts a signature created within ±120 s of its clock and not before Core
 (nonces live in Core's memory). Operator and owner tokens and sessions get 401 on node routes.
 
 Revoking deletes the keys: the next request gets 401, the node's runs end as lost so their credentials stop, and
-tasks pinned to it are released. Revoking does not cut the node's NATS login (known issue in [backlog](backlog.md)).
+tasks pinned to it are released, and a poll the node has waiting ends with 401.
 A machine that lost its keys is revoked and enrolled again.
 
 `FACTORY_URL=... factory-node rotate-keys [-config node.yaml]` writes new keys to `state_dir/keys/next`, proposes them
@@ -507,8 +455,8 @@ differ (a restored or copied database) it creates a new incarnation and logs `da
 its file: restored backup; new incarnation`. Nodes see it in the next heartbeat answer and drop everything that
 belongs to the old one. Runbook (nodes keep running throughout):
 
-1. Stop Core: `docker compose stop core` (Postgres and NATS keep running). Nodes log failed heartbeats and keep
-   their runs.
+1. Stop Core: `docker compose stop core` (Postgres keeps running). Nodes log failed heartbeats and polls and keep
+   their runs; their events wait in the nodes' spools.
 2. Restore the database from a `pg_dump -Fc` backup into an empty database, keeping Core's current
    `core.incarnation`:
 
@@ -526,8 +474,8 @@ belongs to the old one. Runbook (nodes keep running throughout):
 5. Nodes: the next heartbeat answer carries the new incarnation (or `404` when the backup predates the node's
    registration or epoch). Each node stops claiming, interrupts and seals all its runs, waits for them to end, then
    registers the next epoch with an empty inventory (`re-registering: stopping all runs` with `Core incarnation
-   changed`, then `node registered` with the new incarnation). Commands still queued in NATS for runs the backup
-   does not know start nothing: their claim is refused (`404`; the node logs `claim failed` and redelivers them).
+   changed`, then `node registered` with the new incarnation). Spooled events of runs the backup does not know are
+   refused and dropped from the spools; only queued runs of the restored database are offered.
 6. Check:
    - `curl -s -H "Authorization: Bearer $FACTORY_TOKEN" $FACTORY_URL/nodes`: every node `online`, a higher `epoch`
      than before the restore, its `drivers` `ok`, recent `last_seen` and `health` (disk `ok`).
@@ -537,7 +485,7 @@ belongs to the old one. Runbook (nodes keep running throughout):
      `side_effects` tasks (or `./bin/factory runs resolve`) after inspecting the workspace.
    - Work done after the backup point is not in the database: tasks may run again, and their worktrees keep the
      newer commits (sealed WIP refs and branches stay on the node), so a re-run may start from `workspace_diverged`.
-   - `./bin/factory doctor` for Core, its Postgres (`"database": "postgres 17.x"`) and NATS.
+   - `./bin/factory doctor` for Core and its Postgres (`"database": "postgres 17.x"`).
 
 ### Task worktrees
 
@@ -604,8 +552,8 @@ with `worktrees.enabled` (it registers `worktrees: true`); elsewhere they share 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as
 `WorkingDirectory`, logs in `~/Library/Logs/factory-node.log`, a 30 s `ExitTimeOut` for interruption, and the
-current `PATH`, `NATS_URL`, `FACTORY_URL`, `CODEX_BIN` and
-`CLAUDE_CODE_EXECUTABLE`; no token. `NATS_URL` may carry the NATS password: `chmod 600` the plist. Enroll the node
+current `PATH`, `FACTORY_URL`, `CODEX_BIN` and
+`CLAUDE_CODE_EXECUTABLE`; no token or key (the node's keys stay in its `state_dir`). Enroll the node
 first (`factory-node enroll`, [Node identity](#node-identity)). Load with
 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.appfactory.node.plist`, stop with
 `launchctl bootout gui/$(id -u)/com.appfactory.node`. Run only one node per state directory.
@@ -620,11 +568,12 @@ never gives up; Core counts the epochs), the current directory as `WorkingDirect
 cgroup is killed after 30 s), logs to journald (`SyslogIdentifier=factory-node`), and the current `PATH`,
 `FACTORY_URL`, `CODEX_BIN` and `CLAUDE_CODE_EXECUTABLE` as `Environment=`. Secrets are never written into the unit:
 `EnvironmentFile=` names an owner-only file (default `~/.config/factory-node/env`, `/etc/factory-node/env` with
-`-system`) holding `NATS_URL=…` (it may carry the NATS password). Enroll the node before starting the unit:
+`-system`) for any variable that must stay out of the unit (`FACTORY_TOKEN` is refused inline). Enroll the node
+before starting the unit:
 
 ```sh
 install -d -m 700 ~/.config/factory-node
-install -m 600 /dev/null ~/.config/factory-node/env   # then add NATS_URL=...
+install -m 600 /dev/null ~/.config/factory-node/env   # then add FACTORY_URL=... and other settings
 FACTORY_URL=... ./bin/factory-node enroll -config /etc/factory/node.yaml CODE   # and approve it
 ./bin/factory-node systemd -config /etc/factory/node.yaml > ~/.config/systemd/user/factory-node.service
 systemctl --user daemon-reload && systemctl --user enable --now factory-node

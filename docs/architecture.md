@@ -1,17 +1,18 @@
 # Architecture — Foundation
 
-Core is the sole owner of its Postgres database (postgres-tenancy). A validated API request inserts a run and its
-command outbox row in one transaction. The outbox publisher takes a batch of rows FOR UPDATE SKIP LOCKED, waits for
-the JetStream publish ack of each and marks them sent in the same transaction, so several Core processes may
-publish. A crash before the commit republishes the same message ID (JetStream deduplicates it).
+Core is the sole owner of its Postgres database (postgres-tenancy). A validated API request inserts a run as a
+`QUEUED` row; that row is the run command. There is no broker: nodes talk to Core only through signed HTTPS
+requests (`node-identity`, `http-node-transport`). A node's long poll (`POST /nodes/{node_id}/poll`) answers
+offers of queued runs it can take and the stops, resets and cleanups Postgres holds for it; a commit that queues
+a run or changes what a node must do wakes the company's waiting polls, and each poll re-reads every 2 s, which
+covers a missed wake-up and a second Core process.
 
 Tenancy: an account owns companies and users; users are members of companies of their account. Every row carries
 `company_id`, keys and foreign keys include it, and every Store call is scoped by it; a Core serves one company
 (`FACTORY_COMPANY`) with that company's catalog (`configs/` for `default`, `configs/<company>/` otherwise). Store
 transactions take a per-company advisory lock, so decisions (dispatch, claim, expiry) serialize per company and
-companies never wait for each other. NATS subjects carry the company: `factory.<company>.commands...`,
-`factory.<company>.events...`, `factory.<company>.feed...` and the node control subject
-`factory.<company>.nodes.<node_id>.control` (outside the streams; urgent `run.stop`).
+companies never wait for each other. A node's key belongs to one company; every node route refuses runs, tasks
+and jobs of another company or another node.
 
 People (user-accounts): Core is the OIDC relying party of one issuer (Dex, which federates Google and GitHub) and
 keeps server-side web sessions. An identity is (connector, subject); a first sign-in creates the person's account
@@ -19,22 +20,18 @@ and company. A session request names its company (`X-Factory-Company`) and is se
 membership's role (`owner`, `admin`, `member`) checked per route; tokens keep their own company. The web UI's API
 (`factory web --sessions`) holds no token and relays each person's session.
 
-Native Workers share a durable provider-specific pull consumer. Before runtime side effects,
-a Worker atomically claims the run through Core; the command is only a pointer. Claim re-checks the
+A node's executor slots take the offers of its poll. Offers are hints: several nodes may see the same run.
+Before runtime side effects, a slot atomically claims the run through Core. Claim re-checks the
 task against the database (trigger-log-scheduling D6), builds the brief in the same transaction and returns
 a unique lease with the authoritative RunSpec, changes QUEUED to RUNNING, and enforces the agent concurrency
 slot. A command for a run the task no longer wants (reassigned, cancelled, parked, a dependency reopened) is
-answered `409 {"drop":true}`: the run ends `stale`, and the worker acknowledges the command without starting a
-runtime, as it does for a duplicate command of a claimed run. A busy agent (`409 {"retry":true}`) leaves its
-queued command pending for retry. Once claimed, broker command is acknowledged; lease recovery
-handles a crash after this point. This deliberately does not promise exactly-once external effects.
-A run still QUEUED after its command left the outbox gets the same command again (message ID `<run>/<n>`) after
-1, 2, 4, 8 and then every 15 minutes since the last publish, and never while an earlier command is still
-unpublished; a purged or restored stream therefore never strands work, and the duplicates are dropped by claim.
-Each resend is a `run.command_redelivered` feed event. A task run nobody claims within `queue_ttl` (15 minutes)
+answered `409 {"drop":true}`: the run ends `stale` without a runtime, as does a claim of a run another node
+already took. A busy agent (`409 {"retry":true}`) keeps the run queued; the node skips that offer for 5 s.
+Lease recovery handles a crash after the claim. This deliberately does not promise exactly-once external effects.
+A task run nobody claims within `queue_ttl` (15 minutes)
 ends `unclaimed` without an attempt and its task is dispatched again (`run.unclaimed`).
 
-Worker heartbeats every 10s; leases expire after 45s. Heartbeats also deliver cancellation.
+A node heartbeats every 10s; leases expire after 45s. Stops reach a waiting poll at once, and the heartbeat answer delivers them as the guarantee.
 All Core time comes from `Store.Clock` (wall time unless a test injects `clock.Fake`). Core keeps an in-memory
 continuity window that restarts on Core start or after a gap of more than 3 ticks (the host slept or the
 process was paused); a lease expires only when both its `lease_until` and the window start plus one TTL have
@@ -115,13 +112,15 @@ stops claiming below the critical watermark, and a watchdog reaps runtime groups
 `factory-node doctor` runs the self-checks locally without Core.
 
 Events carry a versioned envelope, event ID, correlation ID, causation ID and timestamp.
-Worker events carry the Core lease. Core atomically persists an event and updates the run,
-then acknowledges broker delivery. Stored event IDs deduplicate replay. Progress never revives
-terminal runs. Late terminal evidence replaces a Core-decided `lost` (or `timed_out`) end once.
-If broker event publication fails, Worker stops execution. Missing terminal evidence expires to `lost`.
+Run events carry the Core lease and a per-run sequence. The node appends each event to its spool
+(`<state_dir>/runs/<run>/events.jsonl`) before sending it to `POST /runs/{run}/events`; Core applies a batch in
+sequence order, skips what it already applied, refuses a gap with the expected sequence and persists each event
+with its run update in one transaction. While Core is unreachable runs go on and events wait in the spool; the
+spool is removed once the terminal event is applied. Progress never revives terminal runs. Late terminal evidence
+replaces a Core-decided `lost` (or `timed_out`) end once. Missing terminal evidence expires to `lost`.
 
-Streams use file storage; their retention is currently unbounded. Configure operational backups
-and retention before production use. Shared tokens/passwords protect trusted local components (nodes sign their HTTP requests with their own keys and use their own NATS users);
+Configure operational backups of Postgres and the blob volume before production use. Shared tokens protect trusted
+local components (nodes sign their HTTP requests with their own keys);
 there is no per-agent authorization or strict OS isolation in Foundation. Full host access is
 intentional. Prompt instructions for protected actions are not an enforcement boundary.
 
@@ -134,23 +133,23 @@ and skills.md for precedence and the distinction between structured checks and t
 
 
 Task Engine adds transactional schema migration 2, registered projects and dependency DAG tasks.
-Scheduler dispatch atomically creates the attempt/run/outbox and reserves the task. Worker terminal
+Scheduler dispatch atomically creates the attempt and the queued run and reserves the task. Worker terminal
 events project to task submission/failure/blocked state in the same database transaction as deduplication.
 Review remains explicit and only DONE dependencies unblock successors. See task-lifecycle.md.
-Full entity snapshots stay in database audit events; bounded JetStream notifications carry entity,
-project, status/version pointers. Subscribers fetch current state or audit history through Core.
+Full entity snapshots stay in database audit events and feed rows; clients read current state, the feed or
+audit history through Core.
 
 
 Factory MCP adds migration 3 (tool call audit), a native stdio adapter and a run-scoped Core
 gateway. Worker claims a run then obtains a lease-bound credential; the runtime receives this
-credential instead of owner/broker tokens. Core checks captured/current policies, communication
+credential instead of owner tokens. Core checks captured/current policies, communication
 permissions and project ownership before forwarding to domain operations. Audits persist across
 restart. Structured submission remains a draft until successful terminal runtime evidence.
 All scheduling and durable state ownership remain in Core. See factory-mcp.md.
 
 
 Messaging adds migration 4, durable conversations/messages and separate message delivery runs.
-Core schedules communications with the existing outbox/leases and writer constraints. Explicit
+Core schedules communications with the existing queued runs, leases and writer constraints. Explicit
 blocking questions persist a task wait marker; only known successful runtime completion releases
 the writer and waits or schedules same-thread continuation after an answer. Conversation IDs
 correlate message events. Owner dialogs persist their own completed thread; task responders use

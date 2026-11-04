@@ -17,14 +17,6 @@ services:
       timeout: 3s
       retries: 30
     restart: unless-stopped
-  nats:
-    image: nats:2.11.4-alpine
-    command: ["-js", "-sd", "/data", "--user", "factory", "--pass", "${NATS_PASSWORD:?set NATS_PASSWORD in .env}"]
-    ports:
-      - "127.0.0.1:4222:4222"
-    volumes:
-      - nats-data:/data
-    restart: unless-stopped
   core:
     build: .
     environment:
@@ -36,7 +28,6 @@ services:
       # project files: nodes download and upload through the API (docs/openspec.md).
       FACTORY_BLOB_DIR: /blobs
       FACTORY_TOKEN: ${FACTORY_TOKEN:?set FACTORY_TOKEN in .env}
-      NATS_URL: nats://factory:${NATS_PASSWORD}@nats:4222
       # Runs end with factory_exit_* (docs/explicit-exits-contract.md); set 0 in .env for the old rules.
       FACTORY_EXPLICIT_EXITS: ${FACTORY_EXPLICIT_EXITS:-1}
       # Telegram (docs/messaging.md#telegram): off while FACTORY_TELEGRAM_TOKEN is empty.
@@ -59,8 +50,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nats:
-        condition: service_started
     restart: unless-stopped
   # Dex's database in the same Postgres (user-accounts D3); created once, kept in the postgres-data volume.
   dex-db:
@@ -96,6 +85,5 @@ services:
     restart: unless-stopped
 volumes:
   postgres-data:
-  nats-data:
   core-data:
   core-blobs:

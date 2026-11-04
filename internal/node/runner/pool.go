@@ -1,5 +1,5 @@
-// Package runner hosts the node's executor slots (node-agent D1): N slot goroutines share one
-// subscription per driver subject and each runs the existing executor (internal/worker).
+// Package runner hosts the node's executor slots (node-agent D1): N slot goroutines take the offers of the node's
+// poll (http-node-transport D3) and each runs the existing executor (internal/worker) for its provider.
 package runner
 
 import (
@@ -9,35 +9,38 @@ import (
 	"time"
 
 	"appfactory/internal/node"
-	"github.com/nats-io/nats.go"
 )
 
-// Source is one driver's run command subscription; its fetches are serialized across slots.
+// Source is one driver's executor.
 type Source struct {
 	Name string
-	// Fetch waits a bounded time for at most one command; nats.ErrTimeout means none.
-	Fetch func() ([]*nats.Msg, error)
-	// Process is worker.Worker.Process.
-	Process func(ctx context.Context, m *nats.Msg, running func(run string, cancel context.CancelFunc)) error
+	// Process is worker.Worker.ProcessRun: claim the offered run and execute it; true when Core refused the
+	// claim for now.
+	Process func(ctx context.Context, run string, running func(run string, cancel context.CancelFunc)) bool
 	// Claimable is false while the source's driver is disabled on this node; nil always claims.
 	Claimable func() bool
-
-	mu sync.Mutex
 }
 
-// Pool runs Slots slot loops. A free slot polls the sources in turn while Claimable allows it.
+// Offer is a queued run the node's poll offered.
+type Offer struct {
+	RunID    string
+	Provider string
+}
+
+// Pool runs Slots slot loops. An idle slot takes one offer at a time from Offer.
 type Pool struct {
 	Slots     int
 	Sources   []*Source
-	Claimable func() bool   // nil always claims
-	Pause     time.Duration // wait while not claimable; default 1 s
+	Claimable func() bool // nil always claims
 	Now       func() time.Time
+	// Refused is called for an offer whose claim Core refused for now (the poller skips it a while).
+	Refused func(run string)
 
-	mu    sync.Mutex
-	ctx   context.Context
-	fail  func(error)
-	wg    sync.WaitGroup
-	slots []*slot
+	mu     sync.Mutex
+	ctx    context.Context
+	wg     sync.WaitGroup
+	slots  []*slot
+	offers chan Offer
 }
 
 type slot struct {
@@ -56,19 +59,65 @@ func (p *Pool) now() time.Time {
 	return time.Now()
 }
 
-// Run starts the slots and returns when ctx ends, after running runs were interrupted, or on the
-// first failure of a subscription, which stops every slot.
+func (p *Pool) source(provider string) *Source {
+	for _, s := range p.Sources {
+		if s.Name == provider {
+			return s
+		}
+	}
+	return nil
+}
+
+// Free is how many offers the pool takes now per provider: its idle slots for each driver it may claim with, none
+// while the node may not claim.
+func (p *Pool) Free() map[string]int {
+	free := map[string]int{}
+	if p.Claimable != nil && !p.Claimable() {
+		return free
+	}
+	idle := 0
+	for _, s := range p.Status() {
+		if !s.Busy {
+			idle++
+		}
+	}
+	if idle == 0 {
+		return free
+	}
+	for _, s := range p.Sources {
+		if s.Claimable == nil || s.Claimable() {
+			free[s.Name] = idle
+		}
+	}
+	return free
+}
+
+// Offer hands o to an idle slot; false when none takes it now (the run stays queued and is offered again).
+func (p *Pool) Offer(o Offer) bool {
+	p.mu.Lock()
+	ch := p.offers
+	p.mu.Unlock()
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- o:
+		return true
+	default:
+		return false
+	}
+}
+
+// Run starts the slots and returns when ctx ends, after running runs were interrupted.
 func (p *Pool) Run(ctx context.Context) error {
 	if p.Slots < 1 || len(p.Sources) == 0 {
 		return errors.New("pool needs slots and sources")
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var once sync.Once
-	var failure error
 	p.mu.Lock()
 	p.ctx = ctx
-	p.fail = func(err error) { once.Do(func() { failure = err; cancel() }) }
+	p.offers = make(chan Offer)
 	p.slots = make([]*slot, p.Slots)
 	for i := range p.slots {
 		p.slots[i] = &slot{}
@@ -77,7 +126,7 @@ func (p *Pool) Run(ctx context.Context) error {
 	p.mu.Unlock()
 	<-ctx.Done()
 	p.wg.Wait()
-	return failure
+	return nil
 }
 
 // start launches a new loop generation for slot i; p.mu is held.
@@ -94,63 +143,38 @@ func (p *Pool) start(i int) {
 	go func(gen int) {
 		defer p.wg.Done()
 		defer stop()
-		p.loop(node.WithSlot(ctx, i), i, gen)
+		p.loop(node.WithSlot(ctx, i), i, gen, p.offers)
 	}(s.gen)
 }
 
-func (p *Pool) loop(ctx context.Context, i, gen int) {
-	next := i
+func (p *Pool) loop(ctx context.Context, i, gen int, offers <-chan Offer) {
+	beat := time.NewTicker(time.Second)
+	defer beat.Stop()
 	for ctx.Err() == nil {
 		if !p.update(i, gen, func(s *slot) { s.beat = p.now() }) {
 			return
 		}
-		var src *Source
-		if p.Claimable == nil || p.Claimable() {
-			for range p.Sources { // the next source whose driver is enabled
-				s := p.Sources[next%len(p.Sources)]
-				next++
-				if s.Claimable == nil || s.Claimable() {
-					src = s
-					break
-				}
-			}
-		}
-		if src == nil {
-			pause := p.Pause
-			if pause <= 0 {
-				pause = time.Second
-			}
-			select {
-			case <-ctx.Done():
-			case <-time.After(pause):
-			}
+		var o Offer
+		select {
+		case <-ctx.Done():
+			return
+		case <-beat.C:
 			continue
+		case o = <-offers:
 		}
-		src.mu.Lock()
-		msgs, err := src.Fetch()
-		src.mu.Unlock()
-		if errors.Is(err, nats.ErrTimeout) {
-			continue
+		src := p.source(o.Provider)
+		if src == nil || src.Claimable != nil && !src.Claimable() || p.Claimable != nil && !p.Claimable() {
+			continue // offered just before the driver or the node stopped claiming: it stays queued
 		}
-		if err != nil {
-			p.fail(err)
+		if !p.update(i, gen, func(s *slot) { s.busy, s.run = true, o.RunID }) {
 			return
 		}
-		if ctx.Err() != nil { // stopped or replaced while fetching: hand the command back
-			for _, m := range msgs {
-				_ = m.Nak()
-			}
-			return
-		}
-		for _, m := range msgs {
-			err = src.Process(ctx, m, func(run string, cancel context.CancelFunc) {
-				p.update(i, gen, func(s *slot) { s.busy, s.run, s.cancel = true, run, cancel })
-			})
-			p.update(i, gen, func(s *slot) { s.busy, s.run, s.cancel, s.beat = false, "", nil, p.now() })
-			if err != nil {
-				p.fail(err)
-				return
-			}
+		refused := src.Process(ctx, o.RunID, func(run string, cancel context.CancelFunc) {
+			p.update(i, gen, func(s *slot) { s.run, s.cancel = run, cancel })
+		})
+		p.update(i, gen, func(s *slot) { s.busy, s.run, s.cancel, s.beat = false, "", nil, p.now() })
+		if refused && p.Refused != nil {
+			p.Refused(o.RunID)
 		}
 	}
 }

@@ -73,8 +73,8 @@ func jsonList(v []string) string {
 }
 
 // SelfChecks are the periodic self-checks of a running node (node-agent D7): git and forge credentials, process
-// start times and the stack checks. Disk is reported as health.disk, runtimes by their driver probes, Core and
-// NATS by the connection itself.
+// start times and the stack checks. Disk is reported as health.disk, runtimes by their driver probes, Core by the
+// requests themselves.
 func (d Doctor) SelfChecks(ctx context.Context) []CheckResult {
 	var r []CheckResult
 	if d.Host.Run != nil && d.Host.LookPath != nil {

@@ -3,11 +3,9 @@ package runner
 import (
 	"context"
 	"encoding/hex"
-	"os"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
@@ -47,22 +45,11 @@ func enrolled(t testing.TB, s *storage.Store, stateDir, url string) worker.API {
 	return worker.API{URL: url, Node: id, Key: keys.Sign, Now: s.Now}
 }
 
-// TestJetStreamNodeV2RealCore runs a protocol v2 node against the real Core (runtime protocol v2
+// TestNodeV2RealCore runs a protocol v2 node against the real Core (runtime protocol v2
 // integration): register, two-phase claim and start, inventory heartbeat, an owner cancel delivered as a
 // heartbeat stop, the acknowledged end leaving the inventory, and a Core incarnation change that makes the
 // node stop everything and register epoch 2, whose claims Core accepts.
-func TestJetStreamNodeV2RealCore(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+func TestNodeV2RealCore(t *testing.T) {
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = 1
 	defer func() { storage.HeartbeatSeconds = beat }()
@@ -75,7 +62,7 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test-token"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test-token"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -105,7 +92,7 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 	done := make(chan error, 1)
 	d := &fake.Driver{} // no status: a run lasts until it is stopped
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
+		done <- Run(nodeCtx, Node{Config: cfg, API: api, Drivers: []driver.Driver{perRunSessions{d}}})
 	}()
 	wait := func(what string, ok func() bool) {
 		t.Helper()

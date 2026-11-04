@@ -17,16 +17,12 @@ import (
 	"appfactory/internal/tasks"
 )
 
-// TestJetStreamMaterializesProjectData (core-owned-project-data 2.1, openspec-in-git): before the runtime
+// TestMaterializesProjectData (core-owned-project-data 2.1, openspec-in-git): before the runtime
 // starts the node downloads the claim's manifest from Core with the run's lease (a pinned artifact input),
 // records .factory/manifest.json, excludes only .factory from git (a "/openspec/" rule an earlier version left
 // in the worktree's excludes is dropped) and caches blobs by digest. The repository's openspec/ is left
 // alone. A blob Core cannot serve ends the run setup_failed before the runtime starts.
-func TestJetStreamMaterializesProjectData(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestMaterializesProjectData(t *testing.T) {
 	design := []byte("<svg>v1</svg>")
 	var files []protocol.ManifestFile
 	prepare := withStore(func(s *storage.Store) {
@@ -62,7 +58,7 @@ func TestJetStreamMaterializesProjectData(t *testing.T) {
 	}
 	cache := t.TempDir()
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ := runDriver(t, url, Worker{Driver: d, BlobCache: cache}, false, prepare, manifest)
+	r, _ := runDriver(t, Worker{Driver: d, BlobCache: cache}, false, prepare, manifest)
 	if r.Outcome != "succeeded" || len(d.Launches()) != 1 {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}
@@ -89,7 +85,7 @@ func TestJetStreamMaterializesProjectData(t *testing.T) {
 		s.Materialize = &protocol.Manifest{Files: []protocol.ManifestFile{{Path: ".factory/inputs/x/v1/x.svg", SHA256: openspec.Digest([]byte("never uploaded")), Size: 14}}}
 	}
 	d = &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ = runDriver(t, url, Worker{Driver: d}, false, missing)
+	r, _ = runDriver(t, Worker{Driver: d}, false, missing)
 	if r.Outcome != "setup_failed" || !strings.Contains(r.Result, "materializing project data failed before runtime startup") || len(d.Launches()) != 0 {
 		t.Fatalf("%s %q, %d launches", r.Outcome, r.Result, len(d.Launches()))
 	}

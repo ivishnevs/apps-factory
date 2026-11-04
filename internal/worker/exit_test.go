@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/driver/fake"
@@ -51,11 +50,7 @@ func TestReadExitRecord(t *testing.T) {
 
 // A runtime stopped after its accepted exit (ExitGrace, or the run's own timeout meanwhile) ends
 // COMPLETED without a failure outcome: the exit stands, it is not a timeout or a cancel.
-func TestJetStreamStopAfterAcceptedExit(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestStopAfterAcceptedExit(t *testing.T) {
 	defer func(g time.Duration) { ExitGrace = g }(ExitGrace)
 	hanging := fake.Script{SessionID: "s", Activity: []fake.Activity{acceptExit("submit")}}
 	for name, c := range map[string]struct {
@@ -75,7 +70,7 @@ func TestJetStreamStopAfterAcceptedExit(t *testing.T) {
 			if !c.exit {
 				sc.Activity = nil
 			}
-			r, events := runDriver(t, url, Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: fakeMCP(t)}, false, c.mods...)
+			r, events := runDriver(t, Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: fakeMCP(t)}, false, c.mods...)
 			var terminal protocol.Event
 			if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
 				t.Fatal(err)
@@ -96,18 +91,7 @@ func TestJetStreamStopAfterAcceptedExit(t *testing.T) {
 
 // A worktree run that submits at commit C and then keeps writing is reset to C at its seal; Core gets
 // exit_sha = sealed_head = C, and the late work exists only on the WIP ref (task-worktrees 2.2).
-func TestJetStreamWorktreeExitReset(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated JetStream")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+func TestWorktreeExitReset(t *testing.T) {
 	s, err := storage.Open(storagetest.URL(t))
 	if err != nil {
 		t.Fatal(err)
@@ -120,14 +104,13 @@ func TestJetStreamWorktreeExitReset(t *testing.T) {
 	demo := agents["demo"]
 	demo.Spec.Workspace.Mode = "worktree"
 	agents["demo"] = demo
-	c := &core.Core{Store: s, Bus: b, Agents: agents, Token: "test"}
+	c := &core.Core{Store: s, Agents: agents, Token: "test"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	api := API{URL: server.URL, Token: "test"}
 	ctx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
-	engineDone := make(chan error, 1)
-	go func() { engineDone <- c.Run(ctx) }()
+	engineDone := startCore(ctx, c)
 	root := t.TempDir()
 	trees, err := workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: root, ScanCommand: []string{"true"}})
 	if err != nil {
@@ -141,10 +124,10 @@ func TestJetStreamWorktreeExitReset(t *testing.T) {
 		acceptExit("submit"),
 		{Exec: []string{"sh", "-c", "echo late > late.txt"}},
 	}}
-	w := Worker{Bus: b, Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: fakeMCP(t), Worktrees: trees, NodeID: "mini-1", ShimBinary: buildShim(t)}
+	w := Worker{Driver: &fake.Driver{Script: sc, MCP: true}, MCPBinary: fakeMCP(t), Worktrees: trees, NodeID: "mini-1", ShimBinary: buildShim(t)}
 	asNode(t, s, &w, server.URL)
 	workerDone := make(chan error, 1)
-	go func() { workerDone <- w.Run(ctx) }()
+	go func() { workerDone <- runOffers(ctx, &w) }()
 	defer func() { stop(); <-workerDone; <-engineDone }()
 
 	remote := bareRemote(t)
@@ -188,11 +171,7 @@ func TestJetStreamWorktreeExitReset(t *testing.T) {
 
 // Git lock contention that outlives the allocator's retries fails the run retryably (failed), not as
 // setup_failed (task-worktrees D1).
-func TestJetStreamWorktreeLockError(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestWorktreeLockError(t *testing.T) {
 	remote := bareRemote(t)
 	root := t.TempDir()
 	trees, err := workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: root, ScanCommand: []string{"true"}})
@@ -209,7 +188,7 @@ func TestJetStreamWorktreeLockError(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED"}}
-	r, events := runDriver(t, url, Worker{Driver: d, Worktrees: trees}, false, func(s *protocol.RunSpec) {
+	r, events := runDriver(t, Worker{Driver: d, Worktrees: trees}, false, func(s *protocol.RunSpec) {
 		s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = "t1", remote, "main", "worktree"
 	})
 	var terminal protocol.Event

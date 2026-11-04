@@ -2,54 +2,32 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/node"
 	"appfactory/internal/protocol"
-
-	"github.com/nats-io/nats.go"
 )
 
-// TestJetStreamOpenSpecPreflightBeforeRuntime (openspec-in-git D3): a linked change that is not on the
+// TestOpenSpecPreflightBeforeRuntime (openspec-in-git D3): a linked change that is not on the
 // checkout ends the run change_missing before the runtime starts.
-func TestJetStreamOpenSpecPreflightBeforeRuntime(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated JetStream")
+func TestOpenSpecPreflightBeforeRuntime(t *testing.T) {
+	type emitted struct {
+		kind  string
+		event protocol.Event
 	}
-	b, e := bus.Connect(url)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
-	sub, e := b.Subscribe("factory.default.events.>", "spec-preflight-test")
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer sub.Unsubscribe()
-	w := Worker{Bus: b, Binary: "/nonexistent-runtime-must-not-start", Inventory: node.NewInventory("n1", 1)}
+	var got []emitted
+	w := Worker{Binary: "/nonexistent-runtime-must-not-start", Inventory: node.NewInventory("n1", 1)}
+	w.onEmit = func(kind string, p protocol.Event) { got = append(got, emitted{kind, p}) }
 	spec := protocol.RunSpec{ID: "preflight", Project: "p", Agent: "demo", Workspace: t.TempDir(), Provider: protocol.RuntimeCodex, TimeoutSeconds: 30, OpenSpecChange: "missing"}
-	if e = w.execute(context.Background(), spec, "test-lease", "cause"); e != nil {
+	if e := w.execute(context.Background(), spec, "test-lease", "cause"); e != nil {
 		t.Fatal(e)
 	}
-	msgs, e := sub.Fetch(1, nats.MaxWait(2e9))
-	if e != nil {
-		t.Fatal(e)
+	if len(got) != 1 {
+		t.Fatalf("%+v", got)
 	}
-	var envelope protocol.Envelope
-	var event protocol.Event
-	if e = json.Unmarshal(msgs[0].Data, &envelope); e != nil {
-		t.Fatal(e)
+	event := got[0].event
+	if got[0].kind != "failed" || event.Status != "ENDED" || event.Outcome != "change_missing" || event.SessionID != "" || !strings.Contains(event.Result, "is not on the task's checkout") {
+		t.Fatal(got[0])
 	}
-	json.Unmarshal(envelope.Payload, &event)
-	if envelope.Type != "agent.failed" || event.Status != "ENDED" || event.Outcome != "change_missing" || event.SessionID != "" || !strings.Contains(event.Result, "is not on the task's checkout") {
-		t.Fatal(envelope, event)
-	}
-	msgs[0].AckSync()
 }

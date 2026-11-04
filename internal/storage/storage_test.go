@@ -26,9 +26,9 @@ func TestDurableLifecycle(t *testing.T) {
 	if err = s.Create(ctx, DefaultCompany, other); err == nil {
 		t.Fatal("duplicate writer accepted")
 	}
-	out, err := s.Pending(ctx)
-	if err != nil || len(out) != 1 {
-		t.Fatalf("outbox not atomic: %v %v", out, err)
+	var queued int
+	if err = s.DB.QueryRow("SELECT count(*) FROM runs WHERE status='QUEUED'").Scan(&queued); err != nil || queued != 1 {
+		t.Fatalf("duplicate writer left a run: %d %v", queued, err)
 	}
 	token, err := claimLease(t, s, DefaultCompany, "one")
 	if err != nil {

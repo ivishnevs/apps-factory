@@ -125,8 +125,8 @@ reviewer's approval.
 - Parked task: an authority trigger overrides interruptible parks (wait, ask, block, children) and the
   escalations `retries_exhausted`, `budget_exhausted`, `no_exit` (it counts as retry); `inspect` needs its answer.
 - Urgent: the run becomes CANCELLING with `stop_reason = directive`:
-  `run.stop` on `factory.<company>.nodes.<node_id>.control` at once (plain NATS, outside the command stream;
-  Core's outbox publishes it immediately) and the heartbeat `stop` `revoked` as the guarantee. An urgent artifact approval
+  the commit wakes the node's poll, whose answer carries the stop at once, and the heartbeat `stop` `revoked` is the
+  guarantee. An urgent artifact approval
   (`factory approve ID REASON --urgent`) stops the runs of the tasks it wakes the same way. Outcome `revoked`; the next
   run resumes the session and the brief starts with the directive.
 

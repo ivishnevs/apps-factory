@@ -81,7 +81,7 @@ type NodeRegistration struct {
 
 type NodeRegistered struct {
 	Incarnation string `json:"incarnation"`
-	// Company is the company of the node's key: the node's NATS subjects are factory.<company>....
+	// Company is the company of the node's key: every run, task and job the node sees is that company's.
 	Company            string `json:"company"`
 	HeartbeatSeconds   int    `json:"heartbeat_seconds"`
 	StartWindowSeconds int    `json:"start_window_seconds"`

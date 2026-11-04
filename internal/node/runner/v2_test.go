@@ -9,18 +9,18 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/node"
 	"appfactory/internal/protocol"
+	"appfactory/internal/storage"
 	"appfactory/internal/worker"
-	"github.com/nats-io/nats.go"
 )
 
 // fakeCore serves the node endpoints of runtime protocol v2 (docs/runtime-protocol-v2.md) and fails
@@ -43,16 +43,23 @@ type fakeCore struct {
 	unavailable int // claims answered 503 before any other answer
 	starts      map[string]string
 	ended       map[string]bool // runs whose terminal event "Core applied"
+	queue       []string        // queued runs the poll offers until claimed or dropped
+	dropped     map[string]bool
+	pollStops   []stop // stops the next poll answers
+	polls       []pollRequest
+	events      map[string][]storage.SeqEvent
 }
 
 func newFakeCore(t *testing.T, stateDir string) (*fakeCore, worker.API) {
 	f := &fakeCore{t: t, stateDir: stateDir, workspace: t.TempDir(), incarnation: "inc-1", claimed: map[string]worker.Claim{}, byRun: map[string][]worker.ClaimRequest{},
-		refuse: map[string][]worker.Refusal{}, starts: map[string]string{}, ended: map[string]bool{}}
+		refuse: map[string][]worker.Refusal{}, starts: map[string]string{}, ended: map[string]bool{}, dropped: map[string]bool{}, events: map[string][]storage.SeqEvent{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /nodes/register", f.register)
 	mux.HandleFunc("POST /nodes/{id}/heartbeat", f.heartbeat)
 	mux.HandleFunc("POST /runs/{id}/claim", f.claim)
 	mux.HandleFunc("POST /runs/{id}/start", f.start)
+	mux.HandleFunc("POST /nodes/{id}/poll", f.poll)
+	mux.HandleFunc("POST /runs/{id}/events", f.runEvents)
 	// Run log chunks (core-owned-project-data D6) are accepted and dropped.
 	mux.HandleFunc("PUT /runs/{id}/logs", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +138,16 @@ func (f *fakeCore) claim(w http.ResponseWriter, r *http.Request) {
 		answer(w, 200, c)
 		return
 	}
+	if f.dropped[run] {
+		answer(w, 409, worker.Refusal{Drop: true, Reason: "stale"})
+		return
+	}
 	if rs := f.refuse[run]; len(rs) > 0 {
 		f.refuse[run] = rs[1:]
+		if rs[0].Drop {
+			f.unqueue(run)
+			f.dropped[run] = true
+		}
 		answer(w, 409, rs[0])
 		return
 	}
@@ -140,6 +155,13 @@ func (f *fakeCore) claim(w http.ResponseWriter, r *http.Request) {
 		answer(w, 409, worker.Refusal{Drop: true, Reason: "old_epoch"})
 		return
 	}
+	for k, c := range f.claimed { // offered twice before the first claim landed: Core drops the second
+		if c.RunSpec.ID == run && k != key {
+			answer(w, 409, worker.Refusal{Drop: true, Reason: "duplicate"})
+			return
+		}
+	}
+	f.unqueue(run)
 	ws := filepath.Join(f.workspace, run) // one project per run: the Local allocator admits one writer
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		f.t.Error(err)
@@ -148,6 +170,64 @@ func (f *fakeCore) claim(w http.ResponseWriter, r *http.Request) {
 		RunSpec: protocol.RunSpec{ID: run, Project: "p-" + run, Agent: "a-" + run, Provider: protocol.RuntimeCodex, Workspace: ws, Prompt: "work", TimeoutSeconds: 60}}
 	f.claimed[key] = c
 	answer(w, 200, c)
+}
+
+// poll offers the queued runs the node does not skip, up to its free codex slots, and the pending stops; with
+// nothing to answer it waits a moment and answers empty (the node polls again).
+func (f *fakeCore) poll(w http.ResponseWriter, r *http.Request) {
+	var req pollRequest
+	f.decode(r, &req)
+	f.mu.Lock()
+	f.polls = append(f.polls, req)
+	a := pollAnswer{Stop: f.pollStops}
+	f.pollStops = nil
+	if req.Epoch == f.epoch {
+		for _, run := range f.queue {
+			if len(a.Offers) < req.Free["codex"] && !slices.Contains(req.Skip, run) {
+				a.Offers = append(a.Offers, struct {
+					RunID    string `json:"run_id"`
+					Provider string `json:"provider"`
+				}{run, "codex"})
+			}
+		}
+	}
+	f.mu.Unlock()
+	if len(a.Offers) == 0 && len(a.Stop) == 0 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	answer(w, 200, a)
+}
+
+// runEvents keeps the events; a terminal one ends the run (the next heartbeat answer acknowledges it).
+func (f *fakeCore) runEvents(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Lease  string             `json:"lease"`
+		Events []storage.SeqEvent `json:"events"`
+	}
+	f.decode(r, &req)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	run := r.PathValue("id")
+	var applied int64
+	for _, e := range f.events[run] {
+		applied = e.Seq
+	}
+	for _, e := range req.Events {
+		if e.Seq != applied+1 {
+			continue
+		}
+		f.events[run] = append(f.events[run], e)
+		applied = e.Seq
+		var p protocol.Event
+		if json.Unmarshal(e.Event.Payload, &p) == nil && p.Status != "" {
+			f.ended[run] = true
+		}
+	}
+	answer(w, 200, map[string]int64{"applied_seq": applied})
+}
+
+func (f *fakeCore) unqueue(run string) {
+	f.queue = slices.DeleteFunc(f.queue, func(r string) bool { return r == run })
 }
 
 func (f *fakeCore) start(w http.ResponseWriter, r *http.Request) {
@@ -253,10 +333,7 @@ func TestV2Heartbeat(t *testing.T) {
 	inv.Set("r-running", node.RunRunning)
 	inv.End("r-done")
 	f.ended["r-done"] = true
-	f.answers = []HeartbeatAnswer{{Pause: true, Cleanup: []string{"task-1"}, Stop: []struct {
-		RunID  string `json:"run_id"`
-		Reason string `json:"reason"`
-	}{{RunID: "r-running", Reason: "revoked"}, {RunID: "unknown", Reason: "unknown_run"}}}}
+	f.answers = []HeartbeatAnswer{{Pause: true, Cleanup: []string{"task-1"}, Stop: []stop{{RunID: "r-running", Reason: "revoked"}, {RunID: "unknown", Reason: "unknown_run"}}}}
 	if err = s.beat(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -395,69 +472,30 @@ func TestV2Claim(t *testing.T) {
 	}
 }
 
-// TestJetStreamNodeV2 runs a v2 node against the fake Core: pointer and RunSpec commands are claimed,
-// started and reported running; a retry refusal is redelivered and claimed with a new claim_id, a drop
-// is acknowledged; a stop ends a run, which leaves the inventory once Core acknowledged its end; a new
+// TestNodeV2 runs a v2 node against the fake Core: offered runs are claimed, started and reported running; a
+// retry refusal is skipped for RetryDelay and claimed again with a new claim_id, a drop is not claimed again; a
+// heartbeat stop and a poll stop end runs, which leave the inventory once Core acknowledged their end; a new
 // incarnation stops everything and re-registers epoch 2, whose claims carry the new epoch.
-func TestJetStreamNodeV2(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
-	}
-	b, err := bus.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.NC.Close()
-	defer b.JS.DeleteStream("FACTORY_COMMANDS")
-	defer b.JS.DeleteStream("FACTORY_EVENTS")
+func TestNodeV2(t *testing.T) {
 	delay := worker.RetryDelay
-	worker.RetryDelay = 100 * time.Millisecond
+	worker.RetryDelay = 300 * time.Millisecond
 	defer func() { worker.RetryDelay = delay }()
 	dir := t.TempDir()
 	f, api := newFakeCore(t, dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	events, err := b.Subscribe("factory.default.events.>", "fake-core-v2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() { // Core applies terminal events; the next heartbeat answer acknowledges them
-		for ctx.Err() == nil {
-			msgs, err := events.Fetch(1, nats.MaxWait(200*time.Millisecond))
-			if err != nil {
-				continue
-			}
-			var e protocol.Envelope
-			var p protocol.Event
-			if json.Unmarshal(msgs[0].Data, &e) == nil && json.Unmarshal(e.Payload, &p) == nil && p.Status != "" {
-				f.set(func() { f.ended[p.RunID] = true })
-			}
-			_ = msgs[0].AckSync()
-		}
-	}()
-	publish := func(run string, payload any) {
-		body, _ := json.Marshal(protocol.Wrap("agent.run.requested", run, "", payload))
-		if err := b.Publish(ctx, "factory.default.commands.agent.run.codex", "cmd-"+run, body); err != nil {
-			t.Fatal(err)
-		}
-	}
-	pointer := func(run string) map[string]string {
-		return map[string]string{"run_id": run, "company": "default", "agent": "a-" + run, "provider": "codex"}
-	}
 	f.set(func() {
 		f.refuse["v2-b"] = []worker.Refusal{{Retry: true, Reason: "capacity"}}
 		f.refuse["v2-c"] = []worker.Refusal{{Drop: true, Reason: "stale"}}
+		f.queue = []string{"v2-a", "v2-b", "v2-c"}
 	})
-	publish("v2-a", pointer("v2-a"))
-	publish("v2-b", protocol.RunSpec{ID: "v2-b", Project: "ignored", Provider: protocol.RuntimeCodex, Prompt: "ignored", TimeoutSeconds: 1})
-	publish("v2-c", pointer("v2-c"))
 	n := v2Node(t, api, dir)
-	n.Bus, n.FetchWait, n.Config.Slots = b, 200*time.Millisecond, 3
+	n.Config.Slots, n.Config.Poll.WaitSeconds = 4, 1
 	n.Drivers = []driver.Driver{perRunSessions{&fake.Driver{}}}
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- Run(nodeCtx, n) }()
+	var err error
 	wait := func(what string, ok func() bool) {
 		t.Helper()
 		for !ok() {
@@ -478,26 +516,50 @@ func TestJetStreamNodeV2(t *testing.T) {
 		if f.starts["v2-a"] != "lease-v2-a" || f.starts["v2-b"] != "lease-v2-b" {
 			t.Errorf("starts %v", f.starts)
 		}
+		skipped := false
+		for _, p := range f.polls {
+			skipped = skipped || slices.Contains(p.Skip, "v2-b")
+		}
+		if !skipped {
+			t.Error("the refused run was not skipped by the polls")
+		}
 	})
-	wait("dropped command", func() bool { return len(f.claimsOf("v2-c")) > 0 })
-	time.Sleep(300 * time.Millisecond) // an unacknowledged command would come back
+	time.Sleep(300 * time.Millisecond) // a dropped offer is not taken again
 	if c := f.claimsOf("v2-c"); len(c) != 1 {
-		t.Fatalf("dropped command claimed %d times", len(c))
+		t.Fatalf("dropped run claimed %d times", len(c))
 	}
-	if c := f.claimsOf("v2-b"); len(c) != 2 || c[0].ClaimID == c[1].ClaimID || c[0].Epoch != 1 {
-		t.Fatalf("retried command claims %+v", c)
+	// Refused once, then claimed: one claim succeeds (a run offered to two polls before the first claim landed
+	// may be claimed a third time; Core drops that one as a duplicate).
+	if c := f.claimsOf("v2-b"); len(c) < 2 || c[0].ClaimID == c[1].ClaimID || c[0].Epoch != 1 {
+		t.Fatalf("retried run claims %+v", c)
 	}
 	f.set(func() {
-		f.answers = []HeartbeatAnswer{{Stop: []struct {
-			RunID  string `json:"run_id"`
-			Reason string `json:"reason"`
-		}{{RunID: "v2-a", Reason: "revoked"}}}}
+		ok := 0
+		for _, c := range f.claimed {
+			if c.RunSpec.ID == "v2-b" {
+				ok++
+			}
+		}
+		if ok != 1 {
+			t.Errorf("v2-b claimed %d times", ok)
+		}
 	})
+	// Free slots shrink as runs start: two of four are busy.
+	f.set(func() {
+		if last := f.polls[len(f.polls)-1]; last.Free["codex"] != 2 || last.Epoch != 1 || last.WaitSeconds != 1 {
+			t.Errorf("last poll %+v", last)
+		}
+	})
+	f.set(func() { f.answers = []HeartbeatAnswer{{Stop: []stop{{RunID: "v2-a", Reason: "revoked"}}}} })
 	wait("stopped run acknowledged", func() bool {
 		inv := f.inventory()
 		_, listed := inv["v2-a"]
 		return !listed && inv["v2-b"] == node.RunRunning
 	})
+	f.set(func() { f.queue = append(f.queue, "v2-e") })
+	wait("v2-e running", func() bool { return f.inventory()["v2-e"] == node.RunRunning })
+	f.set(func() { f.pollStops = []stop{{RunID: "v2-e", Reason: "revoked"}} })
+	wait("poll stop acknowledged", func() bool { _, listed := f.inventory()["v2-e"]; return !listed && f.ended["v2-e"] })
 	f.set(func() { f.incarnation = "inc-2" })
 	wait("re-registered", func() bool {
 		f.mu.Lock()
@@ -510,11 +572,24 @@ func TestJetStreamNodeV2(t *testing.T) {
 			t.Error("v2-b not ended by the incarnation change")
 		}
 	})
-	publish("v2-d", pointer("v2-d"))
+	f.set(func() { f.queue = append(f.queue, "v2-d") })
 	wait("epoch 2 run", func() bool { return f.inventory()["v2-d"] == node.RunRunning })
-	if c := f.claimsOf("v2-d"); len(c) != 1 || c[0].Epoch != 2 || !strings.HasPrefix(c[0].ClaimID, "2-") {
+	// Claimed under epoch 2 (a second offer of it before the claim landed is dropped by Core as a duplicate).
+	if c := f.claimsOf("v2-d"); len(c) < 1 || c[0].Epoch != 2 || !strings.HasPrefix(c[0].ClaimID, "2-") {
 		t.Fatalf("%+v", c)
 	}
+	// Every run's events arrived in order with the run's lease.
+	f.set(func() {
+		for run, es := range f.events {
+			for i, e := range es {
+				var p protocol.Event
+				_ = json.Unmarshal(e.Event.Payload, &p)
+				if e.Seq != int64(i+1) || p.Lease != "lease-"+run {
+					t.Errorf("%s event %d: seq %d lease %s", run, i, e.Seq, p.Lease)
+				}
+			}
+		}
+	})
 	stopNode()
 	if err = <-done; err != nil {
 		t.Fatal(err)

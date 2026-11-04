@@ -17,17 +17,13 @@ import (
 	"appfactory/internal/workspace"
 )
 
-// TestJetStreamConversationBesideWriter (hierarchy D5): while a writer run holds the shared project workspace
+// TestConversationBesideWriter (hierarchy D5): while a writer run holds the shared project workspace
 // (its writer lock and its .factory/manifest.json), a conversation run of the same project starts and
 // succeeds in its own conversation directory under state_dir: its project data is materialized there, the
 // writer's workspace and manifest stay untouched, and the project workspace reaches it read-only by path.
 // The next conversation run resumes its session in the same directory; a session recorded before
 // conversation directories (no directory) starts fresh.
-func TestJetStreamConversationBesideWriter(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestConversationBesideWriter(t *testing.T) {
 	const design = "<svg>v1</svg>"
 	var files []protocol.ManifestFile
 	prepare := withStore(func(s *storage.Store) {
@@ -77,7 +73,7 @@ func TestJetStreamConversationBesideWriter(t *testing.T) {
 	run := func(session string) *fake.Driver {
 		t.Helper()
 		d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}, Files: map[string]string{"notes.md": "conversation"}}
-		r, _ := runDriver(t, url, Worker{Driver: d, StateDir: state, Sessions: store, BlobCache: t.TempDir()}, false, prepare, conversation(session))
+		r, _ := runDriver(t, Worker{Driver: d, StateDir: state, Sessions: store, BlobCache: t.TempDir()}, false, prepare, conversation(session))
 		defer writer.Release()
 		if r.Outcome != "succeeded" || len(d.Launches()) != 1 {
 			t.Fatalf("%s %q", r.Outcome, r.Result)
@@ -130,13 +126,9 @@ func TestJetStreamConversationBesideWriter(t *testing.T) {
 	}
 }
 
-// TestJetStreamConversationNoWorktree: in worktree mode a conversation run gets no task worktree or branch;
+// TestConversationNoWorktree: in worktree mode a conversation run gets no task worktree or branch;
 // it runs in its conversation directory like in the shared mode.
-func TestJetStreamConversationNoWorktree(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestConversationNoWorktree(t *testing.T) {
 	remote := bareRemote(t)
 	root := t.TempDir()
 	trees, err := workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: root})
@@ -145,7 +137,7 @@ func TestJetStreamConversationNoWorktree(t *testing.T) {
 	}
 	state := t.TempDir()
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ := runDriver(t, url, Worker{Driver: d, StateDir: state, Worktrees: trees}, false, func(s *protocol.RunSpec) {
+	r, _ := runDriver(t, Worker{Driver: d, StateDir: state, Worktrees: trees}, false, func(s *protocol.RunSpec) {
 		s.Conversation, s.TaskID, s.RepoURL, s.DefaultBranch, s.WorkspaceMode = true, "conv-demo", remote, "main", "worktree"
 	})
 	if r.Outcome != "succeeded" || len(d.Launches()) != 1 {
@@ -162,16 +154,12 @@ func TestJetStreamConversationNoWorktree(t *testing.T) {
 	}
 }
 
-// TestJetStreamConversationRelativeStateDir: a relative state_dir (a node started from its checkout with
+// TestConversationRelativeStateDir: a relative state_dir (a node started from its checkout with
 // `state_dir: data/...`) still gives the conversation run an absolute directory.
-func TestJetStreamConversationRelativeStateDir(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestConversationRelativeStateDir(t *testing.T) {
 	t.Chdir(t.TempDir())
 	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-	r, _ := runDriver(t, url, Worker{Driver: d, StateDir: filepath.Join("data", "factory-node-tvorog")}, false, func(s *protocol.RunSpec) {
+	r, _ := runDriver(t, Worker{Driver: d, StateDir: filepath.Join("data", "factory-node-tvorog")}, false, func(s *protocol.RunSpec) {
 		s.Conversation, s.TaskID = true, "conv-demo"
 	})
 	if r.Outcome != "succeeded" || len(d.Launches()) != 1 {

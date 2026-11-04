@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -28,15 +27,11 @@ func (h *hostRecorder) RoundTrip(r *http.Request) (*http.Response, error) {
 	return h.next.RoundTrip(r)
 }
 
-// TestJetStreamRunLogRedacted (core-owned-project-data 3.5): a command of a fake run prints a forge token the
+// TestRunLogRedacted (core-owned-project-data 3.5): a command of a fake run prints a forge token the
 // node holds; the node uploads the run's log in chunks through Core's API with the token replaced (and keeps
 // it out of the published events and the result too). The only HTTP traffic is the node calling Core: Core
 // requests nothing from the node.
-func TestJetStreamRunLogRedacted(t *testing.T) {
-	nats := os.Getenv("NATS_TEST_URL")
-	if nats == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestRunLogRedacted(t *testing.T) {
 	const token = "forge-token-0123456789abcdef"
 	t.Setenv("GH_TOKEN", token)
 	rec := &hostRecorder{hosts: map[string]int{}, next: http.DefaultTransport}
@@ -50,7 +45,7 @@ func TestJetStreamRunLogRedacted(t *testing.T) {
 		{Exec: []string{"sh", "-c", "echo pushing with " + token}},
 		{Method: "fake/note", Data: []byte(`{"text":"plain progress"}`)},
 	}}}
-	r, events := runDriver(t, nats, Worker{Driver: d}, false, withStore(func(store *storage.Store) { s = store }))
+	r, events := runDriver(t, Worker{Driver: d}, false, withStore(func(store *storage.Store) { s = store }))
 	if r.Outcome != "succeeded" {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}

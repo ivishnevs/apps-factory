@@ -172,9 +172,6 @@ func (c *Core) directiveCall(w http.ResponseWriter, r *http.Request, p factoryto
 	urgent, _ := p.Arguments["urgent"].(bool)
 	key, _ := p.Arguments["request_id"].(string)
 	v, err := c.Store.Directive(r.Context(), c.companyFrom(r), task, run.Spec.Agent, text, urgent, run.Spec.Agent+":"+key)
-	if err == nil && urgent {
-		c.kickOutbox()
-	}
 	reply(w, v, err)
 }
 
@@ -233,9 +230,6 @@ func (c *Core) directiveRoutes(m *http.ServeMux) {
 			return
 		}
 		v, err := c.Store.Directive(r.Context(), c.companyFrom(r), r.PathValue("id"), "owner", p.Text, p.Urgent, p.RequestID)
-		if err == nil && p.Urgent {
-			c.kickOutbox()
-		}
 		reply(w, v, err)
 	})
 }

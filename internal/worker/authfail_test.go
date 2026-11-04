@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 
@@ -13,15 +12,11 @@ import (
 	"appfactory/internal/protocol"
 )
 
-// TestJetStreamAuthFailureReported (runtime-drivers 3.2): a run that ends on the runtime's authentication
+// TestAuthFailureReported (runtime-drivers 3.2): a run that ends on the runtime's authentication
 // failure (at launch, as a FAILED turn, or without terminal evidence) ends paused_out and calls AuthFailed
 // once; other failures, a quota hit included, do not. Only a COMPLETED run calls RunSucceeded (the node resets
 // the driver's auth hold-off).
-func TestJetStreamAuthFailureReported(t *testing.T) {
-	url := os.Getenv("NATS_TEST_URL")
-	if url == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestAuthFailureReported(t *testing.T) {
 	for name, c := range map[string]struct {
 		script         fake.Script
 		launch         error
@@ -43,7 +38,7 @@ func TestJetStreamAuthFailureReported(t *testing.T) {
 			d := &fake.Driver{Script: c.script}
 			w := Worker{Driver: authLaunch{d, c.launch}, AuthFailed: func(err error) { mu.Lock(); got = append(got, err); mu.Unlock() },
 				RunSucceeded: func() { mu.Lock(); succeeded++; mu.Unlock() }}
-			_, events := runDriver(t, url, w, false)
+			_, events := runDriver(t, w, false)
 			var terminal protocol.Event
 			if err := json.Unmarshal(events[len(events)-1].Payload, &terminal); err != nil {
 				t.Fatal(err)

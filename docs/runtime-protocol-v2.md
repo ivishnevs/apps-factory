@@ -1,13 +1,13 @@
 # Runtime protocol v2
 
-Status: agreed (2026-10-14) after stream B's review; implemented on both sides (Core: §11) and run together in
-`TestJetStreamNodeV2RealCore`. Consolidates `node-agent` D2–D3, `reliable-recovery` D6–D7 and
+Status: agreed (2026-10-14) after stream B's review; implemented on both sides (Core: §11). Every
+exchange is a signed HTTPS request (`node-identity`, `http-node-transport`): the node polls for work (§4) and sends
+run events to `POST /runs/{run}/events` (§8). Consolidates `node-agent` D2–D3, `reliable-recovery` D6–D7 and
 `trigger-log-scheduling` D4/D6 into one Core ↔ node contract so both sides can build against it.
 
 ## 1. Versions
 
-A node registers, claims in two phases, renews all its leases with one inventory heartbeat, and treats the command
-as a pointer. This is the only protocol: v1 (a claim without a body, a per-run heartbeat) is removed, and
+A node registers, polls for work, claims in two phases and renews all its leases with one inventory heartbeat. This is the only protocol: v1 (a claim without a body, a per-run heartbeat) is removed, and
 `protocol_version: 2` remains only as a field of the register payload. [`runtime-protocol.md`](runtime-protocol.md)
 is the historical v1 text.
 
@@ -56,17 +56,40 @@ Effects: the node is online; every unended run of an older epoch of this node is
 the last registered one is refused with `409 {"reason": "stale_epoch"}`. Before registering, the node kills and
 seals what its previous epoch left (it already kills orphaned groups at start).
 
-## 4. Command
+## 4. Poll
 
-Subject `factory.<company>.commands.agent.run.<provider>` (`state_dir/company`, stored at enrollment; the register
-answer's `company`, the node key's, must match it). Payload becomes a pointer:
+`POST /nodes/{node_id}/poll` (signed) is the node's long poll:
 
 ```json
-{"run_id": "…", "company": "default", "agent": "calorie-ios", "provider": "codex"}
+{"epoch": 7, "free": {"codex": 2, "claude": 2}, "wait_seconds": 25, "skip": ["run-id"],
+ "hooks": "ios", "hooks_hash": "…"}
 ```
 
-Nodes take only the run id from the command; everything else comes from claim. The payload may still be the full
-RunSpec (the node then reads its `id`).
+`free` is the node's idle slots per provider whose driver it may claim with (`{}` while it may not claim at all);
+`wait_seconds` is at most 25 (node.yaml `poll.wait_seconds`, default 25; lower it behind a proxy that cuts requests
+sooner); `skip` lists runs whose claim Core refused with `retry` in the last 5 s. Core answers as soon as there is
+something for the node, else empty when the wait ends:
+
+```json
+{"offers": [{"run_id": "…", "provider": "codex"}], "stop": [{"run_id": "…", "reason": "revoked"}],
+ "reset": ["task-id"], "cleanup": ["task-id"], "hooks_changed": true}
+```
+
+- `offers` are hints: `QUEUED` runs of the node's company, oldest first, at most `free` per provider, whose driver is
+  usable on the node and whose agent's labels it has, not pinned to another node's unpushed worktree, none while
+  the node or the company is paused. Several nodes may get the same offer; only the claim (§5) takes a run, and the
+  loser gets `409 drop/duplicate`. The node hands each offer to an idle slot; one it cannot take stays queued.
+- `stop`, `reset`, `cleanup` are what the heartbeat answer (§7) lists for the node: stops of its live runs Core
+  revoked or gave a stop reason, worktree resets and closed tasks' worktrees. Work a poll of the node already
+  answered is not answered again; the heartbeat keeps listing it until it is done. `hooks_changed` asks the node
+  for a heartbeat now, whose answer carries the `NodeHooks` document.
+- A commit that queues a run, stops or cancels one, resets a worktree, lifts a pause or changes the catalog wakes
+  the company's waiting polls; a waiting poll also re-reads every 2 s (a missed wake-up, a second Core process). So an
+  urgent stop reaches a waiting node at once; the heartbeat answer stays the guarantee.
+- One poll per node: a newer poll ends the older one with an empty answer. An older epoch is `409 stale_epoch`, an
+  unknown node or newer epoch `404 unknown_node` (the heartbeat registers again). A waiting poll of a node whose key is
+  revoked ends `401`.
+- After an error the node polls again with a backoff from 1 s doubling to 30 s, with jitter.
 
 ## 5. Claim (phase 1)
 
@@ -89,9 +112,9 @@ and of the current epoch; node has the agent's driver and labels; resource capac
   `X-Factory-Lease: <lease>`; a blob it cannot fetch ends the run `setup_failed` before the runtime starts. It
   uploads the run's log, redacted, with `PUT /runs/{id}/logs?seq=N[&final=1]&redacted=1` and the same header,
   during the run and after its terminal event. Both routes are open to a signed node for its own runs.
-- `409 {"retry": true, "reason": "capacity|agent_busy|project_busy", "detail": "…"}` — run stays QUEUED; nak with
-  delay. `detail` (optional) says what the node lacks: a usable driver, labels, a slot, a resource class.
-- `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch"}` — ack and drop the command; Core
+- `409 {"retry": true, "reason": "capacity|agent_busy|project_busy", "detail": "…"}` — run stays QUEUED; the node
+  skips the offer for 5 s. `detail` (optional) says what the node lacks: a usable driver, labels, a slot, a resource class.
+- `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch"}` — the node forgets the offer; Core
   has already recorded the run's end (`stale`) where applicable.
 
 ## 6. Start (phase 2)
@@ -142,7 +165,7 @@ Answer `200`:
 `hooks` is present only when the node's `hooks_hash` differs from the catalog document's hash.
 
 - `acked` lists the `ended_unacked` runs whose terminal event Core has applied; the node drops them from its
-  inventory. A JetStream publish acknowledgement does not mean Core applied the event.
+  inventory. An event spooled or sent is not yet an event Core applied.
 
 - `stop` lists every inventory run the node must end: revoked (owner cancel or kill switch), already terminal in
   Core, past `timeout + grace` (Core ends it `timed_out`), unknown to Core (e.g. after a restore).
@@ -158,7 +181,23 @@ Answer `200`:
 ## 8. Events
 
 Envelope and lease unchanged; `usage`, `quota` and `POST /runs/{id}/workspace` as already agreed (see
-runtime-protocol.md). A run's `status` is its phase: `QUEUED → CLAIMED → RUNNING → (CANCELLING) → ENDED`
+runtime-protocol.md). The node sends a run's events to `POST /runs/{run}/events` (signed, the run's node):
+
+```json
+{"lease": "…", "events": [{"seq": 1, "event": {"event_id": "…", "schema_version": 1, "type": "agent.started", "correlation_id": "run-id", "payload": {…}}}]}
+```
+
+`seq` increases by one per run from 1, and every event's payload carries the batch's `lease`. Core applies the
+events in order, each with its run update in one transaction, skips sequences it already applied (a batch resent
+after a timeout), and answers `{"applied_seq": n}`. A batch starting after the next sequence is
+`409 {"reason": "gap", "expected_seq": n}` and the node resends from there; events of another lease are
+`409 {"reason": "lease"}` and invalid ones `422`: the node drops them. Another node's run is `403`, an unknown run
+`404`. At most 256 events or 1 MiB per batch.
+
+Every event is first appended to the node's spool `<state_dir>/runs/<run>/events.jsonl` (a header line
+`{"run", "lease"}`, then one `{"seq", "event"}` per line) and then sent. While Core is unreachable the run goes on
+and the node retries with a backoff up to 30 s; a node that restarts resumes the spools it finds. The spool is
+removed once Core applied the run's terminal event, and the run leaves the inventory with the next `acked`. A run's `status` is its phase: `QUEUED → CLAIMED → RUNNING → (CANCELLING) → ENDED`
 (reliable-recovery D1); how it ended is only its `outcome`.
 
 The terminal event carries `{"status": "ENDED", "outcome": "…"}`, and only it carries an outcome. A worker reports
@@ -177,9 +216,9 @@ and `unclaimed` are Core's only.
 | Core (stream A) | Node (stream B) |
 |---|---|
 | `nodes` table (migration), register, epoch rules, incarnation | `<state_dir>/epoch`, register on start, re-register on incarnation change |
-| claim re-check, capacity, RunSpec + brief in the claim answer, `start`, start window | slot claim → allocate → launch → `start`; nak/ack on `retry`/`drop` |
+| claim re-check, capacity, RunSpec + brief in the claim answer, `start`, start window | slot claim → allocate → launch → `start`; skip on `retry`, forget on `drop` |
 | inventory heartbeat: lease renewal, `stop`/`cleanup`/`pause`, offline detection | inventory and health reporting, acting on `stop`/`cleanup`/`pause` |
-| pointer commands (with full RunSpec during the transition) | read only `run_id` from commands in v2 |
+| poll: offers, stops, resets, cleanups, wake-ups; events route with sequences | poll loop, offers to idle slots, event spool and ordered sender |
 
 ## 10. Decisions from the review
 
@@ -192,8 +231,7 @@ and `unclaimed` are Core's only.
 3. **claim_id** is only an idempotency key; claims of parallel slots are not ordered.
 4. **Timings:** heartbeat 10 s, `timed_out` grace 60 s, start window 60 s extended by `claimed`/`starting`
    inventory up to 15 min, offline after 60 s of continuous ticking (limitation above).
-5. **Control subject** waits for company subject prefixes; until then stops arrive in the heartbeat answer
-   (≤ 10 s).
+5. **Stops** reach a waiting poll at once (§4); the heartbeat answer delivers them within 10 s otherwise.
 6. **Resources:** node capacity in `node.yaml` `resources`, sent in register; agent needs in `spec.resources`
    (stream B); enforced with claim v2, shortage answers `409 retry/capacity`, never `drop`.
 7. **Acknowledged ends:** `acked` in the heartbeat answer (§7).

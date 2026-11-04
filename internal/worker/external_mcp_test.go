@@ -73,21 +73,17 @@ func TestExternalMCPResolve(t *testing.T) {
 	}
 }
 
-// TestJetStreamExternalMCPRun: the driver gets the server with the secret as an environment reference and the
+// TestExternalMCPRun: the driver gets the server with the secret as an environment reference and the
 // value in its environment only; a command that prints the secret has it redacted from the run's log, events
 // and result. A node without the secret fails the run's setup naming the secret.
-func TestJetStreamExternalMCPRun(t *testing.T) {
-	nats := os.Getenv("NATS_TEST_URL")
-	if nats == "" {
-		t.Skip("set NATS_TEST_URL to dedicated broker")
-	}
+func TestExternalMCPRun(t *testing.T) {
 	withMCP := stored(func(s *protocol.RunSpec) { s.ConfigSnapshot = []byte(mcpSnapshot) })
 	var s *storage.Store
 	d := &fake.Driver{ExternalMCP: true, Script: fake.Script{Status: "COMPLETED", Text: "done", Activity: []fake.Activity{
 		{Exec: []string{"sh", "-c", "echo key is $FACTORY_MCP_SECRET_ASTR_API_KEY"}},
 	}}}
 	w := Worker{Driver: d, SecretsFile: secretsFile(t, "ASTR_API_KEY="+fakeSecret+"\n", 0o600)}
-	r, events := runDriver(t, nats, w, false, withMCP, withStore(func(store *storage.Store) { s = store }))
+	r, events := runDriver(t, w, false, withMCP, withStore(func(store *storage.Store) { s = store }))
 	if r.Outcome != "succeeded" {
 		t.Fatalf("%s %q", r.Outcome, r.Result)
 	}
@@ -120,7 +116,7 @@ func TestJetStreamExternalMCPRun(t *testing.T) {
 	}
 
 	d2 := &fake.Driver{ExternalMCP: true, Script: fake.Script{Status: "COMPLETED"}}
-	r, _ = runDriver(t, nats, Worker{Driver: d2, SecretsFile: secretsFile(t, "OTHER=x\n", 0o600)}, false, withMCP)
+	r, _ = runDriver(t, Worker{Driver: d2, SecretsFile: secretsFile(t, "OTHER=x\n", 0o600)}, false, withMCP)
 	if r.Outcome != "setup_failed" || !strings.Contains(r.Result, "needs node secret ASTR_API_KEY") || len(d2.Launches()) != 0 {
 		t.Fatalf("%s %q launches %d", r.Outcome, r.Result, len(d2.Launches()))
 	}
