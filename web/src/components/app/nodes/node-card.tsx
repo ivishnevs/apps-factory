@@ -41,8 +41,8 @@ function Driver({ d }: { d: NodeDriver }) {
   );
 }
 
-export function NodeCard({ node, pause, onPause, onResume, busy }: {
-  node: FactoryNode; pause?: PauseT; onPause: () => void; onResume: () => void; busy?: boolean;
+export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
+  node: FactoryNode; pause?: PauseT; onPause: () => void; onResume: () => void; onRevoke?: () => void; busy?: boolean;
 }) {
   const n = node as NodeFull;
   const h = nodeHealth(node);
@@ -151,6 +151,7 @@ export function NodeCard({ node, pause, onPause, onResume, busy }: {
         ) : (
           <Button variant="outline" className="h-10" onClick={onPause} disabled={busy}><Pause className="size-4" />Pause</Button>
         )}
+        {onRevoke && <Button variant="ghost" className="h-10 text-red-600 hover:text-red-700 dark:text-red-400" onClick={onRevoke} disabled={busy}>Revoke</Button>}
       </footer>
     </article>
   );

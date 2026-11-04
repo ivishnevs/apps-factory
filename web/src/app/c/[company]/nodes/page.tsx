@@ -3,13 +3,17 @@
 import { Bot, FolderKanban, KeyRound, Pause, Play, Server } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
+import { useConfirm } from "@/components/app/confirm";
+import { AddNode, PendingNodes } from "@/components/app/nodes/enrollment";
 import { KillSwitch } from "@/components/app/nodes/kill-switch";
 import { NodeCard } from "@/components/app/nodes/node-card";
 import { useOwnerAction } from "@/components/app/nodes/owner-action";
 import { PauseDialog, type PauseRequest } from "@/components/app/nodes/pause-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useOverview } from "@/lib/api/client";
+import { toast } from "sonner";
+import { core, useCompanyInfo, useOverview } from "@/lib/api/client";
+import { canManage } from "@/lib/api/types-account";
 import type { Pause as PauseT } from "@/lib/api/types";
 import { companyPause, nodeId, scopeName } from "@/lib/api/types-ops";
 import { ago } from "@/lib/format";
@@ -39,6 +43,14 @@ function PauseRow({ p, label, onResume, busy }: { p: PauseT; label: string; onRe
 export default function Page() {
   const { data: ov, isLoading, error } = useOverview();
   const { run, pending } = useOwnerAction();
+  const manage = canManage(useCompanyInfo().data?.role);
+  const confirm = useConfirm();
+  // Revoking (node-identity 4.1): the node's keys stop working at once and its live runs end.
+  const revoke = async (id: string, name: string) => {
+    if (!(await confirm({ title: `Revoke ${name}?`, description: "Its keys stop working at once and its live runs end. To use the machine again, enroll it with a new code.", confirm: "Revoke", destructive: true }))) return;
+    try { await core(`/nodes/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }); toast.success(`${name} revoked`); }
+    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
   const [dialog, setDialog] = useState<{ open: boolean; initial?: Partial<PauseRequest> }>({ open: false });
 
   const stopped = companyPause(ov?.pauses);
@@ -67,7 +79,7 @@ export default function Page() {
 
   return (
     <>
-      <PageHeader title="Nodes & control" description="The machines your agents run on, what is paused, and the kill switch" />
+      <PageHeader title="Nodes & control" description="The machines your agents run on, what is paused, and the kill switch" actions={manage ? <AddNode /> : undefined} />
       {error && <div className="mb-4"><ErrorState error={error} /></div>}
       {isLoading ? (
         <div className="space-y-4">
@@ -77,6 +89,8 @@ export default function Page() {
       ) : ov && (
         <div className="space-y-8">
           <KillSwitch stopped={stopped} />
+
+          {manage && <PendingNodes />}
 
           <section aria-labelledby="pauses-title">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -105,7 +119,7 @@ export default function Page() {
             </div>
             {ov.errors?.nodes && <div className="mb-3"><ErrorState error={ov.errors.nodes} /></div>}
             {nodes.length === 0 ? (
-              <EmptyState icon={Server} title="No registered nodes" hint="Start a node (factory node) on a machine to run agents on it." />
+              <EmptyState icon={Server} title="No registered nodes" hint={manage ? "Add a node: issue a code and run factory-node enroll on the machine." : "An owner or admin adds the company's nodes."} />
             ) : (
               <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
                 {nodes.map((n) => {
@@ -114,7 +128,8 @@ export default function Page() {
                   return (
                     <NodeCard key={id} node={n} pause={pause} busy={pending}
                       onPause={() => setDialog({ open: true, initial: { scope: "node", target: id } })}
-                      onResume={() => pause && release(pause)} />
+                      onResume={() => pause && release(pause)}
+                      onRevoke={manage ? () => revoke(id, n.name || id) : undefined} />
                   );
                 })}
               </div>
