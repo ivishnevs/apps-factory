@@ -1,6 +1,8 @@
 ---
 name: task-pull-request
 description: Finish a code task through its pull request - submit for review, then after approval update from the default branch, resolve conflicts, merge with gh pr merge and exit done.
+metadata:
+  categories: git, review
 ---
 
 A code task runs on its own branch (`af/<task>…`) in its own worktree. The branch reaches the default branch

@@ -22,15 +22,6 @@ const (
 	maxSkillFiles = 512
 )
 
-// Dir is the directory of a registered skill: the directory of its SKILL.md.
-func (r *Registry) Dir(name string) (string, error) {
-	main, err := r.main(name)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(main), nil
-}
-
 // Hash is the content hash of a skill directory: "sha256:" and the SHA-256 over every regular file in
 // slash-path order, each as "<path>\x00<size>\x00<content>". Only regular files and directories are
 // allowed (no symlinks, devices or sockets); dot-files count like any other file. Core records this hash
@@ -129,26 +120,4 @@ func Copy(src, dst string) (string, error) {
 		}
 	}
 	return Hash(dst)
-}
-
-// ValidName reports whether name is a valid skill name (lowercase letters, digits and '-').
-func ValidName(name string) bool { return namePattern.MatchString(name) }
-
-// Pins are the content hashes (Hash) of the named skills in this registry, as Core records them on a run
-// (agent snapshot "skill_hashes"); the node verifies its materialized copies against them.
-func (r *Registry) Pins(names []string) (map[string]string, error) {
-	if r == nil || len(names) == 0 {
-		return nil, nil
-	}
-	out := make(map[string]string, len(names))
-	for _, name := range names {
-		dir, err := r.Dir(name)
-		if err != nil {
-			return nil, err
-		}
-		if out[name], err = Hash(dir); err != nil {
-			return nil, fmt.Errorf("skill %s: %w", name, err)
-		}
-	}
-	return out, nil
 }

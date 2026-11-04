@@ -29,12 +29,8 @@ type Config struct {
 	// StateDir keeps pidfiles of running runtimes and the v2 identity (node_id, epoch); it must not be shared by live nodes or workers.
 	StateDir string `yaml:"state_dir"`
 	// BinDir holds factory-mcp and factory-shim and is the base of the built Claude shim; empty is the executable's directory.
-	BinDir string `yaml:"bin_dir"`
-	// SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml, or
-	// configs/<company>/skills.yaml) and skill directories are materialized for runs (pinned by hash); empty is
-	// <bin_dir>/.., else the working directory.
-	SkillsRoot string  `yaml:"skills_root"`
-	Drivers    Drivers `yaml:"drivers"`
+	BinDir  string  `yaml:"bin_dir"`
+	Drivers Drivers `yaml:"drivers"`
 	// Probes: how often the node re-checks its drivers (runtime-drivers D4).
 	Probes Probes `yaml:"probes"`
 	Disk   Disk   `yaml:"disk"`
@@ -189,7 +185,7 @@ func (c *Config) Absolute() error {
 		}
 		c.ProjectsRoot = filepath.Join(home, rest)
 	}
-	return errors.Join(abs(&c.StateDir), abs(&c.ProjectsRoot), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
+	return errors.Join(abs(&c.StateDir), abs(&c.ProjectsRoot), abs(&c.BinDir), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
 		abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary))
 }
 

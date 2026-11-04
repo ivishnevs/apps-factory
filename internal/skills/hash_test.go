@@ -48,11 +48,4 @@ func TestHashAndCopy(t *testing.T) {
 	if _, err = Hash(t.TempDir()); err == nil {
 		t.Fatal("directory without SKILL.md accepted")
 	}
-	r := &Registry{Root: filepath.Dir(src), Skills: map[string]Skill{"example": {Path: "example/SKILL.md"}}}
-	if d, err := r.Dir("example"); err != nil || d != src {
-		t.Fatalf("dir %q %v", d, err)
-	}
-	if _, err = r.Dir("missing"); err == nil {
-		t.Fatal("unknown skill")
-	}
 }

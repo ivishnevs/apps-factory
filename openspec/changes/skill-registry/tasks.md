@@ -14,16 +14,16 @@ hash with the built-in source (default skills on any node), then sources, indexe
   D5 change), `development.md` (node store, GC, `skills_root` removed).
 
 ## 3. Blobs and delivery
-- [ ] 3.1 Skill blobs in `internal/blobstore` keyed by `skills.Hash` (tar of the directory, deterministic);
-  reserved scope `factory` for built-in skills.
-- [ ] 3.2 Built-in source: the release's default skills indexed at Core start; templates and presets use
-  `source: factory` instead of `../../skills/...`.
-- [ ] 3.3 Loader: installed skills by source and hash; Core reads served from blobs; `skill_hashes` pinned from the
-  installed hashes; `path:` entries removed.
-- [ ] 3.4 `GET /runs/{run}/skills/{hash}` for signed node requests (`node-identity`), only hashes pinned on the named run
-  of that node.
-- [ ] 3.5 Node store `~/.app-factory/skills/store/sha256-*` (download to `tmp/`, verify, atomic rename, read-only),
-  per-run view, drivers install from the view; GC of unused entries; `skills_root` removed.
+- [x] 3.1 Skill blobs in `internal/blobstore` keyed by `skills.Hash` (tar of the directory, deterministic);
+  reserved scope `factory` for built-in skills. Done: `skills.Pack`/`Unpack`/`ReadFile` (deterministic tar, verified unpack), blobs of scope `factory` or the company; the index maps a skill hash to its blob (migration 0016).
+- [x] 3.2 Built-in source: the release's default skills indexed at Core start; templates and presets use
+  `source: factory` instead of `../../skills/...`. Done: `Core.IndexBuiltinSkills` at catalog load; categories moved into the built-in SKILL.md frontmatter (`metadata.categories`); templates and seeds use `{source: factory}` (hash resolved from the index; offline from the checkout, `config.DiskSkills`).
+- [x] 3.3 Loader: installed skills by source and hash; Core reads served from blobs; `skill_hashes` pinned from the
+  installed hashes; `path:` entries removed. Done: `skills.Registry` holds installed skills (source, hash, commit, scope); `config.SkillResolver`/`LoadStoredCatalogWith`; reads via `Core.skillFile` from blobs; pins from the registry; `path:` refused.
+- [x] 3.4 `GET /runs/{run}/skills/{hash}` for signed node requests (`node-identity`), only hashes pinned on the named run
+  of that node. Done: `Core.runSkill` behind the node gateway (only hashes pinned on the run; the gateway refuses another node's run).
+- [x] 3.5 Node store `~/.app-factory/skills/store/sha256-*` (download to `tmp/`, verify, atomic rename, read-only),
+  per-run view, drivers install from the view; GC of unused entries; `skills_root` removed. Done: `worker.storedSkill` (store under `<state_dir>/skills/store`, not `~/.app-factory`: one store per node state, testable), per-run view, `GCSkillStore` (14 days, at start and daily), `skills_root` and `LoadSkills` removed; an unpinned skill is skipped with a warning; `TestSkillsPinned`, `TestPackUnpack`, `TestDiscoverAndIndex`.
 
 ## 4. Sources and indexer
 - [ ] 4.1 Schema: `skill_sources`, `skill_index`, source sync jobs.

@@ -1,16 +1,19 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"appfactory/internal/driver/fake"
 	"appfactory/internal/node/sessions"
 	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
+	"appfactory/internal/storage"
 )
 
 // TestResumePolicy: a run resumes its session only when this node ran it for the same
@@ -68,57 +71,62 @@ func TestResumePolicy(t *testing.T) {
 	}
 }
 
-// skillRegistry is a factory root with the openspec skill registered.
-func skillRegistry(t *testing.T) (*skills.Registry, string) {
+// indexedSkill packs an openspec skill and indexes it in the store's default company (source test), as Core does
+// for an installed skill; it returns the content hash.
+func indexedSkill(t *testing.T, s *storage.Store, body string) string {
 	t.Helper()
-	root := t.TempDir()
-	for p, data := range map[string]string{
-		"configs/skills.yaml":                 "skills:\n  openspec:\n    path: ../skills/openspec/SKILL.md\n    description: Specs.\n    categories: [planning]\n",
-		"skills/openspec/SKILL.md":            "---\nname: openspec\ndescription: Specs.\n---\nbody\n",
-		"skills/openspec/references/guide.md": "guide\n",
-	} {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, p)), 0o755); err != nil {
+	dir := filepath.Join(t.TempDir(), "openspec")
+	for p, data := range map[string]string{"SKILL.md": "---\nname: openspec\ndescription: Specs.\n---\n" + body + "\n", "references/guide.md": "guide\n"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, p), []byte(data), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(data), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	r, err := skills.Load(filepath.Join(root, "configs"))
-	if err != nil {
+	idx, err := skills.Index(dir)
+	if err != nil || len(idx) != 1 || idx[0].Error != "" {
+		t.Fatal(idx, err)
+	}
+	ctx := context.Background()
+	if err = s.SaveSkillSource(ctx, storage.SkillSource{Scope: storage.DefaultCompany, ID: "test", Kind: storage.SkillSourceUpload}); err != nil {
 		t.Fatal(err)
 	}
-	dir, _ := r.Dir("openspec")
-	hash, err := skills.Hash(dir)
-	if err != nil {
+	if _, err = s.IndexSkills(ctx, storage.DefaultCompany, "test", "c1", idx); err != nil {
 		t.Fatal(err)
 	}
-	return r, hash
+	return idx[0].Hash
 }
 
-// TestSkillsPinned: offered skills reach the driver as a verified copy; a pinned hash that
-// differs from the node's skill, or a skill the node lacks, fails the run before the runtime starts.
+// TestSkillsPinned (skill-registry 3.4, 3.5): an offered skill's pinned hash is downloaded from Core into the node's
+// store, verified and copied into the run's view the driver installs from; a second run uses the store; a skill
+// without a pin is skipped; a malformed pin or a hash Core does not hold fails the run before the runtime starts.
 func TestSkillsPinned(t *testing.T) {
-	registry, hash := skillRegistry(t)
-	snapshot := func(pin string) stored {
+	store := t.TempDir()
+	var hash string
+	index := withStore(func(s *storage.Store) { hash = indexedSkill(t, s, "body") })
+	pin := func(p func() string) stored {
 		return func(s *protocol.RunSpec) {
-			s.ConfigSnapshot, _ = json.Marshal(map[string]any{"skill_hashes": map[string]string{"openspec": pin}})
+			s.ConfigSnapshot, _ = json.Marshal(map[string]any{"skill_hashes": map[string]string{"openspec": p()}})
 		}
 	}
 	offer := func(names ...string) func(*protocol.RunSpec) { return func(s *protocol.RunSpec) { s.Skills = names } }
-	for name, c := range map[string]struct {
+	foreign := "sha256:" + strings.Repeat("0", 64)
+	for _, c := range []struct {
+		name   string
 		mods   []any
 		status string
 		result string
 	}{
-		"pinned":   {[]any{snapshot(hash), offer("openspec")}, "succeeded", "ok"},
-		"unpinned": {[]any{offer("openspec")}, "succeeded", "ok"},
-		"mismatch": {[]any{snapshot("sha256:0000"), offer("openspec")}, "setup_failed", "differs from the run's pinned sha256:0000"},
-		"missing":  {[]any{offer("openspec", "absent")}, "setup_failed", "absent is not in this node's skills registry"},
+		{"pinned", []any{index, pin(func() string { return hash }), offer("openspec")}, "succeeded", "ok"},
+		{"from the store", []any{index, pin(func() string { return hash }), offer("openspec")}, "succeeded", "ok"},
+		{"unpinned", []any{index, offer("openspec")}, "succeeded", "ok"},
+		{"malformed", []any{index, pin(func() string { return "sha256:0000" }), offer("openspec")}, "setup_failed", "invalid skill hash"},
+		{"foreign hash", []any{index, pin(func() string { return foreign }), offer("openspec")}, "setup_failed", "download from Core"},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(c.name, func(t *testing.T) {
 			d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}
-			r, _ := runDriver(t, Worker{Driver: d, Skills: registry}, false, c.mods...)
+			r, _ := runDriver(t, Worker{Driver: d, SkillStore: store}, false, c.mods...)
 			if r.Outcome != c.status || !strings.Contains(r.Result, c.result) {
 				t.Fatalf("%s: %q", r.Outcome, r.Result)
 			}
@@ -129,12 +137,29 @@ func TestSkillsPinned(t *testing.T) {
 				}
 				return
 			}
+			if c.name == "unpinned" { // skipped with a warning, the run goes on without it
+				if len(l) != 1 || len(l[0].Skills) != 0 {
+					t.Fatalf("launch skills %+v", l)
+				}
+				return
+			}
 			if len(l) != 1 || len(l[0].Skills) != 1 || l[0].Skills[0].Name != "openspec" || l[0].Skills[0].Hash != hash || l[0].SkillsRoot == "" {
 				t.Fatalf("launch skills %+v in %q", l[0].Skills, l[0].SkillsRoot)
 			}
+			stored := filepath.Join(store, "store", "sha256-"+strings.TrimPrefix(hash, "sha256:"))
+			if info, err := os.Stat(filepath.Join(stored, "SKILL.md")); err != nil || info.Mode().Perm() != 0o444 {
+				t.Fatal("not in the read-only store", err)
+			}
 			if _, err := os.Stat(l[0].SkillsRoot); !os.IsNotExist(err) {
-				t.Fatalf("staged skills left after the run: %v", err)
+				t.Fatal("the run's view outlived the run", err)
 			}
 		})
+	}
+	// The GC removes entries unused for long, never kept ones.
+	if n, err := GCSkillStore(store, time.Hour, map[string]bool{hash: true}); err != nil || n != 0 {
+		t.Fatal(n, err)
+	}
+	if n, err := GCSkillStore(store, -time.Second, nil); err != nil || n != 1 {
+		t.Fatal(n, err)
 	}
 }

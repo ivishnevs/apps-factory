@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"time"
 
-	"appfactory/internal/config"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/claude"
 	"appfactory/internal/driver/codex"
@@ -19,7 +18,6 @@ import (
 	"appfactory/internal/node/janitor"
 	"appfactory/internal/node/sessions"
 	"appfactory/internal/protocol"
-	"appfactory/internal/skills"
 	"appfactory/internal/worker"
 	"appfactory/internal/workspace"
 )
@@ -79,40 +77,8 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS), Box: keys.Box})
 }
 
-// SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml for the default
-// company, configs/<company>/skills.yaml for another) is the node's skills registry.
-func SkillsRoot(c node.Config) string {
-	switch {
-	case c.SkillsRoot != "":
-		return c.SkillsRoot
-	case c.BinDir != "":
-		return filepath.Join(c.BinDir, "..")
-	}
-	return "."
-}
-
-// LoadSkills loads the node's skills registry, the skills.yaml of its company's catalog under SkillsRoot (the
-// same file Core pins hashes from); nil (logged) when there is none, so runs start without materialized skills.
-func LoadSkills(c node.Config) (*skills.Registry, error) {
-	root, err := filepath.Abs(SkillsRoot(c))
-	if err != nil {
-		return nil, err
-	}
-	rel, err := config.CompanyDir(c.Company)
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Join(root, rel)
-	if _, err = os.Stat(filepath.Join(dir, skills.File)); errors.Is(err, os.ErrNotExist) {
-		slog.Warn("no skills registry; runs get no materialized skills", "skills_root", root, "catalog", rel)
-		return nil, nil
-	}
-	r, err := skills.Load(dir)
-	if err != nil {
-		return nil, fmt.Errorf("skills registry %s: %w", filepath.Join(dir, skills.File), err)
-	}
-	return r, nil
-}
+// SkillStoreMaxAge is how long a stored skill stays unused before the GC removes it.
+var SkillStoreMaxAge = 14 * 24 * time.Hour
 
 // Node is a connected node process.
 type Node struct {
@@ -165,13 +131,29 @@ func Run(ctx context.Context, n Node) error {
 			return err
 		}
 	}
-	registry, err := LoadSkills(c)
-	if err != nil {
-		return err
+	// Skills pinned on runs come from Core by hash into the node's store (skill-registry D8); unused ones age out.
+	skillStore := filepath.Join(c.StateDir, "skills")
+	if n, err := worker.GCSkillStore(skillStore, SkillStoreMaxAge, nil); err != nil {
+		slog.Warn("skill store GC", "error", err)
+	} else if n > 0 {
+		slog.Info("skill store GC", "removed", n)
 	}
+	var err error
 	store := sessions.Open(c.StateDir)
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
+	go func(ctx context.Context) {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				_, _ = worker.GCSkillStore(skillStore, SkillStoreMaxAge, nil) // a live run's skills were used recently
+			}
+		}
+	}(ctx)
 	company := c.Company // a v2 node checks it against its token's company in the register answer below
 	if company == "" {
 		company = node.DefaultCompany
@@ -230,7 +212,7 @@ func Run(ctx context.Context, n Node) error {
 	names := []string{}
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Events: events, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
-			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv, ProjectsRoot: c.ProjectsRoot, Box: n.Box}
+			SkillStore: skillStore, Sessions: store, EnvAllow: c.RuntimeEnv, ProjectsRoot: c.ProjectsRoot, Box: n.Box}
 		if c.StateDir != "" {
 			w.BlobCache = filepath.Join(c.StateDir, "blobs") // project data by digest, shared by the slots
 		}

@@ -29,7 +29,7 @@ func fixture(t *testing.T) string {
 	for _, n := range []string{"first", "second"} {
 		put(t, root, "skills/"+n+"/SKILL.md", "---\nname: "+n+"\ndescription: A sample skill\n---\nSECRET_SKILL_BODY\n")
 	}
-	put(t, root, "configs/skills.yaml", "skills:\n  first:\n    path: ../skills/first/SKILL.md\n    description: First skill\n    categories: [testing]\n  second:\n    path: ../skills/second/SKILL.md\n    description: Second skill\n    categories: [planning]\n")
+	put(t, root, "configs/skills.yaml", "skills:\n  first:\n    source: factory\n    description: First skill\n    categories: [testing]\n  second:\n    source: factory\n    description: Second skill\n    categories: [planning]\n")
 	put(t, root, "configs/teams/main.yaml", "apiVersion: factory/v1\nkind: Team\nmetadata:\n  name: main\nspec:\n  lead: agent\n")
 	put(t, root, "configs/profiles/base.yaml", `apiVersion: factory/v1
 kind: AgentProfile
@@ -632,7 +632,8 @@ func TestCatalogFromFS(t *testing.T) {
 			t.Fatalf("%s: %q", name, a.Instructions)
 		}
 	}
-	if body, err := stored.Skills.Read("first", ""); err != nil || !strings.Contains(body, "SECRET_SKILL_BODY") {
-		t.Fatal(body, err)
+	// Built-in skills resolve from the checkout's skills/ (content hash and directory).
+	if s := stored.Skills.Skills["first"]; s.Hash == "" || s.Dir != filepath.Join(root, "skills", "first") || s.Description != "First skill" {
+		t.Fatalf("%+v", s)
 	}
 }

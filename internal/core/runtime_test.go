@@ -128,11 +128,7 @@ func TestSkillHashesPinnedOnTheRun(t *testing.T) {
 		t.Fatalf("offered %v, pinned %v", run.Spec.Skills, snap.SkillHashes)
 	}
 	for _, name := range run.Spec.Skills {
-		dir, err := h.c.Skills.Dir(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want, err := skills.Hash(dir)
+		want, err := skills.Hash(h.c.Skills.Skills[name].Dir)
 		if err != nil || snap.SkillHashes[name] != want || !strings.HasPrefix(want, skills.HashPrefix) {
 			t.Fatalf("%s pinned %q, content %q (%v)", name, snap.SkillHashes[name], want, err)
 		}

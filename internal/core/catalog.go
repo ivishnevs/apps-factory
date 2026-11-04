@@ -71,7 +71,10 @@ func (c *Core) companies() []string {
 
 // loadCatalog loads company's documents as its catalog (validation is the same load).
 func (c *Core) loadCatalog(company string, docs map[string]string) (*config.Catalog, error) {
-	return config.LoadStoredCatalog(c.Root, company, docs)
+	if c.Store == nil {
+		return config.LoadStoredCatalog(c.Root, company, docs)
+	}
+	return config.LoadStoredCatalogWith(c.Root, company, docs, c.resolveSkill)
 }
 
 // LoadCatalogs loads the current stored catalog of every company that has one, seeding Core's own company
@@ -79,6 +82,10 @@ func (c *Core) loadCatalog(company string, docs map[string]string) (*config.Cata
 func (c *Core) LoadCatalogs(ctx context.Context) error {
 	if c.Root == "" {
 		return nil
+	}
+	// Installed skills resolve against the index, so the built-in skills are indexed first (skill-registry D4).
+	if err := c.IndexBuiltinSkills(ctx); err != nil {
+		return fmt.Errorf("indexing the built-in skills: %w", err)
 	}
 	if _, err := c.Store.CurrentCatalog(ctx, c.company()); errors.Is(err, storage.ErrNotFound) {
 		if err = c.SeedCatalog(ctx, c.company()); err != nil {

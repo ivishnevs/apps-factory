@@ -60,7 +60,7 @@ func (c *Core) configRoutes(m *http.ServeMux) {
 			http.Error(w, "skill not available to agent", 403)
 			return
 		}
-		content, err := c.cat(c.companyFrom(r)).Skills.Read(name, r.URL.Query().Get("resource"))
+		content, err := c.skillFile(r.Context(), c.companyFrom(r), name, r.URL.Query().Get("resource"))
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return

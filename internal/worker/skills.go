@@ -1,12 +1,18 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"appfactory/internal/driver"
 	"appfactory/internal/node/sessions"
@@ -14,14 +20,13 @@ import (
 	"appfactory/internal/skills"
 )
 
-// SkillError refuses a run before the runtime starts: an offered skill is missing from the node's
-// registry, cannot be copied, or its content differs from the hash pinned on the run.
+// SkillError refuses a run before the runtime starts: an offered skill is not pinned, cannot be downloaded, or its
+// content differs from the hash pinned on the run.
 type SkillError struct{ Msg string }
 
 func (e *SkillError) Error() string { return "skills: " + e.Msg }
 
-// pinnedSkills are the skill hashes recorded on the run. Core does not record them yet; the agent
-// snapshot's "skill_hashes" ({name: "sha256:..."}) is read when present.
+// pinnedSkills are the skill hashes Core recorded on the run (agent snapshot "skill_hashes").
 func pinnedSkills(spec protocol.RunSpec) (map[string]string, error) {
 	var snap struct {
 		SkillHashes map[string]string `json:"skill_hashes"`
@@ -34,16 +39,11 @@ func pinnedSkills(spec protocol.RunSpec) (map[string]string, error) {
 	return snap.SkillHashes, nil
 }
 
-// stageSkills copies the run's offered skills from the node's registry into a new directory outside
-// the workspace (root/<name>) and verifies each copy against the hash pinned on the run; a skill
-// without a pin is materialized with its computed hash logged. root is "" when nothing is staged;
-// the caller removes it.
-func (w *Worker) stageSkills(spec protocol.RunSpec) (root string, list []driver.Skill, err error) {
+// stageSkills builds the run's view of its skills (skill-registry D8): each offered skill's pinned hash is taken
+// from the node's store (downloaded from Core on first use and verified) and copied to root/<name>, a new directory
+// outside the workspace the drivers install from; the caller removes it. root is "" when nothing is staged.
+func (w *Worker) stageSkills(ctx context.Context, spec protocol.RunSpec) (root string, list []driver.Skill, err error) {
 	if len(spec.Skills) == 0 {
-		return "", nil, nil
-	}
-	if w.Skills == nil {
-		slog.Warn("skills not materialized: no local skills registry", "run", spec.ID, "skills", spec.Skills)
 		return "", nil, nil
 	}
 	pins, err := pinnedSkills(spec)
@@ -65,23 +65,128 @@ func (w *Worker) stageSkills(spec protocol.RunSpec) (root string, list []driver.
 		if !skills.ValidName(name) {
 			return root, nil, &SkillError{fmt.Sprintf("invalid skill name %q", name)}
 		}
-		src, e := w.Skills.Dir(name)
+		pin := pins[name]
+		if pin == "" { // Core pinned nothing (no skill index): the node has no content to take
+			slog.Warn("skill not materialized: no content hash pinned on the run", "run", spec.ID, "skill", name)
+			continue
+		}
+		src, e := w.storedSkill(ctx, spec.ID, pin)
 		if e != nil {
-			return root, nil, &SkillError{fmt.Sprintf("%s is not in this node's skills registry (%s)", name, w.Skills.Root)}
+			return root, nil, &SkillError{fmt.Sprintf("%s: %v", name, e)}
 		}
 		hash, e := skills.Copy(src, filepath.Join(root, name))
 		if e != nil {
 			return root, nil, &SkillError{fmt.Sprintf("%s: %v", name, e)}
 		}
-		switch pin := pins[name]; {
-		case pin == "":
-			slog.Info("skill hash not pinned on the run; materialized as computed", "run", spec.ID, "skill", name, "hash", hash)
-		case pin != hash:
-			return root, nil, &SkillError{fmt.Sprintf("%s content hash %s differs from the run's pinned %s; update the node's skills (%s) or rerun with the current skills", name, hash, pin, w.Skills.Root)}
+		if hash != pin {
+			return root, nil, &SkillError{fmt.Sprintf("%s content hash %s differs from the run's pinned %s", name, hash, pin)}
 		}
 		list = append(list, driver.Skill{Name: name, Hash: hash})
 	}
 	return root, list, nil
+}
+
+func (w *Worker) skillStore() string {
+	if w.SkillStore != "" {
+		return w.SkillStore
+	}
+	return filepath.Join(os.TempDir(), "factory-skill-store")
+}
+
+// storedSkill is the store directory of hash, downloaded from Core for run when missing: unpacked into tmp/,
+// verified against hash, renamed into store/sha256-<hex> and made read-only; its use is recorded for the GC.
+func (w *Worker) storedSkill(ctx context.Context, run, hash string) (string, error) {
+	hex, ok := strings.CutPrefix(hash, skills.HashPrefix)
+	if !ok || len(hex) != 64 || strings.Trim(hex, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("invalid skill hash %q", hash)
+	}
+	store := w.skillStore()
+	dir := filepath.Join(store, "store", "sha256-"+hex)
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err == nil {
+		now := time.Now()
+		_ = os.Chtimes(dir, now, now)
+		return dir, nil
+	}
+	if err := os.MkdirAll(filepath.Join(store, "tmp"), 0o700); err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp(filepath.Join(store, "tmp"), "skill-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+	body, err := w.API.Get(ctx, "/runs/"+run+"/skills/"+hash)
+	if err != nil {
+		return "", fmt.Errorf("download from Core: %w", err)
+	}
+	defer body.Close()
+	got, err := skills.Unpack(io.LimitReader(body, 32<<20), filepath.Join(tmp, "skill"))
+	if err != nil {
+		return "", err
+	}
+	if got != hash {
+		return "", fmt.Errorf("downloaded content hash %s differs from %s", got, hash)
+	}
+	if err = os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return "", err
+	}
+	if err = os.Rename(filepath.Join(tmp, "skill"), dir); err != nil {
+		if _, e := os.Stat(filepath.Join(dir, "SKILL.md")); e == nil { // another slot stored it meanwhile
+			return dir, nil
+		}
+		return "", err
+	}
+	// Immutable once in place (a read-only directory cannot be renamed on every system).
+	return dir, readOnly(dir)
+}
+
+// readOnly makes a stored skill immutable: files 0444, directories 0555.
+func readOnly(dir string) error {
+	var dirs []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, p)
+			return nil
+		}
+		return os.Chmod(p, 0o444)
+	})
+	for i := len(dirs) - 1; i >= 0 && err == nil; i-- {
+		err = os.Chmod(dirs[i], 0o555)
+	}
+	return err
+}
+
+// GCSkillStore removes stored skills not used for maxAge, except the hashes in keep (pinned by live runs).
+func GCSkillStore(store string, maxAge time.Duration, keep map[string]bool) (int, error) {
+	entries, err := os.ReadDir(filepath.Join(store, "store"))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range entries {
+		hash := skills.HashPrefix + strings.TrimPrefix(e.Name(), "sha256-")
+		info, err := e.Info()
+		if err != nil || keep[hash] || time.Since(info.ModTime()) < maxAge {
+			continue
+		}
+		p := filepath.Join(store, "store", e.Name())
+		_ = filepath.WalkDir(p, func(q string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				_ = os.Chmod(q, 0o755)
+			}
+			return nil
+		})
+		if err = os.RemoveAll(p); err == nil {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // FreshSessionNote starts the prompt of a run that does not resume its session.

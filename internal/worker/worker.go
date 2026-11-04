@@ -29,7 +29,6 @@ import (
 	"appfactory/internal/policies"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
-	"appfactory/internal/skills"
 	"appfactory/internal/storage"
 	"appfactory/internal/workspace"
 
@@ -116,6 +115,34 @@ var (
 	deadlineClient = &http.Client{}
 )
 
+// Get fetches path's raw body (a skill's packed content, a blob); the caller closes it.
+func (a API) Get(ctx context.Context, path string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.URL, "/")+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err = a.authorize(req, nil); err != nil {
+		return nil, err
+	}
+	client := a.Client
+	if client == nil {
+		client = defaultClient
+		if _, ok := ctx.Deadline(); ok {
+			client = deadlineClient
+		}
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		defer res.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return nil, &HTTPError{res.StatusCode, string(b)}
+	}
+	return res.Body, nil
+}
+
 type HTTPError struct {
 	Status  int
 	Message string
@@ -154,9 +181,9 @@ type Worker struct {
 	// RunStopped, when set, is called once a claimed run has ended, with its worktree path ("" outside a
 	// worktree); the node's janitor runs on_run_stop hooks there.
 	RunStopped func(spec protocol.RunSpec, worktree string)
-	// Skills is the node's local skills registry; a run's offered skills are copied from it and verified
-	// against the hashes pinned on the run. nil runs without materialized skills (logged).
-	Skills *skills.Registry
+	// SkillStore is the node's skill store (skill-registry D8: <state_dir>/skills): skills pinned on a run are
+	// downloaded from Core by hash into it once and copied into each run's view; "" uses a temporary store.
+	SkillStore string
 	// Sessions records the sessions this node ran (ResumePolicy); nil resumes spec.SessionID as given.
 	Sessions *sessions.Store
 	// AuthFailed, when set, is called when a run ends on the runtime's authentication failure
@@ -457,7 +484,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return emit("failed", protocol.Event{Status: ended, Result: "OpenSpec change " + spec.OpenSpecChange + " is not on the task's checkout (merge its proposal to the default branch first, or fix the task's openspec_change): " + e.Error(), Outcome: outcomeChangeMissing})
 		}
 	}
-	skillsRoot, skillList, err := w.stageSkills(spec)
+	skillsRoot, skillList, err := w.stageSkills(ctx, spec)
 	var skillErr *SkillError
 	if errors.As(err, &skillErr) {
 		return emit("failed", protocol.Event{Status: ended, Result: skillErr.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})

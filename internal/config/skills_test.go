@@ -30,17 +30,15 @@ spec:
 `)
 }
 
-// TestSkillsPerCompany: each company's skills registry is its catalog's skills.yaml (configs/<company>/skills.yaml,
-// configs/skills.yaml for the default company), with SKILL.md paths relative to that directory or absolute (outside
-// the factory root); companies do not see each other's skills and there is no fallback to configs/skills.yaml.
+// TestSkillsPerCompany (skill-registry D5, D9): each company's skills.yaml lists its installed skills by source and
+// hash (built-in ones resolve from the release); companies do not see each other's skills; a skill of another source
+// needs its hash; old path: entries are refused; a scoped skill is refused to agents outside its scope and not
+// discovered by them.
 func TestSkillsPerCompany(t *testing.T) {
 	root := fixture(t)
-	outside := t.TempDir() // e.g. a skills checkout outside the factory root
-	put(t, outside, "external/SKILL.md", "---\nname: external\ndescription: External skill\n---\nEXTERNAL\n")
-	put(t, outside, "external/references/guide.md", "GUIDE")
-	put(t, root, "configs/acme/skills/brand/SKILL.md", "---\nname: brand\ndescription: Brand skill\n---\nBRAND\n")
-	put(t, root, "configs/acme/skills.yaml", "skills:\n  brand:\n    path: skills/brand/SKILL.md\n    description: Brand voice\n    categories: [acme]\n  external:\n    path: "+filepath.Join(outside, "external", "SKILL.md")+"\n    description: External\n    categories: [acme]\n")
-	acmeAgent(t, root, "brand, external")
+	hash := "sha256:" + strings.Repeat("ab", 32)
+	put(t, root, "configs/acme/skills.yaml", "skills:\n  brand:\n    source: acme-skills\n    hash: "+hash+"\n    description: Brand voice\n    categories: [acme]\n  first:\n    source: factory\n")
+	acmeAgent(t, root, "brand, first")
 
 	def, err := LoadCatalog(root)
 	if err != nil {
@@ -50,41 +48,41 @@ func TestSkillsPerCompany(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(acme.Agents["agent"].AvailableSkills, ","); got != "brand,external" {
+	if got := strings.Join(acme.Agents["agent"].AvailableSkills, ","); got != "brand,first" {
 		t.Fatal("acme agent skills", got)
-	}
-	if _, ok := acme.Skills.Skills["first"]; ok {
-		t.Fatal("acme sees the default company's skill")
 	}
 	if _, ok := def.Skills.Skills["brand"]; ok || len(def.Skills.Skills) != 2 {
 		t.Fatal("the default company sees acme's skill", def.Skills.Skills)
 	}
-	if body, err := acme.Skills.Read("brand", ""); err != nil || !strings.Contains(body, "BRAND") {
-		t.Fatal(body, err)
-	}
-	if body, err := acme.Skills.Read("external", "references/guide.md"); err != nil || body != "GUIDE" {
-		t.Fatal(body, err)
-	}
-	if dir, err := acme.Skills.Dir("external"); err != nil || dir != filepath.Join(outside, "external") {
-		t.Fatal(dir, err)
-	}
-	if pins, err := acme.Skills.Pins([]string{"brand", "external"}); err != nil || len(pins) != 2 {
-		t.Fatal(pins, err)
+	if pins := acme.Skills.Pins([]string{"brand", "first"}); pins["brand"] != hash || pins["first"] != def.Skills.Skills["first"].Hash || pins["first"] == "" {
+		t.Fatal(pins)
 	}
 
-	// A skill of another company is unknown here.
-	acmeAgent(t, root, "first")
-	if _, err = LoadCompanyCatalog(root, "acme"); err == nil || !strings.Contains(err.Error(), "unknown skill first") {
-		t.Fatal(err)
+	for name, yaml := range map[string]string{
+		"path entry":      "skills:\n  brand:\n    path: skills/brand/SKILL.md\n    description: x\n",
+		"no hash":         "skills:\n  brand:\n    source: acme-skills\n",
+		"no source":       "skills:\n  brand:\n    hash: " + hash + "\n",
+		"bad scope":       "skills:\n  brand:\n    source: acme-skills\n    hash: " + hash + "\n    scope: everyone\n",
+		"unknown builtin": "skills:\n  nope:\n    source: factory\n",
+	} {
+		put(t, root, "configs/acme/skills.yaml", yaml)
+		acmeAgent(t, root, "")
+		if _, err = LoadCompanyCatalog(root, "acme"); err == nil {
+			t.Errorf("%s accepted", name)
+		}
 	}
-	// A registered skill whose SKILL.md is missing fails loading.
+
+	// Scope: a team-scoped skill is refused to another team's agent and not discovered by it.
+	put(t, root, "configs/acme/skills.yaml", "skills:\n  brand:\n    source: acme-skills\n    hash: "+hash+"\n    categories: [acme]\n    scope: team:other\n")
 	acmeAgent(t, root, "brand")
-	if err = os.Remove(filepath.Join(root, "configs/acme/skills/brand/SKILL.md")); err != nil {
+	if _, err = LoadCompanyCatalog(root, "acme"); err == nil || !strings.Contains(err.Error(), "scoped to team:other") {
 		t.Fatal(err)
 	}
-	if _, err = LoadCompanyCatalog(root, "acme"); err == nil || !strings.Contains(err.Error(), "skill brand") {
+	put(t, root, "configs/acme/skills.yaml", "skills:\n  brand:\n    source: acme-skills\n    hash: "+hash+"\n    categories: [acme]\n    scope: team:main\n")
+	if acme, err = LoadCompanyCatalog(root, "acme"); err != nil || strings.Join(acme.Agents["agent"].AvailableSkills, ",") != "brand" {
 		t.Fatal(err)
 	}
+
 	// No skills.yaml: the company has no skills (no fallback to configs/skills.yaml).
 	if err = os.Remove(filepath.Join(root, "configs/acme/skills.yaml")); err != nil {
 		t.Fatal(err)

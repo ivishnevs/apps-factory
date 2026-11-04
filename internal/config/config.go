@@ -292,7 +292,6 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 		return nil, err
 	}
 	dir = filepath.ToSlash(dir)
-	root := src.root
 	c := &Catalog{Agents: map[string]Agent{}, Profiles: map[string]Agent{}}
 	registry := path.Join(dir, skills.File)
 	var data []byte
@@ -301,8 +300,15 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 			return nil, err
 		}
 	}
-	c.Skills, err = skills.Parse(filepath.Join(root, filepath.FromSlash(dir)), data, data != nil)
+	c.Skills, err = skills.Parse(data, data != nil)
 	if err != nil {
+		return nil, err
+	}
+	resolve := src.resolve
+	if resolve == nil {
+		resolve = DiskSkills(src.root) // a checkout's catalog: the built-in skills next to it
+	}
+	if err = resolveSkills(company, c.Skills, resolve); err != nil {
 		return nil, err
 	}
 	if c.QuotaKeys, err = loadQuotaKeys(src, dir); err != nil {
@@ -682,8 +688,12 @@ func (c *Catalog) finish(src source, a *Agent) error {
 		}
 	}
 	for _, n := range a.Spec.Skills.Include {
-		if _, ok := c.Skills.Skills[n]; !ok {
+		sk, ok := c.Skills.Skills[n]
+		if !ok {
 			return fmt.Errorf("unknown skill %s", n)
+		}
+		if !sk.InScope(a.Spec.Team, a.Metadata.Name) {
+			return fmt.Errorf("skill %s is scoped to %s, not this agent (team %s)", n, sk.Scope, a.Spec.Team)
 		}
 	}
 	if a.MCPServers, err = c.agentMCP(*a); err != nil {
@@ -692,7 +702,7 @@ func (c *Catalog) finish(src source, a *Agent) error {
 	if err = validSecrets(*a); err != nil {
 		return err
 	}
-	a.AvailableSkills = c.Skills.Available(a.Spec.Skills.Include, a.Spec.Skills.Discover.Enabled, a.Spec.Skills.Discover.Categories)
+	a.AvailableSkills = c.Skills.Available(a.Spec.Skills.Include, a.Spec.Skills.Discover.Enabled, a.Spec.Skills.Discover.Categories, a.Spec.Team, a.Metadata.Name)
 	selected := map[string]bool{}
 	for _, n := range a.Spec.Policies {
 		if _, ok := c.Policies[n]; !ok {

@@ -1,6 +1,8 @@
 ---
 name: openspec
 description: Work with a project's OpenSpec specifications and changes in its repository.
+metadata:
+  categories: planning, documentation
 ---
 
 Read the relevant project specification and active change before changing behavior.

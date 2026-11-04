@@ -25,14 +25,11 @@ func (c *Core) RunSnapshot(a config.Agent) (json.RawMessage, string, error) {
 // RunSnapshotIn is RunSnapshot with company's skills registry.
 func (c *Core) RunSnapshotIn(company string, a config.Agent) (json.RawMessage, string, error) {
 	if reg := c.cat(company).Skills; reg != nil && len(a.AvailableSkills) > 0 {
-		a.SkillHashes = map[string]string{}
+		a.SkillHashes = reg.Pins(a.AvailableSkills)
 		for _, name := range a.AvailableSkills {
-			pin, err := reg.Pins([]string{name})
-			if err != nil {
-				slog.Warn("skill hash not pinned", "agent", a.Metadata.Name, "skill", name, "error", err)
-				continue
+			if a.SkillHashes[name] == "" {
+				slog.Warn("skill hash not pinned", "agent", a.Metadata.Name, "skill", name)
 			}
-			a.SkillHashes[name] = pin[name]
 		}
 	}
 	snapshot, err := json.Marshal(a)

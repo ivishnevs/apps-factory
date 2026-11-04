@@ -92,6 +92,7 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 		reply(w, map[string]string{"status": status}, err)
 	})
 	m.HandleFunc("POST /runs/{id}/claim", c.claim)
+	m.HandleFunc("GET /runs/{id}/skills/{hash}", c.runSkill)
 	// Owner: removing a replaced machine.
 	m.HandleFunc("DELETE /nodes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RemoveNode(r.Context(), c.companyFrom(r), r.PathValue("id")))
@@ -110,7 +111,7 @@ func nodeRoute(r *http.Request) bool {
 	case post && len(parts) == 2 && parts[0] == "nodes" && parts[1] == "register":
 	case post && len(parts) == 3 && parts[0] == "nodes" && (parts[2] == "heartbeat" || parts[2] == "keys" || parts[2] == "poll"):
 	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"claim", "start", "workspace", "credential", "project-setup", "events"}, parts[2]):
-	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && parts[2] == "blobs":
+	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && (parts[2] == "blobs" || parts[2] == "skills"):
 	case r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
 	default:
 		return false

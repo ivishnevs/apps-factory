@@ -230,6 +230,11 @@ func fileExists(p string) bool {
 // LoadStoredCatalog loads company's stored documents over the factory root at root (the catalog of a version;
 // its validation is this load).
 func LoadStoredCatalog(root, company string, docs map[string]string) (*Catalog, error) {
+	return LoadStoredCatalogWith(root, company, docs, nil)
+}
+
+// LoadStoredCatalogWith is LoadStoredCatalog with installed skills completed by resolve (Core's skill index).
+func LoadStoredCatalogWith(root, company string, docs map[string]string, resolve SkillResolver) (*Catalog, error) {
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return nil, err
@@ -239,5 +244,5 @@ func LoadStoredCatalog(root, company string, docs map[string]string) (*Catalog, 
 	if err != nil {
 		return nil, err
 	}
-	return LoadCompanyCatalogFS(fsys, root, company)
+	return loadCompanyCatalog(source{fsys: fsys, root: root, resolve: resolve}, company)
 }

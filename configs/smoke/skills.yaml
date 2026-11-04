@@ -1,6 +1,3 @@
-# Skills registry of company smoke (configs/smoke/): paths to SKILL.md are relative to this directory or absolute.
+# Installed skills of company smoke (skill-registry D5): Factory's built-in skills, contents in Core's index.
 skills:
-  openspec:
-    path: ../../skills/openspec/SKILL.md
-    description: Read project specifications and keep implementation changes aligned with OpenSpec.
-    categories: [planning, documentation]
+  openspec: {source: factory}

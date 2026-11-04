@@ -3,25 +3,37 @@ package skills
 import (
 	"appfactory/internal/configfile"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
+// BuiltinSource is the source of Factory's own skills, indexed by Core from the release (skill-registry D2).
+const BuiltinSource = "factory"
+
+// Skill is an installed skill of a company's catalog (skill-registry D5): its source and content hash, the commit
+// it came from, an optional scope, and description and categories from the index unless set here.
 type Skill struct {
-	Path        string   `yaml:"path" json:"path"`
-	Description string   `yaml:"description" json:"description"`
-	Categories  []string `yaml:"categories" json:"categories"`
+	Source string `yaml:"source" json:"source"`
+	// Hash is the skill's content (Hash); optional for the built-in source, whose current version is used then.
+	Hash   string `yaml:"hash" json:"hash,omitempty"`
+	Commit string `yaml:"commit" json:"commit,omitempty"`
+	// Scope: "" (every agent), "team:<name>" or "agent:<name>" (D9).
+	Scope       string   `yaml:"scope" json:"scope,omitempty"`
+	Description string   `yaml:"description" json:"description,omitempty"`
+	Categories  []string `yaml:"categories" json:"categories,omitempty"`
+	// Dir is the skill's directory on disk when it was resolved from a release checkout (offline catalogs, tests);
+	// Core otherwise reads contents from its blobs.
+	Dir string `yaml:"-" json:"-"`
 }
+
+// Registry is a company's skills.yaml: the installed skills by name.
 type Registry struct {
 	Skills map[string]Skill `yaml:"skills"`
-	// Root is the absolute catalog directory holding skills.yaml; relative skill paths resolve against it.
-	Root string `yaml:"-"`
 }
+
 type Entry struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
@@ -31,66 +43,58 @@ type Entry struct {
 // File is the registry file name in a company catalog directory (configs/ or configs/<company>/).
 const File = "skills.yaml"
 
-// Load loads the skills registry of the catalog directory dir (dir/skills.yaml). Each skill's path is its
-// SKILL.md, absolute or relative to dir (it may lead outside dir, e.g. ../skills/x/SKILL.md). A directory
-// without skills.yaml has an empty registry: there is no fallback to another catalog's.
-func Load(dir string) (*Registry, error) {
-	p := filepath.Join(dir, File)
-	data, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
-		return Parse(dir, nil, false)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return Parse(dir, data, true)
-}
+var sourceID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
-// Parse is Load with the registry's content given (a stored catalog, company-self-service D1): data is
-// dir/skills.yaml when found; skill paths resolve against dir on disk, where skill contents live.
-func Parse(dir string, data []byte, found bool) (*Registry, error) {
-	root, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, err
-	}
-	r := &Registry{Root: root, Skills: map[string]Skill{}}
+// Parse reads skills.yaml (found: data holds it; otherwise the company has no skills). Each skill names its source
+// and, except for the built-in source, its hash; contents live in Core (skill-registry D2), not on disk.
+func Parse(data []byte, found bool) (*Registry, error) {
+	r := &Registry{Skills: map[string]Skill{}}
 	if !found {
 		return r, nil
 	}
 	if err := configfile.Decode(data, r); err != nil {
-		return nil, fmt.Errorf("%s: %w", filepath.Join(root, File), err)
+		return nil, fmt.Errorf("%s: %w (skills name their source and hash; path: entries are gone, skill-registry D2)", File, err)
 	}
-	r.Root = root
+	if r.Skills == nil {
+		r.Skills = map[string]Skill{}
+	}
 	for name, s := range r.Skills {
-		if !namePattern.MatchString(name) || strings.TrimSpace(s.Description) == "" || filepath.Base(s.Path) != "SKILL.md" {
-			return nil, fmt.Errorf("invalid skill %q", name)
-		}
-		p, err := r.main(name)
-		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", name, err)
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", name, err)
-		}
-		text := strings.ReplaceAll(string(data), "\r\n", "\n")
-		if !strings.HasPrefix(text, "---\n") {
-			return nil, fmt.Errorf("skill %s: YAML frontmatter required", name)
-		}
-		end := strings.Index(text[4:], "\n---\n")
-		if end < 0 {
-			return nil, fmt.Errorf("skill %s: invalid frontmatter", name)
-		}
-		var meta struct {
-			Name        string `yaml:"name"`
-			Description string `yaml:"description"`
-		} // Additional standard Agent Skills metadata is allowed.
-		if err := decodeMetadata([]byte(text[4:4+end]), &meta); err != nil || meta.Name != name || meta.Description == "" {
-			return nil, fmt.Errorf("skill %s: matching name and description required", name)
+		switch {
+		case !namePattern.MatchString(name):
+			return nil, fmt.Errorf("invalid skill name %q", name)
+		case !sourceID.MatchString(s.Source):
+			return nil, fmt.Errorf("skill %s: source required (%s for Factory's skills, or a source of the Skills page)", name, BuiltinSource)
+		case s.Hash == "" && s.Source != BuiltinSource:
+			return nil, fmt.Errorf("skill %s: hash required for source %s", name, s.Source)
+		case s.Hash != "" && !strings.HasPrefix(s.Hash, HashPrefix):
+			return nil, fmt.Errorf("skill %s: hash must be %s<hex>", name, HashPrefix)
+		case !validScope(s.Scope):
+			return nil, fmt.Errorf("skill %s: scope must be team:NAME or agent:NAME", name)
 		}
 	}
 	return r, nil
 }
+
+func validScope(s string) bool {
+	if s == "" {
+		return true
+	}
+	kind, name, ok := strings.Cut(s, ":")
+	return ok && (kind == "team" || kind == "agent") && sourceID.MatchString(name)
+}
+
+// InScope reports whether an agent of team may use the skill (D9).
+func (s Skill) InScope(team, agent string) bool {
+	kind, name, _ := strings.Cut(s.Scope, ":")
+	switch kind {
+	case "team":
+		return name == team
+	case "agent":
+		return name == agent
+	}
+	return true
+}
+
 func (r *Registry) Entries(names []string, query, category string) []Entry {
 	out := []Entry{}
 	for _, name := range names {
@@ -110,45 +114,18 @@ func (r *Registry) Entries(names []string, query, category string) []Entry {
 	return out
 }
 
-// main is the absolute path of name's SKILL.md: its path as is when absolute, else under Root.
-func (r *Registry) main(name string) (string, error) {
-	s, ok := r.Skills[name]
-	switch {
-	case !ok:
-		return "", fmt.Errorf("unknown skill %s", name)
-	case s.Path == "":
-		return "", fmt.Errorf("skill %s: path required", name)
-	case filepath.IsAbs(s.Path):
-		return filepath.Clean(s.Path), nil
-	}
-	return filepath.Join(r.Root, s.Path), nil
-}
-func (r *Registry) Read(name, resource string) (string, error) {
-	main, err := r.main(name)
-	if err != nil {
-		return "", err
-	}
-	if resource == "" {
-		resource = "SKILL.md"
-	}
-	p, err := configfile.Path(filepath.Dir(main), resource)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(p)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return "", fmt.Errorf("skill resource must be a regular file <= 1 MiB")
-	}
-	data, err := os.ReadFile(p)
-	return string(data), err
-}
-func (r *Registry) Available(include []string, discover bool, categories []string) []string {
+// Available are the skills an agent of team gets: the ones it includes, and with discover those of its categories,
+// within their scope.
+func (r *Registry) Available(include []string, discover bool, categories []string, team, agent string) []string {
 	set := map[string]bool{}
 	for _, n := range include {
 		set[n] = true
 	}
 	if discover {
 		for n, s := range r.Skills {
+			if !s.InScope(team, agent) {
+				continue
+			}
 			for _, c := range categories {
 				if has(s.Categories, c) {
 					set[n] = true
@@ -163,6 +140,21 @@ func (r *Registry) Available(include []string, discover bool, categories []strin
 	sort.Strings(out)
 	return out
 }
+
+// Pins are the content hashes of the named skills, as Core records them on a run (agent snapshot "skill_hashes").
+func (r *Registry) Pins(names []string) map[string]string {
+	if r == nil || len(names) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, n := range names {
+		if s, ok := r.Skills[n]; ok && s.Hash != "" {
+			out[n] = s.Hash
+		}
+	}
+	return out
+}
+
 func has(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
@@ -171,3 +163,6 @@ func has(xs []string, s string) bool {
 	}
 	return false
 }
+
+// ValidName reports whether name is a valid skill name (lowercase letters, digits and '-').
+func ValidName(name string) bool { return namePattern.MatchString(name) }

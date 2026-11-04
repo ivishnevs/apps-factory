@@ -16,8 +16,10 @@ import (
 // (operator-only, never stored) and names files in errors. A disk catalog is os.Root's FS of root; a stored
 // catalog is its documents over that disk view.
 type source struct {
-	fsys fs.FS
-	root string
+	// resolve completes installed skills from Core's index (nil: as written).
+	resolve SkillResolver
+	fsys    fs.FS
+	root    string
 	// disk: errors name files by their disk path (a disk catalog), else by document path.
 	disk bool
 }

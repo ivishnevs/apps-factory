@@ -384,7 +384,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 				return
 			}
 			resource, _ := args["resource"].(string)
-			content, err := reg.Read(skill, resource)
+			content, err := c.skillFile(r.Context(), c.companyFrom(r), skill, resource)
 			if err != nil {
 				http.Error(w, err.Error(), 400)
 				return
