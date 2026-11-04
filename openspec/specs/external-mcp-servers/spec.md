@@ -23,7 +23,7 @@ credential, session) whose value holds no `${secret:NAME}` reference.
 
 #### Scenario: Literal credential
 - **WHEN** a server's `Authorization` header is `Bearer abc123`
-- **THEN** loading SHALL fail saying the value must reference a node secret
+- **THEN** loading SHALL fail saying the value must reference a company secret
 
 #### Scenario: Unknown server
 - **WHEN** an agent sets `mcp: [nope]` and no server `nope` is declared
@@ -37,26 +37,13 @@ External MCP servers SHALL be supported for claude agents only: loading SHALL fa
 - **WHEN** a codex agent sets `spec.mcp`
 - **THEN** loading SHALL fail
 
-### Requirement: Node secrets file
-A node SHALL resolve `${secret:NAME}` from its `node.yaml` `secrets_file`, a KEY=VALUE file it SHALL refuse when
-its mode grants any access to group or others. The values SHALL NOT be sent to Core and SHALL be redacted from
-the run's log, events, result and report attachments.
-
-#### Scenario: Secret printed by the agent
-- **WHEN** a command of the run prints the resolved value
-- **THEN** the uploaded run log and published events SHALL contain `[REDACTED]` instead of it
-
-#### Scenario: Unsafe secrets file
-- **WHEN** the secrets file is readable by its group
-- **THEN** the run SHALL end `setup_failed` asking for `chmod 600`
-
 ### Requirement: Missing secret fails setup
-A run whose servers need a secret the node cannot resolve (no secrets file, unreadable or unsafe file, missing or
-empty key) SHALL end `setup_failed` before the runtime starts, with a reason naming the server and the secret and
-never a value.
+A run whose servers need a secret that is missing in Core at claim (deleted after dispatch; before dispatch the task
+waits, `core-secret-store`), or whose sealed value the node cannot open, SHALL end `setup_failed` before the runtime starts, with a reason naming the server and the secret and never a
+value.
 
 #### Scenario: Missing secret
-- **WHEN** a run's server references `${secret:ASTR_API_KEY}` and the node's secrets file has no such key
+- **WHEN** a run's server references `${secret:ASTR_API_KEY}` and the secret is deleted after the run was dispatched
 - **THEN** the run SHALL end `setup_failed` with a reason naming `ASTR_API_KEY` and no runtime SHALL be launched
 
 ### Requirement: Claude runtime servers
