@@ -12,4 +12,6 @@
 - [x] 2.7 New project form (`project-creation` 2.1). Verify: as `project-creation` 2.1. Done: a New project sheet from Home's Projects section and the Tasks header (`web/src/components/app/project/new-project.tsx`), action `create_project`; details in `openspec/changes/project-creation/tasks.md` 2.1.
 
 ## 3. Delivery
-- [ ] 3.1 Run on the owner's Mac over Tailscale; docs (`docs/owner-web.md`, README).
+- [x] 3.1 Run on the owner's Mac over Tailscale; docs (`docs/owner-web.md`, README). Not done: superseded by the
+  hosted SaaS web (owner decision 2026-11-04; a later change `saas-web` lets the web talk to Core directly and
+  retires `factory web`).
