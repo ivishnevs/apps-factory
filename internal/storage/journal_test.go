@@ -119,7 +119,7 @@ func TestDecisionsReplacementConcurrencyAndCapturedContext(t *testing.T) {
 	if _, err = s.RecordDecision(ctx, DefaultCompany, first.ID, record); err != nil {
 		t.Fatal("idempotent replay", err)
 	}
-	oldRun := protocol.RunSpec{ID: "old-context", Project: "p", Agent: "demo", Workspace: "/tmp/task-engine-p"}
+	oldRun := protocol.RunSpec{ID: "old-context", Project: "p", Agent: "demo", Workspace: "/tmp/task-engine-p", Provider: protocol.RuntimeCodex}
 	if err = s.Create(ctx, DefaultCompany, oldRun); err != nil {
 		t.Fatal(err)
 	}

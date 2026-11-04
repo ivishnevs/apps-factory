@@ -34,7 +34,7 @@ func TestOutcomes(t *testing.T) {
 	claim := func(id string) string {
 		t.Helper()
 		queue(t, s, id, "p-"+id, "a-"+id, "")
-		l, err := s.Claim(ctx, co, id)
+		l, err := claimLease(t, s, co, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,7 +82,7 @@ func TestOutcomes(t *testing.T) {
 	// Lease lost, then late terminal evidence: lost becomes the reported outcome.
 	late := claim("late")
 	lostThenOwner := claim("resolved")
-	fake.Advance(LeaseTTL + time.Second)
+	fake.Advance(NodeOffline + time.Second)
 	if err := s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 	ctx := context.Background()
 	task := readyEngineTask(t, s, createEngineTask(t, s, "t1"))
 	spec := dispatchEngineTask(t, s, task, "r1")
-	lease, err := s.Claim(ctx, DefaultCompany, spec.ID)
+	lease, err := claimLease(t, s, DefaultCompany, spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +132,8 @@ func TestTimedOutTaskIsNotCancelled(t *testing.T) {
 	}
 }
 
-// TestIdleRunIsStopped: a started run without events for IdleTimeout gets a stop (v1: cancel in the
-// heartbeat answer); its revoked end (or one without evidence) is idle_timeout and the task retries instead of
+// TestIdleRunIsStopped: a started run without events for IdleTimeout gets a stop in the heartbeat
+// answer; its revoked end (or one without evidence) is idle_timeout and the task retries instead of
 // being cancelled. Events keep a run active; a fresh continuity window (host sleep) delays the detector.
 func TestIdleRunIsStopped(t *testing.T) {
 	s := engineStore(t)
@@ -143,18 +143,15 @@ func TestIdleRunIsStopped(t *testing.T) {
 	co := DefaultCompany
 	task := readyEngineTask(t, s, createEngineTask(t, s, "t1"))
 	spec := dispatchEngineTask(t, s, task, "r1")
-	lease, err := s.Claim(ctx, co, spec.ID)
+	lease, err := claimLease(t, s, co, spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	idleFor := func(d time.Duration, progress bool) bool {
 		t.Helper()
-		var cancel bool
 		for step := time.Duration(0); step < d; step += 10 * time.Second {
 			fake.Advance(10 * time.Second)
-			if cancel, err = s.Heartbeat(ctx, co, spec.ID, lease); err != nil {
-				t.Fatal(err)
-			}
+			beatClaimNode(t, s, co)
 			if progress {
 				if err = end(t, s, spec.ID, lease, protocol.Event{Method: "item/completed"}); err != nil {
 					t.Fatal(err)
@@ -164,8 +161,7 @@ func TestIdleRunIsStopped(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		cancel, _ = s.Heartbeat(ctx, co, spec.ID, lease)
-		return cancel
+		return stopsRun(beatClaimNode(t, s, co), spec.ID)
 	}
 	if idleFor(IdleTimeout+time.Minute, true) {
 		t.Fatal("an active run was stopped")
@@ -177,9 +173,7 @@ func TestIdleRunIsStopped(t *testing.T) {
 	if n, _ := s.StopIdle(ctx, co); n != 0 {
 		t.Fatal("sleep made the run idle")
 	}
-	if _, err = s.Heartbeat(ctx, co, spec.ID, lease); err != nil { // the worker beats after the wake
-		t.Fatal(err)
-	}
+	beatClaimNode(t, s, co) // the node beats after the wake
 	s.Continuity = nil
 	if !idleFor(IdleTimeout+20*time.Second, false) {
 		t.Fatal("idle run not stopped")

@@ -190,7 +190,7 @@ func TestProjectSetupGate(t *testing.T) {
 	if v := h.c.evaluate(snap); v.Reason != tasks.ReasonCapacity && v.Reason != tasks.ReasonProjectSetup {
 		t.Fatal(v)
 	}
-	lease, err := h.s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	lease, err := testnode.Claim(t, h.s, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestProjectSetupGate(t *testing.T) {
 	if hub.CurrentRunID == "" {
 		t.Fatal("not dispatched", hub)
 	}
-	lease, err = h.s.Claim(ctx, storage.DefaultCompany, hub.CurrentRunID)
+	lease, err = testnode.Claim(t, h.s, storage.DefaultCompany, hub.CurrentRunID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestAgentProjectCreateNeedsApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	run, _ := h.s.Get(ctx, storage.DefaultCompany, h.task(task.ID).CurrentRunID)
-	lease, err := h.s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	lease, err := testnode.Claim(t, h.s, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

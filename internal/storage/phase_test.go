@@ -19,7 +19,7 @@ func TestWorkerReportsLost(t *testing.T) {
 	run := func(id string) (protocol.RunSpec, string) {
 		t.Helper()
 		spec := dispatchEngineTask(t, s, readyEngineTask(t, s, createEngineTask(t, s, id)), id+"-run")
-		lease, err := s.Claim(ctx, co, spec.ID)
+		lease, err := claimLease(t, s, co, spec.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

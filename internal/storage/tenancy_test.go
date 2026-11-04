@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"appfactory/internal/protocol"
@@ -51,21 +52,21 @@ func TestCompaniesAreIsolated(t *testing.T) {
 	if ts, _ := s.Tasks(ctx, DefaultCompany, "", ""); len(ts) != 0 {
 		t.Fatal(ts)
 	}
-	if err = s.Create(ctx, "acme", protocol.RunSpec{ID: "r", Project: "a", Agent: "demo", Workspace: "/tmp/tenancy-a"}); err != nil {
+	if err = s.Create(ctx, "acme", protocol.RunSpec{ID: "r", Project: "a", Agent: "demo", Workspace: "/tmp/tenancy-a", Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.Get(ctx, DefaultCompany, "r"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("foreign run visible", err)
 	}
-	if _, err = s.Claim(ctx, DefaultCompany, "r"); !errors.Is(err, ErrNotFound) {
+	if _, err = claimLease(t, s, DefaultCompany, "r"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("foreign run claimed", err)
 	}
-	lease, err := s.Claim(ctx, "acme", "r")
+	lease, err := claimLease(t, s, "acme", "r")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Heartbeat(ctx, DefaultCompany, "r", lease); err == nil {
-		t.Fatal("foreign heartbeat accepted")
+	if a := beatClaimNode(t, s, DefaultCompany, "r"); !slices.Contains(a.Stop, Stop{"r", "unknown_run"}) {
+		t.Fatal("foreign heartbeat accepted", a.Stop)
 	}
 	done := protocol.Wrap("agent.completed", "r", "", protocol.Event{RunID: "r", Lease: lease, Status: "ENDED", Outcome: "succeeded"})
 	if err = s.Apply(ctx, DefaultCompany, done); !errors.Is(err, ErrInvalid) {
@@ -78,16 +79,16 @@ func TestCompaniesAreIsolated(t *testing.T) {
 		t.Fatal("default sees foreign audit", len(es))
 	}
 	// Agent slots are per company: the same agent name may run in two companies at once.
-	if err = s.Create(ctx, "acme", protocol.RunSpec{ID: "r2", Project: "a", Agent: "demo", Workspace: "/tmp/tenancy-a"}); err != nil {
+	if err = s.Create(ctx, "acme", protocol.RunSpec{ID: "r2", Project: "a", Agent: "demo", Workspace: "/tmp/tenancy-a", Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Create(ctx, DefaultCompany, protocol.RunSpec{ID: "r3", Project: "d", Agent: "demo", Workspace: "/tmp/tenancy-d"}); err != nil {
+	if err = s.Create(ctx, DefaultCompany, protocol.RunSpec{ID: "r3", Project: "d", Agent: "demo", Workspace: "/tmp/tenancy-d", Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, "acme", "r2"); err != nil {
+	if _, err = claimLease(t, s, "acme", "r2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, DefaultCompany, "r3"); err != nil {
+	if _, err = claimLease(t, s, DefaultCompany, "r3"); err != nil {
 		t.Fatal("agent slot shared across companies", err)
 	}
 }

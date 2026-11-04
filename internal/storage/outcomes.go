@@ -39,7 +39,7 @@ var IdleTimeout = 30 * time.Minute
 
 // StopIdle asks the worker to stop every started run without an applied event for IdleTimeout. The
 // quiet time counts from the later of the last event and the start of Core's current continuity, so a
-// host sleep never makes runs idle. The stop arrives as a heartbeat answer (v1 cancel, v2 stop
+// host sleep never makes runs idle. The stop arrives in the node's heartbeat answer (stop
 // idle_timeout); the run then ends with outcome idle_timeout, and its task is not cancelled.
 func (s *Store) StopIdle(ctx context.Context, company string) (int, error) {
 	since := s.Now().Add(-IdleTimeout)

@@ -17,6 +17,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 // runtimeHarness is a Core on the repository's catalog with a fake clock.
@@ -230,7 +231,7 @@ func TestQuotaKeyPausesOnlyItsAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := h.run("hit")
-	lease, err := h.s.Claim(ctx, co, run.Spec.ID)
+	lease, err := testnode.Claim(t, h.s, co, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +294,7 @@ func TestQuotaKeyPausesOnlyItsAgents(t *testing.T) {
 
 	// A second limit opens a new escalation; the owner answers resume: the pause ends now.
 	run = h.run("hit")
-	if lease, err = h.s.Claim(ctx, co, run.Spec.ID); err != nil {
+	if lease, err = testnode.Claim(t, h.s, co, run.Spec.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err = h.s.Apply(ctx, co, protocol.Wrap("agent.progress", run.Spec.ID, "", protocol.Event{RunID: run.Spec.ID, Lease: lease, Quota: &protocol.Quota{ResetsAt: h.fake.Now().Add(5 * time.Hour)}})); err != nil {
@@ -336,7 +337,7 @@ func TestDefaultQuotaKeyIsTheProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := h.run("hit")
-	lease, err := h.s.Claim(ctx, co, run.Spec.ID)
+	lease, err := testnode.Claim(t, h.s, co, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

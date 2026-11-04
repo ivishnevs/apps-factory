@@ -108,10 +108,13 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, storage.DefaultCompany, spec.ID)
+	w.Bus = b
+	asNode(t, s, &w, server.URL)
+	epoch, claim, err := w.ClaimV2(ctx, spec.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	lease := claim.Lease
 	consumer, err := b.Subscribe("factory.default.events.>", "fake-test")
 	if err != nil {
 		t.Fatal(err)
@@ -133,9 +136,9 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	}
 	execCtx, stopExec := context.WithCancelCause(ctx)
 	defer stopExec(nil)
-	n := testnode.Enroll(t, s, storage.DefaultCompany)
-	n.OwnRun(t, s, storage.DefaultCompany, spec.ID)
-	w.Bus, w.API = b, API{URL: server.URL, Node: n.ID, Key: n.Key, Now: s.Now}
+	if !w.Inventory.AddCause(spec.ID, epoch, stopExec) {
+		t.Fatal("claim not recorded")
+	}
 	done := make(chan error, 1)
 	go func() { done <- w.execute(execCtx, spec, lease, "fake-command") }()
 	for {

@@ -68,7 +68,7 @@ func TestRunScopedMCP(t *testing.T) {
 	}
 	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	run, _ := s.Get(ctx, storage.DefaultCompany, task.CurrentRunID)
-	lease, err := s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	lease, err := testnode.Claim(t, s, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRunScopedMCP(t *testing.T) {
 	if err = s.Create(ctx, storage.DefaultCompany, reviewSpec); err != nil {
 		t.Fatal(err)
 	}
-	reviewLease, err := s.Claim(ctx, storage.DefaultCompany, reviewSpec.ID)
+	reviewLease, err := testnode.Claim(t, s, storage.DefaultCompany, reviewSpec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,6 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
-	"appfactory/internal/testnode"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -110,17 +109,16 @@ func TestJetStreamRestartKillsRunningAppServer(t *testing.T) {
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, storage.DefaultCompany, spec.ID)
+	dir := t.TempDir()
+	bin, _ := os.Executable()
+	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, StateDir: dir}
+	asNode(t, s, &w, server.URL)
+	_, claim, err := w.ClaimV2(ctx, spec.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	bin, _ := os.Executable()
-	n := testnode.Enroll(t, s, storage.DefaultCompany)
-	n.OwnRun(t, s, storage.DefaultCompany, spec.ID)
-	w := Worker{Bus: b, API: API{URL: server.URL, Node: n.ID, Key: n.Key}, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, StateDir: dir}
 	done := make(chan error, 1)
-	go func() { done <- w.execute(ctx, spec, lease, "orphan-command") }()
+	go func() { done <- w.execute(ctx, spec, claim.Lease, "orphan-command") }()
 	var p pidfile
 	for p.Group == 0 {
 		select {

@@ -45,7 +45,7 @@ func TestBriefGolden(t *testing.T) {
 	s.ExplicitExits = true
 	task := readyEngineTask(t, s, createEngineTask(t, s, "golden", "spec"))
 	first := dispatchEngineTask(t, s, task, "golden-1")
-	lease, err := s.Claim(ctx, co, first.ID)
+	lease, err := claimLease(t, s, co, first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestBriefGolden(t *testing.T) {
 	}
 	task, _ = s.Task(ctx, co, "golden")
 	second := dispatchEngineTask(t, s, task, "golden-2")
-	c, err := s.ClaimRun(ctx, co, second.ID)
+	c, err := claimStarted(t, s, co, second.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

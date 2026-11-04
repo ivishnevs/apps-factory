@@ -16,6 +16,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
@@ -37,11 +38,11 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	}
 	a := agents["manager-autonomous"]
 	snapshot, _ := json.Marshal(a)
-	run := protocol.RunSpec{ID: "autonomy", Project: "p", Agent: a.Metadata.Name, Workspace: "/tmp/autonomy", ConfigSnapshot: snapshot}
+	run := protocol.RunSpec{ID: "autonomy", Project: "p", Agent: a.Metadata.Name, Workspace: "/tmp/autonomy", ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex}
 	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	lease, e := s.Claim(ctx, storage.DefaultCompany, run.ID)
+	lease, e := testnode.Claim(t, s, storage.DefaultCompany, run.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -195,7 +196,7 @@ func TestDecisionAutonomyAndDurableRejection(t *testing.T) {
 	if ct.CurrentRunID == "" {
 		t.Fatal("no revision run", ct)
 	}
-	if _, e = s.Claim(ctx, storage.DefaultCompany, ct.CurrentRunID); e != nil {
+	if _, e = testnode.Claim(t, s, storage.DefaultCompany, ct.CurrentRunID); e != nil {
 		t.Fatal(e)
 	}
 	revision, e := s.Get(ctx, storage.DefaultCompany, ct.CurrentRunID)
@@ -230,11 +231,11 @@ func TestDecisionAuthorityRequiresCapturedGrant(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	run := protocol.RunSpec{ID: "captured", Project: "p", Agent: "manager", Workspace: "/tmp/captured", ConfigSnapshot: b}
+	run := protocol.RunSpec{ID: "captured", Project: "p", Agent: "manager", Workspace: "/tmp/captured", ConfigSnapshot: b, Provider: protocol.RuntimeCodex}
 	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.Claim(ctx, storage.DefaultCompany, run.ID); e != nil {
+	if _, e = testnode.Claim(t, s, storage.DefaultCompany, run.ID); e != nil {
 		t.Fatal(e)
 	}
 	in := decisions.Decide{Propose: decisions.Propose{Category: "technical", Topic: "storage", Value: "SQLite", Rationale: "why", Actor: "manager", RunID: run.ID, RequestID: "new"}}

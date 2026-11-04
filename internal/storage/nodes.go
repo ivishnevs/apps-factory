@@ -450,7 +450,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	} else if short != "" {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: short}
 	}
-	// Approved artifacts as in v1 (the OpenSpec change is checked by the node on the checkout).
+	// Approved artifacts (the OpenSpec change is checked by the node on the checkout).
 	valid, err := approvedRunArtifacts(ctx, tx, spec)
 	if err != nil {
 		return out, err
@@ -475,7 +475,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		}
 		return out, err
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='CLAIMED',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,protocol=2,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,node_held=1,
+	res, err := tx.ExecContext(ctx, `UPDATE runs SET status='CLAIMED',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,node_id=?,epoch=?,claim_id=?,slot=?,start_by=?,run_started=0,node_held=1,
  brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0)
  WHERE id=? AND status='QUEUED'`, protocol.ID(), now.Add(NodeOffline).Unix(), now.Unix(), req.NodeID, req.Epoch, req.ClaimID, req.Slot, now.Add(StartWindow).Unix(), id)
 	if err != nil {
@@ -607,15 +607,14 @@ func (s *Store) StartRun(ctx context.Context, company, id, lease string) (string
 	}
 	defer tx.Rollback()
 	var status, token string
-	var proto int
-	err = tx.QueryRowContext(ctx, "SELECT status,lease,protocol FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &token, &proto)
+	err = tx.QueryRowContext(ctx, "SELECT status,lease FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &token)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}
 	if err != nil {
 		return "", err
 	}
-	if token != lease || proto != 2 || status != "CLAIMED" && status != "RUNNING" && status != "CANCELLING" {
+	if token != lease || status != "CLAIMED" && status != "RUNNING" && status != "CANCELLING" {
 		return status, ErrConflict
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE runs SET run_started=?,last_activity_at=?,status=CASE WHEN status='CLAIMED' THEN 'RUNNING' ELSE status END WHERE id=? AND run_started=0", tx.now().Unix(), tx.now().Unix(), id); err != nil {
@@ -905,7 +904,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND protocol=2 AND run_started=0 AND status IN ('CLAIMED','CANCELLING') AND start_by<? ORDER BY seq", company, cutoff)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE company_id=? AND run_started=0 AND status IN ('CLAIMED','CANCELLING') AND start_by<? ORDER BY seq", company, cutoff)
 	if err != nil {
 		return err
 	}

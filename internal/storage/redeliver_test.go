@@ -74,7 +74,7 @@ func TestQueuedRunCommandIsRedeliveredWithBackoff(t *testing.T) {
 		t.Fatal(third)
 	}
 	// Once claimed, the run is no longer resent.
-	if _, err = s.Claim(ctx, DefaultCompany, "r"); err != nil {
+	if _, err = claimLease(t, s, DefaultCompany, "r"); err != nil {
 		t.Fatal(err)
 	}
 	if n := redeliver(time.Hour); n != 0 {

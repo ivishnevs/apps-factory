@@ -135,9 +135,9 @@ type Worker struct {
 	Worktrees *workspace.Worktrees
 	// NodeID names this node in workspace reports (node.yaml name; the v2 node_id).
 	NodeID string
-	// Inventory, when set, makes the executor a slot of a registered node (runtime protocol v2): commands are
-	// pointers, claims carry node_id, epoch, claim_id and slot, a launched run is started with POST /start, and
-	// leases are renewed by the node's inventory heartbeat instead of per-run heartbeats.
+	// Inventory makes the executor a slot of a registered node (runtime protocol v2): commands are pointers,
+	// claims carry node_id, epoch, claim_id and slot, a launched run is started with POST /start, and leases
+	// are renewed by the node's inventory heartbeat. Required.
 	Inventory *node.Inventory
 	// RunStopped, when set, is called once a claimed run has ended, with its worktree path ("" outside a
 	// worktree); the node's janitor runs on_run_stop hooks there.
@@ -414,10 +414,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if spec.Provider != drv.Name() || spec.TimeoutSeconds < 1 {
 		return setupFailed(fmt.Errorf("invalid RunSpec"))
 	}
-	v2 := w.Inventory != nil
-	if v2 {
-		w.Inventory.Set(spec.ID, node.RunStarting)
-	}
+	w.Inventory.Set(spec.ID, node.RunStarting)
 	if spec.ProjectSetup != nil && !spec.Conversation {
 		// The project's repository is set up first (project-creation D2); the run continues in it.
 		a, err := w.setupProject(ctx, spec, lease)
@@ -616,13 +613,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer os.Remove(path)
 	}
 	defer func() { awaitDelivery(); session.Close() }()
-	if v2 {
-		// Phase 2 of the claim: workspace allocated and runtime launched (protocol v2 §6). Start is retry-safe.
-		if err = w.API.Retry(ctx, 8, "/runs/"+spec.ID+"/start", map[string]string{"lease": lease}, nil); err != nil {
-			return notStarted(driver.OutcomeFailed, fmt.Errorf("start: %w", err))
-		}
-		w.Inventory.Set(spec.ID, node.RunRunning)
+	// Phase 2 of the claim: workspace allocated and runtime launched (protocol v2 §6). Start is retry-safe.
+	if err = w.API.Retry(ctx, 8, "/runs/"+spec.ID+"/start", map[string]string{"lease": lease}, nil); err != nil {
+		return notStarted(driver.OutcomeFailed, fmt.Errorf("start: %w", err))
 	}
+	w.Inventory.Set(spec.ID, node.RunRunning)
 	if err = emit("started", protocol.Event{SessionID: session.ID()}); err != nil {
 		return notStarted(driver.OutcomeFailed, err)
 	}
@@ -735,9 +730,8 @@ var errExitGrace = errors.New("stopped after the accepted exit")
 var ()
 
 // stopOutcome is the outcome of the reason ctx was cancelled ("" while it is not): timed_out for the
-// run's own timeout or Core's v2 stop timed_out, idle_timeout for Core's v2 stop idle_timeout, revoked
-// for any other Core stop (owner cancel, kill switch, a run Core already ended or does not know, a v1
-// heartbeat cancel; Core records a v1 idle stop idle_timeout from its own stop reason), and lost for a
+// run's own timeout or Core's stop timed_out, idle_timeout for Core's stop idle_timeout, revoked
+// for any other Core stop (owner cancel, kill switch, a run Core already ended or does not know), and lost for a
 // stop Core did not ask for (a node shutdown, a lost heartbeat): never revoked.
 func stopOutcome(ctx context.Context) string {
 	if ctx.Err() == nil {

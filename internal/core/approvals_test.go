@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
@@ -54,7 +55,7 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	}
 	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
 	run, _ := s.Get(ctx, storage.DefaultCompany, task.CurrentRunID)
-	lease, err := s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	lease, err := testnode.Claim(t, s, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,7 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if resumed.Spec.SessionID != "same-thread" {
 		t.Fatal(resumed)
 	}
-	lease, err = s.Claim(ctx, storage.DefaultCompany, resumed.Spec.ID)
+	lease, err = testnode.Claim(t, s, storage.DefaultCompany, resumed.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,8 +204,8 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 			c := &Core{Store: s, Agents: cat.Agents, Token: "owner"}
 			s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approval-" + outcome})
 			snapshot, _ := json.Marshal(a)
-			s.Create(ctx, storage.DefaultCompany, protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/approval-" + outcome, ConfigSnapshot: snapshot})
-			lease, err := s.Claim(ctx, storage.DefaultCompany, "run")
+			s.Create(ctx, storage.DefaultCompany, protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/approval-" + outcome, ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex})
+			lease, err := testnode.Claim(t, s, storage.DefaultCompany, "run")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -223,7 +224,7 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 				t.Fatal(e)
 			}
 			action.Arguments["id"] = target.ID
-			w := call("factory_owner_request_approval", map[string]any{"call": action, "reason": "test", "timeout_seconds": 1, "request_id": "ask"})
+			w := call("factory_owner_request_approval", map[string]any{"call": action, "reason": "test", "timeout_seconds": 60, "request_id": "ask"})
 			if w.Code != 200 {
 				t.Fatal("always mode blocked approval request", w.Code, w.Body.String())
 			}
@@ -295,7 +296,7 @@ func TestApprovalDecisionDoesNotReleaseActiveOrLostWriter(t *testing.T) {
 				t.Fatal(err)
 			}
 			task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
-			lease, err := s.Claim(ctx, storage.DefaultCompany, task.CurrentRunID)
+			lease, err := testnode.Claim(t, s, storage.DefaultCompany, task.CurrentRunID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -310,6 +311,7 @@ func TestApprovalDecisionDoesNotReleaseActiveOrLostWriter(t *testing.T) {
 				if err = s.Expire(ctx, storage.DefaultCompany); err != nil {
 					t.Fatal(err)
 				}
+				testnode.Beat(t, s, storage.DefaultCompany) // the node confirms the runtime gone
 			}
 			if _, err = s.DecideApproval(ctx, storage.DefaultCompany, grant.ID, approvals.Decision{Version: 1, Action: "approve", Reason: "yes", RequestID: "decision"}); err != nil {
 				t.Fatal(err)

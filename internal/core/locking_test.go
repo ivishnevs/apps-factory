@@ -10,6 +10,7 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 // TestParallelScheduleClaimExpire (postgres-tenancy 3.1): dispatch, claim, run ends and lease/queue expiry run
@@ -17,7 +18,7 @@ import (
 // fails on a race (no unique violation, no deadlock) and no task ever has two live runs.
 func TestParallelScheduleClaimExpire(t *testing.T) {
 	c, s, fake := schedulerCore(t)
-	ctx, stop := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, stop := context.WithTimeout(context.Background(), 6*time.Second)
 	defer stop()
 	co := storage.DefaultCompany
 	agents := []string{"demo", "calorie-ios", "calorie-qa", "calorie-designer"}
@@ -73,7 +74,7 @@ func TestParallelScheduleClaimExpire(t *testing.T) {
 	for range 2 {
 		loop("claim", func() error {
 			for _, id := range runs("QUEUED") {
-				lease, err := s.Claim(ctx, co, id)
+				lease, err := testnode.Claim(t, s, co, id)
 				if err == nil {
 					leases.Store(id, lease)
 				} else if !errors.Is(err, storage.ErrConflict) && !errors.Is(err, storage.ErrNotFound) {
@@ -94,6 +95,12 @@ func TestParallelScheduleClaimExpire(t *testing.T) {
 				return err
 			}
 		}
+		return nil
+	})
+	// The node's heartbeat renews the leases of its live runs and confirms lost runs gone, which releases them.
+	loop("heartbeat", func() error {
+		testnode.Beat(t, s, co)
+		time.Sleep(time.Second)
 		return nil
 	})
 	loop("expire", func() error {

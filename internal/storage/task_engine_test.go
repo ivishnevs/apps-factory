@@ -52,7 +52,7 @@ func dispatchEngineTask(t *testing.T, s *Store, v tasks.Task, id string) protoco
 func finishEngineRun(t *testing.T, s *Store, r protocol.RunSpec, outcome string) protocol.Envelope {
 	t.Helper()
 	ctx := context.Background()
-	lease, err := s.Claim(ctx, DefaultCompany, r.ID)
+	lease, err := claimLease(t, s, DefaultCompany, r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,13 +206,14 @@ func TestTaskLostReconciliationAndCancel(t *testing.T) {
 	}
 	a := readyEngineTask(t, s, created)
 	r := dispatchEngineTask(t, s, a, "run-a")
-	if _, err := s.Claim(ctx, DefaultCompany, r.ID); err != nil {
+	if _, err := claimLease(t, s, DefaultCompany, r.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = s.DB.Exec("UPDATE runs SET lease_until=? WHERE id=?", time.Now().Add(-time.Minute).Unix(), r.ID)
 	if err := s.Expire(ctx, DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
+	beatClaimNode(t, s, DefaultCompany)
 	a, _ = s.Task(ctx, DefaultCompany, a.ID)
 	if reason(t, s, a.ID) != tasks.ReasonParked+tasks.ParkEscalation {
 		t.Fatal(a)
@@ -235,7 +236,7 @@ func TestTaskLostReconciliationAndCancel(t *testing.T) {
 	if a.Status != "CANCELLED" {
 		t.Fatal(a)
 	}
-	if _, err := s.Claim(ctx, DefaultCompany, r.ID); !errors.Is(err, ErrConflict) {
+	if _, err := claimLease(t, s, DefaultCompany, r.ID); !errors.Is(err, ErrConflict) {
 		t.Fatal("cancelled queued task claimed")
 	}
 }
@@ -262,7 +263,7 @@ func TestRunningTaskCancellation(t *testing.T) {
 	ctx := context.Background()
 	a := readyEngineTask(t, s, createEngineTask(t, s, "a"))
 	r := dispatchEngineTask(t, s, a, "run-a")
-	lease, err := s.Claim(ctx, DefaultCompany, r.ID)
+	lease, err := claimLease(t, s, DefaultCompany, r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,9 +272,8 @@ func TestRunningTaskCancellation(t *testing.T) {
 	if err != nil || !a.CancelRequested || a.Status != "IN_PROGRESS" {
 		t.Fatal(a, err)
 	}
-	cancel, err := s.Heartbeat(ctx, DefaultCompany, r.ID, lease)
-	if err != nil || !cancel {
-		t.Fatal("cancel not delivered", err)
+	if ans := beatClaimNode(t, s, DefaultCompany); !stopsRun(ans, r.ID) {
+		t.Fatal("cancel not delivered", ans.Stop)
 	}
 	if err = s.Apply(ctx, DefaultCompany, protocol.Wrap("agent.completed", r.ID, "", protocol.Event{RunID: r.ID, Lease: lease, Status: "ENDED", Outcome: "revoked"})); err != nil {
 		t.Fatal(err)
@@ -289,7 +289,7 @@ func TestLargeResultsKeepBrokerNotificationsBounded(t *testing.T) {
 	ctx := context.Background()
 	a := readyEngineTask(t, s, createEngineTask(t, s, "large"))
 	r := dispatchEngineTask(t, s, a, "large-run")
-	lease, err := s.Claim(ctx, DefaultCompany, r.ID)
+	lease, err := claimLease(t, s, DefaultCompany, r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

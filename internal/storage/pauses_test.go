@@ -89,11 +89,11 @@ func TestRevokeReturnsTasksToReady(t *testing.T) {
 	queued := dispatchEngineTask(t, s, task("queued", "a1"), "q1")
 	running := dispatchEngineTask(t, s, task("running", "a2"), "r1")
 	finishing := dispatchEngineTask(t, s, task("finishing", "a3"), "f1")
-	runLease, err := s.Claim(ctx, co, running.ID)
+	runLease, err := claimLease(t, s, co, running.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	finLease, err := s.Claim(ctx, co, finishing.ID)
+	finLease, err := claimLease(t, s, co, finishing.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +110,8 @@ func TestRevokeReturnsTasksToReady(t *testing.T) {
 	if r, _ := s.Get(ctx, co, queued.ID); r.Status != "ENDED" || r.Outcome != "revoked" || status("queued") != "READY" {
 		t.Fatal("queued run", r.Status, status("queued"))
 	}
-	if cancel, err := s.Heartbeat(ctx, co, running.ID, runLease); err != nil || !cancel {
-		t.Fatal("running run not asked to stop", cancel, err)
+	if a := beatClaimNode(t, s, co); !stopsRun(a, running.ID) {
+		t.Fatal("running run not asked to stop", a.Stop)
 	}
 	apply := func(run protocol.RunSpec, lease, outcome string) {
 		t.Helper()
@@ -127,7 +127,7 @@ func TestRevokeReturnsTasksToReady(t *testing.T) {
 	// An owner cancel still cancels the task.
 	again, _ := s.Task(ctx, co, "running")
 	run := dispatchEngineTask(t, s, again, "r2")
-	lease, _ := s.Claim(ctx, co, run.ID)
+	lease, _ := claimLease(t, s, co, run.ID)
 	again, _ = s.Task(ctx, co, "running")
 	if _, err = s.TaskAction(ctx, co, "running", tasks.Action{Version: again.Version, Action: "cancel"}); err != nil {
 		t.Fatal(err)

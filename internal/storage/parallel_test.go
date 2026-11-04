@@ -13,7 +13,7 @@ import (
 )
 
 // TestParallelWorktreeTasks: two worktree tasks of one project dispatch together and run in parallel on a
-// node with worktrees; on a node without worktrees (or a v1 worker) they share the project workspace and
+// node with worktrees; on a node without worktrees they share the project workspace and
 // run one at a time (retry project_busy); a shared-mode task always holds the project workspace.
 func TestParallelWorktreeTasks(t *testing.T) {
 	s, _ := clockStore(t)
@@ -56,10 +56,6 @@ func TestParallelWorktreeTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	refused(t, func() error { _, err := claimV2(s, d.ID, "plain", 1, "1-1-2"); return err }(), true, "project_busy")
-	// A v1 worker is treated the same way.
-	if _, err := s.Claim(ctx, co, d.ID); !errors.Is(err, ErrConflict) {
-		t.Fatal("v1 claim shared the project workspace", err)
-	}
 	// The worktree node still takes it.
 	if _, err := claimV2(s, d.ID, "wt", 1, "1-2-3"); err != nil {
 		t.Fatal(err)

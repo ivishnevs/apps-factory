@@ -16,6 +16,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 	"appfactory/internal/worker"
 )
 
@@ -63,7 +64,7 @@ func TestOwnerControlsAgainstCore(t *testing.T) {
 	if a.Status != "IN_PROGRESS" {
 		t.Fatal("not dispatched after start", a.Status)
 	}
-	if _, err = s.Claim(ctx, co, a.CurrentRunID); err != nil {
+	if _, err = testnode.Claim(t, s, co, a.CurrentRunID); err != nil {
 		t.Fatal(err)
 	}
 	q, err := s.SendMessage(ctx, co, messaging.Send{ProjectID: "p", TaskID: "a", RunID: a.CurrentRunID, Sender: "demo", Recipient: "owner", MessageType: "question", Body: "Which database?", Blocking: true, RequestID: "q"})

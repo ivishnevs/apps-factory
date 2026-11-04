@@ -13,6 +13,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestMCPCapturedPermissionsAndAssignAllowlist(t *testing.T) {
@@ -62,11 +63,11 @@ func TestMCPCapturedPermissionsAndAssignAllowlist(t *testing.T) {
 				args = map[string]any{"id": task.ID, "version": task.Version, "assignee": "demo", "request_id": "assign"}
 			}
 			snapshot, _ := json.Marshal(captured)
-			run := protocol.RunSpec{ID: protocol.ID(), Project: "p", Agent: "demo", Workspace: "/tmp/permissions", ConfigSnapshot: snapshot}
+			run := protocol.RunSpec{ID: protocol.ID(), Project: "p", Agent: "demo", Workspace: "/tmp/permissions", ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex}
 			if err = s.Create(ctx, storage.DefaultCompany, run); err != nil {
 				t.Fatal(err)
 			}
-			lease, err := s.Claim(ctx, storage.DefaultCompany, run.ID)
+			lease, err := testnode.Claim(t, s, storage.DefaultCompany, run.ID)
 			if err != nil {
 				t.Fatal(err)
 			}

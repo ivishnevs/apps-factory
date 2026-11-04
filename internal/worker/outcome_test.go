@@ -66,8 +66,8 @@ func TestRunEnd(t *testing.T) {
 	}
 }
 
-// TestStopOutcome: the run's own timeout and Core's v2 stops timed_out/idle_timeout carry their outcome,
-// Core's other stops (v2 reasons, a v1 heartbeat cancel) are revoked, and a stop Core did not ask for (a
+// TestStopOutcome: the run's own timeout and Core's stops timed_out/idle_timeout carry their outcome,
+// Core's other stops are revoked, and a stop Core did not ask for (a
 // node shutdown, a lost heartbeat) is lost, never revoked.
 func TestStopOutcome(t *testing.T) {
 	if o := stopOutcome(context.Background()); o != "" {

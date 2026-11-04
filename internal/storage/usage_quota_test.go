@@ -29,10 +29,10 @@ func TestRunUsageKeepsTheLastReport(t *testing.T) {
 	s, _ := clockStore(t)
 	ctx := context.Background()
 	co := DefaultCompany
-	if err := s.Create(ctx, co, protocol.RunSpec{ID: "r", Project: "p", Agent: "a", Workspace: "/tmp/usage"}); err != nil {
+	if err := s.Create(ctx, co, protocol.RunSpec{ID: "r", Project: "p", Agent: "a", Provider: protocol.RuntimeCodex, Workspace: "/tmp/usage"}); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, co, "r")
+	lease, err := claimLease(t, s, co, "r")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +64,10 @@ func TestQuotaPausesTheKeyUntilReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	maxKey := json.RawMessage(`{"spec":{"runtime":{"quota_key":"claude-max-1"}}}`)
-	if err := s.Create(ctx, co, protocol.RunSpec{ID: "hit", Project: "p", Agent: "dev", Workspace: "/tmp/quota", ConfigSnapshot: maxKey}); err != nil {
+	if err := s.Create(ctx, co, protocol.RunSpec{ID: "hit", Project: "p", Agent: "dev", Provider: protocol.RuntimeCodex, Workspace: "/tmp/quota", ConfigSnapshot: maxKey}); err != nil {
 		t.Fatal(err)
 	}
-	lease, _ := s.Claim(ctx, co, "hit")
+	lease, _ := claimLease(t, s, co, "hit")
 	reset := fake.Now().Add(2 * time.Hour)
 	quota := func(at time.Time) {
 		t.Helper()
@@ -188,7 +188,7 @@ func TestWorkspaceReportsUseTheRunLease(t *testing.T) {
 	ctx := context.Background()
 	co := DefaultCompany
 	run := dispatchEngineTask(t, s, readyEngineTask(t, s, createEngineTask(t, s, "a")), "a1")
-	lease, err := s.Claim(ctx, co, run.ID)
+	lease, err := claimLease(t, s, co, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

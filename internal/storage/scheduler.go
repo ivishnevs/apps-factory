@@ -362,8 +362,8 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 		return err
 	}
 	defer tx.Rollback()
-	// v2 leases last NodeOffline and are judged over as much continuous ticking, like the node's silence.
-	rows, err := tx.QueryContext(ctx, "SELECT id,protocol=2 AND run_started=0 FROM runs WHERE company_id=? AND status IN ('CLAIMED','RUNNING','CANCELLING') AND (protocol=2 AND lease_until<? OR protocol!=2 AND lease_until<?) ORDER BY seq", company, s.windowCutoff(NodeOffline), s.leaseCutoff())
+	// Leases last NodeOffline and are judged over as much continuous ticking, like the node's silence.
+	rows, err := tx.QueryContext(ctx, "SELECT id,run_started=0 FROM runs WHERE company_id=? AND status IN ('CLAIMED','RUNNING','CANCELLING') AND lease_until<? ORDER BY seq", company, s.windowCutoff(NodeOffline))
 	if err != nil {
 		return err
 	}
@@ -386,19 +386,14 @@ func (s *Store) Expire(ctx context.Context, company string) error {
 	}
 	for _, id := range ids {
 		if unstarted[id] {
-			// A v2 run that never started: the runtime never ran, so it fails retryably (protocol v2 §10).
+			// A run that never started: the runtime never ran, so it fails retryably (protocol v2 §10).
 			if err = endLost(ctx, tx, id, "lost: not started (node lease expired)"); err != nil {
 				return err
 			}
 			continue
 		}
-		// A v1 worker stops a run whose lease it lost, so the run is released at once; a v2 run waits for
-		// its node to confirm.
-		var v1 bool
-		if err = tx.QueryRowContext(ctx, "SELECT protocol=1 FROM runs WHERE id=?", id).Scan(&v1); err != nil {
-			return err
-		}
-		if err = endLostRun(ctx, tx, id, "lost: worker lease expired", !v1); err != nil {
+		// A started run waits for its node to confirm the runtime is gone.
+		if err = endLostRun(ctx, tx, id, "lost: worker lease expired", true); err != nil {
 			return err
 		}
 	}

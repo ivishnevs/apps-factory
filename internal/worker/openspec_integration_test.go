@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"appfactory/internal/bus"
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 
 	"github.com/nats-io/nats.go"
@@ -32,7 +33,7 @@ func TestJetStreamOpenSpecPreflightBeforeRuntime(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer sub.Unsubscribe()
-	w := Worker{Bus: b, Binary: "/nonexistent-runtime-must-not-start"}
+	w := Worker{Bus: b, Binary: "/nonexistent-runtime-must-not-start", Inventory: node.NewInventory("n1", 1)}
 	spec := protocol.RunSpec{ID: "preflight", Project: "p", Agent: "demo", Workspace: t.TempDir(), Provider: protocol.RuntimeCodex, TimeoutSeconds: 30, OpenSpecChange: "missing"}
 	if e = w.execute(context.Background(), spec, "test-lease", "cause"); e != nil {
 		t.Fatal(e)

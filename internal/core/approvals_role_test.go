@@ -14,6 +14,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 // TestApprovalRoles (core-secret-store 1.4): approving a catalog change or a project creation needs an owner or admin;
@@ -44,7 +45,7 @@ func TestApprovalRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	task, _ = s.Task(ctx, storage.DefaultCompany, task.ID)
-	if _, err = s.Claim(ctx, storage.DefaultCompany, task.CurrentRunID); err != nil {
+	if _, err = testnode.Claim(t, s, storage.DefaultCompany, task.CurrentRunID); err != nil {
 		t.Fatal(err)
 	}
 	request := func(name, key string) approvals.Approval {

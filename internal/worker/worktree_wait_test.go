@@ -18,6 +18,7 @@ import (
 	"appfactory/internal/bus"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/fake"
+	"appfactory/internal/node"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 	"appfactory/internal/workspace"
@@ -79,9 +80,8 @@ func TestJetStreamWorktreeNextRunWaitsForGroupAndSeal(t *testing.T) {
 		t.Helper()
 		spec := protocol.RunSpec{ID: id, Project: "fake-project", Agent: "demo", Provider: d.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30,
 			TaskID: "t1", RepoURL: remote, DefaultBranch: "main", WorkspaceMode: "worktree"}
-		// Executor level: v1 Core would not claim two runs of one project at once (a node's v2 claim does),
-		// so the runs are executed directly; their events go to JetStream unapplied.
-		w := Worker{Bus: b, API: api, Driver: d, Worktrees: trees}
+		// Executor level: the runs are executed directly; their events go to JetStream unapplied.
+		w := Worker{Bus: b, API: api, Driver: d, Worktrees: trees, Inventory: node.NewInventory("n1", 1)}
 		done := make(chan error, 1)
 		go func() { done <- w.execute(runCtx, spec, "lease-"+id, "cmd-"+id) }()
 		return done

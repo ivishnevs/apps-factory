@@ -24,7 +24,7 @@ var ErrForbidden = errors.New("forbidden")
 // DefaultCompany owns every row created before tenancy and all work of a single-company Core.
 const DefaultCompany = "default"
 
-// LeaseTTL is how long a run lease lives without a heartbeat.
+// LeaseTTL is how long Core's continuity window must run before a lease check judges a lease expired.
 const LeaseTTL = 45 * time.Second
 
 type Store struct {
@@ -62,7 +62,7 @@ func (s *Store) Now() time.Time {
 }
 
 // leaseCutoff is the lease_until below which a lease counts as expired: now, or 0 while the
-// current continuity window is younger than one TTL (every lease still gets its full TTL).
+// current continuity window is younger than LeaseTTL.
 func (s *Store) leaseCutoff() int64 { return s.windowCutoff(LeaseTTL) }
 
 // windowCutoff is now, or 0 while the current continuity window is younger than d: silence is judged only
@@ -225,28 +225,6 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 	return rs, rows.Err()
 }
 
-// Heartbeat extends a v1 run's lease. It decides on the lease like expiry does, so it holds the company lock.
-func (s *Store) Heartbeat(ctx context.Context, company, id, token string) (bool, error) {
-	tx, err := s.begin(ctx, company)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET lease_until=? WHERE company_id=? AND id=? AND lease=? AND status IN ('RUNNING','CANCELLING') AND protocol=1 AND lease_until>=?", s.Now().Add(LeaseTTL).Unix(), company, id, token, s.leaseCutoff())
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	if n != 1 {
-		return false, ErrConflict
-	}
-	var status, stopReason string
-	if err = tx.QueryRowContext(ctx, "SELECT status,stop_reason FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &stopReason); err != nil {
-		return false, err
-	}
-	return status == "CANCELLING" || stopReason != "", tx.Commit()
-}
-
 func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) error {
 	if e.Version != 1 || e.ID == "" {
 		return fmt.Errorf("%w: unsupported envelope", ErrInvalid)
@@ -276,7 +254,7 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 	var token, status, stopReason string
 	// lost: Core ended the started run lost without the worker's terminal evidence, which may still arrive.
 	var lost bool
-	if err = tx.QueryRowContext(ctx, "SELECT lease,status,stop_reason,status='ENDED' AND end_applied=0 AND outcome IN ('lost','timed_out') AND NOT (protocol=2 AND run_started=0) FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status, &stopReason, &lost); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT lease,status,stop_reason,status='ENDED' AND end_applied=0 AND outcome IN ('lost','timed_out') AND run_started!=0 FROM runs WHERE company_id=? AND id=?", company, p.RunID).Scan(&token, &status, &stopReason, &lost); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: unknown run", ErrInvalid)
 		}

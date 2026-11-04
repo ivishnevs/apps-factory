@@ -30,7 +30,7 @@ const (
 	QueuedDriverDisabled = "driver_disabled" // the run's driver failed its checks on the node
 	QueuedNodeOffline    = "node_offline"    // the node does not beat
 	QueuedLabels         = "labels"          // the node lacks the agent's labels
-	QueuedNoNode         = "no_node"         // no registered node (v1 workers only)
+	QueuedNoNode         = "no_node"         // no registered node
 	QueuedUnclaimed      = "unclaimed"       // a node can take it: the claim is on its way
 )
 
@@ -156,7 +156,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 		return nil, err
 	}
 	if len(nodes) == 0 {
-		return &QueuedReason{Reason: QueuedNoNode, Detail: "no registered node; waiting for a worker to claim it"}, nil
+		return &QueuedReason{Reason: QueuedNoNode, Detail: "no registered node"}, nil
 	}
 	if pinned != "" {
 		i := slices.IndexFunc(nodes, func(n QueuedNode) bool { return n.Node == pinned })

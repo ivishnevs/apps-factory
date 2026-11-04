@@ -31,7 +31,7 @@ func TestEvaluateNodeReasons(t *testing.T) {
 		detail string
 	}{
 		{"capable node free", func(*Snapshot) {}, ReasonRunnable, ""},
-		{"no registered nodes: v1 workers", func(s *Snapshot) { s.Nodes = nil }, ReasonRunnable, ""},
+		{"no registered nodes", func(s *Snapshot) { s.Nodes = nil }, ReasonRunnable, ""},
 		{"needs unknown", func(s *Snapshot) { s.Needs = NodeNeeds{} }, ReasonRunnable, ""},
 		{"no node has the labels", func(s *Snapshot) { s.Needs.Labels = []string{"windows"} }, ReasonNoCapableNode, "mini-1 (n1): lacks labels windows"},
 		{"driver disabled", func(s *Snapshot) { s.Nodes[0].Drivers[0].OK = false }, ReasonNoCapableNode, "mini-1 (n1): no usable codex driver"},

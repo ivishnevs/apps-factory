@@ -78,7 +78,7 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 	expect(why(), map[string]string{"a": tasks.ReasonLiveRun, "b": tasks.ReasonDependencies, "c": tasks.ReasonBacklog, "d": tasks.ReasonCapacity, "e": tasks.ReasonUnassigned})
 
 	a, _ := s.Task(ctx, storage.DefaultCompany, "a")
-	if _, err = s.Claim(ctx, storage.DefaultCompany, a.CurrentRunID); err != nil {
+	if _, err = testnode.Claim(t, s, storage.DefaultCompany, a.CurrentRunID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.DB.Exec("UPDATE runs SET lease_until=?", time.Now().Add(-time.Hour).Unix()); err != nil {
@@ -87,11 +87,12 @@ func TestWhyExplainsEveryWaitingTask(t *testing.T) {
 	if err = s.Expire(ctx, storage.DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
-	// a has side effects: inspected, not retried. Its v1 runtime is gone (the worker stops on a lost
-	// lease), so the run holds no writer and d can run.
+	// a has side effects: inspected, not retried. Its node confirms the runtime gone (a heartbeat without
+	// the run), so the run holds no writer and d can run.
+	testnode.Beat(t, s, storage.DefaultCompany)
 	got := why()
 	expect(got, map[string]string{"a": tasks.ReasonParked + tasks.ParkEscalation, "b": tasks.ReasonDependencies, "d": tasks.ReasonRunnable})
-	// A lost run whose runtime may still run (a silent v2 node) keeps the project's writer.
+	// A lost run whose runtime may still run (a silent node) keeps the project's writer.
 	if _, err = s.DB.Exec("UPDATE runs SET unreleased=1 WHERE id=?", a.CurrentRunID); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +220,7 @@ func TestQuotaPauseAndWorkspaceOverHTTP(t *testing.T) {
 	if run.Spec.RepoURL != "/srv/git/app.git" || run.Spec.WorkspaceMode != "" {
 		t.Fatalf("%+v", run.Spec)
 	}
-	lease, err := s.Claim(ctx, co, a.CurrentRunID)
+	lease, err := testnode.Claim(t, s, co, a.CurrentRunID)
 	if err != nil {
 		t.Fatal(err)
 	}

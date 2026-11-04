@@ -366,8 +366,8 @@ func TestHealthGateway(t *testing.T) {
 
 // TestNodeOfflineAfterContinuousTicking (node-agent 1.4): a silent node goes offline after 60 s of
 // continuous Core ticking and its started run is lost then, not before; after a Core tick gap (the host
-// slept) the 60 s count from the wake, and neither the node nor its v2 run is judged earlier (the 45 s v1
-// lease window does not apply to v2 leases). The next heartbeat brings the node back.
+// slept) the 60 s count from the wake, and neither the node nor its run is judged earlier (LeaseTTL's 45 s
+// window does not apply to expiry). The next heartbeat brings the node back.
 func TestNodeOfflineAfterContinuousTicking(t *testing.T) {
 	for _, gap := range []bool{false, true} {
 		name := "continuous"

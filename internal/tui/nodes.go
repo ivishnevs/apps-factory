@@ -206,7 +206,7 @@ func (m *Model) nodesLines(w, h int) []string {
 	}
 	cards := []string{}
 	if len(nodes) == 0 {
-		cards = append(cards, "", stFaint.Render("  no registered node: v1 workers only"))
+		cards = append(cards, "", stFaint.Render("  no registered node"))
 	}
 	for i, n := range nodes {
 		cards = append(cards, m.nodeCard(n, lw-4, i == s.sel && !s.pauses)...)

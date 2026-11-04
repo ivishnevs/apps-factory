@@ -13,6 +13,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestStallEscalationsAndIdleAlerts(t *testing.T) {
@@ -135,7 +136,7 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 	if _, err = s.Dispatch(ctx, co, "review", review.Version, protocol.RunSpec{ID: "r1", Project: "p", Agent: "demo", Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, co, "r1")
+	lease, err := testnode.Claim(t, s, co, "r1")
 	if err != nil {
 		t.Fatal(err)
 	}

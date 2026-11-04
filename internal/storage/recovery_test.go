@@ -45,7 +45,6 @@ func budgetUsed(t *testing.T, s *Store, task string) int {
 // the backoff (fail_streak, not_before) and the daily budget exactly as the outcome table says.
 func TestOutcomeTable(t *testing.T) {
 	s, fake := retryStore(t)
-	ctx := context.Background()
 	for _, c := range []struct {
 		outcome, result  string
 		attempts, streak int
@@ -76,7 +75,7 @@ func TestOutcomeTable(t *testing.T) {
 			s.ExplicitExits = c.outcome == "no_exit"
 			task := readyEngineTask(t, s, createEngineTask(t, s, name))
 			spec := dispatchEngineTask(t, s, task, name+"-run")
-			if _, err := s.Claim(ctx, DefaultCompany, spec.ID); err != nil {
+			if _, err := claimLease(t, s, DefaultCompany, spec.ID); err != nil {
 				t.Fatal(err)
 			}
 			endAs(t, s, spec.ID, c.outcome, c.result)
@@ -128,7 +127,7 @@ func TestBudgetDayInCompanyTimeZone(t *testing.T) {
 	fail := func(id string) {
 		t.Helper()
 		spec := dispatchEngineTask(t, s, taskOf(t, s, "t1"), id)
-		lease, err := s.Claim(ctx, co, spec.ID)
+		lease, err := claimLease(t, s, co, spec.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,7 +174,7 @@ func TestDirectiveDuringBudgetRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := dispatchEngineTask(t, s, taskOf(t, s, "t1"), "r1")
-	lease, err := s.Claim(ctx, co, spec.ID)
+	lease, err := claimLease(t, s, co, spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +197,7 @@ func TestDirectiveDuringBudgetRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec = dispatchEngineTask(t, s, taskOf(t, s, "t1"), "r2")
-	if lease, err = s.Claim(ctx, co, spec.ID); err != nil {
+	if lease, err = claimLease(t, s, co, spec.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {

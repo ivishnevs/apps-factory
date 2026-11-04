@@ -29,25 +29,26 @@ func taskOf(t *testing.T, s *Store, id string) tasks.Task {
 	return v
 }
 
-// TestLostV1RunRetriesInItsSession: a v1 lost lease releases the run (the worker stops on a lost lease), so
-// the task retries after the backoff in the same session while the lost run no longer holds the project.
-func TestLostV1RunRetriesInItsSession(t *testing.T) {
+// TestLostRunRetriesInItsSession: once its node confirms a lost run gone (a heartbeat without it), the task retries
+// after the backoff in the same session while the lost run no longer holds the project.
+func TestLostRunRetriesInItsSession(t *testing.T) {
 	s, fake := retryStore(t)
 	ctx := context.Background()
 	co := DefaultCompany
 	task := readyEngineTask(t, s, createEngineTask(t, s, "t1"))
 	spec := dispatchEngineTask(t, s, task, "r1")
-	lease, err := s.Claim(ctx, co, spec.ID)
+	lease, err := claimLease(t, s, co, spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = end(t, s, spec.ID, lease, protocol.Event{SessionID: "thread-1"}); err != nil {
 		t.Fatal(err)
 	}
-	fake.Advance(LeaseTTL + time.Second)
+	fake.Advance(NodeOffline + time.Second)
 	if err = s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
+	beatClaimNode(t, s, co)
 	got := taskOf(t, s, "t1")
 	if got.Status != "READY" || got.FailStreak != 1 || got.AttemptsNoProgress != 0 || got.NotBefore != fake.Now().Add(time.Minute).Unix() {
 		t.Fatalf("%+v", got)
@@ -75,13 +76,14 @@ func TestLostV1RunRetriesInItsSession(t *testing.T) {
 	}
 	other = readyEngineTask(t, s, createEngineTask(t, s, "t3"))
 	spec3 := dispatchEngineTask(t, s, other, "r3")
-	if _, err = s.Claim(ctx, co, spec3.ID); err != nil {
+	if _, err = claimLease(t, s, co, spec3.ID); err != nil {
 		t.Fatal(err)
 	}
-	fake.Advance(LeaseTTL + time.Second)
+	fake.Advance(NodeOffline + time.Second)
 	if err = s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
+	beatClaimNode(t, s, co)
 	waiting := taskOf(t, s, "t3")
 	if _, err = s.TaskAction(ctx, co, "t3", tasks.Action{Version: waiting.Version, Action: "cancel"}); err != nil {
 		t.Fatal("cancel refused while waiting to retry:", err)
@@ -98,7 +100,7 @@ func TestRetryBudgetAndPausedOut(t *testing.T) {
 		t.Helper()
 		task := taskOf(t, s, id)
 		spec := dispatchEngineTask(t, s, task, runID)
-		lease, err := s.Claim(ctx, co, spec.ID)
+		lease, err := claimLease(t, s, co, spec.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +215,7 @@ func TestReassignmentResetsAttempts(t *testing.T) {
 	for i := range RetryAttempts {
 		task := taskOf(t, s, "t1")
 		spec := dispatchEngineTask(t, s, task, "r"+string(rune('1'+i)))
-		lease, err := s.Claim(ctx, co, spec.ID)
+		lease, err := claimLease(t, s, co, spec.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,13 +275,14 @@ func TestInspectEscalation(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := dispatchEngineTask(t, s, publish, "p1")
-	if _, err = s.Claim(ctx, co, spec.ID); err != nil {
+	if _, err = claimLease(t, s, co, spec.ID); err != nil {
 		t.Fatal(err)
 	}
-	fake.Advance(LeaseTTL + time.Second)
+	fake.Advance(NodeOffline + time.Second)
 	if err = s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
+	beatClaimNode(t, s, co)
 	answer("publish", "continue")
 	got := taskOf(t, s, "publish")
 	run, _ := s.Get(ctx, co, "p1")
@@ -289,7 +292,7 @@ func TestInspectEscalation(t *testing.T) {
 
 	deploy, _ := s.CreateTask(ctx, co, tasks.Create{ID: "deploy", ProjectID: "p", Title: "deploy", Assignee: "other", SideEffects: true, Ready: true, RequestID: "c-deploy"})
 	spec = dispatchEngineTask(t, s, deploy, "d1")
-	lease, _ := s.Claim(ctx, co, spec.ID)
+	lease, _ := claimLease(t, s, co, spec.ID)
 	if err = end(t, s, spec.ID, lease, protocol.Event{Status: "ENDED", Outcome: "failed"}); err != nil {
 		t.Fatal(err)
 	}

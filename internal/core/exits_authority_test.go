@@ -643,17 +643,11 @@ func TestAuthorityOverridesParks(t *testing.T) {
 
 // TestUrgentStopOnControlSubjectAndHeartbeat (3.5): an urgent directive to a run of a v2 node queues run.stop
 // on that node's control subject and stops it through the heartbeat answer as well (the guarantee when the
-// control message is lost); a v1 run has no control subject and stops through its heartbeat.
+// control message is lost).
 func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 	h := newExitHarness(t)
 	ctx := context.Background()
 	co := storage.DefaultCompany
-	h.create("v1", "code", "calorie-ios")
-	r := h.start("v1")
-	// A run with no node, claimed through the store: no node to send a control message to.
-	if _, err := h.s.DB.ExecContext(ctx, "UPDATE runs SET node_id='' WHERE id=?", r.id); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := h.s.RegisterNode(ctx, co, registration("n1", 1)); err != nil {
 		t.Fatal(err)
 	}
@@ -683,14 +677,5 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 	answer, err := h.s.NodeHeartbeat(ctx, co, "n1", storage.NodeHeartbeat{Epoch: 1, Inventory: []storage.InventoryRun{{RunID: run, State: "claimed"}}})
 	if err != nil || !slices.Contains(answer.Stop, storage.Stop{RunID: run, Reason: "revoked"}) {
 		t.Fatalf("%+v %v", answer, err)
-	}
-
-	if _, err = h.s.Directive(ctx, co, "v1", "owner", "stop", true, "v1"); err != nil {
-		t.Fatal(err)
-	}
-	var controls int
-	_ = h.s.DB.QueryRow("SELECT count(*) FROM outbox WHERE subject LIKE 'factory.default.nodes.%'").Scan(&controls)
-	if cancelled, err := h.s.Heartbeat(ctx, co, r.id, r.lease); err != nil || !cancelled || controls != 1 {
-		t.Fatal(cancelled, err, controls)
 	}
 }

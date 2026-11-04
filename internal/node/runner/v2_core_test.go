@@ -92,11 +92,10 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 	type row struct {
 		status, node, result, outcome string
 		epoch, started                int64
-		protocol                      int
 	}
 	get := func(id string) row {
 		var r row
-		_ = s.DB.QueryRow("SELECT status,node_id,result,epoch,run_started,protocol,outcome FROM runs WHERE id=?", id).Scan(&r.status, &r.node, &r.result, &r.epoch, &r.started, &r.protocol, &r.outcome)
+		_ = s.DB.QueryRow("SELECT status,node_id,result,epoch,run_started,outcome FROM runs WHERE id=?", id).Scan(&r.status, &r.node, &r.result, &r.epoch, &r.started, &r.outcome)
 		return r
 	}
 	cfg := node.Defaults()
@@ -136,12 +135,12 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 	})
 	n := nodeOf()
 	for _, id := range []string{"v2-a", "v2-b"} {
-		if r := get(id); r.protocol != 2 || r.node != n.NodeID || r.epoch != 1 {
+		if r := get(id); r.node != n.NodeID || r.epoch != 1 {
 			t.Fatalf("%s: %+v", id, r)
 		}
 	}
 	wait("session reported", func() bool { r, _ := s.Get(ctx, co, "v2-a"); return r.SessionID == "session-v2-a" })
-	// Leases live on the inventory heartbeat alone: well past the v1 lease TTL the runs still run.
+	// Leases live on the inventory heartbeat alone: the runs still run after a wait.
 	time.Sleep(3 * time.Second)
 	if a := get("v2-a"); a.status != "RUNNING" || len(n.Drivers) != 1 || !n.Drivers[0].OK {
 		t.Fatalf("%+v %+v", a, n)

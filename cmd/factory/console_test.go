@@ -16,6 +16,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 	"appfactory/internal/worker"
 )
 
@@ -71,7 +72,7 @@ func TestConsoleCommandsAgainstCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ = s.Task(ctx, co, "a")
-	if _, err = s.Claim(ctx, co, a.CurrentRunID); err != nil {
+	if _, err = testnode.Claim(t, s, co, a.CurrentRunID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.SendMessage(ctx, co, messaging.Send{ProjectID: "p", TaskID: "a", RunID: a.CurrentRunID, Sender: "demo", Recipient: "owner", MessageType: "question", Body: "Metric or imperial?", Blocking: true, RequestID: "q"}); err != nil {

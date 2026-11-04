@@ -79,7 +79,7 @@ func (h *exitHarness) start(task string) exitRun {
 		h.t.Fatal(err)
 	}
 	tk, _ := h.s.Task(ctx, storage.DefaultCompany, task)
-	lease, err := h.s.Claim(ctx, storage.DefaultCompany, tk.CurrentRunID)
+	lease, err := testnode.Claim(h.t, h.s, storage.DefaultCompany, tk.CurrentRunID)
 	if err != nil {
 		h.t.Fatalf("claim %s (%s): %v", tk.CurrentRunID, tk.Status, err)
 	}

@@ -8,6 +8,7 @@ import (
 	"appfactory/internal/rpc"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
+	"appfactory/internal/testnode"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -125,7 +126,7 @@ func TestJetStreamFoundation(t *testing.T) {
 			if e != nil || len(events) < 4 {
 				t.Fatal("events missing", e)
 			}
-			if _, e = s.Claim(ctx, storage.DefaultCompany, spec.ID); e == nil {
+			if _, e = testnode.Claim(t, s, storage.DefaultCompany, spec.ID); e == nil {
 				t.Fatal("terminal run reclaimed")
 			}
 			// Duplicate stored event must not duplicate or alter result.

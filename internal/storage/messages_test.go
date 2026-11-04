@@ -18,7 +18,7 @@ func askOnTask(t *testing.T, s *Store, recipient string) (tasks.Task, protocol.R
 	ctx := context.Background()
 	task := readyEngineTask(t, s, createEngineTask(t, s, "wait-task"))
 	run := dispatchEngineTask(t, s, task, "wait-run")
-	lease, err := s.Claim(ctx, DefaultCompany, run.ID)
+	lease, err := claimLease(t, s, DefaultCompany, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

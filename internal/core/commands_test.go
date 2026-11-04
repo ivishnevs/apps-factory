@@ -19,6 +19,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestCommandGuardsCore(t *testing.T) {
@@ -44,11 +45,11 @@ func TestCommandGuardsCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, _ := json.Marshal(demo)
-	run := protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/core-guards", ConfigSnapshot: snapshot}
+	run := protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/core-guards", ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex}
 	if err = s.Create(ctx, co, run); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, co, run.ID)
+	lease, err := testnode.Claim(t, s, co, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,10 +179,10 @@ func TestShimClientAgainstCore(t *testing.T) {
 	c := &Core{Store: s, Agents: agents, Token: "owner"}
 	co := storage.DefaultCompany
 	snapshot, _ := json.Marshal(agents["demo"])
-	if err = s.Create(ctx, co, protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/shim-core", ConfigSnapshot: snapshot}); err != nil {
+	if err = s.Create(ctx, co, protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/shim-core", ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, co, "run")
+	lease, err := testnode.Claim(t, s, co, "run")
 	if err != nil {
 		t.Fatal(err)
 	}

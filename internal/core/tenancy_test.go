@@ -9,6 +9,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestRunTokenIsBoundToCompany(t *testing.T) {
@@ -34,17 +35,17 @@ func TestRunTokenIsBoundToCompany(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = s.Create(ctx, storage.DefaultCompany, protocol.RunSpec{ID: "mine", Project: "d", Agent: "demo", Workspace: "/tmp/token-d"}); err != nil {
+	if err = s.Create(ctx, storage.DefaultCompany, protocol.RunSpec{ID: "mine", Project: "d", Agent: "demo", Workspace: "/tmp/token-d", Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, storage.DefaultCompany, "mine")
+	lease, err := testnode.Claim(t, s, storage.DefaultCompany, "mine")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Create(ctx, "acme", protocol.RunSpec{ID: "theirs", Project: "a", Agent: "demo", Workspace: "/tmp/token-a"}); err != nil {
+	if err = s.Create(ctx, "acme", protocol.RunSpec{ID: "theirs", Project: "a", Agent: "demo", Workspace: "/tmp/token-a", Provider: protocol.RuntimeCodex}); err != nil {
 		t.Fatal(err)
 	}
-	foreignLease, err := s.Claim(ctx, "acme", "theirs")
+	foreignLease, err := testnode.Claim(t, s, "acme", "theirs")
 	if err != nil {
 		t.Fatal(err)
 	}

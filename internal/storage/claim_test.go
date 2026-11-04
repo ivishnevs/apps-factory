@@ -31,7 +31,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	if moved, err := s.UpdateTask(ctx, DefaultCompany, "moved", tasks.Update{Version: moved.Version, Assignee: &other}); err != nil || moved.Status != "READY" || moved.Assignee != "other" {
 		t.Fatal(moved, err)
 	}
-	_, err := s.ClaimRun(ctx, DefaultCompany, "moved-run")
+	_, err := claimStarted(t, s, DefaultCompany, "moved-run")
 	dropped(t, err, "stale")
 	if st, out := outcomeOf(t, s, "moved-run"); st != "ENDED" || out != "stale" {
 		t.Fatal(st, out)
@@ -47,7 +47,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	if _, err = s.TaskAction(ctx, DefaultCompany, "cancelled", tasks.Action{Version: cancelled.Version, Action: "cancel"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.ClaimRun(ctx, DefaultCompany, "cancelled-run")
+	_, err = claimStarted(t, s, DefaultCompany, "cancelled-run")
 	dropped(t, err, "stale")
 
 	// A dependency reopened after dispatch: the task waits for it again.
@@ -62,7 +62,7 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	if _, err = s.DB.Exec(`UPDATE tasks SET status='READY',body=(body::jsonb||jsonb_build_object('status','READY'))::json WHERE id='dep'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.ClaimRun(ctx, DefaultCompany, "waiting-run")
+	_, err = claimStarted(t, s, DefaultCompany, "waiting-run")
 	dropped(t, err, "not_runnable")
 	if st, out := outcomeOf(t, s, "waiting-run"); st != "ENDED" || out != "stale" {
 		t.Fatal(st, out)
@@ -81,10 +81,10 @@ func TestClaimRechecksTheTask(t *testing.T) {
 	// A duplicate command of a claimed run is dropped as well.
 	dup := readyEngineTask(t, s, createEngineTask(t, s, "dup"))
 	dispatchEngineTask(t, s, dup, "dup-run")
-	if _, err = s.ClaimRun(ctx, DefaultCompany, "dup-run"); err != nil {
+	if _, err = claimStarted(t, s, DefaultCompany, "dup-run"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.ClaimRun(ctx, DefaultCompany, "dup-run")
+	_, err = claimStarted(t, s, DefaultCompany, "dup-run")
 	dropped(t, err, "duplicate")
 }
 
@@ -100,7 +100,7 @@ func TestBriefBuiltAtClaim(t *testing.T) {
 	if _, err := s.CommentTask(ctx, DefaultCompany, "late", tasks.Comment{Text: "use the new API", RequestID: "late"}); err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.ClaimRun(ctx, DefaultCompany, "late-run")
+	c, err := claimStarted(t, s, DefaultCompany, "late-run")
 	if err != nil {
 		t.Fatal(err)
 	}

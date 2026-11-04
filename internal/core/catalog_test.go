@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/factorytools"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
+	"appfactory/internal/testnode"
 )
 
 // TestStoredCatalogs (company-self-service D1, D2, D4): Core seeds its own company's catalog from the
@@ -188,7 +189,7 @@ func TestAgentCatalogChangeNeedsApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	run, _ := h.s.Get(ctx, storage.DefaultCompany, h.task(task.ID).CurrentRunID)
-	lease, err := h.s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	lease, err := testnode.Claim(t, h.s, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -127,7 +127,7 @@ type Snapshot struct {
 	// ProjectSetup says why the task waits for its project's repository setup, which another task's run
 	// performs (project-creation D2); "" when it does not wait.
 	ProjectSetup string
-	// Nodes are the company's registered (protocol v2) nodes; none means v1 workers only and no node
+	// Nodes are the company's registered (protocol v2) nodes; none means no node
 	// reasons. Needs is what the assignee's runs need from a node (Core fills it from the catalog).
 	Nodes []Node
 	Needs NodeNeeds

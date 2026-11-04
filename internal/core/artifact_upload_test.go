@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/openspec"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 // TestArtifactUploadBindsApprovalToContent (core-owned-project-data 2.4): the adapter uploads a worktree file
@@ -88,7 +89,7 @@ func TestArtifactUploadBindsApprovalToContent(t *testing.T) {
 		t.Fatalf("approval of v1 satisfied other content: %+v", v)
 	}
 	qa := h.task("qa")
-	claim, err := h.s.ClaimRun(ctx, storage.DefaultCompany, qa.CurrentRunID)
+	claim, err := testnode.ClaimStarted(t, h.s, storage.DefaultCompany, qa.CurrentRunID)
 	if err != nil {
 		t.Fatal(err)
 	}

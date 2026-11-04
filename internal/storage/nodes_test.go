@@ -221,9 +221,6 @@ func TestStartAndHeartbeat(t *testing.T) {
 	if st, _, _, _ := runRow(t, s, "a"); st != "RUNNING" {
 		t.Fatal("start left the run", st)
 	}
-	if _, err := s.Heartbeat(ctx, DefaultCompany, "a", lease("a")); !errors.Is(err, ErrConflict) {
-		t.Fatal("per-run heartbeat renewed a v2 run", err)
-	}
 	_, _ = s.StartRun(ctx, DefaultCompany, "c", lease("c"))
 	_, _ = s.StartRun(ctx, DefaultCompany, "d", lease("d"))
 	beat := func(inv ...InventoryRun) HeartbeatAnswer {

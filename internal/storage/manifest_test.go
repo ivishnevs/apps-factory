@@ -15,7 +15,7 @@ func TestClaimCarriesManifest(t *testing.T) {
 	ctx := context.Background()
 	task := readyEngineTask(t, s, createEngineTask(t, s, "materialized"))
 	run := dispatchEngineTask(t, s, task, "materialized-run")
-	claim, err := s.ClaimRun(ctx, DefaultCompany, run.ID)
+	claim, err := claimStarted(t, s, DefaultCompany, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

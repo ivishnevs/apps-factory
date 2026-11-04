@@ -74,8 +74,12 @@ func TestInspectParksOnlyItsTask(t *testing.T) {
 	// A later policy change does not change how this run recovers: the snapshot decides.
 	delete(h.c.Agents, "publisher")
 	h.c.Agents["publisher"] = h.c.Agents["demo"]
-	h.fake.Advance(storage.LeaseTTL + time.Second)
+	h.fake.Advance(storage.NodeOffline + time.Second)
 	if err := h.s.Expire(ctx, co); err != nil {
+		t.Fatal(err)
+	}
+	// The node restarts: what it ran is gone, the lost run is released.
+	if _, err := h.s.RegisterNode(ctx, co, registration(h.node.ID, 2)); err != nil {
 		t.Fatal(err)
 	}
 	open, _ := h.s.Escalations(ctx, co, true)

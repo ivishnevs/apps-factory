@@ -69,7 +69,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 
 	// A blocking question parks the task; the answer clears the park and wakes it.
 	run = dispatchEngineTask(t, s, a, "a2")
-	lease, err := s.Claim(ctx, co, run.ID)
+	lease, err := claimLease(t, s, co, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	run = dispatchEngineTask(t, s, b, "b1")
-	if _, err = s.Claim(ctx, co, run.ID); err != nil {
+	if _, err = claimLease(t, s, co, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.DB.Exec("UPDATE runs SET lease_until=? WHERE id=?", time.Now().Add(-time.Hour).Unix(), run.ID); err != nil {
@@ -128,6 +128,7 @@ func TestTriggersAndParksFollowTheLifecycle(t *testing.T) {
 	if err = s.Expire(ctx, co); err != nil {
 		t.Fatal(err)
 	}
+	beatClaimNode(t, s, co)
 	// The inspect escalation (answers retry, continue, cancel) leads; resolving the run answers it.
 	expectVerdict(t, s, "b", tasks.ReasonParked+tasks.ParkEscalation, "ready", "dependency_done")
 	if err = s.Resolve(ctx, co, run.ID, "retry", "inspected; nothing was changed"); err != nil {

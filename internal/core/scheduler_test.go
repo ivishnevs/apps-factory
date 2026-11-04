@@ -8,6 +8,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 	"context"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestSchedulerAutomaticRetry(t *testing.T) {
 		if run.Spec.ConfigHash == "" || len(run.Spec.ConfigSnapshot) == 0 || len(run.Spec.Skills) == 0 {
 			t.Fatal("missing config snapshot", run)
 		}
-		lease, err := s.Claim(ctx, co, run.Spec.ID)
+		lease, err := testnode.Claim(t, s, co, run.Spec.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

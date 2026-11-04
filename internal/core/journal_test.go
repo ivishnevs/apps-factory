@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
@@ -35,11 +36,11 @@ func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 		}
 	}
 	a, _ := json.Marshal(agents["demo"])
-	run := protocol.RunSpec{ID: "journal", Project: "p", Agent: "demo", Workspace: "/tmp/journal-p", ConfigSnapshot: a}
+	run := protocol.RunSpec{ID: "journal", Project: "p", Agent: "demo", Workspace: "/tmp/journal-p", ConfigSnapshot: a, Provider: protocol.RuntimeCodex}
 	if e = s.Create(ctx, storage.DefaultCompany, run); e != nil {
 		t.Fatal(e)
 	}
-	lease, e := s.Claim(ctx, storage.DefaultCompany, run.ID)
+	lease, e := testnode.Claim(t, s, storage.DefaultCompany, run.ID)
 	if e != nil {
 		t.Fatal(e)
 	}

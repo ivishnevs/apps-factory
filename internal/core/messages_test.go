@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
@@ -40,11 +41,11 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	}
 	a := catalog.Agents["demo"]
 	snapshot, _ := json.Marshal(a)
-	run := protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/messages-p", ConfigSnapshot: snapshot}
+	run := protocol.RunSpec{ID: "run", Project: "p", Agent: "demo", Workspace: "/tmp/messages-p", ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex}
 	if err = s.Create(ctx, storage.DefaultCompany, run); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, storage.DefaultCompany, run.ID)
+	lease, err := testnode.Claim(t, s, storage.DefaultCompany, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestMessageMCPIdentityScopeAndScheduling(t *testing.T) {
 	if err != nil || responder.Spec.TaskID != conv.ID || responder.Spec.SessionID != "" || !responder.Spec.Conversation {
 		t.Fatal("mixed sessions/tasks", responder, err)
 	}
-	managerLease, err := s.Claim(ctx, storage.DefaultCompany, responder.Spec.ID)
+	managerLease, err := testnode.Claim(t, s, storage.DefaultCompany, responder.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

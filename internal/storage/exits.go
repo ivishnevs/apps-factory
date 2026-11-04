@@ -662,9 +662,8 @@ func (s *Store) Directive(ctx context.Context, company, task, actor, text string
 }
 
 // stopUrgently revokes the task's live run for urgent authority input (D7): the run becomes CANCELLING with
-// the stop reason, and a v2 node holding it gets run.stop on its control subject at once; the heartbeat
-// answer stays the guarantee (a v1 worker learns it there only). The revoked run ends revoked and the next
-// run starts with the input.
+// the stop reason, and the node holding it gets run.stop on its control subject at once; the heartbeat
+// answer stays the guarantee. The revoked run ends revoked and the next run starts with the input.
 func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) error {
 	if t.CurrentRunID == "" {
 		return nil
@@ -677,7 +676,7 @@ func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) erro
 		return nil
 	}
 	var node string
-	if err = tx.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&node); err != nil || node == "" {
+	if err = tx.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&node); err != nil {
 		return err
 	}
 	e := protocol.Wrap("run.stop", t.CurrentRunID, "", protocol.RunStop{RunID: t.CurrentRunID, Reason: "revoked"})

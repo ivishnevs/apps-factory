@@ -18,6 +18,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) {
@@ -76,7 +77,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 		t.Fatal(err)
 	}
 	producer, _ = s.Task(ctx, storage.DefaultCompany, producer.ID)
-	lease, err := s.Claim(ctx, storage.DefaultCompany, producer.CurrentRunID)
+	lease, err := testnode.Claim(t, s, storage.DefaultCompany, producer.CurrentRunID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +167,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 		t.Fatal(run)
 	}
 	// Project-scoped content decisions can be read by QA, although designer requested them.
-	qaLease, err := s.Claim(ctx, storage.DefaultCompany, run.Spec.ID)
+	qaLease, err := testnode.Claim(t, s, storage.DefaultCompany, run.Spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 	if _, err = s.DecideApproval(ctx, storage.DefaultCompany, a2.ID, approvals.Decision{Version: 2, Action: "revoke", Reason: "Stop future starts", RequestID: "revoke-v2"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, storage.DefaultCompany, queued.Spec.ID); !errors.Is(err, storage.ErrConflict) {
+	if _, err = testnode.Claim(t, s, storage.DefaultCompany, queued.Spec.ID); !errors.Is(err, storage.ErrConflict) {
 		t.Fatal("revoked queued run claimed", err)
 	}
 	queued, _ = s.Get(ctx, storage.DefaultCompany, queued.Spec.ID)
@@ -307,7 +308,7 @@ func TestArtifactWaitersPreserveManualBlocksQuarantineAndDeadlines(t *testing.T)
 		t.Fatal(err)
 	}
 	unknown, _ = s.Task(ctx, storage.DefaultCompany, unknown.ID)
-	s.Claim(ctx, storage.DefaultCompany, unknown.CurrentRunID)
+	testnode.Claim(t, s, storage.DefaultCompany, unknown.CurrentRunID)
 	s.DB.Exec("UPDATE runs SET lease_until=0 WHERE id=?", unknown.CurrentRunID)
 	if err = s.Expire(ctx, storage.DefaultCompany); err != nil {
 		t.Fatal(err)

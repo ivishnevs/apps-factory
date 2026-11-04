@@ -13,6 +13,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 	"appfactory/internal/worker"
 )
 
@@ -87,7 +88,7 @@ func TestOwnerCLIControls(t *testing.T) {
 		}
 		runs = append(runs, tk.CurrentRunID)
 		if i < 3 {
-			if leases[tk.CurrentRunID], err = s.Claim(ctx, co, tk.CurrentRunID); err != nil {
+			if leases[tk.CurrentRunID], err = testnode.Claim(t, s, co, tk.CurrentRunID); err != nil {
 				t.Fatal(err)
 			}
 		}

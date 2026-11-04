@@ -13,6 +13,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestMCPTaskCreateRecordsOriginAndDeduplicates(t *testing.T) {
@@ -38,7 +39,7 @@ func TestMCPTaskCreateRecordsOriginAndDeduplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, _ := json.Marshal(demo)
-	run := protocol.RunSpec{ID: "planner", Project: "p", Agent: "demo", Workspace: "/tmp/core-dedup", TaskID: origin.ID, ConfigSnapshot: snapshot}
+	run := protocol.RunSpec{ID: "planner", Project: "p", Agent: "demo", Workspace: "/tmp/core-dedup", TaskID: origin.ID, ConfigSnapshot: snapshot, Provider: protocol.RuntimeCodex}
 	if err = s.Create(ctx, storage.DefaultCompany, run); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestMCPTaskCreateRecordsOriginAndDeduplicates(t *testing.T) {
 	if _, err = s.DB.Exec(`UPDATE tasks SET status='IN_PROGRESS',assignee='demo',body=(body::jsonb||jsonb_build_object('status','IN_PROGRESS','assignee','demo','current_run_id','planner'))::json WHERE id=?`, origin.ID); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, storage.DefaultCompany, run.ID)
+	lease, err := testnode.Claim(t, s, storage.DefaultCompany, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

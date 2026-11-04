@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -29,11 +30,11 @@ func TestDurableLifecycle(t *testing.T) {
 	if err != nil || len(out) != 1 {
 		t.Fatalf("outbox not atomic: %v %v", out, err)
 	}
-	token, err := s.Claim(ctx, DefaultCompany, "one")
+	token, err := claimLease(t, s, DefaultCompany, "one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, DefaultCompany, "one"); err == nil {
+	if _, err = claimLease(t, s, DefaultCompany, "one"); err == nil {
 		t.Fatal("duplicate claim accepted")
 	}
 	bad := protocol.Wrap("completed", "one", "", protocol.Event{RunID: "one", Lease: "wrong", Status: "ENDED", Outcome: "succeeded"})
@@ -68,8 +69,8 @@ func TestDurableLifecycle(t *testing.T) {
 	}
 }
 
-// TestLeaseLossEndsTheRunLost: an expired v1 lease ends the run lost; it is neither revived nor claimed
-// again, and there is nothing to reconcile (the v1 worker stops a run whose lease it lost).
+// TestLeaseLossEndsTheRunLost: an expired lease ends the run lost; it is neither revived nor claimed
+// again, and once its node stopped it there is nothing to reconcile.
 func TestLeaseLossEndsTheRunLost(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(testURL(t))
@@ -77,11 +78,11 @@ func TestLeaseLossEndsTheRunLost(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.DB.Close()
-	spec := protocol.RunSpec{ID: "r", Project: "p", Agent: "demo"}
+	spec := protocol.RunSpec{ID: "r", Project: "p", Agent: "demo", Provider: protocol.RuntimeCodex}
 	if err = s.Create(ctx, DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	token, err := s.Claim(ctx, DefaultCompany, "r")
+	_, err = claimLease(t, s, DefaultCompany, "r")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,10 +92,11 @@ func TestLeaseLossEndsTheRunLost(t *testing.T) {
 	if err = s.Expire(ctx, DefaultCompany); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Heartbeat(ctx, DefaultCompany, "r", token); err == nil {
-		t.Fatal("revived lost lease")
+	if a := beatClaimNode(t, s, DefaultCompany, "r"); !slices.Contains(a.Stop, Stop{"r", "terminal"}) {
+		t.Fatal("revived lost lease", a.Stop)
 	}
-	if _, err = s.Claim(ctx, DefaultCompany, "r"); err == nil {
+	beatClaimNode(t, s, DefaultCompany) // the node stopped it: the lost run is released
+	if _, err = claimLease(t, s, DefaultCompany, "r"); err == nil {
 		t.Fatal("blind retry allowed")
 	}
 	run, _ := s.Get(ctx, DefaultCompany, "r")
@@ -112,11 +114,11 @@ func TestCancelQueued(t *testing.T) {
 	}
 	defer s.DB.Close()
 	ctx := context.Background()
-	_ = s.Create(ctx, DefaultCompany, protocol.RunSpec{ID: "r", Project: "p", Agent: "a"})
+	_ = s.Create(ctx, DefaultCompany, protocol.RunSpec{ID: "r", Project: "p", Agent: "a", Provider: protocol.RuntimeCodex})
 	if err = s.Cancel(ctx, DefaultCompany, "r"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Claim(ctx, DefaultCompany, "r"); err == nil {
+	if _, err = claimLease(t, s, DefaultCompany, "r"); err == nil {
 		t.Fatal("cancelled run claimed")
 	}
 }
@@ -142,7 +144,7 @@ func TestSessionBelongsToProvider(t *testing.T) {
 	if err = s.Create(ctx, DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	token, err := s.Claim(ctx, DefaultCompany, "codex")
+	token, err := claimLease(t, s, DefaultCompany, "codex")
 	if err != nil {
 		t.Fatal(err)
 	}

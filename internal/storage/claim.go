@@ -2,8 +2,6 @@ package storage
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -143,86 +141,4 @@ func (s *Store) ExpireQueued(ctx context.Context, company string) (int, error) {
 		}
 	}
 	return n, tx.Commit()
-}
-
-// ClaimRun is the v1 claim (no node identity): the same re-check as v2, the brief built in the claim's
-// transaction, and the answer carrying the RunSpec, so the worker does not read the run separately. A refusal
-// is returned as *Refusal.
-func (s *Store) ClaimRun(ctx context.Context, company, id string) (Claimed, error) {
-	var out Claimed
-	tx, err := s.begin(ctx, company)
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback()
-	var status string
-	var revoked bool
-	if err = tx.QueryRowContext(ctx, "SELECT status,revoked FROM runs WHERE company_id=? AND id=?", company, id).Scan(&status, &revoked); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return out, ErrNotFound
-		}
-		return out, err
-	}
-	switch {
-	case revoked:
-		return out, drop("revoked")
-	case status == "CLAIMED" || status == "RUNNING" || status == "CANCELLING":
-		return out, drop("duplicate")
-	case status != "QUEUED":
-		return out, drop("stale")
-	}
-	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", company, id)
-	if err != nil {
-		return out, err
-	}
-	if why, err := recheckTask(ctx, tx, id, spec); err != nil {
-		return out, err
-	} else if why != "" {
-		return out, claimStale(ctx, tx, id, why)
-	}
-	valid, err := approvedRunArtifacts(ctx, tx, spec)
-	if err != nil {
-		return out, err
-	}
-	if !valid {
-		if err = reconcileArtifactTasks(ctx, tx); err != nil {
-			return out, err
-		}
-		if err = tx.Commit(); err != nil {
-			return out, err
-		}
-		return out, drop("not_runnable")
-	}
-	// A v1 worker does not declare worktrees: the run holds the project workspace (one at a time, as before).
-	if _, err = tx.ExecContext(ctx, "UPDATE runs SET workspace=? WHERE id=? AND status='QUEUED'", writerSlot(spec, false), id); err != nil {
-		if errors.Is(constraint(err), ErrConflict) {
-			return out, retry("project_busy")
-		}
-		return out, err
-	}
-	if err = briefClaim(ctx, tx, id, &spec); err != nil {
-		return out, err
-	}
-	res, err := tx.ExecContext(ctx, "UPDATE runs SET status='RUNNING',lease=?,lease_until=?,started_at=?,last_activity_at=started_at,brief_from=coalesce((SELECT handled_seq FROM tasks WHERE id=runs.task_id),0),brief_to=coalesce((SELECT wake_seq FROM tasks WHERE id=runs.task_id),0) WHERE id=? AND status='QUEUED'", protocol.ID(), s.Now().Add(LeaseTTL).Unix(), s.Now().Unix(), id)
-	if err != nil {
-		return out, err
-	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return out, drop("stale")
-	}
-	if out, err = claimedAnswer(ctx, tx, company, id); err != nil {
-		return out, err
-	}
-	out.StartBy = time.Time{}
-	return out, tx.Commit()
-}
-
-// Claim is ClaimRun for callers that need only the lease; a refusal is ErrConflict.
-func (s *Store) Claim(ctx context.Context, company, id string) (string, error) {
-	c, err := s.ClaimRun(ctx, company, id)
-	var r *Refusal
-	if errors.As(err, &r) {
-		return "", fmt.Errorf("%w: %s", ErrConflict, r.Error())
-	}
-	return c.Lease, err
 }
