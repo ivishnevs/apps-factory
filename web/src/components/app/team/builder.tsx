@@ -48,11 +48,11 @@ export function SetupBanner({ setup, compact }: { setup?: Setup; compact?: boole
   for (const s of setup.missing_secrets) {
     items.push(<li key={`s-${s.name}`} className="flex items-center gap-2"><KeyRound className="size-4 shrink-0" />Secret <span className="font-mono">{s.name}</span>{s.wrong_kind ? " has the wrong kind" : " is not set"} — {s.agents.join(", ")} wait for it.<Link href="/secrets" className="ml-auto shrink-0 underline">Set</Link></li>);
   }
-  if (setup.no_node) items.push(<li key="node" className="flex items-center gap-2"><Server className="size-4 shrink-0" />No node is connected: runs stay queued.<Link href="/nodes" className="ml-auto shrink-0 underline">Connect</Link></li>);
-  for (const t of setup.teams_without_projects) items.push(<li key={`t-${t}`} className="flex items-center gap-2"><Users className="size-4 shrink-0" />Team {t} has no project yet.<Link href="/tasks" className="ml-auto shrink-0 underline">Create</Link></li>);
+  if (setup.no_node) items.push(<li key="node" className="flex items-center gap-2"><Server className="size-4 shrink-0" />No machine is connected: runs stay queued.<Link href="/nodes" className="ml-auto shrink-0 underline">Connect</Link></li>);
+  for (const t of setup.teams_without_projects) items.push(<li key={`t-${t}`} className="flex items-center gap-2"><Users className="size-4 shrink-0" />Team {t} has no project yet.<Link href="/setup" className="ml-auto shrink-0 underline">Create</Link></li>);
   return (
     <section className={cn("mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm", compact && "p-3")}>
-      <p className="mb-2 flex items-center gap-2 font-medium"><AlertTriangle className="size-4 text-amber-600" />Before work can run<Link href="/setup" className="ml-auto text-xs font-normal underline">Setup steps</Link></p>
+      <p className="mb-2 flex items-center gap-2 font-medium"><AlertTriangle className="size-4 text-amber-600" />Finish setting up: before work can run<Link href="/setup" className="ml-auto text-xs font-normal underline">Setup steps</Link></p>
       <ul className="space-y-1.5">{items}</ul>
     </section>
   );

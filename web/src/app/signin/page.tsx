@@ -37,7 +37,7 @@ function SignIn() {
     },
     retry: false,
   });
-  const back = params.get("return") ?? "";
+  const back = params.get("return") || "/welcome";
   const error = params.get("error");
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">

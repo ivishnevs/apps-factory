@@ -6,7 +6,8 @@ import { LiveRuns, NeedsYou, Nodes, Projects, Team } from "@/components/app/home
 import { ErrorState } from "@/components/app/page";
 import { isConversation, isTerminal, needsOwner, useClock, useOverviewData } from "@/components/app/tasks/model";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCompanyInfo, useMeta } from "@/lib/api/client";
+import { SetupBanner } from "@/components/app/team/builder";
+import { useCompanyInfo, useMeta, useSetup } from "@/lib/api/client";
 import type { Overview } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd } from "@/lib/format";
@@ -22,6 +23,7 @@ export default function Page() {
   const { data: meta } = useMeta();
   const companyName = useCompanyInfo().data?.name;
   const now = useClock();
+  const setup = useSetup();
 
   if (!ov) {
     return (
@@ -48,6 +50,7 @@ export default function Page() {
       {ov.errors && Object.keys(ov.errors).length > 0 && (
         <div className="mb-4"><ErrorState error={`Some data could not be read: ${Object.entries(ov.errors).map(([k, v]) => `${k} (${v})`).join("; ")}`} /></div>
       )}
+      <SetupBanner setup={setup.data} />
       <Stats ov={ov} />
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="grid min-w-0 grid-cols-1 gap-4">

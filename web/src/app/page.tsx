@@ -1,24 +1,70 @@
 "use client";
 
-import { Bot } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { useMe } from "@/lib/api/client";
+import { ArrowRight, Bot, CheckCircle2, Cpu, ShieldCheck, Users } from "lucide-react";
+import NextLink from "next/link";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import type { Me } from "@/lib/api/types-account";
 
-// The start page sends a signed-in person to their last company (user-accounts D6), else to the sign-in.
-export default function Start() {
-  const me = useMe();
-  const router = useRouter();
+// The landing page (saas-web-ui D5): what App Factory is and the way in. A signed-in visitor gets a button to their
+// company instead of the sign-in. It asks /api/core/me itself so a 401 does not bounce the visitor to the sign-in.
+function useSignedIn() {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
-    if (me.error) { router.replace("/signin"); return; }
-    if (!me.data) return;
-    const ids = me.data.companies.map((c) => c.company);
-    const target = me.data.last_company && ids.includes(me.data.last_company) ? me.data.last_company : ids[0];
-    router.replace(target ? `/c/${encodeURIComponent(target)}` : "/signin?error=no_company");
-  }, [me.data, me.error, router]);
+    fetch("/api/core/me", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v: Me | null) => setMe(v && v.companies?.length ? v : null), () => setMe(null));
+  }, []);
+  return me;
+}
+
+const steps = [
+  { icon: Users, title: "Pick a team", text: "A product owner, developers, QA, a designer — from presets you can tune: prompts, models, skills." },
+  { icon: Cpu, title: "Connect your machine", text: "One command installs the connector. Agents run there, on your Claude and Codex subscriptions." },
+  { icon: Bot, title: "Give the lead a goal", text: "The lead plans, splits the work and hands it out; the team builds, reviews and tests." },
+  { icon: ShieldCheck, title: "You decide", text: "Questions, approvals and merged pull requests come to your inbox. Costs and a kill switch are one click away." },
+];
+
+export default function Landing() {
+  const me = useSignedIn();
+  const company = me ? (me.last_company && me.companies.some((c) => c.company === me.last_company) ? me.last_company : me.companies[0].company) : "";
   return (
-    <div className="flex min-h-dvh items-center justify-center text-muted-foreground">
-      <Bot className="size-6 animate-pulse" aria-label="Loading" />
+    <div className="min-h-dvh">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-8">
+        <span className="flex items-center gap-2 font-semibold"><span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Bot className="size-4" /></span>App Factory</span>
+        {me ? (
+          <Button asChild className="h-9"><NextLink href={`/c/${encodeURIComponent(company)}`}>Open App Factory<ArrowRight className="size-4" /></NextLink></Button>
+        ) : me === null ? (
+          <Button asChild variant="outline" className="h-9"><NextLink href="/signin?return=/welcome">Sign in</NextLink></Button>
+        ) : <span className="h-9" />}
+      </header>
+      <main className="mx-auto max-w-6xl px-4 md:px-8">
+        <section className="py-16 text-center md:py-24">
+          <p className="mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5" />Agents on your own machine and subscriptions</p>
+          <h1 className="mx-auto max-w-3xl text-4xl font-semibold tracking-tight md:text-6xl">Your AI company at work</h1>
+          <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
+            App Factory runs a team of AI agents that plan, build, review and test your product — and brings you only the decisions.
+          </p>
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            {me ? (
+              <Button asChild size="lg" className="h-11"><NextLink href={`/c/${encodeURIComponent(company)}`}>Open App Factory<ArrowRight className="size-4" /></NextLink></Button>
+            ) : (
+              <Button asChild size="lg" className="h-11"><NextLink href="/signin?return=/welcome">Get started<ArrowRight className="size-4" /></NextLink></Button>
+            )}
+          </div>
+        </section>
+        <section className="grid gap-4 pb-20 sm:grid-cols-2 lg:grid-cols-4">
+          {steps.map((s, i) => (
+            <div key={s.title} className="rounded-2xl border bg-card p-5">
+              <span className="mb-4 flex size-9 items-center justify-center rounded-full bg-muted"><s.icon className="size-4" /></span>
+              <p className="text-xs text-muted-foreground">Step {i + 1}</p>
+              <h2 className="mt-1 font-semibold">{s.title}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{s.text}</p>
+            </div>
+          ))}
+        </section>
+      </main>
+      <footer className="border-t py-6 text-center text-xs text-muted-foreground">App Factory</footer>
     </div>
   );
 }

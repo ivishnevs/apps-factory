@@ -38,3 +38,6 @@ export function csrf(): string {
   const m = document.cookie.match(/(?:^|;\s*)factory_csrf=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : "";
 }
+
+// welcomeSeenKey marks, in this browser, that a person has seen the setup wizard (saas-web-ui D7).
+export const welcomeSeenKey = (user: string) => `factory_welcome_seen:${user}`;
