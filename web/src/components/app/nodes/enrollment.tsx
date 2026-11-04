@@ -76,7 +76,7 @@ export function InstallConnector() {
         <ol className="list-decimal space-y-3 pl-5">
           <li><p className="mb-2">On the machine, in a terminal:</p><CommandLine command={d.command} /></li>
           <li>It installs the connector, then opens a page here to approve the machine. Compare the code it shows with the terminal and connect it.</li>
-          <li>The connector starts on its own and appears below. No browser on that machine? Add <span className="font-mono">--no-browser</span> and open the printed address anywhere you are signed in.</li>
+          <li>The connector starts on its own and appears below. No browser on that machine? End the command with <span className="font-mono">sh -s -- --no-browser</span> and open the printed address anywhere you are signed in.</li>
         </ol>
       ) : issued ? (
         <ol className="list-decimal space-y-3 pl-5">
