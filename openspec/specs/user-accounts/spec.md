@@ -1,7 +1,8 @@
 # user-accounts Specification
 
 ## Purpose
-TBD - created by archiving change user-accounts. Update Purpose after archive.
+Let people sign in on the website, get a company at sign-up and work in their companies with a role, each request
+scoped to one company.
 
 ## Requirements
 
