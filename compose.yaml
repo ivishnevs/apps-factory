@@ -44,6 +44,9 @@ services:
       FACTORY_OIDC_CLIENT_SECRET: ${FACTORY_OIDC_CLIENT_SECRET:-}
       FACTORY_OIDC_PROVIDERS: ${FACTORY_OIDC_PROVIDERS:-google,github}
       FACTORY_PUBLIC_URL: ${FACTORY_PUBLIC_URL:-http://127.0.0.1:3000}
+      # The web UI's pages from a Next.js server (saas-web-ui D1): set http://host.docker.internal:3000 to open the
+      # whole product on Core's address (127.0.0.1:8080) while `npm run dev` or `npm start` runs in web/.
+      FACTORY_WEB_UPSTREAM: ${FACTORY_WEB_UPSTREAM:-}
       # Core's address for nodes, named in the install command (node-install).
       FACTORY_CORE_URL: ${FACTORY_CORE_URL:-http://127.0.0.1:8080}
       FACTORY_MULTI_COMPANY: ${FACTORY_MULTI_COMPANY:-0}

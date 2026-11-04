@@ -6,10 +6,10 @@
 ## 1. Core as the one address
 
 - [x] 1.1 Core proxies the page paths to Next.js (`FACTORY_WEB_UPSTREAM`), `TestWebPagesThroughCore`.
-- [ ] 1.2 Railway: Core, web, Dex (GitHub sign-in), Postgres per `docs/deploy-railway.md`; sign-in works on the
-  public address.
-- [ ] 1.3 Local development: `FACTORY_WEB_UPSTREAM=http://127.0.0.1:3000` on Core (or `next dev` with its rewrites);
-  docs.
+- [x] 1.2 Railway: Core, web, Dex (GitHub sign-in), Postgres per `docs/deploy-railway.md`; sign-in works on the
+  public address. Done (owner checked GitHub sign-in on https://apps-factory-production.up.railway.app 2026-11-05): Core, web, Dex with memory storage and GitHub, Postgres, volume `/data`; internal secrets generated into Railway, the operator token and master key kept in the ignored `.env.railway`.
+- [x] 1.3 Local development: `FACTORY_WEB_UPSTREAM=http://127.0.0.1:3000` on Core (or `next dev` with its rewrites);
+  docs. Done: compose `FACTORY_WEB_UPSTREAM` (empty by default), `docs/development.md#sign-in` names both ways (Next on :3000 with rewrites, or Core on :8080 proxying the pages); checked `/`, `/signin`, `/c/default`, `/api/meta` on :8080.
 
 ## 2. Product shell
 
