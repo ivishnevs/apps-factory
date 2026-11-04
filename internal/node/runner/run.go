@@ -66,6 +66,25 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return fmt.Errorf("node token required: %s, node.yaml token_file, or the shared FACTORY_TOKEN", node.TokenEnv)
 	}
 	slog.Info("authenticating to Core", "with", source)
+	// An enrolled node signs its requests and takes its company from enrollment (node-identity D2, D4). The token
+	// stays required until Core stops accepting it (node-identity 4.2).
+	api := worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: token}
+	if keys, err := node.LoadKeys(c.StateDir); err == nil {
+		if api.Node, err = node.NodeID(c.StateDir); err != nil {
+			return err
+		}
+		api.Key = keys.Sign
+		slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
+		company, err := node.LoadCompany(c.StateDir)
+		if err != nil {
+			return err
+		}
+		if company != "" {
+			c.Company = company
+		}
+	} else if !errors.Is(err, node.ErrNoKeys) {
+		return err
+	}
 	natsURL := c.NATS.ResolveURL(getenv)
 	slog.Info("connecting to NATS", "url", bus.Redact(natsURL), "auth", c.NATS.Auth(natsURL), "tls", c.NATS.TLS.Enabled())
 	b, err := bus.ConnectWith(natsURL, c.NATS.Options)
@@ -73,7 +92,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return fmt.Errorf("nats %s: %w", bus.Redact(natsURL), err)
 	}
 	defer b.NC.Close()
-	return Run(ctx, Node{Config: c, Bus: b, API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: token}, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
+	return Run(ctx, Node{Config: c, Bus: b, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
 }
 
 // SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml for the default

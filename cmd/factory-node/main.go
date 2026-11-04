@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | enroll [-config node.yaml] CODE | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -46,6 +46,8 @@ func run(args []string) (int, error) {
 	switch args[0] {
 	case "doctor":
 		return doctor(args[1:])
+	case "enroll":
+		return enroll(args[1:])
 	case "run":
 		return runNode(args[1:])
 	case "launchd":
@@ -58,6 +60,32 @@ func run(args []string) (int, error) {
 		}
 	}
 	return 2, errors.New(usage)
+}
+
+// enroll registers this node with an owner's code and waits for approval (node-identity D3).
+func enroll(args []string) (int, error) {
+	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
+	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+", else built-in defaults)")
+	if err := fs.Parse(args); err != nil {
+		return 2, err
+	}
+	if fs.NArg() != 1 {
+		return 2, errors.New("usage: factory-node enroll [-config node.yaml] CODE")
+	}
+	c, err := node.LoadConfig(node.ConfigPath(*path))
+	if err != nil {
+		return 2, err
+	}
+	base := os.Getenv("FACTORY_URL")
+	if base == "" {
+		return 2, errors.New("FACTORY_URL required: the address of Core")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if _, err = (node.Enrollment{URL: base, Code: fs.Arg(0), StateDir: c.StateDir, Out: os.Stdout}).Run(ctx); err != nil {
+		return 1, err
+	}
+	return 0, nil
 }
 
 func runNode(args []string) (int, error) {

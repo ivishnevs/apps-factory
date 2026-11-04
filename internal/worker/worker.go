@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,28 +33,54 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/workspace"
 
+	"appfactory/internal/nodesig"
+
 	"github.com/nats-io/nats.go"
 )
 
 type API struct {
 	URL, Token string
 	Client     *http.Client
+	// Node and Key sign this node's requests (node-identity D4); the owner CLI has neither and sends its token.
+	Node string
+	Key  ed25519.PrivateKey
+	// Now is the clock of signatures; nil is the system clock.
+	Now func() time.Time
+}
+
+// authorize presents the client's credentials on req; body is its whole body. Each attempt signs anew, because Core
+// accepts a nonce once.
+func (a API) authorize(req *http.Request, body []byte) error {
+	if a.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.Token)
+	}
+	if a.Key == nil {
+		return nil
+	}
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	return nodesig.Sign(req, a.Node, a.Key, body, now())
 }
 
 func (a API) Do(ctx context.Context, method, path string, body, result any) error {
 	var data io.Reader
+	var raw []byte
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if raw, err = json.Marshal(body); err != nil {
 			return err
 		}
-		data = bytes.NewReader(b)
+		data = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.URL, "/")+path, data)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+a.Token)
+	if err = a.authorize(req, raw); err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	client := a.Client
 	if client == nil {

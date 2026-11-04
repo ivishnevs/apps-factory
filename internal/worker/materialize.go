@@ -141,7 +141,9 @@ func (a API) Fetch(ctx context.Context, path, lease string, out io.Writer) error
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+a.Token)
+	if err = a.authorize(req, nil); err != nil {
+		return err
+	}
 	req.Header.Set("X-Factory-Lease", lease)
 	client := a.Client
 	if client == nil {

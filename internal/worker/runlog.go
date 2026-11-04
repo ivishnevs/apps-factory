@@ -146,7 +146,9 @@ func (a API) putLog(ctx context.Context, run, lease string, seq int64, final boo
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+a.Token)
+	if err = a.authorize(req, b); err != nil {
+		return err
+	}
 	req.Header.Set("X-Factory-Lease", lease)
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	client := a.Client

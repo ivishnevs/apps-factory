@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"appfactory/internal/node"
 	"appfactory/internal/nodesig"
 	"appfactory/internal/storage"
 )
@@ -208,5 +210,55 @@ func TestClientAddress(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.2")
 	if a := clientAddress(r); a != "1.2.3.4" {
 		t.Fatal(a)
+	}
+}
+
+// TestEnrollCommandAgainstCore (node-identity 1.3): the node's enrollment works against the real routes.
+func TestEnrollCommandAgainstCore(t *testing.T) {
+	c, s, _ := nodeCore(t)
+	srv := httptest.NewServer(c.Handler())
+	defer srv.Close()
+	code, out := call(t, c, "POST", "/node-enrollments", "owner", map[string]string{"name": "mini"})
+	var v storage.IssuedNodeEnrollment
+	if code != 200 || json.Unmarshal([]byte(out), &v) != nil {
+		t.Fatal(code, out)
+	}
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := node.Enrollment{URL: srv.URL, Code: v.Code, StateDir: dir, Poll: 5 * time.Millisecond, Now: s.Now}.Run(ctx)
+		done <- err
+	}()
+	var pending storage.NodeKey
+	for pending.NodeID == "" {
+		select {
+		case err := <-done:
+			t.Fatal("ended before approval:", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(5 * time.Millisecond):
+		}
+		keys, err := s.NodeKeys(ctx, storage.DefaultCompany)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(keys) > 0 {
+			pending = keys[0]
+		}
+	}
+	local, err := node.LoadKeys(dir)
+	if err != nil || local.Fingerprint() != pending.Fingerprint {
+		t.Fatal(pending, err)
+	}
+	if _, err = s.ApproveNodeKey(ctx, storage.DefaultCompany, pending.NodeID, pending.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	if company, err := node.LoadCompany(dir); err != nil || company != storage.DefaultCompany {
+		t.Fatal(company, err)
 	}
 }
