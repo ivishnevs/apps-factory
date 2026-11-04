@@ -27,6 +27,9 @@ type Server struct {
 	// Core is Core's URL in live mode; Token the owner token, empty in session mode (access.go).
 	Core  string
 	Token string
+	// Transport reaches Core (saas-web D1: Core's own handler in memory when Core serves the web API); nil is the
+	// network.
+	Transport http.RoundTripper
 
 	stateMap
 }

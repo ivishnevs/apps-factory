@@ -17,8 +17,8 @@ and jobs of another company or another node.
 People (user-accounts): Core is the OIDC relying party of one issuer (Dex, which federates Google and GitHub) and
 keeps server-side web sessions. An identity is (connector, subject); a first sign-in creates the person's account
 and company. A session request names its company (`X-Factory-Company`) and is served only for a member, with the
-membership's role (`owner`, `admin`, `member`) checked per route; tokens keep their own company. The web UI's API
-(`factory web --sessions`) holds no token and relays each person's session.
+membership's role (`owner`, `admin`, `member`) checked per route; tokens keep their own company. The web UI's API is
+served by Core itself (saas-web), with each person's session and role.
 
 A node's executor slots take the offers of its poll. Offers are hints: several nodes may see the same run.
 Before runtime side effects, a slot atomically claims the run through Core. Claim re-checks the

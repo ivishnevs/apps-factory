@@ -203,8 +203,9 @@ DEX_MOCK_CONNECTOR=1                            # local development: "Continue a
 
 Google: an OAuth client (Web application) with the redirect URI `<issuer>/callback`, then `GOOGLE_CLIENT_ID` and
 `GOOGLE_CLIENT_SECRET`. GitHub: an OAuth App with the callback URL `<issuer>/callback`, then `GITHUB_CLIENT_ID` and
-`GITHUB_CLIENT_SECRET`. A connector is configured only when its client id is set. Then `make up`, `factory web
---sessions` and `npm run dev` in `web/`, and open the web UI. Core keeps no provider tokens; sessions are rows of
+`GITHUB_CLIENT_SECRET`. A connector is configured only when its client id is set. Then `make up` and `npm run dev`
+in `web/` (it sends `/api` and `/auth` to Core, `FACTORY_URL`), and open the web UI. Without sign-in, set
+`FACTORY_WEB_LOCAL=1` for Core to serve the web API as the owner on a loopback Core. Core keeps no provider tokens; sessions are rows of
 `sessions` (only the SHA-256 of the cookie's id), 30 days sliding, 90 days at most. `FACTORY_MULTI_COMPANY=1` lets
 people create more companies; `FACTORY_SIGNUP_TEMPLATE` (default `solo`) is a new company's starter catalog. Dex's
 state (signing keys, refresh tokens) is in the `dex` database: back it up with the `factory` one.

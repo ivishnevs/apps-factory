@@ -276,7 +276,7 @@ func run() error {
 	if err = c.LoadCatalogs(ctx); err != nil {
 		return err
 	}
-	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: env("FACTORY_LISTEN", "127.0.0.1:8080"), Handler: withWebAPI(&c, os.Getenv("FACTORY_WEB_LOCAL") == "1"), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()
 	if token := os.Getenv("FACTORY_TELEGRAM_TOKEN"); token != "" {

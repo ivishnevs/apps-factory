@@ -546,10 +546,12 @@ state in `internal/node/runner` (`TestRunAuthFailureDisablesDriver`, `TestTransi
 
 ## Web UI: sign-in and companies (user-accounts)
 
-The web UI (`web/`, Next.js, over `factory web`) has two modes. With `FACTORY_TOKEN` (`factory web`) every browser
-acts as that token's owner, as before. With `factory web --sessions` there is no token: people sign in and act with
-their own session and role; `factory web` relays each person's session cookie, CSRF header and company to Core and
-keeps its caches per company and session, so nothing one person read reaches another.
+The web UI (`web/`, Next.js) talks to Core only: Core serves the web API (`/api/*`) itself (saas-web). With sign-in
+configured, people sign in and act with their own session and role: the API passes each person's session cookie, CSRF
+header and company to Core's routes in memory and keeps its caches per company and session, so nothing one person
+read reaches another. Without sign-in, the API acts as the owner only with `FACTORY_WEB_LOCAL=1` on a Core listening on
+loopback (the owner's machine); otherwise it answers 401. `factory web --demo` serves fixtures for UI work without
+Core; point the app at it with `FACTORY_WEB_API=http://127.0.0.1:8090`.
 
 - `/signin`: one button per provider Core offers (`GET /auth/providers`); the button starts Core's OIDC flow
   (`/auth/login?provider=…&return=…`), which comes back to the page the person started from. Errors of the

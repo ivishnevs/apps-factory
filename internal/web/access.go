@@ -136,8 +136,8 @@ func (s *Server) state(r *http.Request) *state {
 	st := s.states[key]
 	if st == nil {
 		st = &state{client: &tui.HTTPClient{
-			API:    worker.API{URL: s.Core, Token: s.Token, Client: &http.Client{Transport: forward{}, Timeout: 60 * time.Second}},
-			Stream: &http.Client{Transport: forward{}},
+			API:    worker.API{URL: s.Core, Token: s.Token, Client: &http.Client{Transport: forward{next: s.Transport}, Timeout: 60 * time.Second}},
+			Stream: &http.Client{Transport: forward{next: s.Transport}},
 		}}
 		s.states[key] = st
 	}
@@ -177,6 +177,7 @@ func (s *Server) coreProxy(strip string) http.Handler {
 			}
 		},
 		FlushInterval: -1,
+		Transport:     s.Transport,
 	}
 }
 
