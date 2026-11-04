@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, Building2, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users } from "lucide-react";
+import { Activity, Bot, Building2, KeyRound, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users } from "lucide-react";
 import Link, { useAppPath } from "@/components/app/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { signOut, useCompanyInfo, useMe, useOverview } from "@/lib/api/client";
@@ -19,6 +19,7 @@ export const nav = [
   { href: "/costs", label: "Costs", icon: CircleDollarSign },
   { href: "/nodes", label: "Nodes", icon: Server },
   { href: "/teams", label: "Teams", icon: Users },
+  { href: "/secrets", label: "Secrets", icon: KeyRound },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/companies", label: "Companies", icon: Building2, operator: true },
 ];
@@ -103,7 +104,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {[...items.filter((n) => phoneTabs.includes(n.href)), { href: "/more", label: "More", icon: MoreHorizontal }].map((n) => (
             <Link key={n.href} href={n.href}
               className={cn("relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground",
-                (active(path, n.href) || (n.href === "/more" && ["/library", "/chat", "/costs", "/nodes", "/teams", "/settings", "/companies", "/more"].some((h) => active(path, h)))) && "text-foreground")}>
+                (active(path, n.href) || (n.href === "/more" && ["/library", "/chat", "/costs", "/nodes", "/teams", "/secrets", "/settings", "/companies", "/more"].some((h) => active(path, h)))) && "text-foreground")}>
               <n.icon className="size-5" />
               {n.label}
               {"badge" in n && n.badge && pending > 0 && (
