@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useRef, useState } from "react";
 import type { Action, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
-import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Team } from "./types-catalog";
+import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Teams } from "./types-catalog";
 import type { CompanyInfo, Me } from "./types-account";
 import { csrf, currentCompany } from "@/lib/company";
 
@@ -106,7 +106,7 @@ export function useStream<T>(path: string | null, kind: "feed" | "run", onItem: 
 }
 
 // The company's catalog (company-self-service): the team, documents and history; writes refresh them.
-export const useTeam = () => useQuery({ queryKey: ["catalog", "team"], queryFn: () => api<Team>("/catalog/team") });
+export const useTeams = () => useQuery({ queryKey: ["catalog", "teams"], queryFn: () => api<Teams>("/catalog/teams"), staleTime: 30_000 });
 export const useCatalog = () => useQuery({ queryKey: ["catalog", "listing"], queryFn: () => api<CatalogListing>("/catalog") });
 export const useCatalogHistory = () => useQuery({ queryKey: ["catalog", "history"], queryFn: () => api<CatalogVersion[]>("/catalog/history") });
 export const useCatalogDocument = (path: string | null, version?: number) =>

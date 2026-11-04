@@ -7,10 +7,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, touchInput } from "@/components/app/tasks/field";
-import { useAction } from "@/lib/api/client";
+import { useAction, useTeams } from "@/lib/api/client";
 import type { Action, Overview, ProjectCreate, RepoMode } from "@/lib/api/types";
 import { cleanText } from "@/lib/humanize";
 import { cn } from "@/lib/utils";
@@ -87,6 +88,9 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [audit, setAudit] = useState(true);
+  const teams = useTeams().data?.teams ?? [];
+  const [team, setTeam] = useState("");
+  const [teamError, setTeamError] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [refusal, setRefusal] = useState("");
   const refusalRef = useRef<HTMLDivElement>(null);
@@ -101,9 +105,13 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
     if (action.isPending) return;
     const p: ProjectCreate = { id: id.trim(), name: name.trim(), description: description.trim(), request_id: requestId(), repo_mode: mode };
     if (mode === "existing") Object.assign(p, { workspace: workspace.trim() || undefined, repo_url: repoUrl.trim() || undefined, default_branch: branch.trim() || undefined, audit });
+    // company-teams: the project's team; required when the company runs several.
+    if (team) p.team = team;
+    const needTeam = teams.length > 1 && !team;
+    setTeamError(needTeam ? "Pick the team that works on it" : "");
     const errs = validateProject(p, taken);
     setErrors(errs);
-    if (Object.keys(errs).length) return;
+    if (Object.keys(errs).length || needTeam) return;
     setRefusal("");
     const a: Action = { Kind: "create_project", NewProject: p };
     try {
@@ -143,6 +151,16 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
           <Input id="np-id" value={id} onChange={(e) => { setId(e.target.value); setIdEdited(e.target.value !== ""); }} placeholder="advent-gift"
             autoComplete="off" autoCapitalize="none" spellCheck={false} {...invalid("id")} className={cn(touchInput, "font-mono")} />
         </Field>
+        {teams.length > 1 && (
+          <Field id="np-team" label="Team" error={teamError || undefined} hint="Its tasks go to this team's agents; its lead gets your messages about it.">
+            <Select value={team} onValueChange={(v) => { setTeam(v); setTeamError(""); }}>
+              <SelectTrigger id="np-team" aria-invalid={!!teamError} className="w-full data-[size=default]:h-11 sm:data-[size=default]:h-9"><SelectValue placeholder="Choose a team" /></SelectTrigger>
+              <SelectContent position="popper">
+                {teams.map((t) => <SelectItem key={t.name} value={t.name}>{t.name}{t.description ? ` — ${t.description}` : ""}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
         <Field id="np-description" label="Description" error={err("description")} hint="What it is and for whom; agents read it.">
           <Textarea id="np-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
             className="min-h-20 text-base md:text-sm" placeholder="A daily gift calendar app for families." />

@@ -9,7 +9,7 @@ import { FeedRow } from "@/components/app/feed/feed-row";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, useOverview, useStream, type FeedFilter } from "@/lib/api/client";
+import { api, useOverview, useStream, useTeams, type FeedFilter } from "@/lib/api/client";
 import type { FeedItem, Page } from "@/lib/api/types";
 
 const dayLabel = (d: Date) => (isToday(d) ? "Today" : isYesterday(d) ? "Yesterday" : format(d, "EEEE, MMM d"));
@@ -23,10 +23,14 @@ export default function FeedPage() {
   const titles = useMemo(() => new Map([...(ov?.tasks ?? []).map((t) => [t.id, t.title] as const), ...(ov?.nodes ?? []).map((n) => [`node:${n.node_id}`, n.name] as const)]), [ov?.tasks, ov?.nodes]);
   const title = useCallback((id: string) => titles.get(id) || undefined, [titles]);
 
+  const teams = useTeams().data?.teams ?? [];
   const f: FeedFilter = filter === "attention" ? { attention: true } : filter.startsWith("p:") ? { project: filter.slice(2) } : {};
+  // A team's activity: the rows of its projects (company-teams 7.1).
+  const only = useMemo(() => filter.startsWith("t:") ? new Set(projects.filter((p) => p.team === filter.slice(2)).map((p) => p.id)) : undefined, [filter, projects]);
   const options = [
     { value: "all", label: "All" },
     { value: "attention", label: "Needs attention" },
+    ...(teams.length > 1 ? teams.map((t) => ({ value: `t:${t.name}`, label: `Team ${t.name}` })) : []),
     ...projects.map((p) => ({ value: `p:${p.id}`, label: p.name || p.id })),
   ];
 
@@ -35,7 +39,7 @@ export default function FeedPage() {
       <PageHeader title="Activity" description="Everything the company does, as it happens." />
       <div className="mb-5"><Chips label="Filter activity" value={filter} onChange={setFilter} options={options} /></div>
       {/* A new filter is a new history and stream: remount. */}
-      <FeedList key={filter} filter={f} projectName={projectName} title={title} />
+      <FeedList key={filter} filter={f} only={only} projectName={projectName} title={title} />
     </div>
   );
 }
@@ -60,7 +64,7 @@ function useFeedHistory(filter: FeedFilter) {
   });
 }
 
-function FeedList({ filter, projectName, title }: { filter: FeedFilter; projectName: Record<string, string>; title: (id: string) => string | undefined }) {
+function FeedList({ filter, only, projectName, title }: { filter: FeedFilter; only?: Set<string>; projectName: Record<string, string>; title: (id: string) => string | undefined }) {
   const history = useFeedHistory(filter);
   const [live, setLive] = useState<FeedItem[]>([]);
   const [fresh, setFresh] = useState<Set<number>>(new Set());
@@ -85,6 +89,7 @@ function FeedList({ filter, projectName, title }: { filter: FeedFilter; projectN
     const seen = new Set<number>();
     const all = [...live, ...(history.data?.pages.flatMap((p) => p.items) ?? [])]
       .filter((i) => !seen.has(i.sequence) && !!seen.add(i.sequence))
+      .filter((i) => !only || only.has(i.project_id))
       .sort((a, b) => b.sequence - a.sequence);
     const out: { label: string; items: FeedItem[] }[] = [];
     for (const i of all) {
@@ -93,7 +98,7 @@ function FeedList({ filter, projectName, title }: { filter: FeedFilter; projectN
       out[out.length - 1].items.push(i);
     }
     return { days: out, count: all.length };
-  }, [live, history.data]);
+  }, [live, history.data, only]);
 
   if (!history.data) return history.error ? <ErrorState error={history.error} /> : <FeedSkeleton />;
 

@@ -6,10 +6,12 @@ export interface CatalogListing { version: number; author: string; note?: string
 export interface CatalogDocument { version: number; path: string; size: number; content: string }
 
 export interface TeamMember {
-  name: string; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
+  name: string; team?: string; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
   creates_tasks?: boolean; review_required?: boolean; reviewer?: string; review_paths?: string[];
 }
-export interface Team { company: string; version: number; default_report: string; agents: TeamMember[] }
+// A team of the company (company-teams): its lead gets the owner's unaddressed messages in its projects.
+export interface TeamView { name: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[] }
+export interface Teams { company: string; version: number; teams: TeamView[] }
 
 export interface CatalogChange { base: number; put?: Record<string, string>; delete?: string[]; note?: string; dry_run?: boolean }
 
@@ -17,8 +19,9 @@ export interface Company { id: string; name: string; created_at: number; catalog
 export interface CompanyCreated { company: string; catalog_version: number; owner_token: { id: string; token: string; name: string } }
 
 // Document groups in the editor, by path.
-export function documentGroup(path: string): "Agents" | "Profiles" | "Policies" | "Prompts" | "Node hooks" | "Settings" {
+export function documentGroup(path: string): "Teams" | "Agents" | "Profiles" | "Policies" | "Prompts" | "Node hooks" | "Settings" {
   if (path.startsWith("prompts/")) return "Prompts";
+  if (/\/teams\//.test(path)) return "Teams";
   if (/\/agents\//.test(path)) return "Agents";
   if (/\/profiles\//.test(path)) return "Profiles";
   if (/\/policies\//.test(path)) return "Policies";

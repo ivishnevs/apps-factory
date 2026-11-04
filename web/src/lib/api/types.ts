@@ -28,7 +28,8 @@ export interface Task {
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
 
 export interface Project {
-  id: string; name: string; description: string; workspace: string; version: number; created_at: number;
+  // team: the team of the company that works on it (company-teams).
+  id: string; name: string; team?: string; description: string; workspace: string; version: number; created_at: number;
   updated_at: number; repo_url?: string; default_branch?: string; rules?: string;
   // project-creation: how the repository came to be, who created the project (an agent's request carries its
   // approval) and its setup on the node; workspace is "" until the setup is ready. No setup: nothing to set up.
@@ -153,7 +154,7 @@ export type RepoMode = "local" | "github" | "existing";
 
 // ProjectCreate is tasks.ProjectCreate, the POST /projects body; request_id is one per submit.
 export interface ProjectCreate {
-  id: string; name: string; description: string; workspace?: string; repo_url?: string; default_branch?: string;
+  id: string; name: string; team?: string; description: string; workspace?: string; repo_url?: string; default_branch?: string;
   request_id: string; repo_mode: RepoMode; audit?: boolean;
 }
 

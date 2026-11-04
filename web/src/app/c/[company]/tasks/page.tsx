@@ -14,6 +14,7 @@ import { TaskCard } from "@/components/app/tasks/parts";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTeams } from "@/lib/api/client";
 import type { Task } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { lookupFrom } from "@/lib/humanize";
@@ -41,6 +42,8 @@ function Tasks() {
   const params = useSearchParams();
   const project = params.get("project") ?? ALL;
   const assignee = params.get("assignee") ?? ALL;
+  const team = params.get("team") ?? ALL;
+  const teams = useTeams().data?.teams ?? [];
   const view = (params.get("view") as View) ?? "open";
   const [q, setQ] = useState(params.get("q") ?? "");
   // Board columns the owner opened (Backlog and Done start folded).
@@ -62,10 +65,12 @@ function Tasks() {
 
   const { filtered, byCol } = useMemo(() => {
     const runs = runsByTask(ov);
+    const teamOf = new Map((ov?.status ?? []).map((s) => [s.project.id, s.project.team ?? ""]));
     const needle = q.trim().toLowerCase();
     const filtered = ((ov?.tasks ?? []) as BoardTask[])
       .filter((t) => !isConversation(t))
       .filter((t) => project === ALL || t.project_id === project)
+      .filter((t) => team === ALL || teamOf.get(t.project_id) === team)
       .filter((t) => assignee === ALL || t.assignee === assignee)
       .filter((t) => !needle || [t.id, t.title, t.description, t.assignee].some((f) => f?.toLowerCase().includes(needle)))
       .map((t) => ({ task: t, col: columnOf(t, runs) }))
@@ -73,12 +78,12 @@ function Tasks() {
     const byCol = new Map<ColumnKey, Task[]>(columns.map((c) => [c.key, []]));
     for (const f of filtered) byCol.get(f.col)!.push(f.task);
     return { filtered, byCol };
-  }, [ov, project, assignee, q]);
+  }, [ov, project, assignee, team, q]);
 
   const count = (v: View) => v === "open" ? filtered.filter((f) => f.col !== "done").length
     : v === "you" ? filtered.filter((f) => f.col !== "done" && needsOwner(f.task)).length : byCol.get(v)?.length ?? 0;
   const list = filtered.filter((f) => view === "open" ? f.col !== "done" : view === "you" ? f.col !== "done" && needsOwner(f.task) : f.col === view);
-  const filteredOut = project !== ALL || assignee !== ALL || q.trim() !== "";
+  const filteredOut = project !== ALL || assignee !== ALL || team !== ALL || q.trim() !== "";
   const name = (id: string) => projectName(ov, id);
   const total = count("open"), forYou = count("you");
 
@@ -107,11 +112,20 @@ function Tasks() {
           )}
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex">
+          {teams.length > 1 && (
+            <Select value={team} onValueChange={(v) => set("team", v, ALL)}>
+              <SelectTrigger aria-label="Team" className="col-span-2 w-full data-[size=default]:h-11 sm:col-span-1 sm:w-36 sm:data-[size=default]:h-9"><SelectValue /></SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value={ALL}>All teams</SelectItem>
+                {teams.map((t) => <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={project} onValueChange={(v) => set("project", v, ALL)}>
             <SelectTrigger aria-label="Project" className="w-full data-[size=default]:h-11 sm:w-40 sm:data-[size=default]:h-9"><SelectValue /></SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value={ALL}>All projects</SelectItem>
-              {ov?.status.map((s) => <SelectItem key={s.project.id} value={s.project.id}>{s.project.name}</SelectItem>)}
+              {ov?.status.filter((s) => team === ALL || s.project.team === team).map((s) => <SelectItem key={s.project.id} value={s.project.id}>{s.project.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={assignee} onValueChange={(v) => set("assignee", v, ALL)}>

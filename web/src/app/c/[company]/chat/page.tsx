@@ -12,7 +12,7 @@ import { Thread, type Outgoing } from "@/components/app/chat/thread";
 import { useChats } from "@/components/app/chat/use-chats";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAction } from "@/lib/api/client";
+import { useAction, useTeams } from "@/lib/api/client";
 import { addressee, ownerConversation } from "@/lib/api/types-ops";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +31,12 @@ function ChatScreen() {
   const action = useAction();
   const { overview, chats, reports, def, projects, markSeen } = useChats();
   const [project, setProject] = useState("all");
+  const teams = useTeams().data?.teams ?? [];
+  const [team, setTeam] = useState(params.get("team") ?? "all");
   const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
   const selected = params.get("c");
 
-  const shown = useMemo(() => chats.filter((c) => project === "all" || c.project === project), [chats, project]);
+  const shown = useMemo(() => chats.filter((c) => (project === "all" || c.project === project) && (team === "all" || c.team === team)), [chats, project, team]);
   const active = chats.find((c) => c.id === selected) ?? shown[0];
 
   // What the owner has on screen is read: the selected thread (on a phone, only when it is open).
@@ -86,12 +88,21 @@ function ChatScreen() {
               {totalUnread > 0 ? `${totalUnread} unread` : "Your direct reports"}
             </p>
           </div>
+          {teams.length > 1 && (
+            <Select value={team} onValueChange={(v) => { setTeam(v); setProject("all"); }}>
+              <SelectTrigger className="h-10 w-auto max-w-[45%] rounded-full" aria-label="Team"><SelectValue /></SelectTrigger>
+              <SelectContent position="popper" align="end">
+                <SelectItem value="all">All teams</SelectItem>
+                {teams.map((t) => <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
           {projects.length > 1 && (
             <Select value={project} onValueChange={setProject}>
               <SelectTrigger className="h-10 w-auto max-w-[45%] rounded-full" aria-label="Project"><SelectValue /></SelectTrigger>
               <SelectContent position="popper" align="end">
                 <SelectItem value="all">All projects</SelectItem>
-                {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name || p.id}</SelectItem>)}
+                {projects.filter((p) => team === "all" || p.team === team).map((p) => <SelectItem key={p.id} value={p.id}>{p.name || p.id}</SelectItem>)}
               </SelectContent>
             </Select>
           )}

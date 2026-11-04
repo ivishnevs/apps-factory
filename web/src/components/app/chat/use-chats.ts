@@ -2,13 +2,13 @@
 
 import { useQueries } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, useOverview } from "@/lib/api/client";
+import { api, useOverview, useTeams } from "@/lib/api/client";
 import type { Message, Overview } from "@/lib/api/types";
 import { defaultReportOf, directReports, ownerConversation, type TaskWithKind } from "@/lib/api/types-ops";
 
 // A conversation of the owner with one direct report in one project (owner-<agent>-<project>).
 export interface Chat {
-  id: string; agent: string; role?: string; project: string; projectName: string; isDefault: boolean;
+  id: string; agent: string; role?: string; project: string; projectName: string; team?: string; isDefault: boolean;
   messages: Message[]; last?: Message; unread: number; waiting: number; replyingRun?: string;
   loading: boolean; error?: unknown;
 }
@@ -38,7 +38,12 @@ export function useChats() {
   const def = data ? defaultReportOf(data) : "";
   const reports = useMemo(() => (data ? directReports(data.agents ?? [], def) : []), [data, def]);
   const projects = useMemo(() => (data?.status ?? []).map((s) => s.project), [data]);
-  const pairs = useMemo(() => projects.flatMap((p) => reports.map((a) => ({ agent: a, project: p.id, projectName: p.name || p.id }))), [projects, reports]);
+  // company-teams: in a team's project the owner talks to that team's lead only.
+  const leads = useTeams().data?.teams;
+  const pairs = useMemo(() => projects.flatMap((p) => {
+    const lead = p.team ? leads?.find((t) => t.name === p.team)?.lead : undefined;
+    return (lead ? [lead] : reports).map((a) => ({ agent: a, project: p.id, projectName: p.name || p.id, team: p.team }));
+  }), [projects, reports, leads]);
   const results = useQueries({
     queries: pairs.map((p) => {
       const conversation = ownerConversation(p.agent, p.project);

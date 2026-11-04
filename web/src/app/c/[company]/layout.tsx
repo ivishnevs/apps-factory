@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { Building2 } from "lucide-react";
+import NextLink from "next/link";
 import { Shell } from "@/components/app/shell";
 import { Button } from "@/components/ui/button";
 import { ApiError, useCompanyInfo } from "@/lib/api/client";
@@ -16,7 +17,7 @@ function NotFound() {
       <Building2 className="size-8 text-muted-foreground" />
       <h1 className="text-xl font-semibold">This company is not available</h1>
       <p className="max-w-sm text-sm text-muted-foreground">It does not exist or you are not a member of it.</p>
-      <Button asChild className="mt-2"><a href="/">Go to your company</a></Button>
+      <Button asChild className="mt-2"><NextLink href="/">Go to your company</NextLink></Button>
     </main>
   );
 }
