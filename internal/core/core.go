@@ -44,6 +44,8 @@ type Core struct {
 	// AuditAssignee is the agent of an existing repository's onboarding audit (projects.audit_assignee,
 	// project-creation D5); empty means config.DefaultAuditAssignee.
 	AuditAssignee string
+	// enrollLimit limits the tokenless enroll route (node-identity D3).
+	enrollLimit enrollLimiter
 	// lastStallSweep is touched only by the tick goroutine.
 	lastStallSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
@@ -105,6 +107,7 @@ func (c *Core) Handler() http.Handler {
 	}
 	m := http.NewServeMux()
 	c.configRoutes(m)
+	c.nodeKeyRoutes(m)
 	c.taskRoutes(m)
 	c.messageRoutes(m)
 	c.approvalRoutes(m)
@@ -203,6 +206,10 @@ func (c *Core) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" || exitPath(r.URL.Path) || strings.HasPrefix(r.URL.Path, "/agent/blobs") {
 			c.agentGateway(w, r, m)
+			return
+		}
+		// Nodes without a credential yet (node-identity D3).
+		if c.enrollmentGateway(w, r) {
 			return
 		}
 		auth := r.Header.Get("Authorization")

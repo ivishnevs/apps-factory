@@ -22,7 +22,7 @@ Private keys are 0600 files; the node refuses to start when they are readable by
 
 ### D3. Enrollment
 1. An owner or admin issues an enrollment code for the company: web Nodes page or `factory nodes enroll --name mac-mini-1` (owner token; the operator token with `--company C` for support). The code has 128 random bits, is single-use, valid 15 minutes, stored as a hash, bound to the company and the name.
-2. The node runs `factory-node enroll <code>`: generates keys, sends `POST /nodes/enroll {code, node_id, sign_pub, box_pub}` signed by the new key, prints the fingerprint. This route takes no token and is rate limited per address.
+2. The node runs `factory-node enroll <code>`: generates keys, sends `POST /nodes/enroll {code, node_id, sign_pub, box_pub, proof}`, where `proof` is a signature by the new key over those fields, and prints the fingerprint. This route takes no token and is rate limited per address.
 3. Core burns the code and stores the keys as **pending**. Pending keys that are not approved within 24 hours are deleted. A pending node may only call `GET /nodes/{id}/enrollment`, signed; every other node route answers 401.
 4. The owner or admin compares fingerprints on the web Nodes page (or `factory nodes approve <node_id> <fingerprint>`). Core marks the keys **active**; a wrong fingerprint is refused.
 A code used by someone else first shows a fingerprint the owner does not recognise; the owner rejects it and issues a new code.

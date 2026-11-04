@@ -83,26 +83,6 @@ func TestNodeKeys(t *testing.T) {
 	}
 }
 
-// TestFingerprint is stable, covers both public keys and comes in groups the owner can compare.
-func TestFingerprint(t *testing.T) {
-	a, b := make([]byte, 32), make([]byte, 32)
-	got := Fingerprint(a, b)
-	if len(got) != 39 || strings.Count(got, "-") != 7 {
-		t.Fatal(got)
-	}
-	if Fingerprint(a, b) != got {
-		t.Fatal("not stable")
-	}
-	b[0] = 1
-	if Fingerprint(a, b) == got {
-		t.Fatal("box key not covered")
-	}
-	b[0], a[0] = 0, 1
-	if Fingerprint(a, b) == got {
-		t.Fatal("sign key not covered")
-	}
-}
-
 // TestKeysCheckMissing: no state_dir is skipped and missing keys only warn.
 func TestKeysCheckMissing(t *testing.T) {
 	if c := keysCheck(""); c.Status != Skip {

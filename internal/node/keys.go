@@ -4,13 +4,14 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"appfactory/internal/nodesig"
 )
 
 // Node keys (node-identity D1): <state_dir>/keys holds the private keys that prove who this node is. They are
@@ -115,20 +116,7 @@ func (k Keys) SignPublic() ed25519.PublicKey { return k.Sign.Public().(ed25519.P
 func (k Keys) BoxPublic() []byte { return k.Box.PublicKey().Bytes() }
 
 // Fingerprint is what the owner compares with Core's view before approving the node.
-func (k Keys) Fingerprint() string { return Fingerprint(k.SignPublic(), k.BoxPublic()) }
-
-// Fingerprint is the first 16 bytes of SHA-256 over both public keys, in hex groups of four characters.
-func Fingerprint(signPub, boxPub []byte) string {
-	h := sha256.New()
-	h.Write(signPub)
-	h.Write(boxPub)
-	s := hex.EncodeToString(h.Sum(nil)[:16])
-	groups := make([]string, 0, 8)
-	for i := 0; i < len(s); i += 4 {
-		groups = append(groups, s[i:i+4])
-	}
-	return strings.Join(groups, "-")
-}
+func (k Keys) Fingerprint() string { return nodesig.Fingerprint(k.SignPublic(), k.BoxPublic()) }
 
 // keysCheck is the doctor's view of the node's keys. Missing keys only warn until enrollment is required.
 func keysCheck(dir string) CheckResult {
