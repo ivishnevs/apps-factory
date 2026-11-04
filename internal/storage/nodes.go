@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"appfactory/internal/protocol"
+	"appfactory/internal/secrets"
 	"appfactory/internal/tasks"
 )
 
@@ -336,6 +337,8 @@ type Claimed struct {
 	StartBy time.Time        `json:"start_by"`
 	RunSpec protocol.RunSpec `json:"run_spec"`
 	Brief   Brief            `json:"brief"`
+	// Secrets are the run's company secrets sealed to the claiming node (core-secret-store D4); never stored.
+	Secrets []protocol.SealedSecret `json:"secrets,omitempty"`
 }
 
 // Refusal is a 409 answer of a v2 claim: Retry keeps the run QUEUED, Drop ends the command. Detail says
@@ -464,6 +467,24 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		}
 		return out, drop("not_runnable")
 	}
+	// Company secrets (core-secret-store D4) are checked before the run is CLAIMED: without a master key it stays
+	// QUEUED; a missing, wrong-kind or unreadable secret ends it before it starts (no attempt) and the task waits.
+	if needed := runSecretNeeds(spec); len(needed) > 0 {
+		if s.Keys == nil {
+			return out, &Refusal{Retry: true, Reason: "no_master_key", Detail: "Core has no " + secrets.MasterKeyEnv}
+		}
+		if why, err := checkRunSecrets(ctx, tx, s.Keys, needed); err != nil {
+			return out, err
+		} else if why != "" {
+			if _, err = endQueued(ctx, tx, id, "setup_failed", why); err != nil {
+				return out, err
+			}
+			if err = tx.Commit(); err != nil {
+				return out, err
+			}
+			return out, drop("secret_missing")
+		}
+	}
 	if err = briefClaim(ctx, tx, id, &spec); err != nil {
 		return out, err
 	}
@@ -490,6 +511,16 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if out, err = claimedAnswer(ctx, tx, company, id); err != nil {
 		return out, err
 	}
+	if len(out.Secrets) > 0 {
+		names := make([]string, len(out.Secrets))
+		for i, x := range out.Secrets {
+			names[i] = x.Name
+		}
+		if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "secret.delivered", EntityID: id, ProjectID: spec.Project, CreatedAt: now, TaskID: spec.TaskID, RunID: id, Agent: spec.Agent, Actor: "system",
+			Summary: fmt.Sprintf("secrets %s delivered to node %s for run %s", strings.Join(names, ", "), req.NodeID, id)}); err != nil {
+			return out, err
+		}
+	}
 	return out, tx.Commit()
 }
 
@@ -507,6 +538,10 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 	out.StartBy = time.Unix(startBy, 0).UTC()
 	m, err := runManifest(ctx, tx, out.RunSpec)
 	out.RunSpec.Materialize = m
+	if err != nil {
+		return out, err
+	}
+	out.Secrets, err = sealRunSecrets(ctx, tx, company, id, out.RunSpec)
 	return out, err
 }
 

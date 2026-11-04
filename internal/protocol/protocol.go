@@ -186,6 +186,15 @@ type Quota struct {
 	Type string `json:"type,omitempty"`
 }
 
+// SealedSecret is a company secret in a claim answer, sealed to the claiming node (core-secret-store D4): it opens
+// with the node's encryption key and the info company|run|node|name|version only.
+type SealedSecret struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Version int64  `json:"version"`
+	Sealed  []byte `json:"sealed"`
+}
+
 func ID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

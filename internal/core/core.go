@@ -114,6 +114,7 @@ func (c *Core) Handler() http.Handler {
 	c.catalogRoutes(m)
 	c.companyRoutes(m)
 	c.accountRoutes(m)
+	c.secretRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil {
@@ -304,6 +305,10 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		reply(w, nil, err)
+		return
+	}
+	if missing := c.missingSecret(c.companyFrom(r), p.Agent, a); missing != "" {
+		jsonStatus(w, http.StatusConflict, map[string]string{"reason": "secret_missing", "secret": missing})
 		return
 	}
 	snapshot, hash, err := c.RunSnapshot(a)

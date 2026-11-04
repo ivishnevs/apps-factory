@@ -95,9 +95,10 @@ are enforced for Core tool calls and do not create OS isolation or filter unrela
 
 External MCP servers (agent `mcp`, company `mcp_servers.yaml`; agent-configuration.md) run beside `factory`, not
 through Core: their calls are neither audited nor policy-checked by Factory, only their `deny_tools` are
-removed from the runtime. Their header secrets are resolved by the node from its `secrets_file` into
-`FACTORY_MCP_SECRET_<NAME>` in the runtime environment (Claude Code expands `${FACTORY_MCP_SECRET_<NAME>}` in
-the header), redacted from the run's log, events, result and report attachments, and never sent to Core.
+removed from the runtime. Their header secrets are company secrets Core delivers sealed with the claim
+(core-secret-store); the node puts them into `FACTORY_MCP_SECRET_<NAME>` in the runtime environment (Claude Code
+expands `${FACTORY_MCP_SECRET_<NAME>}` in the header), and they are redacted from the run's log, events, result and
+report attachments.
 `FACTORY_MCP_SECRET_*` from the node's own environment never passes.
 
 `factory_task_submit` while running saves a draft (summary, declared checks, commit, artifact refs).

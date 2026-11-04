@@ -381,6 +381,9 @@ func (c *Core) evaluateIn(company string, snap tasks.Snapshot) tasks.Verdict {
 		b, _ := json.Marshal(a)
 		snap.AgentCap, snap.AgentProjectCap = storage.AgentCaps(b)
 	}
+	if snap.AgentConfigured && c.Store != nil {
+		snap.MissingSecret = c.missingSecret(company, snap.Task.Assignee, a)
+	}
 	if snap.AgentConfigured && len(snap.QuotaPaused) > 0 {
 		b, _ := json.Marshal(a)
 		key := storage.QuotaKey(b, snap.Task.Assignee)

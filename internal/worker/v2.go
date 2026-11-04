@@ -31,6 +31,8 @@ type Claim struct {
 	StartBy time.Time        `json:"start_by"`
 	RunSpec protocol.RunSpec `json:"run_spec"`
 	Brief   json.RawMessage  `json:"brief,omitempty"`
+	// Secrets are the run's company secrets sealed to this node (core-secret-store D4).
+	Secrets []protocol.SealedSecret `json:"secrets,omitempty"`
 }
 
 // Refusal is a 409 answer: Retry keeps the run QUEUED (nak), Drop ends the command (ack).
@@ -104,6 +106,11 @@ func (w *Worker) ProcessRun(ctx context.Context, run string, running func(run st
 	if running != nil {
 		running(run, cancel)
 	}
+	// A secret that does not open is reported by the run's setup as not delivered (setup_failed).
+	if err := w.openSecrets(c.RunSpec.Company, run, w.Inventory.NodeID, c.Secrets); err != nil {
+		slog.Error("run secrets", "run", run, "error", err)
+	}
+	defer w.forgetSecrets(run)
 	if err := w.execute(runCtx, c.RunSpec, c.Lease, ""); err != nil {
 		slog.Error("runtime run", "run", run, "error", err)
 	}

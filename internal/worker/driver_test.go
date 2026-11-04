@@ -33,6 +33,7 @@ func asNode(t testing.TB, s *storage.Store, w *Worker, url string) testnode.Node
 		t.Fatal(err)
 	}
 	w.API = API{URL: url, Node: n.ID, Key: n.Key, Now: s.Now}
+	w.Box = n.Box
 	// A first signed request fixes when Core started accepting signatures, so the test's next request, signed later,
 	// is never refused as created before Core started (signatures carry whole seconds).
 	_ = w.API.Do(context.Background(), "GET", "/health", nil, nil)
@@ -101,6 +102,9 @@ func runDriver(t *testing.T, w Worker, cancel bool, mods ...any) (storage.Run, [
 	asNode(t, s, &w, server.URL)
 	epoch, claim, err := w.ClaimV2(ctx, spec.ID, 0)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err = w.openSecrets(storage.DefaultCompany, spec.ID, w.Inventory.NodeID, claim.Secrets); err != nil {
 		t.Fatal(err)
 	}
 	lease := claim.Lease

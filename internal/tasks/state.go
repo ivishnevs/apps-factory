@@ -19,7 +19,9 @@ const (
 	ReasonArtifacts    = "artifacts"
 	ReasonPaused       = "paused:" // + scope
 	ReasonBackoff      = "backoff"
-	ReasonIdle         = "idle"
+	// ReasonSecretMissing: a secret the assignee's runs need is not set (core-secret-store D9); no run, no retry.
+	ReasonSecretMissing = "secret_missing"
+	ReasonIdle          = "idle"
 	// ReasonPinnedNode: the node holding the task's unpushed work cannot continue it (task-worktrees D8).
 	ReasonPinnedNode = "pinned_node_unavailable"
 	// ReasonNoCapableNode: no online, unpaused node has the assignee's driver, labels and resources.
@@ -135,6 +137,9 @@ type Snapshot struct {
 	// offline before the task reports pinned_node_unavailable.
 	PinnedNode string
 	PinTimeout time.Duration
+	// MissingSecret names the first secret the assignee's runs need that is not set with its kind, as
+	// "NAME (agent)" (Core fills it from the catalog and the company's secrets); "" when none.
+	MissingSecret string
 }
 
 // TaskPause is an authority's pause of one task (hierarchy D2).
@@ -201,6 +206,9 @@ func Evaluate(s Snapshot) Verdict {
 	if len(s.UnapprovedArtifacts) > 0 {
 		a := s.UnapprovedArtifacts[0]
 		return v(ReasonArtifacts, fmt.Sprintf("artifact %s@%s is not approved", a.ID, a.Version), "owner", "approve the artifact version (factory artifacts approval ...)")
+	}
+	if s.MissingSecret != "" {
+		return v(ReasonSecretMissing, "secret "+s.MissingSecret+" is not set", "owner", "set it on the Secrets page or with factory secrets set NAME")
 	}
 	if len(s.Paused) > 0 {
 		scope := s.Paused[0]

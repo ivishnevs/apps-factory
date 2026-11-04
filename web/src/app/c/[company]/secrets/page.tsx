@@ -19,6 +19,8 @@ import { ago } from "@/lib/format";
 // Owners and admins add, replace and delete; members see the names only.
 
 interface Secret { name: string; kind?: "string" | "file"; version?: number; updated_by?: string; updated_at?: number; used_by?: string[] }
+// A secret an agent's runs need (GET /secrets/needed): runs of those agents wait until it is set with its kind.
+interface Needed { name: string; kind: "string" | "file"; set: boolean; wrong_kind?: boolean; agents: string[] }
 
 const namePattern = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const maxFile = 64 << 10;
@@ -113,6 +115,8 @@ export default function Page() {
   const role = useCompanyInfo().data?.role;
   const manage = canManage(role);
   const secrets = useQuery({ queryKey: ["secrets"], queryFn: async () => list(await core<unknown>("/secrets")) });
+  const needed = useQuery({ queryKey: ["secrets", "needed"], queryFn: async () => (await core<Needed[]>("/secrets/needed")) ?? [], enabled: manage });
+  const waiting = (needed.data ?? []).filter((n) => Array.isArray(n.agents) && !n.set);
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [editing, setEditing] = useState<{ open: boolean; secret?: Secret }>({ open: false });
@@ -128,6 +132,22 @@ export default function Page() {
       <PageHeader title="Secrets" description="API keys and files your agents and MCP servers use. Values are never shown."
         actions={manage ? <Button className="h-10" onClick={() => setEditing({ open: true })}><Plus className="size-4" />Add a secret</Button> : undefined} />
       {!manage && role && <p className="mb-4 text-sm text-muted-foreground">You see the names only; owners and admins manage secrets.</p>}
+      {waiting.length > 0 && (
+        <section className="mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
+          <p className="mb-2 text-sm font-medium">Agents are waiting for these secrets</p>
+          <ul className="space-y-2">
+            {waiting.map((n) => (
+              <li key={n.name} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <p className="min-w-0 flex-1 text-sm">
+                  <span className="font-mono font-medium">{n.name}</span>{" "}
+                  <span className="text-muted-foreground">({n.kind === "file" ? "file" : "text"}{n.wrong_kind ? ", set with the wrong kind" : ""}) for {n.agents.join(", ")}</span>
+                </p>
+                <Button variant="outline" className="h-10" onClick={() => setEditing({ open: true, secret: { name: n.name, kind: n.kind } })}>Set</Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {secrets.isLoading ? <LoadingRows /> : missing ? (
         <EmptyState icon={KeyRound} title="Secrets are not available on this server yet" hint="This App Factory does not store secrets yet." />
       ) : secrets.error ? <ErrorState error={secrets.error} /> : (secrets.data ?? []).length === 0 ? (

@@ -100,7 +100,92 @@ type Spec struct {
 	// MCP names the company's external MCP servers (mcp_servers.yaml) the agent's runs get besides the
 	// Factory server (external-mcp-servers); Claude agents only.
 	MCP []string `yaml:"mcp" json:"mcp,omitempty"`
+	// Secrets are company secrets the agent's runs get (core-secret-store D3): a string in the env variable Env, or
+	// with File a file whose path is in Env. Merged from profiles by name.
+	Secrets []SecretUse `yaml:"secrets" json:"secrets,omitempty"`
 }
+
+// SecretUse is one entry of spec.secrets.
+type SecretUse struct {
+	Name string `yaml:"name" json:"name"`
+	Env  string `yaml:"env" json:"env"`
+	File bool   `yaml:"file" json:"file,omitempty"`
+}
+
+// SecretNeed is a secret an agent's runs need: through spec.secrets (Env set) or a header of an external MCP
+// server (Server set), with the kind it must have.
+type SecretNeed struct {
+	Name   string `json:"name"`
+	Kind   string `json:"kind"`
+	Env    string `json:"env,omitempty"`
+	Server string `json:"server,omitempty"`
+}
+
+// SecretKinds of SecretNeed.
+const (
+	SecretString = "string"
+	SecretFile   = "file"
+)
+
+// NeededSecrets are the secrets the agent's runs need (D3): its external MCP servers' header secrets (strings) and
+// spec.secrets, sorted by name and source.
+func (a Agent) NeededSecrets() []SecretNeed {
+	var out []SecretNeed
+	servers := make([]string, 0, len(a.MCPServers))
+	for n := range a.MCPServers {
+		servers = append(servers, n)
+	}
+	sort.Strings(servers)
+	for _, srv := range servers {
+		for _, name := range a.MCPServers[srv].Secrets() {
+			out = append(out, SecretNeed{Name: name, Kind: SecretString, Server: srv})
+		}
+	}
+	for _, u := range a.Spec.Secrets {
+		kind := SecretString
+		if u.File {
+			kind = SecretFile
+		}
+		out = append(out, SecretNeed{Name: u.Name, Kind: kind, Env: u.Env})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+var (
+	secretUseName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	secretUseEnv  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+)
+
+// validSecrets checks spec.secrets: valid names and env variables, no FACTORY_* variable (Factory's own), each name
+// and variable once, and no secret needed both as a string and as a file.
+func validSecrets(a Agent) error {
+	names, envs := map[string]bool{}, map[string]bool{}
+	for _, u := range a.Spec.Secrets {
+		switch {
+		case !secretUseName.MatchString(u.Name):
+			return fmt.Errorf("secrets: invalid secret name %q", u.Name)
+		case !secretUseEnv.MatchString(u.Env):
+			return fmt.Errorf("secrets: %s needs an env variable name", u.Name)
+		case strings.HasPrefix(strings.ToUpper(u.Env), "FACTORY_"):
+			return fmt.Errorf("secrets: env %s is reserved (FACTORY_*)", u.Env)
+		case names[u.Name]:
+			return fmt.Errorf("secrets: %s listed twice", u.Name)
+		case envs[u.Env]:
+			return fmt.Errorf("secrets: env %s used twice", u.Env)
+		}
+		names[u.Name], envs[u.Env] = true, true
+	}
+	kinds := map[string]string{}
+	for _, n := range a.NeededSecrets() {
+		if k, ok := kinds[n.Name]; ok && k != n.Kind {
+			return fmt.Errorf("secrets: %s is needed both as a string and as a file", n.Name)
+		}
+		kinds[n.Name] = n.Kind
+	}
+	return nil
+}
+
 type Agent struct {
 	APIVersion      string          `yaml:"apiVersion" json:"apiVersion"`
 	Kind            string          `yaml:"kind" json:"kind"`
@@ -471,6 +556,31 @@ func merge(parent, child map[string]any, prefix string) map[string]any {
 				continue
 			}
 		}
+		if key == "secrets" {
+			// spec.secrets merge by name: a child's entry replaces the profile's of the same name.
+			if a, ok := v.([]any); ok {
+				b, _ := out[k].([]any)
+				inherited := map[any]int{}
+				xs := append([]any{}, b...)
+				for i, x := range xs {
+					if m, ok := x.(map[string]any); ok {
+						inherited[m["name"]] = i
+					}
+				}
+				for _, x := range a { // a name repeated in one document stays repeated: validation refuses it
+					if m, ok := x.(map[string]any); ok {
+						if i, seen := inherited[m["name"]]; seen {
+							xs[i] = x
+							delete(inherited, m["name"])
+							continue
+						}
+					}
+					xs = append(xs, x)
+				}
+				out[k] = xs
+				continue
+			}
+		}
 		if key == "skills.include" || key == "policies" || key == "tools.deny" || key == "approvals.require" || key == "labels" || key == "mcp" {
 			if a, ok := v.([]any); ok {
 				b, _ := out[k].([]any)
@@ -577,6 +687,9 @@ func (c *Catalog) finish(src source, a *Agent) error {
 		}
 	}
 	if a.MCPServers, err = c.agentMCP(*a); err != nil {
+		return err
+	}
+	if err = validSecrets(*a); err != nil {
 		return err
 	}
 	a.AvailableSkills = c.Skills.Available(a.Spec.Skills.Include, a.Spec.Skills.Discover.Enabled, a.Spec.Skills.Discover.Categories)

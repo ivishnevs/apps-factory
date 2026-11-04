@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"crypto/ecdh"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -75,7 +76,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return node.ErrNoKeys
 	}
 	slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
-	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS)})
+	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS), Box: keys.Box})
 }
 
 // SkillsRoot is the factory checkout whose company catalog's skills.yaml (configs/skills.yaml for the default
@@ -119,6 +120,8 @@ type Node struct {
 	API     worker.API
 	Drivers []driver.Driver
 	Host    node.Host
+	// Box is the node's encryption key: it opens the company secrets Core seals to the node.
+	Box *ecdh.PrivateKey
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
 
@@ -145,6 +148,10 @@ func Run(ctx context.Context, n Node) error {
 		return err
 	}
 	if err := worker.KillOrphans(c.StateDir); err != nil {
+		return err
+	}
+	// File secrets of runs a previous process ran are gone with them (core-secret-store D5).
+	if err := worker.RemoveSecretLeftovers(c.StateDir); err != nil {
 		return err
 	}
 	mcp, shim := "", ""
@@ -223,7 +230,7 @@ func Run(ctx context.Context, n Node) error {
 	names := []string{}
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Events: events, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
-			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv, SecretsFile: c.SecretsFile, ProjectsRoot: c.ProjectsRoot}
+			Skills: registry, Sessions: store, EnvAllow: c.RuntimeEnv, ProjectsRoot: c.ProjectsRoot, Box: n.Box}
 		if c.StateDir != "" {
 			w.BlobCache = filepath.Join(c.StateDir, "blobs") // project data by digest, shared by the slots
 		}

@@ -84,16 +84,37 @@ mcp_servers:
     transport: http                     # streamable HTTP, the only transport
     url: https://www.appstoretracker.com/api/mcp   # https; plain http only to 127.0.0.1/localhost (a local proxy)
     headers:
-      Authorization: "Bearer ${secret:APPSTORETRACKER_API_KEY}"   # a node secret, never a literal
+      Authorization: "Bearer ${secret:APPSTORETRACKER_API_KEY}"   # a company secret, never a literal
     deny_tools: [add_to_watchlist]      # Claude: --disallowedTools mcp__appstoretracker__add_to_watchlist
 ```
 
 Header values may hold `${secret:NAME}` references and nothing else in `${...}`. A header whose name looks like a
 credential (authorization, token, key, secret, cookie, password, credential, session) must reference a secret;
 a literal there, an unknown server name, a bad URL or the reserved name `factory` fail loading. The run's config
-snapshot carries the server with the reference unresolved; the node that runs it resolves it from its
-`secrets_file` (development.md, node.yaml). A node without the secret fails the run's setup (`setup_failed`,
-naming the secret); nothing schedules around it, so put the secret on every node that may run the agent.
+snapshot carries the server with the reference unresolved; the node that runs it gets the value sealed in the
+claim answer from Core's secret store (below) and resolves it there.
+
+### Secrets
+
+Company secrets live encrypted in Core (core-secret-store): owners and admins set them on the Secrets page or with
+`factory secrets set NAME` (string on stdin) / `factory secrets set NAME --file PATH`; `factory secrets list` shows
+names, kinds, versions and `used_by`, never a value. An agent's runs need the header secrets of its MCP servers and
+its `spec.secrets`:
+
+```yaml
+spec:
+  secrets:
+    - {name: ASC_API_KEY_ID, env: ASC_KEY_ID}             # a string in the runtime's environment
+    - {name: ASC_PRIVATE_KEY, env: ASC_KEY_PATH, file: true}  # a 0600 file; its path in the variable
+```
+
+Entries merge from profiles by name (the agent's replaces the profile's). Names are `[A-Za-z_][A-Za-z0-9_]*`, each
+variable once and never `FACTORY_*`; a secret needed as a string and as a file is refused. A task whose agent needs a
+secret that is not set (or set with the other kind) waits before dispatch with `secret_missing: NAME (agent)`: no
+run, no attempt; setting it lets the task run at the next tick (`factory secrets needed`, the Secrets page). Values
+reach only the runtime: environment variables, files under `<state_dir>/runs/<run>/secrets/` removed when the run
+ends, and they are redacted from the run's log, events, result and attachments (long lines of a multi-line value
+too).
 
 ## Runtime context
 

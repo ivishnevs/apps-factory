@@ -11,6 +11,7 @@ import (
 	"appfactory/internal/blobstore"
 	"appfactory/internal/clock"
 	"appfactory/internal/protocol"
+	"appfactory/internal/secrets"
 )
 
 var ErrInput = errors.New("invalid input")
@@ -55,6 +56,9 @@ type Store struct {
 	// Wake, when set, is called after a commit that queued a run or changed what a node must do, so Core answers the
 	// company's waiting node polls at once (http-node-transport D6); the polls' periodic re-check covers the rest.
 	Wake func(company string)
+	// Keys wraps the company keys of the secret store (core-secret-store D1); nil: no master key, secrets can be
+	// neither set nor delivered.
+	Keys secrets.KeyProvider
 }
 
 func (s *Store) Now() time.Time {

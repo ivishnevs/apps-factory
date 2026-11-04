@@ -7,6 +7,7 @@ import (
 	"appfactory/internal/core"
 	"appfactory/internal/notify/telegram"
 	"appfactory/internal/policies"
+	"appfactory/internal/secrets"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"context"
@@ -94,6 +95,9 @@ func run() error {
 	api := worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN")}
 	if args[0] == "conversations" || args[0] == "messages" || args[0] == "inbox" || args[0] == "approvals" {
 		return communicationCommand(ctx, api, args)
+	}
+	if args[0] == "secrets" {
+		return secretsCommand(ctx, api, args, os.Stdin)
 	}
 	if args[0] == "companies" || args[0] == "templates" || args[0] == "owner-tokens" {
 		return companiesCommand(ctx, api, args)
@@ -238,6 +242,20 @@ func run() error {
 	}
 	if err = s.EnsureCompany(ctx, company); err != nil {
 		return fmt.Errorf("company %s: %w", company, err)
+	}
+	// Company secrets (core-secret-store D1): the master key from the environment must open every company key.
+	keys, err := secrets.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if keys != nil {
+		s.Keys = keys
+	}
+	if err = s.CheckMasterKey(ctx); err != nil {
+		return err
+	}
+	if keys == nil {
+		slog.Warn("no " + secrets.MasterKeyEnv + ": company secrets can be neither set nor delivered")
 	}
 	defer s.DB.Close()
 	prices, err := config.LoadPrices(root)

@@ -112,9 +112,16 @@ and of the current epoch; node has the agent's driver and labels; resource capac
   `X-Factory-Lease: <lease>`; a blob it cannot fetch ends the run `setup_failed` before the runtime starts. It
   uploads the run's log, redacted, with `PUT /runs/{id}/logs?seq=N[&final=1]&redacted=1` and the same header,
   during the run and after its terminal event. Both routes are open to a signed node for its own runs.
-- `409 {"retry": true, "reason": "capacity|agent_busy|project_busy", "detail": "…"}` — run stays QUEUED; the node
+- The answer's `secrets` (core-secret-store D4, not stored) are the run's company secrets:
+  `[{"name", "kind": "string|file", "version", "sealed"}]`, each HPKE-sealed (DHKEM X25519, HKDF-SHA256,
+  ChaCha20-Poly1305) to the claiming node's encryption key with info `factory-secret|company|run|node|name|version`;
+  only that node opens it, only for that run. Core checks every needed secret before the run is CLAIMED: a missing,
+  wrong-kind or unreadable one ends the run `setup_failed` before it starts (no attempt; the task then waits with
+  `secret_missing`) and the claim is dropped (`secret_missing`); a Core without `FACTORY_SECRETS_KEY` answers
+  `retry` (`no_master_key`) and the run stays QUEUED. A repeated claim seals again; `secret.delivered` is recorded once.
+- `409 {"retry": true, "reason": "capacity|agent_busy|project_busy|no_master_key", "detail": "…"}` — run stays QUEUED; the node
   skips the offer for 5 s. `detail` (optional) says what the node lacks: a usable driver, labels, a slot, a resource class.
-- `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch"}` — the node forgets the offer; Core
+- `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch|secret_missing"}` — the node forgets the offer; Core
   has already recorded the run's end (`stale`) where applicable.
 
 ## 6. Start (phase 2)

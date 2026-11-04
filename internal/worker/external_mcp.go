@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"appfactory/internal/driver"
-	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 )
 
@@ -25,9 +24,10 @@ type resolvedMCP struct {
 }
 
 // externalMCP reads the agent's external MCP servers from the run's config snapshot and resolves their
-// ${secret:NAME} references from the node's secrets file. A server the driver cannot pass, a node without a
-// secrets file or a secret the file lacks fails the run's setup; errors name the server and secret, never a value.
-func externalMCP(spec protocol.RunSpec, secretsFile string, caps driver.Capabilities) (resolvedMCP, error) {
+// ${secret:NAME} references from the company secrets Core delivered with the claim (core-secret-store D5). A
+// server the driver cannot pass or a secret that was not delivered fails the run's setup; errors name the server
+// and secret, never a value.
+func externalMCP(spec protocol.RunSpec, secrets map[string]string, caps driver.Capabilities) (resolvedMCP, error) {
 	var out resolvedMCP
 	var agent struct {
 		MCPServers map[string]protocol.MCPServer `json:"mcp_servers"`
@@ -48,25 +48,15 @@ func externalMCP(spec protocol.RunSpec, secretsFile string, caps driver.Capabili
 	if !caps.ExternalMCP {
 		return out, fmt.Errorf("external MCP servers (%s) are not supported by the %s runtime", strings.Join(names, ", "), spec.Provider)
 	}
-	var secrets map[string]string
 	for _, n := range names {
 		s := agent.MCPServers[n]
 		if s.Transport != "http" {
 			return out, fmt.Errorf("MCP server %s: unsupported transport %q", n, s.Transport)
 		}
-		if need := s.Secrets(); len(need) > 0 && secrets == nil {
-			if secretsFile == "" {
-				return out, fmt.Errorf("MCP server %s needs node secret %s, but this node has no secrets_file in node.yaml", n, need[0])
-			}
-			var err error
-			if secrets, err = node.ReadSecrets(secretsFile); err != nil {
-				return out, fmt.Errorf("MCP server %s: %w", n, err)
-			}
-		}
 		for _, k := range s.Secrets() {
 			v, ok := secrets[k]
 			if !ok || v == "" {
-				return out, fmt.Errorf("MCP server %s needs node secret %s, which the node's secrets_file does not define", n, k)
+				return out, fmt.Errorf("MCP server %s needs company secret %s, which Core did not deliver with the claim (set it on the Secrets page)", n, k)
 			}
 			env := SecretEnvPrefix + k + "=" + v
 			if !slices.Contains(out.Env, env) {

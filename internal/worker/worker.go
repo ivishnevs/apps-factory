@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/ecdh"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
@@ -172,9 +173,9 @@ type Worker struct {
 	// EnvAllow adds variable names (NAME_* for a prefix) to the runtime environment's allowlist RuntimeEnv
 	// (node.yaml runtime_env); credentials stay out regardless.
 	EnvAllow []string
-	// SecretsFile is node.yaml secrets_file: the values of the ${secret:NAME} references of a run's external MCP
-	// servers, read at each run that needs one (node.ReadSecrets).
-	SecretsFile string
+	// Box opens the company secrets Core seals to this node in a claim answer (core-secret-store D4, D5); nil:
+	// runs that need secrets fail their setup.
+	Box *ecdh.PrivateKey
 	// ProjectsRoot is where the node creates and clones project repositories (node.yaml projects_root,
 	// project-creation D3); empty is <state_dir>/projects. GH is the GitHub CLI (default gh).
 	ProjectsRoot string
@@ -468,12 +469,29 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer os.RemoveAll(skillsRoot)
 	}
 	// External MCP servers (external-mcp-servers): node secrets resolved here are redacted from the start.
-	external, err := externalMCP(spec, w.SecretsFile, drv.Capabilities())
+	delivered := w.deliveredSecrets(spec.ID)
+	for _, v := range delivered {
+		rlog.secret(v) // every value is redacted from the start, whatever uses it
+		for _, line := range strings.Split(v, "\n") {
+			// A multi-line value (a key file) printed line by line: its long lines are redacted too.
+			if line = strings.TrimSpace(line); len(line) >= 16 {
+				rlog.secret(line)
+			}
+		}
+	}
+	external, err := externalMCP(spec, delivered, drv.Capabilities())
 	if err != nil {
 		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
 	}
 	for _, v := range external.Values {
 		rlog.secret(v)
+	}
+	secretEnv, secretDir, err := w.agentSecrets(spec, delivered)
+	if secretDir != "" {
+		defer os.RemoveAll(secretDir)
+	}
+	if err != nil {
+		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
 	}
 
 	runSpec, prev := w.resumeSpec(drv, spec, cwd)
@@ -558,6 +576,10 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if spec.Conversation && spec.Workspace != "" {
 		launch.Env = setEnv(launch.Env, "FACTORY_PROJECT_WORKSPACE", spec.Workspace)
 		launch.Instructions += conversationNote(spec.Workspace)
+	}
+	for _, kv := range secretEnv { // spec.secrets: the runtime's environment only
+		k, v, _ := strings.Cut(kv, "=")
+		launch.Env = setEnv(launch.Env, k, v)
 	}
 	if len(external.Servers) > 0 {
 		launch.ExternalMCP = external.Servers

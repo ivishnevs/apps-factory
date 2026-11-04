@@ -1,6 +1,6 @@
 # Development
 
-Go 1.25 (the floor of the owner UI's Charm v2 libraries: bubbletea 2.0.9, bubbles 2.2.1, lipgloss 2.0.6); pgx 5.7.5 (`pgx/v5/stdlib` behind
+Go 1.26 (`crypto/hpke` seals company secrets to nodes, core-secret-store D4; Charm v2 libraries need 1.25); pgx 5.7.5 (`pgx/v5/stdlib` behind
 `database/sql`), yaml.v3 3.0.1. pgx is pure Go; no CGO toolchain is needed in the Core container.
 
 Storage is Postgres only (postgres-tenancy). `FACTORY_DATABASE_URL` (`postgres://user:password@host:5432/factory`)
@@ -166,6 +166,26 @@ all (messaging 7, OpenSpec 2–3, drivers 3). Results land in `.cache/messaging-
 `.cache/openspec-verification.json` and `.cache/drivers-verification.json` (run ids, sessions, exits,
 `GET /tasks/{id}/costs`).
 
+## Secrets
+
+Company secrets are encrypted in Core's database (core-secret-store): a master key wraps one key per company, and
+each value is AES-256-GCM under its company key. The master key is Core's `FACTORY_SECRETS_KEY`, the base64 of 32
+random bytes:
+
+```sh
+openssl rand -base64 32                      # once; put it in .env as FACTORY_SECRETS_KEY=...
+gopass insert factory/secrets-master-key     # back it up outside this machine: without it every secret is lost
+```
+
+Core refuses to start with a key that does not open the existing company keys (or without one once a company has
+secrets); without any key it runs, but secrets can be neither set nor delivered (claims of runs that need one stay
+QUEUED). Rotation: set the new key as `FACTORY_SECRETS_KEY_NEW` next to the old one, restart Core, run
+`factory secrets rotate-master` (operator token; re-wraps every company key under the new key in one transaction),
+then make the new key `FACTORY_SECRETS_KEY`, drop `FACTORY_SECRETS_KEY_NEW`, restart Core and update the backup.
+Nodes keep nothing: each claim answer carries the run's values sealed to the node's encryption key
+([runtime protocol](runtime-protocol-v2.md#5-claim-phase-1)); file secrets live under
+`<state_dir>/runs/<run>/secrets/` (0600) for the run only and leftovers are removed at node start.
+
 ## Sign-in
 
 The website signs people in through Dex (user-accounts D3): `compose.yaml` runs `dex` (`deploy/dex/config.yaml`,
@@ -249,7 +269,7 @@ enabled driver must pass its version check and probe at start (see Driver checks
 for them.
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
-errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `secrets_file`,
+errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`,
 `drivers.claude.shim`, and a driver `binary`/`executable` that holds a `/`)
 resolve against the working directory the node starts in, not the config file's directory: start it from the
 checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
@@ -260,7 +280,6 @@ slots: 2                     # 1..64
 resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
 labels: [macos, xcode]       # sent in register; Core claims an agent's run only where all its spec.labels are
 runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)
-secrets_file: /etc/factory/node.secrets  # KEY=VALUE, chmod 600 (refused otherwise): ${secret:NAME} of external MCP servers, read per run, never sent to Core
 state_dir: data/factory-node # keys, company, pidfiles, node_id, epoch; never shared by live nodes
 projects_root: ~/projects     # repositories of new projects and clones of existing ones by URL (projects.md); default <state_dir>/projects
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary

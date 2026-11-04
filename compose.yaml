@@ -28,6 +28,9 @@ services:
       # project files: nodes download and upload through the API (docs/openspec.md).
       FACTORY_BLOB_DIR: /blobs
       FACTORY_TOKEN: ${FACTORY_TOKEN:?set FACTORY_TOKEN in .env}
+      # Company secrets (docs/development.md#secrets): base64 of 32 random bytes, backed up outside this machine.
+      FACTORY_SECRETS_KEY: ${FACTORY_SECRETS_KEY:-}
+      FACTORY_SECRETS_KEY_NEW: ${FACTORY_SECRETS_KEY_NEW:-}
       # Runs end with factory_exit_* (docs/explicit-exits-contract.md); set 0 in .env for the old rules.
       FACTORY_EXPLICIT_EXITS: ${FACTORY_EXPLICIT_EXITS:-1}
       # Telegram (docs/messaging.md#telegram): off while FACTORY_TELEGRAM_TOKEN is empty.
