@@ -95,8 +95,9 @@ whose probe or version check fails, or whose run ended on an auth failure, stops
 With [runtime protocol v2](runtime-protocol-v2.md) the node registers with a stable `node_id` and a new epoch on
 every start, claims command pointers with `{node_id, epoch, claim_id, slot}` and renews every lease with one
 inventory heartbeat; the answer carries Core's incarnation (a change makes the node stop, seal and re-register),
-`stop`, `acked`, `cleanup`, `reset` and `pause`. The node has no token: an owner approves its keys at enrollment and
-it signs every request ([node identity](development.md#node-identity)); its heartbeat also
+`stop`, `acked`, `cleanup`, `reset` and `pause`. The node has no token: an owner approves its keys at enrollment (a code, or sign-in on the web) and
+it signs every request ([node identity](development.md#node-identity)); Core hands out the node packages and an install
+script ([node-install](node-install.md)); its heartbeat also
 carries the drivers' state (a driver becoming unusable is one `driver_unsupported` event, without a new epoch).
 Core enforces declared `resources` (held until the run is sealed) and `labels` at claim. The
 janitor runs `on_run_stop`/`on_task_closed` hooks, removes closed tasks' worktrees and prunes caches; its hooks and

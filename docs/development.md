@@ -443,6 +443,9 @@ factory nodes revoke NODE_ID                              # below
 factory nodes list | factory nodes remove NODE_ID         # remove: an offline, replaced machine (deletes its keys)
 ```
 
+A node can also connect by signing in (`factory-node login`, `factory nodes connect ID`); installing a node with one
+command and the packages Core hands out: [node-install](node-install.md).
+
 Pending keys that are not approved within 24 hours are deleted. A code refused by Core keeps the node's keys, so a
 new code does not make a new identity. Enrollment stores the company Core names in `state_dir/company`.
 

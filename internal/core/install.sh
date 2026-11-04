@@ -83,7 +83,7 @@ say "  installed in $HOME_DIR ($(cat "$HOME_DIR/VERSION" 2>/dev/null || echo unk
 
 if [ "$CLAUDE" = 1 ]; then
   step "Installing the Claude runtime (pinned Claude Code for $OS-$ARCH)"
-  if (cd "$HOME_DIR/workers/claude" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error); then
+  if (cd "$HOME_DIR/workers/claude" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --no-update-notifier --loglevel=error); then
     :
   else
     say "  npm ci failed: Claude agents are off"; CLAUDE=0
@@ -93,7 +93,7 @@ fi
 case "$CODEX_BIN" in
   "$HOME_DIR"/codex/*)
     step "Installing Codex $CODEX_VERSION"
-    if ! npm install --prefix "$HOME_DIR/codex" --no-audit --no-fund --loglevel=error "@openai/codex@$CODEX_VERSION"; then
+    if ! npm install --prefix "$HOME_DIR/codex" --no-audit --no-fund --no-update-notifier --loglevel=error "@openai/codex@$CODEX_VERSION"; then
       say "  npm install failed: Codex agents are off"; CODEX_BIN=""
     fi ;;
 esac

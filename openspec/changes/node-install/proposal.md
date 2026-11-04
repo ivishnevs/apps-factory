@@ -1,4 +1,4 @@
-Status: in progress (owner 2026-11-04: sign-in from the console like Claude Code, a code stays as the other way; a
+Status: done (owner 2026-11-04: sign-in from the console like Claude Code, a code stays as the other way; a
 console tool first, a desktop app later; the web pages wait for the SaaS redesign of the web).
 
 ## Why

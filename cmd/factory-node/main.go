@@ -311,8 +311,22 @@ func doctor(args []string) (int, error) {
 		d.Stack = hooks.Spec.Checks
 	}
 	// Each driver owns its probe (runtime-drivers D4).
-	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: os.Getenv("CODEX_BIN"), Host: &h}},
-		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: d.BinDir()}}}
+	// The probes see the drivers as node.yaml sets them, like `run` (runner.Drivers).
+	codexBin := c.Drivers.Codex.Binary
+	if codexBin == "" {
+		codexBin = os.Getenv("CODEX_BIN")
+	}
+	binDir := c.BinDir
+	if binDir == "" {
+		binDir = d.BinDir()
+	}
+	cc := c.Drivers.Claude
+	shim := cc.Shim
+	if shim == "" && c.BinDir != "" {
+		shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
+	}
+	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h}},
+		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey}}}
 	known := []string{}
 	for _, rt := range d.Runtimes {
 		known = append(known, rt.Name)
