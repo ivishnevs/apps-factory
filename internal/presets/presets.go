@@ -129,6 +129,12 @@ func Load(root string) (*Library, error) {
 			return nil, fmt.Errorf("agent preset %s: %w", e.Name(), err)
 		}
 		a.Prompt, a.Version = string(prompt), digest(raw, prompt)
+		if a.Spec.Skills == nil {
+			a.Spec.Skills = []string{}
+		}
+		if a.Spec.Secrets == nil {
+			a.Spec.Secrets = []SecretNeed{}
+		}
 		switch {
 		case a.Kind != "AgentPreset" || a.Metadata.Name != e.Name() || !name.MatchString(e.Name()):
 			return nil, fmt.Errorf("agent preset %s: kind AgentPreset named as its directory", e.Name())
@@ -187,6 +193,12 @@ func Load(root string) (*Library, error) {
 			return nil, fmt.Errorf("team preset %s: lead %q is not an agent of the team", n, t.Spec.Lead)
 		}
 		sort.Strings(t.Skills)
+		if t.Skills == nil {
+			t.Skills = []string{}
+		}
+		if t.Secrets == nil {
+			t.Secrets = []SecretNeed{} // the gallery's JSON lists, never null
+		}
 		t.Version = digest(parts...)
 		l.Teams[n] = t
 	}

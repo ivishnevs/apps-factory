@@ -123,3 +123,21 @@ func TestPresets(t *testing.T) {
 		t.Fatal("unknown team", err)
 	}
 }
+
+// TestPresetJSONLists: the gallery's lists are never null.
+func TestPresetJSONLists(t *testing.T) {
+	lib, err := Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tp := range lib.Teams {
+		if tp.Secrets == nil || tp.Skills == nil {
+			t.Fatal(tp.Metadata.Name)
+		}
+	}
+	for _, a := range lib.Agents {
+		if a.Spec.Secrets == nil || a.Spec.Skills == nil {
+			t.Fatal(a.Metadata.Name)
+		}
+	}
+}
