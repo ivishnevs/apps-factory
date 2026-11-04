@@ -6,8 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -72,11 +75,53 @@ func withWebAPI(c *core.Core, local bool) http.Handler {
 			s.Token = c.Token
 		}
 	}
+	pages := webPages(os.Getenv("FACTORY_WEB_UPSTREAM"))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			webHandler.ServeHTTP(w, r)
 			return
 		}
+		if pages != nil && webPage(r) {
+			pages.ServeHTTP(w, r)
+			return
+		}
 		coreHandler.ServeHTTP(w, r)
 	})
+}
+
+// webPages proxies the web UI's pages to the Next.js server at upstream (FACTORY_WEB_UPSTREAM, e.g. on a private
+// network): Core is then the one public address, the browser calls /api and /auth on it directly and the session
+// cookie stays first-party. nil without upstream.
+func webPages(upstream string) http.Handler {
+	if upstream == "" {
+		return nil
+	}
+	u, err := url.Parse(upstream)
+	if err != nil || u.Host == "" {
+		slog.Error("FACTORY_WEB_UPSTREAM is not a URL; the web UI is not served", "value", upstream)
+		return nil
+	}
+	p := httputil.NewSingleHostReverseProxy(u)
+	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		slog.Warn("web UI unreachable", "error", err)
+		http.Error(w, "the web UI is starting, try again in a moment", http.StatusBadGateway)
+	}
+	return p
+}
+
+// webPage tells the web UI's pages and assets from Core's own routes, which never use these paths.
+func webPage(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := r.URL.Path
+	if p == "/" || p == "/favicon.ico" || p == "/signin" || p == "/welcome" {
+		return true
+	}
+	for _, prefix := range []string{"/c/", "/_next/", "/connect/", "/signin/"} {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
 }

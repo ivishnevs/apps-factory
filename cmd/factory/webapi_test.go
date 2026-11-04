@@ -76,3 +76,52 @@ func TestWebAPIInCore(t *testing.T) {
 		t.Fatal("no streamed line", line, err)
 	}
 }
+
+// TestWebPagesThroughCore: with FACTORY_WEB_UPSTREAM, Core serves the web UI's pages from the Next.js server and
+// keeps /api, /auth and its own routes; without it, page paths are Core's as before.
+func TestWebPagesThroughCore(t *testing.T) {
+	s, err := storage.Open(storagetest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	c := &core.Core{Store: s, Token: "owner-token"}
+	if err = s.EnsureCompany(context.Background(), storage.DefaultCompany); err != nil {
+		t.Fatal(err)
+	}
+	next := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "page "+r.URL.Path)
+	}))
+	defer next.Close()
+	t.Setenv("FACTORY_WEB_UPSTREAM", next.URL)
+	srv := httptest.NewServer(withWebAPI(c, true))
+	defer srv.Close()
+	get := func(path string) (int, string) {
+		res, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	for _, p := range []string{"/", "/signin", "/c/default/tasks/x", "/_next/static/a.js", "/connect/abc", "/favicon.ico"} {
+		if code, body := get(p); code != 200 || body != "page "+p {
+			t.Fatal(p, code, body)
+		}
+	}
+	for _, p := range []string{"/api/meta", "/health", "/install.sh", "/tasks", "/auth/login"} {
+		if _, body := get(p); strings.HasPrefix(body, "page ") {
+			t.Fatal("Core route went to the web UI:", p)
+		}
+	}
+	res, err := http.Post(srv.URL+"/c/default", "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if strings.HasPrefix(string(b), "page ") {
+		t.Fatal("a POST went to the web UI")
+	}
+}

@@ -2,6 +2,12 @@
 connectors behind it. Core passes connector_id, so Dex's own provider page is skipped. The Dex image renders
 this file with gomplate: values come from the environment (compose passes them from .env). */ -}}
 issuer: {{ getenv "DEX_ISSUER" "http://127.0.0.1:5556/dex" }}
+{{- if eq (getenv "DEX_STORAGE" "postgres") "memory" }}
+# In memory (hosted deploys without a Dex database): Core only reads the ID token at sign-in and keeps its own
+# session, so a Dex restart costs nothing but sign-ins in progress.
+storage:
+  type: memory
+{{- else }}
 storage:
   type: postgres
   config:
@@ -12,8 +18,9 @@ storage:
     password: {{ getenv "POSTGRES_PASSWORD" | required "POSTGRES_PASSWORD" | quote }}
     ssl:
       mode: disable
+{{- end }}
 web:
-  http: 0.0.0.0:5556
+  http: 0.0.0.0:{{ getenv "PORT" "5556" }}
 oauth2:
   skipApprovalScreen: true
   responseTypes: [code]
