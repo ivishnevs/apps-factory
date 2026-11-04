@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, FileText, RotateCcw, Save, ShieldCheck, Sparkles, Undo2 } from "lucide-react";
+import { Bot, FileText, Pencil, RotateCcw, Save, ShieldCheck, Sparkles, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 // card, the document editor (a diff before saving, the loader's error at the document) and the version history
 // with rollback. Saves go on top of the version the page read; a newer version refuses the save.
 
-export function MemberCard({ m, onOpen, onSkills }: { m: TeamMember; onOpen: (path: string) => void; onSkills?: () => void }) {
+export function MemberCard({ m, onOpen, onSkills, onEdit }: { m: TeamMember; onOpen: (path: string) => void; onSkills?: () => void; onEdit?: () => void }) {
   return (
     <li className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -47,6 +47,11 @@ export function MemberCard({ m, onOpen, onSkills }: { m: TeamMember; onOpen: (pa
       {m.prompt && (
         <Button variant="ghost" size="sm" className="mt-3 h-9 w-full justify-start text-muted-foreground" onClick={() => onOpen(m.prompt)}>
           <FileText className="size-4" />Edit prompt <span className="truncate font-mono text-xs">{m.prompt}</span>
+        </Button>
+      )}
+      {onEdit && (
+        <Button variant="ghost" size="sm" className="h-9 w-full justify-start text-muted-foreground" onClick={onEdit}>
+          <Pencil className="size-4" />Edit agent
         </Button>
       )}
       {onSkills && (

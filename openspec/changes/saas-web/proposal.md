@@ -1,4 +1,4 @@
-Status: in progress (owner 2026-11-04: the web is reworked last, after the backend changes, "как вишенка на торте").
+Status: done (owner 2026-11-04: the web is reworked last, after the backend changes, "как вишенка на торте").
 
 ## Why
 

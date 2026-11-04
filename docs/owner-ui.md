@@ -566,3 +566,18 @@ Core; point the app at it with `FACTORY_WEB_API=http://127.0.0.1:8090`.
 - Settings (`/c/{company}/settings`): rename the company (owners), your role, sign out and, with the setting on,
   create another company. A new company opens `/c/{company}/setup` (the team page until the team-builder wizard).
 - Companies (the operator's page) is shown only to the operator token.
+
+## Web UI: setting a company up (team-builder, saas-web)
+
+- **Set up** (`/c/{company}/setup`, a new company's first page): five steps, each saying whether it is done and
+  leading to its form — a team (from a preset), its agents, the secrets they need, a node, the first project. It reads
+  `GET /setup`; nothing is refused because of it, runs wait with their reason.
+- **Teams → New team**: the preset gallery (agents, skills, secrets needed) and the team's name; the copy is a new
+  catalog version.
+- **A team's page → Add agent**: an agent preset (or a custom one) with name, description, manager, whom it may
+  message, runtime, model, quota key and prompt. **Edit agent** on a card opens the same fields for the agent's
+  document and prompt, shows a newer release of its preset (take its prompt, then save) and deletes the agent
+  (refused while it leads its team or others report to it). A refusal appears at its field; a newer catalog version
+  asks to reload. The YAML editor (Documents) stays for everything else.
+- A banner on Teams and on a team's page lists what keeps work from running (missing secrets, no node, a team without a
+  project).

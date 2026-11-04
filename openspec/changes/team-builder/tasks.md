@@ -1,4 +1,4 @@
-Planned (owner 2026-11-03: D1–D5 confirmed, everything copied into the company's catalog). Not started. Depends on
+Done (owner 2026-11-03: D1–D5 confirmed, everything copied into the company's catalog). Depends on
 `company-teams` (teams), `skill-registry` 3.x (built-in source, installed skills) and `user-accounts` 5.2 (company
 at sign-up).
 
@@ -10,7 +10,7 @@ at sign-up).
 ## 2. Specs and docs
 - [x] 2.1 Delta specs `team-builder`, `company-catalog`; `openspec validate --strict`.
 - [x] 2.2 Docs: `catalog.md` (presets, copies, setup status), `agent-configuration.md` (`metadata.preset`),
-  `owner-ui.md` (wizard, forms). Done: `catalog.md` (presets, copies, API, setup status), `agent-configuration.md` (`metadata.preset`), `development.md`; `owner-ui.md` (wizard, forms) moves with 5.x to `saas-web`.
+  `owner-ui.md` (wizard, forms). Done: `catalog.md` (presets, copies, API, setup status), `agent-configuration.md` (`metadata.preset`), `development.md`; `owner-ui.md` (wizard, forms) with `saas-web`.
 
 ## 3. Presets
 - [x] 3.1 `presets/agents` and `presets/teams` from `configs/templates/*` and `prompts/roles/*` plus game-dev and
@@ -28,9 +28,9 @@ at sign-up).
 ## 5. Web UI
 Moved to `saas-web` (owner 2026-11-04: the web UI is reworked last, on the web that talks to Core directly, so the
 wizard and forms are built once); the API above is their contract.
-- [ ] 5.1 Wizard: team (preset or empty) → agents → missing secrets → node (if none) → first project.
-- [ ] 5.2 "New team", add agent (preset gallery or custom), agent form (D4) with the skill picker.
-- [ ] 5.3 Team pages: agents as cards with edit/delete, preset update hints, setup banner; YAML editor stays.
+- [x] 5.1 Wizard: team (preset or empty) → agents → missing secrets → node (if none) → first project. Done in `saas-web` 3.1.
+- [x] 5.2 "New team", add agent (preset gallery or custom), agent form (D4) with the skill picker. Done in `saas-web` 3.2.
+- [x] 5.3 Team pages: agents as cards with edit/delete, preset update hints, setup banner; YAML editor stays. Done in `saas-web` 3.3.
 
 ## 6. Verification
 - [x] 6.1 `make check` green plus NATS tests with `-p 1` while NATS exists (`http-node-transport` removes them); tests: team from each preset loads and runs without

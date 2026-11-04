@@ -6,13 +6,15 @@ import type { Action, CostView, FeedItem, Meta, Message, Overview, Page, Run, Ru
 import type { Material, MaterialPage } from "./types-materials";
 import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Teams } from "./types-catalog";
 import type { CompanyInfo, Me } from "./types-account";
+import type { AgentDoc, AgentPreset, Setup, TeamPreset } from "./types-presets";
 import { csrf, currentCompany } from "@/lib/company";
 
 // Every request goes to this app's /api/*, which Next proxies to the owner API (next.config.ts). The browser
 // never holds a token: signed in, the session cookie rides along (credentials: same-origin), every call names the
 // page's company and every change carries the CSRF header (user-accounts D5, D6).
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly reason?: string) { super(message); }
+  // field names the form field a refusal is about (team-builder: {"field", "error"}).
+  constructor(message: string, readonly status: number, readonly reason?: string, readonly field?: string) { super(message); }
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -23,13 +25,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (method !== "GET" && method !== "HEAD") headers.set("X-Factory-CSRF", csrf());
   const res = await fetch(`/api${path}`, { credentials: "same-origin", ...init, headers });
   const text = await res.text();
-  let body: { error?: string; reason?: string } = {};
+  let body: { error?: string; reason?: string; field?: string } = {};
   try { body = text ? JSON.parse(text) : {}; } catch { body = { error: text.trim() }; }
   if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/signin")) {
     // Signed out or the session expired: back to the sign-in, then here again.
     window.location.assign(`/signin?return=${encodeURIComponent(window.location.pathname + window.location.search)}${body?.reason === "session_expired" ? "&expired=1" : ""}`);
   }
-  if (!res.ok) throw new ApiError(body?.error || `HTTP ${res.status}`, res.status, body?.reason);
+  if (!res.ok) throw new ApiError(body?.error || `HTTP ${res.status}`, res.status, body?.reason, body?.field || undefined);
   return body as T;
 }
 
@@ -137,6 +139,13 @@ export function useCore<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: st
     onSuccess: () => Promise.all(refresh.map((queryKey) => qc.invalidateQueries({ queryKey }))),
   });
 }
+
+// The team builder (team-builder): presets, an agent as fields, and what keeps the company's work from running.
+export const useAgentPresets = () => useQuery({ queryKey: ["presets", "agents"], queryFn: () => core<AgentPreset[]>("/presets/agents"), staleTime: Infinity });
+export const useTeamPresets = () => useQuery({ queryKey: ["presets", "teams"], queryFn: () => core<TeamPreset[]>("/presets/teams"), staleTime: Infinity });
+export const useAgentDoc = (name: string | null) =>
+  useQuery({ queryKey: ["catalog", "agent", name], queryFn: () => core<AgentDoc>(`/catalog/agents/${encodeURIComponent(name ?? "")}`), enabled: !!name });
+export const useSetup = () => useQuery({ queryKey: ["catalog", "setup"], queryFn: () => core<Setup>("/setup"), refetchInterval: 15_000 });
 
 // signOut ends the session and goes to the sign-in page.
 export async function signOut() {

@@ -1,15 +1,18 @@
 "use client";
 
-import { ChevronRight, Crown, FileText, FolderGit2, History, Users } from "lucide-react";
+import { ChevronRight, Crown, FileText, FolderGit2, History, Plus, Users } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import Link from "@/components/app/link";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { Editor, HistoryList } from "@/components/app/team/catalog";
+import { NewTeamSheet, SetupBanner } from "@/components/app/team/builder";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCatalog, useTeams } from "@/lib/api/client";
+import { useCatalog, useCompanyInfo, useSetup, useTeams } from "@/lib/api/client";
+import { canManage } from "@/lib/api/types-account";
 import { documentGroup } from "@/lib/api/types-catalog";
 import { ago } from "@/lib/format";
 
@@ -21,6 +24,9 @@ function Teams() {
   const catalog = useCatalog();
   const welcome = useSearchParams().get("welcome");
   const [open, setOpen] = useState<string | null>(null);
+  const [newTeam, setNewTeam] = useState(false);
+  const manage = canManage(useCompanyInfo().data?.role);
+  const setup = useSetup();
   const version = catalog.data?.version ?? 0;
   const groups = useMemo(() => {
     const g = new Map<string, string[]>();
@@ -33,7 +39,9 @@ function Teams() {
   const error = teams.error ?? catalog.error;
   return (
     <>
-      <PageHeader title="Teams" description={catalog.data ? <>Catalog version {version} · {catalog.data.author} · {ago(catalog.data.created_at)}</> : "Your company's teams, agents, prompts and policies"} />
+      <PageHeader title="Teams" description={catalog.data ? <>Catalog version {version} · {catalog.data.author} · {ago(catalog.data.created_at)}</> : "Your company's teams, agents, prompts and policies"}
+        actions={manage ? <Button className="h-10" onClick={() => setNewTeam(true)}><Plus className="size-4" />New team</Button> : undefined} />
+      <SetupBanner setup={setup.data} />
       {welcome && (
         <Alert className="mb-5"><AlertDescription>Your company is ready with a starter team. Review its agents, connect a node and create your first project.</AlertDescription></Alert>
       )}
@@ -88,6 +96,7 @@ function Teams() {
         <TabsContent value="history"><HistoryList current={version} /></TabsContent>
       </Tabs>
       <Editor path={open} base={version} onClose={() => setOpen(null)} />
+      {manage && <NewTeamSheet open={newTeam} onClose={() => setNewTeam(false)} />}
     </>
   );
 }
