@@ -1,7 +1,0 @@
-apiVersion: factory/v1
-kind: Team
-metadata:
-  name: product
-  description: "Product owner, developer and reviewer"
-spec:
-  lead: product-owner

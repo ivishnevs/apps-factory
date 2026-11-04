@@ -1,0 +1,16 @@
+# Agent preset (team-builder D1): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: game-designer
+  title: Game designer
+  description: Designs mechanics, levels and the difficulty curve
+  tags:
+  - design
+  - games
+spec:
+  role: designer
+  agent: {}
+  skills:
+  - openspec
+  secrets: []

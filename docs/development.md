@@ -47,7 +47,7 @@ When Core starts and its company (`FACTORY_COMPANY`) has no stored version, the 
 version 1; after that **editing `configs/` changes nothing in a running Core**. Change the catalog with
 `factory catalog pull DIR` / `push DIR` (or the web UI's Team page); to start over from the repository on a
 throwaway database, drop the company's `catalog_versions`/`catalog_documents` rows and restart Core. Starter teams for
-`factory companies create` live in `configs/templates/`.
+`factory companies create` are the team presets in `presets/teams/` ([catalog](catalog.md#presets-and-the-team-builder)).
 
 Nodes and Core: there is no broker. A node signs every request with its own key ([Node identity](#node-identity)),
 long-polls `POST /nodes/{node_id}/poll` for offers of queued runs and stops, claims an offer, and sends run events

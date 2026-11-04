@@ -139,37 +139,6 @@ func SeedDocuments(root, company string) (map[string]string, error) {
 	return documentsFrom(root, filepath.ToSlash(dir), company)
 }
 
-// TemplatesDir holds the starter team templates (company-self-service 4.2), one catalog directory each.
-const TemplatesDir = "configs/templates"
-
-// Templates lists the starter team templates.
-func Templates(root string) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(TemplatesDir)))
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() && namePattern.MatchString(e.Name()) {
-			out = append(out, e.Name())
-		}
-	}
-	return out, nil
-}
-
-// TemplateDocuments are the documents of a new company's catalog made from template: the template's catalog
-// sections at the company's catalog directory and the prompt files its agents name.
-func TemplateDocuments(root, template, company string) (map[string]string, error) {
-	if !namePattern.MatchString(template) {
-		return nil, fmt.Errorf("invalid template %q", template)
-	}
-	src := path.Join(TemplatesDir, template)
-	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(src))); err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("unknown template %q", template)
-	}
-	return documentsFrom(root, src, company)
-}
-
 // documentsFrom reads the catalog sections of the disk directory src (relative to root) as documents of
 // company's catalog directory, loads them (they must form a valid catalog) and adds the prompt files named.
 func documentsFrom(root, src, company string) (map[string]string, error) {

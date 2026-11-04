@@ -5,6 +5,8 @@ configs/node-hooks/*.yaml (`NodeHooks`, served to nodes; see [development](devel
 configs/skills.yaml relative to FACTORY_ROOT (for company X the same files under configs/X/, including its own
 skills.yaml; see [skills](skills.md)). Unknown YAML fields, multiple documents,
 null agent/profile values, duplicate names, missing references and inheritance cycles fail loading.
+`metadata.preset` (`<preset>@<version>`) records the preset an agent or team was copied from ([catalog](catalog.md#presets-and-the-team-builder));
+Core shows an update hint when the release has a newer one.
 Run `factory config validate`, `factory agents get demo`, or
 `factory agents authorize demo factory.release.publish` to inspect resolved configuration.
 

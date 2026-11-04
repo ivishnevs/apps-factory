@@ -1,0 +1,15 @@
+# Agent preset (team-builder D1): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: designer
+  title: Designer
+  description: Designs flows and interfaces
+  tags:
+  - design
+spec:
+  role: designer
+  agent: {}
+  skills:
+  - openspec
+  secrets: []

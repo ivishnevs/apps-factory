@@ -1,0 +1,17 @@
+# Agent preset (team-builder D1): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: qa
+  title: QA
+  description: Verifies delivered behaviour
+  tags:
+  - quality
+  - review
+spec:
+  role: qa
+  agent: {}
+  skills:
+  - openspec
+  - mobile-app-testing
+  secrets: []

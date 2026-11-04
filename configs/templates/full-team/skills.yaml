@@ -1,5 +1,0 @@
-# Installed skills of a company created from this template (skill-registry D5): Factory's built-in skills, whose
-# contents, descriptions and categories come from Core's skill index.
-skills:
-  openspec: {source: factory}
-  task-pull-request: {source: factory}

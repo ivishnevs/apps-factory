@@ -1,0 +1,8 @@
+# The company's subscriptions (runtime-drivers D5); agents name one with spec.runtime.quota_key.
+quota_keys:
+  codex-subscription:
+    provider: codex
+    description: The company's ChatGPT subscription for every Codex agent.
+  claude-subscription:
+    provider: claude
+    description: The company's Claude subscription for every Claude agent.

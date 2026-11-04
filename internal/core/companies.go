@@ -77,7 +77,7 @@ func (c *Core) CreateCompany(ctx context.Context, in CompanyCreate) (CompanyCrea
 	if in.Template == "" {
 		return out, fmt.Errorf("%w: template required (%s)", storage.ErrInput, strings.Join(c.templates(), ", "))
 	}
-	docs, err := config.TemplateDocuments(c.Root, in.Template, in.ID)
+	docs, err := c.templateDocuments(in.ID, in.Template)
 	if err != nil {
 		return out, fmt.Errorf("%w: %v (templates: %s)", storage.ErrInput, err, strings.Join(c.templates(), ", "))
 	}
@@ -96,11 +96,6 @@ func (c *Core) CreateCompany(ctx context.Context, in CompanyCreate) (CompanyCrea
 		return out, err
 	}
 	return CompanyCreated{Company: in.ID, CatalogVersion: v.Version, Owner: tok}, nil
-}
-
-func (c *Core) templates() []string {
-	names, _ := config.Templates(c.Root)
-	return names
 }
 
 func (c *Core) companyRoutes(m *http.ServeMux) {

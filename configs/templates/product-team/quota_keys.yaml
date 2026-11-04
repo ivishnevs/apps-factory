@@ -1,4 +1,0 @@
-quota_keys:
-  codex-subscription:
-    provider: codex
-    description: The company's ChatGPT subscription for every Codex agent.

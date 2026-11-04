@@ -1,0 +1,21 @@
+# Agent preset (team-builder D1): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: builder
+  title: Builder
+  description: Plans, builds and ships the product alone
+  tags:
+  - solo
+  - engineering
+  - planning
+spec:
+  role: developer
+  agent:
+    communication:
+      can_create_tasks: true
+      can_assign_tasks: true
+  skills:
+  - openspec
+  - task-pull-request
+  secrets: []

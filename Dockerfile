@@ -13,5 +13,6 @@ COPY --from=build --chown=65532:65532 /blobs /blobs
 COPY configs /app/configs
 COPY prompts /app/prompts
 COPY skills /app/skills
+COPY presets /app/presets
 ENTRYPOINT ["factory"]
 CMD ["serve"]

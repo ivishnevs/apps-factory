@@ -116,6 +116,7 @@ func (c *Core) Handler() http.Handler {
 	c.accountRoutes(m)
 	c.secretRoutes(m)
 	c.skillRoutes(m)
+	c.presetRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil {

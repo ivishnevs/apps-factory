@@ -1,0 +1,23 @@
+# Agent preset (team-builder D1): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: ios-developer
+  title: iOS developer
+  description: Builds and tests native iOS apps with Xcode
+  tags:
+  - engineering
+  - ios
+  - mobile
+spec:
+  role: developer
+  agent:
+    labels:
+    - xcode
+    execution:
+      timeout: 90m
+  skills:
+  - openspec
+  - task-pull-request
+  - mobile-app-testing
+  secrets: []

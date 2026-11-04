@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"appfactory/internal/auth"
-	"appfactory/internal/config"
 	"appfactory/internal/storage"
 )
 
@@ -455,7 +454,7 @@ func (c *Core) provisionCompany(ctx context.Context, company, by string) error {
 	if template == "" {
 		template = DefaultSignupTemplate
 	}
-	docs, err := config.TemplateDocuments(c.Root, template, company)
+	docs, err := c.templateDocuments(company, template)
 	if err != nil {
 		return err
 	}

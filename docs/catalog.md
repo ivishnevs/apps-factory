@@ -79,14 +79,45 @@ owner token (`fot_…`), shown only once. An owner token reaches its company's o
 management; owners issue and revoke more tokens (`/owner-tokens`).
 
 ```sh
-factory templates                                   # solo, product-team, full-team
+factory templates                                   # the team presets: solo, product-team, full-team, game-dev, saas
 factory companies create acme product-team "Acme Inc."
 factory companies list
 FACTORY_TOKEN=fot_… factory owner-tokens create laptop | list | revoke ID
 ```
 
-Templates live in `configs/templates/<name>/` (catalog sections in the layout of a company directory, Factory's
-skills as `{source: factory}`) with role prompts in `prompts/roles/`: `solo` (one builder), `product-team`
-(product owner, developer, reviewer) and `full-team` (product owner, designer, developer, QA). The team
-templates require review of the developer's work and the product owner's approval of requirement changes
+Companies start from a **team preset** (the template): `solo`, `product-team`, `full-team`, `game-dev` (product owner,
+game designer, iOS developer, QA) and `saas` (product owner, frontend, backend, reviewer). The team presets with a
+reviewer require review of the developer's work and the product owner's approval of requirement changes
 ([policies](policies.md#review-rules)).
+
+## Presets and the team builder
+
+Presets are product content of the release (`presets/`, team-builder): **agent presets**
+(`presets/agents/<name>/preset.yaml` with the role, the Agent spec, Factory skills and secrets it needs, and
+`prompt.md`) and **team presets** (`presets/teams/<name>.yaml`: the team's agents by agent preset with their managers
+and whom they message, the team's profile and policies; `@key` in a policy names the team's agent of that key). A
+preset's version is the digest of its files.
+
+Presets are **copied, never linked**: creating a team or an agent writes ordinary catalog documents in one new version
+on a `base` (409 on a newer one), so the forms and the YAML editor see the same catalog:
+
+- the team document (`metadata.preset: <preset>@<version>`, its lead, its profile `<team>-agent`);
+- each agent with `spec.team`, `metadata.preset` and its prompt as a company document `prompts/<agent>.md`;
+- the team-prefixed profile and policies (`<team>-agent`, `<team>-engineering`, `<team>-review`);
+- the presets' Factory skills installed in `skills.yaml`.
+
+After the copy the company depends on nothing on disk. A later release of a preset shows an update hint on the
+agent (`GET /catalog/agents/{name}`: from/to version and the prompt's changes); nothing changes until it is saved.
+
+```
+GET  /presets/agents, /presets/teams          # the gallery: versions, skills, secrets needed
+POST /catalog/teams  {base, from_preset, team, names}         # names: preset key -> agent name (default <team>-<key>)
+POST /catalog/agents {base, team, from_preset, name, overrides: {description, reports_to, can_message, provider, model, quota_key, prompt}}
+POST /catalog/agents {base, team, agent: {...}, prompt}       # a custom agent
+GET/PUT /catalog/agents/{name}                # the document and prompt as fields; PUT {base, agent, prompt}
+DELETE  /catalog/agents/{name}?base=N         # refused while it leads its team or others report to it
+GET  /setup                                   # what keeps work from running: missing secrets, no node, teams without projects
+```
+
+A refusal names the form field it is about (`{"field": "reports_to", "error": …}`). The setup status never refuses
+anything: runs wait with a clear reason (`secret_missing`, no node means queued).

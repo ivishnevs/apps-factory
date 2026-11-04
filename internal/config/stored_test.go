@@ -96,73 +96,9 @@ func TestStoredCatalogOwnsItsSections(t *testing.T) {
 	}
 }
 
-// TestTemplates (company-self-service 4.2): every starter template makes a valid catalog for a new company,
-// with its prompts as documents and the expected team.
-func TestTemplates(t *testing.T) {
-	names, err := Templates("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string][]string{"solo": {"builder"}, "product-team": {"developer", "product-owner", "reviewer"}, "full-team": {"designer", "developer", "product-owner", "qa"}}
-	if len(names) != len(want) {
-		t.Fatal(names)
-	}
-	for _, name := range names {
-		docs, err := TemplateDocuments("../..", name, "acme")
-		if err != nil {
-			t.Fatal(name, err)
-		}
-		c, err := loadStored(t, "../..", "acme", docs)
-		if err != nil {
-			t.Fatal(name, err)
-		}
-		if got := strings.Join(Names(c.Agents), ","); got != strings.Join(want[name], ",") {
-			t.Fatal(name, got)
-		}
-		for p := range docs {
-			if !strings.HasPrefix(p, "configs/acme/") && !strings.HasPrefix(p, "prompts/roles/") {
-				t.Fatal(name, "document outside the company:", p)
-			}
-		}
-		if len(c.Skills.Skills) != 2 || len(c.Teams) == 0 {
-			t.Fatal(name, len(c.Skills.Skills), c.TeamNames())
-		}
-	}
-	if _, err = TemplateDocuments("../..", "missing", "acme"); err == nil {
-		t.Fatal("unknown template accepted")
-	}
-	if _, err = CompanyDir("templates"); err == nil {
+// TestTemplatesNotACompany: "templates" stays a reserved company name.
+func TestTemplatesNotACompany(t *testing.T) {
+	if _, err := CompanyDir("templates"); err == nil {
 		t.Fatal("company named templates accepted")
-	}
-}
-
-// TestTemplateReviewPolicy (company-self-service 5.1): the team templates require review of the developer's
-// work by their reviewer; the solo builder has no review rule.
-func TestTemplateReviewPolicy(t *testing.T) {
-	for template, want := range map[string]string{"product-team": "reviewer", "full-team": "qa", "solo": ""} {
-		docs, err := TemplateDocuments("../..", template, "acme")
-		if err != nil {
-			t.Fatal(err)
-		}
-		c, err := loadStored(t, "../..", "acme", docs)
-		if err != nil {
-			t.Fatal(template, err)
-		}
-		dev := "developer"
-		if template == "solo" {
-			dev = "builder"
-		}
-		required, reviewer := c.Agents[dev].Review()
-		if required != (want != "") || reviewer != want {
-			t.Fatal(template, required, reviewer)
-		}
-		if paths := c.Agents[dev].ReviewPaths(); (want != "") != (len(paths) == 3) || want != "" && paths[0].Reviewer != "product-owner" {
-			t.Fatal(template, paths)
-		}
-		if want != "" {
-			if r, _ := c.Agents[want].Review(); r {
-				t.Fatal(template, "the reviewer itself needs review")
-			}
-		}
 	}
 }

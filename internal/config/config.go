@@ -21,9 +21,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ValidName reports whether n may name an agent, profile, policy or team.
+func ValidName(n string) bool { return namePattern.MatchString(n) }
+
 type Metadata struct {
 	Name        string `yaml:"name" json:"name"`
 	Description string `yaml:"description" json:"description"`
+	// Preset is "<preset>@<version>" of the preset an agent or team was copied from (team-builder D2).
+	Preset string `yaml:"preset" json:"preset,omitempty"`
 }
 type Spec struct {
 	Extends string `yaml:"extends" json:"extends,omitempty"`
