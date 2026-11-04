@@ -6,8 +6,10 @@ import { useState } from "react";
 import Link from "@/components/app/link";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { Editor, MemberCard } from "@/components/app/team/catalog";
+import { SkillPicker } from "@/components/app/team/skill-picker";
 import { Button } from "@/components/ui/button";
-import { useCatalog, useTeams } from "@/lib/api/client";
+import { useCatalog, useCompanyInfo, useTeams } from "@/lib/api/client";
+import { canManage } from "@/lib/api/types-account";
 
 // A team (company-teams 7.1): its lead (the owner's unaddressed messages in its projects), its audit assignee,
 // its profile, its agents with their prompts and review rules, and its projects.
@@ -16,6 +18,8 @@ export default function Page() {
   const teams = useTeams();
   const catalog = useCatalog();
   const [open, setOpen] = useState<string | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+  const manage = canManage(useCompanyInfo().data?.role);
   const team = teams.data?.teams.find((t) => t.name === name);
   const back = <Link href="/teams" className="-ml-2 mb-3 inline-flex h-10 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="size-4" />Teams</Link>;
   if (teams.error) return <>{back}<ErrorState error={teams.error} /></>;
@@ -48,7 +52,7 @@ export default function Page() {
       </dl>
       <h2 className="mb-2 text-sm font-medium text-muted-foreground">Agents</h2>
       {team.agents.length === 0 ? <EmptyState title="No agents" icon={Layers} /> : (
-        <ul className="mb-6 grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} onOpen={setOpen} />)}</ul>
+        <ul className="mb-6 grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} onOpen={setOpen} onSkills={manage ? () => setPicking(m.name) : undefined} />)}</ul>
       )}
       <h2 className="mb-2 text-sm font-medium text-muted-foreground">Projects</h2>
       {team.projects.length === 0 ? <EmptyState title="No projects yet" hint="Create one from the board; it belongs to the team you pick." icon={FolderGit2} /> : (
@@ -59,6 +63,9 @@ export default function Page() {
         </ul>
       )}
       <Editor path={open} base={catalog.data?.version ?? 0} onClose={() => setOpen(null)} />
+      {team.agents.filter((m) => m.name === picking).map((m) => (
+        <SkillPicker key={m.name} member={m} base={catalog.data?.version ?? 0} open onClose={() => setPicking(null)} />
+      ))}
     </>
   );
 }

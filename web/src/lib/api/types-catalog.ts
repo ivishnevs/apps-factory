@@ -6,7 +6,7 @@ export interface CatalogListing { version: number; author: string; note?: string
 export interface CatalogDocument { version: number; path: string; size: number; content: string }
 
 export interface TeamMember {
-  name: string; team?: string; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
+  name: string; team?: string; document?: string; skills?: string[]; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
   creates_tasks?: boolean; review_required?: boolean; reviewer?: string; review_paths?: string[];
 }
 // A team of the company (company-teams): its lead gets the owner's unaddressed messages in its projects.

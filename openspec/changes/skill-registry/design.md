@@ -86,6 +86,24 @@ with `.factory-skill` and per-worktree excludes, as today; Codex: from the same 
 An installed skill may carry `scope: team:<name>` (only agents of that team may include or discover it) or
 `scope: agent:<name>` (only that agent). Loading fails when an agent includes a skill outside its scope.
 
+### D10. Owner API (the web UI's contract)
+Owner routes, company from the request (`user-accounts`); reads for every role, changes for owners and admins.
+All JSON; a change of installed skills saves a catalog version on top of `base` (409 on a newer one).
+- `GET /skills/sources` → `[{id, kind, url, ref, subpath, access, update, commit, synced_at, status, error, skills}]`
+  (`status`: `ok`, `syncing`, `waiting_for_node`, `failed`; `skills`: indexed count).
+- `POST /skills/sources` `{url, ref, subpath, access, update}` (git) → the source, synced at once;
+  `POST /skills/sources/upload` (multipart `archive`: zip or tar.gz, or `files[]` of a folder, plus `name`) → the source;
+  `POST /skills/sources/{id}/sync`; `DELETE /skills/sources/{id}` (refused while one of its skills is installed).
+- `GET /skills/library?q=&source=&category=` → `[{source, name, commit, hash, description, categories, error,
+  installed}]` (`error`: why a discovered skill was not indexed).
+- `GET /skills/library/{source}/{name}/files` → `[{path, size}]`; `GET /skills/library/{source}/{name}/files/{path}`
+  → the file (SKILL.md rendered by the UI).
+- `GET /skills/installed[?team=T]` → `[{name, source, hash, commit, scope, description, categories, update}]`
+  (`update`: `{hash, commit, files: [{path, change}]}` of a newer indexed version of a `pinned` source; with `team`,
+  only the skills that team's agents may use, D9).
+- `POST /skills/install` `{base, source, name, scope}` (also installs an update), `POST /skills/uninstall`
+  `{base, name}` (refused while an agent includes it) → the catalog version.
+
 ## Risks / Trade-offs
 
 - Fetching user-provided URLs from Core: SSRF and resource abuse are contained by D3's limits; git runs as a

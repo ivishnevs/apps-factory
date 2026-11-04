@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -44,7 +46,11 @@ func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
 		t := cat.Teams[name]
 		v := TeamView{Name: name, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}}
 		for _, agent := range cat.TeamAgents(name) {
-			v.Agents = append(v.Agents, teamMember(cat.Agents, agent))
+			m := teamMember(cat.Agents, agent)
+			if dir, err := config.CompanyDir(company); err == nil {
+				m.Document = path.Join(filepath.ToSlash(dir), "agents", agent+".yaml")
+			}
+			v.Agents = append(v.Agents, m)
 		}
 		for _, p := range projects {
 			if p.Team == name {
@@ -60,7 +66,7 @@ func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
 func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	a := agents[name]
 	required, reviewer := a.Review()
-	m := TeamMember{Name: name, Team: a.Spec.Team, Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
+	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
 		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer)}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
@@ -70,8 +76,11 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 
 // TeamMember is one agent of the resolved catalog.
 type TeamMember struct {
-	Name           string   `json:"name"`
-	Team           string   `json:"team,omitempty"`
+	Name string `json:"name"`
+	Team string `json:"team,omitempty"`
+	// Document is the agent's catalog document; Skills its own spec.skills.include (the skill picker edits both).
+	Document       string   `json:"document,omitempty"`
+	Skills         []string `json:"skills"`
 	Description    string   `json:"description,omitempty"`
 	Role           string   `json:"role"`
 	ReportsTo      string   `json:"reports_to"`

@@ -32,7 +32,7 @@ hash with the built-in source (default skills on any node), then sources, indexe
   tree uploaded with a signed request; waiting state without an online node.
 - [ ] 4.4 Upload of an archive or folder (owner/admin).
 - [ ] 4.5 Discovery by layout (D4), validation, hashing, per-skill errors; fixtures for each layout.
-- [ ] 4.6 API and CLI: sources (add, sync, remove), library (search, read file), install/uninstall (catalog version),
+- [ ] 4.6 API and CLI (routes of design D10): sources (add, sync, remove), library (search, read file), install/uninstall (catalog version),
   `factory skills sources|sync|library|install`.
 
 ## 5. Updates and scope
@@ -41,8 +41,8 @@ hash with the built-in source (default skills on any node), then sources, indexe
 
 ## 6. Web UI
 - [ ] 6.1 Skills page: Sources (link or upload, sync, status), Library (render SKILL.md, file tree), Installed
-  (versions, updates, scope).
-- [ ] 6.2 Agent editor skill picker: installed skills available to the team, discovery categories, link to Skills.
+  (versions, updates, scope). Progress: `web/src/app/c/[company]/skills/page.tsx` written on the routes of design D10 (shows "not available" until 4.6); check against the backend when it lands.
+- [ ] 6.2 Agent editor skill picker: installed skills available to the team, discovery categories, link to Skills. Progress: `web/src/components/app/team/skill-picker.tsx` on the team page (`GET /skills/installed?team=`, saves `spec.skills.include` of the agent document; `GET /catalog/teams` gives each agent `document` and `skills`); moves into the agent form of team-builder 5.2.
 
 ## 7. Verification
 - [ ] 7.1 `make check` green plus NATS tests with `-p 1`; tests: deterministic index of the same tree, invalid skill
