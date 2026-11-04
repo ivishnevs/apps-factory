@@ -55,7 +55,10 @@ type DriverProbe interface {
 
 func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
-	r = append(r, d.disk(), d.ps(ctx), keysCheck(d.StateDir))
+	r = append(r, d.disk(), d.ps(ctx))
+	if d.StateDir != "" {
+		r = append(r, keysCheck(d.StateDir))
+	}
 	r = append(r, d.xcode(ctx)...)
 	r = append(r, StackChecks(ctx, d.Host, d.Labels, d.Stack)...)
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
