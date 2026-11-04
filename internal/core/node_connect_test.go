@@ -148,7 +148,7 @@ func TestNodeDownloads(t *testing.T) {
 		c.Handler().ServeHTTP(w, r)
 		return w.Code, w.Body.String()
 	}
-	if code, body := get("/install.sh", nil); code != 200 || !strings.Contains(body, `CORE_URL="http://core.example:8080"`) || strings.Contains(body, "{{{") {
+	if code, body := get("/install.sh", nil); code != 200 || !strings.Contains(body, `CORE_URL="http://core.example:8080"`) || !strings.Contains(body, `CODEX_VERSION="0.`) || strings.Contains(body, "{{{") {
 		t.Fatal(code, body[:min(len(body), 300)])
 	}
 	if _, body := get("/install.sh", map[string]string{"X-Forwarded-Proto": "https"}); !strings.Contains(body, `CORE_URL="https://core.example:8080"`) {

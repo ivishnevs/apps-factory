@@ -15,6 +15,7 @@ import (
 	"strings"
 	"text/template"
 
+	"appfactory/internal/driver/codex"
 	"appfactory/internal/nodesig"
 	"appfactory/internal/storage"
 )
@@ -165,7 +166,7 @@ func (c *Core) serveNodeDownload(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = installTemplate.Execute(w, map[string]string{"CoreURL": base})
+		_ = installTemplate.Execute(w, map[string]string{"CoreURL": base, "CodexVersion": strings.TrimPrefix(codex.SupportedVersion, "codex-cli ")})
 		return
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/downloads/node/")

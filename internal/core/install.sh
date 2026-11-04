@@ -7,6 +7,7 @@
 set -eu
 
 CORE_URL="{{{.CoreURL}}}"
+CODEX_VERSION="{{{.CodexVersion}}}"
 HOME_DIR="${FACTORY_NODE_HOME:-$HOME/.app-factory}"
 CODE=""
 NAME=""
@@ -54,8 +55,16 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
 else
   say "  no Node.js: Claude agents are off (install Node.js 22+ and run this again)"
 fi
-CODEX_BIN=$(command -v codex 2>/dev/null || true)
-if [ -n "$CODEX_BIN" ]; then say "  codex: $CODEX_BIN"; else say "  no codex: Codex agents are off (npm i -g @openai/codex, then codex login)"; fi
+# Codex: the node supports exactly one version; npm installs it next to the node, else a matching global one.
+CODEX_BIN=""
+if command -v npm >/dev/null 2>&1; then
+  CODEX_BIN="$HOME_DIR/codex/node_modules/.bin/codex"
+  say "  Codex $CODEX_VERSION will be installed next to the node"
+elif command -v codex >/dev/null 2>&1 && codex --version 2>/dev/null | grep -qx "codex-cli $CODEX_VERSION"; then
+  CODEX_BIN=$(command -v codex); say "  codex: $CODEX_BIN"
+else
+  say "  no npm and no codex-cli $CODEX_VERSION: Codex agents are off"
+fi
 [ "$CLAUDE" = 1 ] || [ -n "$CODEX_BIN" ] || say "  warning: neither Claude nor Codex can run here yet; the node connects but takes no work"
 
 step "Downloading the node from $CORE_URL"
@@ -80,6 +89,14 @@ if [ "$CLAUDE" = 1 ]; then
     say "  npm ci failed: Claude agents are off"; CLAUDE=0
   fi
 fi
+
+case "$CODEX_BIN" in
+  "$HOME_DIR"/codex/*)
+    step "Installing Codex $CODEX_VERSION"
+    if ! npm install --prefix "$HOME_DIR/codex" --no-audit --no-fund --loglevel=error "@openai/codex@$CODEX_VERSION"; then
+      say "  npm install failed: Codex agents are off"; CODEX_BIN=""
+    fi ;;
+esac
 
 CONFIG="$HOME_DIR/node.yaml"
 STATE="$HOME_DIR/state"
@@ -139,6 +156,10 @@ else
   say ""
   say "Run it yourself: FACTORY_URL=$CORE_URL $FN run -config $CONFIG"
 fi
+
+step "Checking the node"
+"$FN" doctor -config "$CONFIG" || true
+[ -z "$CODEX_BIN" ] || [ -f "$HOME/.codex/auth.json" ] || say "Codex is not signed in: run $CODEX_BIN login"
 
 step "Done"
 say "This machine is an App Factory node. Check it any time: FACTORY_URL=$CORE_URL $FN doctor -config $CONFIG"
