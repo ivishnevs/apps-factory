@@ -75,7 +75,7 @@ set -a; source .env; set +a
 export FACTORY_URL=http://127.0.0.1:8080
 export NATS_URL="nats://factory:${NATS_PASSWORD}@127.0.0.1:4222"
 
-make build                     # bin/factory, factory-node, factory-mcp, factory-shim, codex-worker + Claude shim
+make build                     # bin/factory, factory-node, factory-mcp, factory-shim + Claude shim
 make up                        # docker compose: postgres, nats, core
 ./bin/factory config validate  # --company C for another company's catalog
 ./bin/factory doctor           # Core, its Postgres and NATS
@@ -93,12 +93,16 @@ drivers:
   claude: {enabled: true}      # off by default; needs Node 22+ and a Claude login
 worktrees: {enabled: true}     # per-task git worktrees (projects with a repo)
 YAML
-./bin/factory-node doctor -config data/node.yaml   # git, gh, disk, drivers, Core, NATS
+./bin/factory nodes enroll --name mini-1           # prints a code, valid 15 minutes, single use
+./bin/factory-node enroll -config data/node.yaml CODE   # prints the fingerprint and waits for approval
+# in another terminal, after comparing the fingerprint (NODE_ID is printed by the enroll command above):
+./bin/factory nodes approve NODE_ID FINGERPRINT
+./bin/factory-node doctor -config data/node.yaml   # git, gh, disk, drivers, keys, Core, NATS
 ./bin/factory-node run -config data/node.yaml
 ```
 
-The node also takes `FACTORY_NODE_TOKEN` (`factory nodes token create NAME`) instead of the shared token; see
-[node process](docs/development.md#node-process) for every `node.yaml` key, outbound TLS/WebSocket NATS,
+A node has no token: it signs its requests with keys it creates at enrollment. See
+[node identity](docs/development.md#node-identity) and [node process](docs/development.md#node-process) for every `node.yaml` key, outbound TLS/WebSocket NATS,
 `factory-node launchd` / `systemd` units and `factory-node workspace reset`.
 
 First project and task, in another terminal with the same environment:
@@ -122,8 +126,9 @@ The workspace is an absolute path on the node's machine, not inside a container.
 - Postgres, NATS and Core publish their ports on loopback (`127.0.0.1`) only.
 - `.env` is excluded from Git and the Docker build context; keep it `0600`. Never print `.env`, database URLs with
   passwords or authenticated NATS URLs in reports or logs.
-- `FACTORY_TOKEN` is the owner token; runs get scoped, company-bound run tokens; nodes should use per-node tokens
-  (`factory nodes token create`). Token and creds files should be `0600` (`factory-node doctor` warns).
+- `FACTORY_TOKEN` is the owner token; runs get scoped, company-bound run tokens; nodes have no token and sign every
+  request with their own keys (`state_dir/keys`, `0600`, enforced). NATS creds files should be `0600` (`factory-node doctor` warns).
+  A node outside this machine needs an HTTPS `FACTORY_URL`.
 - Data lives in the volumes `postgres-data`, `nats-data`, `core-blobs` and `core-data`. `make down` keeps them;
   `docker compose down -v` deletes them. Backups: [development](docs/development.md).
 
@@ -201,7 +206,7 @@ the smokes use, cheapest models, `effort: low`, no retries), never the productio
 ```sh
 FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
 ./bin/factory config validate --company smoke
-# start a node with company: smoke in its node.yaml, then:
+# enroll a node with this Core (it serves the company that enrolled it) and start it, then:
 scripts/messaging-smoke.py --restart-core
 scripts/openspec-smoke.py
 scripts/drivers-smoke.py

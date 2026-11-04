@@ -138,8 +138,7 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
   has the same effect as `retry` and clears the escalation; reassigning it resets the counters for the new
   assignee. Authority input that arrived after the failing run was briefed (above its brief and the task's
   `handled_seq`) counts as a retry instead: no escalation, and the task runs with that input.
-- Lost runs: a v1 run whose lease expired is released at once (the worker stops a run whose heartbeat fails).
-  A v2 run lost to a new node epoch, or missing from the node's inventory, is released too. A v2 run lost
+- Lost runs: a run lost to a new node epoch, or missing from the node's inventory, is released. A run lost
   because the node went silent (or stopped past its timeout) may still be running: it keeps its writer slot
   (the project workspace or its task worktree), its session and its task (`live_run`, the run `unreleased`)
   until the node proves it gone — it registers a newer epoch (it kills the old epoch's process groups before it
@@ -161,7 +160,7 @@ runtime may still run (no inspection) releases it: `retry` keeps it `lost` and t
 
 ### Run outcomes
 
-A run's status is its phase: QUEUED → CLAIMED (v2, until `/start`; a v1 claim goes straight to RUNNING) →
+A run's status is its phase: QUEUED → CLAIMED (until `/start`) →
 RUNNING → (CANCELLING while a stop is in flight) → ENDED. How it ended is only its outcome (`outcome` in run reads
 and task attempts, `STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded`, `failed`,
 `setup_failed` (skills or `workspace_diverged` before the runtime started), `change_missing` (the linked

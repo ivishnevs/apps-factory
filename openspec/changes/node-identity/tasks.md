@@ -21,4 +21,4 @@ Not in this change (see the top of this file).
 - [x] 4.4 Revocation and `RemoveNode` delete keys, expire the node's run leases and release its pinned tasks in one transaction. Verify: run credentials of a revoked node's run are refused at once; a task pinned by unpushed work is released; a removed node has no active keys. Done: `dropNode` (`RevokeNode`, `RemoveNode`); `TestRevokeNode`, `TestRemoveNodeKeys`.
 
 ## 5. Docs
-- [ ] 5.1 `docs/architecture.md`, `docs/development.md` (enrolling a node), `docs/runtime-protocol-v2.md` (signed requests).
+- [x] 5.1 `docs/architecture.md`, `docs/development.md` (enrolling a node), `docs/runtime-protocol-v2.md` (signed requests). Done, also `README.md`.

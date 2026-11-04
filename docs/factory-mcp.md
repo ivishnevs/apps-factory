@@ -86,7 +86,7 @@ invoke owner routes, list all projects, claim runs or reconcile unknown work.
 
 The runtime's environment is an allowlist of the node's (`worker.RuntimeEnv`: session, locale, provider,
 git/forge, proxy and toolchain variables; node.yaml `runtime_env` adds names or `PREFIX_*`), plus
-FACTORY_RUN_TOKEN and FACTORY_URL for the run. The owner and node tokens (FACTORY_TOKEN, FACTORY_NODE_TOKEN),
+FACTORY_RUN_TOKEN and FACTORY_URL for the run. The owner token (FACTORY_TOKEN),
 the owner CLI's configuration, other run tokens and NATS_* never pass, whatever the list says, and the
 `owner-cli` policy refuses `factory` on the agent's PATH. The run token stays in the runtime environment:
 the approval shims and the adapter read it there. Tokens are not prompt text, config values or command-line arguments.

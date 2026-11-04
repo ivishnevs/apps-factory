@@ -73,7 +73,7 @@ Checks, in order: 410 when the run is not the task's current live run (revoked, 
 ## 4. Sequences and `ack_seq`
 
 - `GET /agent/brief` → `{"ack_seq": brief_to, "task_id": "…"}`: the adapter's starting `ack_seq` (the run's brief
-  window end; v1 and v2 alike).
+  window end).
 - Every `/agent/call` and `/agent/exit*` request carries header `X-Factory-Ack-Seq: N`. When the task has authority
   triggers above N, Core wraps the tool result: `{"result": <tool result>, "authority_input": [{"seq", "author",
   "rank", "kind", "text"}], "winning": seq}` and sets response header `X-Factory-Seen-Seq: M` (the highest seq
@@ -124,8 +124,8 @@ reviewer's approval.
   add no trigger; they are listed in the next brief.
 - Parked task: an authority trigger overrides interruptible parks (wait, ask, block, children) and the
   escalations `retries_exhausted`, `budget_exhausted`, `no_exit` (it counts as retry); `inspect` needs its answer.
-- Urgent: the run becomes CANCELLING with `stop_reason = directive`; v1: `cancel: true` in the heartbeat answer,
-  v2: `run.stop` on `factory.<company>.nodes.<node_id>.control` at once (plain NATS, outside the command stream;
+- Urgent: the run becomes CANCELLING with `stop_reason = directive`:
+  `run.stop` on `factory.<company>.nodes.<node_id>.control` at once (plain NATS, outside the command stream;
   Core's outbox publishes it immediately) and the heartbeat `stop` `revoked` as the guarantee. An urgent artifact approval
   (`factory approve ID REASON --urgent`) stops the runs of the tasks it wakes the same way. Outcome `revoked`; the next
   run resumes the session and the brief starts with the directive.
@@ -180,7 +180,7 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
   `not_before` and a wait park that the tick turns into a `wake` trigger; `deadline` is stored, not enforced yet.
 - Authority set: see §7 (the hierarchy replaced role `manager`). A manager's directive does not lift an owner's
   manual block.
-- An urgent directive revokes the running run (CANCELLING; v1 cancel, v2 stop `revoked`); its `revoked` end
+- An urgent directive revokes the running run (CANCELLING; heartbeat stop `revoked`); its `revoked` end
   returns the task to READY and the next brief starts with the directive.
 - Since done: `abandon_branch`, `review_after_conflicts`, `artifact_approved` as authority input, the park
   override for every authority trigger, depth ranks. Not yet: the secret-scan report item.

@@ -72,13 +72,11 @@ docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.d
 gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
 FACTORY_ROOT selects config root; FACTORY_DATABASE_URL the database; FACTORY_COMPANY the company Core serves;
 FACTORY_DATA_DIR Core's data directory; FACTORY_BLOB_DIR Core's blob store; FACTORY_LISTEN selects HTTP bind.
-FACTORY_URL is the native CLI/Worker endpoint. NATS_URL is the authenticated broker URL.
-CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required.
-FACTORY_WORKER_STATE (default data/codex-worker) keeps pidfiles of running runtimes; on start the
-Codex Worker kills process groups left there by its previous runs. Do not share it between Workers.
-`codex-worker` is `factory-node run --slots 1` with the Codex driver (see Node process).
+FACTORY_URL is the native CLI/node endpoint. NATS_URL is the authenticated broker URL.
+CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required by Core and the owner CLI; a node
+does not use it (see [Node identity](#node-identity)).
 Core uses signal cancellation, HTTP shutdown deadlines and structured JSON logs.
-Worker handles SIGTERM/SIGINT by requesting turn interruption before closing its process group.
+The node handles SIGTERM/SIGINT by requesting turn interruption before closing its process group.
 
 Tests: every test that touches storage needs Postgres, like the JetStream tests need NATS. `make test-services`
 starts both in tmpfs containers (Postgres on 127.0.0.1:15432, NATS on 127.0.0.1:14231); the Makefile exports
@@ -141,14 +139,15 @@ failed step.
 FACTORY_COMPANY=smoke FACTORY_EXPLICIT_EXITS=1 docker compose up -d --build core
 ./bin/factory config validate --company smoke
 cat > data/node-smoke.yaml <<'YAML'
-company: smoke
 state_dir: data/factory-node-smoke
 drivers:
   codex: {enabled: true}
   claude: {enabled: true}
 YAML
-# Node environment as usual (FACTORY_TOKEN, FACTORY_URL, NATS_URL); Claude on the personal subscription
-# (claude-runtime.md, Personal subscription):
+# Node environment as usual (FACTORY_URL, NATS_URL); once per state_dir, enroll it with this Core (Node identity):
+./bin/factory nodes enroll --name smoke
+./bin/factory-node enroll -config data/node-smoke.yaml CODE     # then factory nodes approve NODE_ID FINGERPRINT
+# Claude on the personal subscription (claude-runtime.md, Personal subscription):
 CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node doctor -config data/node-smoke.yaml
 CLAUDE_CONFIG_DIR=$HOME/.claude-personal ./bin/factory-node run -config data/node-smoke.yaml
 
@@ -211,14 +210,16 @@ simulators; warn when none); `factory-mcp` and `factory-shim` in `FACTORY_BIN_DI
 `ps` (`ps -o lstart= -p <pid>` must print a start time: runtime process groups are recorded by their leader's start
 time so a stop never signals a reused PID; without it a stop kills only the runtime's leader and can orphan its
 children, and the node logs that once; hint: install procps).
-`core` (with `FACTORY_URL`): an authenticated `GET /health` with the node token as `run` resolves it
-(`FACTORY_NODE_TOKEN`, node.yaml `token_file` of `-config`, else `FACTORY_TOKEN`; fails when no token is set or it is
-rejected, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS). `nats` (with
+`node.keys`: the keys in `state_dir/keys` and their fingerprint (warn when the node has not enrolled, fail when a key
+file is invalid or readable by group or others).
+`core` (with `FACTORY_URL`): a `GET /health` signed with the node's keys (fails when the keys are missing, the
+signature is refused, Core is unreachable, or Core answers 503 because it cannot reach its database or NATS; the
+clock offset from Core's `Date` header warns above 60 s and fails above 120 s). `nats` (with
 `nats.url` of `-config node.yaml` / `FACTORY_NODE_CONFIG`, else `NATS_URL`): one connection without reconnects
 with the node's own NATS settings (credentials, nkey, TLS; see [Outbound NATS](#outbound-nats-tls-websocket-per-node-user))
 and a JetStream account info read (fails when unreachable, the user or certificate is rejected, or JetStream is
 off); `nats_credentials` warns when the creds, nkey seed or TLS key file is readable by group or others. Both are
-read-only, time out after 5 s, never print the token, URL credentials or file contents, and are `skip` when their
+read-only, time out after 5 s, never print keys, URL credentials or file contents, and are `skip` when their
 variable is unset.
 Runtime probes (`node.RuntimeProbe`, binary/version/auth, never a model call; drivers own them and `cmd/factory-node`
 injects them as `Doctor.Runtimes`): `codex.*` (`codex.Driver.Probe`: `CODEX_BIN`, exactly
@@ -244,36 +245,32 @@ delivered `missing` with an empty spec. Hooks and checks are trusted template da
 ## Node process
 
 `./bin/factory-node run [-config node.yaml] [-slots N]` (`make node`) is one process with N slot goroutines
-(node-agent 1.1; registration and the inventory heartbeat with `protocol_version: 2`, below; v2 nodes also
-subscribe to their control subject `factory.<company>.nodes.<node_id>.control`, which carries Core's urgent
-`run.stop`; the heartbeat answer's `stop` stays the guarantee). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute with per-run heartbeats in
-v1); the slots share one pull
+(node-agent 1.1; registration and the inventory heartbeat, below; the node also
+subscribes to its control subject `factory.<company>.nodes.<node_id>.control`, which carries Core's urgent
+`run.stop`; the heartbeat answer's `stop` stays the guarantee). Each slot runs the existing executor (`worker.Worker.Process`: claim, ack, execute); the slots share one pull
 subscription per enabled driver on `factory.<company>.commands.agent.run.<driver>` with the durable
-`<driver>-worker-<company>` (node.yaml `company`, default `default`; a v2 node refuses to run when the register answer names another
-company for its node token), so they
-compete for commands exactly like standalone workers. A free slot polls the drivers in turn, one fetch at a time.
-Environment as for the Worker: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL`, `CODEX_BIN`, and the node's
-credential (required): `FACTORY_NODE_TOKEN`, else node.yaml `token_file`, else the shared `FACTORY_TOKEN` (see
-Node tokens below). At least one
-enabled driver must pass its version check and probe at start (see Driver checks below). SIGINT/SIGTERM interrupt running runs (as the Codex Worker does) and wait
-for them. `codex-worker` is the same code with one slot and the Codex driver (`FACTORY_WORKER_STATE` as before).
+`<driver>-worker-<company>` (the company in `state_dir/company`, stored at enrollment; the node refuses to run when the register answer names another
+company for its key), so they
+compete for commands. A free slot polls the drivers in turn, one fetch at a time.
+Environment: `NATS_URL` (when `nats.url` is unset), `FACTORY_URL` (default `http://127.0.0.1:8080`; HTTPS unless on this machine), `CODEX_BIN`.
+The node has no token and refuses to start before it has enrolled (see Node identity below). At least one
+enabled driver must pass its version check and probe at start (see Driver checks below). SIGINT/SIGTERM interrupt running runs and wait
+for them.
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
-errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `token_file`, `secrets_file`,
+errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`, `secrets_file`,
 `drivers.claude.shim`, the NATS creds, seed and TLS files, and a driver `binary`/`executable` that holds a `/`)
 resolve against the working directory the node starts in, not the config file's directory: start it from the
 checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
 
 ```yaml
-name: mini-1                 # default: host name; a label only (v2 identifies the node by node_id)
+name: mini-1                 # default: host name; a label only (Core identifies the node by node_id)
 slots: 2                     # 1..64
-protocol_version: 1          # 1 (default): per-run claim and heartbeat; 2: registered node (below)
 resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
 labels: [macos, xcode]       # sent in register; Core claims an agent's run only where all its spec.labels are
-token_file: /etc/factory/node.token  # node token (factory nodes token create); FACTORY_NODE_TOKEN overrides
 runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)
 secrets_file: /etc/factory/node.secrets  # KEY=VALUE, chmod 600 (refused otherwise): ${secret:NAME} of external MCP servers, read per run, never sent to Core
-state_dir: data/factory-node # pidfiles, node_id, epoch; never shared by live nodes or workers
+state_dir: data/factory-node # keys, company, pidfiles, node_id, epoch; never shared by live nodes
 projects_root: ~/projects     # repositories of new projects and clones of existing ones by URL (projects.md); default <state_dir>/projects
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
 skills_root: /opt/factory    # its company catalog's skills.yaml (configs/[<company>/]skills.yaml) + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
@@ -321,7 +318,7 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   were in flight while it is disabled do not escalate; the escalation starts over after a run on that driver
   completes, or after it ran 2 h past its last hold-off without an auth failure (runtime-drivers 3.2).
   With no usable driver the node claims nothing; the node refuses to start when
-  none is usable at start. With `protocol_version: 2` every inventory heartbeat carries the drivers (`ok`, and for
+  none is usable at start. Every inventory heartbeat carries the drivers (`ok`, and for
   a disabled one the failing `check` — `version`, `probe` or `auth` — with its `detail`), and a flip sends a
   heartbeat at once: Core updates the node's drivers without a new epoch, claims follow them, and Core records one
   `driver_unsupported` attention event per driver that becomes unusable (`driver_restored` when it is usable again).
@@ -386,10 +383,10 @@ certificate (when the URL is an IP or a proxy address), `cert_file`/`key_file` p
 come only from files: `nats.url` in `node.yaml` must not carry user info (the `NATS_URL` fallback still may, as for
 the local Worker), errors and logs name files, never their contents, and the start log shows the redacted URL, the
 auth kind (`creds`, `nkey`, `url`, `none`) and whether TLS is on. Keep the files `0600` (doctor warns otherwise).
-`tls` with `ws://` is refused (use `wss://`). Core keeps `NATS_URL` (`bus.Connect`); nodes and `codex-worker` use
+`tls` with `ws://` is refused (use `wss://`). Core keeps `NATS_URL` (`bus.Connect`); nodes use
 `bus.ConnectWith(url, bus.Options)`.
 
-The node's user needs (runtime protocol v1/v2, company `<company>`): publish `$JS.API.INFO`,
+The node's user needs (company `<company>`): publish `$JS.API.INFO`,
 `$JS.API.STREAM.NAMES`, `$JS.API.STREAM.INFO.FACTORY_COMMANDS`, `$JS.API.STREAM.INFO.FACTORY_EVENTS`,
 `$JS.API.CONSUMER.CREATE.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.DURABLE.CREATE.FACTORY_COMMANDS.>`,
 `$JS.API.CONSUMER.INFO.FACTORY_COMMANDS.>`, `$JS.API.CONSUMER.MSG.NEXT.FACTORY_COMMANDS.>`,
@@ -432,7 +429,7 @@ Claude Stop hook, 2 attempts each).
 
 ### Runtime protocol v2
 
-With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-protocol-v2.md) (Core must serve it):
+The node speaks [runtime protocol v2](runtime-protocol-v2.md):
 
 - Identity: `<state_dir>/node_id` is a random id generated on first start and never changed (`name` stays a
   label); a damaged file stops the node instead of creating a new identity. `<state_dir>/epoch` is incremented and
@@ -470,22 +467,37 @@ With `protocol_version: 2` the node speaks only [runtime protocol v2](runtime-pr
   `pinned_node_unavailable` (the node holding the task's unpushed work was removed, is offline past 30 min, or
   cannot run the assignee); a QUEUED run nobody can claim shows the node reason instead of `live_run`.
 
-#### Node tokens
+#### Node identity
 
-Each machine gets its own token (node-agent 1.1), issued by the owner and shown once:
+A node has no token. Its private keys (`state_dir/keys`, `0600`; Ed25519 signs requests, X25519 is for what Core seals
+for it) are the only way to act as it towards Core; Core stores the public keys. `factory-node run` refuses to start
+without keys and `state_dir/company`, and enrolling needs an `https` `FACTORY_URL` unless Core is on this machine.
 
 ```sh
-factory nodes token create mini-1 [--node-id NODE_ID]   # {id, token: fnt_…}; Core keeps only its SHA-256
-factory nodes token list                                # ids, names, bound node_id, last use (no secrets)
-factory nodes token revoke TOKEN_ID                     # the node gets 401 from the next request
-factory nodes list | factory nodes remove NODE_ID       # remove: an offline, replaced machine (revokes its tokens)
+factory nodes enroll --name mini-1                        # owner or admin: a code, valid 15 minutes, single use
+FACTORY_URL=... factory-node enroll [-config node.yaml] CODE   # on the node: prints the fingerprint and waits
+factory nodes keys                                        # keys and their state (pending, active)
+factory nodes approve NODE_ID FINGERPRINT                 # compare first; a wrong fingerprint is refused
+factory nodes reject NODE_ID                              # unknown fingerprint: reject and issue a new code
+factory nodes revoke NODE_ID                              # below
+factory nodes list | factory nodes remove NODE_ID         # remove: an offline, replaced machine (deletes its keys)
 ```
 
-Put it in a 0600 file named by node.yaml `token_file` (or `FACTORY_NODE_TOKEN` in the systemd `EnvironmentFile` /
-launchd plist). A token without `--node-id` is bound to the `node_id` of its first register; afterwards it
-authenticates only that node's routes: register, its own heartbeat, v2 claims naming it, and `start`,
-`workspace`, `credential` of runs it claimed (`GET /health` too); every other route answers 403. The shared
-`FACTORY_TOKEN` keeps working for nodes during the transition.
+Pending keys that are not approved within 24 hours are deleted. A code refused by Core keeps the node's keys, so a
+new code does not make a new identity. Enrollment stores the company Core names in `state_dir/company`.
+
+Every node request is signed (RFC 9421 profile in `internal/nodesig`, covering method, path, query and body digest).
+Core accepts a signature created within ±120 s of its clock and not before Core started, and each nonce once
+(nonces live in Core's memory). Operator and owner tokens and sessions get 401 on node routes.
+
+Revoking deletes the keys: the next request gets 401, the node's runs end as lost so their credentials stop, and
+tasks pinned to it are released. Revoking does not cut the node's NATS login (known issue in [backlog](backlog.md)).
+A machine that lost its keys is revoked and enrolled again.
+
+`FACTORY_URL=... factory-node rotate-keys [-config node.yaml]` writes new keys to `state_dir/keys/next`, proposes them
+with a request signed by the current key and waits. Approve with `factory nodes approve NODE_ID NEW_FINGERPRINT`; the
+old keys work until then. A running node picks up the new keys without a restart. A rejected or expired proposal
+removes `next`, and the current keys stay.
 
 ### Restoring Core's database
 
@@ -493,8 +505,7 @@ Core's database identity is its incarnation (`core_meta` row `incarnation`, copy
 data directory, `/data/core.incarnation` in the `core-data` volume). At start Core compares the two; when they
 differ (a restored or copied database) it creates a new incarnation and logs `database incarnation differs from
 its file: restored backup; new incarnation`. Nodes see it in the next heartbeat answer and drop everything that
-belongs to the old one. Runbook (protocol v2 nodes keep running throughout; v1 workers such as `codex-worker` have
-no incarnation: stop them first and start them after step 5):
+belongs to the old one. Runbook (nodes keep running throughout):
 
 1. Stop Core: `docker compose stop core` (Postgres and NATS keep running). Nodes log failed heartbeats and keep
    their runs.
@@ -593,11 +604,11 @@ with `worktrees.enabled` (it registers `worktrees: true`); elsewhere they share 
 launchd: `./bin/factory-node launchd [-config node.yaml] [-label com.appfactory.node] > ~/Library/LaunchAgents/com.appfactory.node.plist`
 prints a per-user agent for `factory-node run` with `KeepAlive`, `RunAtLoad`, the current directory as
 `WorkingDirectory`, logs in `~/Library/Logs/factory-node.log`, a 30 s `ExitTimeOut` for interruption, and the
-current `PATH`, `NATS_URL`, `FACTORY_URL`, `FACTORY_TOKEN`, `FACTORY_NODE_TOKEN`, `CODEX_BIN` and
-`CLAUDE_CODE_EXECUTABLE` (`FACTORY_TOKEN` is a placeholder when neither token is set). The plist then holds the token: `chmod 600` it. Load with
+current `PATH`, `NATS_URL`, `FACTORY_URL`, `CODEX_BIN` and
+`CLAUDE_CODE_EXECUTABLE`; no token. `NATS_URL` may carry the NATS password: `chmod 600` the plist. Enroll the node
+first (`factory-node enroll`, [Node identity](#node-identity)). Load with
 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.appfactory.node.plist`, stop with
-`launchctl bootout gui/$(id -u)/com.appfactory.node`. Run only one of the node or a standalone `codex-worker` per
-state directory.
+`launchctl bootout gui/$(id -u)/com.appfactory.node`. Run only one node per state directory.
 
 systemd (Linux, node-agent 3b.1): `./bin/factory-node systemd [-config node.yaml] [-unit factory-node] [-system]
 [-user USER] [-env-file PATH]` prints a service for `factory-node run` and, on stderr, where to save it. Default is a
@@ -609,12 +620,12 @@ never gives up; Core counts the epochs), the current directory as `WorkingDirect
 cgroup is killed after 30 s), logs to journald (`SyslogIdentifier=factory-node`), and the current `PATH`,
 `FACTORY_URL`, `CODEX_BIN` and `CLAUDE_CODE_EXECUTABLE` as `Environment=`. Secrets are never written into the unit:
 `EnvironmentFile=` names an owner-only file (default `~/.config/factory-node/env`, `/etc/factory-node/env` with
-`-system`) holding `FACTORY_NODE_TOKEN=…` (or the shared `FACTORY_TOKEN=…`) and `NATS_URL=…` (it may carry the
-NATS password):
+`-system`) holding `NATS_URL=…` (it may carry the NATS password). Enroll the node before starting the unit:
 
 ```sh
 install -d -m 700 ~/.config/factory-node
-install -m 600 /dev/null ~/.config/factory-node/env   # then add FACTORY_NODE_TOKEN=... and NATS_URL=...
+install -m 600 /dev/null ~/.config/factory-node/env   # then add NATS_URL=...
+FACTORY_URL=... ./bin/factory-node enroll -config /etc/factory/node.yaml CODE   # and approve it
 ./bin/factory-node systemd -config /etc/factory/node.yaml > ~/.config/systemd/user/factory-node.service
 systemctl --user daemon-reload && systemctl --user enable --now factory-node
 loginctl enable-linger "$USER"   # a user unit then runs without a login session

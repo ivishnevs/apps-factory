@@ -53,7 +53,7 @@ Queued cancellation is immediate, running cancellation is observed within a hear
 The database has a unique writer index per workspace slot (`workspace_writer`) over active and unreleased lost runs.
 A worktree task run holds its own slot (`<project workspace>#task/<task>`), so tasks of one project run in parallel
 on nodes with worktrees; runs in the shared project workspace (shared or scratch mode, message runs, or a worktree
-run claimed by a node without worktrees or by a v1 worker) hold the project workspace and run one at a time
+run claimed by a node without worktrees) hold the project workspace and run one at a time
 (runtime-protocol-v2 §11, Worktrees). `active_task_run` keeps one live run per task and `session_turn` one per
 session.
 
@@ -98,7 +98,8 @@ whose probe or version check fails, or whose run ended on an auth failure, stops
 With [runtime protocol v2](runtime-protocol-v2.md) the node registers with a stable `node_id` and a new epoch on
 every start, claims command pointers with `{node_id, epoch, claim_id, slot}` and renews every lease with one
 inventory heartbeat; the answer carries Core's incarnation (a change makes the node stop, seal and re-register),
-`stop`, `acked`, `cleanup`, `reset` and `pause`. The node authenticates with its own node token; its heartbeat also
+`stop`, `acked`, `cleanup`, `reset` and `pause`. The node has no token: an owner approves its keys at enrollment and
+it signs every request ([node identity](development.md#node-identity)); its heartbeat also
 carries the drivers' state (a driver becoming unusable is one `driver_unsupported` event, without a new epoch).
 Core enforces declared `resources` (held until the run is sealed) and `labels` at claim. The
 janitor runs `on_run_stop`/`on_task_closed` hooks, removes closed tasks' worktrees and prunes caches; its hooks and
@@ -120,7 +121,7 @@ terminal runs. Late terminal evidence replaces a Core-decided `lost` (or `timed_
 If broker event publication fails, Worker stops execution. Missing terminal evidence expires to `lost`.
 
 Streams use file storage; their retention is currently unbounded. Configure operational backups
-and retention before production use. Shared tokens/passwords protect trusted local components (nodes use their own node tokens and NATS users);
+and retention before production use. Shared tokens/passwords protect trusted local components (nodes sign their HTTP requests with their own keys and use their own NATS users);
 there is no per-agent authorization or strict OS isolation in Foundation. Full host access is
 intentional. Prompt instructions for protected actions are not an enforcement boundary.
 

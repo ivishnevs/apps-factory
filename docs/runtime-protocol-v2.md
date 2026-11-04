@@ -2,25 +2,20 @@
 
 Status: agreed (2026-10-14) after stream B's review; implemented on both sides (Core: §11) and run together in
 `TestJetStreamNodeV2RealCore`. Consolidates `node-agent` D2–D3, `reliable-recovery` D6–D7 and
-`trigger-log-scheduling` D4/D6 into one Core ↔ node contract so both sides can build against it. Nothing here
-changes the current (v1) behaviour until a node registers with `protocol_version: 2`.
+`trigger-log-scheduling` D4/D6 into one Core ↔ node contract so both sides can build against it.
 
-## 1. Versions and transition
+## 1. Versions
 
-- v1 (today): per-run `POST /runs/{id}/claim` (its answer carries the RunSpec with the brief, as in v2; a worker
-  facing an older Core falls back to `GET /runs/{id}`) → `POST /runs/{id}/heartbeat`; the command payload is
-  still the full RunSpec, but the worker takes only its id.
-- v2: a node registers, claims in two phases, renews all its leases with one inventory heartbeat, and treats the
-  command as a pointer.
-- Core serves v1 and v2 side by side. A registered node speaks only v2 (no mixing on one node); unregistered workers
-  keep v1. A run claimed through v2 is renewed only by its node's heartbeat; a v1 run only by its per-run heartbeat.
-  v1 is removed one release after every node runs v2.
+A node registers, claims in two phases, renews all its leases with one inventory heartbeat, and treats the command
+as a pointer. This is the only protocol: v1 (a claim without a body, a per-run heartbeat) is removed, and
+`protocol_version: 2` remains only as a field of the register payload. [`runtime-protocol.md`](runtime-protocol.md)
+is the historical v1 text.
 
 ## 2. Identities
 
 | Name | Meaning | Source |
 |---|---|---|
-| `node_id` | one per machine and company, stable across renames | generated once, stored in `<state_dir>/node_id` |
+| `node_id` | one per machine, unique across companies, stable across renames | generated once, stored in `<state_dir>/node_id` |
 | `name` | human label | `node.yaml` `name` (default host name); Core warns when two online nodes share it |
 | `epoch` | increments on every node process start, never reused | integer in `<state_dir>/epoch`, written before register |
 | `slot` | slot index 0..slots-1 | node |
@@ -28,9 +23,8 @@ changes the current (v1) behaviour until a node registers with `protocol_version
 | `lease` | per-run secret returned by claim | Core |
 | `incarnation` | Core database identity; changes when a backup is restored | Core |
 
-Nodes authenticate with a per-machine **node token** (`Authorization: Bearer fnt_…`, issued by the owner,
-company-scoped, bound to one `node_id`; §11); the shared worker token keeps working during the transition. Every
-request carries `node_id`.
+Nodes have no token: every request is signed with the node's key (RFC 9421 `Signature-Input` / `Signature`, `keyid`
+= `node_id`; §11). Every request carries `node_id`.
 
 ## 3. Register
 
@@ -64,15 +58,15 @@ seals what its previous epoch left (it already kills orphaned groups at start).
 
 ## 4. Command
 
-Subject `factory.<company>.commands.agent.run.<provider>` (node.yaml `company`; the register answer's `company`, the
-node token's, must match it). Payload becomes a pointer:
+Subject `factory.<company>.commands.agent.run.<provider>` (`state_dir/company`, stored at enrollment; the register
+answer's `company`, the node key's, must match it). Payload becomes a pointer:
 
 ```json
 {"run_id": "…", "company": "default", "agent": "calorie-ios", "provider": "codex"}
 ```
 
-v2 nodes take only `run_id` from the command; everything else comes from claim. Core keeps sending the full RunSpec
-in the payload during the transition so v1 workers keep working.
+Nodes take only the run id from the command; everything else comes from claim. The payload may still be the full
+RunSpec (the node then reads its `id`).
 
 ## 5. Claim (phase 1)
 
@@ -94,7 +88,7 @@ and of the current epoch; node has the agent's driver and labels; resource capac
   (core-owned-project-data; OpenSpec is in the checkout, see [OpenSpec](openspec.md)). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and
   `X-Factory-Lease: <lease>`; a blob it cannot fetch ends the run `setup_failed` before the runtime starts. It
   uploads the run's log, redacted, with `PUT /runs/{id}/logs?seq=N[&final=1]&redacted=1` and the same header,
-  during the run and after its terminal event. Both routes are open to node tokens for the node's own runs.
+  during the run and after its terminal event. Both routes are open to a signed node for its own runs.
 - `409 {"retry": true, "reason": "capacity|agent_busy|project_busy", "detail": "…"}` — run stays QUEUED; nak with
   delay. `detail` (optional) says what the node lacks: a usable driver, labels, a slot, a resource class.
 - `409 {"drop": true, "reason": "stale|duplicate|revoked|not_runnable|old_epoch"}` — ack and drop the command; Core
@@ -134,7 +128,7 @@ not started in its window ends as "not started" (§10). `session_id` keeps arriv
 - `hooks`/`hooks_hash`: the `NodeHooks` document the node uses and the hash it applied; when the catalog's document
   hashes differently, the answer carries `hooks` again.
 
-Renews the leases of every listed run (the per-run heartbeat is not used for v2 runs). `elapsed_ms` is measured on
+Renews the leases of every listed run. `elapsed_ms` is measured on
 the sleep-excluding clock. A run stays listed until Core acknowledged its end (its terminal event was applied).
 
 Answer `200`:
@@ -186,7 +180,6 @@ and `unclaimed` are Core's only.
 | claim re-check, capacity, RunSpec + brief in the claim answer, `start`, start window | slot claim → allocate → launch → `start`; nak/ack on `retry`/`drop` |
 | inventory heartbeat: lease renewal, `stop`/`cleanup`/`pause`, offline detection | inventory and health reporting, acting on `stop`/`cleanup`/`pause` |
 | pointer commands (with full RunSpec during the transition) | read only `run_id` from commands in v2 |
-| v1 endpoints kept until all nodes are v2 | drop per-run heartbeat for v2 runs |
 
 ## 10. Decisions from the review
 
@@ -212,13 +205,11 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
 
 - **CLAIMED** is stored (`run_started = 0`, `protocol = 2`, `node_id`, `epoch`, `claim_id`, `slot`, `start_by` on
   the run); `/start` moves it to `RUNNING`. A claimed run holds its agent, project and node capacity like a running
-  one, and every live-run rule (cancel, kill switch, writer indexes) applies to it. A v1 claim has no start phase: it
-  moves the run to `RUNNING` at once.
+  one, and every live-run rule (cancel, kill switch, writer indexes) applies to it.
 - **Leases** of v2 runs last 60 s (the offline threshold) and are renewed only by the inventory heartbeat;
   the per-run `POST /runs/{id}/heartbeat` refuses v2 runs with 409. Lease expiry keeps its continuity guard,
   so a sleeping Core host expires nothing until one window of continuous ticking.
-- **Claim** without a body is v1 (the same answer and refusals, without node checks or `start_by`); with
-  `{node_id, epoch, claim_id, slot}` it is v2. Checks in
+- **Claim** carries `{node_id, epoch, claim_id, slot}`. Checks in
   order: node registered with this epoch (else `drop/old_epoch`); same `(node_id, epoch, claim_id)` → the
   same answer; revoked → `drop/revoked`; claimed by another claim → `drop/duplicate`; not QUEUED →
   `drop/stale`; task's live run is another run, assignee changed, cancel requested, or the task's `why`
@@ -229,7 +220,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   resource classes short (`spec.resources` of the run's agent snapshot against node.yaml `resources` minus the
   needs of the runs the node holds, see "Capacity until the seal"; an undeclared class has capacity 0) →
   `retry/capacity`; approved-artifact
-  checks fail (recorded on the task as in v1) → `drop/not_runnable`. Refusals are JSON:
+  checks fail (recorded on the task) → `drop/not_runnable`. Refusals are JSON:
   `409 {"retry":true,"reason":…}` / `409 {"drop":true,"reason":…}`.
 - **Claim answer**: `run_spec` is the stored RunSpec plus `company`, its prompt the brief built in the claim's
   transaction; `brief` is `{from, to}` of the run's trigger window; `start_by` is claim + 60 s. Branch names stay the node's (`af/<task>…`).
@@ -251,26 +242,30 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   or an expired lease end the node's unstarted runs `lost` (`lost: not started (…)`), and started runs `lost`
   (`lost: …`; released for a new epoch, whose node killed the old process groups
   before registering; unreleased for an offline node until it proves them gone). A node's terminal event that
-  arrives later still replaces `lost`, as in v1; a late `revoked` or `lost` end only releases the run (its runtime
+  arrives later still replaces `lost`; a late `revoked` or `lost` end only releases the run (its runtime
   is gone, nothing more is known). A heartbeat from an offline node brings it back online.
 - **Incarnation** lives in the database (`core_meta`) with a copy in Core's data directory (`core.incarnation`);
   when the two differ at start (a restored database), Core creates a new incarnation. Restoring the file together
   with the database is not detected: after such a restore write any other value into `core.incarnation` (for
   example `echo restored > data/core.incarnation`) before starting Core. Runbook: [development](development.md#restoring-cores-database).
-- **Project setup** (project-creation): a claim answer whose RunSpec carries `project_setup` `{mode, name, description, workspace, repo_url, default_branch}` (and no workspace) asks the node to create or onboard the project's repository before the runtime starts; the run holds the writer slot `project-setup/<project>`. The node reports `POST /runs/{id}/project-setup` `{lease, node_id, workspace, repo_url, default_branch}` or `{lease, node_id, error}` (node tokens may call it for their own runs) and continues with the answer `{workspace, repo_url, default_branch, workspace_mode, materialize}`; an error ends the run `setup_failed`. See [projects](projects.md).
+- **Project setup** (project-creation): a claim answer whose RunSpec carries `project_setup` `{mode, name, description, workspace, repo_url, default_branch}` (and no workspace) asks the node to create or onboard the project's repository before the runtime starts; the run holds the writer slot `project-setup/<project>`. The node reports `POST /runs/{id}/project-setup` `{lease, node_id, workspace, repo_url, default_branch}` or `{lease, node_id, error}` (a signed node, for its own runs) and continues with the answer `{workspace, repo_url, default_branch, workspace_mode, materialize}`; an error ends the run `setup_failed`. See [projects](projects.md).
 - **Worktrees** (additive register field `worktrees: true`, node.yaml `worktrees.enabled`): a node that runs
   worktree tasks in their own worktree lets tasks of one project run in parallel. A worktree run holds its own
-  writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees (or by
-  a v1 worker) it holds the project workspace instead, and a collision answers `409 retry/project_busy`.
+  writer slot (`runs.workspace = "<project workspace>#task/<task>"`); claimed by a node without worktrees it holds the project workspace instead, and a collision answers `409 retry/project_busy`.
 - `GET /nodes` lists registered nodes (epoch, drivers, resources, health, `online`, `last_seen`, and `in_use`
   `{runs, resources}`: what the current epoch's unended runs hold); `factory status` prints them as its node section.
-- **Node tokens** (node-agent 1.1): the owner issues them (`POST /node-tokens {name, node_id?}` → `{id, token}`,
-  shown once; `GET /node-tokens`; `POST /node-tokens/{id}/revoke`; CLI `factory nodes token create|list|revoke`).
-  Core stores only the SHA-256. A token issued without `node_id` is bound by its first register. A node token
-  reaches only `POST /nodes/register` (its `node_id`), `POST /nodes/{its id}/heartbeat`, v2 `POST /runs/{id}/claim`
-  naming its node, `POST /runs/{id}/start|workspace|credential|heartbeat` of runs its node claimed, and
-  `GET /health`; anything else is `403`, an unknown or revoked token `401`. `DELETE /nodes/{id}` (`factory nodes
-  remove`) forgets an offline node: its unended runs are lost, its tokens revoked.
+- **Node identity** (node-identity; runbook: [development](development.md#node-identity)): `POST /node-enrollments
+  {name}` (owner or admin; a code valid 15 minutes, single use), `POST /nodes/enroll {code, node_id, sign_pub, box_pub,
+  proof}` (no token, rate limited; keys pending, deleted after 24 hours), `GET /node-keys`, `POST
+  /node-keys/{id}/approve {fingerprint}`, `POST /node-keys/{id}/reject`. A pending node may only call the signed `GET
+  /nodes/{id}/enrollment`. Each node request is signed (`internal/nodesig`): `created` within ±120 s of Core's clock
+  and not before Core started, each nonce once (held in Core's memory). A signed node reaches `POST /nodes/register`
+  (its `node_id`), `POST /nodes/{its id}/heartbeat|keys`, `POST /runs/{id}/claim` naming its node,
+  `POST /runs/{id}/start|workspace|credential|project-setup`, blobs and logs of its runs, and `GET /health`. An
+  operator or owner token or session gets `401` on node routes. `POST /nodes/{id}/revoke` deletes the keys and ends
+  the node's runs as lost; `POST /nodes/{id}/keys` (signed by the current key) proposes rotated keys, approved like
+  new ones. `DELETE /nodes/{id}` (`factory nodes remove`) forgets an offline node: its unended runs are lost, its
+  keys deleted.
 - **Labels**: agent `spec.labels` must all be in the node's register `labels`, else `retry/capacity` with
   `detail: "node lacks labels …"`.
 - **Capacity until the seal**: a run holds its slot and resource classes from the claim while it is unended in
@@ -281,8 +276,7 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   and not usable is one feed event: `driver_unsupported` (attention; summary names the driver, the node, the
   failing `check` and `detail`) or `driver_restored`. A driver not seen before counts as usable, so a first
   register with a failing driver reports it; a new epoch declaring the same failure does not.
-- **Offline and continuity**: node silence and v2 leases are judged only over 60 s of continuous Core ticking (v1
-  leases keep their 45 s window): after a Core host sleep, a node and its runs get a full 60 s from the wake.
+- **Offline and continuity**: node silence and leases are judged only over 60 s of continuous Core ticking: after a Core host sleep, a node and its runs get a full 60 s from the wake.
 - **Evaluate** (`GET /tasks/{id}/why`, `factory tasks why`) with registered nodes: `pinned_node_unavailable` (the
   node holding the task's unpushed work was removed, is offline past 30 min, or cannot run the assignee; the
   stalled sweep opens one escalation answered by `reset_workspace`, which unpins and makes the next run start a new

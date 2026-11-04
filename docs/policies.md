@@ -131,7 +131,7 @@ the evaluator: deny -> 403, approval -> 423. No boolean approval bypass is accep
 must use the same evaluator and bind approval to concrete parameters and artifact versions.
 
 Full host access means prompt rules and Factory tool filtering are not strict OS isolation.
-Runtimes get only lease-bound run credentials; nodes use node tokens; the shared Core token identifies the
+Runtimes get only lease-bound run credentials; nodes sign their requests with their own keys; the shared Core token identifies the
 owner and trusted service callers.
 
 ## Wait and reporting rules
