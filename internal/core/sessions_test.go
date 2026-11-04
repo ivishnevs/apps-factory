@@ -368,6 +368,7 @@ func TestSecretNamesOnly(t *testing.T) {
 func TestNodeKeyRoutesNeedAdmin(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"POST", "/node-enrollments"}, {"GET", "/node-keys"}, {"POST", "/node-keys/n/approve"}, {"POST", "/node-keys/n/reject"}, {"POST", "/nodes/n/revoke"}, {"DELETE", "/nodes/n"},
+		{"GET", "/node-connects/x"}, {"POST", "/node-connects/x/approve"}, {"POST", "/node-connects/x/reject"},
 	} {
 		if got := requiredRole(c.method, c.path); got != storage.RoleAdmin {
 			t.Errorf("%s %s needs %q", c.method, c.path, got)

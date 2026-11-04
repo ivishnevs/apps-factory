@@ -60,6 +60,12 @@ type Core struct {
 	catalogs  map[string]*storedCatalog
 	// Auth signs people in on the website (user-accounts D3); nil: no sign-in, tokens only.
 	Auth *auth.Client
+	// PublicURL is the website's address (FACTORY_PUBLIC_URL): the page a node's connection request opens.
+	PublicURL string
+	// NodeURL is Core's address for nodes (FACTORY_CORE_URL), named in the install script; empty: the request's.
+	NodeURL string
+	// NodeDownloads holds the node packages (FACTORY_NODE_DOWNLOADS); empty: <Root>/dist/node.
+	NodeDownloads string
 	// MultiCompany lets a signed-in user create more companies (FACTORY_MULTI_COMPANY, user-accounts D2).
 	MultiCompany bool
 	// SignupTemplate is the starter catalog of a company created at sign-up (default DefaultSignupTemplate).

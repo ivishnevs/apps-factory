@@ -113,6 +113,11 @@ func EnrollMessage(code, node, signPub, boxPub string) []byte {
 	return []byte("factory-node-enroll\x00" + code + "\x00" + node + "\x00" + signPub + "\x00" + boxPub)
 }
 
+// ConnectMessage is what a node signs to ask for a connection by sign-in (node-install D5).
+func ConnectMessage(node, name, signPub, boxPub string) []byte {
+	return []byte("factory-node-connect\x00" + node + "\x00" + name + "\x00" + signPub + "\x00" + boxPub)
+}
+
 // DecodePublicKeys validates the hex public keys of a node.
 func DecodePublicKeys(signPub, boxPub string) (sign, box []byte, err error) {
 	if sign, err = hex.DecodeString(signPub); err != nil || len(sign) != ed25519.PublicKeySize {

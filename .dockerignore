@@ -7,3 +7,4 @@ data
 projects
 workers/*/node_modules
 workers/*/dist
+dist

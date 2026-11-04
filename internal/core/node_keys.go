@@ -90,6 +90,30 @@ func (c *Core) nodeKeyRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /node-keys/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RejectNodeKey(r.Context(), c.companyFrom(r), r.PathValue("id")))
 	})
+	m.HandleFunc("GET /node-connects/{id}", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.NodeConnectOf(r.Context(), r.PathValue("id"))
+		reply(w, v, err)
+	})
+	m.HandleFunc("POST /node-connects/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
+		p := principalOf(r)
+		actor := p.Kind
+		if p.User != "" {
+			actor = "user:" + p.User
+		}
+		k, err := c.Store.ApproveNodeConnect(r.Context(), c.companyFrom(r), r.PathValue("id"), actor)
+		if errors.Is(err, storage.ErrNodeIDTaken) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		reply(w, enrollmentAnswer(k), err)
+	})
+	m.HandleFunc("POST /node-connects/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]bool{"ok": true}, c.Store.RejectNodeConnect(r.Context(), r.PathValue("id")))
+	})
+	m.HandleFunc("GET /node-install", func(w http.ResponseWriter, r *http.Request) {
+		base := c.nodeURL(r)
+		reply(w, map[string]any{"core_url": base, "command": "curl -fsSL " + base + "/install.sh | sh", "available": c.nodePackages()}, nil)
+	})
 	m.HandleFunc("POST /nodes/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RevokeNode(r.Context(), c.companyFrom(r), r.PathValue("id")))
 	})
@@ -123,6 +147,15 @@ func (c *Core) enrollmentGateway(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && len(parts) == 3 && parts[0] == "nodes" && parts[2] == "enrollment":
 		c.nodeEnrollmentStatus(w, r, parts[1])
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/node-connects":
+		c.createNodeConnect(w, r)
+		return true
+	case r.Method == http.MethodGet && len(parts) == 3 && parts[0] == "node-connects" && parts[2] == "status":
+		c.nodeConnectStatus(w, r, parts[1])
+		return true
+	case r.Method == http.MethodGet && (r.URL.Path == "/install.sh" || strings.HasPrefix(r.URL.Path, "/downloads/node/")):
+		c.serveNodeDownload(w, r)
 		return true
 	}
 	return false

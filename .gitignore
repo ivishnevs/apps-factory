@@ -8,3 +8,7 @@ projects/
 .DS_Store
 docs/roadmap.md
 .nats-secure-test/
+
+# node packages built by scripts/package-node.sh (node-install)
+/dist/
+/factory

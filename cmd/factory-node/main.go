@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -48,6 +48,8 @@ func run(args []string) (int, error) {
 		return doctor(args[1:])
 	case "enroll":
 		return enroll(args[1:])
+	case "login":
+		return login(args[1:])
 	case "rotate-keys":
 		return rotateKeys(args[1:])
 	case "run":
@@ -85,6 +87,38 @@ func enroll(args []string) (int, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if _, err = (node.Enrollment{URL: base, Code: fs.Arg(0), StateDir: c.StateDir, Out: os.Stdout}).Run(ctx); err != nil {
+		return 1, err
+	}
+	return 0, nil
+}
+
+// login connects this node by signing in on the web (node-install D5).
+func login(args []string) (int, error) {
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+", else built-in defaults)")
+	name := fs.String("name", "", "the node's name (default node.yaml name, else the host name)")
+	noBrowser := fs.Bool("no-browser", false, "print the approval address without opening a browser")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return 2, errors.New("usage: factory-node login [-config node.yaml] [-name NAME] [-no-browser]")
+	}
+	c, err := node.LoadConfig(node.ConfigPath(*path))
+	if err != nil {
+		return 2, err
+	}
+	base := os.Getenv("FACTORY_URL")
+	if base == "" {
+		return 2, errors.New("FACTORY_URL required: the address of Core")
+	}
+	if *name == "" {
+		*name = c.Name
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	conn := node.Connect{URL: base, Name: *name, StateDir: c.StateDir, Out: os.Stdout}
+	if !*noBrowser {
+		conn.Open = node.OpenBrowser
+	}
+	if _, err = conn.Run(ctx); err != nil {
 		return 1, err
 	}
 	return 0, nil

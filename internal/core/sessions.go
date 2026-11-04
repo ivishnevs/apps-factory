@@ -89,7 +89,7 @@ func requiredRole(method, path string) string {
 	switch {
 	case path == "/company" && !read, under("/memberships") && !read:
 		return storage.RoleOwner
-	case under("/owner-tokens"), under("/node-enrollments"), under("/node-keys"):
+	case under("/owner-tokens"), under("/node-enrollments"), under("/node-keys"), under("/node-connects"):
 		return storage.RoleAdmin
 	case read:
 		return storage.RoleMember
