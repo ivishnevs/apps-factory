@@ -1,15 +1,15 @@
 ## 0. Decisions
 
-- [ ] 0.1 Owner answers the open questions of the design (landing, navigation, costs for members, connector name,
-  pending connectors, onboarding team step, visual direction).
+- [x] 0.1 Decisions: Next.js stays with Core as the one public address (owner); defaults for the other questions
+  recorded in the design.
 
-## 1. Static SPA served by Core
+## 1. Core as the one address
 
-- [ ] 1.1 Vite + React + TanStack Router app in `web/`, port the shell, routing, API client and pages 1:1 (parity
-  with today's web); remove Next.js.
-- [ ] 1.2 Core serves the build (`FACTORY_WEB_DIR`, SPA fallback for `/`, `/signin`, `/welcome`, `/connect/*`,
-  `/c/*`, cache headers); Dockerfile `web` stage; `factory web --demo` serves the same build; route-collision test.
-- [ ] 1.3 Sign-in on the same origin (`FACTORY_PUBLIC_URL` = Core's URL), local mode, dev proxy; docs.
+- [x] 1.1 Core proxies the page paths to Next.js (`FACTORY_WEB_UPSTREAM`), `TestWebPagesThroughCore`.
+- [ ] 1.2 Railway: Core, web, Dex (GitHub sign-in), Postgres per `docs/deploy-railway.md`; sign-in works on the
+  public address.
+- [ ] 1.3 Local development: `FACTORY_WEB_UPSTREAM=http://127.0.0.1:3000` on Core (or `next dev` with its rewrites);
+  docs.
 
 ## 2. Product shell
 

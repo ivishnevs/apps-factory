@@ -16,39 +16,22 @@ Non-goals: server-side rendering, billing, a CMS-driven marketing site, native a
 
 ## Decisions
 
-### D1. A static SPA served by Core (recommended)
-Options weighed:
-1. **Static build served by Core, same origin** — one container, no CORS, the session cookie just works, the UI is
-   always the version of its Core (no API skew), one Railway service as today. Cost: Core serves files (trivial) and a
-   web change ships with a Core image.
-2. **Static build on a CDN / static host (Cloudflare Pages, S3) + Core as API** — faster landing worldwide and
-   independent web deploys, but CORS, cross-origin cookies (`SameSite`, a shared parent domain), and version skew
-   between UI and API to manage.
-3. **Keep a UI server (Next.js SSR)** — the extra hop the owner wants gone; SSR is not needed: everything behind
-   sign-in is client-side and the landing is static.
+### D1. Next.js stays; Core is the one public address (owner 2026-11-04)
+The owner chose to keep Next.js for now (less to change) with the browser talking to Core directly. Core serves
+`/api` and `/auth` itself and proxies the page paths (`/`, `/signin`, `/welcome`, `/connect/*`, `/c/*`, `/_next/*`)
+to the Next.js server on the private network (`FACTORY_WEB_UPSTREAM`, `cmd/factory/web.go`). The session cookie is
+first-party, there is no CORS, and API calls and event streams never pass through Next. Weighed and set aside: a
+static build (Next's static export cannot serve `/c/[company]/…` without workarounds; Vite would mean a port), a
+web domain separate from Core's (Railway's `*.up.railway.app` is a public suffix, so the cookie would be
+third-party). Deploy: `docs/deploy-railway.md` (Core, web, Dex, Postgres).
 
-Choice: 1 now. The build takes its API base from the page's origin, so 2 stays a deployment option later
-(`VITE_API_BASE` plus CORS on Core) without code changes in pages.
+### D2. Where pages live
+Next's app router as today; new route groups: `(public)` for `/`, `/signin`, `/connect/[id]`; `/welcome`; the
+product under `/c/[company]`. Pages stay client components over the existing API client.
 
-### D2. Vite + React instead of Next.js (owner to confirm)
-Next.js can build static files (`output: "export"`), but only for routes it can list at build time: dynamic
-segments like `/c/[company]/tasks/[id]` need `generateStaticParams`, and company names and task ids are not known
-then. Workarounds exist — ids in the query string (`/c/tasks?company=acme&id=…`), or one catch-all page whose own
-code routes by the path, served by Core for every `/c/*` — but both give up Next's file routing, which is what
-Next would be kept for. Keeping Next as a server (`next start`) works too, at the cost of a second service and the
-proxy hop. Vite + React with a client router (TanStack Router, typed params, file
-routes like today's) builds plain static files. Vite + React with a client router (TanStack Router, typed params, file
-routes like today's) builds plain static files. Ported as is: components (`components/ui`, `components/app`), React
-Query hooks, the API client, Tailwind, `next-themes` (works outside Next). Replaced: `next/link` and
-`next/navigation` (the existing `Link`/`useRouter` wrappers keep their API), `layout.tsx` files become route layouts.
-
-### D3. Routes and how Core serves them
-- SPA paths: `/`, `/signin`, `/welcome`, `/connect/*`, `/c/*`; static assets under `/assets/*` (hashed names,
-  cached for a year); `index.html` never cached.
-- Core keeps its machine routes (`/nodes/…`, `/runs/…`, `/install.sh`, `/downloads/…`, owner API) — the SPA uses
-  none of those prefixes. `GET` of an SPA path answers `index.html`; everything else goes to Core's handlers as now.
-- Files come from `FACTORY_WEB_DIR` (default `<root>/web/dist`), built into the image by a `web` Dockerfile stage.
-  `FACTORY_PUBLIC_URL` becomes Core's own public URL (the sign-in callback and the connect page).
+### D3. Core's routes and the pages never collide
+The page paths above are the only ones Core proxies (GET and HEAD); a test checks that `/api`, `/auth`, node and
+owner routes stay Core's (`TestWebPagesThroughCore`). `FACTORY_PUBLIC_URL` is Core's own address.
 
 ### D4. Sign-in and local mode
 Same origin: the SPA calls `/auth/login?return=…`; Core's session cookie covers `/api`. A 401 sends the person to
@@ -105,7 +88,19 @@ owner) settles brand, type and density before the port is styled; the port first
 - Web changes now ship with Core → acceptable (one product, one version); CDN hosting later if landing speed matters.
 - SPA routes must never collide with Core routes → a test lists Core's route prefixes against the SPA prefixes.
 
-## Open questions for the owner
+## Defaults taken (owner 2026-11-04: "record the decisions and rework the web in parallel")
+
+The open questions got these defaults so work goes on; each can be changed later without rework of the rest:
+1. Landing inside the product (D5), placeholder copy; product name "App Factory".
+2. Navigation as in D6; teams and projects live under Settings, the company is the top level.
+3. Costs: owners and admins see them; members do not (the menu item hides, Core's role rules stay as they are).
+4. "Connector" in the UI for the node; commands keep `factory-node`.
+5. Pending connectors only through the link the terminal prints (`/connect/<id>`), no list by address.
+6. Onboarding team step adds the chosen team; when the company still has only the untouched sign-up `solo` team, the
+   step offers to replace it.
+7. Visual direction: today's neutral shadcn look for MVP; a design pass later.
+
+## Questions the defaults answered (for the record)
 
 1. Landing: inside the product build (D5) or a separate marketing site from the start? Product name and domain?
 2. Navigation: is "Home / Tasks / Inbox / Chat / Activity / Costs + Settings" right; projects first (a project

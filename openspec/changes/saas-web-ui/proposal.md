@@ -1,4 +1,4 @@
-Status: planned (owner 2026-11-04: the web is redone for SaaS — landing, sign-in, the product after sign-in with a
+Status: in progress (owner 2026-11-04: the web is redone for SaaS — landing, sign-in, the product after sign-in with a
 company setup wizard, a company selector, everything scoped to the company, settings, an easy download of the node
 connector; the UI talks to Core directly). Design decisions D1–D9 are proposals until the owner confirms the open
 questions at the end of the design.
@@ -13,10 +13,8 @@ machine in a minute.
 
 ## What Changes
 
-- **One static build served by Core.** The web becomes a single-page app built to static files (Vite + React,
-  keeping today's components, React Query and the API client) and Core serves it on its own origin next to `/api`
-  and `/auth`. The Next.js server and the rewrites go away; `factory web --demo` serves the same build over the
-  demo API. Hosting the same build on a CDN stays possible later (D1).
+- **Core is the one public address.** Next.js stays (owner): Core serves `/api` and `/auth` and proxies the pages
+  to the Next.js server on the private network, so the browser talks to Core directly (D1).
 - **Three areas.** Public: landing `/`, sign-in `/signin`, `/connect/<id>` (approve a connector after sign-in).
   Onboarding: `/welcome` after the first sign-in. The product: `/c/<company>/…` — Home (the dashboard), work
   (tasks, inbox, chat, activity, costs) and Settings.
@@ -33,9 +31,9 @@ machine in a minute.
 
 ## Impact
 
-- `web/` rebuilt on Vite (pages ported, Next-specific code replaced); `internal/web` or `cmd/factory` serves the
-  static build with an `index.html` fallback; `Dockerfile` builds the web into the Core image; `compose.yaml` loses
-  the web service if any; sign-in redirect address is Core's own (`FACTORY_PUBLIC_URL` = Core's URL).
+- `web/` (new public pages, onboarding, shell, settings, connectors); `cmd/factory/web.go` proxies the pages;
+  `web/Dockerfile`, `deploy/dex/Dockerfile`, `docs/deploy-railway.md`; sign-in redirect address is Core's own
+  (`FACTORY_PUBLIC_URL` = Core's URL).
 - New capability `saas-web-ui`. `owner-web` keeps its API requirements.
 - Docs: `docs/owner-ui.md` (web part), `docs/development.md` (web dev), `docs/node-install.md` (connector pages).
 - Not here: billing and plans, a marketing site separate from the product, email invitations beyond today's
