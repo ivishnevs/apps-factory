@@ -219,7 +219,7 @@ func doctor(args []string) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	d.NATS, d.Labels = c.NATS, c.Labels
+	d.NATS, d.Labels, d.StateDir = c.NATS, c.Labels, c.StateDir
 	if d.Token, d.TokenSource, err = c.Token(os.Getenv); err != nil {
 		return 2, err
 	}

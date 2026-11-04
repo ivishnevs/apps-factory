@@ -9,7 +9,7 @@ import (
 )
 
 // Builtins are the reserved mandatory policies: YAML cannot replace them and agents cannot drop them.
-func Builtins() []Policy { return []Policy{System(), HostUI(), OwnerCLI()} }
+func Builtins() []Policy { return []Policy{System(), HostUI(), OwnerCLI(), NodeKeys()} }
 
 // HostUI denies host-input tools (node-agent D6): agents test apps without driving the owner's screen.
 func HostUI() Policy {
@@ -19,6 +19,16 @@ func HostUI() Policy {
 // OwnerCLI denies the owner console to agents (explicit-exits-authority D9).
 func OwnerCLI() Policy {
 	return builtin("owner-cli", Rule{Name: "owner-cli", Type: "access", Commands: []string{"factory"}, Effect: "deny", Instruction: "The factory CLI is the owner's console. Use the Factory MCP tools (factory_*) for tasks, messages, approvals, reports and decisions."})
+}
+
+// NodeKeys refuses commands that name the node's private key files (node-identity). It is a guardrail, not a
+// boundary: agents run as the node's OS user and can read the files in other ways.
+func NodeKeys() Policy {
+	cmds := []string{}
+	for _, c := range []string{"cat", "cp", "mv", "head", "tail", "less", "more", "base64", "xxd", "od", "tar", "zip", "scp", "rsync", "curl"} {
+		cmds = append(cmds, c+" *factory-node-*.key*")
+	}
+	return builtin("node-keys", Rule{Name: "node-keys", Type: "access", Commands: cmds, Effect: "deny", Instruction: "These are the node's private keys. Agents have no reason to read or copy them."})
 }
 func builtin(name string, rules ...Rule) Policy {
 	var p Policy

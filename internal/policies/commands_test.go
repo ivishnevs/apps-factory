@@ -85,3 +85,25 @@ func TestCommandValidation(t *testing.T) {
 		t.Fatal(d)
 	}
 }
+
+// TestNodeKeysGuard (node-identity 1.1): common commands naming the node's key files are refused, others pass.
+func TestNodeKeysGuard(t *testing.T) {
+	rules := NodeKeys().Spec.Rules
+	if len(rules) != 1 || rules[0].Effect != "deny" {
+		t.Fatalf("%+v", rules)
+	}
+	match := func(argv ...string) bool {
+		for _, c := range rules[0].Commands {
+			if MatchCommand(c, argv) {
+				return true
+			}
+		}
+		return false
+	}
+	if !match("cat", "/data/factory-node/keys/factory-node-sign.key") || !match("/usr/bin/base64", "keys/factory-node-box.key") {
+		t.Fatal("key read not refused")
+	}
+	if match("cat", "README.md") || match("cp", "a.key", "b.key") || match("git", "add", "factory-node-sign.key") {
+		t.Fatal("unrelated command refused")
+	}
+}

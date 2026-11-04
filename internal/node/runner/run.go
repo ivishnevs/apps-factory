@@ -145,6 +145,11 @@ func Run(ctx context.Context, n Node) error {
 	if err := os.MkdirAll(c.StateDir, 0o700); err != nil {
 		return err
 	}
+	// A loose or damaged key refuses the start (node-identity 1.1). No keys is allowed until signed requests
+	// replace the node token (node-identity 4.2).
+	if _, err := node.LoadKeys(c.StateDir); err != nil && !errors.Is(err, node.ErrNoKeys) {
+		return err
+	}
 	if err := worker.KillOrphans(c.StateDir); err != nil {
 		return err
 	}

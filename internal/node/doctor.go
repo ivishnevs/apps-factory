@@ -21,6 +21,8 @@ const GiB = 1 << 30
 type Doctor struct {
 	Host     Host
 	DiskPath string
+	// StateDir holds the node's keys (node-identity 1.1); empty skips their check.
+	StateDir string
 	Low      uint64 // disk.low_watermark, bytes
 	Critical uint64 // disk.critical_watermark, bytes
 	Repo     string // optional repository for `git ls-remote`
@@ -53,7 +55,7 @@ type DriverProbe interface {
 
 func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
-	r = append(r, d.disk(), d.ps(ctx))
+	r = append(r, d.disk(), d.ps(ctx), keysCheck(d.StateDir))
 	r = append(r, d.xcode(ctx)...)
 	r = append(r, StackChecks(ctx, d.Host, d.Labels, d.Stack)...)
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))

@@ -269,7 +269,7 @@ spec:
 		t.Fatal(err)
 	}
 	a := c.Agents["agent"]
-	if strings.Join(a.Spec.Policies, ",") != "host-ui,owner-cli,restricted,system" {
+	if strings.Join(a.Spec.Policies, ",") != "host-ui,node-keys,owner-cli,restricted,system" {
 		t.Fatal(a.Spec.Policies)
 	}
 	for argv, want := range map[string]string{"cliclick c:1,1": "deny", "factory tasks list": "deny", "xcrun simctl io booted tap 1 1": "approval", "xcrun simctl list": "allow", "open .": "allow"} {

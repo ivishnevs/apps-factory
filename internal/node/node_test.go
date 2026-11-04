@@ -282,3 +282,24 @@ SKIP    xcode          not macOS
 }
 
 var _ DriverProbe = claude.Driver{}
+
+// TestDoctorChecksKeys (node-identity 1.1): the doctor reports the keys of its state_dir.
+func TestDoctorChecksKeys(t *testing.T) {
+	d := doctor(healthy(), "linux")
+	d.StateDir = t.TempDir()
+	if _, err := GenerateKeys(d.StateDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(d.StateDir, KeysDir, BoxKeyFile), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range d.Run(context.Background()) {
+		if r.Check == "node.keys" {
+			if r.Status != Fail || !strings.Contains(r.Detail, "chmod 600") {
+				t.Fatalf("%+v", r)
+			}
+			return
+		}
+	}
+	t.Fatal("doctor has no node.keys check")
+}
