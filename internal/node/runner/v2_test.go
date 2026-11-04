@@ -525,9 +525,17 @@ func TestNodeV2(t *testing.T) {
 		}
 	})
 	time.Sleep(300 * time.Millisecond) // a dropped offer is not taken again
-	if c := f.claimsOf("v2-c"); len(c) != 1 {
+	// Dropped: never taken (a second offer before the first claim landed is refused the same way).
+	if c := f.claimsOf("v2-c"); len(c) < 1 || len(c) > 2 {
 		t.Fatalf("dropped run claimed %d times", len(c))
 	}
+	f.set(func() {
+		for _, c := range f.claimed {
+			if c.RunSpec.ID == "v2-c" {
+				t.Error("a dropped run was taken")
+			}
+		}
+	})
 	// Refused once, then claimed: one claim succeeds (a run offered to two polls before the first claim landed
 	// may be claimed a third time; Core drops that one as a duplicate).
 	if c := f.claimsOf("v2-b"); len(c) < 2 || c[0].ClaimID == c[1].ClaimID || c[0].Epoch != 1 {

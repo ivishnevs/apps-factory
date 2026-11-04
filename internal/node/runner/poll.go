@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"appfactory/internal/node"
@@ -48,6 +49,20 @@ func (k *skips) add(run string, d time.Duration) {
 		k.until = map[string]time.Time{}
 	}
 	k.until[run] = time.Now().Add(d)
+}
+
+// soonest is how long until the first skip ends (0 when none).
+func (k *skips) soonest() time.Duration {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	var d time.Duration
+	now := time.Now()
+	for _, t := range k.until {
+		if left := t.Sub(now); left > 0 && (d == 0 || left < d) {
+			d = left
+		}
+	}
+	return d
 }
 
 func (k *skips) list() []string {
@@ -104,11 +119,30 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 				skip = append(skip, sl.Run)
 			}
 		}
+		if left := skipped.soonest(); left > 0 && len(free) > 0 {
+			// A skipped run is offered again once its skip ends: do not wait past that.
+			wait = max(1, min(wait, int((left+time.Second-1)/time.Second)))
+		}
 		req := pollRequest{Epoch: s.inv.Epoch(), Free: free, WaitSeconds: wait, Skip: skip, Hooks: s.cfg.Hooks, HooksHash: s.hooksHash()}
 		reqCtx, cancel := context.WithTimeout(ctx, time.Duration(req.WaitSeconds)*time.Second+15*time.Second)
+		// A slot freed while this poll waits makes it stale (it told Core fewer free slots): poll again at once.
+		var redo atomic.Bool
+		stop := make(chan struct{})
+		go func() {
+			select {
+			case <-pool.Freed():
+				redo.Store(true)
+				cancel()
+			case <-stop:
+			}
+		}()
 		var a pollAnswer
 		err := s.api.Do(reqCtx, "POST", "/nodes/"+s.inv.NodeID+"/poll", req, &a)
+		close(stop)
 		cancel()
+		if err != nil && redo.Load() {
+			continue
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return

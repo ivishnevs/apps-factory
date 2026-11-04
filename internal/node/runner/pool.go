@@ -41,6 +41,28 @@ type Pool struct {
 	wg     sync.WaitGroup
 	slots  []*slot
 	offers chan Offer
+	freed  chan struct{}
+}
+
+// Freed is signalled when a slot becomes idle, so a poll sent while every slot was busy is redone at once.
+func (p *Pool) Freed() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.freed == nil {
+		p.freed = make(chan struct{}, 1)
+	}
+	return p.freed
+}
+
+func (p *Pool) signalFreed() {
+	select {
+	case <-p.Freed():
+	default:
+	}
+	select {
+	case p.freed <- struct{}{}:
+	default:
+	}
 }
 
 type slot struct {
@@ -176,6 +198,7 @@ func (p *Pool) loop(ctx context.Context, i, gen int, offers <-chan Offer) {
 		if refused && p.Refused != nil {
 			p.Refused(o.RunID)
 		}
+		p.signalFreed()
 	}
 }
 

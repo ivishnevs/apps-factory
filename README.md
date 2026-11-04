@@ -56,7 +56,7 @@ disks: project data (artifacts, logs) moves through the API; code and specs stay
 
 ## Prerequisites
 
-- Go 1.25+ (`go.mod`), Git.
+- Go 1.26+ (`go.mod`), Git.
 - Docker with the `docker compose` plugin (Docker Desktop or Colima).
 - Node.js 22+ and npm: `make build` builds the Claude shim in `workers/claude`.
 - **Codex CLI 0.162.1** exactly, logged in with `codex login` (ChatGPT; no API key). Other versions are refused.
@@ -70,7 +70,7 @@ disks: project data (artifacts, logs) moves through the API; code and specs stay
 
 ```sh
 cp .env.example .env           # only if .env does not exist yet
-# Replace FACTORY_TOKEN, POSTGRES_PASSWORD with random values, e.g. openssl rand -hex 32
+# Replace FACTORY_TOKEN, POSTGRES_PASSWORD with random values (openssl rand -hex 32); FACTORY_SECRETS_KEY: openssl rand -base64 32
 chmod 600 .env
 set -a; source .env; set +a
 export FACTORY_URL=http://127.0.0.1:8080
