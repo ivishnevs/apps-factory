@@ -12,3 +12,4 @@ docs/roadmap.md
 # node packages built by scripts/package-node.sh (node-install)
 /dist/
 /factory
+/.env.railway
