@@ -34,7 +34,7 @@ Core's node gateway:
 - looks up the active `sign` key of `keyid` globally; pending (outside D3), revoked or unknown → 401;
 - verifies the signature and the digest; `created` must be within ±120 s of Core's clock and not before Core started;
 - rejects a `(node_id, nonce)` already seen. Nonces stay in Core's memory for 240 s, the full span of the window; the start-time rule covers a restart. Several Core instances will need shared storage;
-- then applies the per-node route rules (`nodeGateway`: register, its heartbeat, claims naming it, `POST /nodes/{id}/keys`, run start/workspace/credential/heartbeat/project-setup, `GET /runs/{id}/blobs/…` and `PUT /runs/{id}/logs` of its runs), plus `GET /runs/{id}/skills/{hash}` for hashes pinned on that run of its and the tree upload of a skill source sync job given to it (`skill-registry`).
+- then applies the per-node route rules (`nodeGateway`: register, its heartbeat, claims naming it, `POST /nodes/{id}/keys`, run start/workspace/credential/heartbeat/project-setup, `GET /runs/{id}/blobs/…` and `PUT /runs/{id}/logs` of its runs), plus `GET /runs/{id}/skills/{hash}` of its runs (hashes pinned on that run) and the tree upload of a skill source sync job given to it (`skill-registry`).
 
 **Node routes are a marked class that bearer tokens cannot reach.** Today the operator and owner branches pass any route to the mux (`internal/core/core.go:209`, `internal/core/companies.go:46`); both refuse node routes with 401. `/health` stays open to signed nodes and to tokens.
 
