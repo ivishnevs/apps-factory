@@ -44,6 +44,7 @@ function General({ role }: { role: Role }) {
   const tz = useQuery({ queryKey: ["time-zone"], queryFn: () => core<{ time_zone: string }>("/settings/company/time_zone") });
   const [name, setName] = useState("");
   const [zone, setZone] = useState("");
+  const [busy, setBusy] = useState(false);
   useEffect(() => { if (info.data) setName(info.data.name); }, [info.data]);
   useEffect(() => { if (tz.data) setZone(tz.data.time_zone); }, [tz.data]);
   const owner = role === "owner";
@@ -51,16 +52,20 @@ function General({ role }: { role: Role }) {
   const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
   const rename = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
       await core("/company", { method: "PATCH", body: JSON.stringify({ name: name.trim() }) });
       await Promise.all([qc.invalidateQueries({ queryKey: ["company-info"] }), qc.invalidateQueries({ queryKey: ["me"] })]);
       toast.success("Name saved");
     } catch (err) { fail(err); }
+    finally { setBusy(false); }
   };
   const saveZone = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try { await core("/settings/company/time_zone", { method: "PUT", body: JSON.stringify({ time_zone: zone }) }); await tz.refetch(); toast.success("Time zone saved"); }
     catch (err) { fail(err); }
+    finally { setBusy(false); }
   };
   if (!info.data) return <LoadingRows />;
   return (
@@ -70,7 +75,7 @@ function General({ role }: { role: Role }) {
           <label className="flex-1 space-y-1.5 text-sm"><span className="font-medium">Name</span>
             <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!owner} maxLength={200} required />
           </label>
-          {owner && <Button type="submit" className="h-10" disabled={!name.trim() || name.trim() === info.data.name}>Save</Button>}
+          {owner && <Button type="submit" className="h-10" disabled={busy || !name.trim() || name.trim() === info.data.name}>Save</Button>}
         </form>
         {!owner && <p className="mt-2 text-xs text-muted-foreground">Only an owner renames the company.</p>}
       </Section>
@@ -83,7 +88,7 @@ function General({ role }: { role: Role }) {
               {zones.map((z) => <option key={z} value={z}>{z}</option>)}
             </select>
           </label>
-          {manage && <Button type="submit" className="h-10" disabled={!tz.data || zone === tz.data.time_zone}>Save</Button>}
+          {manage && <Button type="submit" className="h-10" disabled={busy || !tz.data || zone === tz.data.time_zone}>Save</Button>}
         </form>
         {tz.error ? <div className="mt-3"><ErrorState error={tz.error} /></div> : null}
       </Section>
@@ -221,10 +226,13 @@ function Tokens() {
   const confirm = useConfirm();
   const [name, setName] = useState("");
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
+  const [busy, setBusy] = useState(false);
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try { const t = await core<OwnerToken & { token: string }>("/owner-tokens", { method: "POST", body: JSON.stringify({ name: name.trim() }) }); setIssued(t); setName(""); await tokens.refetch(); }
     catch (err) { fail(err); }
+    finally { setBusy(false); }
   };
   const revoke = async (t: OwnerToken) => {
     if (!(await confirm({ title: `Revoke ${t.name || "this token"}?`, description: "Scripts and CLIs using it stop working at once.", confirm: "Revoke", destructive: true }))) return;
@@ -238,7 +246,7 @@ function Tokens() {
         <label className="flex-1 space-y-1.5 text-sm"><span className="font-medium">Name</span>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My laptop CLI" maxLength={200} required />
         </label>
-        <Button type="submit" className="h-10" disabled={!name.trim()}>Create token</Button>
+        <Button type="submit" className="h-10" disabled={busy || !name.trim()}>Create token</Button>
       </form>
       {issued && (
         <div className="mt-4 space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">

@@ -114,14 +114,14 @@ The open questions got these defaults so work goes on; each can be changed later
 
 ## Proposals that need the owner's decision
 
-- **P1. Inviting people (decision needed).** Memberships may only join a user and a company of the same account
+- **P1. Inviting people (decision needed) — moved to the change `team-invitations`.** Memberships may only join a user and a company of the same account
   (composite keys of `user-accounts`), and every first sign-in creates its own account, so a person cannot be
   added to someone else's company today. Proposal: memberships across accounts (drop the account from the
   membership keys; the company's account stays the billing owner), invitation links from Settings → Members
   (`POST /invitations {role}` → a single-use link valid 7 days; `/invite/<token>` signs in and joins), and email
   delivery later. Until decided, Members lists and manages the people already there and says invitations are not
   available yet.
-- **P2. Telegram per company (decision needed).** One bot per Core (`FACTORY_TELEGRAM_TOKEN`) serves the default
+- **P2. Telegram per company (decision needed) — moved to the change `telegram-per-company`.** One bot per Core (`FACTORY_TELEGRAM_TOKEN`) serves the default
   company only. Proposal: one shared bot; Settings → Integrations issues a bind code per company and person
   (`/start <code>`), notifications go per membership. Until decided, the web shows no Telegram settings.
 - **P3. "Seen the wizard" in Core — done.** `users.welcomed_at` (migration 0018), `POST /me/welcomed` when the wizard

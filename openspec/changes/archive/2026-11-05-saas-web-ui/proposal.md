@@ -1,4 +1,4 @@
-Status: in progress (owner 2026-11-04: the web is redone for SaaS — landing, sign-in, the product after sign-in with a
+Status: done (owner 2026-11-04: the web is redone for SaaS — landing, sign-in, the product after sign-in with a
 company setup wizard, a company selector, everything scoped to the company, settings, an easy download of the node
 connector; the UI talks to Core directly). Design decisions D1–D9 are proposals until the owner confirms the open
 questions at the end of the design.

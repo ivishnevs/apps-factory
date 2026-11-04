@@ -544,40 +544,51 @@ animation frame on any tab; a live run does); goldens `nodes_*`, `confirm_pause_
 state in `internal/node/runner` (`TestRunAuthFailureDisablesDriver`, `TestTransientProbeDisablesOnlyWhenRepeated`,
 `TestV2Heartbeat`).
 
-## Web UI: sign-in and companies (user-accounts)
+## Web UI (saas-web-ui)
 
-The web UI (`web/`, Next.js) talks to Core only: Core serves the web API (`/api/*`) itself (saas-web). With sign-in
-configured, people sign in and act with their own session and role: the API passes each person's session cookie, CSRF
-header and company to Core's routes in memory and keeps its caches per company and session, so nothing one person
-read reaches another. Without sign-in, the API acts as the owner only with `FACTORY_WEB_LOCAL=1` on a Core listening on
-loopback (the owner's machine); otherwise it answers 401. `factory web --demo` serves fixtures for UI work without
-Core; point the app at it with `FACTORY_WEB_API=http://127.0.0.1:8090`.
+The web UI (`web/`, Next.js) talks to Core only. In production Core is the one public address: it serves the web API
+(`/api/*`) and the sign-in (`/auth/*`) itself and proxies the pages to the Next.js server on a private network
+(`FACTORY_WEB_UPSTREAM`; `docs/deploy-railway.md`). With sign-in configured, people act with their own session and
+role: the API passes each person's session cookie, CSRF header and company to Core's routes in memory and keeps its
+caches per company and session. Without sign-in, the API acts as the owner only with `FACTORY_WEB_LOCAL=1` on a Core
+listening on loopback; otherwise it answers 401. `factory web --demo` serves fixtures for UI work without Core.
 
-- `/signin`: one button per provider Core offers (`GET /auth/providers`); the button starts Core's OIDC flow
-  (`/auth/login?provider=…&return=…`), which comes back to the page the person started from. Errors of the
-  callback (`?error=state|email_unverified|…`) are shown in words. A request answered 401 sends the browser to
+Words: the UI calls a node a **connector** (the machine that runs the agents), a run's capacity **agent slots**,
+the company's catalog **teams & agents** (the YAML stays under Advanced). Feed events, escalations and chat titles
+are shown in plain words; IDs appear only where a person needs them.
+
+- **Landing** `/`: what App Factory is and Get started; a signed-in visitor gets Open App Factory.
+- **Sign-in** `/signin`: one button per provider (`GET /auth/providers`); Core's OIDC flow returns to the page the
+  person started from, by default `/welcome`. Callback errors are shown in words; a 401 sends the browser to
   `/signin?return=<page>` (`&expired=1` when the session ended).
-- Every page is `/c/{company}/…`; `/` opens the person's last company. Every API call names the company
-  (`X-Factory-Company`, and the `factory_company` cookie for images, frames and event streams) and every change
-  carries `X-Factory-CSRF` (the `factory_csrf` cookie). A company the person is not a member of shows "This company
-  is not available".
-- The sidebar's company menu shows the company and the signed-in email, links Settings and signs out; with
-  `FACTORY_MULTI_COMPANY=1` it also switches between the person's companies.
-- Settings (`/c/{company}/settings`): rename the company (owners), your role, sign out and, with the setting on,
-  create another company. A new company opens `/c/{company}/setup` (the team page until the team-builder wizard).
-- Companies (the operator's page) is shown only to the operator token.
+- **Welcome** `/welcome`: the first time (Core's `users.welcomed_at` is 0) the setup wizard of the person's company,
+  afterwards the company.
+- **Setup wizard** `/c/{company}/setup` (`?welcome=1` after sign-up): the company's name, a team from a preset, a
+  connector (install command inline), the first project, the secrets the team needs, the first task. Every step can be
+  skipped; Skip setup and Finish later record `POST /me/welcomed`. Home shows "Finish setting up" while `GET /setup` is
+  not ready.
+- **Shell**: a sidebar (work: Home, Tasks, Inbox, Chat, Activity, Library, Costs for owners and admins; Manage:
+  Teams & agents, Connectors, Skills, Secrets, Settings), a bottom bar and a top company bar on phones. The company
+  menu switches between the person's companies and, with `FACTORY_MULTI_COMPANY=1`, creates one (it opens on its
+  wizard). Every page is `/c/{company}/…`; every API call names the company (`X-Factory-Company`, and the
+  `factory_company` cookie) and every change carries `X-Factory-CSRF`. The browser tab names the page.
+- **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
+  machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
+  and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies
+  (owners and admins), showing the code the terminal printed.
+- **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Members (everyone reads;
+  owners change roles and remove; the last owner stays), Projects (name, repository, branch, team), Access tokens
+  (admins; the token is shown once) and Account. Inviting people is not available yet (proposal in `saas-web-ui`).
+- Errors: a page that breaks shows Try again and Reload; an unknown address shows "This page does not exist".
 
 ## Web UI: setting a company up (team-builder, saas-web)
 
-- **Set up** (`/c/{company}/setup`, a new company's first page): five steps, each saying whether it is done and
-  leading to its form — a team (from a preset), its agents, the secrets they need, a node, the first project. It reads
-  `GET /setup`; nothing is refused because of it, runs wait with their reason.
 - **Teams → New team**: the preset gallery (agents, skills, secrets needed) and the team's name; the copy is a new
   catalog version.
 - **A team's page → Add agent**: an agent preset (or a custom one) with name, description, manager, whom it may
   message, runtime, model, quota key and prompt. **Edit agent** on a card opens the same fields for the agent's
   document and prompt, shows a newer release of its preset (take its prompt, then save) and deletes the agent
   (refused while it leads its team or others report to it). A refusal appears at its field; a newer catalog version
-  asks to reload. The YAML editor (Documents) stays for everything else.
-- A banner on Teams and on a team's page lists what keeps work from running (missing secrets, no node, a team without a
+  asks to reload. The YAML editor (Advanced) stays for everything else.
+- A banner on Teams and on a team's page lists what keeps work from running (missing secrets, no connector, a team without a
   project).
