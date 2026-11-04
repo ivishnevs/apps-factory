@@ -105,12 +105,27 @@ export function feedSummary(item: FeedItem, title: (id: string) => string | unde
   }
   if (t === "owner.paused" || t === "owner.resumed") {
     if ((m = raw.match(reHex("^node HEX(?::\\s*(?:--reason\\s+)?([\\s\\S]*))?$", "")))) {
-      return (t === "owner.paused" ? "Paused a node" : "Resumed a node") + (m[1] ? `: ${prose(m[1], title)}` : "");
+      return (t === "owner.paused" ? "Paused a connector" : "Resumed a connector") + (m[1] ? `: ${prose(m[1], title)}` : "");
     }
   }
+  // Connectors (nodes): what happened to the machine, without epochs, keys or fingerprints.
   if (t.startsWith("node.") && (m = raw.match(reHex("^node (\\S+) \\(HEX\\):\\s*([\\s\\S]*)$", "")))) {
-    return `${m[1]}: ${prose(m[2], title)}`;
+    const name = m[1], body = m[2];
+    let b: RegExpMatchArray | null;
+    if ((b = body.match(/^epoch \d+ registered \((\w+)\), (\d+) slots?/))) return `${name} ${b[1] === "start" ? "started" : "reconnected"} · runs up to ${b[2]} agent${b[2] === "1" ? "" : "s"} at once`;
+    if (/^no heartbeat for \S+; its unended runs are lost/.test(body)) return `${name} stopped responding; the agents it was running were stopped`;
+    if ((b = body.match(/^offline for more than (\S+)/))) return `${name} has been offline for more than ${duration(b[1])}`;
+    if (/^online again/.test(body)) return `${name} is back online`;
+    return `${name}: ${prose(body, title)}`;
   }
+  if (t === "node.approved" && (m = raw.match(/^node (\S+) connected by sign-in \((\w+) (\w+)/))) {
+    return `${m[1]} connected (${m[2] === "darwin" ? "macOS" : m[2] === "linux" ? "Linux" : m[2]}, ${m[3]})`;
+  }
+  if (t === "node.enrolled" && (m = raw.match(/^node (\S+) waits for approval/))) return `${m[1]} waits for your approval`;
+  if (t.startsWith("node.") && /fingerprint/.test(raw)) return raw.replace(/,?\s*fingerprint [0-9a-f-]+/i, "").replace(/^node /i, "");
+  if (t === "node.revoked") return /^node [0-9a-f]{32} revoked$/i.test(raw) || /^node revoked$/i.test(raw) ? "A connector was revoked" : raw.replace(/^node /i, "");
+  if (t.startsWith("node.")) return raw.replace(/^node /i, "");
+
   if (t === "approval.requested" && (m = raw.match(/^factory_project_create:\s*([\s\S]*)$/))) {
     return `Asks to create a project${m[1] ? `: ${prose(m[1], title)}` : ""}`;
   }

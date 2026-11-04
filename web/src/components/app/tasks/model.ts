@@ -90,7 +90,7 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
 const reasonLabels: Record<string, string> = {
   live_run: "Running", dependencies: "Blocked by dependencies", artifacts: "Waiting for artifacts", unassigned: "No assignee",
   backoff: "Backing off", capacity: "Queued", idle: "Idle", runnable: "Runnable", backlog: "In backlog", terminal: "Closed",
-  pinned_node_unavailable: "Its node is unavailable", no_capable_node: "No node can run it",
+  pinned_node_unavailable: "Its connector is offline", no_capable_node: "No connector can run it",
   "parked:escalation": "Escalated", "parked:inspect": "Needs inspection", "parked:wait": "Waiting", "parked:ask": "Question asked",
   "parked:block": "Blocked", "parked:children": "Waiting for subtasks",
 };

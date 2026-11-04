@@ -56,9 +56,17 @@ export const statusWords = (s?: string) =>
 const quote = (t: string) => `“${t.length > 60 ? `${t.slice(0, 57).trimEnd()}…` : t}”`;
 
 // taskName: a task's title when known, else its short ID.
+// chatTitle: a conversation task's title ("Conversation of qa with product-owner") in plain words.
+export function chatTitle(title: string): string {
+  const m = title.match(/^Conversation of (\S+) with (\S+)$/);
+  if (!m) return title;
+  return m[2] === "owner" ? `Your chat with ${m[1]}` : `Chat of ${m[1]} with ${m[2]}`;
+}
+
 export const taskName = (id: string, look?: Lookup, quoted = false) => {
   const t = look?.(id)?.title;
-  return t ? (quoted ? quote(t) : t) : isHex(id) ? `task ${displayId(id)}` : id;
+  if (t) return quoted ? quote(chatTitle(t)) : chatTitle(t);
+  return id.startsWith("conv-") ? "a chat" : isHex(id) ? `task ${displayId(id)}` : id;
 };
 
 // cleanText makes free text (an agent's note, a summary, a message body) readable: CLI commands and VERSION
@@ -84,7 +92,7 @@ export function party(who: string | undefined, look?: Lookup): Party | undefined
   if (who === "owner") return { label: "You", you: true };
   if (who.startsWith("run:")) return { label: "The current run", href: `/runs/${encodeURIComponent(who.slice(4))}` };
   if (who.startsWith("task:")) { const id = who.slice(5); return { label: taskName(id, look), href: `/tasks/${encodeURIComponent(id)}` }; }
-  if (who.startsWith("node")) return { label: "Its node", href: "/nodes" };
+  if (who.startsWith("node")) return { label: "Its connector", href: "/nodes" };
   if (who === "children") return { label: "Its subtasks" };
   if (who === "reviewer") return { label: "The reviewer" };
   const agents = who.split(",").map((w) => w.trim().replace(/^agent:/, "")).filter(Boolean);
@@ -139,11 +147,11 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     const runId = /\brun ([0-9a-f]{20,}|\S+)/.exec(detail)?.[1] ?? (who.startsWith("run:") ? who.slice(4) : "");
     const run: Party | undefined = runId ? { label: "The current run", href: `/runs/${encodeURIComponent(runId)}` } : p;
     if (s === "LOST") {
-      return out({ headline: "Run out of contact", brief: "Waiting for its node", detail: "Its node stopped reporting; the run may still be working.", who: run,
-        next: "It continues when the node reports back. You can decide what to do from the run page." });
+      return out({ headline: "Run out of contact", brief: "Waiting for its connector", detail: "Its connector stopped reporting; the agent may still be working.", who: run,
+        next: "It continues when the connector reports back. You can decide what to do from the run page." });
     }
     if (s === "QUEUED" || s === "CLAIMED") {
-      return out({ headline: s === "QUEUED" ? "Waiting for a node" : "Starting", brief: s === "QUEUED" ? "Queued" : undefined, detail: s === "QUEUED" ? "A run is queued and starts when a node picks it up." : "A node picked up the run and is starting it.", who: run, queued: s === "QUEUED", live: s === "CLAIMED" });
+      return out({ headline: s === "QUEUED" ? "Waiting for a connector" : "Starting", brief: s === "QUEUED" ? "Queued" : undefined, detail: s === "QUEUED" ? "A run is queued and starts when a connector picks it up." : "A connector picked up the run and is starting it.", who: run, queued: s === "QUEUED", live: s === "CLAIMED" });
     }
     return out({ headline: s === "CANCELLING" ? "Stopping" : "Running", detail: s === "CANCELLING" ? "The current run is stopping." : "An agent is working on it now.", who: run, live: true,
       next: s === "CANCELLING" ? undefined : "Follow it live on the run page." });
@@ -170,7 +178,7 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
         return out({ headline: base.you ? "Waiting for your answer" : `Waiting for an answer${p ? ` from ${p.label}` : ""}`, brief: base.you ? "Answer in the inbox" : undefined, detail: note,
           next: base.you ? "Answer the question in your inbox." : "It continues once the question is answered." });
       case "block":
-        if (who === "node") return out({ headline: "Resetting its workspace", detail: note, next: "Its node resets the work from the remote branch; it runs again after that." });
+        if (who === "node") return out({ headline: "Resetting its workspace", detail: note, next: "Its connector resets the work from the remote branch; it runs again after that." });
         return out({ headline: "Blocked", brief: base.you ? `Fix, then ${release(v.status)}` : undefined, detail: note,
           next: `Remove the cause, then use ${release(v.status)} in the task menu.` });
       case "wait":
@@ -246,7 +254,7 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     const blocker: Party | undefined = other ? { label: taskName(other, look), href: `/tasks/${encodeURIComponent(other)}` } : runId ? { label: "Another run", href: `/runs/${encodeURIComponent(runId)}` } : p;
     if (agent) return out({ headline: "Agent busy", brief: `${agent} is on another task`, detail: `${agent} is working on ${other ? taskName(other, look, true) : "another task"}.`, who: blocker, next: "It starts when the agent is free." });
     if (/writer slot/.test(detail)) return out({ headline: "Project busy", brief: "Another run uses the project", detail: `${other ? taskName(other, look, true) : "Another task"} is using the project's workspace.`, who: blocker, next: "It starts when that run ends." });
-    if (/unpushed work is on node/.test(detail)) return out({ headline: "Waiting for its node", detail: "Its unsaved work is on a node that is busy or offline.", who: { label: "Its node", href: "/nodes" }, next: "It continues on that node when it is back." });
+    if (/unpushed work is on node/.test(detail)) return out({ headline: "Waiting for its connector", detail: "Its unsaved work is on a node that is busy or offline.", who: { label: "Its connector", href: "/nodes" }, next: "It continues on that node when it is back." });
     return out({ headline: "All nodes busy", brief: "Starts when a node frees up", detail: "Every node that can run it is full.", who: undefined, next: "It starts when a run on a capable node ends." });
   }
   if (reason === "project_setup") {

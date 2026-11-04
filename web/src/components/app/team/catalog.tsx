@@ -27,26 +27,26 @@ export function MemberCard({ m, onOpen, onSkills, onEdit }: { m: TeamMember; onO
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium">{m.name}</p>
-            <Badge variant="secondary">{m.role}</Badge>
+            {m.role && m.role !== m.name && <Badge variant="secondary">{m.role}</Badge>}
             {m.creates_tasks && <Badge variant="outline">plans work</Badge>}
           </div>
           {m.description && <p className="mt-0.5 text-sm text-muted-foreground">{m.description}</p>}
           <p className="mt-2 text-xs text-muted-foreground">
-            reports to <span className="font-medium text-foreground">{m.reports_to}</span> · {m.provider}{m.model && m.model !== "default" ? ` ${m.model}` : ""}
+            Reports to <span className="font-medium text-foreground">{m.reports_to === "owner" ? "you" : m.reports_to}</span> · runs on {m.provider === "claude" ? "Claude" : m.provider === "codex" ? "Codex" : m.provider}{m.model && m.model !== "default" ? ` (${m.model})` : ""}
           </p>
           {(m.review_required || m.reviewer || (m.review_paths?.length ?? 0) > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
               <ShieldCheck className="size-3.5 text-emerald-600" />
-              {m.review_required && <span>review required</span>}
-              {m.reviewer && <span>by <span className="font-medium">{m.reviewer}</span></span>}
-              {m.review_paths?.map((p) => <Badge key={p} variant="outline" className="font-mono text-[11px]">{p}</Badge>)}
+              {m.review_required && <span>Work is reviewed{m.reviewer ? <> by <span className="font-medium">{m.reviewer}</span></> : ""}</span>}
+              {!m.review_required && m.reviewer && <span>Reviewer: <span className="font-medium">{m.reviewer}</span></span>}
+              {(m.review_paths?.length ?? 0) > 0 && <span className="text-muted-foreground" title={m.review_paths?.join("\n")}>· {m.review_paths!.length} special review rule{m.review_paths!.length === 1 ? "" : "s"}</span>}
             </div>
           )}
         </div>
       </div>
       {m.prompt && (
         <Button variant="ghost" size="sm" className="mt-3 h-9 w-full justify-start text-muted-foreground" onClick={() => onOpen(m.prompt)}>
-          <FileText className="size-4" />Edit prompt <span className="truncate font-mono text-xs">{m.prompt}</span>
+          <FileText className="size-4" />Edit instructions
         </Button>
       )}
       {onEdit && (

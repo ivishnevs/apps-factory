@@ -19,7 +19,7 @@ const clock = (t?: number) => (t ? format(new Date(t * 1000), "HH:mm") : "");
 
 // What an inbox message asks of the owner.
 function kindOf(m: Message) {
-  if (m.escalation_reason) return { label: "Escalation", icon: AlertTriangle, tone: "bg-red-500/12 text-red-600 dark:text-red-400" };
+  if (m.escalation_reason) return { label: "Escalated to you", icon: AlertTriangle, tone: "bg-red-500/12 text-red-600 dark:text-red-400" };
   if (m.approval_id) return { label: "Approval", icon: ShieldCheck, tone: "bg-violet-500/12 text-violet-600 dark:text-violet-400" };
   if (m.message_type === "question") return { label: "Question", icon: MessageCircleQuestion, tone: "bg-sky-500/12 text-sky-600 dark:text-sky-400" };
   return { label: "Update", icon: Bell, tone: "bg-muted text-muted-foreground" };
@@ -128,7 +128,7 @@ export function LiveRuns({ ov, now }: { ov: Overview; now: number }) {
   const runs = Object.values(ov.live_runs ?? {}).filter((r) => r.status !== "ENDED")
     .sort((a, b) => Number(a.status === "QUEUED") - Number(b.status === "QUEUED") || (a.started_at || 0) - (b.started_at || 0));
   return (
-    <Section title="Live runs" count={runs.length} href="/feed" linkLabel="Activity">
+    <Section title="Working now" count={runs.length} href="/feed" linkLabel="Activity">
       {runs.length === 0 ? <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground sm:px-5">No agent is working right now.</p> : (
         <ul>
           {runs.map((r) => <li key={r.spec.id}><RunRow run={r} task={r.spec.task_id ? tasks.get(r.spec.task_id) : undefined} queued={(() => { const q = queuedWhy.get(r.spec.id); return q ? humanize({ reason: q.reason, detail: q.detail }).headline : undefined; })()} now={now} /></li>)}
@@ -153,7 +153,7 @@ function RunRow({ run, task, queued, now }: { run: Run; task?: BoardTask; queued
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{run.spec.agent}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {waiting ? <span className="text-sky-700 dark:text-sky-300">Waiting for a node{queued && queued !== "Waiting for a node" ? ` · ${queued}` : ""}</span> : what}
+          {waiting ? <span className="text-sky-700 dark:text-sky-300">Waiting for a connector{queued && queued !== "Waiting for a node" ? ` · ${queued}` : ""}</span> : what}
         </span>
       </span>
       <span className="shrink-0 text-right">
@@ -269,7 +269,7 @@ export function Team({ ov }: { ov: Overview }) {
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium leading-tight">{a.name}</span>
             <span className="block truncate text-xs text-muted-foreground">
-              {state === "busy" ? (t ? (isConversation(t) ? "chatting with you" : `on ${t.title}`) : "working") : a.role || a.model}
+              {state === "busy" ? (t ? (isConversation(t) ? "chatting with you" : `on ${t.title}`) : "working") : (a.role && a.role !== a.name ? a.role : "")}
             </span>
           </span>
           <span className={cn("shrink-0 rounded-full px-2 text-[11px] font-medium leading-5",
@@ -299,8 +299,8 @@ export function Team({ ov }: { ov: Overview }) {
 
 export function Nodes({ ov, now }: { ov: Overview; now: number }) {
   return (
-    <Section title="Nodes" count={ov.nodes.length} href="/nodes" linkLabel="Manage">
-      {ov.nodes.length === 0 ? <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No node has registered.</p> : (
+    <Section title="Connectors" count={ov.nodes.length} href="/nodes" linkLabel="Manage">
+      {ov.nodes.length === 0 ? <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No machine is connected yet.</p> : (
         <ul>
           {ov.nodes.map((n) => {
             const bad = (n.drivers ?? []).filter((d) => !d.ok).map((d) => d.name);
@@ -313,7 +313,7 @@ export function Nodes({ ov, now }: { ov: Overview; now: number }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{n.name}</span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {n.online ? `${n.in_use.runs}/${slots} slots in use` : `offline · seen ${since(n.last_seen, now)} ago`}
+                      {n.online ? `${n.in_use.runs} of ${slots} agent slots busy` : `offline · seen ${since(n.last_seen, now)} ago`}
                       {bad.length > 0 && <span className="text-amber-700 dark:text-amber-300"> · {bad.join(", ")} down</span>}
                       {checks.length > 0 && <span className="text-amber-700 dark:text-amber-300"> · {checks.map((c) => c.detail ?? c.check).join(", ")}</span>}
                     </span>

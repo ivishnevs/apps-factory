@@ -24,7 +24,7 @@ export interface InboxHandlers {
 type Kind = "question" | "escalation" | "approval" | "report";
 const look: Record<Kind, { label: string; icon: React.ElementType; cls: string }> = {
   question: { label: "Question", icon: MessageCircleQuestion, cls: "bg-sky-500/10 text-sky-700 dark:text-sky-300" },
-  escalation: { label: "Escalation", icon: Siren, cls: "bg-red-500/10 text-red-700 dark:text-red-300" },
+  escalation: { label: "Escalated to you", icon: Siren, cls: "bg-red-500/10 text-red-700 dark:text-red-300" },
   approval: { label: "Approval", icon: ShieldQuestion, cls: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
   report: { label: "To read", icon: Eye, cls: "bg-muted text-muted-foreground" },
 };
@@ -49,7 +49,9 @@ function Shell({ kind, blocking, from, project, taskId, at, due, dueVerb, childr
       <p className="mt-3 text-xs text-muted-foreground">
         From <span className="font-medium text-foreground">{from}</span>
         {project && <> · {project}</>}
-        {taskId && <> · <Link href={`/tasks/${taskId}`} className="font-mono text-foreground underline-offset-4 hover:underline" title={taskId}>{displayId(taskId)}</Link></>}
+        {taskId && (taskId.startsWith("conv-")
+          ? <> · <Link href="/chat" className="text-foreground underline-offset-4 hover:underline">in chat</Link></>
+          : <> · <Link href={`/tasks/${taskId}`} className="font-mono text-foreground underline-offset-4 hover:underline" title={taskId}>{displayId(taskId)}</Link></>)}
       </p>
       <div className="mt-3">{children}</div>
     </article>
@@ -205,7 +207,7 @@ function ProjectRequest({ args }: { args: Record<string, unknown> }) {
   const id = str("project_id"), name = str("name") || id;
   const mode = (str("repo_mode") || (str("workspace") || str("repo_url") ? "existing" : "local")) as RepoMode;
   const Icon = mode === "github" ? Lock : mode === "existing" ? FolderInput : GitBranch;
-  const rows: [string, string][] = [["Folder on the node", str("workspace")], ["Repository URL", str("repo_url")], ["Branch", str("default_branch")]];
+  const rows: [string, string][] = [["Folder on your machine", str("workspace")], ["Repository URL", str("repo_url")], ["Branch", str("default_branch")]];
   const row = "grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-3 px-3 py-2";
   return (
     <div className="overflow-hidden rounded-xl border">

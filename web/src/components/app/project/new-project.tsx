@@ -33,9 +33,9 @@ function requestId() {
 }
 
 const modes: { key: RepoMode; title: string; hint: string; icon: React.ElementType }[] = [
-  { key: "local", title: "New local repository", hint: "A fresh git repository on the node, branch main.", icon: GitBranch },
+  { key: "local", title: "New local repository", hint: "A fresh git repository on your machine, branch main.", icon: GitBranch },
   { key: "github", title: "New private GitHub repository", hint: "Created under your account and cloned; work lands as pull requests.", icon: Lock },
-  { key: "existing", title: "Existing project", hint: "A folder on the node or a repository URL the node clones.", icon: FolderInput },
+  { key: "existing", title: "Existing project", hint: "A folder on your machine, or a repository URL it clones.", icon: FolderInput },
 ];
 
 type Errors = Partial<Record<"id" | "name" | "description" | "workspace" | "repo_url" | "default_branch", string>>;
@@ -49,8 +49,8 @@ export function validateProject(p: ProjectCreate, taken: string[]): Errors {
   else if (bytes(p.name) > 200) e.name = "At most 200 bytes";
   if (bytes(p.description) > 64 * 1024) e.description = "At most 64 KiB";
   if (p.repo_mode === "existing") {
-    if (!p.workspace && !p.repo_url) e.workspace = "Give a folder on the node, a repository URL, or both";
-    else if (p.workspace && !p.workspace.startsWith("/")) e.workspace = "An absolute path on the node, starting with /";
+    if (!p.workspace && !p.repo_url) e.workspace = "Give a folder on your machine, a repository URL, or both";
+    else if (p.workspace && !p.workspace.startsWith("/")) e.workspace = "An absolute path on your machine, starting with /";
     if (p.repo_url && !gitUrl.test(p.repo_url)) e.repo_url = "An https, ssh or git@host:owner/repo URL";
     const b = p.default_branch ?? "";
     if (b && (!branchRule.test(b) || b.includes("..") || b.endsWith("/") || b.endsWith(".lock"))) e.default_branch = "Not a valid branch name";
@@ -120,7 +120,7 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
       const board = `/tasks?project=${encodeURIComponent(p.id)}`;
       const withAudit = mode === "existing" && audit;
       toast.success(`Project ${p.name} created`, {
-        description: withAudit ? "The audit task runs first and onboards the repository on a node."
+        description: withAudit ? "A first task looks through the repository so the team knows it."
           : mode === "existing" ? "The repository is onboarded when the first task runs. Add a task to start."
             : "The repository appears when the first task runs. Add a task to start.",
         action: withAudit ? undefined : { label: "Add a task", onClick: () => router.push(`${board}&new=task`) },
@@ -140,7 +140,7 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
     <form onSubmit={submit} className="flex h-full min-h-0 flex-col" noValidate>
       <SheetHeader className="border-b px-5 py-4">
         <SheetTitle className="text-lg">New project</SheetTitle>
-        <SheetDescription>Its repository is set up on a node when its first task runs; you or your team add the tasks.</SheetDescription>
+        <SheetDescription>Its repository is set up on your machine when its first task runs; you or your team add the tasks.</SheetDescription>
       </SheetHeader>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
         <Field id="np-name" label="Name" error={err("name")}>
@@ -194,7 +194,7 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
 
         {mode === "existing" && (
           <div className="space-y-4 rounded-xl border bg-muted/30 p-4">
-            <Field id="np-workspace" label="Folder on the node" error={err("workspace")} hint="An absolute path; leave empty to clone the URL.">
+            <Field id="np-workspace" label="Folder on your machine" error={err("workspace")} hint="An absolute path; leave empty to clone the URL.">
               <Input id="np-workspace" value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="/Users/me/projects/app"
                 autoComplete="off" autoCapitalize="none" spellCheck={false} {...invalid("workspace")} className={cn(touchInput, "bg-background font-mono")} />
             </Field>

@@ -43,17 +43,17 @@ export default function Page() {
         <div className="rounded-xl border bg-card p-4">
           <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><Crown className="size-3.5" />Lead</dt>
           <dd className="mt-1 font-medium">{team.lead}</dd>
-          <dd className="text-xs text-muted-foreground">Gets your messages in this team&apos;s projects</dd>
+          <dd className="text-xs text-muted-foreground">Plans the work and answers your messages</dd>
         </div>
         <div className="rounded-xl border bg-card p-4">
-          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><ClipboardCheck className="size-3.5" />Audits</dt>
+          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><ClipboardCheck className="size-3.5" />Onboarding</dt>
           <dd className="mt-1 font-medium">{team.audit_assignee}</dd>
-          <dd className="text-xs text-muted-foreground">Onboards existing repositories</dd>
+          <dd className="text-xs text-muted-foreground">Reviews a repository you add, so the team knows it</dd>
         </div>
         <div className="rounded-xl border bg-card p-4">
-          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><Layers className="size-3.5" />Profile</dt>
-          <dd className="mt-1 font-medium">{team.profile || "—"}</dd>
-          <dd className="text-xs text-muted-foreground">Default settings of its agents</dd>
+          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><Layers className="size-3.5" />Shared settings</dt>
+          <dd className="mt-1 font-medium">{team.profile || "None"}</dd>
+          <dd className="text-xs text-muted-foreground">Defaults every agent of the team starts from</dd>
         </div>
       </dl>
       <h2 className="mb-2 text-sm font-medium text-muted-foreground">Agents</h2>

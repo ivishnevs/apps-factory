@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 const statusWords: Record<string, { label: string; tone: string }> = {
   ok: { label: "Synced", tone: "text-emerald-700 dark:text-emerald-400" },
   syncing: { label: "Syncing", tone: "text-sky-700 dark:text-sky-400" },
-  waiting_for_node: { label: "Waiting for a node", tone: "text-amber-700 dark:text-amber-400" },
+  waiting_for_node: { label: "Waiting for a connector", tone: "text-amber-700 dark:text-amber-400" },
   failed: { label: "Failed", tone: "text-red-700 dark:text-red-400" },
 };
 
@@ -186,7 +186,7 @@ function AddSource({ open, onClose }: { open: boolean; onClose: () => void }) {
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent position="popper">
                     <SelectItem value="public">Public: App Factory fetches it</SelectItem>
-                    <SelectItem value="node">Private: one of your nodes fetches it with its git access</SelectItem>
+                    <SelectItem value="node">Private: one of your connectors fetches it with its git access</SelectItem>
                   </SelectContent>
                 </Select>
               </label>
@@ -338,7 +338,7 @@ function Sources({ manage }: { manage: boolean }) {
                     {s.kind === "upload" ? <Upload className="size-4 text-muted-foreground" /> : s.kind === "builtin" ? <Sparkles className="size-4 text-muted-foreground" /> : <FolderGit2 className="size-4 text-muted-foreground" />}
                     <span className="font-medium">{s.kind === "builtin" ? "Factory skills" : s.id}</span>
                     <span className={cn("text-xs", st.tone)}>{st.label}</span>
-                    {s.access === "node" && <Badge variant="outline" className="font-normal">private, via a node</Badge>}
+                    {s.access === "node" && <Badge variant="outline" className="font-normal">private, via a connector</Badge>}
                     {s.update === "track" && <Badge variant="outline" className="font-normal">tracks updates</Badge>}
                   </p>
                   {s.url && <p className="truncate font-mono text-xs text-muted-foreground">{s.url}{s.ref ? `@${s.ref}` : ""}{s.subpath ? ` · ${s.subpath}` : ""}</p>}

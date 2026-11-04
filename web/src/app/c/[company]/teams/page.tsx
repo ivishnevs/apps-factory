@@ -39,21 +39,21 @@ function Teams() {
   const error = teams.error ?? catalog.error;
   return (
     <>
-      <PageHeader title="Teams" description={catalog.data ? <>Catalog version {version} · {catalog.data.author} · {ago(catalog.data.created_at)}</> : "Your company's teams, agents, prompts and policies"}
+      <PageHeader title="Teams" description={catalog.data ? <>Last changed {ago(catalog.data.created_at)} by {catalog.data.author === "operator" ? "the operator" : catalog.data.author.replace(/^user:/, "a member")} · version {version}</> : "Your company's teams, agents, prompts and policies"}
         actions={manage ? <Button className="h-10" onClick={() => setNewTeam(true)}><Plus className="size-4" />New team</Button> : undefined} />
       <SetupBanner setup={setup.data} />
       {welcome && (
-        <Alert className="mb-5"><AlertDescription>Your company is ready with a starter team. Review its agents, connect a node and create your first project.</AlertDescription></Alert>
+        <Alert className="mb-5"><AlertDescription>Your company is ready with a starter team. Review its agents, connect a machine and create your first project.</AlertDescription></Alert>
       )}
       {error && <ErrorState error={error} />}
       <Tabs defaultValue="teams">
         <TabsList className="mb-4">
           <TabsTrigger value="teams"><Users className="size-4" />Teams</TabsTrigger>
-          <TabsTrigger value="documents"><FileText className="size-4" />Documents</TabsTrigger>
+          <TabsTrigger value="documents"><FileText className="size-4" />Advanced (YAML)</TabsTrigger>
           <TabsTrigger value="history"><History className="size-4" />History</TabsTrigger>
         </TabsList>
         <TabsContent value="teams">
-          {teams.isLoading ? <LoadingRows /> : (teams.data?.teams.length ?? 0) === 0 ? <EmptyState title="No teams yet" hint="Add a team document in Documents." icon={Users} /> : (
+          {teams.isLoading ? <LoadingRows /> : (teams.data?.teams.length ?? 0) === 0 ? <EmptyState title="No teams yet" hint="Create one from a preset with New team." icon={Users} /> : (
             <ul className="grid gap-3 md:grid-cols-2">
               {teams.data!.teams.map((t) => (
                 <li key={t.name}>

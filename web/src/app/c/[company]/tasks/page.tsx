@@ -164,6 +164,8 @@ function Tasks() {
             )}
           </div>
 
+          {/* Desktop with nothing open: say what to do instead of a row of empty rails. */}
+          {total === 0 && <div className="mb-4 hidden lg:block"><Empty view="open" filtered={filteredOut} emptyProject={!!current && !projectHasTasks} /></div>}
           {/* Desktop: the Kanban board. Backlog and Done fold to slim rails unless opened, and empty columns
               stay slim, so the working columns get the width. */}
           <div className="relative -mx-8 hidden overflow-x-auto px-8 pb-4 lg:block">
@@ -217,10 +219,10 @@ const dot = (tone: string) => ({
 } as Record<string, string>)[tone] ?? toneClass(tone);
 
 function Empty({ view, filtered, emptyProject }: { view: View; filtered: boolean; emptyProject?: boolean }) {
-  if (emptyProject) return <EmptyState title="No tasks in this project yet" hint="Add the first task, or ask the PM for a plan in Chat." />;
+  if (emptyProject) return <EmptyState title="No tasks in this project yet" hint="Add the first task, or ask your team’s lead for a plan in Chat." />;
   if (filtered) return <EmptyState icon={Search} title="No matching tasks" hint="Try another search, project or assignee." />;
   if (view === "you") return <EmptyState icon={Hand} title="Nothing needs you" hint="No task waits on an answer, an approval or a decision from you." />;
-  return <EmptyState title={view === "open" ? "No open tasks" : "No tasks here"} hint="Create a task, or ask the PM for a plan in Chat." />;
+  return <EmptyState title={view === "open" ? "No open tasks" : "No tasks here"} hint="Create a task, or ask your team’s lead for a plan in Chat." />;
 }
 
 function BoardSkeleton() {
