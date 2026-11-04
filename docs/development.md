@@ -68,7 +68,7 @@ docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.d
 `make hooks` (once per clone) enables `.githooks/pre-commit`, which refuses a commit whose staged Go files are not
 gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
 FACTORY_ROOT selects config root; FACTORY_DATABASE_URL the database; FACTORY_COMPANY the company Core serves;
-FACTORY_DATA_DIR Core's data directory; FACTORY_BLOB_DIR Core's blob store; FACTORY_LISTEN selects HTTP bind.
+FACTORY_DATA_DIR Core's data directory; FACTORY_BLOB_DIR Core's blob store; FACTORY_LISTEN selects HTTP bind (default: `0.0.0.0:$PORT` when the host sets PORT, as Railway does, else 127.0.0.1:8080).
 FACTORY_URL is the native CLI/node endpoint.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required by Core and the owner CLI; a node
 does not use it (see [Node identity](#node-identity)).

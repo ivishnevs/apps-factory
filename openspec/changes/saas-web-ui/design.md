@@ -19,7 +19,7 @@ Non-goals: server-side rendering, billing, a CMS-driven marketing site, native a
 ### D1. A static SPA served by Core (recommended)
 Options weighed:
 1. **Static build served by Core, same origin** — one container, no CORS, the session cookie just works, the UI is
-   always the version of its Core (no API skew), CapRover deploy unchanged. Cost: Core serves files (trivial) and a
+   always the version of its Core (no API skew), one Railway service as today. Cost: Core serves files (trivial) and a
    web change ships with a Core image.
 2. **Static build on a CDN / static host (Cloudflare Pages, S3) + Core as API** — faster landing worldwide and
    independent web deploys, but CORS, cross-origin cookies (`SameSite`, a shared parent domain), and version skew
@@ -30,9 +30,14 @@ Options weighed:
 Choice: 1 now. The build takes its API base from the page's origin, so 2 stays a deployment option later
 (`VITE_API_BASE` plus CORS on Core) without code changes in pages.
 
-### D2. Vite + React instead of Next.js
-Next's static export cannot serve dynamic routes (`/c/[company]/tasks/[id]`) without knowing every value at build
-time; the app would fight the framework. Vite + React with a client router (TanStack Router, typed params, file
+### D2. Vite + React instead of Next.js (owner to confirm)
+Next.js can build static files (`output: "export"`), but only for routes it can list at build time: dynamic
+segments like `/c/[company]/tasks/[id]` need `generateStaticParams`, and company names and task ids are not known
+then. Workarounds exist — ids in the query string (`/c/tasks?company=acme&id=…`), or one catch-all page whose own
+code routes by the path, served by Core for every `/c/*` — but both give up Next's file routing, which is what
+Next would be kept for. Keeping Next as a server (`next start`) works too, at the cost of a second service and the
+proxy hop. Vite + React with a client router (TanStack Router, typed params, file
+routes like today's) builds plain static files. Vite + React with a client router (TanStack Router, typed params, file
 routes like today's) builds plain static files. Ported as is: components (`components/ui`, `components/app`), React
 Query hooks, the API client, Tailwind, `next-themes` (works outside Next). Replaced: `next/link` and
 `next/navigation` (the existing `Link`/`useRouter` wrappers keep their API), `layout.tsx` files become route layouts.
