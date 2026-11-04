@@ -44,6 +44,8 @@ services:
       FACTORY_OIDC_CLIENT_SECRET: ${FACTORY_OIDC_CLIENT_SECRET:-}
       FACTORY_OIDC_PROVIDERS: ${FACTORY_OIDC_PROVIDERS:-google,github}
       FACTORY_PUBLIC_URL: ${FACTORY_PUBLIC_URL:-http://127.0.0.1:3000}
+      # Core's address for nodes, named in the install command (node-install).
+      FACTORY_CORE_URL: ${FACTORY_CORE_URL:-http://127.0.0.1:8080}
       FACTORY_MULTI_COMPANY: ${FACTORY_MULTI_COMPANY:-0}
       # The web UI's API is Core's (saas-web): without sign-in it acts as the owner only with FACTORY_WEB_LOCAL=1, for
       # this loopback-only Core on the owner's machine.

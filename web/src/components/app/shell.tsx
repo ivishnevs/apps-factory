@@ -17,7 +17,7 @@ export const nav = [
   { href: "/library", label: "Library", icon: FolderOpen },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/costs", label: "Costs", icon: CircleDollarSign },
-  { href: "/nodes", label: "Nodes", icon: Server },
+  { href: "/nodes", label: "Connectors", icon: Server },
   { href: "/teams", label: "Teams", icon: Users },
   { href: "/skills", label: "Skills", icon: Sparkles },
   { href: "/secrets", label: "Secrets", icon: KeyRound },

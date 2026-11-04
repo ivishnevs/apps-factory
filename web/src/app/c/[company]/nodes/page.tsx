@@ -4,7 +4,7 @@ import { Bot, FolderKanban, KeyRound, Pause, Play, Server } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { useConfirm } from "@/components/app/confirm";
-import { AddNode, PendingNodes } from "@/components/app/nodes/enrollment";
+import { AddNode, InstallConnector, PendingNodes } from "@/components/app/nodes/enrollment";
 import { KillSwitch } from "@/components/app/nodes/kill-switch";
 import { NodeCard } from "@/components/app/nodes/node-card";
 import { useOwnerAction } from "@/components/app/nodes/owner-action";
@@ -79,7 +79,7 @@ export default function Page() {
 
   return (
     <>
-      <PageHeader title="Nodes & control" description="The machines your agents run on, what is paused, and the kill switch" actions={manage ? <AddNode /> : undefined} />
+      <PageHeader title="Connectors & control" description="The machines your agents run on, what is paused, and the kill switch" actions={manage ? <AddNode /> : undefined} />
       {error && <div className="mb-4"><ErrorState error={error} /></div>}
       {isLoading ? (
         <div className="space-y-4">
@@ -112,14 +112,16 @@ export default function Page() {
 
           <section aria-labelledby="nodes-title">
             <div className="mb-3">
-              <h2 id="nodes-title" className="text-base font-semibold">Nodes <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{nodes.length}</span></h2>
+              <h2 id="nodes-title" className="text-base font-semibold">Connectors <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{nodes.length}</span></h2>
               <p className="text-sm text-muted-foreground">
                 {nodes.filter((n) => n.online).length} online · {nodes.reduce((s, n) => s + (n.in_use?.runs ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.slots ?? 0), 0)} slots in use
               </p>
             </div>
             {ov.errors?.nodes && <div className="mb-3"><ErrorState error={ov.errors.nodes} /></div>}
             {nodes.length === 0 ? (
-              <EmptyState icon={Server} title="No registered nodes" hint={manage ? "Add a node: issue a code and run factory-node enroll on the machine." : "An owner or admin adds the company's nodes."} />
+              manage ? (
+                <div className="rounded-2xl border bg-card p-4 md:p-5"><p className="mb-4 font-medium">Connect your first machine</p><InstallConnector /></div>
+              ) : <EmptyState icon={Server} title="No connectors yet" hint="An owner or admin connects the company's machines." />
             ) : (
               <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
                 {nodes.map((n) => {
