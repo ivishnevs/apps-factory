@@ -16,6 +16,7 @@ Threats addressed: stolen database or backup; someone pretending to be a node (`
 - CLI `factory secrets set NAME [--file path]` (value from stdin or file, never an argument), `list`, `delete`.
 - Web: Secrets page of the company (`/c/{company}/secrets`; list, add/replace with a masked field or file upload, delete); the MCP server and agent views show which secrets they need and whether they are set.
 - Names: `[A-Za-z_][A-Za-z0-9_]{0,127}` (`protocol.SecretRef`).
+- Members cannot reach a value through an agent: approving `factory_catalog_change` or `factory_project_create` needs an owner or admin, since a catalog change can point an MCP server at any address with a `${secret:NAME}` header. Members can still reject them. The approval shows the exact call.
 
 ### D3. What a run needs
 The set of names a run needs = `Secrets()` of the agent's MCP servers ∪ the names in the agent's `spec.secrets`. `spec.secrets` entries: `{name, env}` for a string (env var name, not `FACTORY_*`) or `{name, env, file: true}` for a file (the env var holds the file's path). Config loading validates names and env vars. A secret of the wrong kind (a file in an MCP header or a string entry; a string in a file entry) refuses the entry at save when the secret exists, and the claim fails the same way otherwise; a missing secret is reported by `factory config validate`, by the setup status (`team-builder`), before dispatch (D9) and at claim.

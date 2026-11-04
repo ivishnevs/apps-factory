@@ -7,7 +7,7 @@ Credentials for agent tools (MCP server keys such as App Store Tracker, store an
 - **Delivery at claim**: Core resolves the secrets a run needs and puts them in that claim answer only, each **sealed to the claiming node's encryption key** (`node-identity`). Values are never part of the RunSpec, config snapshot, events, feed, run logs or fixtures. No node keeps secrets between runs, so rotation and deletion take effect on the next run without any sync.
 - **On the node**: string values reach only the run's runtime environment, file values a 0600 file in the run's temp directory removed after the run; all values join run-log redaction.
 - **Runs wait for missing secrets**: Core checks before dispatch that every secret a run needs is set; otherwise the task waits with a reason naming the secret and agent (no run, no retry spent) and is dispatched once the secret is set. The check at claim stays as a safety net.
-- **Who**: owners and admins set and delete secrets (`user-accounts` roles); members see names only.
+- **Who**: owners and admins set and delete secrets (`user-accounts` roles); members see names only. Approving an agent's catalog change or project creation needs an owner or admin, because such a change can send a secret to any address.
 - **Agent secrets beyond MCP**: an agent may name secrets in `spec.secrets` to receive them as environment variables or files (e.g. an App Store Connect key for the `asc` CLI).
 - **Audit**: every secret write and every delivery is a feed event naming the secret, run and node, never a value.
 - **Removed** (no migration, not released): the node `secrets_file` (node.yaml setting, `internal/node/secrets.go`). Core is the only source of secrets.

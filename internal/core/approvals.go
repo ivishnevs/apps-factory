@@ -37,6 +37,17 @@ func (c *Core) approvalRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
+		if p.Action == "approve" {
+			a, err := c.Store.Approval(r.Context(), c.companyFrom(r), r.PathValue("id"))
+			if err != nil {
+				reply(w, nil, err)
+				return
+			}
+			if !mayApprove(principalOf(r).Role, a) {
+				http.Error(w, "only an owner or admin may approve a change of the company's setup", http.StatusForbidden)
+				return
+			}
+		}
 		c.approvalMu.Lock()
 		defer c.approvalMu.Unlock()
 		v, err := c.Store.DecideApproval(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
@@ -46,6 +57,18 @@ func (c *Core) approvalRoutes(m *http.ServeMux) {
 		reply(w, v, err)
 	})
 }
+
+// adminApprovedCalls change what only owners and admins may change (user-accounts D7). Approving one is the same as
+// making that change, so a member cannot: a catalog change can point an agent's MCP server at any address and hand it
+// a secret, which would give the member the value (core-secret-store D2).
+var adminApprovedCalls = map[string]bool{"factory_catalog_change": true, "factory_project_create": true}
+
+// mayApprove says whether role may approve a. An empty role is a caller with no company role, such as a test that
+// reaches the route directly; the gate gives every request through Handler a role.
+func mayApprove(role string, a approvals.Approval) bool {
+	return !adminApprovedCalls[a.Call.Name] || role == "" || roleRank(role) >= roleRank(storage.RoleAdmin)
+}
+
 func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run, snapshot, current config.Agent, allowed func(factorytools.Tool) bool) {
 	if p.Name == "factory_approval_get" {
 		a, err := c.Store.Approval(r.Context(), c.companyFrom(r), p.Arguments["approval_id"].(string))
