@@ -115,6 +115,32 @@ var (
 	deadlineClient = &http.Client{}
 )
 
+// PostRaw posts a raw body (a packed source tree) and discards the answer.
+func (a API) PostRaw(ctx context.Context, path, contentType string, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.URL, "/")+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	if err = a.authorize(req, body); err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", contentType)
+	client := a.Client
+	if client == nil {
+		client = deadlineClient
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return &HTTPError{res.StatusCode, string(b)}
+	}
+	return nil
+}
+
 // Get fetches path's raw body (a skill's packed content, a blob); the caller closes it.
 func (a API) Get(ctx context.Context, path string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.URL, "/")+path, nil)

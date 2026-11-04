@@ -38,7 +38,7 @@ reach them too.
 
 Catalog per company: `configs/` is the `default` company's catalog; another company's lives in
 `configs/<company>/` with the same layout (`teams/`, `agents/`, `profiles/`, `policies/`, `node-hooks/`, `quota_keys.yaml`,
-`company.yaml`, `skills.yaml` — the company's skills registry, no fallback to `configs/skills.yaml`; see
+`company.yaml`, `skills.yaml` — the company's installed skills (by source and hash, contents in Core), no fallback to `configs/skills.yaml`; see
 [skills](skills.md)). `configs/prices.yaml` is shared, prompt files are paths relative to the root. `factory config validate --company X` (or `FACTORY_COMPANY=X`) checks one company's catalog; agents of
 the same name in two companies are independent.
 
@@ -269,7 +269,7 @@ enabled driver must pass its version check and probe at start (see Driver checks
 for them.
 
 `node.yaml` comes from `-config`, else `FACTORY_NODE_CONFIG`; without either the defaults apply. Unknown keys are
-errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `skills_root`, `disk.path`, `worktrees.root`,
+errors. Relative paths (`state_dir`, `projects_root` (`~/` is the home directory), `bin_dir`, `disk.path`, `worktrees.root`,
 `drivers.claude.shim`, and a driver `binary`/`executable` that holds a `/`)
 resolve against the working directory the node starts in, not the config file's directory: start it from the
 checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
@@ -283,7 +283,6 @@ runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (
 state_dir: data/factory-node # keys, company, pidfiles, node_id, epoch; never shared by live nodes
 projects_root: ~/projects     # repositories of new projects and clones of existing ones by URL (projects.md); default <state_dir>/projects
 bin_dir: /opt/factory/bin    # factory-mcp, factory-shim and ../workers/claude/dist/src/shim.js; default: next to the binary
-skills_root: /opt/factory    # its company catalog's skills.yaml (configs/[<company>/]skills.yaml) + skill dirs materialized for runs; default <bin_dir>/.., else the working directory
 drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
@@ -354,18 +353,11 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   it); a recorded group without a busy slot is killed and its pidfile removed; an idle slot whose claim loop has not
   turned for 2 minutes is restarted. Busy slots are bounded by the run timeout, not by this check.
 
-- Skills (runtime-drivers 2.3): a run's offered skills (`RunSpec.skills`) are copied from the node's registry
-  (`skills_root`/`configs/skills.yaml`, or `configs/<company>/skills.yaml` for the node's `company`; without it runs
-  get no skills, logged at start) into a temporary directory
-  outside the workspace, and each copy's content hash (`sha256:` over the skill directory's regular files and
-  names, `skills.Hash`) is checked against the hash pinned on the run. A mismatch, or a skill this node lacks, ends
-  the run `setup_failed` before the runtime starts (`skills: … (refused before runtime startup)`). Core pins the
-  hashes in the run's agent snapshot (`skill_hashes`); a skill Core could not hash stays unpinned, and the executor
-  logs the computed hash and materializes it. Claude: the copies go to `<cwd>/.claude/skills/<name>` (read with the
-  `project` setting source), marked with `.factory-skill`, added to the repository's `info/exclude` and removed when
-  the session closes; a project's own skill with the same name refuses the launch. Codex: the app-server gets the
-  copy directory through `skills/extraRoots/set` before the thread starts (verified with codex-cli 0.162.1;
-  skills of `CODEX_HOME` stay visible as before).
+- Skills (skill-registry D8): a run's offered skills are downloaded from Core by the hash pinned on the run into the
+  node's store `<state_dir>/skills/store/sha256-…` (verified with `skills.Hash`, read-only, kept while used: entries
+  unused for 14 days are removed at node start and daily) and copied into a temporary per-run view outside the
+  workspace; a hash that does not verify or Core does not hold ends the run `setup_failed` before the runtime starts.
+  `skills_root` is gone: nodes need no copy of the catalog or skill files.
 - Sessions (runtime-drivers 2.7, `ResumePolicy`): `<state_dir>/sessions` records each session this node ran
   (session id, task, agent, run, whether the prompt was delivered, terminal status). A run resumes
   `RunSpec.session_id` only when this node recorded it for the same task and agent and its prompt was delivered;

@@ -15,8 +15,10 @@ A document is a path relative to the factory root, as in the file layout, and it
 256 KiB, 1000 per version): `configs/<dir>/{agents,profiles,policies,node-hooks}/NAME.yaml`,
 `configs/<dir>/{skills,company,quota_keys,mcp_servers}.yaml` and `prompts/**.md`, where `<dir>` is the
 company's catalog directory (`configs` for `default`, `configs/<company>` otherwise). Inside the company's
-sections only its documents count; prompts it does not hold and skill contents come from the factory root on
-the Core host. Skill contents, `configs/prices.yaml` and the built-in policies stay operator-only.
+sections only its documents count; prompts it does not hold come from the factory root on the Core host.
+`skills.yaml` lists the installed skills by source and hash; their contents live in Core's skill index, managed on
+the Skills page ([skills](skills.md)), so saving, history and rollback of catalog versions cover skills too.
+`configs/prices.yaml` and the built-in policies stay operator-only.
 
 A version is an immutable full snapshot with author, time and note; the latest is current. A save names the
 version it was made on (`base`): a newer current version refuses it (409), and the whole set must load with the
@@ -83,8 +85,8 @@ factory companies list
 FACTORY_TOKEN=fot_… factory owner-tokens create laptop | list | revoke ID
 ```
 
-Templates live in `configs/templates/<name>/` (catalog sections in the layout of a company directory, skill paths
-relative to `configs/<company>/`) with role prompts in `prompts/roles/`: `solo` (one builder), `product-team`
+Templates live in `configs/templates/<name>/` (catalog sections in the layout of a company directory, Factory's
+skills as `{source: factory}`) with role prompts in `prompts/roles/`: `solo` (one builder), `product-team`
 (product owner, developer, reviewer) and `full-team` (product owner, designer, developer, QA). The team
 templates require review of the developer's work and the product owner's approval of requirement changes
 ([policies](policies.md#review-rules)).

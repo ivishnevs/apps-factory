@@ -1,26 +1,62 @@
 # Skills
 
-Registry per company: the `skills.yaml` of the company's catalog directory, like its agents, profiles and
-policies: `configs/skills.yaml` for the `default` company, `configs/<company>/skills.yaml` for another (so a
-company folder is self-contained). Each skill has a path to SKILL.md, a description and categories. The path is
-absolute or relative to the catalog directory holding that skills.yaml (`../skills/openspec/SKILL.md` in
-`configs/`, `skills/aso/SKILL.md` for a copy in `configs/<company>/skills/aso/`); it may lead outside the factory
-root. There is no fallback: a company without its own skills.yaml has no skills, and an agent there that
-includes one fails loading (`unknown skill`); a company that wants a shared skill lists it in its own
-skills.yaml. A registered skill whose SKILL.md is missing or invalid fails loading.
+Skills are [Agent Skills](https://agentskills.io) directories (`<name>/SKILL.md` with frontmatter `name`, equal to the
+directory, and `description`; optional `license`, `compatibility`, `metadata`, `allowed-tools`; supporting files in
+`scripts/`, `references/`, `assets/`). Discovery categories come from `metadata.categories` (comma separated), else
+`metadata.tags`. There is no Factory-specific manifest (skill-registry).
+
+**Core owns skill contents.** Every indexed skill version is a deterministic tar of its directory in Core's blobs,
+identified by its content hash (`skills.Hash`, `sha256:…`). Factory's own skills are the release's `skills/`, indexed
+at Core start as source `factory`. A company adds its own sources once, on the Skills page, the API or the CLI
+(owners and admins):
+
+- **git, public** (`access: public`): Core fetches it, https only, public addresses only (checked when connecting),
+  shallow, no submodules, LFS or hooks, within 2 minutes and 64 MiB;
+- **git, private** (`access: node`): an online node of the company fetches it with its own git access (as it clones
+  project repositories) and uploads the tree; without an online node the source shows `waiting_for_node`. Core keeps
+  no git credentials;
+- **upload**: an archive (zip, tar.gz) or a folder; uploading again updates it.
+
+The indexer finds skills by layout, first match: a Claude plugin marketplace (`.claude-plugin/marketplace.json`, each
+plugin's skills directory), else `skills/*/SKILL.md`, `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`
+(symlinked skill directories are skipped), else a `SKILL.md` at the root (or `subpath`), else skill directories at the
+root. Each skill is validated (name = directory, regular files only, at most 512 files, 1 MiB each, 16 MiB in all); an
+invalid one shows its error in the library and does not stop the others.
+
+**Installed skills** are the company's `skills.yaml` in its catalog (a catalog version, with history and rollback):
 
 ```yaml
-# configs/acme/skills.yaml
 skills:
-  brand:
-    path: skills/brand/SKILL.md                   # configs/acme/skills/brand/SKILL.md
-    description: Write in Acme's brand voice.
-    categories: [writing]
-  openspec:
-    path: ../../skills/openspec/SKILL.md          # the repository's shared copy
-    description: Read project specifications and keep implementation changes aligned with OpenSpec.
-    categories: [planning]
+  openspec: {source: factory}                       # Factory's skill: the current indexed version
+  brand:    {source: acme-skills, commit: 3f2a…, hash: sha256:…, scope: team:saas}
 ```
+
+A skill names its source and, except for `factory`, its hash; description and categories come from the index unless
+set here. A name is unique per company. `scope: team:NAME` (only that team's agents) or `scope: agent:NAME` limits who
+may include or discover it; including a skill outside its scope fails loading. `path:` entries are gone.
+
+Updates: syncing a `pinned` source (`update: pinned`) shows an available update of each installed skill with its file
+changes (`GET /skills/installed`); installing it saves a catalog version. A `track` source installs new versions on
+sync (a catalog version authored `sync`). Git sources sync once a day; running runs keep their pinned hashes.
+
+```sh
+factory skills sources                                    # sources and their state
+factory skills sources add https://github.com/acme/agent-skills -ref main [-access node] [-update track]
+factory skills upload brand-kit ./skills.zip
+factory skills sync acme-skills
+factory skills library brand                              # search the library
+factory skills install acme-skills brand [-scope team:saas]
+factory skills installed [-team saas]
+factory skills uninstall brand                            # refused while an agent includes it
+```
+
+API (owners and admins change, every role reads): `GET/POST /skills/sources`, `POST /skills/sources/upload`,
+`POST /skills/sources/{id}/sync`, `DELETE /skills/sources/{id}`, `GET /skills/library?q=&source=&category=`,
+`GET /skills/library/{source}/{name}/files[/{path}]`, `GET /skills/installed[?team=]`, `POST /skills/install`
+`{base, source, name, scope}`, `POST /skills/uninstall` `{base, name}`.
+
+## Agents and runs
+
  SKILL.md requires YAML frontmatter with matching name and nonempty
 description; standard extra frontmatter fields are allowed. Prompt bodies are not included in run
 instructions. Names in skills.include must exist. Enabled discovery adds skills matching any
@@ -45,31 +81,9 @@ Supporting files in references/, scripts/, and other skill subdirectories can be
 The API returns content; it does not execute scripts. Resource paths must remain inside the skill's
 own directory, including symlinks. Only regular files <= 1 MiB can be read through the API.
 
-Runs on a node get the offered skills materialized from the node's registry: the skills.yaml of the node's
-company catalog under `skills_root` in node.yaml (`<skills_root>/configs/<company>/skills.yaml`, the same layout
-Core loads from FACTORY_ROOT), verified by content hash (`skills.Hash`, `sha256:…`) against the hash pinned on the run before the
-runtime starts; see [development](development.md#node-process). Core pins the hashes in the run's agent
-snapshot (`skill_hashes`); a skill Core cannot hash stays unpinned. Core never sends skill content to nodes:
-a node needs the company's catalog and skill files at the same relative places (an absolute path must exist on
-the node too), and a copy that differs from Core's refuses the run before the runtime starts.
-
-Core pins only hashes, not skill content: reads through Core serve the current registry files, so a running
-agent can see updated resource content if registry files are changed administratively; restart Core when changing catalog metadata.
-
-## mobile-app-testing
-
-`skills/mobile-app-testing/SKILL.md` is the prompt guidance for iOS and Android agents (node-agent D6, 4.3): reach
-app states through debug launch arguments, deep links and UI tests that find elements by accessibility identifier
-(XCUITest) or test tag / resource id (Compose, Espresso, UiAutomator), never by driving the host UI, which the
-mandatory `host-ui` policy denies ([policies](policies.md#command-guards)). It also names per-task simulators and
-AVDs `af-<task id>` so node cleanup hooks ([development](development.md#node-process)) can remove them. Categories
-`mobile`, `ios`, `android`, `testing`. A mobile agent includes it explicitly or discovers it by category:
-
-```yaml
-spec:
-  skills:
-    include: [openspec, mobile-app-testing]
-    # or: discover: {enabled: true, categories: [ios]}
-```
-
-Existing agents (for example `calorie-ios`) are not changed; add the include to their configuration when wanted.
+Runs on a node get their offered skills from Core: Core pins each skill's hash in the run's agent snapshot
+(`skill_hashes`); the node downloads a pinned hash once (`GET /runs/{run}/skills/{hash}`, signed, only hashes pinned on
+that run) into its store `<state_dir>/skills/store/sha256-…` (verified, read-only, removed after 14 days unused) and
+copies the run's skills into a per-run view the drivers install from. A hash that does not verify, or that Core does
+not hold, ends the run `setup_failed` before the runtime starts; a skill without a pin (a Core without a skill index)
+is skipped with a warning. Reads through Core (`factory_skills_read`) serve the pinned version from Core's blobs.

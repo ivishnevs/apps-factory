@@ -30,10 +30,11 @@ type pollAnswer struct {
 		RunID    string `json:"run_id"`
 		Provider string `json:"provider"`
 	} `json:"offers"`
-	Stop         []stop   `json:"stop"`
-	Reset        []string `json:"reset"`
-	Cleanup      []string `json:"cleanup"`
-	HooksChanged bool     `json:"hooks_changed"`
+	Stop         []stop    `json:"stop"`
+	Reset        []string  `json:"reset"`
+	Cleanup      []string  `json:"cleanup"`
+	HooksChanged bool      `json:"hooks_changed"`
+	SyncJobs     []syncJob `json:"sync_jobs"`
 }
 
 // skips are runs whose claim Core refused for now; the poll asks Core not to offer them until their time passed.
@@ -163,6 +164,9 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 		s.queueCleanups(a.Cleanup)
 		if a.HooksChanged {
 			s.driversChanged() // the heartbeat delivers the NodeHooks document
+		}
+		for _, j := range a.SyncJobs {
+			s.startSyncJob(ctx, j)
 		}
 		taken := 0
 		for _, o := range a.Offers {

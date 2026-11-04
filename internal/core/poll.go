@@ -154,7 +154,7 @@ func (c *Core) poll(w http.ResponseWriter, r *http.Request) {
 	defer deadline.Stop()
 	recheck := time.NewTicker(pollRecheck)
 	defer recheck.Stop()
-	empty := PollAnswer{Offers: []storage.Offer{}, PollWork: storage.PollWork{Stop: []storage.Stop{}, Reset: []string{}, Cleanup: []string{}}}
+	empty := PollAnswer{Offers: []storage.Offer{}, PollWork: storage.PollWork{Stop: []storage.Stop{}, Reset: []string{}, Cleanup: []string{}, SyncJobs: []storage.SyncJob{}}}
 	for {
 		// Listen before reading, so a commit between the read and the wait still wakes this poll.
 		woken := c.wakeups.channel(company)

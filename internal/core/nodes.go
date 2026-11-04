@@ -113,6 +113,7 @@ func nodeRoute(r *http.Request) bool {
 	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"claim", "start", "workspace", "credential", "project-setup", "events"}, parts[2]):
 	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && (parts[2] == "blobs" || parts[2] == "skills"):
 	case r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
+	case post && len(parts) == 3 && parts[0] == "skills" && parts[1] == "sync-jobs":
 	default:
 		return false
 	}
@@ -143,7 +144,11 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 		unauthorized()
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSignedBody))
+	limit := int64(maxSignedBody)
+	if strings.HasPrefix(r.URL.Path, "/skills/sync-jobs/") {
+		limit = 80 << 20 // a private skill source's packed tree (skills.MaxSourceSize and the tar around it)
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -171,7 +176,7 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 		refuse("replay")
 		return
 	}
-	r = r.WithContext(context.WithValue(r.Context(), companyKey{}, key.Company))
+	r = r.WithContext(context.WithValue(context.WithValue(r.Context(), companyKey{}, key.Company), nodeKey{}, id))
 	forbid := func(why string) { http.Error(w, "node: "+why, http.StatusForbidden) }
 	// bodyNode is the body's node_id.
 	bodyNode := func() string {
@@ -192,6 +197,7 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 			forbid("register your own node")
 			return
 		}
+	case parts[0] == "skills": // the job's node is checked by the route
 	case parts[0] == "nodes":
 		if parts[1] != id {
 			forbid("another node")
@@ -287,6 +293,15 @@ func (c *Core) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := c.Store.ClaimV2(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 	nodeReply(w, v, err)
+}
+
+// nodeKey carries the signing node's id from nodeGateway.
+type nodeKey struct{}
+
+// nodeOf is the node that signed the request.
+func nodeOf(r *http.Request) (string, bool) {
+	id, ok := r.Context().Value(nodeKey{}).(string)
+	return id, ok
 }
 
 // nodeReply answers a node: refusals and epoch conflicts as JSON so the node can act on the reason.

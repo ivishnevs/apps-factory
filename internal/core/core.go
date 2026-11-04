@@ -115,6 +115,7 @@ func (c *Core) Handler() http.Handler {
 	c.companyRoutes(m)
 	c.accountRoutes(m)
 	c.secretRoutes(m)
+	c.skillRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil {
@@ -353,6 +354,9 @@ func (c *Core) run(ctx context.Context) error {
 	// (http-node-transport D6).
 	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
+	// Git skill sources sync once a day (skill-registry D7), checked hourly.
+	sync := time.NewTicker(time.Hour)
+	defer sync.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -361,6 +365,8 @@ func (c *Core) run(ctx context.Context) error {
 			if err := c.maintain(ctx); err != nil {
 				return err
 			}
+		case <-sync.C:
+			go c.syncDueSources(ctx)
 		}
 	}
 }

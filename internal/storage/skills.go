@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"appfactory/internal/protocol"
 	"appfactory/internal/skills"
 )
 
@@ -291,4 +292,72 @@ func has(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// SyncJob is a private source's sync a node of the company performs (D3): it fetches with its own git access and
+// uploads the tree.
+type SyncJob struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	URL    string `json:"url"`
+	Ref    string `json:"ref,omitempty"`
+	Node   string `json:"-"`
+	Status string `json:"-"`
+}
+
+// CreateSyncJob asks an online node of company to sync source: ErrNotFound when none is online (the source waits).
+func (s *Store) CreateSyncJob(ctx context.Context, company, source string) (SyncJob, error) {
+	var job SyncJob
+	var node string
+	err := s.DB.QueryRowContext(ctx, "SELECT id FROM nodes WHERE company_id=? AND online=1 ORDER BY last_seen DESC LIMIT 1", company).Scan(&node)
+	if errors.Is(err, sql.ErrNoRows) {
+		return job, ErrNotFound
+	}
+	if err != nil {
+		return job, err
+	}
+	job = SyncJob{ID: protocol.ID(), Source: source, Node: node, Status: "pending"}
+	now := s.Now().Unix()
+	if _, err = s.DB.ExecContext(ctx, "INSERT INTO skill_sync_jobs(company_id,id,source_id,node_id,status,created_at,updated_at) VALUES(?,?,?,?,'pending',?,?)", company, job.ID, source, node, now, now); err != nil {
+		return job, err
+	}
+	if s.Wake != nil {
+		s.Wake(company) // the node's waiting poll answers the job
+	}
+	return job, nil
+}
+
+// NodeSyncJobs are the pending sync jobs of node with their source's URL and ref.
+func (s *Store) NodeSyncJobs(ctx context.Context, company, node string) ([]SyncJob, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT j.id,j.source_id,s.url,s.ref FROM skill_sync_jobs j JOIN skill_sources s ON s.scope=j.company_id AND s.id=j.source_id
+ WHERE j.company_id=? AND j.node_id=? AND j.status='pending' ORDER BY j.created_at`, company, node)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SyncJob{}
+	for rows.Next() {
+		var j SyncJob
+		if err = rows.Scan(&j.ID, &j.Source, &j.URL, &j.Ref); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// SyncJobOf reads node's job; another node's or an unknown job is ErrNotFound.
+func (s *Store) SyncJobOf(ctx context.Context, company, node, id string) (SyncJob, error) {
+	var j SyncJob
+	err := s.DB.QueryRowContext(ctx, "SELECT id,source_id,node_id,status FROM skill_sync_jobs WHERE company_id=? AND id=? AND node_id=?", company, id, node).Scan(&j.ID, &j.Source, &j.Node, &j.Status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return j, ErrNotFound
+	}
+	return j, err
+}
+
+// FinishSyncJob records a job's end.
+func (s *Store) FinishSyncJob(ctx context.Context, company, id, status, why string) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE skill_sync_jobs SET status=?,error=?,updated_at=? WHERE company_id=? AND id=?", status, why, s.Now().Unix(), company, id)
+	return err
 }

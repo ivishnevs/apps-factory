@@ -28,10 +28,14 @@ type PollWork struct {
 	Stop    []Stop   `json:"stop"`
 	Reset   []string `json:"reset"`
 	Cleanup []string `json:"cleanup"`
+	// SyncJobs are private skill sources the node fetches (skill-registry D3).
+	SyncJobs []SyncJob `json:"sync_jobs"`
 }
 
 // Empty reports whether w lists nothing.
-func (w PollWork) Empty() bool { return len(w.Stop) == 0 && len(w.Reset) == 0 && len(w.Cleanup) == 0 }
+func (w PollWork) Empty() bool {
+	return len(w.Stop) == 0 && len(w.Reset) == 0 && len(w.Cleanup) == 0 && len(w.SyncJobs) == 0
+}
 
 // Key identifies w's contents, so a poll answers a list it already delivered only once (the heartbeat stays
 // the guarantee for what the node misses).
@@ -121,7 +125,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 // NodeWork is the node's poll work: stops of its current epoch's live runs Core revoked or gave a stop reason,
 // worktree resets waiting for it and closed tasks' worktrees on it (the lists the heartbeat answers too).
 func (s *Store) NodeWork(ctx context.Context, company, node string, epoch int64) (PollWork, error) {
-	out := PollWork{Stop: []Stop{}, Reset: []string{}, Cleanup: []string{}}
+	out := PollWork{Stop: []Stop{}, Reset: []string{}, Cleanup: []string{}, SyncJobs: []SyncJob{}}
 	if _, err := s.pollNode(ctx, company, node, epoch); err != nil {
 		return out, err
 	}
@@ -147,6 +151,10 @@ func (s *Store) NodeWork(ctx context.Context, company, node string, epoch int64)
 	}
 	out.Cleanup, err = s.strings(ctx, `SELECT w.task_id FROM workspaces w JOIN tasks t ON t.company_id=w.company_id AND t.id=w.task_id
  WHERE w.company_id=? AND w.node_id=? AND w.mode='worktree' AND t.status IN ('DONE','CANCELLED') AND w.cleanup_listed<? ORDER BY w.updated_at LIMIT 64`, company, node, cleanupListings)
+	if err != nil {
+		return out, err
+	}
+	out.SyncJobs, err = s.NodeSyncJobs(ctx, company, node)
 	return out, err
 }
 

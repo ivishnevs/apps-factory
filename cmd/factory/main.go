@@ -96,6 +96,9 @@ func run() error {
 	if args[0] == "conversations" || args[0] == "messages" || args[0] == "inbox" || args[0] == "approvals" {
 		return communicationCommand(ctx, api, args)
 	}
+	if args[0] == "skills" && len(args) > 1 && args[1] != "list" && args[1] != "search" && args[1] != "read" {
+		return skillsCommand(ctx, api, args)
+	}
 	if args[0] == "secrets" {
 		return secretsCommand(ctx, api, args, os.Stdin)
 	}

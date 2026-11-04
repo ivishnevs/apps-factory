@@ -200,7 +200,8 @@ type Found struct {
 
 // Discover finds the skills of a source tree (D4), first layout that matches: a Claude plugin marketplace
 // (.claude-plugin/marketplace.json: each plugin's skills directory, default skills/), else skills/*/SKILL.md,
-// .agents/skills/*/SKILL.md and .claude/skills/*/SKILL.md (symlinked skill directories skipped), else a SKILL.md at the root (a single-skill source).
+// .agents/skills/*/SKILL.md and .claude/skills/*/SKILL.md (symlinked skill directories skipped), else a SKILL.md at the root (a single-skill source),
+// else skill directories at the root (an uploaded folder).
 func Discover(root string) ([]Found, error) {
 	if b, err := os.ReadFile(filepath.Join(root, ".claude-plugin", "marketplace.json")); err == nil {
 		var mk struct {
@@ -256,7 +257,8 @@ func Discover(root string) ([]Found, error) {
 	if _, err := os.Stat(filepath.Join(root, "SKILL.md")); err == nil {
 		return []Found{{Dir: root, Name: filepath.Base(root)}}, nil
 	}
-	return nil, nil
+	// An uploaded folder or archive of skill directories: <name>/SKILL.md at the root.
+	return sortFound(glob(filepath.Join(root, "*", "SKILL.md"))), nil
 }
 
 func inside(root, rel string) (string, error) {

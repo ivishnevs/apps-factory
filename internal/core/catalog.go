@@ -38,7 +38,11 @@ func (c *Core) cat(company string) *config.Catalog {
 		return sc.catalog
 	}
 	if c.Root == "" && company == c.company() {
-		return &config.Catalog{Agents: c.Agents, Skills: c.Skills, NodeHooks: c.NodeHooks, Teams: c.Teams}
+		reg := c.Skills
+		if reg == nil {
+			reg = &skills.Registry{Skills: map[string]skills.Skill{}}
+		}
+		return &config.Catalog{Agents: c.Agents, Skills: reg, NodeHooks: c.NodeHooks, Teams: c.Teams}
 	}
 	return emptyCatalog()
 }
