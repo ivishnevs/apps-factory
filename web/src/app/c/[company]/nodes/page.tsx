@@ -96,13 +96,13 @@ export default function Page() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 id="pauses-title" className="text-base font-semibold">Pauses <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{pauses.length}</span></h2>
-                <p className="text-sm text-muted-foreground">New runs wait; live runs continue.</p>
+                <p className="text-sm text-muted-foreground">New work waits; work in progress continues.</p>
               </div>
               <Button variant="outline" className="h-10" onClick={() => setDialog({ open: true })}><Pause className="size-4" />Pause…</Button>
             </div>
             {ov.errors?.pauses && <div className="mb-3"><ErrorState error={ov.errors.pauses} /></div>}
             {pauses.length === 0 ? (
-              <EmptyState icon={Play} title="Nothing is paused" hint="Pause a project, an agent, a node or a quota key to hold its new runs." className="py-8" />
+              <EmptyState icon={Play} title="Nothing is paused" hint="Pause a project, an agent, a connector or a subscription to hold its new work." className="py-8" />
             ) : (
               <ul className="divide-y overflow-hidden rounded-2xl border bg-card shadow-xs">
                 {pauses.map((p) => <PauseRow key={`${p.scope}/${p.target}`} p={p} label={label(p)} busy={pending} onResume={() => release(p)} />)}
@@ -114,7 +114,7 @@ export default function Page() {
             <div className="mb-3">
               <h2 id="nodes-title" className="text-base font-semibold">Connectors <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{nodes.length}</span></h2>
               <p className="text-sm text-muted-foreground">
-                {nodes.filter((n) => n.online).length} online · {nodes.reduce((s, n) => s + (n.in_use?.runs ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.slots ?? 0), 0)} slots in use
+                {nodes.filter((n) => n.online).length} online · {nodes.reduce((s, n) => s + (n.in_use?.runs ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.slots ?? 0), 0)} agent slots busy
               </p>
             </div>
             {ov.errors?.nodes && <div className="mb-3"><ErrorState error={ov.errors.nodes} /></div>}

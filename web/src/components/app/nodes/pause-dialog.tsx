@@ -12,13 +12,13 @@ export type Scope = "project" | "agent" | "node" | "quota_key";
 export interface PauseRequest { scope: Scope; target: string; reason: string }
 
 const scopes: { value: Scope; label: string }[] = [
-  { value: "project", label: "Project" }, { value: "agent", label: "Agent" }, { value: "node", label: "Node" }, { value: "quota_key", label: "Quota" },
+  { value: "project", label: "Project" }, { value: "agent", label: "Agent" }, { value: "node", label: "Connector" }, { value: "quota_key", label: "Subscription" },
 ];
 const hints: Record<Scope, string> = {
   project: "No new runs start in the project.",
   agent: "The agent starts no new runs.",
-  node: "The node claims no new runs.",
-  quota_key: "The agents sharing this subscription start no new runs.",
+  node: "The connector takes no new work.",
+  quota_key: "The agents sharing this subscription start no new work.",
 };
 
 // PauseDialog picks what to pause (a project, agent, node or quota key) and why; live runs continue.
@@ -41,14 +41,14 @@ export function PauseDialog({ open, onOpenChange, initial, options, onSubmit }: 
         <form onSubmit={(e) => { e.preventDefault(); if (target.trim()) onSubmit({ scope, target: target.trim(), reason: reason.trim() }); }}>
           <DialogHeader>
             <DialogTitle>{fixed ? `Pause ${scopeName(scope)} ${list.find((o) => o.value === target)?.label ?? target}` : "Pause"}</DialogTitle>
-            <DialogDescription>{hints[scope]} Live runs continue; new runs wait until you resume.</DialogDescription>
+            <DialogDescription>{hints[scope]} Work in progress continues; new work waits until you resume.</DialogDescription>
           </DialogHeader>
           <div className="mt-5 space-y-4">
             {!fixed && (
               <>
                 <Segmented label="What to pause" value={scope} onChange={(s) => { setScope(s); setTarget(""); }} options={scopes} className="w-full [&>button]:flex-1" />
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium" htmlFor="pause-target">{scope === "quota_key" ? "Quota key" : `Which ${scope}`}</label>
+                  <label className="text-sm font-medium" htmlFor="pause-target">{scope === "quota_key" ? "Subscription (quota key)" : `Which ${scope === "node" ? "connector" : scope}`}</label>
                   {scope === "quota_key" ? (
                     <Input id="pause-target" className="h-10" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="e.g. claude-max" autoComplete="off" />
                   ) : (

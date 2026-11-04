@@ -34,6 +34,14 @@ const look: Record<Kind, { label: string; icon: React.ElementType; cls: string }
 export const answerable = (m: Message) => m.message_type === "question" && !m.approval_id && (m.status === "PENDING" || m.status === "ESCALATED");
 export const kindOf = (m: Message): Kind => (m.approval_id ? "approval" : m.escalation_reason || m.status === "ESCALATED" ? "escalation" : answerable(m) ? "question" : "report");
 
+// escalationWhy: why a question came to the owner, in plain words.
+function escalationWhy(reason: string): string {
+  const r = reason.replace(/_/g, " ");
+  if (/answer deadline exceeded/.test(r)) return "It came to you because nobody in the team answered it in time.";
+  if (/clarification limit/.test(r)) return "It came to you because the agents asked each other too many times without settling it.";
+  return `Why it came to you: ${r}.`;
+}
+
 function Shell({ kind, blocking, from, project, taskId, at, due, dueVerb, children }: {
   kind: Kind; blocking?: boolean; from: string; project?: string; taskId?: string; at: number; due?: number; dueVerb?: string; children: React.ReactNode;
 }) {
@@ -63,7 +71,7 @@ export function MessageCard({ msg, projectName, h }: { msg: Message; projectName
   return (
     <Shell kind={kind} blocking={msg.blocking} from={msg.sender} project={projectName ?? msg.project_id} taskId={msg.task_id} at={msg.created_at} due={msg.deadline}>
       <Markdown text={msg.body} className="font-medium" />
-      {msg.escalation_reason && <p className="mt-2 text-xs text-muted-foreground">Reason: <span className="font-medium text-foreground">{msg.escalation_reason.replace(/_/g, " ")}</span></p>}
+      {msg.escalation_reason && <p className="mt-2 text-xs text-muted-foreground">{escalationWhy(msg.escalation_reason)}</p>}
       {msg.may_be_outdated && (
         <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">The task changed since this was asked; the question may be outdated.</p>
       )}

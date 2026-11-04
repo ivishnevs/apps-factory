@@ -65,10 +65,10 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <h3 className="truncate font-semibold">{n.name || id}</h3>
-            {n.name && n.name !== id && <span className="font-mono text-xs text-muted-foreground">{id}</span>}
+            
           </div>
           <p className={cn("mt-0.5 text-xs", state === "offline" ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
-            {state === "offline" ? `Silent since ${ago(n.last_seen)}` : `${state === "paused" ? "Paused" : "Online"} · heartbeat ${ago(n.last_seen)}`}
+            {state === "offline" ? `Silent since ${ago(n.last_seen)}` : `${state === "paused" ? "Paused" : "Online"} · checked in ${ago(n.last_seen)}`}
           </p>
         </div>
         {care && (
@@ -83,8 +83,8 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         {/* Slots: one cell per slot, filled when a run holds it. */}
         <div>
           <div className="mb-1.5 flex items-baseline justify-between text-xs">
-            <span className="font-medium text-muted-foreground">Slots</span>
-            <span className="tabular-nums"><span className="font-semibold">{used}</span><span className="text-muted-foreground">/{slots} in use</span></span>
+            <span className="font-medium text-muted-foreground">Agents at once</span>
+            <span className="tabular-nums"><span className="font-semibold">{used}</span><span className="text-muted-foreground"> of {slots} busy</span></span>
           </div>
           <div className="flex gap-1" aria-hidden>
             {Array.from({ length: Math.max(slots, 1) }, (_, i) => (
@@ -106,7 +106,7 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         </div>
 
         <div>
-          <p className="text-xs font-medium text-muted-foreground">Drivers</p>
+          <p className="text-xs font-medium text-muted-foreground">Runtimes</p>
           {(n.drivers ?? []).length === 0 ? <p className="mt-1 text-sm text-red-600 dark:text-red-400">No drivers</p> : (
             <ul className="divide-y divide-border/60">{(n.drivers ?? []).map((d) => <Driver key={d.name} d={d} />)}</ul>
           )}
@@ -144,7 +144,7 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
       <footer className="mt-auto flex items-center gap-3 border-t px-4 py-3 md:px-5">
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {pause ? <>Paused by {pause.actor}{pause.reason ? `: ${pause.reason}` : ""}</>
-            : !n.online ? "Offline: claims no runs" : h.disk === "critical" ? "Claiming paused: disk below critical" : "Claims new runs"}
+            : !n.online ? "Offline: takes no work" : h.disk === "critical" ? "Takes no work: the disk is almost full" : "Takes new work"}
         </p>
         {pause ? (
           <Button variant="outline" className="h-10" onClick={onResume} disabled={busy}><Play className="size-4" />Resume</Button>

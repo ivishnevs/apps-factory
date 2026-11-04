@@ -62,16 +62,16 @@ export default function Page() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Stat label="Total spend" value={usd(t.cost_usd)}
               sub={t.runs > 0 ? `${usd(t.cost_usd / t.runs)} per run` : "no ended runs"} />
-            <Stat label="Runs" value={t.runs.toLocaleString()} sub={unpriced > 0 ? `${unpriced} without a price` : t.runs > 0 ? "all priced" : "ended in this period"} />
+            <Stat label="Agent runs" value={t.runs.toLocaleString()} sub={unpriced > 0 ? `${unpriced} without a price` : t.runs > 0 ? "all priced" : "ended in this period"} />
             <Stat label="Tokens" value={tokens(tokIn + t.output_tokens)} sub={`${tokens(tokIn)} in · ${tokens(t.output_tokens)} out`} />
-            <Stat label="Input from cache" value={tokIn > 0 ? sharePct(t.cache_read_tokens, tokIn) : "—"}
-              sub={tokIn > 0 ? `${tokens(t.input_tokens + t.cache_write_tokens)} tokens not cached` : "no input yet"} />
+            <Stat label="Reused context" value={tokIn > 0 ? sharePct(t.cache_read_tokens, tokIn) : "—"}
+              sub={tokIn > 0 ? `of the input was cached, cheaper · ${tokens(t.input_tokens + t.cache_write_tokens)} tokens new` : "no input yet"} />
           </div>
 
           {unpriced > 0 && (
             <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
-              <span>{unpriced} run{unpriced === 1 ? " has" : "s have"} no price (the model is not in the price table), so the total is a lower bound.</span>
+              <span>{unpriced} run{unpriced === 1 ? " has" : "s have"} no known price (its model is not in the price list), so the real total is higher.</span>
             </div>
           )}
 

@@ -235,7 +235,7 @@ function Installed({ manage, base }: { manage: boolean; base: number }) {
           <div className="min-w-0 flex-1">
             <p className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm font-medium">{s.name}</span>
-              <Badge variant="secondary" className="font-normal">{s.source === "factory" ? "Factory" : s.source}</Badge>
+              <Badge variant="secondary" className="font-normal">{s.source === "factory" ? "Built in" : s.source}</Badge>
               <Badge variant="outline" className="font-normal">{scopeLabel(s.scope)}</Badge>
             </p>
             {s.description && <p className="text-sm text-muted-foreground">{s.description}</p>}
@@ -293,7 +293,7 @@ function Library({ manage, base }: { manage: boolean; base: number }) {
             <li key={`${s.source}/${s.name}`} className="flex flex-col gap-2 rounded-xl border bg-card p-4">
               <p className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-sm font-medium">{s.name}</span>
-                <Badge variant="secondary" className="font-normal">{s.source === "factory" ? "Factory" : s.source}</Badge>
+                <Badge variant="secondary" className="font-normal">{s.source === "factory" ? "Built in" : s.source}</Badge>
                 {s.installed && <Badge className="font-normal">Installed</Badge>}
               </p>
               {s.error ? <p className="flex items-start gap-1.5 text-sm text-red-700 dark:text-red-400"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{s.error}</p>
