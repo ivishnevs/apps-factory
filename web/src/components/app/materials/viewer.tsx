@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, ChevronRight, Download, EyeOff, X } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { ErrorState } from "@/components/app/page";
 import { CodeBlock, Markdown } from "@/components/app/run/markdown";
 import { since } from "@/components/app/tasks/model";

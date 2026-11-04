@@ -4,7 +4,7 @@ import {
   AlertTriangle, Ban, CheckCircle2, Circle, CircleX, FileText, FolderCheck, FolderPlus, FolderX, GitPullRequestArrow, HardDrive, MessageSquare, Pause, Pencil,
   Play, Plus, RotateCcw, ScrollText, ShieldQuestion, SquareTerminal,
 } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import type { FeedItem } from "@/lib/api/types";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";

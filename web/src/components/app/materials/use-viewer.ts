@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "@/components/app/link";
 import { useCallback } from "react";
 import type { Material } from "@/lib/api/types-materials";
 

@@ -2,9 +2,12 @@
 
 A company's catalog (agents, profiles, policies, prompts, skills registry, `company.yaml`, quota keys, external
 MCP servers, node hooks) lives in Core as versioned documents (company-self-service). One Core serves every
-company: a request's company comes from its token (the operator's `FACTORY_TOKEN` serves `FACTORY_COMPANY`, a
-company owner token its company, a node token its node's company, a run credential its run's company), and
-Core's loops (scheduling, expiry, stalls, prices) run per company with that company's catalog.
+company: a request's company comes from its credential (the operator's `FACTORY_TOKEN` serves `FACTORY_COMPANY`
+or the company its `X-Factory-Company` header names, for support; a company owner token its company; a node its
+node's company; a run credential its run's company) or, for a person signed in on the website, from the
+`X-Factory-Company` header checked against the person's memberships (user-accounts D6; not a member: 404, as for a
+company that does not exist). A token sent with another company's header is refused (403). Core's loops
+(scheduling, expiry, stalls, prices) run per company with that company's catalog.
 
 ## Documents and versions
 
@@ -47,6 +50,25 @@ refusal at the document) and lists the history with rollback.
 Agents read the catalog with `factory_catalog_get` and propose changes with `factory_catalog_change`
 `{base, put, delete, note, request_id}`: it always needs the owner's approval of that exact call
 (`factory_owner_request_approval`), and the saved version records the agent as author.
+
+## People, roles and sign-up
+
+People sign in on the website through OIDC (Dex with Google, GitHub; [development](development.md#sign-in)). The
+first sign-in creates the person's account and one company named after them (`<name>-<6 hex>`, display name
+"<name>'s company", renamable by its owner) with the catalog of the sign-up template (`FACTORY_SIGNUP_TEMPLATE`,
+default `solo`), the person as `owner`; the web UI opens its setup. More companies per person exist by design but
+creating them is off unless `FACTORY_MULTI_COMPANY=1`. Roles (`memberships.role`, D7):
+
+| Role | May |
+| --- | --- |
+| `owner` | everything, including renaming the company (`PATCH /company`) and, later, roles |
+| `admin` | the catalog (teams, agents, profiles, policies, prompts), skills, secrets, nodes, creating and changing projects, owner tokens, company settings, the kill switch |
+| `member` | tasks, chats, approvals and the projects' work; reads the catalog; sees secret names only |
+
+Owner tokens act as `admin` and record who issued them (`created_by`: `user:<id>`, `owner`, `operator`); catalog
+versions name their author the same way. The operator has no web role: prices, built-in content and support stay
+on the CLI with `FACTORY_TOKEN`. `GET /me` answers who is calling and which companies they may open,
+`GET /company` the company's name and the caller's role.
 
 ## Companies and owner tokens
 

@@ -1,4 +1,4 @@
-Planned (owner 2026-11-03: D1–D7 confirmed). Not started. No migration (not released). Order: storage, OIDC client
+Done (owner 2026-11-03: D1–D7 confirmed). Migration `0010_user_accounts`. Order: storage, OIDC client
 and Dex, sessions and company resolution, roles, company at sign-up, web UI. Can run in parallel with
 `company-teams`.
 
@@ -9,7 +9,7 @@ and Dex, sessions and company resolution, roles, company at sign-up, web UI. Can
 
 ## 2. Specs and docs
 - [x] 2.1 Delta specs `user-accounts`, `postgres-tenancy`; `openspec validate --strict`.
-- [ ] 2.2 Docs: `catalog.md` (company resolution by session, roles), `owner-ui.md` (sign-in, routes, rename, selector
+- [x] 2.2 Docs: `catalog.md` (company resolution by session, roles), `owner-ui.md` (sign-in, routes, rename, selector
   setting), `development.md` (Dex in compose, OAuth apps, env), `architecture.md`.
 
 ## 3. Storage
@@ -48,11 +48,18 @@ and Dex, sessions and company resolution, roles, company at sign-up, web UI. Can
   `TestSecretNamesOnly`. Open: whether approving catalog changes needs owner/admin (pending decision).
 
 ## 6. Web UI
-- [ ] 6.1 Sign-in page (provider buttons), sign-out, session expiry handling.
-- [ ] 6.2 `/c/{company}/…` routes for every page; company settings (rename); selector and "new company" only with
-  the setting on.
+- [x] 6.1 Sign-in page (provider buttons), sign-out, session expiry handling. Done: `factory web --sessions` (no token;
+  relays each person's session, CSRF and company; clients and caches per company and session,
+  `internal/web/access.go`, `TestSessionMode`), `/auth/*` and `/api/core/*` proxied; `/signin`, sign-out in the
+  company menu and Settings, a 401 returns to `/signin?return=…&expired=1`. Checked end to end in a browser against
+  a real Dex (mock connector): sign-in, new company, rename, a foreign company, sign-out.
+- [x] 6.2 `/c/{company}/…` routes for every page; company settings (rename); selector and "new company" only with
+  the setting on. Done: pages under `web/src/app/c/[company]`, `Link`/`useRouter` put app paths under the company,
+  `X-Factory-Company` on every call (cookie for images and streams), "This company is not available" for a 404,
+  Settings page, company menu with the switcher, `/` opens the last company.
 
 ## 7. Verification
-- [ ] 7.1 `make check` green plus NATS tests with `-p 1`; tests: callback state/nonce refusal, identity linking by
+- [x] 7.1 `make check` green plus NATS tests with `-p 1`; tests: callback state/nonce refusal, identity linking by
   verified email only, company at first sign-in, session revocation, membership 404, token with a foreign company
-  header, member refused on catalog save, second company refused with the setting off.
+  header, member refused on catalog save, second company refused with the setting off. Done: `TestSignIn`,
+  `TestForgedCallback`, `TestSignInCreatesAccountAndCompany`, `TestSessionSignIn`, `TestRoles`, `TestMultiCompany`.

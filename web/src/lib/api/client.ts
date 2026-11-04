@@ -5,18 +5,40 @@ import { useEffect, useRef, useState } from "react";
 import type { Action, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
 import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Team } from "./types-catalog";
+import type { CompanyInfo, Me } from "./types-account";
+import { csrf, currentCompany } from "@/lib/company";
 
 // Every request goes to this app's /api/*, which Next proxies to the owner API (next.config.ts). The browser
-// never holds a token; when the SaaS adds sign-in, the session cookie rides along (credentials: same-origin).
+// never holds a token: signed in, the session cookie rides along (credentials: same-origin), every call names the
+// page's company and every change carries the CSRF header (user-accounts D5, D6).
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(message: string, readonly status: number, readonly reason?: string) { super(message); }
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, { credentials: "same-origin", ...init });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(body?.error ?? `HTTP ${res.status}`, res.status);
+  const headers = new Headers(init?.headers);
+  const company = currentCompany();
+  if (company && !headers.has("X-Factory-Company")) headers.set("X-Factory-Company", company);
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") headers.set("X-Factory-CSRF", csrf());
+  const res = await fetch(`/api${path}`, { credentials: "same-origin", ...init, headers });
+  const text = await res.text();
+  let body: { error?: string; reason?: string } = {};
+  try { body = text ? JSON.parse(text) : {}; } catch { body = { error: text.trim() }; }
+  if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/signin")) {
+    // Signed out or the session expired: back to the sign-in, then here again.
+    window.location.assign(`/signin?return=${encodeURIComponent(window.location.pathname + window.location.search)}${body?.reason === "session_expired" ? "&expired=1" : ""}`);
+  }
+  if (!res.ok) throw new ApiError(body?.error || `HTTP ${res.status}`, res.status, body?.reason);
   return body as T;
+}
+
+// core calls an owner route of Core as it is (/api/core/*: /me, /company, secrets, nodes, skills, teams).
+export function core<T>(path: string, init?: RequestInit): Promise<T> {
+  const write = init?.method && init.method !== "GET";
+  const headers = new Headers(init?.headers);
+  if (write) { headers.set("X-Factory-Web", "1"); if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); }
+  return api<T>(`/core${path}`, { ...init, headers });
 }
 
 const qs = (p: Record<string, string | number | boolean | undefined>) => {
@@ -100,4 +122,24 @@ export function usePost<T>(path: string) {
       api<T>(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Factory-Web": "1" }, body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog"] }).then(() => qc.invalidateQueries({ queryKey: ["companies"] })),
   });
+}
+
+// The signed-in person and their companies (user-accounts 4.3); the page's company with the person's role.
+export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => core<Me>("/me"), staleTime: 60_000, retry: false });
+export const useCompanyInfo = () => useQuery({ queryKey: ["company-info"], queryFn: () => core<CompanyInfo>("/company"), staleTime: 60_000,
+  retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 1 });
+
+// useCore sends a change to an owner route of Core (/api/core/*) and refreshes what it may change.
+export function useCore<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, refresh: unknown[][] = []) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: unknown) => core<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
+    onSuccess: () => Promise.all(refresh.map((queryKey) => qc.invalidateQueries({ queryKey }))),
+  });
+}
+
+// signOut ends the session and goes to the sign-in page.
+export async function signOut() {
+  await fetch("/auth/logout", { method: "POST", credentials: "same-origin", headers: { "X-Factory-CSRF": csrf() } }).catch(() => undefined);
+  window.location.assign("/signin");
 }

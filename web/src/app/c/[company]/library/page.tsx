@@ -2,7 +2,8 @@
 
 import { format, isToday, isYesterday } from "date-fns";
 import { FolderOpen, Loader2, Search, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "@/components/app/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Chips } from "@/components/app/feed/chips";
 import { kindGroups } from "@/components/app/materials/kinds";

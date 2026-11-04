@@ -1,7 +1,7 @@
 "use client";
 
 import { Star } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { cn } from "@/lib/utils";
 import { AgentAvatar } from "./agent-avatar";
 import { listTime } from "./time";

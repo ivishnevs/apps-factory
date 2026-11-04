@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, CircleAlert, Eye, FolderInput, FolderPlus, GitBranch, Lock, MessageCircleQuestion, ShieldCheck, ShieldQuestion, Siren, X } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { useState } from "react";
 import { Markdown } from "@/components/app/run/markdown";
 import { Button } from "@/components/ui/button";

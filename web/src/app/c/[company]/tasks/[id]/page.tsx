@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, FileSearch } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { TaskMaterials } from "@/components/app/materials/task-materials";

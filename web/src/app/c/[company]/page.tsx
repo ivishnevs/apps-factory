@@ -6,7 +6,7 @@ import { LiveRuns, NeedsYou, Nodes, Projects, Team } from "@/components/app/home
 import { ErrorState } from "@/components/app/page";
 import { isConversation, isTerminal, needsOwner, useClock, useOverviewData } from "@/components/app/tasks/model";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMeta } from "@/lib/api/client";
+import { useCompanyInfo, useMeta } from "@/lib/api/client";
 import type { Overview } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd } from "@/lib/format";
@@ -20,6 +20,7 @@ function greeting(now: number) {
 export default function Page() {
   const { data: ov, error, isFetching } = useOverviewData();
   const { data: meta } = useMeta();
+  const companyName = useCompanyInfo().data?.name;
   const now = useClock();
 
   if (!ov) {
@@ -36,7 +37,7 @@ export default function Page() {
       <div className="mb-6 flex items-end justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{greeting(now)}</p>
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{ov.health.company}</h1>
+          <h1 className="truncate text-2xl font-semibold tracking-tight">{companyName ?? ov.health.company}</h1>
         </div>
         <span className={cn("inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium",
           stopped ? "border-red-500/40 text-red-600 dark:text-red-400" : "text-muted-foreground")} title={meta?.describe}>

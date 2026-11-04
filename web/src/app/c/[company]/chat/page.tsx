@@ -2,7 +2,8 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { MessagesSquare } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/components/app/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState } from "@/components/app/page";

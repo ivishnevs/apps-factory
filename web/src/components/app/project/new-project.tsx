@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, FolderInput, GitBranch, Loader2, Lock, Plus } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/app/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";

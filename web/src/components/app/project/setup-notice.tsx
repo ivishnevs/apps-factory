@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, ArrowRight, Clock3, Loader2, Plus } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Project } from "@/lib/api/types";
 import { setupView, type SetupView } from "@/lib/project-setup";

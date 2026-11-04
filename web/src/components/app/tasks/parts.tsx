@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleUserRound, Clock, Hand, Loader2 } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import type { Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";

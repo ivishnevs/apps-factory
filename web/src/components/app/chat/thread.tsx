@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, ArrowUp, CircleHelp, Radio, Star } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";

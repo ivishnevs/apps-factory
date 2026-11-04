@@ -543,3 +543,24 @@ animation frame on any tab; a live run does); goldens `nodes_*`, `confirm_pause_
 `TestQueuedWhy`, `TestTaskParks` (`internal/storage`), `TestOwnerUIRoutes` (`internal/core`), the driver
 state in `internal/node/runner` (`TestRunAuthFailureDisablesDriver`, `TestTransientProbeDisablesOnlyWhenRepeated`,
 `TestV2Heartbeat`).
+
+## Web UI: sign-in and companies (user-accounts)
+
+The web UI (`web/`, Next.js, over `factory web`) has two modes. With `FACTORY_TOKEN` (`factory web`) every browser
+acts as that token's owner, as before. With `factory web --sessions` there is no token: people sign in and act with
+their own session and role; `factory web` relays each person's session cookie, CSRF header and company to Core and
+keeps its caches per company and session, so nothing one person read reaches another.
+
+- `/signin`: one button per provider Core offers (`GET /auth/providers`); the button starts Core's OIDC flow
+  (`/auth/login?provider=…&return=…`), which comes back to the page the person started from. Errors of the
+  callback (`?error=state|email_unverified|…`) are shown in words. A request answered 401 sends the browser to
+  `/signin?return=<page>` (`&expired=1` when the session ended).
+- Every page is `/c/{company}/…`; `/` opens the person's last company. Every API call names the company
+  (`X-Factory-Company`, and the `factory_company` cookie for images, frames and event streams) and every change
+  carries `X-Factory-CSRF` (the `factory_csrf` cookie). A company the person is not a member of shows "This company
+  is not available".
+- The sidebar's company menu shows the company and the signed-in email, links Settings and signs out; with
+  `FACTORY_MULTI_COMPANY=1` it also switches between the person's companies.
+- Settings (`/c/{company}/settings`): rename the company (owners), your role, sign out and, with the setting on,
+  create another company. A new company opens `/c/{company}/setup` (the team page until the team-builder wizard).
+- Companies (the operator's page) is shown only to the operator token.

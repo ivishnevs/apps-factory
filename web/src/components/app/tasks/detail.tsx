@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Send } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { useState } from "react";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import { Button } from "@/components/ui/button";

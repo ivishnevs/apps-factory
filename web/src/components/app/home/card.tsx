@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { cn } from "@/lib/utils";
 
 // Section: a titled card of the dashboard, with an optional "see all" link.

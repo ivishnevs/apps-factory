@@ -1,7 +1,8 @@
 "use client";
 
 import { Hand, PanelLeftClose, Search, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "@/components/app/link";
 import { Suspense, useMemo, useState } from "react";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { toneClass } from "@/components/app/status";

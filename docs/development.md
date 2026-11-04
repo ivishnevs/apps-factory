@@ -17,7 +17,7 @@ so Core processes starting together apply each migration once; Core refuses to s
 version is newer than it knows. `0001_baseline.sql` is the whole current schema (no database was kept from the
 SQLite era: nothing is imported); add a change as the next numbered file (`0002_...`).
 
-Tenancy: accounts own companies and users; `memberships` give a user a role (`owner`, `member`) in companies of
+Tenancy: accounts own companies and users; `memberships` give a user a role (`owner`, `admin`, `member`) in companies of
 its own account (the composite foreign keys refuse anything else). Every domain table has `company_id`
 (referencing `companies`), its key is `(company_id, id)` and every foreign key includes `company_id`, so a row
 can never reference another company's row (the database refuses the write; Core answers 409 without partial
@@ -171,6 +171,33 @@ runtimes, so a passing `drivers-smoke.py` makes a separate `exits-smoke.py` run 
 all (messaging 7, OpenSpec 2–3, drivers 3). Results land in `.cache/messaging-verification.json`,
 `.cache/openspec-verification.json` and `.cache/drivers-verification.json` (run ids, sessions, exits,
 `GET /tasks/{id}/costs`).
+
+## Sign-in
+
+The website signs people in through Dex (user-accounts D3): `compose.yaml` runs `dex` (`deploy/dex/config.yaml`,
+rendered by the Dex image with gomplate) on `127.0.0.1:5556` with its own `dex` database in the same Postgres
+(`dex-db` creates it once). Core is the only OIDC client (`factory-core`); browsers reach Dex at the issuer, Core
+at `http://dex:5556/dex` (`FACTORY_OIDC_INTERNAL_URL`). In `.env`:
+
+```sh
+FACTORY_OIDC_ISSUER=http://127.0.0.1:5556/dex   # turns sign-in on (empty: tokens only)
+FACTORY_OIDC_CLIENT_SECRET=<openssl rand -hex 32>   # shared by Dex and Core
+FACTORY_PUBLIC_URL=http://127.0.0.1:3000        # the web UI; https turns on Secure cookies
+FACTORY_OIDC_PROVIDERS=mock                     # buttons: Dex connector ids (google,github in production)
+DEX_MOCK_CONNECTOR=1                            # local development: "Continue as the test user"
+```
+
+Google: an OAuth client (Web application) with the redirect URI `<issuer>/callback`, then `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET`. GitHub: an OAuth App with the callback URL `<issuer>/callback`, then `GITHUB_CLIENT_ID` and
+`GITHUB_CLIENT_SECRET`. A connector is configured only when its client id is set. Then `make up`, `factory web
+--sessions` and `npm run dev` in `web/`, and open the web UI. Core keeps no provider tokens; sessions are rows of
+`sessions` (only the SHA-256 of the cookie's id), 30 days sliding, 90 days at most. `FACTORY_MULTI_COMPANY=1` lets
+people create more companies; `FACTORY_SIGNUP_TEMPLATE` (default `solo`) is a new company's starter catalog. Dex's
+state (signing keys, refresh tokens) is in the `dex` database: back it up with the `factory` one.
+
+Tests: `internal/auth/authtest` is a fake issuer (PKCE, nonce, RS256); `TestDexMockConnector` signs in through a
+real Dex when `DEX_TEST_ISSUER` (and `DEX_TEST_SECRET`) name one started from `deploy/dex/config.yaml` with
+`DEX_MOCK_CONNECTOR=1`.
 
 ## Node doctor
 

@@ -20,43 +20,53 @@ import (
 
 // Server serves the API under /api/.
 type Server struct {
+	// Client is the fixture client of demo mode (Core empty).
 	Client tui.Client
 	// Mode is "live" or "demo" (shown by the page).
 	Mode string
+	// Core is Core's URL in live mode; Token the owner token, empty in session mode (access.go).
+	Core  string
+	Token string
 
-	tail feedTail
-	lib  library
+	stateMap
 }
 
 // Handler is the whole site.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/meta", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, map[string]any{"describe": s.Client.Describe(), "mode": s.Mode}, nil)
+		access := "token"
+		switch {
+		case s.Core == "":
+			access = "demo"
+		case s.Token == "":
+			access = "session"
+		}
+		reply(w, map[string]any{"describe": s.state(r).client.Describe(), "mode": s.Mode, "access": access}, nil)
 	})
 	mux.HandleFunc("GET /api/overview", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Client.Overview(r.Context())
+		v, err := s.state(r).client.Overview(r.Context())
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		o, err := s.Client.Overview(r.Context())
+		o, err := s.state(r).client.Overview(r.Context())
 		if err != nil {
 			reply(w, nil, err)
 			return
 		}
-		v, err := s.Client.TaskDetail(r.Context(), r.PathValue("id"), o.Tasks)
+		v, err := s.state(r).client.TaskDetail(r.Context(), r.PathValue("id"), o.Tasks)
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/runs/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Client.Run(r.Context(), r.PathValue("id"))
+		v, err := s.state(r).client.Run(r.Context(), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/runs/{id}/events", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Client.RunEvents(r.Context(), r.PathValue("id"))
+		v, err := s.state(r).client.RunEvents(r.Context(), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/runs/{id}/toolcalls", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Client.ToolCalls(r.Context(), r.PathValue("id"))
+		v, err := s.state(r).client.ToolCalls(r.Context(), r.PathValue("id"))
 		reply(w, v, err)
 	})
 	// ?after=N pages forward (Core's GET /feed); ?before=N reads backwards: the newest rows below N, or the
@@ -64,7 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/feed", func(w http.ResponseWriter, r *http.Request) {
 		limit := int(num(r, "limit", 100))
 		if !r.URL.Query().Has("before") {
-			v, err := s.Client.Feed(r.Context(), feedQuery(r), num(r, "after", 0), limit)
+			v, err := s.state(r).client.Feed(r.Context(), feedQuery(r), num(r, "after", 0), limit)
 			reply(w, v, err)
 			return
 		}
@@ -73,11 +83,11 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, fmt.Errorf("%w: before >= 0 and limit 1..500 required", errInput))
 			return
 		}
-		v, err := s.tail.read(r.Context(), s.Client, feedQuery(r), before, limit)
+		v, err := s.state(r).tail.read(r.Context(), s.state(r).client, feedQuery(r), before, limit)
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/messages", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Client.Messages(r.Context(), r.URL.Query().Get("conversation"))
+		v, err := s.state(r).client.Messages(r.Context(), r.URL.Query().Get("conversation"))
 		if v == nil {
 			v = []messaging.Message{} // a conversation that does not exist yet has no messages
 		}
@@ -89,11 +99,11 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, fmt.Errorf("%w: since", errInput))
 			return
 		}
-		v, err := s.Client.Costs(r.Context(), time.Now().Add(-d))
+		v, err := s.state(r).client.Costs(r.Context(), time.Now().Add(-d))
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/artifacts/{project}/{artifact}/{version}", func(w http.ResponseWriter, r *http.Request) {
-		b, err := s.Client.ArtifactContent(r.Context(), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"))
+		b, err := s.state(r).client.ArtifactContent(r.Context(), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -103,12 +113,12 @@ func (s *Server) Handler() http.Handler {
 	// Task materials (materials.go): what a task produced, the Library across the company, and the blobs
 	// behind report attachments (raw, typed by the file name, sandboxed).
 	mux.HandleFunc("GET /api/tasks/{id}/materials", func(w http.ResponseWriter, r *http.Request) {
-		d, err := s.Client.TaskDetail(r.Context(), r.PathValue("id"), nil)
+		d, err := s.state(r).client.TaskDetail(r.Context(), r.PathValue("id"), nil)
 		if err != nil {
 			reply(w, nil, err)
 			return
 		}
-		v, err := taskMaterials(r.Context(), s.Client, d)
+		v, err := taskMaterials(r.Context(), s.state(r).client, d)
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/materials", func(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +127,7 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, fmt.Errorf("%w: limit 1..200 and before >= 0 required", errInput))
 			return
 		}
-		all, err := s.lib.read(r.Context(), s.Client)
+		all, err := s.state(r).lib.read(r.Context(), s.state(r).client)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -130,7 +140,7 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, fmt.Errorf("%w: a SHA-256 digest required", errInput))
 			return
 		}
-		b, err := s.Client.Blob(r.Context(), r.PathValue("sha256"))
+		b, err := s.state(r).client.Blob(r.Context(), r.PathValue("sha256"))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -148,13 +158,13 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, fmt.Errorf("%w: action JSON with Kind required", errInput))
 			return
 		}
-		out, err := s.Client.Do(r.Context(), a)
+		out, err := s.state(r).client.Do(r.Context(), a)
 		reply(w, map[string]string{"result": out}, err)
 	})
 	// The company's catalog (company-self-service 6.1): reads and changes pass through to Core's catalog,
 	// template and company routes; a demo client has none.
-	catalog := func(w http.ResponseWriter) (tui.CatalogClient, bool) {
-		cc, ok := s.Client.(tui.CatalogClient)
+	catalog := func(w http.ResponseWriter, r *http.Request) (tui.CatalogClient, bool) {
+		cc, ok := s.state(r).client.(tui.CatalogClient)
 		if !ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotImplemented)
@@ -164,7 +174,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	for _, p := range []string{"/catalog", "/catalog/team", "/catalog/history", "/catalog/document", "/templates", "/companies"} {
 		mux.HandleFunc("GET /api"+p, func(w http.ResponseWriter, r *http.Request) {
-			cc, ok := catalog(w)
+			cc, ok := catalog(w, r)
 			if !ok {
 				return
 			}
@@ -182,7 +192,7 @@ func (s *Server) Handler() http.Handler {
 				reply(w, nil, fmt.Errorf("%w: X-Factory-Web header required", errInput))
 				return
 			}
-			cc, ok := catalog(w)
+			cc, ok := catalog(w, r)
 			if !ok {
 				return
 			}
@@ -197,18 +207,27 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.HandleFunc("GET /api/stream/feed", func(w http.ResponseWriter, r *http.Request) {
 		stream(w, r, func(ctx context.Context, out func(tui.StreamEvent)) {
-			s.Client.StreamFeed(ctx, feedQuery(r), num(r, "after", 0), out)
+			s.state(r).client.StreamFeed(ctx, feedQuery(r), num(r, "after", 0), out)
 		})
 	})
 	mux.HandleFunc("GET /api/stream/run/{id}", func(w http.ResponseWriter, r *http.Request) {
 		stream(w, r, func(ctx context.Context, out func(tui.StreamEvent)) {
-			s.Client.StreamRun(ctx, r.PathValue("id"), num(r, "after", 0), int(num(r, "tail", 0)), out)
+			s.state(r).client.StreamRun(ctx, r.PathValue("id"), num(r, "after", 0), int(num(r, "tail", 0)), out)
 		})
 	})
-	return mux
+	// Sign-in and the owner routes the web UI calls as they are (access.go).
+	if s.Core != "" {
+		mux.Handle("/auth/", s.coreProxy(""))
+		mux.Handle("/api/core/", s.coreRoute(s.coreProxy("/api/core")))
+	} else {
+		mux.Handle("/api/core/", s.coreRoute(nil))
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { mux.ServeHTTP(w, withForward(r)) })
 }
 
 var errInput = errors.New("bad request")
+
+func errInputf(message string) error { return fmt.Errorf("%w: %s", errInput, message) }
 
 // reply writes v as JSON, or the error as {"error": ...} (400 for bad input, 502 for Core's refusals).
 func reply(w http.ResponseWriter, v any, err error) {

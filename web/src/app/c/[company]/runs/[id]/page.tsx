@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowLeft, Bot, CircleStop, Clock, Coins, Cpu, Hash, TriangleAlert } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";

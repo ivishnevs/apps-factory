@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { AlertTriangle, Bell, CheckCircle2, ChevronRight, CirclePause, Hand, MessageCircleQuestion, ShieldCheck } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/app/link";
 import { toneClass } from "@/components/app/status";
 import { elapsed, isConversation, needsOwner, runCost, since } from "@/components/app/tasks/model";
 import { cleanText, humanize, lookupFrom, taskName } from "@/lib/humanize";
