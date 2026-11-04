@@ -5,17 +5,6 @@ Schedule work from a durable trigger log with explicit parks, one runnable reaso
 
 ## Requirements
 
-### Requirement: Durable trigger log
-Every reason to run a task SHALL be recorded as a trigger row in the same transaction as its cause, and SHALL raise the task's `wake_seq`. A successful run SHALL advance `handled_seq` to the highest trigger it was shown. An agent's own comment SHALL NOT trigger its own task.
-
-#### Scenario: Handoff while the bus is down
-- **WHEN** a task is assigned to another agent while NATS is unavailable
-- **THEN** the assignment trigger SHALL be committed and the task SHALL be dispatched once the dispatcher runs, without any separate wake message
-
-#### Scenario: Last dependency closes
-- **WHEN** the last open dependency of a task becomes DONE
-- **THEN** exactly one `dependency_done` trigger SHALL be added to the dependent task
-
 ### Requirement: Explicit parks
 Automatic holds (questions, pending approvals, manual blocks, children, waits, escalations, inspections) SHALL be explicit park records with a kind, a reference and the `wake_seq` at creation. BLOCKED SHALL be derived from active parks, not stored.
 
@@ -46,17 +35,6 @@ Core SHALL decide whether a task may run with one pure function over a snapshot 
 - **WHEN** a task's block park waits for its node to reset a diverged worktree
 - **THEN** its clearer SHALL be `node`
 
-### Requirement: Dispatcher and reconciler
-The dispatcher SHALL create a run and an outbox command for each runnable task without a live run. The reconciler SHALL republish commands for queued runs that were not claimed within the redelivery interval and SHALL end queued runs older than the queue TTL without counting an attempt.
-
-#### Scenario: Restored stream
-- **WHEN** the command stream is purged or restored from an older backup while runs are QUEUED
-- **THEN** the reconciler SHALL publish new commands for those runs and each run SHALL execute at most once
-
-#### Scenario: Nobody can claim
-- **WHEN** a queued run is not claimed within the queue TTL
-- **THEN** the run SHALL end as `unclaimed` without an attempt and the task SHALL be dispatched again with reason `no_capable_node` visible while unclaimed
-
 ### Requirement: Claim re-check
 Claim SHALL re-evaluate the run and its task against the database and SHALL return the RunSpec with a brief of the triggers in `(handled_seq, wake_seq]`. A stale claim SHALL end the run as `stale` without an attempt and tell the worker to drop the command.
 
@@ -83,11 +61,11 @@ A task created by an agent SHALL record its origin task. Creating a task while a
 - **THEN** only one task SHALL exist and the second call SHALL return it
 
 ### Requirement: Event feed table
-Core SHALL record scheduling events in one `feed_events` table in the transaction of their cause and SHALL publish each row through the outbox to NATS.
+Core SHALL record scheduling events in one `feed_events` table in the transaction of their cause.
 
 #### Scenario: Rolled-back dispatch
 - **WHEN** a dispatch transaction rolls back
-- **THEN** no feed row and no outbox message SHALL exist for it
+- **THEN** no feed row and no queued run SHALL exist for it
 
 ### Requirement: Why a run is queued
 Core SHALL say why a QUEUED run is not claimed yet, as `queued` (`reason`, `detail`, `until`, and each registered node's `{node, name, reason, detail, until}`) on the run in `GET /status`, on `GET /runs/{id}` and in its task's `GET /tasks/{id}/why`, judging the claim's own checks without a claim. A run that is not QUEUED SHALL have no `queued`.
@@ -118,3 +96,25 @@ A pause (`paused`, with its reason and end), the agent's cap (`agent_busy`) and 
 #### Scenario: Critical disk and owner pause
 - **WHEN** the node reports its disk below the critical watermark, or the owner paused it with a reason
 - **THEN** the node's answer SHALL be `node_paused` with the free space and the watermark, or with the owner's reason
+
+### Requirement: Trigger log as the only wake-up
+Every reason to run a task SHALL be recorded as a trigger row in the same transaction as its cause, and SHALL raise the task's `wake_seq`. A successful run SHALL advance `handled_seq` to the highest trigger it was shown. An agent's own comment SHALL NOT trigger its own task.
+
+#### Scenario: Handoff while Core restarts
+- **WHEN** a task is assigned to another agent and Core restarts before the dispatcher runs
+- **THEN** the assignment trigger SHALL be committed and the task SHALL be dispatched once the dispatcher runs, without any separate wake message
+
+#### Scenario: Last dependency closes
+- **WHEN** the last open dependency of a task becomes DONE
+- **THEN** exactly one `dependency_done` trigger SHALL be added to the dependent task
+
+### Requirement: Dispatcher and queue reconciler
+The dispatcher SHALL create a queued run for each runnable task without a live run, and nodes SHALL take queued runs from their offers. The reconciler SHALL end queued runs older than the queue TTL without counting an attempt.
+
+#### Scenario: Core restored from an older backup
+- **WHEN** Core's database is restored while runs are QUEUED
+- **THEN** capable nodes SHALL get those runs as offers and each run SHALL execute at most once
+
+#### Scenario: Nobody can claim
+- **WHEN** a queued run is not claimed within the queue TTL
+- **THEN** the run SHALL end as `unclaimed` without an attempt and the task SHALL be dispatched again with reason `no_capable_node` visible while unclaimed

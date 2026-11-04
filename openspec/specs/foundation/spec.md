@@ -6,12 +6,11 @@ Set the base guarantees of a run: a single writer, no blind retry and the offici
 ## Requirements
 
 ### Requirement: Single writer and no blind retry
-Core SHALL atomically enqueue a run and outbox, allow one writer per project, and
-claim a run once. Lost leases SHALL become UNKNOWN without automatic rescheduling.
+Core SHALL atomically queue a run, allow one writer per project, and claim a run once. Lost leases SHALL become UNKNOWN without automatic rescheduling.
 
 #### Scenario: Duplicate delivery
-- **WHEN** a claimed command is delivered again
-- **THEN** it SHALL be acknowledged without starting another runtime
+- **WHEN** a run that is already claimed is offered again or claimed again by any node
+- **THEN** Core SHALL refuse the claim without starting another runtime
 
 ### Requirement: Official RPC
 Worker SHALL initialize app-server, start/resume a thread, start/interrupt a turn,

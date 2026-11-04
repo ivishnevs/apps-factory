@@ -6,10 +6,10 @@ Run one node process per machine with worker slots, heartbeats, resource capacit
 ## Requirements
 
 ### Requirement: One node process with worker slots
-Each machine SHALL run one node process that registers with Core under a boot epoch and executes up to its configured number of runs concurrently in worker slots, using one Core connection, authenticated with the node's keys, and one NATS connection.
+Each machine SHALL run one node process that registers with Core under a boot epoch and executes up to its configured number of runs concurrently in worker slots, using one Core connection authenticated with the node's keys and no other connection.
 
 #### Scenario: Relative paths in node.yaml
-- **WHEN** node.yaml names `state_dir: data/factory-node` (or another relative path: worktrees root, keys, shim, NATS files) and the node starts from the checkout
+- **WHEN** node.yaml names `state_dir: data/factory-node` (or another relative path: worktrees root, keys, shim) and the node starts from the checkout
 - **THEN** the node SHALL resolve each to an absolute path against its working directory at config load, so a conversation run's directory and every path derived from them are absolute
 
 #### Scenario: Node restart
@@ -33,13 +33,6 @@ Core SHALL expose an incarnation identifier that changes when its database is re
 #### Scenario: Restore from backup
 - **WHEN** the owner restores Core's database from a backup while a node has live runs
 - **THEN** the node SHALL stop those runs, re-register, and the tasks SHALL run again from the restored triggers
-
-### Requirement: Per-node control subject
-The node SHALL subscribe to `factory.<company>.nodes.<node_id>.control` and SHALL stop a run on a `run.stop` message addressed to it, independently of the work-queue command stream.
-
-#### Scenario: Stop while slots are busy
-- **WHEN** all slots are busy and a stop for one of its runs is published
-- **THEN** the node SHALL receive it immediately and stop that run
 
 ### Requirement: Resource classes respected at claim
 Nodes SHALL declare capacities per resource class and agents SHALL declare their needs. Core SHALL grant a claim only when the node has a free slot, the agent's labels and driver, and enough capacity in every class, and SHALL release capacity only after the run has ended and been sealed.
@@ -90,7 +83,7 @@ to a slot, SHALL kill orphaned agent processes of its runs, and SHALL detect whe
 - **THEN** the watchdog ends that run with the matching outcome, seals its worktree and frees the slot
 
 ### Requirement: Self-checks and automatic pause
-The node SHALL run self-checks on start and periodically — git and forge credentials, Core and NATS connectivity, free
+The node SHALL run self-checks on start and periodically — git and forge credentials, Core connectivity, free
 disk, stack checks from template hooks, and the runtime probes of its drivers — emitting one event per failing check. A
 failing runtime probe SHALL disable only that driver. The node SHALL pause itself only while no driver remains usable or
 another check that prevents all work fails; the pause SHALL clear when the check passes again.

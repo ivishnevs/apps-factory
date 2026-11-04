@@ -6,7 +6,7 @@ Carry durable messages, conversations and questions between agents and the owner
 ## Requirements
 
 ### Requirement: Durable messages and conversations
-Core SHALL persist messages and conversations with a transactional outbox and mutation replay.
+Core SHALL persist messages and conversations in the transaction of their cause, with mutation replay.
 
 #### Scenario: Repeated send
 - **WHEN** an agent repeats a message send with the same request key

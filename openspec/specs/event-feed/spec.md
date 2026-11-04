@@ -24,7 +24,7 @@ Mandatory reports SHALL be defined by reporting policy rules. A missing mandator
 - **THEN** the exit SHALL be accepted and the manager SHALL see a missing-report event
 
 ### Requirement: Filtered delivery and visibility
-Feed events SHALL be delivered through the outbox to NATS subjects that subscribers filter. Managers SHALL see only their subtree's events and the owner SHALL see all.
+Feed events SHALL be read from the `feed_events` table and delivered to subscribers through Core's API and server-sent events. Managers SHALL see only their subtree's events and the owner SHALL see all.
 
 #### Scenario: Lead lists events
 - **WHEN** a lead lists the feed through MCP
