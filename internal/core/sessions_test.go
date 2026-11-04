@@ -275,6 +275,37 @@ func TestRoles(t *testing.T) {
 			t.Errorf("%s %s %s: %d %s", tc.who, tc.method, tc.path, w.Code, w.Body.String())
 		}
 	}
+	// Members (saas-web-ui 2.3): everyone reads; only owners change roles or remove; the last owner stays.
+	if w := people[storage.RoleMember].do("GET", "/memberships", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "o@example.com") || !strings.Contains(w.Body.String(), "member@example.com") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := people[storage.RoleAdmin].do("PATCH", "/memberships/member", map[string]string{"role": "admin"}); w.Code != 403 {
+		t.Fatal("admin changed a role", w.Code)
+	}
+	if w := owner.do("PATCH", "/memberships/"+me.User.ID, map[string]string{"role": "admin"}); w.Code != 409 {
+		t.Fatal("last owner demoted", w.Code, w.Body.String())
+	}
+	if w := owner.do("DELETE", "/memberships/"+me.User.ID, nil); w.Code != 409 {
+		t.Fatal("last owner removed", w.Code)
+	}
+	if w := owner.do("PATCH", "/memberships/member", map[string]string{"role": "boss"}); w.Code != 400 {
+		t.Fatal("unknown role", w.Code)
+	}
+	if w := owner.do("PATCH", "/memberships/nobody", map[string]string{"role": "admin"}); w.Code != 404 {
+		t.Fatal("unknown member", w.Code)
+	}
+	if w := owner.do("PATCH", "/memberships/admin", map[string]string{"role": "owner"}); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := owner.do("PATCH", "/memberships/admin", map[string]string{"role": "admin"}); w.Code != 200 {
+		t.Fatal("demoting one of two owners", w.Code, w.Body.String())
+	}
+	if w := owner.do("DELETE", "/memberships/member", nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := people[storage.RoleMember].do("GET", "/tasks", nil); w.Code != 404 {
+		t.Fatal("a removed member still reaches the company", w.Code)
+	}
 	tokens, _ := c.Store.OwnerTokens(ctx, company)
 	if len(tokens) != 1 || tokens[0].CreatedBy != "user:"+storage.RoleAdmin {
 		t.Fatalf("%+v", tokens)

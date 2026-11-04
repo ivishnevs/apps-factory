@@ -524,6 +524,23 @@ func (c *Core) createUserCompany(w http.ResponseWriter, r *http.Request, user st
 // gateway), GET /company and PATCH /company (rename, owners only).
 func (c *Core) accountRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /me", c.me)
+	// The company's people (saas-web-ui 2.3): everyone reads, owners change roles and remove (requiredRole).
+	m.HandleFunc("GET /memberships", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.Members(r.Context(), c.companyFrom(r))
+		reply(w, v, err)
+	})
+	m.HandleFunc("PATCH /memberships/{user}", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Role string `json:"role"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		reply(w, map[string]string{"user": r.PathValue("user"), "role": p.Role}, c.Store.SetMemberRole(r.Context(), c.companyFrom(r), r.PathValue("user"), p.Role))
+	})
+	m.HandleFunc("DELETE /memberships/{user}", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]bool{"ok": true}, c.Store.RemoveMember(r.Context(), c.companyFrom(r), r.PathValue("user")))
+	})
 	m.HandleFunc("GET /company", func(w http.ResponseWriter, r *http.Request) {
 		company := c.companyFrom(r)
 		name, err := c.Store.CompanyName(r.Context(), company)
