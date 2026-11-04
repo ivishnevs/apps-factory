@@ -1,9 +1,14 @@
+"use client";
+
 import { AlertTriangle, Inbox } from "lucide-react";
+import { useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 // Page scaffolding shared by every screen.
+// The browser tab names the page too ("Tasks · App Factory"), so tabs and history are told apart.
 export function PageHeader({ title, description, actions }: { title: string; description?: React.ReactNode; actions?: React.ReactNode }) {
+  useEffect(() => { document.title = `${title} · App Factory`; }, [title]);
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
