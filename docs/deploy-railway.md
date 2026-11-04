@@ -27,7 +27,7 @@ FACTORY_WEB_UPSTREAM=http://${{web.RAILWAY_PRIVATE_DOMAIN}}:${{web.PORT}}
 FACTORY_OIDC_ISSUER=https://<dex domain>/dex
 FACTORY_OIDC_CLIENT_SECRET=<random, same as Dex's>
 FACTORY_OIDC_PROVIDERS=github
-FACTORY_MULTI_COMPANY=0
+FACTORY_MULTI_COMPANY=1                  # people add companies from the company menu
 ```
 
 Core listens on `PORT` (Railway sets it). `FACTORY_WEB_LOCAL` stays unset: on a public Core the web needs sign-in.

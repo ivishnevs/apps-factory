@@ -13,7 +13,7 @@
 
 ## 2. Product shell
 
-- [x] 2.1 Top bar with the company selector (switch, new company), user menu; navigation per D6; phone layout. Done: sidebar groups work and "Manage"; the company menu switches between every company of the person and is on top on phones; Costs only for owners and admins. Open: "New company" from the menu.
+- [x] 2.1 Top bar with the company selector (switch, new company), user menu; navigation per D6; phone layout. Done: sidebar groups work and "Manage"; the company menu switches between every company of the person and is on top on phones; Costs only for owners and admins. The Companies page is gone (the operator keeps `factory companies`); "New company" is in the company menu for signed-in people when `FACTORY_MULTI_COMPANY=1` (on in Railway) and opens the new company's wizard; Settings holds only this company and the account.
 - [x] 2.2 Home dashboard with the "Finish setup" card. Done: Home shows "Finish setting up" (`SetupBanner`) while `/setup` is not ready.
 - [ ] 2.3 Settings section (Company and members, Teams & agents, Skills, Secrets, Connectors, Projects,
   Integrations, Access tokens), role-aware.

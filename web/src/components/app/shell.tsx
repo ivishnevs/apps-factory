@@ -1,10 +1,15 @@
 "use client";
 
-import { Activity, Bot, Building2, KeyRound, Sparkles, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users } from "lucide-react";
+import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users } from "lucide-react";
 import Link, { useAppPath } from "@/components/app/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { signOut, useCompanyInfo, useMe, useOverview } from "@/lib/api/client";
-import { canManage } from "@/lib/api/types-account";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { core, signOut, useCompanyInfo, useMe, useOverview } from "@/lib/api/client";
+import { canManage, type Membership } from "@/lib/api/types-account";
 import { useCompany } from "@/lib/company";
 import { cn } from "@/lib/utils";
 import { ConfirmProvider } from "./confirm";
@@ -24,7 +29,6 @@ export const nav = [
   { href: "/skills", label: "Skills", icon: Sparkles },
   { href: "/secrets", label: "Secrets", icon: KeyRound },
   { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/companies", label: "Companies", icon: Building2, operator: true },
 ];
 
 // useNav hides the operator's pages from everyone else and costs from members (owners and admins see them).
@@ -45,7 +49,9 @@ function CompanyMenu({ compact }: { compact?: boolean }) {
   const me = useMe();
   const others = (me.data?.companies ?? []).filter((c) => c.company !== company);
   const session = me.data?.kind === "session";
+  const [creating, setCreating] = useState(false);
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", !compact && "mb-6")}>
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Bot className="size-4" /></span>
@@ -67,10 +73,47 @@ function CompanyMenu({ compact }: { compact?: boolean }) {
             <DropdownMenuSeparator />
           </>
         )}
+        {me.data?.kind === "session" && me.data.multi_company && (
+          <DropdownMenuItem onSelect={() => setCreating(true)}><Plus className="size-4" />New company</DropdownMenuItem>
+        )}
         <DropdownMenuItem asChild><Link href="/settings"><Settings className="size-4" />Settings</Link></DropdownMenuItem>
         {session && <DropdownMenuItem onSelect={signOut}><LogOut className="size-4" />Sign out</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
+    <NewCompanyDialog open={creating} onClose={() => setCreating(false)} />
+    </>
+  );
+}
+
+// NewCompanyDialog: another company of the signed-in person (user-accounts D2, FACTORY_MULTI_COMPANY); it opens on
+// its setup wizard.
+function NewCompanyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const m = await core<Membership>("/companies", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
+      window.location.assign(`/c/${encodeURIComponent(m.company)}/setup?welcome=1`);
+    } catch (err) { toast.error(err instanceof Error ? err.message : String(err)); setBusy(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setName(""); } }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New company</DialogTitle>
+          <DialogDescription>A separate company with its own teams, connectors, secrets and skills. You are its owner.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={create} className="space-y-4">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Side project" maxLength={100} autoFocus required aria-label="Company name" />
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy || !name.trim()}><Plus className="size-4" />Create</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -112,7 +155,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {[...items.filter((n) => phoneTabs.includes(n.href)), { href: "/more", label: "More", icon: MoreHorizontal }].map((n) => (
             <Link key={n.href} href={n.href}
               className={cn("relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground",
-                (active(path, n.href) || (n.href === "/more" && ["/library", "/chat", "/costs", "/nodes", "/teams", "/skills", "/secrets", "/settings", "/companies", "/more"].some((h) => active(path, h)))) && "text-foreground")}>
+                (active(path, n.href) || (n.href === "/more" && ["/library", "/chat", "/costs", "/nodes", "/teams", "/skills", "/secrets", "/settings", "/more"].some((h) => active(path, h)))) && "text-foreground")}>
               <n.icon className="size-5" />
               {n.label}
               {"badge" in n && n.badge && pending > 0 && (
