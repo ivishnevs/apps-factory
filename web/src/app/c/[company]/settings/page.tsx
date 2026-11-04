@@ -74,10 +74,11 @@ function General({ role }: { role: Role }) {
         </form>
         {!owner && <p className="mt-2 text-xs text-muted-foreground">Only an owner renames the company.</p>}
       </Section>
-      <Section title="Time zone" icon={Clock} description="Daily digests, schedules and timers of the company use it.">
+      <Section title="Time zone" icon={Clock} description="The daily budget and the daily digest count days in it.">
         <form onSubmit={saveZone} className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex-1 space-y-1.5 text-sm"><span className="font-medium">Time zone</span>
             <select className="h-10 w-full rounded-md border bg-background px-2 text-sm disabled:opacity-60" value={zone} onChange={(e) => setZone(e.target.value)} disabled={!manage || !tz.data}>
+              {!zone && <option value="">Not set (UTC)</option>}
               {zone && !zones.includes(zone) && <option value={zone}>{zone}</option>}
               {zones.map((z) => <option key={z} value={z}>{z}</option>)}
             </select>
