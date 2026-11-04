@@ -14,9 +14,10 @@ HTTP claim answer. Revoking a node (`node-identity`) does not cut its NATS login
 
 **Rule:** do not expose NATS to, or give a NATS login to, a machine we do not control until this is solved.
 
-**Decision postponed** (owner, 2026-11-04). Nothing is planned, and no active change reworks or removes NATS.
-Options: nodes use only HTTP with long polling and NATS is removed or stays inside Core (the recommendation of that
-review); nodes only listen on NATS in an account without JetStream; one NATS account per company.
+**Decision** (owner, 2026-11-04, later the same day): remove NATS; nodes use only signed HTTPS with long polling.
+Planned in the OpenSpec change `http-node-transport` (not started). The rule above holds until it lands.
+Options considered: HTTP with long polling and NATS removed (chosen, the recommendation of that review); nodes only
+listen on NATS in an account without JetStream; one NATS account per company.
 
 ## Optional work
 

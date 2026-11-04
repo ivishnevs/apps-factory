@@ -31,6 +31,6 @@ at sign-up).
 - [ ] 5.3 Team pages: agents as cards with edit/delete, preset update hints, setup banner; YAML editor stays.
 
 ## 6. Verification
-- [ ] 6.1 `make check` green plus NATS tests with `-p 1`; tests: team from each preset loads and runs without
+- [ ] 6.1 `make check` green plus NATS tests with `-p 1` while NATS exists (`http-node-transport` removes them); tests: team from each preset loads and runs without
   repository prompts on disk, second team leaves the first unchanged, agent from a preset with overrides, conflict on
   a stale version, lead deletion refused, setup status names a missing secret.

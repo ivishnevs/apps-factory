@@ -29,7 +29,8 @@ migration, not released): `path:` entries in `skills.yaml` and the node's disk r
 pinned|track, commit, synced_at, status, error)`.
 - **Public git** (`access: public`): Core fetches: `https` only, public addresses only (no private/link-local IPs),
   shallow (`--depth 1`), no submodules, no LFS, hooks disabled, time and size limits, in a fresh directory.
-- **Private git** (`access: node`): Core creates a sync job for an online node of the company; the node fetches
+- **Private git** (`access: node`): Core creates a sync job for an online node of the company, delivered in the
+  node's heartbeat answer (and in its poll answer once `http-node-transport` lands); the node fetches
   with its own git access (the user's machine, as it clones project repositories), packs the tree at the resolved
   commit (same limits, no symlinks) and uploads it with a signed request (`node-identity`). Without an online node
   the sync waits and the source shows why.

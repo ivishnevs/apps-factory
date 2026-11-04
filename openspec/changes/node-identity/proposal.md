@@ -11,7 +11,7 @@ A node proves who it is to Core with a bearer token (`fnt_…`, `node-agent` 1.1
 - **Removed** (no migration, not released): node tokens (`node_tokens`, `/node-tokens` routes, `factory nodes token …`, `FACTORY_NODE_TOKEN`, node.yaml `token_file` and `company`), the shared `FACTORY_TOKEN` on node routes, the v1 claim, `cmd/codex-worker`.
 
 ## Out of scope
-**Any change to NATS: nodes keep today's connection and logins, and NATS is neither reworked nor removed here** (known issue in `docs/backlog.md`). Keys in Secure Enclave / TPM (private keys are 0600 files on an encrypted disk for now), short-lived node certificates, the agent-facing run token, a node serving several companies, provisioning virtual nodes (Fly Sprites; later, D8).
+**Any change to NATS: nodes keep today's connection and logins, and NATS is neither reworked nor removed here; its removal is planned in `http-node-transport` (owner 2026-11-04)** (known issue in `docs/backlog.md`). Keys in Secure Enclave / TPM (private keys are 0600 files on an encrypted disk for now), short-lived node certificates, the agent-facing run token, a node serving several companies, provisioning virtual nodes (Fly Sprites; later, D8).
 
 ## Dependencies
 `node-agent` (registration, node routes), `postgres-tenancy` (company scope), `user-accounts` (owner and admin roles, company web pages: until it lands, enrollment works through the CLI and API with an owner token, and the web page waits). `core-secret-store` builds on the encryption key.

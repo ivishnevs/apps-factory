@@ -28,7 +28,8 @@ hash with the built-in source (default skills on any node), then sources, indexe
 ## 4. Sources and indexer
 - [ ] 4.1 Schema: `skill_sources`, `skill_index`, source sync jobs.
 - [ ] 4.2 Public fetch by Core: `https`, public addresses only, shallow, no submodules/LFS/hooks, limits; ref → commit.
-- [ ] 4.3 Private fetch by a node: sync job to an online node of the company, fetch with the node's git access, packed
+- [ ] 4.3 Private fetch by a node: sync job to an online node of the company (heartbeat answer; the poll answer of
+  `http-node-transport` when it exists, never NATS), fetch with the node's git access, packed
   tree uploaded with a signed request; waiting state without an online node.
 - [ ] 4.4 Upload of an archive or folder (owner/admin).
 - [ ] 4.5 Discovery by layout (D4), validation, hashing, per-skill errors; fixtures for each layout.
@@ -45,7 +46,7 @@ hash with the built-in source (default skills on any node), then sources, indexe
 - [ ] 6.2 Agent editor skill picker: installed skills available to the team, discovery categories, link to Skills. Progress: `web/src/components/app/team/skill-picker.tsx` on the team page (`GET /skills/installed?team=`, saves `spec.skills.include` of the agent document; `GET /catalog/teams` gives each agent `document` and `skills`); moves into the agent form of team-builder 5.2.
 
 ## 7. Verification
-- [ ] 7.1 `make check` green plus NATS tests with `-p 1`; tests: deterministic index of the same tree, invalid skill
+- [ ] 7.1 `make check` green plus NATS tests with `-p 1` while NATS exists (`http-node-transport` removes them); tests: deterministic index of the same tree, invalid skill
   does not block others, SSRF refusal, private source fetched by a node and waiting without one, rollback restores
   content, foreign hash 404, node download and verification, agents of two teams on one node see only their skills,
   team scope refused for another team.

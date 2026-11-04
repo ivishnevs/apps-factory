@@ -1,4 +1,4 @@
-**NATS is out of scope: do not rework or remove it here. Known issue in `docs/backlog.md`.**
+**NATS is out of scope: do not rework or remove it here. Known issue in `docs/backlog.md`; its removal is planned in `http-node-transport` (owner 2026-11-04). Archive this change before applying that one (both change `node-agent` "One node process with worker slots").**
 
 ## 1. Keys and enrollment
 - [x] 1.1 Node key pairs (Ed25519 sign, X25519 box) in `state_dir/keys/`, 0600 check at start and in doctor, fingerprint; mandatory policy refusing common commands that name the key files (guardrail, design Risks). Verify: unit tests for generation, reload, loose-mode refusal, stable fingerprint. Done: `internal/node/keys.go`, `node.keys` doctor check, start refused on a loose or damaged key (missing keys allowed until 4.2), builtin `node-keys` policy; `TestNodeKeys`, `TestFingerprint`, `TestKeysCheckMissing`, `TestDoctorChecksKeys`, `TestNodeKeysGuard`.
