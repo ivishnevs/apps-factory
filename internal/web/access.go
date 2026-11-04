@@ -181,7 +181,7 @@ func (s *Server) coreProxy(strip string) http.Handler {
 }
 
 // corePaths are the Core routes /api/core/* reaches.
-var corePaths = []string{"/me", "/company", "/companies", "/catalog", "/templates", "/secrets", "/nodes", "/node-enrollments",
+var corePaths = []string{"/me", "/company", "/companies", "/catalog", "/templates", "/secrets", "/nodes", "/node-enrollments", "/node-keys",
 	"/skills", "/presets", "/setup", "/owner-tokens", "/agents", "/projects"}
 
 func corePath(p string) bool {
