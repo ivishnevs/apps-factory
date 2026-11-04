@@ -8,3 +8,5 @@ projects
 workers/*/node_modules
 workers/*/dist
 dist
+web/node_modules
+web/.next
