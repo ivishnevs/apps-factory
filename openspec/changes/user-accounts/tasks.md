@@ -14,7 +14,7 @@ and Dex, sessions and company resolution, roles, company at sign-up, web UI. Can
 
 ## 3. Storage
 - [x] 3.1 Schema: `identities`, `sessions`, `users.name`, `users.last_company_id`, memberships role
-  `owner|admin|member` (migration `0009_user_accounts`, numbered like the other changes' migrations instead of an
+  `owner|admin|member` (migration `0010_user_accounts`, numbered like the other changes' migrations instead of an
   in-place baseline edit); store functions for upsert by identity (D4), account and company
   at first sign-in, sessions (create, touch, revoke), memberships of a user, company rename. Done:
   `internal/storage/users.go` (`SignIn`, `CreateSession`/`AuthenticateSession`/`RevokeSession` with only the
