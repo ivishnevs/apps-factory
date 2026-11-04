@@ -13,9 +13,13 @@ and Dex, sessions and company resolution, roles, company at sign-up, web UI. Can
   setting), `development.md` (Dex in compose, OAuth apps, env), `architecture.md`.
 
 ## 3. Storage
-- [ ] 3.1 Schema: `identities`, `sessions`, `users.name`, `users.last_company_id`, memberships role
-  `owner|admin|member` (baseline changed in place); store functions for upsert by identity (D4), account and company
-  at first sign-in, sessions (create, touch, revoke), memberships of a user, company rename.
+- [x] 3.1 Schema: `identities`, `sessions`, `users.name`, `users.last_company_id`, memberships role
+  `owner|admin|member` (migration `0009_user_accounts`, numbered like the other changes' migrations instead of an
+  in-place baseline edit); store functions for upsert by identity (D4), account and company
+  at first sign-in, sessions (create, touch, revoke), memberships of a user, company rename. Done:
+  `internal/storage/users.go` (`SignIn`, `CreateSession`/`AuthenticateSession`/`RevokeSession` with only the
+  SHA-256 of the `fws_` id stored, `Role`, `SetLastCompany`, `CreateUserCompany`, `RenameCompany`),
+  `owner_tokens.created_by`; `TestSignInCreatesAccountAndCompany`, `TestSessions`.
 
 ## 4. Sign-in
 - [ ] 4.1 Dex in `compose.yaml` (Postgres storage, static client `factory-core`, Google and GitHub connectors from

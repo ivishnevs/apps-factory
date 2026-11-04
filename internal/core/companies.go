@@ -86,7 +86,7 @@ func (c *Core) CreateCompany(ctx context.Context, in CompanyCreate) (CompanyCrea
 	if err != nil {
 		return out, err
 	}
-	tok, err := c.Store.CreateOwnerToken(ctx, in.ID, "first owner")
+	tok, err := c.Store.CreateOwnerToken(ctx, in.ID, "first owner", "operator")
 	if err != nil {
 		return out, err
 	}
@@ -143,7 +143,7 @@ func (c *Core) companyRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.CreateOwnerToken(r.Context(), c.companyFrom(r), p.Name)
+		v, err := c.Store.CreateOwnerToken(r.Context(), c.companyFrom(r), p.Name, "owner")
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /owner-tokens/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {

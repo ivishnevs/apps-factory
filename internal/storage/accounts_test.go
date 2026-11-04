@@ -88,11 +88,11 @@ func TestUsersBelongToCompaniesOfTheirAccount(t *testing.T) {
 	if err = s.AddMember(ctx, "acme", "nobody", RoleMember); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
-	if err = s.AddMember(ctx, "acme", "ann", "admin"); !errors.Is(err, ErrInput) {
+	if err = s.AddMember(ctx, "acme", "ann", "operator"); !errors.Is(err, ErrInput) {
 		t.Fatal(err)
 	}
 	ms, err := s.Memberships(ctx, "ann")
-	if err != nil || len(ms) != 2 || ms[0] != (Membership{"acme", RoleMember}) || ms[1] != (Membership{DefaultCompany, RoleOwner}) {
+	if err != nil || len(ms) != 2 || ms[0] != (Membership{"acme", "acme", RoleMember}) || ms[1] != (Membership{DefaultCompany, "Default", RoleOwner}) {
 		t.Fatal(ms, err)
 	}
 }

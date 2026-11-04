@@ -12,12 +12,17 @@ const DefaultAccount = "default"
 // Membership roles.
 const (
 	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
 	RoleMember = "member"
 )
+
+// ValidRole reports whether role is a membership role (user-accounts D7).
+func ValidRole(role string) bool { return role == RoleOwner || role == RoleAdmin || role == RoleMember }
 
 // Membership is a user's role in one company.
 type Membership struct {
 	Company string `json:"company"`
+	Name    string `json:"name"`
 	Role    string `json:"role"`
 }
 
@@ -69,8 +74,8 @@ func (s *Store) CreateUser(ctx context.Context, account, id, email string) error
 // AddMember makes user a member of company with role. The user and the company must belong to the same
 // account (the composite foreign keys refuse anything else: ErrConflict).
 func (s *Store) AddMember(ctx context.Context, company, user, role string) error {
-	if role != RoleOwner && role != RoleMember {
-		return inputError("role must be owner or member")
+	if !ValidRole(role) {
+		return inputError("role must be owner, admin or member")
 	}
 	res, err := s.DB.ExecContext(ctx, `INSERT INTO memberships(account_id,company_id,user_id,role,created_at)
  SELECT u.account_id,?,u.id,?,? FROM users u WHERE u.id=?
@@ -86,7 +91,7 @@ func (s *Store) AddMember(ctx context.Context, company, user, role string) error
 
 // Memberships lists the companies user belongs to.
 func (s *Store) Memberships(ctx context.Context, user string) ([]Membership, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT company_id,role FROM memberships WHERE user_id=? ORDER BY company_id", user)
+	rows, err := s.DB.QueryContext(ctx, "SELECT m.company_id,c.name,m.role FROM memberships m JOIN companies c ON c.id=m.company_id WHERE m.user_id=? ORDER BY m.company_id", user)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +99,7 @@ func (s *Store) Memberships(ctx context.Context, user string) ([]Membership, err
 	out := []Membership{}
 	for rows.Next() {
 		var m Membership
-		if err = rows.Scan(&m.Company, &m.Role); err != nil {
+		if err = rows.Scan(&m.Company, &m.Name, &m.Role); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

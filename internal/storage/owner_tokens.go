@@ -19,6 +19,7 @@ type OwnerToken struct {
 	ID         string `json:"id"`
 	Company    string `json:"company"`
 	Name       string `json:"name"`
+	CreatedBy  string `json:"created_by,omitempty"`
 	CreatedAt  int64  `json:"created_at"`
 	RevokedAt  int64  `json:"revoked_at,omitempty"`
 	LastUsedAt int64  `json:"last_used_at,omitempty"`
@@ -30,9 +31,10 @@ type IssuedOwnerToken struct {
 	Token string `json:"token"`
 }
 
-// CreateOwnerToken issues an owner token of company named name.
-func (s *Store) CreateOwnerToken(ctx context.Context, company, name string) (IssuedOwnerToken, error) {
-	out := IssuedOwnerToken{OwnerToken: OwnerToken{ID: protocol.ID(), Company: company, Name: strings.TrimSpace(name), CreatedAt: s.Now().Unix()}}
+// CreateOwnerToken issues an owner token of company named name; author is who issued it (`user:<id>`,
+// `operator`; user-accounts 5.3).
+func (s *Store) CreateOwnerToken(ctx context.Context, company, name, author string) (IssuedOwnerToken, error) {
+	out := IssuedOwnerToken{OwnerToken: OwnerToken{ID: protocol.ID(), Company: company, Name: strings.TrimSpace(name), CreatedBy: author, CreatedAt: s.Now().Unix()}}
 	if len(out.Name) > 200 {
 		return out, inputError("name exceeds 200 characters")
 	}
@@ -40,13 +42,13 @@ func (s *Store) CreateOwnerToken(ctx context.Context, company, name string) (Iss
 		return out, err
 	}
 	out.Token = OwnerTokenPrefix + protocol.ID() + protocol.ID()
-	_, err := s.DB.ExecContext(ctx, "INSERT INTO owner_tokens(company_id,id,name,hash,created_at) VALUES(?,?,?,?,?)", company, out.ID, out.Name, hashNodeToken(out.Token), out.CreatedAt)
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO owner_tokens(company_id,id,name,hash,created_at,created_by) VALUES(?,?,?,?,?,?)", company, out.ID, out.Name, hashSecret(out.Token), out.CreatedAt, out.CreatedBy)
 	return out, err
 }
 
 // OwnerTokens lists company's owner tokens (never the tokens themselves).
 func (s *Store) OwnerTokens(ctx context.Context, company string) ([]OwnerToken, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,created_at,revoked_at,last_used_at FROM owner_tokens WHERE company_id=? ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,created_by,created_at,revoked_at,last_used_at FROM owner_tokens WHERE company_id=? ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +56,7 @@ func (s *Store) OwnerTokens(ctx context.Context, company string) ([]OwnerToken, 
 	out := []OwnerToken{}
 	for rows.Next() {
 		t := OwnerToken{Company: company}
-		if err = rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.RevokedAt, &t.LastUsedAt); err != nil {
+		if err = rows.Scan(&t.ID, &t.Name, &t.CreatedBy, &t.CreatedAt, &t.RevokedAt, &t.LastUsedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -80,7 +82,7 @@ func (s *Store) AuthenticateOwnerToken(ctx context.Context, token string) (Owner
 	if !strings.HasPrefix(token, OwnerTokenPrefix) {
 		return t, ErrNotFound
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT company_id,id,name,created_at,last_used_at FROM owner_tokens WHERE hash=? AND revoked_at=0", hashNodeToken(token)).
+	err := s.DB.QueryRowContext(ctx, "SELECT company_id,id,name,created_at,last_used_at FROM owner_tokens WHERE hash=? AND revoked_at=0", hashSecret(token)).
 		Scan(&t.Company, &t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrNotFound
