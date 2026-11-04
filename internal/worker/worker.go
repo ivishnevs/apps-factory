@@ -87,7 +87,10 @@ func (a API) Do(ctx context.Context, method, path string, body, result any) erro
 	req.Header.Set("Content-Type", "application/json")
 	client := a.Client
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = defaultClient
+		if _, ok := ctx.Deadline(); ok {
+			client = deadlineClient // the context bounds the request: a node's long poll waits up to 25 s
+		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -103,6 +106,14 @@ func (a API) Do(ctx context.Context, method, path string, body, result any) erro
 	}
 	return nil
 }
+
+// DefaultTimeout bounds a request to Core whose context has no deadline.
+var DefaultTimeout = 10 * time.Second
+
+var (
+	defaultClient  = &http.Client{Timeout: DefaultTimeout}
+	deadlineClient = &http.Client{}
+)
 
 type HTTPError struct {
 	Status  int

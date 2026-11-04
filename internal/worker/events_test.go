@@ -200,3 +200,25 @@ func TestEventsGap(t *testing.T) {
 		t.Fatal("spool kept after the terminal event")
 	}
 }
+
+// TestAPIDeadline: a request whose context has a deadline is bounded by it, not by the client's default timeout
+// (the node's long poll outlasts DefaultTimeout); one without a deadline gets the default.
+func TestAPIDeadline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	saved := defaultClient
+	defaultClient = &http.Client{Timeout: 100 * time.Millisecond}
+	defer func() { defaultClient = saved }()
+	api := API{URL: srv.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := api.Do(ctx, "POST", "/x", nil, nil); err != nil {
+		t.Fatal("a request within its deadline failed:", err)
+	}
+	if err := api.Do(context.Background(), "POST", "/x", nil, nil); err == nil {
+		t.Fatal("a request without a deadline outlasted the default timeout")
+	}
+}
