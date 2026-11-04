@@ -154,7 +154,7 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 		if !decodeMax(w, r, &ch, 64<<20) {
 			return
 		}
-		v, err := c.ApplyCatalogChange(r.Context(), c.companyFrom(r), "owner", ch)
+		v, err := c.ApplyCatalogChange(r.Context(), c.companyFrom(r), author(r), ch)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /catalog/rollback", func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +179,7 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 		if note == "" {
 			note = fmt.Sprintf("rollback to version %d", p.To)
 		}
-		v, err := c.SaveCatalog(r.Context(), company, storage.CatalogSave{Base: p.Base, Docs: old.Docs, Author: "owner", Note: note})
+		v, err := c.SaveCatalog(r.Context(), company, storage.CatalogSave{Base: p.Base, Docs: old.Docs, Author: author(r), Note: note})
 		reply(w, v, err)
 	})
 }

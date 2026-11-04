@@ -43,6 +43,14 @@ services:
       FACTORY_TELEGRAM_TOKEN: ${FACTORY_TELEGRAM_TOKEN:-}
       FACTORY_TELEGRAM_PROJECT: ${FACTORY_TELEGRAM_PROJECT:-}
       FACTORY_TELEGRAM_DIGEST_AT: ${FACTORY_TELEGRAM_DIGEST_AT:-}
+      # Website sign-in (user-accounts, docs/development.md#sign-in): off while FACTORY_OIDC_ISSUER is empty.
+      # Browsers reach Dex at the issuer address, Core at dex:5556 inside compose.
+      FACTORY_OIDC_ISSUER: ${FACTORY_OIDC_ISSUER:-}
+      FACTORY_OIDC_INTERNAL_URL: http://dex:5556/dex
+      FACTORY_OIDC_CLIENT_SECRET: ${FACTORY_OIDC_CLIENT_SECRET:-}
+      FACTORY_OIDC_PROVIDERS: ${FACTORY_OIDC_PROVIDERS:-google,github}
+      FACTORY_PUBLIC_URL: ${FACTORY_PUBLIC_URL:-http://127.0.0.1:3000}
+      FACTORY_MULTI_COMPANY: ${FACTORY_MULTI_COMPANY:-0}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -53,6 +61,38 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+    restart: unless-stopped
+  # Dex's database in the same Postgres (user-accounts D3); created once, kept in the postgres-data volume.
+  dex-db:
+    image: postgres:17-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    command: ["sh", "-c", "psql -h postgres -U factory -d factory -tAc \"SELECT 1 FROM pg_database WHERE datname='dex'\" | grep -q 1 || psql -h postgres -U factory -d factory -c 'CREATE DATABASE dex'"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+  # OIDC issuer for the website sign-in (deploy/dex/config.yaml): Google and GitHub when their OAuth apps are set,
+  # the mock connector for local development (DEX_MOCK_CONNECTOR=1).
+  dex:
+    image: ghcr.io/dexidp/dex:v2.43.1
+    environment:
+      DEX_ISSUER: ${FACTORY_OIDC_ISSUER:-http://127.0.0.1:5556/dex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      FACTORY_OIDC_CLIENT_SECRET: ${FACTORY_OIDC_CLIENT_SECRET:-}
+      FACTORY_PUBLIC_URL: ${FACTORY_PUBLIC_URL:-http://127.0.0.1:3000}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      DEX_MOCK_CONNECTOR: ${DEX_MOCK_CONNECTOR:-0}
+    volumes:
+      - ./deploy/dex/config.yaml:/etc/dex/config.docker.yaml:ro
+    ports:
+      - "127.0.0.1:5556:5556"
+    depends_on:
+      dex-db:
+        condition: service_completed_successfully
     restart: unless-stopped
 volumes:
   postgres-data:

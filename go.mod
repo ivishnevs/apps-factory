@@ -7,9 +7,12 @@ require (
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/coreos/go-oidc/v3 v3.15.0
+	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/nats-io/nats.go v1.41.2
 	github.com/nats-io/nkeys v0.4.11
+	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )

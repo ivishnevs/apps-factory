@@ -1,0 +1,51 @@
+{{- /* Dex for App Factory sign-in (user-accounts D3): the one OIDC issuer Core trusts; Google, GitHub and other
+connectors behind it. Core passes connector_id, so Dex's own provider page is skipped. The Dex image renders
+this file with gomplate: values come from the environment (compose passes them from .env). */ -}}
+issuer: {{ getenv "DEX_ISSUER" "http://127.0.0.1:5556/dex" }}
+storage:
+  type: postgres
+  config:
+    host: {{ getenv "DEX_DB_HOST" "postgres" }}
+    port: {{ getenv "DEX_DB_PORT" "5432" }}
+    database: {{ getenv "DEX_DB_NAME" "dex" }}
+    user: {{ getenv "DEX_DB_USER" "factory" }}
+    password: {{ getenv "POSTGRES_PASSWORD" | required "POSTGRES_PASSWORD" | quote }}
+    ssl:
+      mode: disable
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  skipApprovalScreen: true
+  responseTypes: [code]
+staticClients:
+  - id: {{ getenv "FACTORY_OIDC_CLIENT_ID" "factory-core" }}
+    name: App Factory
+    secretEnv: FACTORY_OIDC_CLIENT_SECRET
+    redirectURIs:
+      - {{ getenv "FACTORY_PUBLIC_URL" "http://127.0.0.1:3000" }}/auth/callback
+connectors:
+{{- if getenv "GOOGLE_CLIENT_ID" }}
+  - type: google
+    id: google
+    name: Google
+    config:
+      clientID: {{ .Env.GOOGLE_CLIENT_ID | quote }}
+      clientSecret: {{ getenv "GOOGLE_CLIENT_SECRET" | required "GOOGLE_CLIENT_SECRET" | quote }}
+      redirectURI: {{ getenv "DEX_ISSUER" "http://127.0.0.1:5556/dex" }}/callback
+{{- end }}
+{{- if getenv "GITHUB_CLIENT_ID" }}
+  - type: github
+    id: github
+    name: GitHub
+    config:
+      clientID: {{ .Env.GITHUB_CLIENT_ID | quote }}
+      clientSecret: {{ getenv "GITHUB_CLIENT_SECRET" | required "GITHUB_CLIENT_SECRET" | quote }}
+      redirectURI: {{ getenv "DEX_ISSUER" "http://127.0.0.1:5556/dex" }}/callback
+      loadAllGroups: false
+{{- end }}
+{{- if eq (getenv "DEX_MOCK_CONNECTOR" "0") "1" }}
+  # Local development only: signs in at once as a fixed test user (kilgore@kilgore.trout).
+  - type: mockCallback
+    id: mock
+    name: Test user
+{{- end }}

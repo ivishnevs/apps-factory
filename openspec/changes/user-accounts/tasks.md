@@ -22,18 +22,30 @@ and Dex, sessions and company resolution, roles, company at sign-up, web UI. Can
   `owner_tokens.created_by`; `TestSignInCreatesAccountAndCompany`, `TestSessions`.
 
 ## 4. Sign-in
-- [ ] 4.1 Dex in `compose.yaml` (Postgres storage, static client `factory-core`, Google and GitHub connectors from
-  env); `.env.example` entries; local development through Dex's mock connector.
-- [ ] 4.2 `internal/auth`: discovery, PKCE login, callback, ID token verification, `connector_id` per button.
-- [ ] 4.3 Core: `/auth/login`, `/auth/callback`, `/auth/logout`, `GET /me` (user, companies, roles, last company);
-  CSRF.
+- [x] 4.1 Dex in `compose.yaml` (Postgres storage, static client `factory-core`, Google and GitHub connectors from
+  env); `.env.example` entries; local development through Dex's mock connector. Done: `deploy/dex/config.yaml`
+  (gomplate, rendered by the Dex image: Google/GitHub only when their OAuth app is set, `DEX_MOCK_CONNECTOR=1`),
+  services `dex-db` (creates the `dex` database once) and `dex` (v2.43.1); Core reaches it as
+  `FACTORY_OIDC_INTERNAL_URL`. `TestDexMockConnector` signs in through a real Dex (`DEX_TEST_ISSUER`).
+- [x] 4.2 `internal/auth`: discovery, PKCE login, callback, ID token verification, `connector_id` per button.
+  Done: lazy discovery, login state/nonce/verifier in an HMAC-signed 10-minute cookie, identity from
+  `federated_claims`, local return paths only; `internal/auth/authtest` fake issuer; `TestSignIn`.
+- [x] 4.3 Core: `/auth/login`, `/auth/callback`, `/auth/logout`, `GET /me` (user, companies, roles, last company);
+  CSRF. Done: `internal/core/sessions.go` (also `GET /auth/providers`), cookies `factory_session` (HttpOnly) and
+  `factory_csrf` matched by `X-Factory-CSRF`; `factory serve` reads `FACTORY_OIDC_*`, `FACTORY_PUBLIC_URL`.
 
 ## 5. Company context and roles
-- [ ] 5.1 `companyFrom` by session + `X-Factory-Company` with a membership check (404 otherwise); tokens refuse a
-  foreign company header; live streams per requested company.
-- [ ] 5.2 Company at first sign-in; rename; `POST /companies` with a session only when `FACTORY_MULTI_COMPANY` is on;
-  the operator path stays for support.
-- [ ] 5.3 Roles on owner routes (D7); owner tokens issued by owners and admins record their author.
+- [x] 5.1 `companyFrom` by session + `X-Factory-Company` with a membership check (404 otherwise); tokens refuse a
+  foreign company header; live streams per requested company. Done: `sessionGateway`; the operator token may name
+  an existing company (support); sessions never reach node routes or operator routes; `TestSessionSignIn`.
+- [x] 5.2 Company at first sign-in; rename; `POST /companies` with a session only when `FACTORY_MULTI_COMPANY` is on;
+  the operator path stays for support. Done: catalog from `FACTORY_SIGNUP_TEMPLATE` (default `solo`), redirect to
+  `/c/<company>/setup`; `GET/PATCH /company`; `TestMultiCompany`.
+- [x] 5.3 Roles on owner routes (D7); owner tokens issued by owners and admins record their author. Done:
+  `requiredRole` (owner: rename and roles; admin: catalog, skills, secrets, nodes, projects, owner tokens,
+  settings, kill switch; member: the rest and reads), owner tokens act as admin, catalog versions name
+  `user:<id>`; members see secret names only (`namesOnly` over every `/secrets` answer); `TestRoles`,
+  `TestSecretNamesOnly`. Open: whether approving catalog changes needs owner/admin (pending decision).
 
 ## 6. Web UI
 - [ ] 6.1 Sign-in page (provider buttons), sign-out, session expiry handling.

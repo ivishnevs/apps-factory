@@ -1,6 +1,7 @@
 package main
 
 import (
+	"appfactory/internal/auth"
 	"appfactory/internal/blobstore"
 	"appfactory/internal/bus"
 	"appfactory/internal/config"
@@ -10,6 +11,8 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +23,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -250,6 +254,10 @@ func run() error {
 	// seeded from the repository on its first start.
 	c := core.Core{Store: s, Bus: b, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
 		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
+	if c.Auth, err = signIn(); err != nil {
+		return err
+	}
+	c.MultiCompany, c.SignupTemplate = os.Getenv("FACTORY_MULTI_COMPANY") == "1", os.Getenv("FACTORY_SIGNUP_TEMPLATE")
 	if err = c.LoadCatalogs(ctx); err != nil {
 		return err
 	}
@@ -282,6 +290,32 @@ func run() error {
 	}
 	return err
 }
+
+// signIn configures the website sign-in (user-accounts D3) from FACTORY_OIDC_*: off without an issuer.
+func signIn() (*auth.Client, error) {
+	issuer := os.Getenv("FACTORY_OIDC_ISSUER")
+	if issuer == "" {
+		return nil, nil
+	}
+	public := strings.TrimRight(env("FACTORY_PUBLIC_URL", "http://127.0.0.1:3000"), "/")
+	key := hmac.New(sha256.New, []byte(os.Getenv("FACTORY_TOKEN")))
+	key.Write([]byte("factory login cookie"))
+	var providers []string
+	for _, p := range strings.Split(env("FACTORY_OIDC_PROVIDERS", "google,github"), ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			providers = append(providers, p)
+		}
+	}
+	a, err := auth.New(auth.Config{Issuer: issuer, InternalURL: os.Getenv("FACTORY_OIDC_INTERNAL_URL"), ClientID: env("FACTORY_OIDC_CLIENT_ID", "factory-core"),
+		ClientSecret: os.Getenv("FACTORY_OIDC_CLIENT_SECRET"), RedirectURL: public + "/auth/callback", Providers: providers,
+		CookieKey: key.Sum(nil), Secure: strings.HasPrefix(public, "https://")})
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("sign-in on", "issuer", issuer, "providers", providers, "public_url", public)
+	return a, nil
+}
+
 func printJSON(v any) error {
 	e := json.NewEncoder(os.Stdout)
 	e.SetIndent("", "  ")

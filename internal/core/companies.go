@@ -43,7 +43,12 @@ func (c *Core) ownerGateway(w http.ResponseWriter, r *http.Request, m *http.Serv
 		http.Error(w, "owner token: the operator manages companies", 403)
 		return
 	}
-	m.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), companyKey{}, t.Company)))
+	if _, err = c.requestCompany(r, t.Company, false); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	ctx := context.WithValue(context.WithValue(r.Context(), companyKey{}, t.Company), principalKey{}, principal{Kind: "token", Role: storage.RoleAdmin, Token: t.ID})
+	m.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // CompanyCreate is POST /companies.
@@ -143,7 +148,7 @@ func (c *Core) companyRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.CreateOwnerToken(r.Context(), c.companyFrom(r), p.Name, "owner")
+		v, err := c.Store.CreateOwnerToken(r.Context(), c.companyFrom(r), p.Name, author(r))
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /owner-tokens/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {

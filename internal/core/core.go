@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"appfactory/internal/auth"
 	"appfactory/internal/bus"
 	"appfactory/internal/clock"
 	"appfactory/internal/config"
@@ -63,6 +64,12 @@ type Core struct {
 	Root      string
 	catalogMu sync.RWMutex
 	catalogs  map[string]*storedCatalog
+	// Auth signs people in on the website (user-accounts D3); nil: no sign-in, tokens only.
+	Auth *auth.Client
+	// MultiCompany lets a signed-in user create more companies (FACTORY_MULTI_COMPANY, user-accounts D2).
+	MultiCompany bool
+	// SignupTemplate is the starter catalog of a company created at sign-up (default DefaultSignupTemplate).
+	SignupTemplate string
 }
 
 // kickOutbox asks the tick loop to publish the outbox now instead of at the next tick, so an urgent stop
@@ -92,8 +99,9 @@ func (c *Core) company() string {
 	return c.Company
 }
 
-// companyFrom resolves the company of an authenticated request once: the run's company for
-// run credentials (set by agentGateway), otherwise the company of the owner token.
+// companyFrom resolves the company of an authenticated request once: the run's company for run credentials
+// (set by agentGateway), the owner token's company, the company a session names (X-Factory-Company, checked
+// against the user's memberships by sessionGateway) or the one the operator names; otherwise Core's company.
 func (c *Core) companyFrom(r *http.Request) string {
 	if company, ok := r.Context().Value(companyKey{}).(string); ok {
 		return company
@@ -124,6 +132,7 @@ func (c *Core) Handler() http.Handler {
 	c.conversationRoutes(m)
 	c.catalogRoutes(m)
 	c.companyRoutes(m)
+	c.accountRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil || !c.Bus.NC.IsConnected() {
@@ -212,9 +221,21 @@ func (c *Core) Handler() http.Handler {
 		if c.enrollmentGateway(w, r) {
 			return
 		}
+		// Sign-in (user-accounts D3) needs no credential.
+		if strings.HasPrefix(r.URL.Path, "/auth/") {
+			c.authRoutes(w, r)
+			return
+		}
 		auth := r.Header.Get("Authorization")
 		if c.Token != "" && subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+c.Token)) == 1 {
-			m.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), operatorKey{}, true)))
+			ctx := context.WithValue(context.WithValue(r.Context(), operatorKey{}, true), principalKey{}, principal{Kind: "operator", Role: storage.RoleOwner})
+			if company, err := c.requestCompany(r, c.company(), true); err != nil {
+				reply(w, nil, err)
+				return
+			} else if company != c.company() {
+				ctx = context.WithValue(ctx, companyKey{}, company)
+			}
+			m.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 		// A company owner token (company-self-service 4.1) reaches its company's owner routes.
@@ -225,6 +246,11 @@ func (c *Core) Handler() http.Handler {
 		// A per-machine node token (node-agent 1.1) reaches only the node routes, for its own node.
 		if token, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(token, storage.NodeTokenPrefix) && c.Store != nil {
 			c.nodeGateway(w, r, m, token)
+			return
+		}
+		// A person signed in on the website (user-accounts D5, D6).
+		if id := sessionCookie(r); id != "" && auth == "" && c.Store != nil {
+			c.sessionGateway(w, r, m, id)
 			return
 		}
 		http.Error(w, "unauthorized", 401)
