@@ -81,7 +81,7 @@ type NodeRegistration struct {
 
 type NodeRegistered struct {
 	Incarnation string `json:"incarnation"`
-	// Company is the node token's company: the node's NATS subjects are factory.<company>....
+	// Company is the company of the node's key: the node's NATS subjects are factory.<company>....
 	Company            string `json:"company"`
 	HeartbeatSeconds   int    `json:"heartbeat_seconds"`
 	StartWindowSeconds int    `json:"start_window_seconds"`
@@ -1028,23 +1028,40 @@ func (s *Store) PinnedUnavailable(ctx context.Context, company string, fill func
 // RemoveNode forgets an offline node (a replaced machine): its row goes, its tokens are revoked, and its
 // unended runs are lost as after a restart. Tasks pinned to it report pinned_node_unavailable.
 func (s *Store) RemoveNode(ctx context.Context, company, node string) error {
+	return s.dropNode(ctx, company, node, false, "removed", "")
+}
+
+// RevokeNode ends a node at once, online or not (node-identity D5): its keys go, so its next request is refused, its
+// runs end as lost, which ends their credentials, and tasks pinned to it are released as by RemoveNode.
+func (s *Store) RevokeNode(ctx context.Context, company, node string) error {
+	return s.dropNode(ctx, company, node, true, "revoked", "node.revoked")
+}
+
+func (s *Store) dropNode(ctx context.Context, company, node string, online bool, verb, event string) error {
 	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var online bool
-	err = tx.QueryRowContext(ctx, "SELECT online FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&online)
+	var isOnline bool
+	err = tx.QueryRowContext(ctx, "SELECT online FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&isOnline)
+	known := err == nil
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
+		// Keys of a node that never registered can be revoked too.
+		var keys int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM node_keys WHERE company_id=? AND node_id=?", company, node).Scan(&keys); err != nil {
+			return err
+		}
+		if !online || keys == 0 {
+			return ErrNotFound
+		}
+	} else if err != nil {
 		return err
 	}
-	if online {
+	if isOnline && !online {
 		return fmt.Errorf("%w: node %s is online; stop it first", ErrConflict, node)
 	}
-	if err = loseNodeRuns(ctx, tx, node, 0, "node "+node+" removed", true); err != nil {
+	if err = loseNodeRuns(ctx, tx, node, 0, "node "+node+" "+verb, true); err != nil {
 		return err
 	}
 	if err = releaseNodeRuns(ctx, tx, node, 1<<62, nil, 0); err != nil {
@@ -1053,11 +1070,29 @@ func (s *Store) RemoveNode(ctx context.Context, company, node string) error {
 	if _, err = tx.ExecContext(ctx, "UPDATE runs SET node_held=0 WHERE company_id=? AND node_id=?", company, node); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE node_tokens SET revoked_at=? WHERE company_id=? AND node_id=? AND revoked_at=0", tx.now().Unix(), company, node); err != nil {
+	if _, err = tx.ExecContext(ctx, "DELETE FROM node_keys WHERE company_id=? AND node_id=?", company, node); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "DELETE FROM nodes WHERE company_id=? AND id=?", company, node); err != nil {
-		return err
+	if known {
+		if _, err = tx.ExecContext(ctx, "DELETE FROM nodes WHERE company_id=? AND id=?", company, node); err != nil {
+			return err
+		}
+	}
+	if event != "" {
+		item := FeedItem{EventID: protocol.ID(), Type: event, EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "owner", Attention: true, Summary: "node " + node + " " + verb}
+		if err = feed(ctx, tx, item); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
+}
+
+// RunNode returns the node_id a v2 run was claimed by ("" for an unclaimed run).
+func (s *Store) RunNode(ctx context.Context, company, run string) (string, error) {
+	var node string
+	err := s.DB.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE company_id=? AND id=?", company, run).Scan(&node)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return node, err
 }

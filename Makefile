@@ -1,4 +1,4 @@
-.PHONY: build test check fmt hooks up down worker node schema test-services test-services-down
+.PHONY: build test check fmt hooks up down node schema test-services test-services-down
 # Disposable Postgres for the tests (make test-services); the JetStream tests also need NATS_TEST_URL
 # (nats://127.0.0.1:14231), run them with -p 1: they share the streams.
 FACTORY_TEST_DATABASE_URL ?= postgres://postgres:factory@127.0.0.1:15432/postgres?sslmode=disable
@@ -6,7 +6,6 @@ export FACTORY_TEST_DATABASE_URL
 build:
 	mkdir -p bin
 	go build -o bin/factory ./cmd/factory
-	go build -o bin/codex-worker ./cmd/codex-worker
 	go build -o bin/factory-mcp ./cmd/factory-mcp
 	go build -o bin/factory-node ./cmd/factory-node
 	go build -o bin/factory-shim ./cmd/factory-shim
@@ -24,8 +23,6 @@ up:
 	docker compose up -d --build
 down:
 	docker compose down
-worker: build
-	./bin/codex-worker
 node: build
 	./bin/factory-node run
 schema:

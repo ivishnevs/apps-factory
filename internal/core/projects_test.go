@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 type projectHarness struct {
@@ -41,6 +42,18 @@ func (h projectHarness) http(auth, method, path string, body any) *httptest.Resp
 	b, _ := json.Marshal(body)
 	r := httptest.NewRequest(method, path, bytes.NewReader(b))
 	r.Header.Set("Authorization", "Bearer "+auth)
+	w := httptest.NewRecorder()
+	h.c.Handler().ServeHTTP(w, r)
+	return w
+}
+
+// report sends a run's project-setup report signed by n, whose run it is.
+func (h projectHarness) report(n testnode.Node, run string, body any) *httptest.ResponseRecorder {
+	h.t.Helper()
+	n.OwnRun(h.t, h.s, storage.DefaultCompany, run)
+	b, _ := json.Marshal(body)
+	r := httptest.NewRequest("POST", "/runs/"+run+"/project-setup", bytes.NewReader(b))
+	n.Sign(h.t, h.s, r, b)
 	w := httptest.NewRecorder()
 	h.c.Handler().ServeHTTP(w, r)
 	return w
@@ -182,15 +195,16 @@ func TestProjectSetupGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := protocol.ProjectSetupReport{Lease: lease, NodeID: "mini", Workspace: "/Users/owner/factory/projects/fresh"}
-	if w := h.http("owner", "POST", "/runs/"+run.Spec.ID+"/project-setup", protocol.ProjectSetupReport{Lease: "wrong", Workspace: report.Workspace}); w.Code != 409 {
+	n := testnode.Enroll(t, h.s, storage.DefaultCompany)
+	if w := h.report(n, run.Spec.ID, protocol.ProjectSetupReport{Lease: "wrong", Workspace: report.Workspace}); w.Code != 409 {
 		t.Fatal("foreign lease", w.Code)
 	}
-	w := h.http("owner", "POST", "/runs/"+run.Spec.ID+"/project-setup", report)
+	w := h.report(n, run.Spec.ID, report)
 	var answer protocol.ProjectSetupAnswer
 	if json.Unmarshal(w.Body.Bytes(), &answer); w.Code != 200 || answer.Workspace != report.Workspace || answer.Materialize == nil || len(answer.Materialize.Files) != 0 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w = h.http("owner", "POST", "/runs/"+run.Spec.ID+"/project-setup", report); w.Code != 200 {
+	if w = h.report(n, run.Spec.ID, report); w.Code != 200 {
 		t.Fatal("repeated report", w.Code, w.Body.String())
 	}
 	p, _ := h.s.Project(ctx, storage.DefaultCompany, "fresh")
@@ -225,7 +239,7 @@ func TestProjectSetupGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	failed := protocol.ProjectSetupReport{Lease: lease, NodeID: "mini", Error: "gh is not authenticated on node mini (run gh auth login, then retry the task)"}
-	if w = h.http("owner", "POST", "/runs/"+hub.CurrentRunID+"/project-setup", failed); w.Code != 200 {
+	if w = h.report(n, hub.CurrentRunID, failed); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	p, _ = h.s.Project(ctx, storage.DefaultCompany, "hub")

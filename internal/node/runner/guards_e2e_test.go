@@ -74,11 +74,12 @@ func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	go c.Run(ctx)
 	cfg := node.Defaults()
-	cfg.Slots, cfg.StateDir, cfg.ProtocolVersion, cfg.BinDir = 1, t.TempDir(), 2, bin
+	cfg.Slots, cfg.StateDir, cfg.BinDir = 1, t.TempDir(), bin
+	api := enrolled(t, s, cfg.StateDir, server.URL)
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: worker.API{URL: server.URL, Token: "test-token"}, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
+		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
 	}()
 	t.Cleanup(func() {
 		stopNode()

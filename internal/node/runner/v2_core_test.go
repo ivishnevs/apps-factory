@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/hex"
 	"os"
 	"testing"
 	"time"
@@ -19,6 +20,32 @@ import (
 
 	"net/http/httptest"
 )
+
+// enrolled gives the node with stateDir approved keys at Core, as `factory-node enroll` does, and the client it signs with.
+func enrolled(t testing.TB, s *storage.Store, stateDir, url string) worker.API {
+	t.Helper()
+	ctx := context.Background()
+	keys, err := node.GenerateKeys(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := node.NodeID(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := s.CreateNodeEnrollment(ctx, storage.DefaultCompany, "test-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := s.EnrollNode(ctx, storage.EnrollRequest{Code: code.Code, NodeID: id, SignPub: hex.EncodeToString(keys.SignPublic()), BoxPub: hex.EncodeToString(keys.BoxPublic())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ApproveNodeKey(ctx, storage.DefaultCompany, id, k.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	return worker.API{URL: url, Node: id, Key: keys.Sign, Now: s.Now}
+}
 
 // TestJetStreamNodeV2RealCore runs a protocol v2 node against the real Core (runtime protocol v2
 // integration): register, two-phase claim and start, inventory heartbeat, an owner cancel delivered as a
@@ -73,12 +100,13 @@ func TestJetStreamNodeV2RealCore(t *testing.T) {
 		return r
 	}
 	cfg := node.Defaults()
-	cfg.Slots, cfg.StateDir, cfg.ProtocolVersion = 3, t.TempDir(), 2
+	cfg.Slots, cfg.StateDir = 3, t.TempDir()
+	api := enrolled(t, s, cfg.StateDir, server.URL)
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	d := &fake.Driver{} // no status: a run lasts until it is stopped
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: worker.API{URL: server.URL, Token: "test-token"}, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
+		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond})
 	}()
 	wait := func(what string, ok func() bool) {
 		t.Helper()

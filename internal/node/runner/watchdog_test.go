@@ -77,10 +77,11 @@ func TestJetStreamWatchdogKilledRuntime(t *testing.T) {
 	d := &fake.Driver{Command: []string{"sleep", "60"}}
 	cfg := node.Defaults()
 	cfg.Slots, cfg.StateDir = 1, t.TempDir()
+	api := enrolled(t, s, cfg.StateDir, server.URL)
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: worker.API{URL: server.URL, Token: "test-token"}, Drivers: []driver.Driver{perRunSessions{d}},
+		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}},
 			FetchWait: 200 * time.Millisecond, Watchdog: &node.Watchdog{Interval: 100 * time.Millisecond}})
 	}()
 	defer func() { stopNode(); <-done }()

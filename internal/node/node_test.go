@@ -126,7 +126,12 @@ func byCheck(rs []CheckResult) map[string]CheckResult {
 }
 
 func TestHealthyNode(t *testing.T) {
-	rs := doctor(healthy(), "darwin").Run(context.Background())
+	d := doctor(healthy(), "darwin")
+	d.StateDir = t.TempDir()
+	if _, err := GenerateKeys(d.StateDir); err != nil {
+		t.Fatal(err)
+	}
+	rs := d.Run(context.Background())
 	for _, r := range rs {
 		if r.Status != Pass && !(r.Status == Skip && (r.Check == "core" || r.Check == "nats")) { // no FACTORY_URL, NATS_URL
 			t.Errorf("%s = %s %s", r.Check, r.Status, r.Detail)

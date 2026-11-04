@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | enroll [-config node.yaml] CODE | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -48,6 +48,8 @@ func run(args []string) (int, error) {
 		return doctor(args[1:])
 	case "enroll":
 		return enroll(args[1:])
+	case "rotate-keys":
+		return rotateKeys(args[1:])
 	case "run":
 		return runNode(args[1:])
 	case "launchd":
@@ -83,6 +85,29 @@ func enroll(args []string) (int, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if _, err = (node.Enrollment{URL: base, Code: fs.Arg(0), StateDir: c.StateDir, Out: os.Stdout}).Run(ctx); err != nil {
+		return 1, err
+	}
+	return 0, nil
+}
+
+// rotateKeys proposes new keys and waits for an owner (node-identity D5).
+func rotateKeys(args []string) (int, error) {
+	fs := flag.NewFlagSet("rotate-keys", flag.ContinueOnError)
+	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+", else built-in defaults)")
+	if err := fs.Parse(args); err != nil {
+		return 2, err
+	}
+	c, err := node.LoadConfig(node.ConfigPath(*path))
+	if err != nil {
+		return 2, err
+	}
+	base := os.Getenv("FACTORY_URL")
+	if base == "" {
+		return 2, errors.New("FACTORY_URL required: the address of Core")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if _, err = (node.Rotation{URL: base, StateDir: c.StateDir, Out: os.Stdout}).Run(ctx); err != nil {
 		return 1, err
 	}
 	return 0, nil
@@ -142,13 +167,10 @@ func launchd(args []string) (int, error) {
 	home, _ := os.UserHomeDir()
 	l.Log = filepath.Join(home, "Library", "Logs", "factory-node.log")
 	// launchd starts agents with a minimal PATH; runtimes need node, codex and git.
-	for _, k := range []string{"PATH", "NATS_URL", "FACTORY_URL", "FACTORY_TOKEN", node.TokenEnv, "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
+	for _, k := range []string{"PATH", "NATS_URL", "FACTORY_URL", "CODEX_BIN", "CLAUDE_CODE_EXECUTABLE"} {
 		if v := os.Getenv(k); v != "" {
 			l.Env[k] = v
 		}
-	}
-	if l.Env["FACTORY_TOKEN"] == "" && l.Env[node.TokenEnv] == "" {
-		l.Env["FACTORY_TOKEN"] = "REPLACE_WITH_FACTORY_TOKEN"
 	}
 	if err = l.Render(os.Stdout); err != nil {
 		return 1, err
@@ -224,7 +246,7 @@ func systemd(args []string) (int, error) {
 	if *system {
 		ctl = "sudo systemctl"
 	}
-	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put FACTORY_NODE_TOKEN=... (factory nodes token create; or the shared FACTORY_TOKEN=...) and NATS_URL=... in %s (chmod 600); then %s daemon-reload && %s enable --now %s\n",
+	fmt.Fprintf(os.Stderr, "save as %s/%s.service; put NATS_URL=... in %s (chmod 600) and enroll the node first with factory-node enroll CODE; then %s daemon-reload && %s enable --now %s\n",
 		unitDir, *name, s.EnvFile, ctl, ctl, *name)
 	return 0, nil
 }
@@ -248,9 +270,6 @@ func doctor(args []string) (int, error) {
 		return 2, err
 	}
 	d.NATS, d.Labels, d.StateDir = c.NATS, c.Labels, c.StateDir
-	if d.Token, d.TokenSource, err = c.Token(os.Getenv); err != nil {
-		return 2, err
-	}
 	// Stack checks of the catalog's NodeHooks document, as Core last delivered it to this node.
 	if hooks, ok, err := node.LoadHooks(c.StateDir); err != nil {
 		fmt.Fprintf(os.Stderr, "stack checks skipped: %s: %v\n", filepath.Join(c.StateDir, node.HooksFile), err)

@@ -68,6 +68,11 @@ type NodeKey struct {
 	Status      string `json:"status"`
 	CreatedAt   int64  `json:"created_at"`
 	ApprovedAt  int64  `json:"approved_at,omitempty"`
+	// NextFingerprint names keys proposed by a rotation, waiting for an owner.
+	NextFingerprint string `json:"next_fingerprint,omitempty"`
+	nextSignPub     string
+	nextBoxPub      string
+	nextAt          int64
 }
 
 // EnrollRequest is what a node sends with its code; the keys are hex.
@@ -174,16 +179,24 @@ func (s *Store) EnrollNode(ctx context.Context, in EnrollRequest) (NodeKey, erro
 	return key, tx.Commit()
 }
 
-const nodeKeyColumns = "node_id,company_id,name,sign_pub,box_pub,fingerprint,status,created_at,approved_at"
+const nodeKeyColumns = "node_id,company_id,name,sign_pub,box_pub,fingerprint,status,created_at,approved_at,next_sign_pub,next_box_pub,next_fingerprint,next_at"
 
 func scanNodeKey(row interface{ Scan(...any) error }) (NodeKey, error) {
 	var k NodeKey
-	err := row.Scan(&k.NodeID, &k.Company, &k.Name, &k.SignPub, &k.BoxPub, &k.Fingerprint, &k.Status, &k.CreatedAt, &k.ApprovedAt)
+	err := row.Scan(&k.NodeID, &k.Company, &k.Name, &k.SignPub, &k.BoxPub, &k.Fingerprint, &k.Status, &k.CreatedAt, &k.ApprovedAt, &k.nextSignPub, &k.nextBoxPub, &k.NextFingerprint, &k.nextAt)
 	return k, err
 }
 
 func (s *Store) nodeKeyLive(k NodeKey) bool {
 	return k.Status != NodeKeyPending || k.CreatedAt > s.Now().Add(-PendingNodeKeyTTL).Unix()
+}
+
+// freshRotation hides a proposed rotation past its limit.
+func (s *Store) freshRotation(k NodeKey) NodeKey {
+	if k.NextFingerprint != "" && k.nextAt <= s.Now().Add(-PendingNodeKeyTTL).Unix() {
+		k.NextFingerprint = ""
+	}
+	return k
 }
 
 // NodeKeyOf returns the live keys of a node in any company; node ids are global. Pending keys past their limit
@@ -199,7 +212,7 @@ func (s *Store) NodeKeyOf(ctx context.Context, node string) (NodeKey, error) {
 	if !s.nodeKeyLive(k) {
 		return NodeKey{}, ErrNotFound
 	}
-	return k, nil
+	return s.freshRotation(k), nil
 }
 
 // NodeKeys lists the company's live node keys, oldest first.
@@ -216,7 +229,7 @@ func (s *Store) NodeKeys(ctx context.Context, company string) ([]NodeKey, error)
 			return nil, err
 		}
 		if s.nodeKeyLive(k) {
-			out = append(out, k)
+			out = append(out, s.freshRotation(k))
 		}
 	}
 	return out, rows.Err()
@@ -237,7 +250,62 @@ func pendingNodeKey(ctx context.Context, tx *Tx, company, node string) (NodeKey,
 	return k, nil
 }
 
-// ApproveNodeKey activates the company's pending keys of node when fingerprint is theirs.
+// ProposeNodeKeys records new keys of an active node, which the node asked for with a request signed by its current
+// key; they replace the current keys when an owner confirms their fingerprint (node-identity D5).
+func (s *Store) ProposeNodeKeys(ctx context.Context, company, node, signPub, boxPub string) (NodeKey, error) {
+	sign, box, err := nodesig.DecodePublicKeys(signPub, boxPub)
+	if err != nil {
+		return NodeKey{}, inputError(err.Error())
+	}
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return NodeKey{}, err
+	}
+	defer tx.Rollback()
+	k, err := scanNodeKey(tx.QueryRowContext(ctx, "SELECT "+nodeKeyColumns+" FROM node_keys WHERE company_id=? AND node_id=? AND status=?", company, node, NodeKeyActive))
+	if errors.Is(err, sql.ErrNoRows) {
+		return NodeKey{}, ErrNotFound
+	}
+	if err != nil {
+		return NodeKey{}, err
+	}
+	// A node repeating its own proposal continues it (Rotation.Run after a restart).
+	var taken int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM node_keys WHERE (sign_pub=? OR next_sign_pub=?) AND NOT (node_id=? AND next_sign_pub=?)", signPub, signPub, node, signPub).Scan(&taken); err != nil {
+		return NodeKey{}, err
+	}
+	if taken > 0 {
+		return NodeKey{}, ErrNodeIDTaken
+	}
+	k.NextFingerprint = nodesig.Fingerprint(sign, box)
+	if _, err = tx.ExecContext(ctx, "UPDATE node_keys SET next_sign_pub=?,next_box_pub=?,next_fingerprint=?,next_at=? WHERE node_id=?", signPub, boxPub, k.NextFingerprint, tx.now().Unix(), node); err != nil {
+		return NodeKey{}, err
+	}
+	item := FeedItem{EventID: protocol.ID(), Type: "node.keys_rotation_requested", EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "node:" + node, Attention: true,
+		Summary: fmt.Sprintf("node %s proposes new keys, fingerprint %s", k.Name, k.NextFingerprint)}
+	if err = feed(ctx, tx, item); err != nil {
+		return NodeKey{}, err
+	}
+	return k, tx.Commit()
+}
+
+// rotatingNodeKey reads the company's active keys of node with a live proposal inside tx; anything else is ErrNotFound.
+func rotatingNodeKey(ctx context.Context, tx *Tx, company, node string) (NodeKey, error) {
+	k, err := scanNodeKey(tx.QueryRowContext(ctx, "SELECT "+nodeKeyColumns+" FROM node_keys WHERE company_id=? AND node_id=? AND status=?", company, node, NodeKeyActive))
+	if errors.Is(err, sql.ErrNoRows) {
+		return NodeKey{}, ErrNotFound
+	}
+	if err != nil {
+		return NodeKey{}, err
+	}
+	if k.NextFingerprint == "" || k.nextAt <= tx.now().Add(-PendingNodeKeyTTL).Unix() {
+		return NodeKey{}, ErrNotFound
+	}
+	return k, nil
+}
+
+// ApproveNodeKey activates the company's pending keys of node, or the keys its rotation proposes, when fingerprint is
+// theirs. After a rotation only the new keys work.
 func (s *Store) ApproveNodeKey(ctx context.Context, company, node, fingerprint string) (NodeKey, error) {
 	tx, err := s.begin(ctx, company)
 	if err != nil {
@@ -245,6 +313,23 @@ func (s *Store) ApproveNodeKey(ctx context.Context, company, node, fingerprint s
 	}
 	defer tx.Rollback()
 	k, err := pendingNodeKey(ctx, tx, company, node)
+	if errors.Is(err, ErrNotFound) {
+		if k, err = rotatingNodeKey(ctx, tx, company, node); err != nil {
+			return NodeKey{}, err
+		}
+		if strings.TrimSpace(fingerprint) != k.NextFingerprint {
+			return NodeKey{}, ErrFingerprint
+		}
+		k.SignPub, k.BoxPub, k.Fingerprint, k.NextFingerprint = k.nextSignPub, k.nextBoxPub, k.NextFingerprint, ""
+		if _, err = tx.ExecContext(ctx, "UPDATE node_keys SET sign_pub=?,box_pub=?,fingerprint=?,next_sign_pub='',next_box_pub='',next_fingerprint='',next_at=0 WHERE node_id=?", k.SignPub, k.BoxPub, k.Fingerprint, node); err != nil {
+			return NodeKey{}, err
+		}
+		item := FeedItem{EventID: protocol.ID(), Type: "node.keys_rotated", EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "owner", Summary: "node " + k.Name + " keys rotated, fingerprint " + k.Fingerprint}
+		if err = feed(ctx, tx, item); err != nil {
+			return NodeKey{}, err
+		}
+		return k, tx.Commit()
+	}
 	if err != nil {
 		return NodeKey{}, err
 	}
@@ -262,7 +347,8 @@ func (s *Store) ApproveNodeKey(ctx context.Context, company, node, fingerprint s
 	return k, tx.Commit()
 }
 
-// RejectNodeKey deletes the company's pending keys of node; active keys go through revocation.
+// RejectNodeKey deletes the company's pending keys of node, or the keys its rotation proposes; active keys go through
+// revocation.
 func (s *Store) RejectNodeKey(ctx context.Context, company, node string) error {
 	tx, err := s.begin(ctx, company)
 	if err != nil {
@@ -270,6 +356,19 @@ func (s *Store) RejectNodeKey(ctx context.Context, company, node string) error {
 	}
 	defer tx.Rollback()
 	k, err := pendingNodeKey(ctx, tx, company, node)
+	if errors.Is(err, ErrNotFound) {
+		if k, err = rotatingNodeKey(ctx, tx, company, node); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE node_keys SET next_sign_pub='',next_box_pub='',next_fingerprint='',next_at=0 WHERE node_id=?", node); err != nil {
+			return err
+		}
+		item := FeedItem{EventID: protocol.ID(), Type: "node.enroll_rejected", EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "owner", Summary: "new keys of node " + k.Name + " rejected, fingerprint " + k.NextFingerprint}
+		if err = feed(ctx, tx, item); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
 	if err != nil {
 		return err
 	}
@@ -277,6 +376,20 @@ func (s *Store) RejectNodeKey(ctx context.Context, company, node string) error {
 		return err
 	}
 	item := FeedItem{EventID: protocol.ID(), Type: "node.enroll_rejected", EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "owner", Summary: "node " + k.Name + " rejected, fingerprint " + k.Fingerprint}
+	if err = feed(ctx, tx, item); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RecordNodeSignatureRefused puts a refused signature of a known node in its company's feed; reason names no key.
+func (s *Store) RecordNodeSignatureRefused(ctx context.Context, company, node, reason string) error {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	item := FeedItem{EventID: protocol.ID(), Type: "node.signature_refused", EntityID: "node:" + node, CreatedAt: tx.now(), Actor: "node:" + node, Attention: true, Summary: reason}
 	if err = feed(ctx, tx, item); err != nil {
 		return err
 	}

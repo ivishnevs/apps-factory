@@ -20,7 +20,7 @@ import (
 const RemoteTimeout = 5 * time.Second
 
 // core checks that Core answers an authenticated GET /health (cheap, read-only; 200 also means Core reaches its
-// database and NATS) with the node token (Doctor.Token, else FACTORY_TOKEN). Skipped without FACTORY_URL.
+// database and NATS) with a request signed by the node's keys. Skipped without FACTORY_URL.
 func (d Doctor) core(ctx context.Context) CheckResult {
 	base := d.Host.Getenv("FACTORY_URL")
 	if base == "" {
@@ -31,12 +31,13 @@ func (d Doctor) core(ctx context.Context) CheckResult {
 		return CheckResult{Check: "core", Status: Fail, Detail: "FACTORY_URL is not an http(s) URL", Hint: "FACTORY_URL=http://core-host:8080"}
 	}
 	shown := u.Redacted()
-	token, source := d.Token, d.TokenSource
-	if token == "" {
-		token, source = d.Host.Getenv("FACTORY_TOKEN"), "FACTORY_TOKEN"
+	keys, err := LoadKeys(d.StateDir)
+	if err != nil {
+		return CheckResult{Check: "core", Status: Fail, Detail: "no usable node keys: " + err.Error(), Hint: "enroll this node with factory-node enroll"}
 	}
-	if token == "" {
-		return CheckResult{Check: "core", Status: Fail, Detail: "no node token", Hint: "set FACTORY_NODE_TOKEN or node.yaml token_file (factory nodes token create), or the shared FACTORY_TOKEN"}
+	id, err := NodeID(d.StateDir)
+	if err != nil {
+		return CheckResult{Check: "core", Status: Fail, Detail: err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(ctx, RemoteTimeout)
 	defer cancel()
@@ -44,18 +45,8 @@ func (d Doctor) core(ctx context.Context) CheckResult {
 	if err != nil {
 		return CheckResult{Check: "core", Status: Fail, Detail: err.Error()}
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	// A node with keys also signs (node-identity D4), so this check proves what its other requests will do.
-	if d.StateDir != "" {
-		if keys, err := LoadKeys(d.StateDir); err == nil {
-			id, err := NodeID(d.StateDir)
-			if err == nil {
-				err = nodesig.Sign(req, id, keys.Sign, nil, time.Now())
-			}
-			if err != nil {
-				return CheckResult{Check: "core", Status: Fail, Detail: err.Error()}
-			}
-		}
+	if err = nodesig.Sign(req, id, keys.Sign, nil, time.Now()); err != nil {
+		return CheckResult{Check: "core", Status: Fail, Detail: err.Error()}
 	}
 	client := d.HTTP
 	if client == nil {
@@ -74,8 +65,8 @@ func (d Doctor) core(ctx context.Context) CheckResult {
 		}
 		return CheckResult{Check: "core", Status: Pass, Detail: shown + " healthy"}
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return CheckResult{Check: "core", Status: Fail, Detail: fmt.Sprintf("%s: %d, %s rejected", shown, resp.StatusCode, source),
-			Hint: "use a live node token of this machine (factory nodes token list) or the worker token Core was started with"}
+		return CheckResult{Check: "core", Status: Fail, Detail: fmt.Sprintf("%s: %d, this node's signature was refused", shown, resp.StatusCode),
+			Hint: "check that an owner approved this node, that it was not revoked, and the machine's clock"}
 	case http.StatusServiceUnavailable:
 		return CheckResult{Check: "core", Status: Fail, Detail: shown + ": 503, Core cannot reach its database or NATS", Hint: "check Core's logs"}
 	}

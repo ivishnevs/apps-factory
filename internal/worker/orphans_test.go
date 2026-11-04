@@ -7,6 +7,7 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
+	"appfactory/internal/testnode"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -115,7 +116,9 @@ func TestJetStreamRestartKillsRunningAppServer(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin, _ := os.Executable()
-	w := Worker{Bus: b, API: API{URL: server.URL, Token: "test-token"}, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, StateDir: dir}
+	n := testnode.Enroll(t, s, storage.DefaultCompany)
+	n.OwnRun(t, s, storage.DefaultCompany, spec.ID)
+	w := Worker{Bus: b, API: API{URL: server.URL, Node: n.ID, Key: n.Key}, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, StateDir: dir}
 	done := make(chan error, 1)
 	go func() { done <- w.execute(ctx, spec, lease, "orphan-command") }()
 	var p pidfile

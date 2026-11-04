@@ -6,9 +6,11 @@ import (
 	"appfactory/internal/core"
 	"appfactory/internal/driver"
 	"appfactory/internal/driver/fake"
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
+	"appfactory/internal/testnode"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +24,24 @@ import (
 
 	"github.com/nats-io/nats.go"
 )
+
+// asNode makes w an enrolled, registered node of the Core at url (epoch 1), as `factory-node run` sets it up. Nobody
+// sends its node heartbeat unless the test does.
+func asNode(t testing.TB, s *storage.Store, w *Worker, url string) testnode.Node {
+	t.Helper()
+	n := testnode.Enroll(t, s, storage.DefaultCompany)
+	drv, _ := w.driver()
+	if _, err := s.RegisterNode(context.Background(), storage.DefaultCompany, storage.NodeRegistration{NodeID: n.ID, Name: n.ID, Epoch: 1, ProtocolVersion: 2, Slots: 4, Worktrees: true,
+		Drivers: []storage.NodeDriver{{Name: string(drv.Name()), Version: "test", OK: true}}, Resources: map[string]int{}, Labels: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	w.API = API{URL: url, Node: n.ID, Key: n.Key, Now: s.Now}
+	w.Inventory = node.NewInventory(n.ID, 1)
+	if w.NodeID == "" {
+		w.NodeID = n.ID
+	}
+	return n
+}
 
 // runFake executes one run on a recorded fake session and applies the published events
 // to Core's store until the run is terminal. cancel cancels the run after it started.
@@ -113,7 +133,9 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	}
 	execCtx, stopExec := context.WithCancelCause(ctx)
 	defer stopExec(nil)
-	w.Bus, w.API = b, API{URL: server.URL, Token: "test-token"}
+	n := testnode.Enroll(t, s, storage.DefaultCompany)
+	n.OwnRun(t, s, storage.DefaultCompany, spec.ID)
+	w.Bus, w.API = b, API{URL: server.URL, Node: n.ID, Key: n.Key, Now: s.Now}
 	done := make(chan error, 1)
 	go func() { done <- w.execute(execCtx, spec, lease, "fake-command") }()
 	for {
@@ -135,6 +157,9 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 			if err = s.Cancel(ctx, storage.DefaultCompany, spec.ID); err != nil {
 				t.Fatal(err)
 			}
+			// What the node does with the heartbeat answer to a cancelled run (TestJetStreamCancellation goes through
+			// the heartbeat itself).
+			stopExec(&node.StopCause{Reason: "revoked"})
 		}
 		if p.SessionID != "" && cause != nil {
 			stopExec(cause)
@@ -146,7 +171,7 @@ func runDriver(t *testing.T, url string, w Worker, cancel bool, mods ...any) (st
 	<-done
 	// The run as Core serves it, so tests see what an owner sees (usage included).
 	var r storage.Run
-	if err = w.API.Do(ctx, "GET", "/runs/"+spec.ID, nil, &r); err != nil {
+	if err = (API{URL: server.URL, Token: "test-token"}).Do(ctx, "GET", "/runs/"+spec.ID, nil, &r); err != nil {
 		t.Fatal(err)
 	}
 	events, err := s.Events(ctx, storage.DefaultCompany, spec.ID)

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"appfactory/internal/nodesig"
 )
@@ -132,3 +134,27 @@ func keysCheck(dir string) CheckResult {
 	}
 	return CheckResult{Check: "node.keys", Status: Pass, Detail: "fingerprint " + k.Fingerprint()}
 }
+
+// KeyReloader returns the current signing key, reading the file again when it changes, so a rotation approved while
+// the node runs takes effect at once. A file that cannot be read keeps the last key: Core decides whether it is valid.
+func KeyReloader(dir string, current ed25519.PrivateKey) func() ed25519.PrivateKey {
+	path := filepath.Join(dir, KeysDir, SignKeyFile)
+	var mu sync.Mutex
+	var mod time.Time
+	if st, err := os.Stat(path); err == nil {
+		mod = st.ModTime()
+	}
+	return func() ed25519.PrivateKey {
+		mu.Lock()
+		defer mu.Unlock()
+		if st, err := os.Stat(path); err == nil && !st.ModTime().Equal(mod) {
+			if seed, err := readKeyFile(path, ed25519.SeedSize); err == nil {
+				current, mod = ed25519.NewKeyFromSeed(seed), st.ModTime()
+			}
+		}
+		return current
+	}
+}
+
+// RotatingDir holds keys a rotation proposes until an owner approves them.
+const RotatingDir = "next"

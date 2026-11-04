@@ -147,12 +147,12 @@ func TestEnrollmentStops(t *testing.T) {
 
 func TestCheckCoreURL(t *testing.T) {
 	for _, ok := range []string{"https://core.example", "http://127.0.0.1:8080", "http://localhost:8080"} {
-		if err := checkCoreURL(ok); err != nil {
+		if err := CheckCoreURL(ok); err != nil {
 			t.Fatal(ok, err)
 		}
 	}
 	for _, bad := range []string{"http://core.example", "ftp://core.example", "not a url", ""} {
-		if err := checkCoreURL(bad); err == nil {
+		if err := CheckCoreURL(bad); err == nil {
 			t.Fatal(bad)
 		}
 	}

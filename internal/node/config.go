@@ -21,12 +21,9 @@ const ConfigEnv = "FACTORY_NODE_CONFIG"
 type Config struct {
 	Name  string `yaml:"name"`
 	Slots int    `yaml:"slots"`
-	// Company is the company whose runs the node executes (its NATS subjects factory.<company>...); empty is
-	// "default". A protocol v2 node refuses to run when its node token belongs to another company.
-	Company string `yaml:"company"`
-	// ProtocolVersion 1 (default) claims per run with per-run heartbeats; 2 registers the node and
-	// speaks only runtime protocol v2 (docs/runtime-protocol-v2.md).
-	ProtocolVersion int `yaml:"protocol_version"`
+	// Company is the company Core named at enrollment (state_dir/company), never a setting: it decides the node's
+	// subjects factory.<company>... and its skills.
+	Company string `yaml:"-"`
 	// Resources is the node's capacity per class (e.g. simulator: 2), sent in register; Core enforces it at claim.
 	Resources map[string]int `yaml:"resources"`
 	Labels    []string       `yaml:"labels"`
@@ -52,9 +49,6 @@ type Config struct {
 	Janitor janitor.Config `yaml:"janitor"`
 	// NATS is the outbound connection (node-agent D1, task 1.5); without url, NATS_URL, else nats://127.0.0.1:4222.
 	NATS NATS `yaml:"nats"`
-	// TokenFile holds this machine's node token (`factory nodes token create`, node-agent 1.1); FACTORY_NODE_TOKEN
-	// overrides it, and without either the node uses the shared FACTORY_TOKEN (transition).
-	TokenFile string `yaml:"token_file"`
 	// RuntimeEnv adds environment variable names (NAME_* for a prefix) to the allowlist of what agent runtimes
 	// inherit from the node (worker.RuntimeEnv); the node's and the owner's credentials never pass.
 	RuntimeEnv []string `yaml:"runtime_env"`
@@ -68,32 +62,6 @@ type Config struct {
 
 // DefaultCompany is the company of a node whose node.yaml names none.
 const DefaultCompany = "default"
-
-// TokenEnv carries the node token in the environment (a 0600 systemd EnvironmentFile or launchd plist).
-const TokenEnv = "FACTORY_NODE_TOKEN"
-
-// Token is the credential the node presents to Core: FACTORY_NODE_TOKEN, else the first line of token_file,
-// else the shared FACTORY_TOKEN. source names where it came from ("" when none is set).
-func (c Config) Token(getenv func(string) string) (token, source string, err error) {
-	if v := strings.TrimSpace(getenv(TokenEnv)); v != "" {
-		return v, TokenEnv, nil
-	}
-	if c.TokenFile != "" {
-		b, err := os.ReadFile(c.TokenFile)
-		if err != nil {
-			return "", "", fmt.Errorf("token_file: %w", err)
-		}
-		line, _, _ := strings.Cut(string(b), "\n")
-		if line = strings.TrimSpace(line); line == "" {
-			return "", "", fmt.Errorf("token_file %s is empty", c.TokenFile)
-		}
-		return line, "token_file", nil
-	}
-	if v := getenv("FACTORY_TOKEN"); v != "" {
-		return v, "FACTORY_TOKEN", nil
-	}
-	return "", "", nil
-}
 
 // NATS: url is nats://, tls://, ws:// or wss:// (a comma-separated list is allowed) without user info: the
 // per-node user comes from creds_file or nkey_seed_file, so node.yaml holds no secret. The NATS_URL fallback
@@ -194,7 +162,7 @@ func Defaults() Config {
 	if !nodeName.MatchString(name) {
 		name = "node"
 	}
-	return Config{Name: name, Slots: 2, ProtocolVersion: 1, StateDir: "data/factory-node",
+	return Config{Name: name, Slots: 2, StateDir: "data/factory-node",
 		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour, Attempts: 3, RetryBackoff: 5 * time.Second, TransientFailures: 3}, Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
 }
 
@@ -257,7 +225,7 @@ func (c *Config) Absolute() error {
 		c.ProjectsRoot = filepath.Join(home, rest)
 	}
 	return errors.Join(abs(&c.StateDir), abs(&c.ProjectsRoot), abs(&c.BinDir), abs(&c.SkillsRoot), abs(&c.Disk.Path), abs(&c.Worktrees.Root),
-		abs(&c.TokenFile), abs(&c.SecretsFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
+		abs(&c.SecretsFile), abs(&c.Drivers.Claude.Shim), cmd(&c.Drivers.Claude.Executable), cmd(&c.Drivers.Codex.Binary),
 		abs(&c.NATS.CredsFile), abs(&c.NATS.NkeySeedFile), abs(&c.NATS.TLS.CAFile), abs(&c.NATS.TLS.CertFile), abs(&c.NATS.TLS.KeyFile))
 }
 
@@ -280,14 +248,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Company == "" {
 		c.Company = DefaultCompany
-	} else if !companyName.MatchString(c.Company) {
-		errs = append(errs, fmt.Errorf("company %q: letters, digits, '_' or '-', at most 96", c.Company))
 	}
 	if c.StateDir == "" {
 		errs = append(errs, errors.New("state_dir is required"))
-	}
-	if c.ProtocolVersion != 1 && c.ProtocolVersion != 2 {
-		errs = append(errs, fmt.Errorf("protocol_version %d: must be 1 or 2", c.ProtocolVersion))
 	}
 	for k, n := range c.Resources {
 		if !resourceName.MatchString(k) || n < 0 {

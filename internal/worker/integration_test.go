@@ -14,6 +14,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -89,7 +90,8 @@ func TestJetStreamFoundation(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := API{URL: server.URL, Token: "test-token"}
-	w := Worker{Bus: b, API: api, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
+	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}, ShimBinary: buildShim(t)}
+	asNode(t, s, &w, server.URL)
 	go func() { errs <- w.Run(ctx) }()
 	var spec protocol.RunSpec
 	if err = api.Do(ctx, "POST", "/runs", map[string]string{"project": "test", "agent": "demo", "workspace": t.TempDir(), "prompt": "Reply foundation ok"}, &spec); err != nil {
@@ -170,19 +172,25 @@ func TestJetStreamCancellation(t *testing.T) {
 	if err = s.Create(ctx, storage.DefaultCompany, spec); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := s.Claim(ctx, storage.DefaultCompany, spec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	consumer, err := b.Subscribe("factory.default.events.>", "cancel-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	bin, _ := os.Executable()
-	w := Worker{Bus: b, API: API{URL: server.URL, Token: "test-token"}, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}
+	w := Worker{Bus: b, Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}
+	n := asNode(t, s, &w, server.URL)
+	epoch, claim, err := w.ClaimV2(ctx, spec.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, stopRun := context.WithCancelCause(ctx)
+	defer stopRun(nil)
+	if !w.Inventory.AddCause(spec.ID, epoch, stopRun) {
+		t.Fatal("claim not recorded")
+	}
 	done := make(chan error, 1)
-	go func() { done <- w.execute(ctx, spec, lease, "cancel-command") }()
-	// Request cancellation only after start is confirmed. Core's heartbeat must deliver it.
+	go func() { done <- w.execute(runCtx, claim.RunSpec, claim.Lease, "cancel-command") }()
+	// Request cancellation only after start is confirmed. The node's heartbeat answer must deliver it.
 	cancelled := false
 	terminal := false
 	for !terminal {
@@ -206,6 +214,17 @@ func TestJetStreamCancellation(t *testing.T) {
 					t.Fatal(err)
 				}
 				cancelled = true
+				var answer storage.HeartbeatAnswer
+				hb := storage.NodeHeartbeat{Epoch: epoch, Inventory: []storage.InventoryRun{{RunID: spec.ID, State: "running"}}}
+				if err = w.API.Do(ctx, "POST", "/nodes/"+n.ID+"/heartbeat", hb, &answer); err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Contains(answer.Stop, storage.Stop{RunID: spec.ID, Reason: "revoked"}) {
+					t.Fatalf("%+v", answer)
+				}
+				for _, stop := range answer.Stop {
+					w.Inventory.Stop(stop.RunID, stop.Reason)
+				}
 			}
 			if payload.Status != "" {
 				if payload.Status != "ENDED" || payload.Outcome != "revoked" {

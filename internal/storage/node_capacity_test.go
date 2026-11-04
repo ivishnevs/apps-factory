@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -11,82 +10,38 @@ import (
 	"appfactory/internal/tasks"
 )
 
-// TestNodeTokens: a node token is shown once, stored hashed, bound to one node_id (at issue or by its first
-// register), and stops working when revoked or when its node is removed.
-func TestNodeTokens(t *testing.T) {
+// TestRemoveNodeKeys: an online node is not removed; removing an offline one deletes its keys, so nothing can act as it.
+func TestRemoveNodeKeys(t *testing.T) {
 	s, fake := clockStore(t)
 	ctx := context.Background()
 	co := DefaultCompany
-	if _, err := s.CreateNodeToken(ctx, co, " ", ""); !errors.Is(err, ErrInput) {
-		t.Fatal("unnamed token issued", err)
-	}
-	if _, err := s.CreateNodeToken(ctx, co, "mini", "bad id!"); !errors.Is(err, ErrInput) {
-		t.Fatal("token for an invalid node_id issued", err)
-	}
-	a, err := s.CreateNodeToken(ctx, co, "mini-1", "")
-	if err != nil || !strings.HasPrefix(a.Token, NodeTokenPrefix) || a.NodeID != "" {
-		t.Fatal(a, err)
-	}
-	var stored string
-	if err = s.DB.QueryRow("SELECT hash FROM node_tokens WHERE id=?", a.ID).Scan(&stored); err != nil || strings.Contains(stored, a.Token) {
-		t.Fatal("token stored in the clear", stored, err)
-	}
-	got, err := s.AuthenticateNodeToken(ctx, a.Token)
-	if err != nil || got.ID != a.ID || got.Company != co || got.NodeID != "" || got.LastUsedAt != fake.Now().Unix() {
-		t.Fatalf("%+v %v", got, err)
-	}
-	for _, bad := range []string{"", "worker-token", a.Token + "x", NodeTokenPrefix + "unknown"} {
-		if _, err = s.AuthenticateNodeToken(ctx, bad); !errors.Is(err, ErrNotFound) {
-			t.Fatal(bad, err)
-		}
-	}
-	if err = s.BindNodeToken(ctx, co, a.ID, "n1"); err != nil {
+	code, err := s.CreateNodeEnrollment(ctx, co, "mini-2")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.BindNodeToken(ctx, co, a.ID, "n1"); err != nil {
-		t.Fatal("binding again to the same node", err)
-	}
-	if err = s.BindNodeToken(ctx, co, a.ID, "n2"); !errors.Is(err, ErrNodeTokenBound) {
-		t.Fatal("rebound to another node", err)
-	}
-	if got, _ = s.AuthenticateNodeToken(ctx, a.Token); got.NodeID != "n1" {
-		t.Fatalf("%+v", got)
-	}
-	b, err := s.CreateNodeToken(ctx, co, "mini-2", "n2")
-	if err != nil || b.NodeID != "n2" {
-		t.Fatal(b, err)
-	}
-	list, err := s.NodeTokens(ctx, co)
-	if err != nil || len(list) != 2 || list[0].NodeID != "n1" || list[1].NodeID != "n2" {
-		t.Fatalf("%+v %v", list, err)
-	}
-	if raw, _ := json.Marshal(list); strings.Contains(string(raw), a.Token) || strings.Contains(string(raw), b.Token) {
-		t.Fatal("list shows secrets")
-	}
-	r, err := s.RevokeNodeToken(ctx, co, a.ID)
-	if err != nil || r.RevokedAt == 0 {
-		t.Fatal(r, err)
-	}
-	if _, err = s.AuthenticateNodeToken(ctx, a.Token); !errors.Is(err, ErrNotFound) {
-		t.Fatal("revoked token works", err)
-	}
-	if _, err = s.RevokeNodeToken(ctx, co, "nope"); !errors.Is(err, ErrNotFound) {
+	k, err := s.EnrollNode(ctx, enrollInput(t, code.Code))
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Removing a node revokes its tokens; an online node is not removed.
-	register(t, s, "n2", 1)
-	if err = s.RemoveNode(ctx, co, "n2"); !errors.Is(err, ErrConflict) {
+	if _, err = s.ApproveNodeKey(ctx, co, k.NodeID, k.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	register(t, s, k.NodeID, 1)
+	if err = s.RemoveNode(ctx, co, k.NodeID); !errors.Is(err, ErrConflict) {
 		t.Fatal("online node removed", err)
+	}
+	if _, err = s.NodeKeyOf(ctx, k.NodeID); err != nil {
+		t.Fatal("refused removal touched the keys", err)
 	}
 	fake.Advance(2 * NodeOffline)
 	if err = s.ExpireNodes(ctx, co); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.RemoveNode(ctx, co, "n2"); err != nil {
+	if err = s.RemoveNode(ctx, co, k.NodeID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.AuthenticateNodeToken(ctx, b.Token); !errors.Is(err, ErrNotFound) {
-		t.Fatal("removed node's token works", err)
+	if _, err = s.NodeKeyOf(ctx, k.NodeID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("removed node keeps its keys", err)
 	}
 	if nodes, _ := s.Nodes(ctx, co); len(nodes) != 0 {
 		t.Fatalf("%+v", nodes)

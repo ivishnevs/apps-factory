@@ -89,7 +89,7 @@ func TestStopOutcome(t *testing.T) {
 		}
 		stop()
 	}
-	for cause, want := range map[error]string{errRevoked: "revoked", errHeartbeatLost: "lost", errExitGrace: "lost"} {
+	for cause, want := range map[error]string{errExitGrace: "lost"} {
 		ctx, cancel := context.WithCancelCause(context.Background())
 		cancel(cause)
 		if o := stopOutcome(ctx); o != want {

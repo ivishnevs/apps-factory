@@ -20,7 +20,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// TestJetStreamStaleCommandIsDropped (trigger-log-scheduling D6): a v1 worker claims a run whose task no
+// TestJetStreamStaleCommandIsDropped (trigger-log-scheduling D6): a node claims a run whose task no
 // longer wants it (a dependency reopened after dispatch); Core answers 409 drop, the worker acknowledges the
 // command without starting the runtime, and the run ends stale.
 func TestJetStreamStaleCommandIsDropped(t *testing.T) {
@@ -79,7 +79,8 @@ func TestJetStreamStaleCommandIsDropped(t *testing.T) {
 		}
 	}
 	d := &fake.Driver{}
-	w := Worker{Bus: b, API: API{URL: server.URL, Token: "test-token"}, Driver: d}
+	w := Worker{Bus: b, Driver: d}
+	asNode(t, s, &w, server.URL)
 	sub, err := w.Subscribe()
 	if err != nil {
 		t.Fatal(err)

@@ -41,9 +41,18 @@ func TestHelperCrashableNode(t *testing.T) {
 	}
 	defer b.NC.Close()
 	cfg := node.Defaults()
-	cfg.Name, cfg.Slots, cfg.StateDir, cfg.ProtocolVersion = "crash-node", 1, os.Getenv("FACTORY_HELPER_STATE"), 2
+	cfg.Name, cfg.Slots, cfg.StateDir = "crash-node", 1, os.Getenv("FACTORY_HELPER_STATE")
+	keys, err := node.LoadKeys(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := node.NodeID(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := worker.API{URL: os.Getenv("FACTORY_HELPER_CORE"), Node: id, Key: keys.Sign}
 	d := &fake.Driver{Command: []string{"sh", "-c", "sleep 60 & wait"}}
-	if err = Run(ctx, Node{Config: cfg, Bus: b, API: worker.API{URL: os.Getenv("FACTORY_HELPER_CORE"), Token: "test-token"}, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond}); err != nil {
+	if err = Run(ctx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}, FetchWait: 200 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -87,6 +96,7 @@ func TestJetStreamOrphanGoneBeforeRetry(t *testing.T) {
 	go c.Run(ctx)
 	co := storage.DefaultCompany
 	state := t.TempDir()
+	enrolled(t, s, state, server.URL)
 	start := func() *exec.Cmd {
 		t.Helper()
 		bin, _ := os.Executable()

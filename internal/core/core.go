@@ -47,6 +47,8 @@ type Core struct {
 	AuditAssignee string
 	// enrollLimit limits the tokenless enroll route (node-identity D3).
 	enrollLimit enrollLimiter
+	// signatures is the node gateway's memory (node-identity D4).
+	signatures signatureState
 	// lastStallSweep is touched only by the tick goroutine.
 	lastStallSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
@@ -173,16 +175,6 @@ func (c *Core) Handler() http.Handler {
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /runs/{id}/credential", c.credential)
-	m.HandleFunc("POST /runs/{id}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
-		var p struct {
-			Lease string `json:"lease"`
-		}
-		if !decode(w, r, &p) {
-			return
-		}
-		cancel, err := c.Store.Heartbeat(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Lease)
-		reply(w, map[string]bool{"cancel": cancel}, err)
-	})
 	// Workers report a task run's workspace (task-worktrees D1), authenticated by the run's lease.
 	m.HandleFunc("POST /runs/{id}/workspace", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -226,6 +218,15 @@ func (c *Core) Handler() http.Handler {
 			c.authRoutes(w, r)
 			return
 		}
+		// A signed request is a node's, and only a signed request reaches a node route (node-identity D4).
+		if r.Header.Get("Signature-Input") != "" {
+			c.nodeGateway(w, r, m)
+			return
+		}
+		if nodeRoute(r) {
+			http.Error(w, "unauthorized", 401)
+			return
+		}
 		auth := r.Header.Get("Authorization")
 		if c.Token != "" && subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+c.Token)) == 1 {
 			ctx := context.WithValue(context.WithValue(r.Context(), operatorKey{}, true), principalKey{}, principal{Kind: "operator", Role: storage.RoleOwner})
@@ -241,11 +242,6 @@ func (c *Core) Handler() http.Handler {
 		// A company owner token (company-self-service 4.1) reaches its company's owner routes.
 		if token, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(token, storage.OwnerTokenPrefix) && c.Store != nil {
 			c.ownerGateway(w, r, m, token)
-			return
-		}
-		// A per-machine node token (node-agent 1.1) reaches only the node routes, for its own node.
-		if token, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(token, storage.NodeTokenPrefix) && c.Store != nil {
-			c.nodeGateway(w, r, m, token)
 			return
 		}
 		// A person signed in on the website (user-accounts D5, D6).

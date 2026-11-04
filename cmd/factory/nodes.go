@@ -8,9 +8,9 @@ import (
 	"appfactory/internal/worker"
 )
 
-const nodesUsage = "nodes list | nodes remove NODE_ID | nodes enroll --name NAME | nodes keys | nodes approve NODE_ID FINGERPRINT | nodes reject NODE_ID | nodes token create NAME [--node-id NODE_ID] | nodes token list | nodes token revoke TOKEN_ID"
+const nodesUsage = "nodes list | nodes remove NODE_ID | nodes enroll --name NAME | nodes keys | nodes approve NODE_ID FINGERPRINT | nodes reject NODE_ID | nodes revoke NODE_ID"
 
-// nodesCommand: registered nodes and per-machine node tokens (node-agent 1.1).
+// nodesCommand: registered nodes and their keys (node-identity).
 func nodesCommand(ctx context.Context, api worker.API, args []string) error {
 	var result any
 	var err error
@@ -27,19 +27,8 @@ func nodesCommand(ctx context.Context, api worker.API, args []string) error {
 		err = api.Do(ctx, "POST", "/node-keys/"+url.PathEscape(args[2])+"/approve", map[string]string{"fingerprint": args[3]}, &result)
 	case len(args) == 3 && args[1] == "reject":
 		err = api.Do(ctx, "POST", "/node-keys/"+url.PathEscape(args[2])+"/reject", nil, &result)
-	case len(args) == 3 && args[1] == "token" && args[2] == "list":
-		err = api.Do(ctx, "GET", "/node-tokens", nil, &result)
-	case len(args) == 4 && args[1] == "token" && args[2] == "revoke":
-		err = api.Do(ctx, "POST", "/node-tokens/"+url.PathEscape(args[3])+"/revoke", nil, &result)
-	case (len(args) == 4 || len(args) == 6) && args[1] == "token" && args[2] == "create":
-		body := map[string]string{"name": args[3]}
-		if len(args) == 6 {
-			if args[4] != "--node-id" {
-				return fmt.Errorf("usage: %s", nodesUsage)
-			}
-			body["node_id"] = args[5]
-		}
-		err = api.Do(ctx, "POST", "/node-tokens", body, &result)
+	case len(args) == 3 && args[1] == "revoke":
+		err = api.Do(ctx, "POST", "/nodes/"+url.PathEscape(args[2])+"/revoke", nil, &result)
 	default:
 		return fmt.Errorf("usage: %s", nodesUsage)
 	}

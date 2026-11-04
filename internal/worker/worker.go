@@ -44,6 +44,8 @@ type API struct {
 	// Node and Key sign this node's requests (node-identity D4); the owner CLI has neither and sends its token.
 	Node string
 	Key  ed25519.PrivateKey
+	// CurrentKey, when set, gives the key to sign with, so an approved rotation takes effect without a restart.
+	CurrentKey func() ed25519.PrivateKey
 	// Now is the clock of signatures; nil is the system clock.
 	Now func() time.Time
 }
@@ -54,14 +56,18 @@ func (a API) authorize(req *http.Request, body []byte) error {
 	if a.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.Token)
 	}
-	if a.Key == nil {
+	key := a.Key
+	if a.CurrentKey != nil {
+		key = a.CurrentKey()
+	}
+	if key == nil {
 		return nil
 	}
 	now := time.Now
 	if a.Now != nil {
 		now = a.Now
 	}
-	return nodesig.Sign(req, a.Node, a.Key, body, now())
+	return nodesig.Sign(req, a.Node, key, body, now())
 }
 
 func (a API) Do(ctx context.Context, method, path string, body, result any) error {
@@ -231,59 +237,7 @@ func (w *Worker) company() string {
 // and the cancel func of its execution before the runtime starts. Process fails only when the command
 // cannot be acknowledged; run failures go to Core as events.
 func (w *Worker) Process(ctx context.Context, m *nats.Msg, running func(run string, cancel context.CancelFunc)) error {
-	if w.Inventory != nil {
-		return w.processV2(ctx, m, running)
-	}
-	e, run := pointer(m.Data)
-	if run == "" {
-		_ = m.Term()
-		slog.Error("invalid run command")
-		return nil
-	}
-	// Claim before runtime startup: the answer carries the authoritative RunSpec with the brief Core built at
-	// claim (trigger-log-scheduling D6), so nothing else is taken from the command.
-	var claim Claim
-	if err := w.API.Do(ctx, "POST", "/runs/"+run+"/claim", nil, &claim); err != nil {
-		var h *HTTPError
-		if errors.As(err, &h) && h.Status == 409 {
-			var r Refusal
-			switch {
-			case json.Unmarshal([]byte(h.Message), &r) == nil && r.Drop:
-				// Stale, duplicate or revoked: the run never starts here (Core ended a stale one).
-				slog.Info("run command dropped", "run", run, "reason", r.Reason)
-				return m.AckSync()
-			case r.Retry:
-				_ = m.NakWithDelay(RetryDelay)
-				return nil
-			}
-		}
-		_ = m.NakWithDelay(time.Second)
-		return nil
-	}
-	spec := claim.RunSpec
-	if spec.ID != run {
-		// A Core whose v1 claim answers only the lease: read the run it claimed.
-		var saved storage.Run
-		if err := w.API.Do(ctx, "GET", "/runs/"+run, nil, &saved); err != nil || saved.Spec.ID != run {
-			slog.Error("claimed run unreadable", "run", run, "error", err)
-			_ = m.NakWithDelay(time.Second)
-			return nil
-		}
-		spec = saved.Spec
-	}
-	if err := m.AckSync(); err != nil {
-		return err
-	} // Core's lease now owns recovery, not redelivery.
-	slog.Info("run claimed", "run", spec.ID)
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	if running != nil {
-		running(spec.ID, cancel)
-	}
-	if err := w.execute(runCtx, spec, claim.Lease, e.ID); err != nil {
-		slog.Error("runtime run", "run", spec.ID, "error", err)
-	}
-	return nil
+	return w.processV2(ctx, m, running)
 }
 func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, cause string) (runErr error) {
 	// Timeouts and heartbeats run on Go's monotonic clock, which stops during system sleep
@@ -314,8 +268,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 	}
 	// stopRun stops the run with a cause stopOutcome reads: errExitGrace for a runtime still running
-	// ExitGrace after its accepted exit (the exit stands), errRevoked for a v1 heartbeat cancel,
-	// errHeartbeatLost when the v1 heartbeat fails.
+	// ExitGrace after its accepted exit (the exit stands).
 	ctx, stopRun := context.WithCancelCause(ctx)
 	defer stopRun(nil)
 	var wt *workspace.Worktree
@@ -547,36 +500,6 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		rlog.secret(v)
 	}
 
-	// Heartbeats also carry cancellation. Failure stops execution instead of running without ownership.
-	// A v2 run is renewed and stopped by the node's inventory heartbeat.
-	heartbeatCtx, stopHeartbeat := context.WithCancel(parent)
-	defer stopHeartbeat()
-	go func() {
-		if v2 {
-			return
-		}
-		t := time.NewTicker(10 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-heartbeatCtx.Done():
-				return
-			case <-t.C:
-				var res struct {
-					Cancel bool `json:"cancel"`
-				}
-				if err := w.API.Do(heartbeatCtx, "POST", "/runs/"+spec.ID+"/heartbeat", map[string]string{"lease": lease}, &res); err != nil {
-					slog.Error("heartbeat failed", "run", spec.ID, "error", err)
-					stopRun(errHeartbeatLost)
-					return
-				}
-				if res.Cancel {
-					stopRun(errRevoked)
-					return
-				}
-			}
-		}
-	}()
 	runSpec, prev := w.resumeSpec(drv, spec, cwd)
 	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ(), w.EnvAllow)}
 	shimDir, err := w.shims(spec)
@@ -809,12 +732,7 @@ var errRunTimeout = errors.New("run timeout")
 // ends succeeded (the exit stands).
 var errExitGrace = errors.New("stopped after the accepted exit")
 
-// errRevoked is the cancellation cause of a v1 heartbeat cancel (Core stopped the run); errHeartbeatLost
-// of a failed v1 heartbeat (the worker no longer owns the run).
-var (
-	errRevoked       = errors.New("stopped by Core")
-	errHeartbeatLost = errors.New("heartbeat failed")
-)
+var ()
 
 // stopOutcome is the outcome of the reason ctx was cancelled ("" while it is not): timed_out for the
 // run's own timeout or Core's v2 stop timed_out, idle_timeout for Core's v2 stop idle_timeout, revoked
@@ -828,9 +746,6 @@ func stopOutcome(ctx context.Context) string {
 	cause := context.Cause(ctx)
 	if errors.Is(cause, errRunTimeout) {
 		return outcomeTimedOut
-	}
-	if errors.Is(cause, errRevoked) {
-		return outcomeRevoked
 	}
 	var c *node.StopCause
 	if errors.As(cause, &c) {
@@ -1158,7 +1073,7 @@ var RuntimeEnv = []string{
 // runtimeDenied never reaches a runtime, whatever an allowlist says: the owner's and the node's credentials,
 // the owner CLI's configuration (FACTORY_URL with FACTORY_TOKEN) and NATS. The run's own URL and token are
 // added by runEnvironment.
-var runtimeDenied = []string{"FACTORY_TOKEN", "FACTORY_NODE_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_TELEGRAM_TOKEN", "FACTORY_NODE_CONFIG", "NATS_*", SecretEnvPrefix + "*"}
+var runtimeDenied = []string{"FACTORY_TOKEN", "FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_TELEGRAM_TOKEN", "FACTORY_NODE_CONFIG", "NATS_*", SecretEnvPrefix + "*"}
 
 // The runtime receives only a run-scoped Factory credential. Host access remains trusted.
 func runEnvironment(env, allow []string, base, token string) []string {

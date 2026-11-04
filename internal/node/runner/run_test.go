@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -82,10 +83,11 @@ func TestJetStreamNodeSlots(t *testing.T) {
 	d := &fake.Driver{} // no status: each run lasts until interrupted
 	cfg := node.Defaults()
 	cfg.Slots, cfg.StateDir = 3, t.TempDir()
+	api := enrolled(t, s, cfg.StateDir, server.URL)
 	nodeCtx, stopNode := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: worker.API{URL: server.URL, Token: "test-token"}, Drivers: []driver.Driver{perRunSessions{d}}})
+		done <- Run(nodeCtx, Node{Config: cfg, Bus: b, API: api, Drivers: []driver.Driver{perRunSessions{d}}})
 	}()
 	for running := 0; running < len(runs); {
 		select {
@@ -166,5 +168,33 @@ func TestWatchdogReapsPlantedOrphan(t *testing.T) {
 	}
 	if files, _ := filepath.Glob(filepath.Join(dir, "*")); len(files) != 0 {
 		t.Fatal(files)
+	}
+}
+
+// TestMainNeedsEnrollment: without keys, or with keys but no company from enrollment, a node refuses to start and asks
+// for enrollment; a key readable by others is refused too. Nothing connects anywhere.
+func TestMainNeedsEnrollment(t *testing.T) {
+	getenv := func(k string) string {
+		if k == "FACTORY_URL" {
+			return "http://127.0.0.1:1"
+		}
+		return ""
+	}
+	cfg := node.Defaults()
+	cfg.StateDir = t.TempDir()
+	if err := Main(context.Background(), cfg, getenv); !errors.Is(err, node.ErrNoKeys) {
+		t.Fatal(err)
+	}
+	if _, err := node.GenerateKeys(cfg.StateDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := Main(context.Background(), cfg, getenv); !errors.Is(err, node.ErrNoKeys) {
+		t.Fatal("no company:", err)
+	}
+	if err := os.Chmod(filepath.Join(cfg.StateDir, node.KeysDir, node.SignKeyFile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Main(context.Background(), cfg, getenv); err == nil || errors.Is(err, node.ErrNoKeys) {
+		t.Fatal("loose key:", err)
 	}
 }

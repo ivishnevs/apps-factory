@@ -146,7 +146,7 @@ func TestSessionSignIn(t *testing.T) {
 		t.Fatal(name)
 	}
 	// Node and operator routes are not for people.
-	if w := ann.do("POST", "/nodes/register", map[string]any{}); w.Code != 403 {
+	if w := ann.do("POST", "/nodes/register", map[string]any{}); w.Code != 401 {
 		t.Fatal("node route", w.Code)
 	}
 	if w := ann.do("GET", "/companies", nil); w.Code != 403 {
@@ -357,5 +357,17 @@ func TestSecretNamesOnly(t *testing.T) {
 	n.finish()
 	if w.Code != 404 {
 		t.Fatal(w.Code)
+	}
+}
+
+// TestNodeKeyRoutesNeedAdmin (node-identity D3, D5): issuing codes, seeing and confirming keys and revoking a node are
+// for owners and admins.
+func TestNodeKeyRoutesNeedAdmin(t *testing.T) {
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/node-enrollments"}, {"GET", "/node-keys"}, {"POST", "/node-keys/n/approve"}, {"POST", "/node-keys/n/reject"}, {"POST", "/nodes/n/revoke"}, {"DELETE", "/nodes/n"},
+	} {
+		if got := requiredRole(c.method, c.path); got != storage.RoleAdmin {
+			t.Errorf("%s %s needs %q", c.method, c.path, got)
+		}
 	}
 }

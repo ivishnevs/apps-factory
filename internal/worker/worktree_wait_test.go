@@ -74,7 +74,7 @@ func TestJetStreamWorktreeNextRunWaitsForGroupAndSeal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := API{URL: server.URL, Token: "test-token"}
+	api := API{URL: server.URL}
 	start := func(id string, d driver.Driver, runCtx context.Context) chan error {
 		t.Helper()
 		spec := protocol.RunSpec{ID: id, Project: "fake-project", Agent: "demo", Provider: d.Name(), Workspace: t.TempDir(), Prompt: "work", Instructions: "base", TimeoutSeconds: 30,

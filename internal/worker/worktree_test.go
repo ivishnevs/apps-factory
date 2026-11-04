@@ -220,7 +220,8 @@ func TestJetStreamWorktreeReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := Worker{Bus: b, API: api, Driver: &fake.Driver{Script: sc, Files: map[string]string{"draft.txt": "x\n"}}, Worktrees: trees, NodeID: "mini-1", ShimBinary: buildShim(t)}
+	w := Worker{Bus: b, Driver: &fake.Driver{Script: sc, Files: map[string]string{"draft.txt": "x\n"}}, Worktrees: trees, NodeID: "mini-1", ShimBinary: buildShim(t)}
+	asNode(t, s, &w, server.URL)
 	workerDone := make(chan error, 1)
 	go func() { workerDone <- w.Run(ctx) }()
 	defer func() { stop(); <-workerDone; <-engineDone }()

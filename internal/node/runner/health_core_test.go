@@ -16,7 +16,6 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
-	"appfactory/internal/worker"
 )
 
 // TestNodeHealthAgainstCore runs a v2 node session against the real Core (no NATS needed): the catalog's
@@ -37,9 +36,9 @@ func TestNodeHealthAgainstCore(t *testing.T) {
 	c := &core.Core{Store: s, Token: "test-token", NodeHooks: map[string]protocol.NodeHooks{"ios": hooks}}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
-	api := worker.API{URL: server.URL, Token: "test-token"}
 
 	dir := t.TempDir()
+	api := enrolled(t, s, dir, server.URL)
 	var free atomic.Uint64
 	free.Store(30 * node.GiB)
 	n := v2Node(t, api, dir)

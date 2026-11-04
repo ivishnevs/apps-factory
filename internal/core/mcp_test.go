@@ -15,6 +15,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestRunScopedMCP(t *testing.T) {
@@ -71,18 +72,21 @@ func TestRunScopedMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := call(c.Token, "POST", "/runs/"+run.Spec.ID+"/credential", map[string]string{"lease": "fake"}); w.Code != 403 {
-		t.Fatal(w.Code)
+	n := testnode.Enroll(t, s, storage.DefaultCompany)
+	n.OwnRun(t, s, storage.DefaultCompany, run.Spec.ID)
+	if code, _ := signedCall(t, c, n, "POST", "/runs/"+run.Spec.ID+"/credential", map[string]string{"lease": "fake"}); code != 403 {
+		t.Fatal(code)
 	}
-	w := call(c.Token, "POST", "/runs/"+run.Spec.ID+"/credential", map[string]string{"lease": lease})
-	if w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
+	code, out := signedCall(t, c, n, "POST", "/runs/"+run.Spec.ID+"/credential", map[string]string{"lease": lease})
+	if code != 200 {
+		t.Fatal(code, out)
 	}
 	var credential struct{ Token, Instructions string }
-	if err = json.Unmarshal(w.Body.Bytes(), &credential); err != nil || !strings.Contains(credential.Instructions, "run: "+run.Spec.ID+";") {
+	if err = json.Unmarshal([]byte(out), &credential); err != nil || !strings.Contains(credential.Instructions, "run: "+run.Spec.ID+";") {
 		t.Fatal(err)
 	}
 	token := credential.Token
+	var w *httptest.ResponseRecorder
 	tool := func(name string, args map[string]any) *httptest.ResponseRecorder {
 		return call(token, "POST", "/agent/call", factorytools.Call{Name: "factory_" + name, Arguments: args})
 	}

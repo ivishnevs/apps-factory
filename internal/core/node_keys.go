@@ -90,6 +90,25 @@ func (c *Core) nodeKeyRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /node-keys/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RejectNodeKey(r.Context(), c.companyFrom(r), r.PathValue("id")))
 	})
+	m.HandleFunc("POST /nodes/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]bool{"ok": true}, c.Store.RevokeNode(r.Context(), c.companyFrom(r), r.PathValue("id")))
+	})
+	// A node's rotation request: the node gateway has checked the current key.
+	m.HandleFunc("POST /nodes/{id}/keys", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			SignPub string `json:"sign_pub"`
+			BoxPub  string `json:"box_pub"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		k, err := c.Store.ProposeNodeKeys(r.Context(), c.companyFrom(r), r.PathValue("id"), p.SignPub, p.BoxPub)
+		if errors.Is(err, storage.ErrNodeIDTaken) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		reply(w, enrollmentAnswer(k), err)
+	})
 }
 
 // enrollmentGateway serves the routes of nodes without a credential; false leaves the request to the token gate.
@@ -116,10 +135,12 @@ type NodeEnrollmentAnswer struct {
 	Name        string `json:"name"`
 	Fingerprint string `json:"fingerprint"`
 	Status      string `json:"status"`
+	// NextFingerprint names keys a rotation proposes, still waiting for an owner.
+	NextFingerprint string `json:"next_fingerprint,omitempty"`
 }
 
 func enrollmentAnswer(k storage.NodeKey) NodeEnrollmentAnswer {
-	return NodeEnrollmentAnswer{NodeID: k.NodeID, Company: k.Company, Name: k.Name, Fingerprint: k.Fingerprint, Status: k.Status}
+	return NodeEnrollmentAnswer{NodeID: k.NodeID, Company: k.Company, Name: k.Name, Fingerprint: k.Fingerprint, Status: k.Status, NextFingerprint: k.NextFingerprint}
 }
 
 func (c *Core) enrollNode(w http.ResponseWriter, r *http.Request) {

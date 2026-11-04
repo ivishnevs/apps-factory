@@ -48,8 +48,8 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 	return r
 }
 
-// Main checks the environment (the node token: FACTORY_NODE_TOKEN, token_file or FACTORY_TOKEN; FACTORY_URL; NATS_URL when node.yaml has no nats.url), connects and runs the node until
-// ctx ends; Run checks the drivers. codex-worker is Main with one slot and the Codex driver.
+// Main checks the environment (the node's keys from enrollment; FACTORY_URL; NATS_URL when node.yaml has no nats.url), connects and runs the node until
+// ctx ends; Run checks the drivers.
 func Main(ctx context.Context, c node.Config, getenv func(string) string) error {
 	env := func(k, d string) string {
 		if v := getenv(k); v != "" {
@@ -58,33 +58,25 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return d
 	}
 	drivers := Drivers(c, getenv)
-	token, source, err := c.Token(getenv)
+	// A node proves itself with its keys and takes its company from enrollment (node-identity D2, D4).
+	keys, err := node.LoadKeys(c.StateDir)
 	if err != nil {
 		return err
 	}
-	if token == "" {
-		return fmt.Errorf("node token required: %s, node.yaml token_file, or the shared FACTORY_TOKEN", node.TokenEnv)
-	}
-	slog.Info("authenticating to Core", "with", source)
-	// An enrolled node signs its requests and takes its company from enrollment (node-identity D2, D4). The token
-	// stays required until Core stops accepting it (node-identity 4.2).
-	api := worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: token}
-	if keys, err := node.LoadKeys(c.StateDir); err == nil {
-		if api.Node, err = node.NodeID(c.StateDir); err != nil {
-			return err
-		}
-		api.Key = keys.Sign
-		slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
-		company, err := node.LoadCompany(c.StateDir)
-		if err != nil {
-			return err
-		}
-		if company != "" {
-			c.Company = company
-		}
-	} else if !errors.Is(err, node.ErrNoKeys) {
+	api := worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), CurrentKey: node.KeyReloader(c.StateDir, keys.Sign)}
+	if err = node.CheckCoreURL(api.URL); err != nil {
 		return err
 	}
+	if api.Node, err = node.NodeID(c.StateDir); err != nil {
+		return err
+	}
+	if c.Company, err = node.LoadCompany(c.StateDir); err != nil {
+		return err
+	}
+	if c.Company == "" {
+		return node.ErrNoKeys
+	}
+	slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
 	natsURL := c.NATS.ResolveURL(getenv)
 	slog.Info("connecting to NATS", "url", bus.Redact(natsURL), "auth", c.NATS.Auth(natsURL), "tls", c.NATS.TLS.Enabled())
 	b, err := bus.ConnectWith(natsURL, c.NATS.Options)
@@ -137,7 +129,7 @@ type Node struct {
 	API     worker.API
 	Drivers []driver.Driver
 	Host    node.Host
-	// FetchWait bounds one fetch; default 1 s as in codex-worker.
+	// FetchWait bounds one fetch; default 1 s.
 	FetchWait time.Duration
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
@@ -162,11 +154,6 @@ func Run(ctx context.Context, n Node) error {
 		return fmt.Errorf("%w: %+v", ErrNoDriver, n.health.infos())
 	}
 	if err := os.MkdirAll(c.StateDir, 0o700); err != nil {
-		return err
-	}
-	// A loose or damaged key refuses the start (node-identity 1.1). No keys is allowed until signed requests
-	// replace the node token (node-identity 4.2).
-	if _, err := node.LoadKeys(c.StateDir); err != nil && !errors.Is(err, node.ErrNoKeys) {
 		return err
 	}
 	if err := worker.KillOrphans(c.StateDir); err != nil {
@@ -210,47 +197,44 @@ func Run(ctx context.Context, n Node) error {
 		defer done()
 		jan.RunStopped(hookCtx, spec.ID, spec.TaskID, worktree)
 	}
-	var s *session // protocol v2
+	var s *session
 	var checks *selfChecks
-	if c.ProtocolVersion == 2 {
-		var err error
-		if s, err = newSession(ctx, n, trees); err != nil {
-			return err
-		}
-		if s.company != "" && s.company != company {
-			// The node would fetch commands no Core of its token's company ever sends.
-			return fmt.Errorf("node.yaml company %s, but the node token belongs to company %s: set company: %s", company, s.company, s.company)
-		}
-		s.cleanup = jan.Cleanup
-		s.reset = func(ctx context.Context, task string) error {
-			resetCtx, cancel := context.WithTimeout(ctx, time.Minute) // a run holding the worktree: retried later
-			defer cancel()
-			_, err := jan.ResetWorkspace(resetCtx, task, "")
-			return err
-		}
-		// The catalog's NodeHooks document (register answer, then heartbeat answers when it changes): janitor
-		// hooks under node.yaml's, stack checks for the self-checks, a copy in state_dir for the doctor.
-		checks = newSelfChecks(n.Host, c.Labels)
-		s.checks = checks.failed
-		s.onHooks = func(d protocol.NodeHooksDelivery) {
-			jan.SetCatalog(d.Spec)
-			checks.setStack(d.Spec.Checks)
-			if err := node.SaveHooks(c.StateDir, d); err != nil {
-				slog.Warn("keeping the NodeHooks document for the doctor", "error", err)
-			}
-		}
-		if s.hooks != nil {
-			s.onHooks(*s.hooks)
-		}
-		go checks.run(ctx, c.Probes.Interval)
-		// Core's urgent stops arrive on the node's control subject, outside the command stream (a plain
-		// subscription: missed while disconnected, then the heartbeat answer stops the run).
-		control, err := n.Bus.NC.Subscribe(protocol.NodeControlSubject(company, s.inv.NodeID), func(m *nats.Msg) { s.control(m.Data) })
-		if err != nil {
-			return err
-		}
-		defer control.Unsubscribe()
+	if s, err = newSession(ctx, n, trees); err != nil {
+		return err
 	}
+	if s.company != "" && s.company != company {
+		// The node would fetch commands no Core of its key's company ever sends.
+		return fmt.Errorf("this node enrolled in company %s, but Core says its key belongs to company %s: enroll it again", company, s.company)
+	}
+	s.cleanup = jan.Cleanup
+	s.reset = func(ctx context.Context, task string) error {
+		resetCtx, cancel := context.WithTimeout(ctx, time.Minute) // a run holding the worktree: retried later
+		defer cancel()
+		_, err := jan.ResetWorkspace(resetCtx, task, "")
+		return err
+	}
+	// The catalog's NodeHooks document (register answer, then heartbeat answers when it changes): janitor
+	// hooks under node.yaml's, stack checks for the self-checks, a copy in state_dir for the doctor.
+	checks = newSelfChecks(n.Host, c.Labels)
+	s.checks = checks.failed
+	s.onHooks = func(d protocol.NodeHooksDelivery) {
+		jan.SetCatalog(d.Spec)
+		checks.setStack(d.Spec.Checks)
+		if err := node.SaveHooks(c.StateDir, d); err != nil {
+			slog.Warn("keeping the NodeHooks document for the doctor", "error", err)
+		}
+	}
+	if s.hooks != nil {
+		s.onHooks(*s.hooks)
+	}
+	go checks.run(ctx, c.Probes.Interval)
+	// Core's urgent stops arrive on the node's control subject, outside the command stream (a plain
+	// subscription: missed while disconnected, then the heartbeat answer stops the run).
+	control, err := n.Bus.NC.Subscribe(protocol.NodeControlSubject(company, s.inv.NodeID), func(m *nats.Msg) { s.control(m.Data) })
+	if err != nil {
+		return err
+	}
+	defer control.Unsubscribe()
 	pool := &Pool{Slots: c.Slots}
 	names := []string{}
 	for _, d := range n.Drivers {
@@ -307,7 +291,7 @@ func Run(ctx context.Context, n Node) error {
 	} else {
 		close(done)
 	}
-	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root, "protocol_version", c.ProtocolVersion)
+	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root)
 	err = pool.Run(ctx)
 	stop()
 	<-done

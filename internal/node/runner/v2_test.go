@@ -61,7 +61,7 @@ func newFakeCore(t *testing.T, stateDir string) (*fakeCore, worker.API) {
 	})
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
-	return f, worker.API{URL: s.URL, Token: "test-token"}
+	return f, worker.API{URL: s.URL}
 }
 
 func answer(w http.ResponseWriter, status int, v any) {
@@ -192,7 +192,7 @@ func (f *fakeCore) set(change func()) {
 
 func v2Node(t *testing.T, api worker.API, stateDir string) Node {
 	c := node.Defaults()
-	c.Name, c.Slots, c.StateDir, c.ProtocolVersion = "mini-1", 2, stateDir, 2
+	c.Name, c.Slots, c.StateDir = "mini-1", 2, stateDir
 	c.Disk.Path = stateDir
 	c.Resources, c.Labels = map[string]int{"simulator": 2}, []string{"macos"}
 	return Node{Config: c, API: api, Drivers: []driver.Driver{&fake.Driver{}},
@@ -350,7 +350,7 @@ func TestV2HeartbeatRefusals(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	ctx := context.Background()
-	s, err := newSession(ctx, v2Node(t, worker.API{URL: srv.URL, Token: "t"}, dir), nil)
+	s, err := newSession(ctx, v2Node(t, worker.API{URL: srv.URL}, dir), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

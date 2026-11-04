@@ -3,19 +3,26 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"appfactory/internal/bus"
 	"appfactory/internal/clock"
 	"appfactory/internal/config"
 	"appfactory/internal/messaging"
+	"appfactory/internal/nodesig"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func nodeCore(t *testing.T) (*Core, *storage.Store, *clock.Fake) {
@@ -53,66 +60,308 @@ func registration(node string, epoch int64) storage.NodeRegistration {
 		Drivers: []storage.NodeDriver{{Name: "codex", Version: "codex-cli 0.162.1", OK: true}}, Resources: map[string]int{}, Labels: []string{}}
 }
 
-// TestNodeTokenAuth: a node token reaches only the node routes and only for the node it is bound to (bound at
-// issue or by its first register); owner routes refuse it; revoking it locks the node out; the shared token
-// keeps working for nodes during the transition.
-func TestNodeTokenAuth(t *testing.T) {
-	c, s, _ := nodeCore(t)
-	ctx := context.Background()
-	issue := func(body map[string]string) storage.IssuedNodeToken {
-		t.Helper()
-		code, out := call(t, c, "POST", "/node-tokens", "owner", body)
-		var v storage.IssuedNodeToken
-		if code != 200 || json.Unmarshal([]byte(out), &v) != nil || v.Token == "" {
-			t.Fatal(code, out)
-		}
-		return v
+// signedCall sends one request signed by n, at the store's time, to c's handler.
+func signedCall(t *testing.T, c *Core, n testnode.Node, method, path string, body any) (int, string) {
+	t.Helper()
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
 	}
-	a := issue(map[string]string{"name": "mini-1"})
-	b := issue(map[string]string{"name": "mini-2", "node_id": "n2"})
-	expect := func(want int, method, path, token string, body any) {
+	r := httptest.NewRequest(method, path, bytes.NewReader(b))
+	n.Sign(t, c.Store, r, b)
+	w := httptest.NewRecorder()
+	c.Handler().ServeHTTP(w, r)
+	return w.Code, w.Body.String()
+}
+
+// TestNodeGateway (node-identity 2.2, 2.4): only a request signed by a node's active key, once, within the window and
+// not older than this Core reaches a node route, for that node only and in the company of its key; owner routes are
+// closed to nodes; bearer tokens never reach a node route and still reach owner routes.
+func TestNodeGateway(t *testing.T) {
+	c, s, fake := nodeCore(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	a, b := testnode.Enroll(t, s, co), testnode.Enroll(t, s, co)
+	expect := func(want int, n testnode.Node, method, path string, body any) {
 		t.Helper()
-		if code, out := call(t, c, method, path, token, body); code != want {
+		if code, out := signedCall(t, c, n, method, path, body); code != want {
 			t.Fatalf("%s %s: %d %s, want %d", method, path, code, out, want)
 		}
 	}
-	expect(403, "POST", "/nodes/n1/heartbeat", a.Token, storage.NodeHeartbeat{Epoch: 1}) // not bound yet
-	expect(200, "POST", "/nodes/register", a.Token, registration("n1", 1))               // binds
-	expect(403, "POST", "/nodes/register", a.Token, registration("n3", 1))
-	expect(403, "POST", "/nodes/register", b.Token, registration("n1", 2))
-	expect(200, "POST", "/nodes/register", b.Token, registration("n2", 1))
-	expect(200, "POST", "/nodes/n1/heartbeat", a.Token, storage.NodeHeartbeat{Epoch: 1})
-	expect(403, "POST", "/nodes/n2/heartbeat", a.Token, storage.NodeHeartbeat{Epoch: 1})
-	// Owner routes are closed to nodes.
-	for _, r := range [][2]string{{"GET", "/tasks"}, {"GET", "/runs"}, {"GET", "/node-tokens"}, {"GET", "/nodes"}, {"POST", "/runs/x/cancel"}, {"DELETE", "/nodes/n1"}} {
-		expect(403, r[0], r[1], a.Token, nil)
+	serve := func(c *Core, r *http.Request) int {
+		w := httptest.NewRecorder()
+		c.Handler().ServeHTTP(w, r)
+		return w.Code
 	}
-	expect(401, "GET", "/tasks", storage.NodeTokenPrefix+"forged", nil)
-	// Claims name the token's node; a v1 claim (no body) is refused; run routes check the run's node.
-	if err := s.Create(ctx, storage.DefaultCompany, protocol.RunSpec{ID: "r1", Project: "p", Agent: "dev", Provider: protocol.RuntimeCodex, Workspace: "/tmp/node-token-p", Prompt: "x"}); err != nil {
+	beat, _ := json.Marshal(storage.NodeHeartbeat{Epoch: 1})
+	beatPath := "/nodes/" + a.ID + "/heartbeat"
+	// request is a heartbeat of a signed with key at time at, over the body signedBody.
+	request := func(key ed25519.PrivateKey, signedBody []byte, at time.Time) *http.Request {
+		t.Helper()
+		r := httptest.NewRequest("POST", beatPath, bytes.NewReader(beat))
+		if err := nodesig.Sign(r, a.ID, key, signedBody, at); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	// Register and heartbeat are for the node itself.
+	expect(200, a, "POST", "/nodes/register", registration(a.ID, 1))
+	expect(403, a, "POST", "/nodes/register", registration("n3", 1))
+	expect(403, b, "POST", "/nodes/register", registration(a.ID, 2))
+	expect(200, b, "POST", "/nodes/register", registration(b.ID, 1))
+	expect(200, a, "POST", beatPath, storage.NodeHeartbeat{Epoch: 1})
+	expect(403, b, "POST", beatPath, storage.NodeHeartbeat{Epoch: 1})
+
+	// Owner routes are closed to nodes, also when the request carries a token too.
+	for _, r := range [][2]string{{"GET", "/tasks"}, {"GET", "/runs"}, {"GET", "/nodes"}, {"GET", "/node-keys"}, {"POST", "/runs/x/cancel"}, {"DELETE", "/nodes/" + a.ID}, {"POST", "/nodes/" + a.ID + "/revoke"}} {
+		expect(403, a, r[0], r[1], nil)
+	}
+	mixed := httptest.NewRequest("GET", "/tasks", nil)
+	a.Sign(t, s, mixed, nil)
+	mixed.Header.Set("Authorization", "Bearer owner")
+	if code := serve(c, mixed); code != 403 {
+		t.Fatal("a token opened an owner route to a signed request", code)
+	}
+
+	// Without a signature nothing reaches a node route.
+	unsigned := httptest.NewRequest("POST", beatPath, bytes.NewReader(beat))
+	if code := serve(c, unsigned); code != 401 {
+		t.Fatal("unsigned", code)
+	}
+	garbage := httptest.NewRequest("POST", beatPath, bytes.NewReader(beat))
+	garbage.Header.Set("Signature-Input", "sig1=();keyid=\""+a.ID+"\"")
+	garbage.Header.Set("Authorization", "Bearer owner")
+	if code := serve(c, garbage); code != 401 {
+		t.Fatal("malformed signature with a token", code)
+	}
+
+	// Refused signatures, each with its reason in the node's feed (one event a minute per node).
+	refusals := func() []string {
+		t.Helper()
+		page, err := s.Feed(ctx, co, storage.FeedFilter{}, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, item := range page.Items {
+			if item.Type == "node.signature_refused" && item.EntityID == "node:"+a.ID {
+				out = append(out, item.Summary)
+			}
+		}
+		return out
+	}
+	used := request(a.Key, beat, fake.Now().Add(time.Minute))
+	fake.Advance(time.Minute)
+	if code := serve(c, used); code != 200 {
+		t.Fatal("first use", code)
+	}
+	for _, tc := range []struct {
+		name, reason string
+		r            func() *http.Request
+	}{
+		{"bad signature", "bad signature", func() *http.Request { return request(b.Key, beat, fake.Now()) }},
+		{"tampered body", "body digest", func() *http.Request {
+			r := request(a.Key, beat, fake.Now())
+			r.Body = io.NopCloser(strings.NewReader(`{"epoch":2}`))
+			return r
+		}},
+		{"tampered path", "bad signature", func() *http.Request {
+			r := request(a.Key, beat, fake.Now())
+			r.URL.Path = "/nodes/" + a.ID + "/keys"
+			return r
+		}},
+		{"stale", "window", func() *http.Request { return request(a.Key, beat, fake.Now().Add(-nodesig.Window-time.Second)) }},
+		{"from the future", "window", func() *http.Request { return request(a.Key, beat, fake.Now().Add(nodesig.Window+time.Second)) }},
+		{"replayed", "replay", func() *http.Request {
+			// Inside the window, later than the first use by less than a nonce's life.
+			r := request(a.Key, beat, fake.Now())
+			if code := serve(c, r.Clone(ctx)); code != 200 {
+				t.Fatal("first use of the replayed request", code)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(beat))
+			return r
+		}},
+	} {
+		fake.Advance(time.Minute + time.Second)
+		before := len(refusals())
+		if code := serve(c, tc.r()); code != 401 {
+			t.Fatalf("%s: %d", tc.name, code)
+		}
+		got := refusals()
+		if len(got) != before+1 || !strings.Contains(got[len(got)-1], tc.reason) {
+			t.Fatalf("%s: feed %q, want a new event with %q", tc.name, got, tc.reason)
+		}
+	}
+	before := len(refusals())
+	if code := serve(c, request(b.Key, beat, fake.Now())); code != 401 || len(refusals()) != before {
+		t.Fatal("refusals not limited to one a minute", code, refusals())
+	}
+	// Within the window on either side is fine, and the node keeps working.
+	fake.Advance(time.Minute)
+	if code := serve(c, request(a.Key, beat, fake.Now().Add(-nodesig.Window+time.Second))); code != 200 {
+		t.Fatal("old but inside the window", code)
+	}
+	if code := serve(c, request(a.Key, beat, fake.Now().Add(nodesig.Window-time.Second))); code != 200 {
+		t.Fatal("ahead but inside the window", code)
+	}
+
+	// Created before Core started: nonces do not survive a restart, so a request captured before it is refused,
+	// whether it is the first request of the new Core or a later one.
+	captured := request(a.Key, beat, fake.Now())
+	fake.Advance(30 * time.Second)
+	restarted := func() *Core { return &Core{Store: s, Token: "owner", Agents: c.Agents} }
+	first := restarted()
+	if code := serve(first, captured.Clone(ctx)); code != 401 {
+		t.Fatal("captured request as the first after a restart", code)
+	}
+	if code := serve(first, request(a.Key, beat, fake.Now())); code != 200 {
+		t.Fatal("fresh request after a restart", code)
+	}
+	second := restarted()
+	if code := serve(second, request(a.Key, beat, fake.Now())); code != 200 {
+		t.Fatal(code)
+	}
+	if code := serve(second, request(a.Key, beat, fake.Now().Add(-10*time.Second))); code != 401 {
+		t.Fatal("created before this Core started", code)
+	}
+	page, err := s.Feed(ctx, co, storage.FeedFilter{}, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := false
+	for _, item := range page.Items {
+		started = started || item.Type == "node.signature_refused" && strings.Contains(item.Summary, "created before Core started")
+	}
+	if !started {
+		t.Fatal("no feed event for created before Core started")
+	}
+
+	// Pending, revoked and unknown keys are not credentials, even with a good signature.
+	code, err := s.CreateNodeEnrollment(ctx, co, "pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := newEnrollingNode(t)
+	if _, err = s.EnrollNode(ctx, p.request(code.Code)); err != nil {
+		t.Fatal(err)
+	}
+	pending := testnode.Node{ID: p.id, Key: p.key}
+	expect(401, pending, "POST", "/nodes/register", registration(p.id, 1))
+	expect(401, pending, "POST", "/nodes/"+p.id+"/heartbeat", storage.NodeHeartbeat{Epoch: 1})
+	expect(401, pending, "GET", "/health", nil)
+	u := newEnrollingNode(t)
+	expect(401, testnode.Node{ID: u.id, Key: u.key}, "POST", "/nodes/register", registration(u.id, 1))
+	revoked := testnode.Enroll(t, s, co)
+	expect(200, revoked, "POST", "/nodes/register", registration(revoked.ID, 1))
+	if err = s.RevokeNode(ctx, co, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	expect(401, revoked, "POST", "/nodes/"+revoked.ID+"/heartbeat", storage.NodeHeartbeat{Epoch: 1})
+	expect(401, revoked, "POST", "/nodes/register", registration(revoked.ID, 1))
+
+	// Claims name the signer; run routes check the run's node.
+	if err = s.Create(ctx, co, protocol.RunSpec{ID: "r1", Project: "p", Agent: "dev", Provider: protocol.RuntimeCodex, Workspace: "/tmp/node-gateway-p", Prompt: "x"}); err != nil {
 		t.Fatal(err)
 	}
 	claim := func(node string) storage.ClaimRequest {
 		return storage.ClaimRequest{NodeID: node, Epoch: 1, ClaimID: "1-0-1", Slot: 0}
 	}
-	expect(403, "POST", "/runs/r1/claim", a.Token, claim("n2"))
-	expect(403, "POST", "/runs/r1/claim", a.Token, nil)
-	code, out := call(t, c, "POST", "/runs/r1/claim", a.Token, claim("n1"))
+	runRoutes := func(lease string) [][3]any {
+		l := map[string]string{"lease": lease}
+		return [][3]any{{"POST", "/runs/r1/start", l}, {"POST", "/runs/r1/credential", l}, {"POST", "/runs/r1/workspace", l}, {"POST", "/runs/r1/project-setup", l},
+			{"GET", "/runs/r1/blobs/" + strings.Repeat("0", 64), nil}, {"PUT", "/runs/r1/logs", nil}}
+	}
+	for _, r := range runRoutes("") { // an unclaimed run is nobody's
+		expect(403, a, r[0].(string), r[1].(string), r[2])
+	}
+	expect(403, a, "POST", "/runs/r1/claim", claim(b.ID))
+	expect(403, a, "POST", "/runs/r1/claim", nil)
+	status, out := signedCall(t, c, a, "POST", "/runs/r1/claim", claim(a.ID))
 	var claimed storage.Claimed
-	if code != 200 || json.Unmarshal([]byte(out), &claimed) != nil {
-		t.Fatal(code, out)
+	if status != 200 || json.Unmarshal([]byte(out), &claimed) != nil || claimed.RunSpec.ID != "r1" {
+		t.Fatal(status, out)
 	}
-	expect(403, "POST", "/runs/r1/start", b.Token, map[string]string{"lease": claimed.Lease})
-	expect(200, "POST", "/runs/r1/start", a.Token, map[string]string{"lease": claimed.Lease})
-	// The shared token still serves nodes (transition) and the owner.
-	expect(200, "POST", "/nodes/register", "owner", registration("n4", 1))
-	code, out = call(t, c, "GET", "/node-tokens", "owner", nil)
-	if code != 200 || strings.Contains(out, a.Token) || !strings.Contains(out, `"node_id":"n1"`) {
-		t.Fatal(code, out)
+	for _, r := range runRoutes(claimed.Lease) {
+		expect(403, b, r[0].(string), r[1].(string), r[2])
 	}
-	expect(200, "POST", "/node-tokens/"+a.ID+"/revoke", "owner", nil)
-	expect(401, "POST", "/nodes/n1/heartbeat", a.Token, storage.NodeHeartbeat{Epoch: 1})
-	expect(200, "POST", "/nodes/n2/heartbeat", b.Token, storage.NodeHeartbeat{Epoch: 1})
+
+	// Bearer tokens, the operator's and an owner's, get 401 on every node route and do nothing there; both still reach
+	// owner routes.
+	issued, err := s.CreateOwnerToken(ctx, co, "first owner", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{c.Token, issued.Token} {
+		for _, r := range append(runRoutes(claimed.Lease), [3]any{"POST", "/runs/r1/claim", claim(a.ID)}, [3]any{"POST", "/nodes/register", registration(a.ID, 1)},
+			[3]any{"POST", beatPath, storage.NodeHeartbeat{Epoch: 1}}, [3]any{"POST", "/nodes/" + a.ID + "/keys", map[string]string{}}) {
+			if status, out := call(t, c, r[0].(string), r[1].(string), token, r[2]); status != 401 {
+				t.Fatalf("%s %s with a token: %d %s", r[0], r[1], status, out)
+			}
+		}
+		for _, path := range []string{"/tasks", "/nodes", "/runs/r1"} {
+			if status, out := call(t, c, "GET", path, token, nil); status != 200 {
+				t.Fatalf("GET %s with a token: %d %s", path, status, out)
+			}
+		}
+	}
+	// What used to be a node token is not a credential anywhere.
+	for _, r := range [][2]string{{"POST", "/runs/r1/claim"}, {"POST", "/runs/r1/credential"}, {"POST", "/runs/r1/start"}, {"GET", "/tasks"}} {
+		if status, out := call(t, c, r[0], r[1], "fnt_old-node-token", nil); status != 401 {
+			t.Fatalf("%s %s with an old node token: %d %s", r[0], r[1], status, out)
+		}
+	}
+	if run, err := s.Get(ctx, co, "r1"); err != nil || run.Status != "CLAIMED" {
+		t.Fatalf("a token changed the run: %+v %v", run, err)
+	}
+	expect(200, a, "POST", "/runs/r1/start", map[string]string{"lease": claimed.Lease})
+	expect(200, a, "POST", "/runs/r1/credential", map[string]string{"lease": claimed.Lease})
+
+	// A node acts in the company of its key.
+	if err = s.CreateCompany(ctx, "globex", "Globex"); err != nil {
+		t.Fatal(err)
+	}
+	g := testnode.Enroll(t, s, "globex")
+	expect(200, g, "POST", "/nodes/register", registration(g.ID, 1))
+	expect(404, g, "POST", "/runs/r1/start", map[string]string{"lease": claimed.Lease})
+	nodes, err := s.Nodes(ctx, "globex")
+	if err != nil || len(nodes) != 1 || nodes[0].NodeID != g.ID {
+		t.Fatalf("%+v %v", nodes, err)
+	}
+}
+
+// TestHealthGateway: /health answers a signed node and a token, nobody else.
+func TestHealthGateway(t *testing.T) {
+	url := os.Getenv("NATS_TEST_URL")
+	if url == "" {
+		t.Skip("set NATS_TEST_URL to a dedicated JetStream instance")
+	}
+	b, err := bus.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.NC.Close()
+	defer b.JS.DeleteStream("FACTORY_COMMANDS")
+	defer b.JS.DeleteStream("FACTORY_EVENTS")
+	c, s, _ := nodeCore(t)
+	c.Bus = b
+	ctx := context.Background()
+	n := testnode.Enroll(t, s, storage.DefaultCompany)
+	if code, out := signedCall(t, c, n, "GET", "/health", nil); code != 200 {
+		t.Fatal("signed", code, out)
+	}
+	issued, err := s.CreateOwnerToken(ctx, storage.DefaultCompany, "first owner", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{c.Token, issued.Token} {
+		if code, out := call(t, c, "GET", "/health", token, nil); code != 200 {
+			t.Fatal("token", code, out)
+		}
+	}
+	if code, _ := call(t, c, "GET", "/health", "nope", nil); code != 401 {
+		t.Fatal("bad token", code)
+	}
 }
 
 // TestNodeOfflineAfterContinuousTicking (node-agent 1.4): a silent node goes offline after 60 s of

@@ -43,13 +43,15 @@ type EnrollmentStatus struct {
 	Name        string `json:"name"`
 	Fingerprint string `json:"fingerprint"`
 	Status      string `json:"status"`
+	// NextFingerprint names keys a rotation proposes, still waiting for an owner.
+	NextFingerprint string `json:"next_fingerprint,omitempty"`
 }
 
 // Run registers this node's keys, creating them on first use, and waits until an owner approves them or ctx ends.
 // A code refused by Core keeps the keys, so the owner can issue a new code without a new identity.
 func (e Enrollment) Run(ctx context.Context) (EnrollmentStatus, error) {
 	var out EnrollmentStatus
-	if err := checkCoreURL(e.URL); err != nil {
+	if err := CheckCoreURL(e.URL); err != nil {
 		return out, err
 	}
 	id, err := NodeID(e.StateDir)
@@ -157,8 +159,8 @@ func (e Enrollment) output() io.Writer {
 	return io.Discard
 }
 
-// checkCoreURL refuses to send a node's requests to Core in the clear, except on this machine (node-identity D4).
-func checkCoreURL(raw string) error {
+// CheckCoreURL refuses to send a node's requests to Core in the clear, except on this machine (node-identity D4).
+func CheckCoreURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return fmt.Errorf("Core URL %q is not valid", raw)
@@ -184,4 +186,118 @@ func LoadCompany(dir string) (string, error) {
 		return "", fmt.Errorf("%s: invalid company %q", filepath.Join(dir, CompanyFile), company)
 	}
 	return company, nil
+}
+
+// Rotation is one `factory-node rotate-keys` (node-identity D5).
+type Rotation struct {
+	URL      string
+	StateDir string
+	Client   *http.Client
+	Out      io.Writer
+	Poll     time.Duration
+	Now      func() time.Time
+}
+
+// Run proposes new keys with a request signed by the current key and waits for an owner. On approval the new keys
+// replace the current ones on disk, and a running node signs with them from its next request. A refusal removes
+// the proposal. Running it again continues a proposal that is still waiting.
+func (r Rotation) Run(ctx context.Context) (EnrollmentStatus, error) {
+	var out EnrollmentStatus
+	e := Enrollment{URL: r.URL, StateDir: r.StateDir, Client: r.Client, Out: r.Out, Poll: r.Poll, Now: r.Now}
+	if err := CheckCoreURL(r.URL); err != nil {
+		return out, err
+	}
+	id, err := NodeID(r.StateDir)
+	if err != nil {
+		return out, err
+	}
+	current, err := LoadKeys(r.StateDir)
+	if err != nil {
+		return out, err
+	}
+	nextDir := filepath.Join(r.StateDir, KeysDir, RotatingDir)
+	next, err := LoadKeys(nextDir)
+	if errors.Is(err, ErrNoKeys) {
+		next, err = GenerateKeys(nextDir)
+	}
+	if err != nil {
+		return out, err
+	}
+	base := strings.TrimRight(r.URL, "/") + "/nodes/" + url.PathEscape(id)
+	body, err := json.Marshal(map[string]string{"sign_pub": hex.EncodeToString(next.SignPublic()), "box_pub": hex.EncodeToString(next.BoxPublic())})
+	if err != nil {
+		return out, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/keys", bytes.NewReader(body))
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if err = nodesig.Sign(req, id, current.Sign, body, e.now()); err != nil {
+		return out, err
+	}
+	if err = e.do(req, &out); err != nil {
+		return out, fmt.Errorf("rotate: %w", err)
+	}
+	fmt.Fprintf(e.output(), "new fingerprint: %s\nwaiting for an owner to approve it: compare it on the Nodes page or run factory nodes approve %s %s\n", next.Fingerprint(), id, next.Fingerprint())
+	poll := r.Poll
+	if poll <= 0 {
+		poll = 5 * time.Second
+	}
+	status := func(key ed25519.PrivateKey) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/enrollment", nil)
+		if err != nil {
+			return err
+		}
+		if err = nodesig.Sign(req, id, key, nil, e.now()); err != nil {
+			return err
+		}
+		// A fresh answer: next_fingerprint is left out once the proposal is gone.
+		var answer EnrollmentStatus
+		if err = e.do(req, &answer); err != nil {
+			return err
+		}
+		out = answer
+		return nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return out, ctx.Err()
+		case <-time.After(poll):
+		}
+		err := status(current.Sign)
+		var refused *enrollHTTPError
+		switch {
+		case errors.As(err, &refused) && refused.code == http.StatusUnauthorized:
+			// Core stopped accepting the current key: either the new keys are active, or this node is revoked.
+			if err = status(next.Sign); err != nil {
+				return out, fmt.Errorf("Core accepts neither key: this node was revoked; enroll it again: %w", err)
+			}
+			if err = moveRotatedKeys(r.StateDir); err != nil {
+				return out, err
+			}
+			fmt.Fprintln(e.output(), "approved")
+			return out, nil
+		case err != nil:
+			fmt.Fprintf(e.output(), "status: %v\n", err)
+		case out.NextFingerprint != next.Fingerprint():
+			if rmErr := os.RemoveAll(nextDir); rmErr != nil {
+				return out, rmErr
+			}
+			return out, errors.New("the new keys were rejected or waited too long; the current keys stay")
+		}
+	}
+}
+
+// moveRotatedKeys puts approved keys in place. The signing key moves last, and a running node reloads on it.
+func moveRotatedKeys(dir string) error {
+	keys := filepath.Join(dir, KeysDir)
+	next := filepath.Join(keys, RotatingDir, KeysDir)
+	for _, name := range []string{BoxKeyFile, SignKeyFile} {
+		if err := os.Rename(filepath.Join(next, name), filepath.Join(keys, name)); err != nil {
+			return err
+		}
+	}
+	return os.RemoveAll(filepath.Join(keys, RotatingDir))
 }

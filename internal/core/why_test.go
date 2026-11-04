@@ -13,6 +13,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 func TestWhyExplainsEveryWaitingTask(t *testing.T) {
@@ -222,8 +223,10 @@ func TestQuotaPauseAndWorkspaceOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := call("POST", "/runs/"+a.CurrentRunID+"/workspace", map[string]any{"lease": lease, "mode": "shared"}, nil); code != 200 {
-		t.Fatal(code)
+	n := testnode.Enroll(t, s, co)
+	n.OwnRun(t, s, co, a.CurrentRunID)
+	if code, out := signedCall(t, c, n, "POST", "/runs/"+a.CurrentRunID+"/workspace", map[string]any{"lease": lease, "mode": "shared"}); code != 200 {
+		t.Fatal(code, out)
 	}
 	var ws tasks.Workspace
 	if code := call("GET", "/tasks/a/workspace", nil, &ws); code != 200 || ws.Mode != "shared" || ws.RunID != a.CurrentRunID {

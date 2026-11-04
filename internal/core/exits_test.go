@@ -18,6 +18,7 @@ import (
 	"appfactory/internal/storage"
 	"appfactory/internal/storage/storagetest"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 )
 
 type exitHarness struct {
@@ -25,6 +26,7 @@ type exitHarness struct {
 	c    *Core
 	s    *storage.Store
 	fake *clock.Fake
+	node testnode.Node
 }
 
 func newExitHarness(t *testing.T) *exitHarness {
@@ -51,7 +53,7 @@ func newExitHarness(t *testing.T) *exitHarness {
 			t.Fatal(err)
 		}
 	}
-	return &exitHarness{t: t, c: c, s: s, fake: fake}
+	return &exitHarness{t: t, c: c, s: s, fake: fake, node: testnode.Enroll(t, s, storage.DefaultCompany)}
 }
 
 func (h *exitHarness) do(token, method, path string, body any, header map[string]string) *httptest.ResponseRecorder {
@@ -81,10 +83,11 @@ func (h *exitHarness) start(task string) exitRun {
 	if err != nil {
 		h.t.Fatalf("claim %s (%s): %v", tk.CurrentRunID, tk.Status, err)
 	}
-	w := h.do(h.c.Token, "POST", "/runs/"+tk.CurrentRunID+"/credential", map[string]string{"lease": lease}, nil)
+	h.node.OwnRun(h.t, h.s, storage.DefaultCompany, tk.CurrentRunID)
+	code, out := signedCall(h.t, h.c, h.node, "POST", "/runs/"+tk.CurrentRunID+"/credential", map[string]string{"lease": lease})
 	var cred struct{ Token string }
-	if json.Unmarshal(w.Body.Bytes(), &cred) != nil || cred.Token == "" {
-		h.t.Fatal(w.Code, w.Body.String())
+	if json.Unmarshal([]byte(out), &cred) != nil || cred.Token == "" {
+		h.t.Fatal(code, out)
 	}
 	return exitRun{tk.CurrentRunID, lease, cred.Token}
 }

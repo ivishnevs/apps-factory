@@ -65,12 +65,11 @@ func TestConfigValidation(t *testing.T) {
 		"slot: 2":                                                  "field slot not found",
 		"drivers: {codex: {enabled: true, binary: codex, model: gpt}}": "field model not found",
 		"worktrees: {enabled: true, scan_command: ['']}":               "empty executable",
-		"protocol_version: 3":        "protocol_version 3",
-		"resources: {Simulator: 1}":  "resources.Simulator",
-		"resources: {simulator: -1}": "resources.simulator",
-		"labels: ['a b']":            `label "a b"`,
-		"probes: {interval: 10s}":    "probes.interval",
-		"probes: {attempts: 0}":      "probes.attempts",
+		"resources: {Simulator: 1}":                                    "resources.Simulator",
+		"resources: {simulator: -1}":                                   "resources.simulator",
+		"labels: ['a b']":                                              `label "a b"`,
+		"probes: {interval: 10s}":                                      "probes.interval",
+		"probes: {attempts: 0}":                                        "probes.attempts",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "node.yaml") {
@@ -82,13 +81,9 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-func TestConfigProtocolV2(t *testing.T) {
-	c, err := LoadConfig("")
-	if err != nil || c.ProtocolVersion != 1 {
-		t.Fatalf("protocol_version must default to 1: %d %v", c.ProtocolVersion, err)
-	}
-	c, err = LoadConfig(writeConfig(t, "protocol_version: 2\nresources: {simulator: 2, build: 1}\nlabels: [macos, xcode]\n"))
-	if err != nil || c.ProtocolVersion != 2 || c.Resources["simulator"] != 2 || len(c.Labels) != 2 {
+func TestConfigResourcesAndLabels(t *testing.T) {
+	c, err := LoadConfig(writeConfig(t, "resources: {simulator: 2, build: 1}\nlabels: [macos, xcode]\n"))
+	if err != nil || c.Resources["simulator"] != 2 || len(c.Labels) != 2 {
 		t.Fatalf("%+v %v", c, err)
 	}
 }
@@ -303,46 +298,6 @@ func TestLaunchdPlist(t *testing.T) {
 	}
 }
 
-// TestNodeToken: FACTORY_NODE_TOKEN wins over node.yaml token_file (first line), which wins over the shared
-// FACTORY_TOKEN; an unreadable or empty token_file is an error.
-func TestNodeToken(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "token")
-	if err := os.WriteFile(file, []byte("fnt_from_file\nsecond line\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	c, err := LoadConfig(writeConfig(t, "token_file: "+file+"\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := map[string]string{"FACTORY_TOKEN": "shared", TokenEnv: "fnt_from_env"}
-	getenv := func(k string) string { return env[k] }
-	for _, want := range [][2]string{{"fnt_from_env", TokenEnv}, {"fnt_from_file", "token_file"}, {"shared", "FACTORY_TOKEN"}, {"", ""}} {
-		switch want[1] {
-		case "token_file":
-			delete(env, TokenEnv)
-		case "FACTORY_TOKEN":
-			c.TokenFile = ""
-		case "":
-			delete(env, "FACTORY_TOKEN")
-		}
-		if token, source, err := c.Token(getenv); err != nil || token != want[0] || source != want[1] {
-			t.Fatal(want, token, source, err)
-		}
-	}
-	for _, body := range []string{"", "\n"} {
-		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := (Config{TokenFile: file}).Token(getenv); err == nil {
-			t.Fatalf("empty token_file %q accepted", body)
-		}
-	}
-	if _, _, err := (Config{TokenFile: filepath.Join(dir, "missing")}).Token(getenv); err == nil {
-		t.Fatal("missing token_file accepted")
-	}
-}
-
 // Relative node.yaml paths resolve against the working directory at load (docs/development.md), so a
 // conversation run's directory and every path downstream are absolute.
 func TestConfigRelativePathsAbsolute(t *testing.T) {
@@ -351,7 +306,6 @@ func TestConfigRelativePathsAbsolute(t *testing.T) {
 	c, err := LoadConfig(writeConfig(t, `
 state_dir: data/factory-node-tvorog
 bin_dir: bin
-token_file: secrets/node.token
 worktrees: {enabled: true}
 drivers:
   codex: {binary: codex}
@@ -365,7 +319,7 @@ nats: {creds_file: secrets/node.creds}
 	j := func(p string) string { return filepath.Join(cwd, p) }
 	for got, want := range map[string]string{
 		c.StateDir: j("data/factory-node-tvorog"), c.Disk.Path: j("data/factory-node-tvorog"),
-		c.Worktrees.Root: j("data/factory-node-tvorog/worktrees"), c.BinDir: j("bin"), c.TokenFile: j("secrets/node.token"),
+		c.Worktrees.Root: j("data/factory-node-tvorog/worktrees"), c.BinDir: j("bin"),
 		c.Drivers.Claude.Executable: j("bin/claude"), c.Drivers.Claude.Shim: j("workers/shim.js"), c.NATS.CredsFile: j("secrets/node.creds"),
 		c.Drivers.Codex.Binary: "codex",
 	} {

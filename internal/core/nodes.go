@@ -3,20 +3,26 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"appfactory/internal/config"
+	"appfactory/internal/nodesig"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
 
-// Runtime protocol v2 routes (docs/runtime-protocol-v2.md). Nodes authenticate with the worker token
-// like v1 workers; every request names its node_id. Refusals a node acts on are JSON with a reason.
+// Runtime protocol v2 routes (docs/runtime-protocol-v2.md). Nodes sign every request (node-identity D4) and every
+// request names its node_id. Refusals a node acts on are JSON.
 func (c *Core) nodeRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /nodes/register", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -86,132 +92,191 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 		reply(w, map[string]string{"status": status}, err)
 	})
 	m.HandleFunc("POST /runs/{id}/claim", c.claim)
-	// Owner: per-machine node tokens (node-agent 1.1) and removing a replaced machine.
-	m.HandleFunc("POST /node-tokens", func(w http.ResponseWriter, r *http.Request) {
-		var p struct {
-			Name   string `json:"name"`
-			NodeID string `json:"node_id"`
-		}
-		if !decode(w, r, &p) {
-			return
-		}
-		v, err := c.Store.CreateNodeToken(r.Context(), c.companyFrom(r), p.Name, p.NodeID)
-		reply(w, v, err)
-	})
-	m.HandleFunc("GET /node-tokens", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.NodeTokens(r.Context(), c.companyFrom(r))
-		reply(w, v, err)
-	})
-	m.HandleFunc("POST /node-tokens/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
-		v, err := c.Store.RevokeNodeToken(r.Context(), c.companyFrom(r), r.PathValue("id"))
-		reply(w, v, err)
-	})
+	// Owner: removing a replaced machine.
 	m.HandleFunc("DELETE /nodes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RemoveNode(r.Context(), c.companyFrom(r), r.PathValue("id")))
 	})
 }
 
-// nodeGateway serves a request authenticated by a node token: only the routes a node calls, only for the
-// node the token is bound to (register binds an unbound token to its node_id), in the token's company.
-func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.ServeMux, token string) {
-	t, err := c.Store.AuthenticateNodeToken(r.Context(), token)
+// maxSignedBody bounds what the node gateway reads to check a signature: the largest node request is a log chunk.
+const maxSignedBody = 16 << 20
+
+// nodeRoute reports whether a request is for a route only a node calls (node-identity D4). Bearer tokens never reach
+// these routes.
+func nodeRoute(r *http.Request) bool {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	post := r.Method == http.MethodPost
+	switch {
+	case post && len(parts) == 2 && parts[0] == "nodes" && parts[1] == "register":
+	case post && len(parts) == 3 && parts[0] == "nodes" && (parts[2] == "heartbeat" || parts[2] == "keys"):
+	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"claim", "start", "workspace", "credential", "project-setup"}, parts[2]):
+	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && parts[2] == "blobs":
+	case r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
+	default:
+		return false
+	}
+	return true
+}
+
+// nodeGateway serves a request signed by a node (node-identity D4): only with its active key, once per nonce, only
+// the routes a node calls and only for that node, in the company of its key.
+func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.ServeMux) {
+	unauthorized := func() { http.Error(w, "unauthorized", http.StatusUnauthorized) }
+	id, err := nodesig.KeyID(r)
+	if err != nil {
+		unauthorized()
+		return
+	}
+	key, err := c.Store.NodeKeyOf(r.Context(), id)
 	if errors.Is(err, storage.ErrNotFound) {
-		http.Error(w, "unauthorized", 401)
+		slog.Warn("request signed by an unknown node key", "node_id", id)
+		unauthorized()
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	r = r.WithContext(context.WithValue(r.Context(), companyKey{}, t.Company))
-	forbid := func(why string) { http.Error(w, "node token: "+why, 403) }
-	// bodyNode reads the body's node_id and puts the body back for the route.
-	bodyNode := func() (string, bool) {
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return "", false
+	pub, err := hex.DecodeString(key.SignPub)
+	if err != nil || key.Status != storage.NodeKeyActive {
+		unauthorized()
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSignedBody))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	refuse := func(reason string) {
+		if c.signatures.refusalDue(id, c.Store.Now()) {
+			if err := c.Store.RecordNodeSignatureRefused(r.Context(), key.Company, id, reason); err != nil {
+				slog.Error("record refused signature", "node_id", id, "error", err)
+			}
 		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
+		unauthorized()
+	}
+	now := c.Store.Now()
+	v, err := nodesig.Verify(r, ed25519.PublicKey(pub), body, now)
+	switch {
+	case err != nil:
+		refuse(err.Error())
+		return
+	case v.Created.Before(c.signatures.started(now)):
+		// Nonces live in memory, so what was signed before this Core started cannot be told from a replay.
+		refuse("created before Core started")
+		return
+	case !c.signatures.firstUse(id, v.Nonce, now):
+		refuse("replay")
+		return
+	}
+	r = r.WithContext(context.WithValue(r.Context(), companyKey{}, key.Company))
+	forbid := func(why string) { http.Error(w, "node: "+why, http.StatusForbidden) }
+	// bodyNode is the body's node_id.
+	bodyNode := func() string {
 		var p struct {
 			NodeID string `json:"node_id"`
 		}
 		_ = json.Unmarshal(body, &p)
-		return p.NodeID, true
+		return p.NodeID
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	post := r.Method == http.MethodPost
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/health":
-	case post && len(parts) == 2 && parts[0] == "nodes" && parts[1] == "register":
-		node, ok := bodyNode()
-		if !ok {
-			return
-		}
-		switch {
-		case node == "":
-			forbid("node_id required")
-			return
-		case t.NodeID == "":
-			if err = c.Store.BindNodeToken(r.Context(), t.Company, t.ID, node); errors.Is(err, storage.ErrNodeTokenBound) {
-				forbid("bound to another node")
-				return
-			} else if err != nil {
-				reply(w, nil, err)
-				return
-			}
-		case t.NodeID != node:
-			forbid("bound to another node")
-			return
-		}
-	case t.NodeID == "":
-		forbid("not bound to a node yet: register first")
+	case !nodeRoute(r):
+		forbid("route not open to nodes")
 		return
-	case post && len(parts) == 3 && parts[0] == "nodes" && parts[2] == "heartbeat":
-		if parts[1] != t.NodeID {
-			forbid("bound to another node")
+	case parts[0] == "nodes" && parts[1] == "register":
+		if bodyNode() != id {
+			forbid("register your own node")
 			return
 		}
-	case post && len(parts) == 3 && parts[0] == "runs" && parts[2] == "claim":
-		node, ok := bodyNode()
-		if !ok {
+	case parts[0] == "nodes":
+		if parts[1] != id {
+			forbid("another node")
 			return
 		}
-		if node != t.NodeID {
-			forbid("v2 claim of the token's node required")
+	case parts[2] == "claim":
+		if bodyNode() != id {
+			forbid("claim naming your own node required")
 			return
 		}
-	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"start", "workspace", "credential", "heartbeat", "project-setup"}, parts[2]),
+	default:
 		// Project data of the node's runs (core-owned-project-data D3, D6); the run's lease is checked too.
-		r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && parts[2] == "blobs",
-		r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
-		node, err := c.Store.RunNode(r.Context(), t.Company, parts[1])
+		node, err := c.Store.RunNode(r.Context(), key.Company, parts[1])
 		if err != nil {
 			reply(w, nil, err)
 			return
 		}
-		if node != t.NodeID {
+		if node != id {
 			forbid("run of another node")
 			return
 		}
-	default:
-		forbid("route not open to nodes")
-		return
 	}
 	m.ServeHTTP(w, r)
 }
 
-// claim serves both protocols: a v1 worker sends no body, a v2 node sends {node_id, epoch, claim_id, slot};
+// signatureState is the node gateway's memory: nonces for the signature window on both sides of Core's clock, and
+// when each node's refusal last reached the feed.
+type signatureState struct {
+	mu       sync.Mutex
+	start    time.Time
+	nonces   map[string]time.Time
+	refusals map[string]time.Time
+}
+
+// started is the time from which Core accepts signatures; the first call sets it.
+func (s *signatureState) started(now time.Time) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.start.IsZero() {
+		s.start = now.Truncate(time.Second)
+	}
+	return s.start
+}
+
+// firstUse records a nonce and says whether it is new. A nonce must outlive the whole ±window span.
+func (s *signatureState) firstUse(node, nonce string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.nonces == nil {
+		s.nonces = map[string]time.Time{}
+	}
+	key := node + "/" + nonce
+	if until, seen := s.nonces[key]; seen && now.Before(until) {
+		return false
+	}
+	if len(s.nonces) >= 1<<16 {
+		for k, until := range s.nonces {
+			if !now.Before(until) {
+				delete(s.nonces, k)
+			}
+		}
+	}
+	s.nonces[key] = now.Add(2 * nodesig.Window)
+	return true
+}
+
+// refusalDue limits node.signature_refused to one event per node per minute.
+func (s *signatureState) refusalDue(node string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refusals == nil {
+		s.refusals = map[string]time.Time{}
+	}
+	if until, ok := s.refusals[node]; ok && now.Before(until) {
+		return false
+	}
+	s.refusals[node] = now.Add(time.Minute)
+	return true
+}
+
+// claim serves a node's {node_id, epoch, claim_id, slot};
 // both get the claim answer (lease, RunSpec with the brief, brief window) or a JSON refusal.
 func (c *Core) claim(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, err.Error(), 400)
-		return
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		v, err := c.Store.ClaimRun(r.Context(), c.companyFrom(r), r.PathValue("id"))
-		nodeReply(w, v, err)
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))

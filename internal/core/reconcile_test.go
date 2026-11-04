@@ -12,6 +12,7 @@ import (
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
+	"appfactory/internal/testnode"
 
 	"github.com/nats-io/nats.go"
 )
@@ -121,12 +122,18 @@ func TestJetStreamPurgedCommandStream(t *testing.T) {
 	}
 	_ = msgs[0].AckSync()
 	// The worker's claim and end: the task runs once.
-	code, body := call(t, c, "POST", "/runs/"+run+"/claim", c.Token, nil)
+	n := testnode.Enroll(t, s, co)
+	if _, err = s.RegisterNode(ctx, co, registration(n.ID, 1)); err != nil {
+		t.Fatal(err)
+	}
+	claim := storage.ClaimRequest{NodeID: n.ID, Epoch: 1, ClaimID: "1-0-1"}
+	code, body := signedCall(t, c, n, "POST", "/runs/"+run+"/claim", claim)
 	var claimed storage.Claimed
 	if code != 200 || json.Unmarshal([]byte(body), &claimed) != nil || claimed.RunSpec.ID != run || claimed.RunSpec.Prompt == "" {
 		t.Fatal(code, body)
 	}
-	if code, body = call(t, c, "POST", "/runs/"+run+"/claim", c.Token, nil); code != 409 {
+	claim.ClaimID = "1-0-2"
+	if code, body = signedCall(t, c, n, "POST", "/runs/"+run+"/claim", claim); code != 409 {
 		t.Fatal("claimed twice:", code, body)
 	}
 	if err = s.Apply(ctx, co, protocol.Wrap("agent.completed", run, "", protocol.Event{RunID: run, Lease: claimed.Lease, Status: "ENDED", Outcome: "succeeded", Result: "done"})); err != nil {

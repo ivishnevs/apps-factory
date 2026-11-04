@@ -15,7 +15,7 @@ func init() {
 // configuration, NATS and anything not allowlisted stay out; node.yaml runtime_env extends the list but
 // never lets a credential through.
 func TestRuntimeCredentialEnvironment(t *testing.T) {
-	node := []string{"PATH=/bin", "HOME=/tmp", "LC_ALL=C", "GH_TOKEN=forge", "OPENAI_API_KEY=model", "FACTORY_TOKEN=owner", "FACTORY_NODE_TOKEN=owner",
+	node := []string{"PATH=/bin", "HOME=/tmp", "LC_ALL=C", "GH_TOKEN=forge", "OPENAI_API_KEY=model", "FACTORY_TOKEN=owner",
 		"FACTORY_RUN_TOKEN=old", "FACTORY_URL=old", "FACTORY_NODE_CONFIG=/etc/owner", "NATS_URL=secret", "NATS_PASSWORD=secret", "NATS_CREDS=secret",
 		"DATABASE_URL=private", "XCODE_TEAM=team", "CLAUDE_CONFIG_DIR=/home/o/.claude-personal"}
 	env := runEnvironment(node, []string{"XCODE_*", "NATS_*", "FACTORY_TOKEN"}, "http://localhost:8080", "scoped")

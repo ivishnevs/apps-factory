@@ -649,7 +649,11 @@ func TestUrgentStopOnControlSubjectAndHeartbeat(t *testing.T) {
 	ctx := context.Background()
 	co := storage.DefaultCompany
 	h.create("v1", "code", "calorie-ios")
-	r := h.start("v1") // claimed by a v1 worker before any node registered
+	r := h.start("v1")
+	// A run with no node, claimed through the store: no node to send a control message to.
+	if _, err := h.s.DB.ExecContext(ctx, "UPDATE runs SET node_id='' WHERE id=?", r.id); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.s.RegisterNode(ctx, co, registration("n1", 1)); err != nil {
 		t.Fatal(err)
 	}
