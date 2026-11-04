@@ -39,12 +39,9 @@ type Core struct {
 	Company string
 	// ExplicitExits switches runs to factory_exit_* (docs/explicit-exits-contract.md, FACTORY_EXPLICIT_EXITS).
 	ExplicitExits bool
-	// DefaultReport is the owner's default direct report (owner.default_report, hierarchy D5): unaddressed owner
-	// messages go to its conversation; empty means the only direct report.
-	DefaultReport string
-	// AuditAssignee is the agent of an existing repository's onboarding audit (projects.audit_assignee,
-	// project-creation D5); empty means config.DefaultAuditAssignee.
-	AuditAssignee string
+	// Teams are the catalog's teams (company-teams D2) when Core serves its catalog from files: the owner's
+	// unaddressed messages go to a team's lead, onboarding audits to its audit assignee.
+	Teams map[string]config.Team
 	// enrollLimit limits the tokenless enroll route (node-identity D3).
 	enrollLimit enrollLimiter
 	// signatures is the node gateway's memory (node-identity D4).
@@ -62,7 +59,7 @@ type Core struct {
 	outboxKickOnce sync.Once
 	// Root is the factory root on disk. Set, Core serves stored catalogs (company-self-service D1, D4): every
 	// company's current catalog version from storage, seeded from the repository; Agents, Skills, NodeHooks,
-	// DefaultReport and AuditAssignee are then unused. Empty: those fields are the catalog of Company.
+	// and Teams are then unused. Empty: those fields are the catalog of Company.
 	Root      string
 	catalogMu sync.RWMutex
 	catalogs  map[string]*storedCatalog

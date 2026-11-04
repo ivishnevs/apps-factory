@@ -38,7 +38,7 @@ same transaction: several Core processes publish in parallel, each row once; a c
 the same IDs (deduplicated by JetStream, idempotent at consumers).
 
 Catalog per company: `configs/` is the `default` company's catalog; another company's lives in
-`configs/<company>/` with the same layout (`agents/`, `profiles/`, `policies/`, `node-hooks/`, `quota_keys.yaml`,
+`configs/<company>/` with the same layout (`teams/`, `agents/`, `profiles/`, `policies/`, `node-hooks/`, `quota_keys.yaml`,
 `company.yaml`, `skills.yaml` — the company's skills registry, no fallback to `configs/skills.yaml`; see
 [skills](skills.md)). `configs/prices.yaml` is shared, prompt files are paths relative to the root. `factory config validate --company X` (or `FACTORY_COMPANY=X`) checks one company's catalog; agents of
 the same name in two companies are independent.

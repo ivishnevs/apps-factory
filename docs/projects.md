@@ -27,6 +27,15 @@ continues where the last stopped (every step is idempotent).
 github setup never adopts a directory it did not create: `<projects_root>/<id>` must not exist or be empty (use
 `existing` with that path instead).
 
+## Teams
+
+A project belongs to one team of the company's catalog (`team`, company-teams D4): required when the catalog has
+several teams (`factory projects create ID … --team TEAM`), the only team otherwise; a project an agent creates
+(`factory_project_create`) belongs to that agent's team. Its tasks may be created for, assigned or delegated to
+agents of that team only (`409 team_mismatch`), and only its team's agents get a conversation task in it. `PATCH
+/projects/{id}` `{"team": …}` moves a project with no live tasks; a catalog version that removes a team a project
+belongs to is refused naming the project.
+
 ## Onboarding an existing repository
 
 `repo_mode: existing` sets the repository up on the node before any task runs: the workspace path is checked
@@ -35,8 +44,8 @@ it is: nothing is committed or pushed, and its `openspec/` stays tracked, since 
 repository and is reviewed with the code ([OpenSpec](openspec.md)). New `local` and `github` repositories ignore
 only `/.factory/`.
 
-`audit: true` creates a ready task for the configured agent (`configs/company.yaml` `projects.audit_assignee`,
-default `product-manager`) to audit the project with the `project-audit` skill: a read-only audit, OpenSpec
+`audit: true` creates a ready task for the audit assignee of the project's team (`teams/<team>.yaml`
+`audit_assignee`, default the lead) to audit the project with the `project-audit` skill: a read-only audit, OpenSpec
 baseline specs of the current behaviour committed to the repository with its pull request and a report with
 options. It is the project's first task, so its run
 onboards the repository.

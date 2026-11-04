@@ -53,6 +53,20 @@ It cannot be replaced by YAML, removed from an agent or bypassed using unrestric
 The protected operation names are factory.project.delete, factory.release.publish,
 factory.secrets.access_production, external.purchase, factory.config.* and factory.decision.record.
 
+## Team selector
+
+Every rule takes `teams: [...]` next to `roles` and `agents` (company-teams D7): it then applies to the agents of
+those teams only. A rule without `teams` applies to every team; mandatory policies still apply to everyone.
+
+```yaml
+    - name: saas-deploys
+      type: access
+      teams: [saas]
+      operations: [factory.deploy.prod]
+      effect: deny
+      instruction: SaaS deploys through the release train.
+```
+
 ## Command guards
 
 Access rules may list shell `commands` instead of (or besides) `operations` (node-agent D6):
@@ -144,7 +158,7 @@ writes `report.missing` for the manager and a reminder in the agent's next brief
 
 ## Review rules
 
-A `review` rule (company-self-service D3) says, for the roles or agents it covers, whether their work needs
+A `review` rule (company-self-service D3) says, for the roles, agents or teams it covers, whether their work needs
 review before it is done and who reviews it:
 
 ```yaml
@@ -167,5 +181,6 @@ Core reads the rules from the run's captured configuration. `required`: `factory
 project with a repository and something to merge (a pull request, or commits ahead of the default branch) is
 refused (`409 review_required`) unless an approved review verdict is bound to its pull request. `paths`
 (`**` spans directories): when the pull request changes a matching file (the adapter reports the PR's files),
-done also needs an approval by that path's reviewer. A reviewer must be another agent of the catalog. Without
-review rules the agent's prompt decides whether work goes to review.
+done also needs an approval by that path's reviewer. A reviewer is resolved in the agent's team, which is the
+project's (company-teams D5): `role:qa` is the `qa` agent of that team, a named reviewer must be another agent of
+that team. Without review rules the agent's prompt decides whether work goes to review.

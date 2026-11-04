@@ -146,7 +146,7 @@ func (s *Store) Projects(ctx context.Context, company string) ([]tasks.Project, 
 }
 func (s *Store) CreateProject(ctx context.Context, company string, in tasks.ProjectCreate) (tasks.Project, error) {
 	return mutate(ctx, s, company, "project.create", in.RequestID, in, func(tx *Tx) (tasks.Project, error) {
-		p := tasks.Project{ID: in.ID, Name: in.Name, Description: in.Description, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix(),
+		p := tasks.Project{ID: in.ID, Name: in.Name, Team: in.Team, Description: in.Description, RepoURL: in.RepoURL, DefaultBranch: in.DefaultBranch, ReviewAfterConflicts: in.ReviewAfterConflicts, Rules: in.Rules, Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix(),
 			CreatedBy: cmp.Or(in.CreatedBy, "owner"), ApprovalID: in.ApprovalID}
 		if in.Workspace != "" {
 			p.Workspace = filepath.Clean(in.Workspace)
@@ -286,6 +286,16 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 			}
 			p.ReviewAfterConflicts = *in.ReviewAfterConflicts
 		}
+		if in.Team != nil && *in.Team != p.Team {
+			var live int
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED') AND COALESCE(body->>'kind','')<>'conversation'", tx.company, id).Scan(&live); err != nil {
+				return p, err
+			}
+			if live > 0 {
+				return p, fmt.Errorf("%w: project %s has %d live tasks: finish or cancel them before moving it to team %s", ErrConflict, id, live, *in.Team)
+			}
+			p.Team = *in.Team
+		}
 		if err = validRepo(p.RepoURL, p.DefaultBranch); err != nil {
 			return p, err
 		}
@@ -391,6 +401,9 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			}
 		}
 		if err := requiredArtifacts(ctx, tx, t.ProjectID, t.RequiredArtifacts); err != nil {
+			return t, err
+		}
+		if err := checkTeam(ctx, tx, t.ProjectID, t.Assignee); err != nil {
 			return t, err
 		}
 		if in.Ready {
@@ -501,6 +514,17 @@ func saveTask(ctx context.Context, tx *Tx, t *tasks.Task, kind string) error {
 
 // saveTaskNote saves the task with a feed summary of its own (e.g. a run outcome and the retry time).
 func saveTaskNote(ctx context.Context, tx *Tx, t *tasks.Task, kind, note string) error {
+	if t.Assignee != "" && tx.store.TeamOf != nil {
+		var was string
+		if err := tx.QueryRowContext(ctx, "SELECT assignee FROM tasks WHERE company_id=? AND id=?", tx.company, t.ID).Scan(&was); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if was != t.Assignee {
+			if err := checkTeam(ctx, tx, t.ProjectID, t.Assignee); err != nil {
+				return err
+			}
+		}
+	}
 	old := t.Version
 	t.Version++
 	t.UpdatedAt = tx.now().Unix()
@@ -839,6 +863,33 @@ func (s *Store) SetCompanyRules(ctx context.Context, company, rules string) erro
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// ErrTeamMismatch is a task of a project given to an agent of another team (company-teams D4): 409
+// team_mismatch.
+var ErrTeamMismatch = errors.New("team_mismatch")
+
+// checkTeam refuses assignee for a task of project when the project belongs to a team and the agent to another.
+func checkTeam(ctx context.Context, tx *Tx, project, assignee string) error {
+	if tx.store.TeamOf == nil || assignee == "" || project == "" {
+		return nil
+	}
+	agentTeam := tx.store.TeamOf(tx.company, assignee)
+	if agentTeam == "" {
+		return nil
+	}
+	var team string
+	err := tx.QueryRowContext(ctx, "SELECT COALESCE(body->>'team','') FROM projects WHERE company_id=? AND id=?", tx.company, project).Scan(&team)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if team != "" && team != agentTeam {
+		return fmt.Errorf("%w: %w: agent %s is in team %s, project %s belongs to team %s", ErrConflict, ErrTeamMismatch, assignee, agentTeam, project, team)
 	}
 	return nil
 }

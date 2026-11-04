@@ -10,11 +10,13 @@ import (
 // acmeAgent is company acme's agent including skills.
 func acmeAgent(t *testing.T, root string, include string) {
 	t.Helper()
+	put(t, root, "configs/acme/teams/main.yaml", "apiVersion: factory/v1\nkind: Team\nmetadata:\n  name: main\nspec:\n  lead: agent\n")
 	put(t, root, "configs/acme/agents/agent.yaml", `apiVersion: factory/v1
 kind: Agent
 metadata:
   name: agent
 spec:
+  team: main
   role: developer
   runtime:
     provider: codex

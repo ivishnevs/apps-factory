@@ -104,20 +104,40 @@ Factory MCP binds agent operations to run credentials and checks captured plus c
 See factory-mcp.md. Trusted agents have full host access, so shell bypass remains possible.
 Configuration changes require Core restart. Stored runs retain their original composed instructions.
 
+## Teams
+
+A company runs one or more teams (company-teams): `teams/<name>.yaml` next to `agents/`, and every agent names its
+team with `spec.team` (required). Nodes, quota keys, secrets, skills, profiles, policies and catalog versions stay
+company resources shared by all teams; a team owns its agents, its lead, its audit assignee and its projects.
+
+```yaml
+apiVersion: factory/v1
+kind: Team
+metadata: {name: gamedev, description: Small games for iOS}
+spec:
+  lead: gamedev-lead           # an agent of this team reporting to the owner: the owner's unaddressed messages
+  audit_assignee: gamedev-lead # onboarding audits of this team's projects (default: the lead)
+  profile: gamedev             # optional: the default extends of the team's agents that name none
+```
+
+A catalog needs at least one team; team names follow agent names. Agent names stay unique per company.
+
 ## Hierarchy
 
-`spec.reports_to` names the agent's manager: another agent of the company or `owner` (the default). Validation
-refuses an unknown target, a self reference and cycles; `owner` is reserved. The chain of an agent is its managers
-up to the owner, its subtree the agents whose chain contains it. Every agent may message its chain (the owner
-included) and its direct reports; `communication.can_message` adds peers but never removes these.
+`spec.reports_to` names the agent's manager: another agent of its team, or `owner` (the default), which only the
+team's lead may be: the agents reporting to the owner are exactly the team leads, one per team. Validation
+refuses an unknown target, a manager in another team, a self reference and cycles; `owner` is reserved. The
+chain of an agent is its managers up to the owner, its subtree the agents whose chain contains it. Every agent
+may message the agents of its team and the owner; `communication.can_message` adds agents of other teams but
+never removes these.
 
 Creating projects (project-creation): `communication.can_create_projects` offers `factory_project_create`; unset,
 it is true for the owner's direct reports (`reports_to: owner` or none, i.e. the CEO) and false for everyone else.
 Set it to `false` to take the tool from a direct report, `true` to give it to another agent. A tool deny of
 `factory.project.create` still wins. Every call waits for the owner's approval of the exact call, whatever the
 agent's approvals settings say. The creating agent may then create tasks in its new project (`factory_task_create`
-with `project_id`). The onboarding audit of an existing repository goes to `configs/company.yaml`
-`projects.audit_assignee` (default `product-manager`; it must be an agent). See [projects](projects.md).
+with `project_id`). The project belongs to the creating agent's team; its onboarding audit goes to that team's
+`audit_assignee`. See [projects](projects.md).
 
 ```yaml
 communication:
@@ -166,14 +186,11 @@ timer and episode, a question) as they are; cancel overrides the parks and ends 
 SSE stream and `factory_feed_list` filter them like any other row (project, task, `subtree`); they carry no
 attention.
 
-Each agent talks to its boss through its conversation task ([messaging](messaging.md#conversation-tasks)). With
-more than one agent reporting to the owner, `configs/company.yaml` must name the default one, which gets the
-owner's unaddressed messages (`@name …` reaches another):
-
-```yaml
-owner:
-  default_report: manager
-```
+Each agent talks to its boss through its conversation task ([messaging](messaging.md#conversation-tasks)). The
+owner's unaddressed message in a project goes to the lead of the project's team; outside a project to the lead of
+the team the owner picked (the web chat always sends one; `POST /messages` `team`), with one team to its lead;
+`@name …` reaches another lead, in a team's project only that team's. `company.yaml` no longer has `owner.default_report` or `projects.audit_assignee`
+(refused as unknown fields).
 
 Managers are not woken by every event under them: a manager's brief lists its subtree's tasks that closed,
 escalated or had a failed run since its last run, and its conversation wakes only for messages, questions and

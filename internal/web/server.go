@@ -172,7 +172,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		return cc, ok
 	}
-	for _, p := range []string{"/catalog", "/catalog/team", "/catalog/history", "/catalog/document", "/templates", "/companies"} {
+	for _, p := range []string{"/catalog", "/catalog/teams", "/catalog/history", "/catalog/document", "/templates", "/companies"} {
 		mux.HandleFunc("GET /api"+p, func(w http.ResponseWriter, r *http.Request) {
 			cc, ok := catalog(w, r)
 			if !ok {

@@ -38,7 +38,7 @@ func (c *Core) cat(company string) *config.Catalog {
 		return sc.catalog
 	}
 	if c.Root == "" && company == c.company() {
-		return &config.Catalog{Agents: c.Agents, Skills: c.Skills, NodeHooks: c.NodeHooks, DefaultReport: c.DefaultReport, AuditAssignee: c.AuditAssignee}
+		return &config.Catalog{Agents: c.Agents, Skills: c.Skills, NodeHooks: c.NodeHooks, Teams: c.Teams}
 	}
 	return emptyCatalog()
 }
@@ -143,8 +143,11 @@ func (c *Core) SaveCatalog(ctx context.Context, company string, in storage.Catal
 		return storage.CatalogVersion{}, fmt.Errorf("%w: this Core serves its catalog from files (no FACTORY_ROOT catalog storage)", storage.ErrInput)
 	}
 	in.Validate = func(docs map[string]string) error {
-		_, err := c.loadCatalog(company, docs)
-		return err
+		cat, err := c.loadCatalog(company, docs)
+		if err != nil {
+			return err
+		}
+		return c.teamsInUse(ctx, company, cat)
 	}
 	v, err := c.Store.SaveCatalog(ctx, company, in)
 	if err != nil {
@@ -165,4 +168,18 @@ func (c *Core) catalogChanged(ctx context.Context, company string) {
 	if err := c.Store.EnsureConversationTasks(ctx, company, config.Names(c.cat(company).Agents)); err != nil {
 		slog.Error("conversation tasks after a catalog change", "company", company, "error", err)
 	}
+}
+
+// teamsInUse refuses a catalog that removes a team a project still belongs to (company-teams D4).
+func (c *Core) teamsInUse(ctx context.Context, company string, cat *config.Catalog) error {
+	projects, err := c.Store.Projects(ctx, company)
+	if err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if _, ok := cat.Teams[p.Team]; p.Team != "" && !ok {
+			return fmt.Errorf("team %s is used by project %s: move the project to another team first", p.Team, p.ID)
+		}
+	}
+	return nil
 }

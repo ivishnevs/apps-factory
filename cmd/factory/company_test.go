@@ -23,10 +23,15 @@ func TestConfigValidateCompany(t *testing.T) {
 		}
 	}
 	agent := func(name string) string {
-		return "apiVersion: factory/v1\nkind: Agent\nmetadata:\n  name: " + name + "\nspec:\n  role: developer\n  runtime:\n    provider: codex\n  prompt:\n    file: prompts/agent.md\n  execution:\n    timeout: 1m\n    max_concurrent_runs: 1\n"
+		return "apiVersion: factory/v1\nkind: Agent\nmetadata:\n  name: " + name + "\nspec:\n  team: main\n  role: developer\n  runtime:\n    provider: codex\n  prompt:\n    file: prompts/agent.md\n  execution:\n    timeout: 1m\n    max_concurrent_runs: 1\n"
 	}
 	write("prompts/agent.md", "prompt")
+	team := func(lead string) string {
+		return "apiVersion: factory/v1\nkind: Team\nmetadata:\n  name: main\nspec:\n  lead: " + lead + "\n"
+	}
+	write("configs/teams/main.yaml", team("builder"))
 	write("configs/agents/builder.yaml", agent("builder"))
+	write("configs/acme/teams/main.yaml", team("designer"))
 	write("configs/acme/agents/designer.yaml", agent("designer"))
 	t.Setenv("FACTORY_ROOT", root)
 	validate := func(args ...string) (string, error) {
@@ -52,7 +57,7 @@ func TestConfigValidateCompany(t *testing.T) {
 			t.Errorf("%s: %v %s", args, err, out)
 		}
 	}
-	if _, err := validate("config", "validate", "--company", "globex"); err == nil || !strings.Contains(err.Error(), "no agents in") {
+	if _, err := validate("config", "validate", "--company", "globex"); err == nil || !strings.Contains(err.Error(), "no teams in") {
 		t.Fatal(err)
 	}
 }

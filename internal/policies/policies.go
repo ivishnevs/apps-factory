@@ -29,6 +29,8 @@ type Rule struct {
 	ReportKinds []string `yaml:"report_kinds" json:"report_kinds,omitempty"`
 	Roles       []string `yaml:"roles" json:"roles,omitempty"`
 	Agents      []string `yaml:"agents" json:"agents,omitempty"`
+	// Teams selects the agents of these teams (company-teams D7); empty: every team.
+	Teams []string `yaml:"teams" json:"teams,omitempty"`
 	// EscalateAfter (an escalation rule, hierarchy D4) is how long the agents it applies to may leave a question
 	// routed to them unanswered before it moves one level up (Go duration, 1m..168h; default 4h). Categories
 	// limits it to questions of these decision categories (all when empty).
@@ -194,8 +196,11 @@ func Validate(p Policy) error {
 	}
 	return nil
 }
-func Applies(r Rule, role, agent string) bool {
-	return (len(r.Roles) == 0 || contains(r.Roles, role)) && (len(r.Agents) == 0 || contains(r.Agents, agent))
+
+// Applies reports whether rule r covers an agent of role, name and team: every selector it sets must match.
+func Applies(r Rule, role, agent, team string) bool {
+	return (len(r.Roles) == 0 || contains(r.Roles, role)) && (len(r.Agents) == 0 || contains(r.Agents, agent)) &&
+		(len(r.Teams) == 0 || contains(r.Teams, team))
 }
 func contains(xs []string, s string) bool {
 	for _, v := range xs {

@@ -1,0 +1,7 @@
+apiVersion: factory/v1
+kind: Team
+metadata:
+  name: smoke
+  description: "Agents of the live smokes"
+spec:
+  lead: manager

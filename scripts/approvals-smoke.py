@@ -23,6 +23,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 def wait(path, predicate):
     deadline = time.monotonic() + 330
     while time.monotonic() < deadline:
@@ -34,7 +41,7 @@ def wait(path, predicate):
         time.sleep(.5)
     raise TimeoutError('Inspect durable state before retrying: ' + path)
 
-api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
+api('POST', '/projects', {'team': team_of('demo'), 'id': project, 'name': project, 'workspace': str(workspace)})
 results = []
 for outcome in ('approve', 'reject'):
     target = api('POST', '/tasks', {'project_id': project, 'title': 'before-' + outcome,

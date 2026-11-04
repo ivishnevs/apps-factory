@@ -24,11 +24,13 @@ spec:
     timeout: 2m
     max_concurrent_runs: 2
 `)
+	put(t, root, "configs/acme/teams/main.yaml", "apiVersion: factory/v1\nkind: Team\nmetadata:\n  name: main\nspec:\n  lead: agent\n")
 	put(t, root, "configs/acme/agents/agent.yaml", `apiVersion: factory/v1
 kind: Agent
 metadata:
   name: agent
 spec:
+  team: main
   extends: lead
 `)
 	put(t, root, "configs/acme/policies/acme-only.yaml", `apiVersion: factory/v1
@@ -67,7 +69,7 @@ spec:
 	if same, err := LoadCompanyCatalog(root, DefaultCompany); err != nil || same.Agents["agent"].Spec.Role != "developer" {
 		t.Fatal(err)
 	}
-	for company, want := range map[string]string{"globex": "no agents in", "agents": "invalid company", "a.b": "invalid company"} {
+	for company, want := range map[string]string{"globex": "no teams in", "agents": "invalid company", "a.b": "invalid company"} {
 		if _, err = LoadCompanyCatalog(root, company); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v", company, err)
 		}

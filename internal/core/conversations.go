@@ -31,6 +31,7 @@ func (c *Core) hierarchyHooks() {
 	c.Store.EscalationTarget = c.escalationTargetIn
 	c.Store.ManagerOf = c.escalationTargetIn
 	c.Store.SubtreeOf = func(company, agent string) []string { return config.Subtree(c.cat(company).Agents, agent) }
+	c.Store.TeamOf = func(company, agent string) string { return c.cat(company).TeamOf(agent) }
 	c.Store.EscalateAfterFor = func(company, agent, category string) time.Duration {
 		return c.cat(company).Agents[agent].EscalateAfter(category)
 	}
@@ -47,30 +48,55 @@ func (c *Core) EnsureConversations(ctx context.Context) error {
 	return nil
 }
 
-// defaultReport is the owner's default direct report: owner.default_report, or the only direct report.
+// defaultReport is the owner's default direct report when the company has one team: its lead (company-teams
+// D5); with several teams the project's team decides (ownerAddressee).
 func (c *Core) defaultReport(company string) string {
 	cat := c.cat(company)
-	if cat.DefaultReport != "" {
-		return cat.DefaultReport
+	if lead := cat.Lead(""); lead != "" {
+		return lead
 	}
-	if top := config.DirectReports(cat.Agents, config.Owner); len(top) == 1 {
-		return top[0]
+	if len(cat.Teams) == 0 {
+		if top := config.DirectReports(cat.Agents, config.Owner); len(top) == 1 {
+			return top[0]
+		}
 	}
 	return ""
 }
 
-// ownerAddressee picks the direct report an owner message goes to: "@name ..." names one, otherwise the
-// default report. The address stays in the body.
-func (c *Core) ownerAddressee(company, body string) (string, bool) {
+// teamLead is the lead the owner's unaddressed message goes to (company-teams D5): the lead of the project's
+// team; outside a team's project the lead of the team the owner picked; with one team, its lead.
+func (c *Core) teamLead(ctx context.Context, company, project, team string) string {
+	cat := c.cat(company)
+	if project != "" {
+		if p, err := c.Store.Project(ctx, company, project); err == nil && p.Team != "" {
+			return cat.Lead(p.Team)
+		}
+	}
+	if team != "" {
+		return cat.Lead(team)
+	}
+	return c.defaultReport(company)
+}
+
+// ownerAddressee picks the direct report an owner message goes to: "@name ..." names one (a team lead),
+// otherwise the lead of the project's team (teamLead). The address stays in the body.
+func (c *Core) ownerAddressee(ctx context.Context, company, project, team, body string) (string, bool) {
 	if strings.HasPrefix(body, "@") {
 		name, _, _ := strings.Cut(strings.TrimPrefix(body, "@"), " ")
 		name = strings.TrimRight(name, ",:")
-		if slices.Contains(config.DirectReports(c.cat(company).Agents, config.Owner), name) {
-			return name, true
+		cat := c.cat(company)
+		if !slices.Contains(config.DirectReports(cat.Agents, config.Owner), name) {
+			return "", false
 		}
-		return "", false
+		// In a team's project only that team's lead: another team does not work there (company-teams D4).
+		if project != "" {
+			if p, err := c.Store.Project(ctx, company, project); err == nil && p.Team != "" && cat.TeamOf(name) != "" && cat.TeamOf(name) != p.Team {
+				return "", false
+			}
+		}
+		return name, true
 	}
-	d := c.defaultReport(company)
+	d := c.teamLead(ctx, company, project, team)
 	return d, d != ""
 }
 
@@ -80,6 +106,7 @@ func (c *Core) conversationRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /messages", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			ProjectID   string `json:"project_id"`
+			Team        string `json:"team,omitempty"`
 			Body        string `json:"body"`
 			MessageType string `json:"message_type,omitempty"`
 			RequestID   string `json:"request_id"`
@@ -87,7 +114,7 @@ func (c *Core) conversationRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.ownerMessage(r.Context(), c.companyFrom(r), p.ProjectID, p.Body, p.MessageType, p.RequestID)
+		v, err := c.ownerMessage(r.Context(), c.companyFrom(r), p.ProjectID, p.Team, p.Body, p.MessageType, p.RequestID)
 		if errors.Is(err, errNoAddressee) {
 			http.Error(w, err.Error(), 400)
 			return
@@ -96,13 +123,13 @@ func (c *Core) conversationRoutes(m *http.ServeMux) {
 	})
 }
 
-var errNoAddressee = errors.New("address a direct report with @name, or set owner.default_report")
+var errNoAddressee = errors.New("address a team lead with @name (the project team's lead in a team's project), or name the team")
 
 // ownerMessage sends an owner message without a conversation (CLI, Telegram) to the default direct report or
 // @name, on the owner conversation with that agent in project; delivery is a trigger on the agent's
 // conversation task there.
-func (c *Core) ownerMessage(ctx context.Context, company, project, body, messageType, requestID string) (messaging.Message, error) {
-	agent, ok := c.ownerAddressee(company, strings.TrimSpace(body))
+func (c *Core) ownerMessage(ctx context.Context, company, project, team, body, messageType, requestID string) (messaging.Message, error) {
+	agent, ok := c.ownerAddressee(ctx, company, project, team, strings.TrimSpace(body))
 	if !ok {
 		return messaging.Message{}, errNoAddressee
 	}

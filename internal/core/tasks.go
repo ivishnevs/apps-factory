@@ -31,6 +31,12 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
+		if p.Team != nil {
+			if _, ok := c.cat(c.companyFrom(r)).Teams[*p.Team]; !ok {
+				http.Error(w, "unknown team "+*p.Team, 400)
+				return
+			}
+		}
 		v, err := c.Store.UpdateProject(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})

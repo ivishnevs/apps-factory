@@ -180,7 +180,7 @@ func TestAgentCatalogChangeNeedsApproval(t *testing.T) {
 	if err := h.c.LoadCatalogs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, w := h.create(map[string]any{"id": "team", "name": "Team", "workspace": "/tmp/team"}); w.Code != 200 {
+	if _, w := h.create(map[string]any{"id": "team", "name": "Team", "workspace": "/tmp/team", "team": "core"}); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	task := h.readyTask("team", "manager", "tune the team")

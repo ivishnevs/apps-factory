@@ -26,6 +26,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 
 def wait(task_id, statuses, seconds=330):
     deadline = time.monotonic() + seconds
@@ -46,7 +53,7 @@ def run_of(task):
     return run
 
 
-api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
+api('POST', '/projects', {'team': team_of(agent), 'id': project, 'name': project, 'workspace': str(workspace)})
 
 submit_text = ('Use only Factory MCP tools, no shell and no files. Read the project with factory_project_get. '
     'Then end the run with factory_exit_submit, summary EXIT_SUBMIT_OK and checks ["read the project"]. '

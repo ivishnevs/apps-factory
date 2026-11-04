@@ -2,8 +2,11 @@
 package tasks
 
 type Project struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Team is the team of the company's catalog the project belongs to (company-teams D4): its tasks go to
+	// agents of that team only.
+	Team        string `json:"team,omitempty"`
 	Description string `json:"description"`
 	Workspace   string `json:"workspace"`
 	Version     int    `json:"version"`
@@ -150,8 +153,11 @@ type Task struct {
 const KindConversation = "conversation"
 
 type ProjectCreate struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Team is the project's team; Core checks it against the catalog (the creating agent's team for
+	// factory_project_create, the only team when the catalog has one).
+	Team        string `json:"team,omitempty"`
 	Description string `json:"description"`
 	// Workspace is an absolute path on the node; optional (project-creation D1).
 	Workspace            string `json:"workspace,omitempty"`
@@ -178,6 +184,8 @@ type ProjectUpdate struct {
 	DefaultBranch        *string `json:"default_branch,omitempty"`
 	ReviewAfterConflicts *string `json:"review_after_conflicts,omitempty"`
 	Rules                *string `json:"rules,omitempty"`
+	// Team moves the project to another team, only while it has no live tasks (company-teams D4).
+	Team *string `json:"team,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

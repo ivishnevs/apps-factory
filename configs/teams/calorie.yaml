@@ -1,0 +1,7 @@
+apiVersion: factory/v1
+kind: Team
+metadata:
+  name: calorie
+  description: "The calorie calculator app (iOS)"
+spec:
+  lead: calorie-manager

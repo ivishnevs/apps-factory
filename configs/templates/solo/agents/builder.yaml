@@ -4,6 +4,7 @@ metadata:
   name: builder
   description: Plans, builds and ships the product alone
 spec:
+  team: product
   extends: agent
   role: developer
   reports_to: owner

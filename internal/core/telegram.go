@@ -212,7 +212,7 @@ func (b telegramBackend) OwnerInput(ctx context.Context, agent, text, key string
 	if err != nil {
 		return "", err
 	}
-	m, err := b.c.ownerMessage(ctx, b.company, project, text, "question", key)
+	m, err := b.c.ownerMessage(ctx, b.company, project, "", text, "question", key)
 	if err != nil {
 		return "", err
 	}

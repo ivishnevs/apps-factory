@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"appfactory/internal/bus"
+	"appfactory/internal/config"
 	"appfactory/internal/storage/storagetest"
 )
 
@@ -24,7 +25,7 @@ func TestHealthReportsPostgres(t *testing.T) {
 	}
 	defer b.NC.Close()
 	s := storagetest.Open(t)
-	c := &Core{Store: s, Bus: b, Token: "owner", Company: "default", DefaultReport: "manager"}
+	c := &Core{Store: s, Bus: b, Token: "owner", Company: "default", Teams: map[string]config.Team{"core": {Spec: config.TeamSpec{Lead: "manager"}}}}
 	h := c.Handler()
 	get := func() (int, map[string]string) {
 		r := httptest.NewRequest("GET", "/health", nil)

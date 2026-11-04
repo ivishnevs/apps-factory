@@ -32,6 +32,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=20) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 def wait(path, predicate):
     deadline = time.monotonic() + 360
     while time.monotonic() < deadline:
@@ -47,7 +54,7 @@ project = state['project']
 save()
 print('checkpoint:', checkpoint, flush=True)
 if not state.get('created'):
-    api('POST', '/projects', {'id': project, 'name': project, 'workspace': state['workspace']})
+    api('POST', '/projects', {'team': team_of('demo'), 'id': project, 'name': project, 'workspace': state['workspace']})
     state['created'] = True
     save()
 

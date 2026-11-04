@@ -31,6 +31,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 
 def wait(task_id, statuses, seconds=900):
     deadline = time.monotonic() + seconds
@@ -49,7 +56,7 @@ def prs(state):
     return json.loads(out)
 
 
-api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace), 'repo_url': repo_url, 'default_branch': 'main'})
+api('POST', '/projects', {'team': team_of(agent), 'id': project, 'name': project, 'workspace': str(workspace), 'repo_url': repo_url, 'default_branch': 'main'})
 text = ('Add a file MERGE_SMOKE.md containing exactly the line "merge smoke ok", commit it on your task branch '
     '(git add + git commit; the working tree must be clean), then end the run with factory_exit_submit, '
     'summary MERGE_SUBMIT_OK, checks ["file committed"]. When your task comes back approved, merge its pull '

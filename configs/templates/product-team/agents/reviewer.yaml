@@ -4,6 +4,7 @@ metadata:
   name: reviewer
   description: Reviews submitted work
 spec:
+  team: product
   extends: agent
   role: reviewer
   reports_to: product-owner

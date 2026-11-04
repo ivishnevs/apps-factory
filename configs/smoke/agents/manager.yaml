@@ -4,6 +4,7 @@ metadata:
   name: manager
   description: Codex manager of the live smokes (cheapest model)
 spec:
+  team: smoke
   extends: developer
   role: manager
   reports_to: owner

@@ -4,6 +4,7 @@ metadata:
   name: calorie-manager
   description: Autonomous product and delivery lead for the calorie calculator
 spec:
+  team: calorie
   extends: developer
   role: manager
   reports_to: owner

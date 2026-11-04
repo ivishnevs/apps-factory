@@ -4,6 +4,7 @@ metadata:
   name: manager
   description: Project task planning and review through Factory MCP
 spec:
+  team: core
   extends: developer
   role: manager
   reports_to: owner

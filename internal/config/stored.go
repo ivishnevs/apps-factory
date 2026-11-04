@@ -26,7 +26,7 @@ const (
 
 // catalogDirs are the catalog directory's subdirectories of YAML documents; catalogFiles its single files.
 var (
-	catalogDirs  = []string{"agents", "profiles", "policies", "node-hooks"}
+	catalogDirs  = []string{"teams", "agents", "profiles", "policies", "node-hooks"}
 	catalogFiles = []string{"skills.yaml", "company.yaml", "quota_keys.yaml", "mcp_servers.yaml"}
 )
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
@@ -18,9 +19,40 @@ import (
 // (config.Agent.CreatesProjects) with factory_project_create behind the owner's approval of that exact call.
 // Both end here; the node sets the repository up when the project's first task runs (storage.Dispatch).
 
-// auditAssignee is the agent of an existing repository's onboarding audit.
-func (c *Core) auditAssignee(company string) string {
-	return cmp.Or(c.cat(company).AuditAssignee, config.DefaultAuditAssignee)
+// projectTeam checks the team of a new project against the catalog (company-teams D4): the team named, else
+// the creating agent's team, else the only team. A catalog without teams (files without teams/) takes none.
+func (c *Core) projectTeam(company string, in tasks.ProjectCreate) (string, error) {
+	cat := c.cat(company)
+	team := in.Team
+	if in.CreatedBy != "" && in.CreatedBy != config.Owner {
+		agentTeam := cat.TeamOf(in.CreatedBy)
+		if team != "" && agentTeam != "" && team != agentTeam {
+			return "", fmt.Errorf("%w: %w: a project %s creates belongs to its team %s", storage.ErrConflict, storage.ErrTeamMismatch, in.CreatedBy, agentTeam)
+		}
+		team = cmp.Or(team, agentTeam)
+	}
+	if len(cat.Teams) == 0 {
+		return team, nil
+	}
+	if team == "" {
+		if len(cat.Teams) > 1 {
+			return "", fmt.Errorf("%w: team required (%s)", storage.ErrInput, strings.Join(cat.TeamNames(), ", "))
+		}
+		team = cat.TeamNames()[0]
+	}
+	if _, ok := cat.Teams[team]; !ok {
+		return "", fmt.Errorf("%w: unknown team %s (%s)", storage.ErrInput, team, strings.Join(cat.TeamNames(), ", "))
+	}
+	return team, nil
+}
+
+// auditAssignee is the agent of the onboarding audit of a project of team: the team's audit assignee
+// (company-teams D5).
+func (c *Core) auditAssignee(company, team string) string {
+	if t, ok := c.cat(company).Teams[team]; ok {
+		return t.Auditor()
+	}
+	return c.defaultReport(company)
 }
 
 // createProject creates the project and, when asked, its onboarding audit task (ready, assigned to the
@@ -30,16 +62,20 @@ func (c *Core) createProject(ctx context.Context, company string, in tasks.Proje
 	if err := storage.CheckProjectRepo(in); err != nil {
 		return tasks.Project{}, err
 	}
+	var err error
+	if in.Team, err = c.projectTeam(company, in); err != nil {
+		return tasks.Project{}, err
+	}
 	if in.Audit {
-		if _, ok := c.cat(company).Agents[c.auditAssignee(company)]; !ok {
-			return tasks.Project{}, fmt.Errorf("%w: the onboarding audit needs agent %s (configs/company.yaml projects.audit_assignee), which is not configured", storage.ErrInput, c.auditAssignee(company))
+		if _, ok := c.cat(company).Agents[c.auditAssignee(company, in.Team)]; !ok {
+			return tasks.Project{}, fmt.Errorf("%w: the onboarding audit needs the audit assignee of team %s (teams/%s.yaml audit_assignee), which is not configured", storage.ErrInput, in.Team, in.Team)
 		}
 	}
 	p, err := c.Store.CreateProject(ctx, company, in)
 	if err != nil || p.Setup == nil || !p.Setup.Audit {
 		return p, err
 	}
-	t, err := c.Store.CreateTask(ctx, company, tasks.Create{ProjectID: p.ID, Title: "Audit the existing project " + p.Name, Description: auditBrief(p), Assignee: c.auditAssignee(company), CreatedBy: p.CreatedBy, Ready: true, RequestID: "project-audit:" + p.ID})
+	t, err := c.Store.CreateTask(ctx, company, tasks.Create{ProjectID: p.ID, Title: "Audit the existing project " + p.Name, Description: auditBrief(p), Assignee: c.auditAssignee(company, p.Team), CreatedBy: p.CreatedBy, Ready: true, RequestID: "project-audit:" + p.ID})
 	if err != nil {
 		return p, fmt.Errorf("project %s created; its audit task failed: %w", p.ID, err)
 	}

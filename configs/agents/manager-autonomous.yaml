@@ -4,9 +4,10 @@ metadata:
   name: manager-autonomous
   description: Technical coordinator that decides technical questions itself
 spec:
+  team: core
   extends: developer
   role: manager
-  reports_to: owner
+  reports_to: manager
   prompt:
     file: prompts/manager.md
   communication:

@@ -37,7 +37,7 @@ func TestSeedRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal(company, err)
 		}
-		if len(stored.Agents) != len(disk.Agents) || len(stored.NodeHooks) != len(disk.NodeHooks) || stored.DefaultReport != disk.DefaultReport {
+		if len(stored.Agents) != len(disk.Agents) || len(stored.NodeHooks) != len(disk.NodeHooks) || len(stored.Teams) != len(disk.Teams) {
 			t.Fatalf("%s: %d/%d agents", company, len(stored.Agents), len(disk.Agents))
 		}
 		for name, a := range disk.Agents {
@@ -124,8 +124,8 @@ func TestTemplates(t *testing.T) {
 				t.Fatal(name, "document outside the company:", p)
 			}
 		}
-		if len(c.Skills.Skills) != 2 || c.DefaultReport == "" {
-			t.Fatal(name, len(c.Skills.Skills), c.DefaultReport)
+		if len(c.Skills.Skills) != 2 || len(c.Teams) == 0 {
+			t.Fatal(name, len(c.Skills.Skills), c.TeamNames())
 		}
 	}
 	if _, err = TemplateDocuments("../..", "missing", "acme"); err == nil {

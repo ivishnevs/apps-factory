@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
@@ -308,7 +309,7 @@ func TestConversationTasks(t *testing.T) {
 	h := newExitHarness(t)
 	ctx := context.Background()
 	co := storage.DefaultCompany
-	h.c.DefaultReport = "manager"
+	h.c.Teams = map[string]config.Team{"core": {Spec: config.TeamSpec{Lead: "manager"}}} // one team: its lead is the default report
 	say := func(text, key string) messaging.Message {
 		t.Helper()
 		w := h.do(h.c.Token, "POST", "/messages", map[string]any{"project_id": "notes", "body": text, "message_type": "notification", "request_id": key}, nil)

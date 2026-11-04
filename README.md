@@ -5,10 +5,11 @@ dispatches work over **NATS JetStream** to **nodes** (`factory-node`), which run
 **Claude** session next to the code, Git and Xcode. The owner (you) steers it through a CLI, an inbox and Telegram.
 
 - **Companies and catalogs.** One Core serves one company (`FACTORY_COMPANY`). Its catalog is `configs/` for the
-  `default` company and `configs/<company>/` for any other (`agents/`, `profiles/`, `policies/`, `node-hooks/`,
-  `skills.yaml`, `quota_keys.yaml`, `company.yaml`); `configs/prices.yaml` is shared. Unknown YAML keys are errors.
-- **Hierarchy.** Agents form a tree through `reports_to`; agents without it report to the owner, and
-  `owner.default_report` in `company.yaml` receives unaddressed owner messages (`@name ...` picks another).
+  `default` company and `configs/<company>/` for any other (`teams/`, `agents/`, `profiles/`, `policies/`,
+  `node-hooks/`, `skills.yaml`, `quota_keys.yaml`, `company.yaml`); `configs/prices.yaml` is shared. Unknown YAML keys are errors.
+- **Teams and hierarchy.** A company runs teams (`teams/<team>.yaml`); every agent names its team, projects
+  belong to a team, and agents form a tree through `reports_to` inside their team. The team leads report to the
+  owner and receive the owner's unaddressed messages in their team's projects (`@name ...` picks another).
 - **Projects and tasks.** Core keeps projects, a task DAG (BACKLOG → READY → IN_PROGRESS → IN_REVIEW → DONE),
   attempts, reviews, conversations, reports, a versioned Decision Registry, artifacts and approvals.
 - **Explicit exits.** Every agent run ends with a `factory_exit_*` call (`submit`, `handoff`, `done`, `ask`,

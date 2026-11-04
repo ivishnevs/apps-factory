@@ -9,8 +9,8 @@ Communication never depends on scraping an agent's final text.
 
 The reporting tree (`spec.reports_to`, [agent configuration](agent-configuration.md#hierarchy)) routes
 questions: `factory_exit_ask` goes to the asker's manager, which answers delegated categories or forwards up;
-locked categories go to the owner. Every agent may message its chain and its direct reports.
-Set `spec.communication.can_message` to explicit agent names and/or `owner`. Both captured and
+locked categories go to the owner. Every agent may message the agents of its team and the owner
+(company-teams D6); messages to agents of other teams need explicit `spec.communication.can_message` entries. Both captured and
 current permissions must permit the target; factory.message.send/ask/reply/get/list and
 factory.owner.ask also pass the policy evaluator. No wildcard target or role-specific routing
 is assumed. The example developer can message manager/owner; manager can message demo/owner.
@@ -100,7 +100,7 @@ is fixed server-side. All mutations require request_id; answers/reads also requi
 | GET /conversations?project=ID | List project conversations |
 | GET /conversations/{id} | Logical conversation, with `task_id`, the agent's conversation task that handles it |
 | POST /conversations/{id}/messages | Send {body, optional message_type/questions/timeout_seconds, request_id}; defaults to question |
-| POST /messages | Owner message without a conversation {project_id, body, optional message_type, request_id}: to `owner.default_report`, or to the direct report named by a leading `@name` |
+| POST /messages | Owner message without a conversation {project_id, optional team, body, optional message_type, request_id}: to the lead of the project's team (outside a team's project: of `team`; with one team: its lead), or to the lead named by a leading `@name` |
 | GET /conversations/{id}/messages | Ordered persisted history |
 | GET /messages/{id} | Message state and delivery run |
 | GET /inbox?project=ID | Pending owner questions, escalations and unread notifications |
@@ -191,7 +191,7 @@ Inbound:
 - `/stop` asks for confirmation (a button or `/stop confirm` within 5 minutes) and then runs the kill switch;
   `/stop` alone does nothing;
 - any other text is owner input exactly as `factory conversations say` (`POST /messages`): `@name text` addresses
-  a direct report, other text goes to `owner.default_report` (see
+  a team lead, other text goes to the lead of the project's team (see
   [agent configuration](agent-configuration.md#hierarchy)). It is an owner question on the owner conversation
   `owner-<agent>-<project>`, delivered as an authority `message` trigger on the agent's conversation task
   (`conv-<agent>-<project>`). The project is `FACTORY_TELEGRAM_PROJECT`, or the company's only project when unset.

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"appfactory/internal/config"
 	"appfactory/internal/messaging"
 	"appfactory/internal/notify/telegram"
 	"appfactory/internal/storage"
@@ -90,7 +91,7 @@ type telegramHarness struct {
 
 func newTelegramHarness(t *testing.T) *telegramHarness {
 	h := newExitHarness(t)
-	h.c.Telegram, h.c.DefaultReport = TelegramConfig{Project: "notes"}, "manager"
+	h.c.Telegram, h.c.Teams = TelegramConfig{Project: "notes"}, map[string]config.Team{"core": {Spec: config.TeamSpec{Lead: "manager"}}}
 	bot := &fakeBot{}
 	srv := httptest.NewServer(bot)
 	t.Cleanup(srv.Close)

@@ -9,6 +9,7 @@ import (
 
 	"appfactory/internal/config"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 // Catalog API (company-self-service 3.5): the owner reads the company's stored catalog, changes documents on
@@ -24,9 +25,53 @@ type CatalogChange struct {
 	DryRun bool              `json:"dry_run,omitempty"`
 }
 
+// TeamView is one team of the resolved catalog.
+type TeamView struct {
+	Name          string       `json:"name"`
+	Description   string       `json:"description,omitempty"`
+	Lead          string       `json:"lead"`
+	AuditAssignee string       `json:"audit_assignee"`
+	Profile       string       `json:"profile,omitempty"`
+	Agents        []TeamMember `json:"agents"`
+	Projects      []string     `json:"projects"`
+}
+
+// teamViews are company's teams with their agents and projects.
+func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
+	cat := c.cat(company)
+	out := []TeamView{}
+	for _, name := range cat.TeamNames() {
+		t := cat.Teams[name]
+		v := TeamView{Name: name, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}}
+		for _, agent := range cat.TeamAgents(name) {
+			v.Agents = append(v.Agents, teamMember(cat.Agents, agent))
+		}
+		for _, p := range projects {
+			if p.Team == name {
+				v.Projects = append(v.Projects, p.ID)
+			}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// teamMember is agent as the catalog resolves it.
+func teamMember(agents map[string]config.Agent, name string) TeamMember {
+	a := agents[name]
+	required, reviewer := a.Review()
+	m := TeamMember{Name: name, Team: a.Spec.Team, Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
+		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer)}
+	for _, p := range a.ReviewPaths() {
+		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
+	}
+	return m
+}
+
 // TeamMember is one agent of the resolved catalog.
 type TeamMember struct {
 	Name           string   `json:"name"`
+	Team           string   `json:"team,omitempty"`
 	Description    string   `json:"description,omitempty"`
 	Role           string   `json:"role"`
 	ReportsTo      string   `json:"reports_to"`
@@ -113,22 +158,16 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 		}
 		write(w, catalogView(company, cat))
 	})
-	// The team as the catalog resolves it (company-self-service 6.1): who does what and reports to whom.
-	m.HandleFunc("GET /catalog/team", func(w http.ResponseWriter, r *http.Request) {
+	// The teams as the catalog resolves them (company-teams 3.2): each team's lead, audit assignee, profile,
+	// agents (who does what and reports to whom) and projects.
+	m.HandleFunc("GET /catalog/teams", func(w http.ResponseWriter, r *http.Request) {
 		company := c.companyFrom(r)
-		cat := c.cat(company)
-		out := []TeamMember{}
-		for _, name := range config.Names(cat.Agents) {
-			a := cat.Agents[name]
-			required, reviewer := a.Review()
-			m := TeamMember{Name: name, Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(cat.Agents, name), Prompt: a.Spec.Prompt.File,
-				Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(cat.Agents, name, reviewer)}
-			for _, p := range a.ReviewPaths() {
-				m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(cat.Agents, name, p.Reviewer))
-			}
-			out = append(out, m)
+		projects, err := c.Store.Projects(r.Context(), company)
+		if err != nil {
+			reply(w, nil, err)
+			return
 		}
-		write(w, map[string]any{"company": company, "version": c.catalogVersion(company), "default_report": c.defaultReport(company), "agents": out})
+		write(w, map[string]any{"company": company, "version": c.catalogVersion(company), "teams": c.teamViews(company, projects)})
 	})
 	m.HandleFunc("GET /catalog/history", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.CatalogHistory(r.Context(), c.companyFrom(r))

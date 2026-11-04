@@ -4,6 +4,7 @@ metadata:
   name: calorie-designer
   description: Minimalist iOS product designer
 spec:
+  team: calorie
   extends: developer
   # Claude (E2E covers both runtimes: manager and iOS developer run on Codex).
   runtime:

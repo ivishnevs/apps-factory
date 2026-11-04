@@ -128,7 +128,7 @@ func TestProjectCreateContract(t *testing.T) {
 		{map[string]any{"id": "x4", "name": "x", "repo_mode": "existing"}, 400, "needs workspace"},
 		{map[string]any{"id": "x5", "name": "x", "workspace": "relative/path"}, 400, "absolute path"},
 		{map[string]any{"id": "x6", "name": "x", "repo_mode": "github", "audit": true}, 400, "audit is for an existing repository"},
-		{map[string]any{"id": "x7", "name": "x", "repo_mode": "existing", "workspace": "/tmp/x7", "audit": true}, 400, "product-manager"},
+		{map[string]any{"id": "x7", "name": "x", "repo_mode": "existing", "workspace": "/tmp/x7", "audit": true}, 400, "audit assignee"},
 	} {
 		if _, w := h.create(c.body); w.Code != c.code || !strings.Contains(w.Body.String(), c.want) {
 			t.Fatal(c.body, w.Code, w.Body.String())
@@ -269,7 +269,7 @@ func TestProjectSetupGate(t *testing.T) {
 func TestProjectAuditTask(t *testing.T) {
 	ctx := context.Background()
 	h := newProjectHarness(t)
-	h.c.AuditAssignee = "manager"
+	h.c.Teams = map[string]config.Team{"core": {Spec: config.TeamSpec{Lead: "manager"}}} // the only team audits through its lead
 	body := map[string]any{"id": "kickclimb", "name": "KickClimb", "repo_mode": "existing", "repo_url": "https://github.com/owner/kickclimb.git", "default_branch": "main", "audit": true, "request_id": "onboard"}
 	p, w := h.create(body)
 	if w.Code != 200 || p.Setup == nil || !p.Setup.Audit || p.Setup.AuditTaskID == "" || p.RepoURL != "https://github.com/owner/kickclimb.git" {

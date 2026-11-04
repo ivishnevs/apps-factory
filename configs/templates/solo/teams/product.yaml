@@ -1,0 +1,7 @@
+apiVersion: factory/v1
+kind: Team
+metadata:
+  name: product
+  description: "One builder plans, builds and ships"
+spec:
+  lead: builder

@@ -4,6 +4,7 @@ metadata:
   name: qa
   description: Verifies delivered behaviour
 spec:
+  team: product
   extends: agent
   role: qa
   reports_to: product-owner

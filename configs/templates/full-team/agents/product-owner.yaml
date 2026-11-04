@@ -4,6 +4,7 @@ metadata:
   name: product-owner
   description: Owns the requirements and the plan
 spec:
+  team: product
   extends: agent
   role: manager
   reports_to: owner

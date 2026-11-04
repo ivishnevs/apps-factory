@@ -27,8 +27,10 @@ type Metadata struct {
 }
 type Spec struct {
 	Extends string `yaml:"extends" json:"extends,omitempty"`
-	Role    string `yaml:"role" json:"role,omitempty"`
-	// ReportsTo is the agent's manager (hierarchy D1): another agent of the company, or owner (default).
+	// Team is the agent's team (company-teams D3), required: teams/<team>.yaml of the catalog.
+	Team string `yaml:"team" json:"team,omitempty"`
+	Role string `yaml:"role" json:"role,omitempty"`
+	// ReportsTo is the agent's manager (hierarchy D1): another agent of its team, or owner (the team's lead only).
 	ReportsTo string `yaml:"reports_to" json:"reports_to,omitempty"`
 	Runtime   struct {
 		Provider string `yaml:"provider" json:"provider"`
@@ -126,16 +128,10 @@ type Catalog struct {
 	QuotaKeys map[string]QuotaKey
 	// MCPServers are the company's external MCP servers (mcp_servers.yaml); empty when the file is absent.
 	MCPServers map[string]protocol.MCPServer
-	// DefaultReport is the owner's default direct report (configs/company.yaml owner.default_report): unaddressed
-	// owner messages go to its conversation (hierarchy D5). Required with more than one direct report.
-	DefaultReport string
-	// AuditAssignee is the agent of the onboarding audit task of an existing repository (configs/company.yaml
-	// projects.audit_assignee, default product-manager; project-creation D5).
-	AuditAssignee string
+	// Teams are the company's teams (teams/*.yaml, company-teams D2): each agent belongs to one; a team's lead
+	// gets the owner's unaddressed messages in its projects, its audit assignee their onboarding audits.
+	Teams map[string]Team
 }
-
-// DefaultAuditAssignee is the onboarding audit's agent when company.yaml names none.
-const DefaultAuditAssignee = "product-manager"
 
 // CreatesProjects reports whether the agent may call factory_project_create (project-creation D4).
 func (a Agent) CreatesProjects() bool {
@@ -166,7 +162,7 @@ const DefaultCompany = "default"
 
 // reservedCompanies are the names of the catalog's own entries under configs/, which no company directory
 // may take.
-var reservedCompanies = map[string]bool{"agents": true, "profiles": true, "policies": true, "node-hooks": true, "prompts": true, "skills": true, "templates": true}
+var reservedCompanies = map[string]bool{"agents": true, "teams": true, "profiles": true, "policies": true, "node-hooks": true, "prompts": true, "skills": true, "templates": true}
 
 // CompanyDir is the directory, relative to root, of company's catalog (postgres-tenancy D3): configs/ for the
 // default company, configs/<company>/ for any other. Each holds agents/, profiles/, policies/, node-hooks/,
@@ -265,8 +261,14 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 	if c.NodeHooks, err = loadNodeHooks(src, dir); err != nil {
 		return nil, err
 	}
+	if c.Teams, err = loadTeams(src, dir); err != nil {
+		return nil, err
+	}
 	profiles, err := documents(src, dir, "profiles", "AgentProfile")
 	if err != nil {
+		return nil, err
+	}
+	if err = teamProfiles(c.Teams, profiles); err != nil {
 		return nil, err
 	}
 	agents, err := documents(src, dir, "agents", "Agent")
@@ -365,7 +367,11 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 	for _, name := range sortedKeys(agents) {
 		m := agents[name]
 		s := m["spec"].(map[string]any)
-		if parent, ok := s["extends"].(string); ok && parent != "" {
+		parent, _ := s["extends"].(string)
+		if team, _ := s["team"].(string); parent == "" && team != "" {
+			parent = c.Teams[team].Spec.Profile // the team's profile is the default extends (D3)
+		}
+		if parent != "" {
 			p, err := profile(parent)
 			if err != nil {
 				return nil, err
@@ -387,10 +393,13 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 	if err := validTree(c.Agents); err != nil {
 		return nil, err
 	}
+	if err := validTeams(c.Teams, c.Agents); err != nil {
+		return nil, err
+	}
 	if err := validReviewers(c.Agents); err != nil {
 		return nil, err
 	}
-	if c.DefaultReport, c.AuditAssignee, err = loadCompany(src, dir, c.Agents); err != nil {
+	if err = loadCompany(src, dir); err != nil {
 		return nil, err
 	}
 	deriveCommunication(c.Agents)
@@ -593,7 +602,7 @@ func (c *Catalog) finish(src source, a *Agent) error {
 		for _, r := range c.Policies[n].Spec.Rules {
 			b, _ := yaml.Marshal(r)
 			key := string(b)
-			if policies.Applies(r, a.Spec.Role, a.Metadata.Name) && !seenRules[key] {
+			if policies.Applies(r, a.Spec.Role, a.Metadata.Name, a.Spec.Team) && !seenRules[key] {
 				seenRules[key] = true
 				a.Rules = append(a.Rules, r)
 			}
@@ -769,7 +778,7 @@ func (a Agent) EscalateAfter(category string) time.Duration {
 	var out time.Duration
 	for _, r := range a.Rules {
 		d := r.EscalateAfterDuration()
-		if r.Type != "escalation" || d == 0 || !policies.Applies(r, a.Spec.Role, a.Metadata.Name) || len(r.Categories) > 0 && !slices.Contains(r.Categories, category) {
+		if r.Type != "escalation" || d == 0 || !policies.Applies(r, a.Spec.Role, a.Metadata.Name, a.Spec.Team) || len(r.Categories) > 0 && !slices.Contains(r.Categories, category) {
 			continue
 		}
 		if out == 0 || d < out {
@@ -790,7 +799,7 @@ func (a Agent) DecisionAuthority(category string) []string {
 	}
 	rules := []string{}
 	for _, r := range a.Rules {
-		if r.Type == "access" && r.Effect == "allow" && policies.Applies(r, a.Spec.Role, a.Metadata.Name) && policies.Match(r.Operations, op) {
+		if r.Type == "access" && r.Effect == "allow" && policies.Applies(r, a.Spec.Role, a.Metadata.Name, a.Spec.Team) && policies.Match(r.Operations, op) {
 			rules = append(rules, r.Name)
 		}
 	}
@@ -857,36 +866,20 @@ func loadQuotaKeys(src source, dir string) (map[string]QuotaKey, error) {
 // loadCompany reads configs/company.yaml (optional): owner.default_report, checked to be a direct report of
 // the owner and required when the owner has more than one (hierarchy D5); projects.audit_assignee, an agent
 // (default product-manager, project-creation D5).
-func loadCompany(src source, dir string, agents map[string]Agent) (defaultReport, auditAssignee string, err error) {
-	var doc struct {
-		Owner struct {
-			DefaultReport string `yaml:"default_report"`
-		} `yaml:"owner"`
-		Projects struct {
-			AuditAssignee string `yaml:"audit_assignee"`
-		} `yaml:"projects"`
-	}
+func loadCompany(src source, dir string) error {
+	// company.yaml (optional) keeps company settings only; owner.default_report and projects.audit_assignee moved
+	// to the teams (company-teams D8) and are refused as unknown fields.
+	var doc struct{}
 	if p := path.Join(dir, "company.yaml"); src.exists(p) {
-		if err = src.decode(p, &doc); err != nil {
-			return "", "", err
+		b, err := src.read(p)
+		if err != nil {
+			return err
+		}
+		if err = configfile.Decode(b, &doc); err != nil {
+			return fmt.Errorf("%s: %w (the owner's default report and the audit assignee are set per team: teams/NAME.yaml lead, audit_assignee)", src.name(p), err)
 		}
 	}
-	auditAssignee = DefaultAuditAssignee
-	if a := doc.Projects.AuditAssignee; a != "" {
-		if _, ok := agents[a]; !ok {
-			return "", "", fmt.Errorf("company: projects.audit_assignee %s is not an agent", a)
-		}
-		auditAssignee = a
-	}
-	top := DirectReports(agents, Owner)
-	d := doc.Owner.DefaultReport
-	switch {
-	case d != "" && !slices.Contains(top, d):
-		return "", "", fmt.Errorf("company: owner.default_report %s is not an agent reporting to the owner", d)
-	case d == "" && len(top) > 1:
-		return "", "", fmt.Errorf("company: the owner has %d direct reports (%s): set owner.default_report in configs/company.yaml", len(top), strings.Join(top, ", "))
-	}
-	return d, auditAssignee, nil
+	return nil
 }
 
 // modelName is the accepted shape of a model name or alias.
@@ -1018,11 +1011,18 @@ func validTree(agents map[string]Agent) error {
 // deriveCommunication lets every agent message its chain (owner included) and its direct reports; explicit
 // can_message lists may add peers but never remove these (hierarchy D1).
 func deriveCommunication(agents map[string]Agent) {
+	// An agent messages its own team and the owner (company-teams D6); explicit can_message entries may name
+	// agents of other teams.
 	for _, name := range Names(agents) {
 		a := agents[name]
 		targets := append([]string{}, a.Spec.Communication.CanMessage...)
 		for _, t := range append(append(Chain(agents, name), Owner), DirectReports(agents, name)...) {
 			if !slices.Contains(targets, t) {
+				targets = append(targets, t)
+			}
+		}
+		for _, t := range Names(agents) {
+			if t != name && a.Spec.Team != "" && agents[t].Spec.Team == a.Spec.Team && !slices.Contains(targets, t) {
 				targets = append(targets, t)
 			}
 		}
@@ -1053,15 +1053,18 @@ func (a Agent) Review() (required bool, reviewer string) {
 // ReviewerFor resolves a review rule's reviewer for agent: the named agent, or for role:<role> the first agent
 // of that role other than agent (by name); "" when there is none.
 func ReviewerFor(agents map[string]Agent, agent, reviewer string) string {
+	// The reviewer is resolved in the agent's team (company-teams D5): a project's tasks go to agents of its
+	// team only, so the developer's team is the project's.
+	team := agents[agent].Spec.Team
 	role, isRole := strings.CutPrefix(reviewer, "role:")
 	if !isRole {
-		if _, ok := agents[reviewer]; ok && reviewer != agent {
+		if r, ok := agents[reviewer]; ok && reviewer != agent && r.Spec.Team == team {
 			return reviewer
 		}
 		return ""
 	}
 	for _, name := range Names(agents) {
-		if name != agent && agents[name].Spec.Role == role {
+		if name != agent && agents[name].Spec.Role == role && agents[name].Spec.Team == team {
 			return name
 		}
 	}
@@ -1089,7 +1092,7 @@ func validReviewers(agents map[string]Agent) error {
 		}
 		for _, rv := range reviewers {
 			if rv != "" && ReviewerFor(agents, name, rv) == "" {
-				return fmt.Errorf("agent %s: review rule reviewer %s is not another agent of the catalog", name, rv)
+				return fmt.Errorf("agent %s: review rule reviewer %s is not another agent of team %s", name, rv, agents[name].Spec.Team)
 			}
 		}
 	}

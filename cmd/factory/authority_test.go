@@ -28,12 +28,12 @@ func TestTaskAuthorityCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &core.Core{Store: s, Agents: catalog.Agents, DefaultReport: catalog.DefaultReport, Token: "owner"}
+	c := &core.Core{Store: s, Agents: catalog.Agents, Teams: catalog.Teams, Token: "owner"}
 	server := httptest.NewServer(c.Handler())
 	defer server.Close()
 	api := worker.API{URL: server.URL, Token: "owner"}
 	co := storage.DefaultCompany
-	if _, err = s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "p", Name: "P", Workspace: "/tmp/authority-commands"}); err != nil {
+	if _, err = s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "p", Name: "P", Team: "core", Workspace: "/tmp/authority-commands"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, create := range []tasks.Create{{ID: "a", ProjectID: "p", Title: "a", Assignee: "demo", Ready: true}, {ID: "kid", ProjectID: "p", Title: "kid", Assignee: "demo", ParentTaskID: "a"}} {

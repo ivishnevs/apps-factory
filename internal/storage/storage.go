@@ -41,6 +41,9 @@ type Store struct {
 	EscalationTarget func(company, assignee string) string
 	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
 	ManagerOf func(company, agent string) string
+	// TeamOf is the team of agent (company-teams D4): a task of a project with a team may be created for,
+	// assigned or delegated only to an agent of that team. nil or "" (an unknown agent) checks nothing.
+	TeamOf func(company, agent string) string
 	// SubtreeOf lists the agents under agent (hierarchy D6, manager briefs); nil means none.
 	SubtreeOf func(company, agent string) []string
 	// EscalateAfterFor is how long agent may leave a question of category unanswered before it moves up

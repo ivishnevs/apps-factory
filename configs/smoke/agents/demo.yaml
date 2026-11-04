@@ -4,6 +4,7 @@ metadata:
   name: demo
   description: Codex executor and reviewer of the live smokes (cheapest model)
 spec:
+  team: smoke
   reports_to: manager
   extends: developer
   prompt:

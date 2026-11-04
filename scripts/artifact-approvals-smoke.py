@@ -24,6 +24,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 def wait(path, predicate):
     deadline = time.monotonic() + 330
     while time.monotonic() < deadline:
@@ -41,7 +48,7 @@ def ready(task):
 def accept(task):
     return api('POST', '/tasks/' + task['id'] + '/review', {'version': task['version'], 'accept': True})
 
-api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
+api('POST', '/projects', {'team': team_of('demo'), 'id': project, 'name': project, 'workspace': str(workspace)})
 results = []
 consumer = None
 for version, outcome in (('v1', 'approve'), ('v2', 'reject'), ('v3', 'approve')):

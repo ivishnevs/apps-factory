@@ -121,7 +121,7 @@ func TestRunEventStreamLive(t *testing.T) {
 func TestMessageFeedSummary(t *testing.T) {
 	h := newExitHarness(t)
 	ctx := context.Background()
-	m, err := h.c.ownerMessage(ctx, storage.DefaultCompany, "notes", "@manager ship the notes app", "", "say-1")
+	m, err := h.c.ownerMessage(ctx, storage.DefaultCompany, "notes", "", "@manager ship the notes app", "", "say-1")
 	if err != nil {
 		t.Fatal(err)
 	}

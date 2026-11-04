@@ -25,6 +25,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 def wait(task_id, status):
     deadline = time.monotonic() + 330
     while time.monotonic() < deadline:
@@ -35,7 +42,7 @@ def wait(task_id, status):
         time.sleep(.5)
     raise TimeoutError('Task did not reach ' + status + '; inspect before retrying')
 
-api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
+api('POST', '/projects', {'team': team_of('demo'), 'id': project, 'name': project, 'workspace': str(workspace)})
 first = api('POST', '/tasks', {'project_id': project, 'title': 'First smoke task',
     'description': 'Reply with exactly TASK_ONE_OK. Do not use tools or modify files.', 'assignee': 'demo'})
 second = api('POST', '/tasks', {'project_id': project, 'title': 'Dependent smoke task',

@@ -63,6 +63,9 @@ func (s *Store) EnsureConversationTasks(ctx context.Context, company string, age
 	}
 	for _, p := range projects {
 		for _, a := range agents {
+			if s.TeamOf != nil && p.Team != "" && s.TeamOf(company, a) != "" && s.TeamOf(company, a) != p.Team {
+				continue // agents of other teams have no conversation in the project (company-teams D4)
+			}
 			if _, err = conversationTaskTx(ctx, tx, p.ID, a); err != nil {
 				return err
 			}

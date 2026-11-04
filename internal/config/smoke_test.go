@@ -19,8 +19,8 @@ func TestSmokeCatalog(t *testing.T) {
 		"manager":     {"codex", "gpt-6-luna", "low"},
 		"claude-demo": {"claude", "claude-haiku-5-5", "low"},
 	}
-	if len(c.Agents) != len(want) || c.DefaultReport != "manager" {
-		t.Fatal(Names(c.Agents), c.DefaultReport)
+	if len(c.Agents) != len(want) || c.Lead("") != "manager" {
+		t.Fatal(Names(c.Agents), c.TeamNames())
 	}
 	for name, w := range want {
 		a, ok := c.Agents[name]

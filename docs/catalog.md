@@ -1,7 +1,7 @@
 # Stored catalogs and companies
 
-A company's catalog (agents, profiles, policies, prompts, skills registry, `company.yaml`, quota keys, external
-MCP servers, node hooks) lives in Core as versioned documents (company-self-service). One Core serves every
+A company's catalog (teams, agents, profiles, policies, prompts, skills registry, `company.yaml`, quota keys,
+external MCP servers, node hooks) lives in Core as versioned documents (company-self-service). One Core serves every
 company: a request's company comes from its credential (the operator's `FACTORY_TOKEN` serves `FACTORY_COMPANY`
 or the company its `X-Factory-Company` header names, for support; a company owner token its company; a node its
 node's company; a run credential its run's company) or, for a person signed in on the website, from the
@@ -31,7 +31,7 @@ changes nothing for that company: change the catalog through the API, the CLI or
 ## Owner API, CLI and web
 
 - `GET /catalog[?version=N]` (version and document list), `GET /catalog/document?path=P[&version=N]`,
-  `GET /catalog/history`, `GET /catalog/team` (the team as resolved).
+  `GET /catalog/history`, `GET /catalog/teams` (the teams as resolved: lead, audit assignee, agents, projects).
 - `POST /catalog` `{base, put: {path: content}, delete: [path], note, dry_run}`: apply a change on top of
   `base` (`dry_run` validates without saving); `POST /catalog/rollback` `{base, to, note}`.
 

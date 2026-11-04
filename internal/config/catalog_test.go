@@ -30,11 +30,13 @@ func fixture(t *testing.T) string {
 		put(t, root, "skills/"+n+"/SKILL.md", "---\nname: "+n+"\ndescription: A sample skill\n---\nSECRET_SKILL_BODY\n")
 	}
 	put(t, root, "configs/skills.yaml", "skills:\n  first:\n    path: ../skills/first/SKILL.md\n    description: First skill\n    categories: [testing]\n  second:\n    path: ../skills/second/SKILL.md\n    description: Second skill\n    categories: [planning]\n")
+	put(t, root, "configs/teams/main.yaml", "apiVersion: factory/v1\nkind: Team\nmetadata:\n  name: main\nspec:\n  lead: agent\n")
 	put(t, root, "configs/profiles/base.yaml", `apiVersion: factory/v1
 kind: AgentProfile
 metadata:
   name: base
 spec:
+  team: main
   role: developer
   runtime:
     provider: codex
@@ -445,20 +447,17 @@ func TestReportsTo(t *testing.T) {
 	agent("cto", "")
 	agent("lead", "cto")
 	agent("dev", "lead")
-	// Two agents report to the owner (the fixture's agent and cto): owner.default_report is required.
-	if _, err := LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "default_report") {
-		t.Fatal("two direct reports without a default:", err)
+	// Two agents report to the owner (the fixture's agent and cto): only team leads may.
+	if _, err := LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "only team leads report to the owner") {
+		t.Fatal("two direct reports in one team:", err)
 	}
-	put(t, root, "configs/company.yaml", "owner:\n  default_report: lead\n")
-	if _, err := LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "not an agent reporting to the owner") {
-		t.Fatal("default report below the top:", err)
-	}
-	put(t, root, "configs/company.yaml", "owner:\n  default_report: cto\n")
+	agent("cto", "agent")
 	c, err := LoadCatalog(root)
-	if err != nil || c.DefaultReport != "cto" {
-		t.Fatal(c, err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := Chain(c.Agents, "dev"); !slices.Equal(got, []string{"lead", "cto"}) {
+	agent("cto", "")
+	if got := Chain(c.Agents, "dev"); !slices.Equal(got, []string{"lead", "cto", "agent"}) {
 		t.Fatal(got)
 	}
 	if got := Subtree(c.Agents, "cto"); !slices.Equal(got, []string{"dev", "lead"}) {
@@ -467,8 +466,8 @@ func TestReportsTo(t *testing.T) {
 	if got := c.Agents["lead"].Spec.Communication.CanMessage; !slices.Contains(got, "cto") || !slices.Contains(got, "dev") || !slices.Contains(got, "owner") {
 		t.Fatal("derived communication", got)
 	}
-	if got := c.Agents["dev"].Spec.Communication.CanMessage; slices.Contains(got, "agent") {
-		t.Fatal("a peer was added", got)
+	if got := c.Agents["dev"].Spec.Communication.CanMessage; !slices.Contains(got, "agent") {
+		t.Fatal("an agent of the same team is a default target (company-teams D6)", got)
 	}
 	agent("cto", "dev")
 	if _, err = LoadCatalog(root); err == nil || !strings.Contains(err.Error(), "cycle") {

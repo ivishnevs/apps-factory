@@ -4,6 +4,7 @@ metadata:
   name: calorie-ios
   description: Native SwiftUI iOS implementation and release engineering
 spec:
+  team: calorie
   extends: developer
   role: developer
   reports_to: calorie-manager

@@ -1,0 +1,7 @@
+apiVersion: factory/v1
+kind: Team
+metadata:
+  name: core
+  description: "The factory demo team: the manager and its developers"
+spec:
+  lead: manager

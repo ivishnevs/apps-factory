@@ -27,6 +27,13 @@ def api(method, path, body=None):
     with urllib.request.urlopen(req, timeout=20) as response:
         return json.load(response)
 
+def team_of(agent):
+    # company-teams: a project belongs to the team of the agents that work on it.
+    for t in api('GET', '/catalog/teams')['teams']:
+        if any(a['name'] == agent for a in t['agents']):
+            return t['name']
+    raise SystemExit('agent %s is in no team of the catalog' % agent)
+
 def save(state):
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state, indent=2, ensure_ascii=False) + '\n')
@@ -41,7 +48,7 @@ def start():
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
-        project = api('POST', '/projects', {'id': PROJECT, 'name': 'Calorie Calculator',
+        project = api('POST', '/projects', {'team': team_of('calorie-manager'), 'id': PROJECT, 'name': 'Calorie Calculator',
             'workspace': str(workspace), 'description': 'Autonomous four-agent iOS calorie diary E2E; clean minimalist stylish interface; production release candidate; dedicated accessibility work deferred by owner.'})
     assert project['workspace'] == str(workspace), 'Existing project uses another workspace'
     state['workspace'] = str(workspace)

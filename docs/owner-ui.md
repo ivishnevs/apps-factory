@@ -264,7 +264,7 @@ total with cost and runs. The open screen rereads the ledger every 30 s.
 ## 6 Chat — the owner's direct reports
 
 The agents that report to the owner (`reports_to: owner`) in the selected project (the header chip; the first
-project when all are shown), `★` the default report (`owner.default_report`, from `GET /health`). Each has
+project when all are shown), `★` the default report (the lead when the company has one team, from `GET /health`). Each has
 one conversation, `owner-<agent>-<project>` (`GET /conversations/{id}/messages`, oldest first): the agent's
 messages as bubbles in its color on the left, yours in the accent on the right; a question still waiting on
 you says so, structured questions show their options and answers. `enter` writes, `enter` sends through
@@ -501,7 +501,7 @@ their summary, which the flow, the activity stream and the feed show.
 Also added: `GET /tasks/{id}/exits` — the task's accepted exits, oldest first, with the node's git and forge
 facts (`{run_id, kind, created_at, facts: {head, branch, ahead_of_default, pushed, pr: {number, state,
 head_sha, url}}}`; the task detail's pull request), and `default_report` in `GET /health`
-(`owner.default_report`, or the only direct report; the chat's `★`). Used as they were: `GET /runs/{id}/events`
+(the lead when the company has one team, or the only direct report; the chat's `★`). Used as they were: `GET /runs/{id}/events`
 (error counts), `GET /conversations/{id}/messages`, `POST /messages`, `POST /tasks`,
 `GET /projects/{p}/artifacts/{a}/{v}/content`.
 
