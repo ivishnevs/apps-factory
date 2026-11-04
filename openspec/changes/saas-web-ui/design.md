@@ -111,3 +111,18 @@ The open questions got these defaults so work goes on; each can be changed later
    listed by the requesting address?
 6. Onboarding team step: replace the sign-up `solo` team with the chosen preset, or add next to it?
 7. Visual direction: keep today's neutral shadcn look for MVP, or a branded design pass first?
+
+## Proposals that need the owner's decision
+
+- **P1. Inviting people (decision needed).** Memberships may only join a user and a company of the same account
+  (composite keys of `user-accounts`), and every first sign-in creates its own account, so a person cannot be
+  added to someone else's company today. Proposal: memberships across accounts (drop the account from the
+  membership keys; the company's account stays the billing owner), invitation links from Settings → Members
+  (`POST /invitations {role}` → a single-use link valid 7 days; `/invite/<token>` signs in and joins), and email
+  delivery later. Until decided, Members lists and manages the people already there and says invitations are not
+  available yet.
+- **P2. Telegram per company (decision needed).** One bot per Core (`FACTORY_TELEGRAM_TOKEN`) serves the default
+  company only. Proposal: one shared bot; Settings → Integrations issues a bind code per company and person
+  (`/start <code>`), notifications go per membership. Until decided, the web shows no Telegram settings.
+- **P3. "Seen the wizard" in Core.** `/welcome` remembers in the browser; proposal: a `welcomed_at` on the user so a
+  second device does not open the wizard again. Small; done when the user table next changes.

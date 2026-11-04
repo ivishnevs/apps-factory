@@ -15,8 +15,8 @@
 
 - [x] 2.1 Top bar with the company selector (switch, new company), user menu; navigation per D6; phone layout. Done: sidebar groups work and "Manage"; the company menu switches between every company of the person and is on top on phones; Costs only for owners and admins. The Companies page is gone (the operator keeps `factory companies`); "New company" is in the company menu for signed-in people when `FACTORY_MULTI_COMPANY=1` (on in Railway) and opens the new company's wizard; Settings holds only this company and the account.
 - [x] 2.2 Home dashboard with the "Finish setup" card. Done: Home shows "Finish setting up" (`SetupBanner`) while `/setup` is not ready.
-- [ ] 2.3 Settings section (Company and members, Teams & agents, Skills, Secrets, Connectors, Projects,
-  Integrations, Access tokens), role-aware.
+- [x] 2.3 Settings section (Company and members, Teams & agents, Skills, Secrets, Connectors, Projects,
+  Integrations, Access tokens), role-aware. Done: Settings tabs General (name, time zone), Members (`GET/PATCH/DELETE /memberships`, owners only change, the last owner stays), Projects (edit name, repository, branch, team), Access tokens (create once, revoke) and Account; the tab is in the address. Telegram is not here: it is one bot per Core today (see proposals in the design).
 
 ## 3. Onboarding and connectors
 
