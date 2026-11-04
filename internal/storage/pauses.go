@@ -89,6 +89,7 @@ func (s *Store) ClearPause(ctx context.Context, company, scope, target, actor st
 		return err
 	}
 	res, err := tx.ExecContext(ctx, "DELETE FROM pauses WHERE company_id=? AND scope=? AND target=?", company, scope, target)
+	tx.wakeNodes() // a lifted pause may free queued runs
 	if err != nil {
 		return err
 	}
@@ -214,6 +215,9 @@ func (s *Store) RevokeLive(ctx context.Context, company, actor string) (int, err
 		return 0, err
 	}
 	rows.Close()
+	if len(runs) > 0 {
+		tx.wakeNodes()
+	}
 	for _, r := range runs {
 		next, outcome := "CANCELLING", ""
 		if r.status == "QUEUED" {
@@ -420,6 +424,7 @@ func applyScopeAnswer(ctx context.Context, tx *Tx, e Escalation, answer, actor s
 		return nil
 	}
 	res, err := tx.ExecContext(ctx, "DELETE FROM pauses WHERE company_id=? AND scope='quota_key' AND target=?", tx.company, e.RefID)
+	tx.wakeNodes() // a lifted pause may free queued runs
 	if err != nil {
 		return err
 	}
@@ -461,6 +466,7 @@ func (s *Store) ExpirePauses(ctx context.Context, company string) error {
 	if _, err = tx.ExecContext(ctx, "DELETE FROM pauses WHERE company_id=? AND until>0 AND until<=?", company, now); err != nil {
 		return err
 	}
+	tx.wakeNodes() // expired pauses may free queued runs
 	for _, p := range expired {
 		p.Actor = "system"
 		if err = pauseFeed(ctx, tx, "owner.resumed", p); err != nil {

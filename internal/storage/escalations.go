@@ -219,6 +219,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET reset_pending=1,unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
 				return err
 			}
+			tx.wakeNodes()
 			if err = addPark(ctx, tx, t, tasks.ParkBlock, resetRef, "waiting for the node to reset the worktree", false); err != nil {
 				return err
 			}

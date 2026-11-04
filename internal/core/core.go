@@ -55,7 +55,10 @@ type Core struct {
 	// Telegram routes owner messages from the Telegram channel (waits-events-cost-cli D4).
 	Telegram TelegramConfig
 	// outboxKick makes the tick loop publish the outbox at once (urgent stops, kickOutbox).
-	outboxKick     chan struct{}
+	outboxKick chan struct{}
+	// wakeups wakes the waiting node polls of a company; pollers keeps one poll per node (http-node-transport).
+	wakeups        notifier
+	pollers        polls
 	outboxKickOnce sync.Once
 	// Root is the factory root on disk. Set, Core serves stored catalogs (company-self-service D1, D4): every
 	// company's current catalog version from storage, seeded from the repository; Agents, Skills, NodeHooks,
@@ -111,6 +114,7 @@ func (c *Core) companyFrom(r *http.Request) string {
 func (c *Core) Handler() http.Handler {
 	if c.Store != nil {
 		c.hierarchyHooks()
+		c.Store.Wake = c.wakeups.signal
 	}
 	m := http.NewServeMux()
 	c.configRoutes(m)
@@ -124,6 +128,7 @@ func (c *Core) Handler() http.Handler {
 	c.consoleRoutes(m)
 	c.ownerRoutes(m)
 	c.nodeRoutes(m)
+	c.pollRoutes(m)
 	c.directiveRoutes(m)
 	c.costRoutes(m)
 	c.telegramRoutes(m)

@@ -42,6 +42,23 @@ type Tx struct {
 	*sql.Tx
 	company string
 	store   *Store
+	// wake: the transaction queued a run or changed what a node must do (a stop, a reset, a pause lifted); its
+	// commit wakes the company's waiting node polls (Store.Wake, http-node-transport D6).
+	wake bool
+}
+
+// wakeNodes asks for the company's node polls to be woken once the transaction commits.
+func (tx *Tx) wakeNodes() { tx.wake = true }
+
+// Commit commits and then wakes the company's node polls when the transaction asked for it.
+func (tx *Tx) Commit() error {
+	if err := tx.Tx.Commit(); err != nil {
+		return err
+	}
+	if tx.wake && tx.store != nil && tx.store.Wake != nil {
+		tx.store.Wake(tx.company)
+	}
+	return nil
 }
 
 func (tx *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {

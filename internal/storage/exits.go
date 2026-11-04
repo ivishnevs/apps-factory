@@ -675,6 +675,7 @@ func stopUrgently(ctx context.Context, tx *Tx, t tasks.Task, reason string) erro
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil
 	}
+	tx.wakeNodes()
 	var node string
 	if err = tx.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE id=?", t.CurrentRunID).Scan(&node); err != nil {
 		return err

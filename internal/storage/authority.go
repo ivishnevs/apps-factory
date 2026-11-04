@@ -211,6 +211,7 @@ func reassignTx(ctx context.Context, tx *Tx, t tasks.Task, assignee, actor, reas
 			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING',revoked=1,stop_reason='reassigned' WHERE id=?", t.CurrentRunID); err != nil {
 				return t, err
 			}
+			tx.wakeNodes()
 		}
 	}
 	previous := t.Assignee
@@ -281,6 +282,7 @@ func cancelTx(ctx context.Context, tx *Tx, t tasks.Task, actor, reason string, c
 			if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='CANCELLING' WHERE id=?", t.CurrentRunID); err != nil {
 				return t, err
 			}
+			tx.wakeNodes()
 			t.CancelRequested = true
 			if err = comment(ctx, tx, t.ID, actor, reason); err != nil {
 				return t, err

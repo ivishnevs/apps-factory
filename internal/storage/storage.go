@@ -52,6 +52,9 @@ type Store struct {
 	// ExplicitExits: runs end their turn with factory_exit_* (docs/explicit-exits-contract.md); a succeeded
 	// turn without an accepted exit is no_exit instead of an implicit submission.
 	ExplicitExits bool
+	// Wake, when set, is called after a commit that queued a run or changed what a node must do, so Core answers the
+	// company's waiting node polls at once (http-node-transport D6); the polls' periodic re-check covers the rest.
+	Wake func(company string)
 }
 
 func (s *Store) Now() time.Time {
@@ -226,6 +229,12 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 }
 
 func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) error {
+	return s.apply(ctx, company, e, 0)
+}
+
+// apply applies one run event; seq > 0 is its per-run sequence of the HTTP transport (ApplyEvents), recorded in the
+// same transaction, so a sequence is applied exactly when its event is.
+func (s *Store) apply(ctx context.Context, company string, e protocol.Envelope, seq int64) error {
 	if e.Version != 1 || e.ID == "" {
 		return fmt.Errorf("%w: unsupported envelope", ErrInvalid)
 	}
@@ -244,11 +253,32 @@ func (s *Store) Apply(ctx context.Context, company string, e protocol.Envelope) 
 		return err
 	}
 	defer tx.Rollback()
+	if seq > 0 {
+		var applied int64
+		if err = tx.QueryRowContext(ctx, "SELECT events_seq FROM runs WHERE company_id=? AND id=? FOR UPDATE", company, p.RunID).Scan(&applied); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: unknown run", ErrInvalid)
+			}
+			return err
+		}
+		if seq <= applied {
+			return nil
+		}
+		if seq != applied+1 {
+			return &GapError{Expected: applied + 1}
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET events_seq=? WHERE company_id=? AND id=?", seq, company, p.RunID); err != nil {
+			return err
+		}
+	}
 	var exists int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM events WHERE id=?", e.ID).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {
+		if seq > 0 {
+			return tx.Commit()
+		}
 		return nil
 	}
 	var token, status, stopReason string
@@ -444,6 +474,7 @@ func insertRun(ctx context.Context, tx *Tx, r *protocol.RunSpec) error {
 	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,project,agent,workspace,spec,status,created_at,session_id,task_id,company_id,command_at) VALUES(?,?,?,?,?,'QUEUED',?,?,?,?,?)", r.ID, r.Project, r.Agent, writerSlot(*r, true), b, tx.now().Unix(), r.SessionID, nullable(r.TaskID), tx.company, tx.now().Unix()); err != nil {
 		return fmt.Errorf("project already active or insert failed: %w", err)
 	}
+	tx.wakeNodes()
 	e := protocol.Wrap("agent.run.requested", r.ID, "", r)
 	b, _ = json.Marshal(e)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(id,subject,body,company_id) VALUES(?,?,?,?)", e.ID, protocol.CommandSubject(tx.company, r.Provider), b, tx.company); err != nil {

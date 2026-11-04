@@ -323,6 +323,7 @@ func (s *Store) Cancel(ctx context.Context, company, id string) error {
 		return ErrConflict
 	}
 	// A queued run ends revoked at once; a claimed or running one is CANCELLING until its worker stops it.
+	tx.wakeNodes()
 	next, outcome := "CANCELLING", ""
 	if status == "QUEUED" {
 		next, outcome = "ENDED", "revoked"

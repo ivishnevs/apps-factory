@@ -162,6 +162,7 @@ func (c *Core) SaveCatalog(ctx context.Context, company string, in storage.Catal
 
 // catalogChanged applies what a new catalog means beyond lookups: conversation tasks of new agents.
 func (c *Core) catalogChanged(ctx context.Context, company string) {
+	c.wakeups.signal(company) // the NodeHooks document may have changed (hooks_changed in the poll answer)
 	if c.Store == nil {
 		return
 	}

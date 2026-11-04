@@ -108,8 +108,8 @@ func nodeRoute(r *http.Request) bool {
 	post := r.Method == http.MethodPost
 	switch {
 	case post && len(parts) == 2 && parts[0] == "nodes" && parts[1] == "register":
-	case post && len(parts) == 3 && parts[0] == "nodes" && (parts[2] == "heartbeat" || parts[2] == "keys"):
-	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"claim", "start", "workspace", "credential", "project-setup"}, parts[2]):
+	case post && len(parts) == 3 && parts[0] == "nodes" && (parts[2] == "heartbeat" || parts[2] == "keys" || parts[2] == "poll"):
+	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"claim", "start", "workspace", "credential", "project-setup", "events"}, parts[2]):
 	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && parts[2] == "blobs":
 	case r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
 	default:
