@@ -1,0 +1,47 @@
+Status: problem recorded 2026-11-05 by the owner; to be thought through. Nothing implemented.
+
+## Why
+
+On the game project the producer proposed a decision and waited for it in the chat, while the owner only got an
+Inbox notification with no way to approve it. The producer explained afterwards: `factory_decision_propose` only
+puts the decision in the registry as `proposed` and notifies the owner; to make it approved the agent must send a
+separate approval request for the exact call "record this decision as approved" (`factory_decision_record`), which
+it sent only after the owner asked why there was nothing to approve. The owner could not approve it by writing in
+the chat either.
+
+How it works today (checked 2026-11-05):
+
+- Proposals and approved decisions are separate on purpose; the `reports-decisions` spec says "chat and task review
+  SHALL NOT approve them", so an "ok, approved" in the chat does not approve anything.
+- An agent records an approved decision only with an approval of that exact call; that approval appears in the
+  Inbox under "Needs your decision" with Approve / Reject.
+- Core already has an owner route to record a proposed decision directly (`POST /decisions/{id}/record`), but the
+  web does not offer it: a proposal shows as a notification without actions.
+- So the owner sees a proposal they cannot act on, the agent waits, and the flow depends on the agent remembering a
+  second step.
+
+## Options to weigh
+
+- **A. Proposals are actionable.** A proposed decision appears in the Inbox under "Needs your decision" with
+  Approve, Reject (with a reason) and Comment; Approve records it through the owner route. No second request from
+  the agent. Simplest for people.
+- **B. One step for the agent.** `factory_decision_propose` itself creates the approval request when the decision
+  needs the owner, so the agent cannot forget it; the Inbox item is that approval.
+- **C. Approve from the chat.** An explicit "approve" on the proposal's message in the chat (a button on the message,
+  or a reply to it in the web or Telegram) approves it, and the Inbox item disappears. Free text such as "ok, go"
+  is not enough on its own: the agent may ask "record it as approved?" with buttons. Keeps the rule that a chat
+  message alone does not authorize, while removing the extra hop.
+- Whatever is chosen: one pending item per decision (approving in one place clears it everywhere), the agent is
+  told the outcome at once, and the Telegram notification carries the same Approve / Reject.
+
+## Open questions
+
+- A, B or C (or A plus C); whether some decision categories need no owner at all (decision-autonomy already
+  delegates categories such as technical).
+- How a rejection with a reason flows back to the agent (decision-autonomy's durable rejection follow-up).
+
+## Impact
+
+Decision tools (propose may create the approval), Inbox and chat UI (actions on proposals), Telegram buttons,
+`reports-decisions` spec wording. Related: `human-review-visibility`, `lead-brainstorm-mode`,
+`telegram-reply-routing`.
