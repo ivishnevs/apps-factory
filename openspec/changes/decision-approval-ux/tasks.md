@@ -6,4 +6,5 @@
 ## 2. After the decision
 
 - [ ] 2.1 Core and tools; tests (one pending item per decision, cleared everywhere when decided).
-- [ ] 2.2 Inbox, chat and Telegram actions on proposed decisions.
+- [ ] 2.2 Inbox, chat and Telegram actions on proposed decisions: choose among alternatives, write your own, Discuss
+      (keeps it pending, continues in the chat), approve in the chat clears the Inbox.

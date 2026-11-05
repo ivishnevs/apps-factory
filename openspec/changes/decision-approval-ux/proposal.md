@@ -21,6 +21,11 @@ How it works today (checked 2026-11-05):
 - So the owner sees a proposal they cannot act on, the agent waits, and the flow depends on the agent remembering a
   second step.
 
+Second case (2026-11-05, character class names): the lead sent the options (a recommended name and alternatives) as
+an Inbox notification the owner could only mark as read, nothing appeared in the chat, and then an approval arrived
+with only the recommended option, so choosing another option or discussing nuances meant "Reject" with a comment.
+Choices with alternatives must be a conversation that ends in a decision, not a yes/no on the agent's pick.
+
 ## Options to weigh
 
 - **A. Proposals are actionable.** A proposed decision appears in the Inbox under "Needs your decision" with
@@ -32,6 +37,14 @@ How it works today (checked 2026-11-05):
   or a reply to it in the web or Telegram) approves it, and the Inbox item disappears. Free text such as "ok, go"
   is not enough on its own: the agent may ask "record it as approved?" with buttons. Keeps the rule that a chat
   message alone does not authorize, while removing the extra hop.
+- **Choices, not yes/no.** A proposal with alternatives shows all of them (with the recommendation marked) in the
+  Inbox and in the chat; the person picks one, or writes their own, and that choice is what gets recorded, not only
+  the agent's recommendation.
+- **Discuss before deciding.** Besides Approve / Reject there is "Discuss": the item stays pending (unread in the
+  Inbox) and the conversation continues in the chat with the lead (brainstorm: "what about X?"); when the person
+  approves in the chat (explicit action), the decision is recorded and the Inbox item disappears.
+- **Always in the chat.** Proposals and their discussion live in the person's chat with the lead (not only in an
+  escalation thread or an Inbox notification); the Inbox is the to-do list that points to it.
 - Whatever is chosen: one pending item per decision (approving in one place clears it everywhere), the agent is
   told the outcome at once, and the Telegram notification carries the same Approve / Reject.
 

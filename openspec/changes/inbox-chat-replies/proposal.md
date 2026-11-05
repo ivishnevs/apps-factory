@@ -22,6 +22,8 @@ where they see them.
 - **Escalation threads are visible and answerable.** Messages of an escalation chain (`chain-…`) show in the Chat
   (as their own thread or inside the chat with that agent), and the person can reply there.
 - **Open the right chat.** "in chat" opens that exact conversation (project and agent), scrolled to the message.
+- **Options are choosable.** A notification or answer that lists options ("A, B or C?") shows them as buttons
+  (and a free-text reply) instead of only "Mark as read" (see `decision-approval-ux` for decisions).
 - **Questions are questions.** When an agent's message asks the person to choose or confirm, it is sent as a
   question (with options when they are listed) so it shows under "Needs your answer" with buttons; lead
   instructions and the tool make this the default for messages to people that end with a question.
