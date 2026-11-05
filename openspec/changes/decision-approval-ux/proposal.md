@@ -26,6 +26,11 @@ an Inbox notification the owner could only mark as read, nothing appeared in the
 with only the recommended option, so choosing another option or discussing nuances meant "Reject" with a comment.
 Choices with alternatives must be a conversation that ends in a decision, not a yes/no on the agent's pick.
 
+Third observation (2026-11-06, duplication): a question comes to the Inbox, the owner reads and answers it, and then
+for every decision taken from that answer a second Inbox item arrives asking to approve the same thing as a
+decision. The owner decides twice. The chat with the lead should be where questions are answered and decisions are
+taken in one go; the Inbox should only be a safety net, so important decisions are not lost in the conversation.
+
 ## Options to weigh
 
 - **A. Proposals are actionable.** A proposed decision appears in the Inbox under "Needs your decision" with
@@ -43,6 +48,13 @@ Choices with alternatives must be a conversation that ends in a decision, not a 
 - **Discuss before deciding.** Besides Approve / Reject there is "Discuss": the item stays pending (unread in the
   Inbox) and the conversation continues in the chat with the lead (brainstorm: "what about X?"); when the person
   approves in the chat (explicit action), the decision is recorded and the Inbox item disappears.
+- **No second approval for what was already answered.** When the person's answer in the chat (or to an Inbox
+  question) is the decision, the lead records it as approved with a reference to that answer (an explicit choice or
+  approve action in the chat counts as the owner's authorization); it does not raise a new approval asking the same
+  thing again. A separate approval is only for what the answer did not cover.
+- **Inbox as a safety net, not a second channel.** Pending questions and decisions are mirrored in the Inbox only
+  so they are not lost; answering or deciding in the chat clears them there, and the Inbox shows a short history of
+  decisions taken in the chat so they can be found later.
 - **Always in the chat.** Proposals and their discussion live in the person's chat with the lead (not only in an
   escalation thread or an Inbox notification); the Inbox is the to-do list that points to it.
 - Whatever is chosen: one pending item per decision (approving in one place clears it everywhere), the agent is

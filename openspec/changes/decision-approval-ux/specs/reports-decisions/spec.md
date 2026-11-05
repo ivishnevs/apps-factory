@@ -19,3 +19,13 @@ choice. The Inbox item SHALL stay until it is decided and disappear when it is d
 - **WHEN** the producer proposes class names with a recommended option and two alternatives, and the owner discusses
   them in the chat and approves a changed second alternative there
 - **THEN** that changed alternative SHALL be recorded as the approved decision and the Inbox item SHALL disappear
+
+### Requirement: One decision, one place
+A decision the person has already made by answering in the chat or an Inbox question SHALL be recorded from that
+answer without a second approval request for the same thing, and the Inbox SHALL mirror pending items only, cleared
+when they are answered or decided in the chat.
+
+#### Scenario: Answer then approval
+- **WHEN** the owner answers the producer's question "bo3 or bo5?" with an explicit choice of bo3
+- **THEN** the decision bo3 SHALL be recorded with a reference to that answer and no approval asking to confirm bo3
+  SHALL arrive in the Inbox
