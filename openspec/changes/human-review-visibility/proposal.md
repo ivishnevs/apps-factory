@@ -13,6 +13,10 @@ added on 2026-11-05; this change is about knowing that and when a person must ac
 - **Warn up front.** When a person assigns a task to an agent whose work has no agent reviewer (for example the
   team lead), say so when creating or reassigning it: "producer's work on this task comes back to you for
   review".
+- **The reviewer is never empty.** A task in review that waits for people has its reviewer set explicitly to
+  "Owner" (or the person who must review), shown on the board card, the task and the review column, exactly like
+  an agent reviewer; an empty reviewer is a bug (owner, 2026-11-05: "otherwise nobody answers and the task
+  hangs; this is a blocker").
 - **Say who is awaited when the task reaches review.** A task in review without an agent reviewer names the
   person (or people) it waits for, shown on the task, on the board card and in the activity feed, for example
   "Waiting for your review (Ilya)".
