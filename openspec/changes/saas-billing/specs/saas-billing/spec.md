@@ -4,9 +4,13 @@
 Each account SHALL have a plan whose limits Core enforces; work over a limit SHALL wait with a reason instead of
 failing, and nothing SHALL be deleted when a plan is lowered.
 
-#### Scenario: Agent slots over the plan
-- **WHEN** a company of an account on a plan with 2 agent slots has 2 runs going and a third task is ready
-- **THEN** the third task waits with a reason naming the plan's limit and starts when a slot frees
+#### Scenario: Connectors over the plan
+- **WHEN** a company on Free has one connector and its owner connects a second machine
+- **THEN** the connection is refused with a message that Pro allows 5 connectors and a link to Billing
+
+#### Scenario: Inviting on Free
+- **WHEN** an owner on Free tries to create an invitation link
+- **THEN** it is refused with a message that inviting people starts with Pro
 
 ### Requirement: Payments through a provider
 Payments SHALL go through the provider's hosted checkout and portal; Core SHALL change an account's plan only from

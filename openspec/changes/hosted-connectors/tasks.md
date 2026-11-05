@@ -1,6 +1,7 @@
 ## 0. Decisions and spike
 
-- [ ] 0.1 Owner decides naming, margin, keys (ours or bring-your-own), packs and salary fund, sizes and idle time.
+- [ ] 0.1 Owner decides naming, markup, keys (ours or bring-your-own), packs and expiry, sizes and idle
+  time, default placement.
 - [ ] 0.2 Spike: Fly.io Sprites API (create, suspend and resume times, disk persistence, pricing per second, limits,
   networking to Core); a `factory-node` image runs in a Sprite and claims a task. Result written into `design.md`.
 
@@ -13,13 +14,14 @@
 - [ ] 1.3 Web: Connectors → "Run in App Factory cloud" with sizes; the setup wizard offers it next to "Your
   machine"; browser check.
 
-## 2. Payroll
+## 2. Credits and cloud budgets
 
-- [ ] 2.1 Storage: wallet and entries (top-up, run charge, refund), salary caps per agent and team, company budget;
-  tests.
-- [ ] 2.2 Metering: compute seconds and tokens per run priced with the margin, booked to the agent; daily
-  reconciliation report; tests.
-- [ ] 2.3 Dispatcher: empty wallet and reached caps as wait reasons with escalations to raise them; tests.
-- [ ] 2.4 Web: Costs → Payroll (per agent and team), wallet top-up and auto top-up, caps; low-balance warnings;
-  browser check.
-- [ ] 2.5 Top-ups through the `saas-billing` provider; plans' monthly salary fund.
+- [ ] 2.1 Storage: credit balance and entries (included monthly, bought, run charge, refund, expiry), cloud budgets
+  per team and company, "where a team works" setting; tests.
+- [ ] 2.2 Metering: compute seconds and tokens per cloud run priced with the markup, booked to the agent; daily
+  reconciliation with Fly and model invoices; tests.
+- [ ] 2.3 Dispatcher: placement by "where a team works" (own only, overflow, cloud only); no credits or a used-up
+  cloud budget as wait reasons that never touch own connectors; tests.
+- [ ] 2.4 Web: Costs split into Your machines / Cloud; credit balance, packs and auto top-up; cloud budgets and
+  "where a team works" on team pages; low-balance warnings; browser check.
+- [ ] 2.5 Packs through the `saas-billing` provider; credits included in Pro and Team.

@@ -1,4 +1,5 @@
 Status: proposal — needs the owner's decisions (section "Decisions needed") and a technical spike on Fly.io Sprites.
+Updated 2026-11-05: own connectors and cloud work kept apart (budgets, Costs), naming options, credit pricing.
 Nothing is implemented. Raised by the owner on 2026-11-05.
 
 ## Why
@@ -29,24 +30,53 @@ alone does not cover that: the company pays for usage, with a small margin over 
   - **Bring your own API key:** the company's Anthropic / OpenAI API key as a company secret; then only compute is
     charged.
 
-### Paying for usage: Payroll
+### Paying for usage
 
-Agents already behave like employees (roles, managers, a team), so their cost is shown the same way: **payroll**.
+**Two worlds that must never mix** (the owner's concern, 2026-11-05). Work on the customer's own connectors is paid
+by their Claude / Codex subscriptions and is never charged or limited by credits; work on cloud connectors is paid
+by credits. So:
 
-- **Company wallet in credits.** The company tops up credits (1 credit = $0.01, packs e.g. $20 / $50 / $200 with
-  optional auto top-up). Cloud work draws from the wallet; one's own machine draws nothing.
-- **Each agent earns.** Every run on a cloud connector is priced at our cost of compute (Sprite seconds by size)
-  plus tokens at the provider's list price, plus the margin, and is booked to the agent who ran it: the agent's
-  "pay" for the day. Costs shows "Thread PO earned $3.20 today: 41 min of work, 1.2M tokens".
-- **Salary caps.** Each agent (or team) can get a daily or monthly salary cap; reaching it parks the agent's new
-  work with a reason ("Thread PO reached the salary cap of $10 today") exactly like a quota pause, and the owner
-  can raise it from the escalation. A company-wide monthly budget caps everything.
-- **Low balance:** a warning at 20 % and at zero; at zero, cloud work waits ("the wallet is empty") and nothing is
-  lost; the owner's own machines keep working.
-- **Bonuses** (the creative part, optional): a monthly subscription includes a monthly "salary fund" of credits
-  (e.g. Pro includes $10 of cloud work), so trying the cloud needs no top-up; unused fund does not roll over.
-- The cost ledger already records tokens and dollars per run and agent; it gains compute seconds, the price with
-  margin and the wallet entry, so the customer sees exactly what they paid for.
+- **Every budget and limit for credits applies to cloud work only** and says so in its name ("cloud budget").
+  Subscription quotas (the existing quota pauses of own connectors) stay as they are and say "your Claude
+  subscription".
+- **Where a team works** is one setting per team, in plain words:
+  - *Your machines only* (default for a company with a connector): credits are never used.
+  - *Your machines first, cloud when they are busy or offline:* overflow; when the cloud budget is used up, work
+    simply waits for your machines — no escalation, the reason says "waiting for your machine (cloud budget used up
+    for today)".
+  - *Cloud only* (default for a company without a connector).
+- **Costs shows two separate sections:** "Your machines — paid by your subscriptions, not charged by us" (the
+  existing token estimates) and "Cloud — charged in credits". Never one total that adds them up.
+- A run shows where it ran (machine name or "App Factory cloud") and, for cloud, its credits.
+
+**Credits.**
+
+- The company's balance is in credits. Plans include a monthly amount (`saas-billing`: Pro and Team), extra packs
+  can be bought, auto top-up optional. Included credits are used first and expire monthly; bought ones last 12
+  months.
+- **Pricing of credits:** a credit has a retail value (e.g. 100 credits = $1 shown to the customer); a cloud run
+  costs (our compute + tokens at our cost) × markup (e.g. 1.33), converted to credits. So "$20 of cloud work
+  included" in Pro costs us about $15, which is exactly the selling point the owner described: the plan looks
+  worth more than its price, and every credit spent still covers our cost.
+- **Per-agent view (the payroll idea, kept as a view, not as money):** Costs → Cloud shows what each agent spent:
+  "Thread PO: 320 credits today, 41 min of work, 1.2M tokens". Limits: a cloud budget per team per day or month
+  and one per company per month; reaching one applies the team's "where it works" rule (overflow waits for your
+  machines, cloud-only waits with an escalation to raise it).
+- **Low balance:** a warning at 20 % and at zero; at zero, cloud work waits ("no credits left"); own machines
+  keep working.
+
+**Naming (owner to choose).** The unit must not be confused with the subscription price, yet should sell:
+
+  | Option | Unit | Cloud product | Per-agent view | Sales line |
+  |---|---|---|---|---|
+  | A (recommended) | credits | App Factory Cloud | "cloud spend" | "Pro $29: 5 connectors + 2,000 cloud credits" |
+  | B | agent hours (≈ an hour of one agent working; tokens converted) | Cloud crew | "hours worked" | "Pro $29: 20 agent hours included" |
+  | C | payroll / salary (metaphor) | Cloud office | "salary" | "Pro $29: $20 payroll for your cloud crew" |
+
+  A is the least confusing next to "$29/month" because credits are clearly a separate unit; B is the most
+  tangible for a buyer but an "hour" with very different token use is hard to keep honest; C is the most fun but
+  "salary" next to a subscription price is what could confuse. A recommended, with C's language used only in the
+  per-agent view if wanted.
 
 ### Metering and our cost
 
@@ -58,18 +88,18 @@ Agents already behave like employees (roles, managers, a team), so their cost is
 
 ## Decisions needed
 
-1. Naming in the product: "Payroll" and "salary caps" (proposed), or plain "credits" and "spending limits"?
-2. Margin: one percentage for compute and tokens (e.g. 20 %), or different ones?
+1. Naming: A credits (recommended), B agent hours or C payroll.
+2. The markup (proposed ×1.33, so included "$20" costs about $15) and the retail value of a credit.
 3. Our keys by default with bring-your-own as an option (proposed), or bring-your-own only at the start (no token
    risk for us)?
-4. Top-up packs and auto top-up; whether plans include a monthly salary fund and how much.
+4. Packs, auto top-up, expiry of bought credits (proposed 12 months).
 5. Which Sprite sizes to offer and the idle time before suspension (proposed 10 minutes).
-6. Credits need the payment provider from `saas-billing`: same provider for one-off top-ups.
+6. The default "where a team works" for a company that has both (proposed: your machines only, overflow opt-in).
 
 ## Impact
 
 New `internal/cloud` (Fly Sprites client: create, resume, suspend, destroy; node bootstrap with pre-approved keys),
-`internal/storage` (cloud connectors, wallet and its entries, salary caps), the dispatcher (wallet and salary cap
+`internal/storage` (cloud connectors, credit balance and entries, cloud budgets), the dispatcher (credits and cloud budgets
 as wait reasons, resume a suspended Sprite for claimable work), the cost ledger (compute seconds, priced amount),
-web (Connectors: "Run in App Factory cloud", Costs → Payroll, wallet top-up, caps on agent and team pages, setup
-wizard choice), `saas-billing` (top-ups through the same provider, plans' salary fund), docs.
+web (Connectors: "Run in App Factory cloud", Costs → Your machines / Cloud, credit packs, cloud budgets and "where a team works" on team pages, setup
+wizard choice), `saas-billing` (packs through the same provider, credits included in plans), docs.

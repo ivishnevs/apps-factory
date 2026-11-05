@@ -9,9 +9,10 @@ from the web and receive there what is meant for them.
 - **THEN** that chat receives the company's notifications for that member
 
 ### Requirement: Clear addressee in a chat with several managers
-A message from an agent SHALL name its sender and team; a reply SHALL reach exactly that sender's conversation; free
-text SHALL go to the addressee the bot shows, and the bot SHALL ask when the addressee is unclear.
+A message from an agent SHALL name its sender and team; a reply SHALL reach exactly that message's sender, `@name`
+SHALL reach that agent, and plain text SHALL be a reply to the last message delivered to the person; the bot SHALL
+confirm where each message went.
 
 #### Scenario: Two teams' managers
-- **WHEN** the leads of two teams wrote to a person and the person sends plain text without a reply or addressee
-- **THEN** the bot asks which lead it is for and sends it only after the person chooses
+- **WHEN** the lead of team A wrote, then the lead of team B wrote, and the person sends plain text
+- **THEN** it goes to the lead of team B as a reply to that message and the bot confirms where it went

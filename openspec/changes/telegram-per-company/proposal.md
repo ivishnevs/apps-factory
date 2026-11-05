@@ -1,5 +1,5 @@
-Status: proposal — the owner decided part of it on 2026-11-05; the routing between several managers needs the
-owner's confirmation (section "Decisions needed"). Nothing is implemented.
+Status: decided 2026-11-05, ready to implement (open details have defaults, see the end). Nothing is
+implemented.
 
 ## Why
 
@@ -29,20 +29,23 @@ text goes to "the lead of the project's team", which is ambiguous with more than
   2. **Reply** (Telegram's reply to a message) always goes exactly to that message's sender and conversation: a
      question is answered, any other message continues that conversation. This is the precise way and is shown in
      the bot's help.
-  3. **Free text without a reply** goes to the person's current addressee, shown in the bot's answer
-     ("→ Thread PO · Product team"). The addressee is set by the last reply or `@name`, and `/to` lists the team
-     leads as buttons to switch. With no addressee yet: a company with one team lead sends it there; otherwise the
-     bot asks "Who is this for?" with the team leads as buttons and sends it after the tap. Nothing is guessed.
-  4. `/inbox` lists what waits for the person (questions, escalations) with buttons to open each.
+  3. **`@name text`** goes to that agent (a team lead or any agent the person may address).
+  4. **Free text without a reply or `@name`** is a reply to the last message the bot delivered to this person
+     (decided 2026-11-05): a question is answered, any other message continues that sender's conversation. The bot
+     confirms where it went ("→ Thread PO · Product team"), so a wrong guess is visible at once. With no message
+     delivered yet, the bot asks to use `@name` and lists the team leads.
+  5. `/inbox` lists what waits for the person (questions, escalations) with buttons to open each.
 - **Later, optional:** a Telegram group with topics, one topic per team, for companies that prefer a shared chat;
   a message in a topic goes to that team's lead.
 
-## Decisions needed
+## Decided (2026-11-05, routing)
 
-1. Routing as above (reply = exact, free text = current addressee shown in every answer, ask with buttons when
-   unclear) — or always require a reply / `@name` and refuse plain text?
-2. Who receives escalations: owners only (as today) or owners and admins?
-3. The group-with-topics mode: later (as proposed) or not at all?
+- Reply → exactly that message; `@name` → that agent; plain text → a reply to the last delivered message.
+
+## Defaults unless the owner says otherwise
+
+1. Escalations go to owners (as today) and to admins only when an escalation names them.
+2. The group-with-topics mode stays for later.
 
 ## Impact
 

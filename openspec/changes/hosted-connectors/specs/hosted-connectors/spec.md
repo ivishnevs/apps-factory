@@ -8,10 +8,15 @@ connector SHALL behave as any connector and SHALL be suspended while it has no w
 - **WHEN** a new company chooses "Run in App Factory cloud" in the setup wizard
 - **THEN** a cloud connector is created for it and its agents start working without anything installed
 
-### Requirement: Usage paid from a wallet
-Work on cloud connectors SHALL be charged to the company's wallet at our cost plus a margin and booked to the agent
-that did it; an empty wallet or a reached salary cap SHALL make new cloud work wait with a reason, never lose it.
+### Requirement: Cloud usage paid in credits, separate from own connectors
+Work on cloud connectors SHALL be charged in credits at our cost times a markup and shown per agent; credits and
+cloud budgets SHALL never limit or charge work on the company's own connectors; an empty balance or a used-up cloud
+budget SHALL make new cloud work wait with a reason, never lose it.
 
-#### Scenario: Salary cap reached
-- **WHEN** an agent's runs on a cloud connector reach its daily salary cap
-- **THEN** its new work waits with a reason naming the cap and the owner can raise the cap from the escalation
+#### Scenario: Overflow with the cloud budget used up
+- **WHEN** a team works "your machines first, cloud when busy" and today's cloud budget is used up
+- **THEN** new work waits for the team's own machines with that reason, and nothing is charged
+
+#### Scenario: Own machine only
+- **WHEN** a team works on "your machines only" and the company has no credits
+- **THEN** its work runs on its connectors exactly as before and no credit limit is shown for it
