@@ -305,12 +305,12 @@ function SettingsPage() {
   const role = info.data.role;
   const manage = canManage(role);
   const visible = tabs.filter((t) => t !== "tokens" || manage);
-  const words: Record<Tab, string> = { general: "General", members: "Members", projects: "Projects", tokens: "Access tokens", account: "Account" };
+  const words: Record<Tab, string> = { general: "General", members: "Members", projects: "Projects", tokens: "Tokens", account: "Account" };
   return (
     <>
       <PageHeader title="Settings" description={<>{info.data.name} · your role: <span className="font-medium capitalize">{role}</span> ({roleWords[role].toLowerCase()})</>} />
       <Tabs value={tab} onValueChange={(v) => router.replace(`${path}?tab=${v}`, { scroll: false })}>
-        <TabsList className="mb-4 h-auto flex-wrap">
+        <TabsList className="mb-4 h-auto max-w-full justify-start overflow-x-auto [scrollbar-width:none]">
           {visible.map((t) => <TabsTrigger key={t} value={t}>{words[t]}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="general"><General role={role} /></TabsContent>

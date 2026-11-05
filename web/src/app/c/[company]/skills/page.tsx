@@ -373,7 +373,7 @@ export default function Page() {
   const off = useMemo(() => unavailable(sources.error), [sources.error]);
   return (
     <>
-      <PageHeader title="Skills" description="What your agents know how to do: Factory's skills and your own, installed once for the company." />
+      <PageHeader title="Skills" description="What your agents know how to do: built-in skills and your own, installed once for the whole company." />
       {off ? (
         <EmptyState icon={Sparkles} title="Skills are not available on this server yet" hint="This App Factory does not manage skill sources yet." />
       ) : (
