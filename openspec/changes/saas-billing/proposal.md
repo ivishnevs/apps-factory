@@ -36,6 +36,9 @@ through Core, not tokens.
   in Core; Core never sees card data.
 - **Trial.** 14 days of Pro for a new account, then Free unless they pay; no card at sign-up.
 
+- **Usage on cloud connectors** is not part of the plan: it is paid from the company's wallet of credits
+  (`hosted-connectors`, "Payroll"), topped up through the same provider; a plan may include a monthly salary fund.
+
 ## Decisions needed
 
 1. The metric: agent slots at once as the main limit (proposed), or connectors, or active agents, or seats?

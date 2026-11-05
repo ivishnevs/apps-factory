@@ -30,3 +30,4 @@
 ## 6. Billing
 
 - [ ] 6.1 `saas-billing` done.
+- [ ] 6.2 `hosted-connectors` (cloud connectors and Payroll) done, or the launch goes without cloud connectors.
