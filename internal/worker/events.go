@@ -100,6 +100,7 @@ func (e *Events) Append(ctx context.Context, run, lease string, ev protocol.Enve
 	if err != nil {
 		return err
 	}
+	ev.Payload = fitPayload(ev.Payload)
 	r.mu.Lock()
 	r.seq++
 	se := storage.SeqEvent{Seq: r.seq, Event: ev}
@@ -126,6 +127,56 @@ func (e *Events) Append(ctx context.Context, run, lease string, ev protocol.Enve
 		}
 	}
 	return nil
+}
+
+// maxEventPayload bounds one event so it always fits a batch Core accepts (storage.MaxEventBatchBytes): a runtime
+// item such as a generated image carried as base64 is larger, and a refused batch drops the run's whole spool,
+// its terminal event included, which loses the run.
+const maxEventPayload = 256 << 10
+
+// maxEventString is the longest string kept in an oversized payload; longer ones are replaced by a note.
+const maxEventString = 16 << 10
+
+// fitPayload returns payload, or, when it is larger than maxEventPayload, the same JSON with its long strings
+// replaced by "[omitted: N bytes]"; if that is still too large, only the event's identity fields are kept.
+func fitPayload(payload json.RawMessage) json.RawMessage {
+	if len(payload) <= maxEventPayload {
+		return payload
+	}
+	var v any
+	if json.Unmarshal(payload, &v) == nil {
+		if b, err := json.Marshal(shorten(v)); err == nil && len(b) <= maxEventPayload {
+			return b
+		}
+	}
+	keep := map[string]any{"omitted_bytes": len(payload)}
+	if m, ok := v.(map[string]any); ok {
+		for _, k := range []string{"run_id", "lease", "session_id", "method", "status", "outcome"} {
+			if x, ok := m[k].(string); ok && len(x) <= maxEventString {
+				keep[k] = x
+			}
+		}
+	}
+	b, _ := json.Marshal(keep)
+	return b
+}
+
+func shorten(v any) any {
+	switch x := v.(type) {
+	case string:
+		if len(x) > maxEventString {
+			return fmt.Sprintf("[omitted: %d bytes]", len(x))
+		}
+	case map[string]any:
+		for k, e := range x {
+			x[k] = shorten(e)
+		}
+	case []any:
+		for i, e := range x {
+			x[i] = shorten(e)
+		}
+	}
+	return v
 }
 
 func appendLine(path string, line []byte, sync bool) error {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -220,5 +221,38 @@ func TestAPIDeadline(t *testing.T) {
 	}
 	if err := api.Do(context.Background(), "POST", "/x", nil, nil); err == nil {
 		t.Fatal("a request without a deadline outlasted the default timeout")
+	}
+}
+
+// A generated image in a runtime item must not make the event larger than a batch Core accepts.
+func TestFitPayload(t *testing.T) {
+	big := strings.Repeat("A", 2<<20)
+	in, _ := json.Marshal(map[string]any{"run_id": "r", "lease": "l", "method": "item/completed", "data": map[string]any{"type": "imageGeneration", "result": big, "prompt": "a gnome"}})
+	out := fitPayload(in)
+	if len(out) > maxEventPayload {
+		t.Fatal(len(out))
+	}
+	var v struct {
+		RunID  string            `json:"run_id"`
+		Lease  string            `json:"lease"`
+		Method string            `json:"method"`
+		Data   map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil || v.RunID != "r" || v.Lease != "l" || v.Data["prompt"] != "a gnome" || !strings.HasPrefix(v.Data["result"], "[omitted: ") {
+		t.Fatal(string(out[:min(len(out), 300)]), err)
+	}
+	many := make([]string, 0, 64)
+	for range 64 {
+		many = append(many, strings.Repeat("b", 15<<10))
+	}
+	in, _ = json.Marshal(map[string]any{"run_id": "r", "lease": "l", "parts": many})
+	out = fitPayload(in)
+	var keep map[string]any
+	if json.Unmarshal(out, &keep) != nil || len(out) > maxEventPayload || keep["lease"] != "l" || keep["omitted_bytes"] == nil {
+		t.Fatal(string(out))
+	}
+	small := json.RawMessage(`{"run_id":"r","lease":"l"}`)
+	if string(fitPayload(small)) != string(small) {
+		t.Fatal("small payload changed")
 	}
 }
