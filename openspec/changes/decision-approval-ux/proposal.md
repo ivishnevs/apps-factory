@@ -1,4 +1,5 @@
-Status: problem recorded 2026-11-05 by the owner; to be thought through. Nothing implemented.
+Status: owner chose A and C on 2026-11-05 (actionable proposals in the Inbox, plus approving from the chat with an
+explicit action); to be designed. Nothing implemented.
 
 ## Why
 
@@ -34,9 +35,19 @@ How it works today (checked 2026-11-05):
 - Whatever is chosen: one pending item per decision (approving in one place clears it everywhere), the agent is
   told the outcome at once, and the Telegram notification carries the same Approve / Reject.
 
+## Decision (2026-11-05)
+
+A and C: proposals are actionable in the Inbox (Approve, Reject with a reason, Comment), and a proposal can be
+approved from the chat with an explicit action on its message (a button, or a reply the agent confirms with buttons);
+deciding in one place clears it everywhere. B (propose creates the approval) may still be used inside Core to
+implement A.
+
+Also found on 2026-11-05: an approval whose question was withdrawn (a newer owner message superseded the ended
+run's question) could not be decided at all ("decided, expired or changed meanwhile"); fixed in Core the same day.
+
 ## Open questions
 
-- A, B or C (or A plus C); whether some decision categories need no owner at all (decision-autonomy already
+- Whether some decision categories need no owner at all (decision-autonomy already
   delegates categories such as technical).
 - How a rejection with a reason flows back to the agent (decision-autonomy's durable rejection follow-up).
 

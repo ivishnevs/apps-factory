@@ -104,8 +104,12 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 			if err != nil {
 				return a, err
 			}
-			if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
-				return a, err
+			// The request's question may be gone (withdrawn when a newer owner message superseded the ended run's
+			// question): the approval is still decided, and approvalDecided tells the agent.
+			if m.Status == "PENDING" || m.Status == "ESCALATED" {
+				if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
+					return a, err
+				}
 			}
 		}
 		a.DecidedAt = tx.now().Unix()

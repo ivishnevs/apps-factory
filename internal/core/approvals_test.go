@@ -343,3 +343,33 @@ func TestApprovalDecisionDoesNotReleaseActiveOrLostWriter(t *testing.T) {
 		})
 	}
 }
+
+// A newer owner message withdraws the question of an ended run's approval request; the approval stays in the inbox
+// and must still be decidable.
+func TestApprovalDecidedAfterItsQuestionWasWithdrawn(t *testing.T) {
+	ctx := context.Background()
+	s, err := storage.Open(storagetest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	if _, err = s.CreateProject(ctx, storage.DefaultCompany, tasks.ProjectCreate{ID: "p", Name: "p", Workspace: "/tmp/approvals-withdrawn"}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.CreateTask(ctx, storage.DefaultCompany, tasks.Create{ProjectID: "p", Title: "asks", Assignee: "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := factorytools.Call{Name: "factory_decision_record", Arguments: map[string]any{"decision_id": "d", "status": "approved", "request_id": "r"}}
+	a, err := s.RequestApproval(ctx, storage.DefaultCompany, approvals.Request{ProjectID: "p", Agent: "demo", TaskID: task.ID, Call: call, Reason: "Approve decision d", RequestID: "ask"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DB.ExecContext(ctx, "UPDATE messages SET status='WITHDRAWN',body=jsonb_set(body::jsonb,'{status}','\"WITHDRAWN\"')::json WHERE id=?", a.MessageID); err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.DecideApproval(ctx, storage.DefaultCompany, a.ID, approvals.Decision{Version: a.Version, Action: "approve", Reason: "ok", RequestID: "decide"})
+	if err != nil || a.Status != "APPROVED" {
+		t.Fatal(a, err)
+	}
+}

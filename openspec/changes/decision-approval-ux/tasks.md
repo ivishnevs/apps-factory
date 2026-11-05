@@ -1,7 +1,7 @@
 ## 1. Decide
 
-- [ ] 1.1 Choose between actionable proposals, a one-step propose with approval, approve from the chat (or a mix);
-      owner decides.
+- [x] 1.1 Choose between actionable proposals, a one-step propose with approval, approve from the chat (or a mix):
+      A and C (2026-11-05).
 
 ## 2. After the decision
 
