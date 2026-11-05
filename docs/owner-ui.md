@@ -578,7 +578,10 @@ are shown in plain words; IDs appear only where a person needs them.
   (owners and admins), showing the code the terminal printed.
 - **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Members (everyone reads;
   owners change roles and remove; the last owner stays), Projects (name, repository, branch, team), Access tokens
-  (admins; the token is shown once) and Account. Inviting people is not available yet (proposal in `saas-web-ui`).
+  (admins; the token is shown once) and Account. Owners invite people from Members: a single-use link for the
+  admin or member role, valid 7 days, shown once and revocable while open (`team-invitations`). `/invite/<token>`
+  shows the company, role and who invited; signed out it offers sign-in (a new person then joins that company
+  instead of getting their own), signed in it joins with one click.
 - Errors: a page that breaks shows Try again and Reload; an unknown address shows "This page does not exist".
 
 ## Web UI: setting a company up (team-builder, saas-web)

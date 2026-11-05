@@ -56,7 +56,13 @@ func (b *browser) do(method, path string, body any) *httptest.ResponseRecorder {
 // signIn runs the whole sign-in with provider and returns where the callback redirected.
 func (b *browser) signIn(is *authtest.Issuer, provider string, p authtest.Person) string {
 	b.t.Helper()
-	w := b.do("GET", "/auth/login?provider="+provider+"&return=/c/x/tasks", nil)
+	return b.signInFrom(is, provider, p, "/c/x/tasks")
+}
+
+// signInFrom runs the sign-in started from the page ret.
+func (b *browser) signInFrom(is *authtest.Issuer, provider string, p authtest.Person, ret string) string {
+	b.t.Helper()
+	w := b.do("GET", "/auth/login?provider="+provider+"&return="+ret, nil)
 	if w.Code != 302 {
 		b.t.Fatal(w.Code, w.Body.String())
 	}

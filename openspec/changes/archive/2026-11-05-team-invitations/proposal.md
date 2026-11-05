@@ -1,4 +1,5 @@
-Status: proposal — needs the owner's decision (raised 2026-11-05 in saas-web-ui, P1). Nothing is implemented.
+Status: done 2026-11-05. Owner's decisions (2026-11-05): links only for now, owners invite; the account stays the
+billing owner of its companies and people from other accounts join them (option 1).
 
 ## Why
 

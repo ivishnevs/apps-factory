@@ -87,7 +87,7 @@ func requiredRole(method, path string) string {
 	read := method == http.MethodGet || method == http.MethodHead
 	under := func(prefix string) bool { return path == prefix || strings.HasPrefix(path, prefix+"/") }
 	switch {
-	case path == "/company" && !read, under("/memberships") && !read:
+	case path == "/company" && !read, under("/memberships") && !read, under("/invitations"):
 		return storage.RoleOwner
 	case under("/owner-tokens"), under("/node-enrollments"), under("/node-keys"), under("/node-connects"):
 		return storage.RoleAdmin
@@ -157,6 +157,9 @@ func (c *Core) sessionGateway(w http.ResponseWriter, r *http.Request, m *http.Se
 		return
 	case r.URL.Path == "/companies" && r.Method == http.MethodPost:
 		c.createUserCompany(w, r.WithContext(ctx), sess.User)
+		return
+	case strings.HasPrefix(r.URL.Path, "/me/invitations/") && r.Method == http.MethodPost:
+		c.acceptInvitation(w, r.WithContext(ctx), sess.User, strings.TrimPrefix(r.URL.Path, "/me/invitations/"))
 		return
 	case operatorOnly(r.URL.Path), nodeProtocol(r.Method, r.URL.Path):
 		http.Error(w, "not available to a signed-in user", 403)
@@ -359,6 +362,8 @@ func (c *Core) authRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Redirect(w, r, to, http.StatusFound)
+	case strings.HasPrefix(r.URL.Path, "/auth/invitations/") && r.Method == http.MethodGet:
+		c.previewInvitation(w, r, strings.TrimPrefix(r.URL.Path, "/auth/invitations/"))
 	case r.URL.Path == "/auth/callback" && r.Method == http.MethodGet:
 		c.callback(w, r)
 	case r.URL.Path == "/auth/logout" && r.Method == http.MethodPost:
@@ -400,9 +405,20 @@ func (c *Core) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := storage.Identity{Provider: claims.Provider, Subject: claims.Subject, Email: claims.Email, EmailVerified: claims.EmailVerified, Name: claims.Name}
+	// Signed up from an open invitation link: no company of their own, they join the invitation's.
+	token := inviteToken(claims.Return)
+	if token != "" {
+		if p, err := c.Store.PreviewInvitation(r.Context(), token); err != nil || !p.Open {
+			token = ""
+		}
+	}
 	var res storage.SignInResult
 	for range 3 { // a company id taken by someone else: another suffix
-		res, err = c.Store.SignIn(r.Context(), in, newCompany(claims.Name, claims.Email))
+		nc := newCompany(claims.Name, claims.Email)
+		if token != "" {
+			nc = storage.NewCompany{}
+		}
+		res, err = c.Store.SignIn(r.Context(), in, nc)
 		if !errors.Is(err, storage.ErrConflict) || !strings.Contains(err.Error(), "companies") {
 			break
 		}
@@ -416,7 +432,16 @@ func (c *Core) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := claims.Return
-	if res.Created {
+	if res.Created && res.Company == "" {
+		// Joined through the invitation; a link used up meanwhile leaves them a company of their own.
+		if target = c.joinOnSignUp(r.Context(), res.User.ID, token); target == "" {
+			if res.Company, err = c.ownCompany(r.Context(), res.User.ID, claims.Name, claims.Email); err != nil {
+				fail("account", err)
+				return
+			}
+		}
+	}
+	if res.Created && res.Company != "" {
 		if err = c.provisionCompany(r.Context(), res.Company, "user:"+res.User.ID); err != nil {
 			slog.Error("company at sign-up", "company", res.Company, "error", err)
 		}
@@ -440,6 +465,21 @@ func (c *Core) callback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// ownCompany creates a company for user with them as owner (a sign-up whose invitation could not be used).
+func (c *Core) ownCompany(ctx context.Context, user, name, email string) (string, error) {
+	var err error
+	for range 3 {
+		nc := newCompany(name, email)
+		if err = c.Store.CreateUserCompany(ctx, user, nc); err == nil {
+			return nc.ID, c.Store.SetLastCompany(ctx, user, nc.ID)
+		}
+		if !errors.Is(err, storage.ErrConflict) {
+			break
+		}
+	}
+	return "", err
 }
 
 // provisionCompany gives a company created by a person its first catalog from the sign-up template (D1). A Core

@@ -105,7 +105,7 @@ func TestWebPagesThroughCore(t *testing.T) {
 		b, _ := io.ReadAll(res.Body)
 		return res.StatusCode, string(b)
 	}
-	for _, p := range []string{"/", "/signin", "/c/default/tasks/x", "/_next/static/a.js", "/connect/abc", "/favicon.ico"} {
+	for _, p := range []string{"/", "/signin", "/c/default/tasks/x", "/_next/static/a.js", "/connect/abc", "/invite/abc", "/favicon.ico"} {
 		if code, body := get(p); code != 200 || body != "page "+p {
 			t.Fatal(p, code, body)
 		}

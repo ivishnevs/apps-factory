@@ -23,7 +23,7 @@ const errors: Record<string, string> = {
   account: "We could not set up your account. Please try again in a minute.",
   session: "We could not start your session. Please try again.",
   unavailable: "Sign-in is unavailable right now. Please try again in a minute.",
-  no_company: "Your account has no company yet. Please contact support.",
+  no_company: "You are not in any company yet. Ask a company owner for an invite link.",
 };
 
 function SignIn() {

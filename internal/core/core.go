@@ -120,6 +120,7 @@ func (c *Core) Handler() http.Handler {
 	c.catalogRoutes(m)
 	c.companyRoutes(m)
 	c.accountRoutes(m)
+	c.invitationRoutes(m)
 	c.secretRoutes(m)
 	c.skillRoutes(m)
 	c.presetRoutes(m)

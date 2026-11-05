@@ -139,8 +139,69 @@ function Members({ role }: { role: Role }) {
           {members.data.length === 0 && <li className="px-4 py-3 text-sm text-muted-foreground">No personal accounts here yet: you are using an access token.</li>}
         </ul>
       )}
-      <p className="mt-3 text-xs text-muted-foreground">Inviting people by email is not available yet.</p>
+      {owner && <Invitations />}
     </Section>
+  );
+}
+
+type Invitation = { id: string; role: Role; created_at: number; expires_at: number };
+
+// Invitation links (team-invitations): an owner makes a single-use link for a role and sends it however they like;
+// whoever opens it and signs in joins this company. Open links are listed and can be revoked.
+function Invitations() {
+  const links = useQuery({ queryKey: ["invitations"], queryFn: () => core<Invitation[]>("/invitations") });
+  const [role, setRole] = useState<Role>("member");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); toast.success("Link copied"); } catch { toast.error("Copy failed: select the link and copy it"); }
+  };
+  const create = async () => {
+    setBusy(true);
+    try {
+      const out = await core<{ url: string }>("/invitations", { method: "POST", body: JSON.stringify({ role }) });
+      setUrl(out.url);
+      await links.refetch();
+      await copy(out.url);
+    } catch (err) { fail(err); }
+    finally { setBusy(false); }
+  };
+  const revoke = async (id: string) => {
+    try { await core(`/invitations/${encodeURIComponent(id)}`, { method: "DELETE" }); await links.refetch(); setUrl(""); toast.success("Link revoked"); }
+    catch (err) { fail(err); }
+  };
+  const days = (t: number) => Math.max(1, Math.ceil((t * 1000 - Date.now()) / 86400000));
+  return (
+    <div className="mt-5 space-y-3 border-t pt-4">
+      <div>
+        <h3 className="text-sm font-medium">Invite people</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Create a link and send it to one person. It works once and for 7 days; they sign in with Google or GitHub and join with the role you choose.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <select aria-label="Role for the invited person" className="h-10 rounded-md border bg-background px-2 text-sm" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+          <option value="member">Member</option><option value="admin">Admin</option>
+        </select>
+        <Button className="h-10" onClick={create} disabled={busy}>Create invite link</Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{role === "admin" ? "An admin manages" : "A member works with"}: {roleWords[role].toLowerCase()}. To make someone an owner, change their role after they join.</p>
+      {url && (
+        <div className="flex gap-2">
+          <Input readOnly value={url} aria-label="Invite link" onFocus={(e) => e.target.select()} className="font-mono text-xs" />
+          <Button variant="outline" className="h-10" onClick={() => copy(url)} aria-label="Copy invite link"><Copy className="size-4" /></Button>
+        </div>
+      )}
+      {url && <p className="text-xs text-muted-foreground">The link is shown only now. Lost it? Revoke it and create a new one.</p>}
+      {links.error ? <ErrorState error={links.error} /> : links.data && links.data.length > 0 && (
+        <ul className="divide-y rounded-xl border">
+          {links.data.map((l) => (
+            <li key={l.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+              <span className="min-w-0 flex-1 truncate">Link for a <span className="font-medium">{l.role}</span> · created {ago(l.created_at)} · expires in {days(l.expires_at)} {days(l.expires_at) === 1 ? "day" : "days"}</span>
+              <Button variant="outline" size="sm" className="h-9" onClick={() => revoke(l.id)}>Revoke</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

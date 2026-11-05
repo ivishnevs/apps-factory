@@ -118,7 +118,7 @@ func webPage(r *http.Request) bool {
 	if p == "/" || p == "/favicon.ico" || p == "/signin" || p == "/welcome" {
 		return true
 	}
-	for _, prefix := range []string{"/c/", "/_next/", "/connect/", "/signin/"} {
+	for _, prefix := range []string{"/c/", "/_next/", "/connect/", "/invite/", "/signin/"} {
 		if strings.HasPrefix(p, prefix) {
 			return true
 		}

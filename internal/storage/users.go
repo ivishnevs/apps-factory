@@ -108,20 +108,26 @@ func (s *Store) SignIn(ctx context.Context, in Identity, company NewCompany) (Si
 			if in.Email == "" || !strings.Contains(in.Email, "@") {
 				return out, inputError("the provider reported no email")
 			}
-			if !entityName.MatchString(company.ID) || strings.TrimSpace(company.Name) == "" {
+			// No company: a person joining through an invitation gets only their account and user.
+			if company.ID != "" && (!entityName.MatchString(company.ID) || strings.TrimSpace(company.Name) == "") {
 				return out, inputError("company requires valid id and name")
 			}
 			userID = "u" + protocol.ID()[:20]
 			name := strings.TrimSpace(in.Name)
-			for _, q := range []struct {
+			type stmt struct {
 				sql  string
 				args []any
-			}{
+			}
+			stmts := []stmt{
 				{"INSERT INTO accounts(id,name,created_at) VALUES(?,?,?)", []any{userID, in.Email, now}},
 				{"INSERT INTO users(id,account_id,email,name,created_at,last_company_id) VALUES(?,?,?,?,?,?)", []any{userID, userID, in.Email, name, now, company.ID}},
-				{"INSERT INTO companies(id,account_id,name,created_at) VALUES(?,?,?,?)", []any{company.ID, userID, strings.TrimSpace(company.Name), now}},
-				{"INSERT INTO memberships(account_id,company_id,user_id,role,created_at) VALUES(?,?,?,?,?)", []any{userID, company.ID, userID, RoleOwner, now}},
-			} {
+			}
+			if company.ID != "" {
+				stmts = append(stmts,
+					stmt{"INSERT INTO companies(id,account_id,name,created_at) VALUES(?,?,?,?)", []any{company.ID, userID, strings.TrimSpace(company.Name), now}},
+					stmt{"INSERT INTO memberships(account_id,company_id,user_id,role,created_at) VALUES(?,?,?,?,?)", []any{userID, company.ID, userID, RoleOwner, now}})
+			}
+			for _, q := range stmts {
 				if _, err = t.ExecContext(ctx, q.sql, q.args...); err != nil {
 					return out, constraint(err)
 				}
