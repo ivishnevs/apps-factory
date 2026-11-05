@@ -35,6 +35,9 @@ type Doctor struct {
 	// LoadHooks); Labels are the node's labels that select them.
 	Stack  []protocol.NodeStackCheck
 	Labels []string
+	// Scanner is the worktrees' pre-push secret scanner (worktrees.scan_command, default gitleaks); empty when
+	// worktrees are off. Without it pushes of task branches are refused.
+	Scanner []string
 }
 
 // Runtime is a driver probe as the doctor runs it; the driver owns the probe (runtime-drivers D4).
@@ -51,6 +54,7 @@ type DriverProbe interface {
 
 func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
+	r = append(r, d.scanner()...)
 	r = append(r, d.disk(), d.ps(ctx))
 	r = append(r, keysCheck(d.StateDir))
 	r = append(r, d.xcode(ctx)...)
@@ -111,6 +115,18 @@ func (d Doctor) git(ctx context.Context) []CheckResult {
 		}
 	}
 	return r
+}
+
+// scanner checks the worktrees' secret scanner: task branches are pushed only after it ran.
+func (d Doctor) scanner() []CheckResult {
+	if len(d.Scanner) == 0 {
+		return nil
+	}
+	if _, err := d.Host.LookPath(d.Scanner[0]); err != nil {
+		return []CheckResult{{Check: "worktrees.scan", Status: Fail, Detail: d.Scanner[0] + " not found: task branches cannot be pushed",
+			Hint: "install gitleaks (macOS: brew install gitleaks) or set worktrees.scan_command in node.yaml"}}
+	}
+	return []CheckResult{{Check: "worktrees.scan", Status: Pass, Detail: d.Scanner[0]}}
 }
 
 func ghAccount(out string) string {

@@ -304,6 +304,12 @@ func doctor(args []string) (int, error) {
 		return 2, err
 	}
 	d.Labels, d.StateDir = c.Labels, c.StateDir
+	if c.Worktrees.Enabled {
+		d.Scanner = c.Worktrees.ScanCommand
+		if len(d.Scanner) == 0 {
+			d.Scanner = workspace.DefaultScanCommand
+		}
+	}
 	// Stack checks of the catalog's NodeHooks document, as Core last delivered it to this node.
 	if hooks, ok, err := node.LoadHooks(c.StateDir); err != nil {
 		fmt.Fprintf(os.Stderr, "stack checks skipped: %s: %v\n", filepath.Join(c.StateDir, node.HooksFile), err)

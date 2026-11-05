@@ -16,6 +16,8 @@ spec:
     can_message:
     - owner
   profile:
+    workspace:
+      mode: worktree
     runtime:
       provider: codex
       model: default

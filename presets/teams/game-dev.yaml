@@ -38,6 +38,8 @@ spec:
     - product-owner
     - ios-developer
   profile:
+    workspace:
+      mode: worktree
     runtime:
       provider: codex
       model: default

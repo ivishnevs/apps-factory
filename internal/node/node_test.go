@@ -158,6 +158,11 @@ func TestChecks(t *testing.T) {
 		{"git missing", "linux", func(f *fakeHost, _ *Doctor) { delete(f.cmds, "git --version") }, "git", Fail, "install git"},
 		{"git user unset", "linux", func(f *fakeHost, _ *Doctor) { delete(f.cmds, "git config --get user.email") }, "git.user", Fail, "user.email"},
 		{"gh missing", "linux", func(f *fakeHost, _ *Doctor) { delete(f.paths, "gh") }, "forge.auth", Warn, "gh auth login"},
+		{"scanner missing", "linux", func(f *fakeHost, d *Doctor) { d.Scanner = []string{"gitleaks", "git"} }, "worktrees.scan", Fail, "brew install gitleaks"},
+		{"scanner found", "linux", func(f *fakeHost, d *Doctor) {
+			d.Scanner = []string{"gitleaks", "git"}
+			f.paths["gitleaks"] = "/usr/bin/gitleaks"
+		}, "worktrees.scan", Pass, "gitleaks"},
 		{"gh logged out", "linux", func(f *fakeHost, _ *Doctor) {
 			f.cmds["gh auth status"] = reply{errOut: "You are not logged into any GitHub hosts.", err: errors.New("exit 1")}
 		}, "forge.auth", Warn, "gh auth login"},

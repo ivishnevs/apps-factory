@@ -189,6 +189,7 @@ func Run(ctx context.Context, n Node) error {
 	// The catalog's NodeHooks document (register answer, then heartbeat answers when it changes): janitor
 	// hooks under node.yaml's, stack checks for the self-checks, a copy in state_dir for the doctor.
 	checks = newSelfChecks(n.Host, c.Labels)
+	checks.doctor.Scanner = scanner(c.Worktrees)
 	s.checks = checks.failed
 	s.onHooks = func(d protocol.NodeHooksDelivery) {
 		jan.SetCatalog(d.Spec)
@@ -305,4 +306,15 @@ func (g groups) Reap(t node.TrackedGroup) error {
 		}
 	}
 	return err
+}
+
+// scanner is the worktrees' secret scanner the self-checks look for; nil when worktrees are off.
+func scanner(w node.Worktrees) []string {
+	if !w.Enabled {
+		return nil
+	}
+	if len(w.ScanCommand) > 0 {
+		return w.ScanCommand
+	}
+	return workspace.DefaultScanCommand
 }

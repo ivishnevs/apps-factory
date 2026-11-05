@@ -23,7 +23,11 @@ What it does:
 3. `npm ci` in `workers/claude`: the lockfile pins the Claude Agent SDK and the Claude Code build of the platform.
    `npm install @openai/codex@<supported>` into `~/.app-factory/codex`.
 4. Writes `~/.app-factory/node.yaml` once (name, `state_dir` `~/.app-factory/state`, `bin_dir`, `projects_root`
-   `~/AppFactory/projects`, the drivers it could set up). Edit it freely; the installer keeps it.
+   `~/AppFactory/projects`, the drivers it could set up, `worktrees: {enabled: true}` so each task runs in its own
+   git worktree and a team's agents work in one project at once). Edit it freely; the installer keeps it. Pushes of
+   task branches are scanned for secrets with gitleaks first: the installer and `factory-node doctor`
+   (`worktrees.scan`) say when it is missing (macOS: `brew install gitleaks`). Nodes installed before 2026-11-05
+   add the `worktrees` line by hand and restart.
 5. Connects, unless `state/company` exists: `factory-node login` or `factory-node enroll CODE`.
 6. Starts the node: macOS `~/Library/LaunchAgents/com.appfactory.node.plist` (log `~/Library/Logs/factory-node.log`);
    Linux the user unit `factory-node` with `FACTORY_URL` in `~/.config/factory-node/env` (log `journalctl --user -u

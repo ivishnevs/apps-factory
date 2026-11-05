@@ -42,6 +42,8 @@ spec:
     - frontend
     - backend
   profile:
+    workspace:
+      mode: worktree
     runtime:
       provider: codex
       model: default

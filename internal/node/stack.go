@@ -78,7 +78,7 @@ func jsonList(v []string) string {
 func (d Doctor) SelfChecks(ctx context.Context) []CheckResult {
 	var r []CheckResult
 	if d.Host.Run != nil && d.Host.LookPath != nil {
-		r = append(d.git(ctx), d.ps(ctx))
+		r = append(append(d.git(ctx), d.scanner()...), d.ps(ctx))
 	}
 	return append(r, StackChecks(ctx, d.Host, d.Labels, d.Stack)...)
 }

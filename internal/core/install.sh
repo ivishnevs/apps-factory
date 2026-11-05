@@ -112,7 +112,13 @@ if [ ! -f "$CONFIG" ]; then
     echo "drivers:"
     if [ -n "$CODEX_BIN" ]; then echo "  codex: {enabled: true, binary: \"$CODEX_BIN\"}"; else echo "  codex: {enabled: false}"; fi
     if [ "$CLAUDE" = 1 ]; then echo "  claude: {enabled: true, node: \"$NODE_BIN\"}"; else echo "  claude: {enabled: false}"; fi
+    echo "# Each task in its own git worktree, so a team's agents work in one project at once."
+    echo "worktrees: {enabled: true}"
   } > "$CONFIG"
+fi
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "Note: gitleaks is not installed. Task branches are scanned for secrets before they are pushed;"
+  echo "      install it so agents can push: brew install gitleaks (or see https://github.com/gitleaks/gitleaks)."
 fi
 
 FN="$HOME_DIR/bin/factory-node"
