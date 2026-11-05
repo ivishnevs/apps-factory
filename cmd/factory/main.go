@@ -265,8 +265,9 @@ func run() error {
 		return err
 	}
 	// Catalogs live in storage (company-self-service D1, D4): every company's current version, the own company
-	// seeded from the repository on its first start.
-	c := core.Core{Store: s, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
+	// seeded from the repository on its first start. Explicit exits are on unless FACTORY_EXPLICIT_EXITS=0: without
+	// them review rules (required review, default reviewers) do not apply to runs.
+	c := core.Core{Store: s, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") != "0",
 		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT"), Token: os.Getenv("FACTORY_TELEGRAM_TOKEN"),
 			DigestAt: env("FACTORY_TELEGRAM_DIGEST_AT", "18:00"), Poll: os.Getenv("FACTORY_TELEGRAM_POLL") == "1"}}
 	if c.Auth, err = signIn(); err != nil {

@@ -143,7 +143,8 @@ A forge or Core failure retries with the same run key.
 
 ## 9. Switch and rollout
 
-- Core switch `FACTORY_EXPLICIT_EXITS=1` (per Core until companies have settings). Off: today's tools and implicit
+- Core switch `FACTORY_EXPLICIT_EXITS` (per Core until companies have settings), on by default since 2026-11-05;
+  `FACTORY_EXPLICIT_EXITS=0` turns it off. Off: today's tools and implicit
   submission (any `succeeded` turn → IN_REVIEW). On: exit tools listed, old submit/accept/reject removed, a
   `succeeded` turn without an exit → `no_exit`.
 - Order: Core endpoints and `run_exits` behind the switch → adapter (tools, `ack_seq`, facts, delivery, exit file)
