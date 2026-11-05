@@ -15,9 +15,9 @@ storage:
     port: {{ getenv "DEX_DB_PORT" "5432" }}
     database: {{ getenv "DEX_DB_NAME" "dex" }}
     user: {{ getenv "DEX_DB_USER" "factory" }}
-    password: {{ getenv "POSTGRES_PASSWORD" | required "POSTGRES_PASSWORD" | quote }}
+    password: {{ getenv "DEX_DB_PASSWORD" (getenv "POSTGRES_PASSWORD") | required "DEX_DB_PASSWORD or POSTGRES_PASSWORD" | quote }}
     ssl:
-      mode: disable
+      mode: {{ getenv "DEX_DB_SSLMODE" "disable" }}
 {{- end }}
 web:
   http: 0.0.0.0:{{ getenv "PORT" "5556" }}

@@ -10,7 +10,7 @@ directly. Dex is public too: the browser is sent to it to sign in.
 | Postgres | Railway database | no | Core's database |
 | `apps-factory` (Core) | repository, `Dockerfile` | yes (`railway domain`) | volume at `/data` |
 | `web` | repository, root directory `web` | no | Next.js, `npm run build`, `npm start` |
-| `dex` | repository, Dockerfile path `deploy/dex/Dockerfile` | yes, port 5556 | `DEX_STORAGE=memory`, no database |
+| `dex` | repository, Dockerfile path `deploy/dex/Dockerfile` | yes, port 5556 | state in its own `dex` database on the same Postgres |
 
 ## Core variables
 
@@ -39,13 +39,23 @@ Core listens on `PORT` (Railway sets it). `FACTORY_WEB_LOCAL` stays unset: on a 
 ## dex variables
 
 ```
-DEX_STORAGE=memory
+DEX_STORAGE=postgres
+DEX_DB_HOST=${{Postgres.PGHOST}}
+DEX_DB_PORT=${{Postgres.PGPORT}}
+DEX_DB_USER=${{Postgres.PGUSER}}
+DEX_DB_PASSWORD=${{Postgres.PGPASSWORD}}
+DEX_DB_ADMIN_DATABASE=${{Postgres.PGDATABASE}}   # where the image connects to create the dex database once
 DEX_ISSUER=https://<dex domain>/dex
 FACTORY_PUBLIC_URL=https://<core domain>         # Dex sends people back to <core>/auth/callback
 FACTORY_OIDC_CLIENT_SECRET=<same as Core's>
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 ```
+
+Dex keeps its signing keys and sign-ins in progress in a database `dex` next to Core's (its tables do not mix with
+Core's). The image creates it on first start (`deploy/dex/ensure-db.sh`) from the private network, so Postgres needs
+no public address; `DEX_DB_CREATE=0` skips that when the database is made by hand. `DEX_STORAGE=memory` runs without
+a database (a restart then drops sign-ins in progress and rotates the signing keys).
 
 ## GitHub sign-in
 
