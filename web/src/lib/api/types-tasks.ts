@@ -18,6 +18,8 @@ export function describe(a: Action): string {
     case "resume": return `Resume ${a.TaskID}`;
     case "retry": return `Retry ${a.TaskID}: release it to run again`;
     case "run": return `Run ${a.TaskID}: release it to the board now`;
+    case "accept": return `Accept ${a.TaskID}: the task is done`;
+    case "rework": return `Send ${a.TaskID} back for rework: ${a.Text}`;
   }
   return `${a.Kind} ${a.TaskID ?? ""}`.trim();
 }

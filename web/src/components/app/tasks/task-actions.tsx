@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpDown, Ban, Megaphone, MoreHorizontal, Pause, Play, RotateCcw, UserRoundPen } from "lucide-react";
+import { ArrowUpDown, Ban, CheckCheck, Megaphone, MoreHorizontal, Pause, Play, RotateCcw, Undo2, UserRoundPen } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,10 +16,12 @@ import { Field, touchInput } from "./field";
 import { isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
 
-type Kind = "pause" | "resume" | "retry" | "run" | "cancel" | "reassign" | "reprioritize" | "direct";
+type Kind = "pause" | "resume" | "retry" | "run" | "accept" | "rework" | "cancel" | "reassign" | "reprioritize" | "direct";
 interface Def { kind: Kind; label: string; icon: React.ElementType; destructive?: boolean; input?: boolean }
 const defs: Record<Kind, Def> = {
   run: { kind: "run", label: "Run now", icon: Play },
+  accept: { kind: "accept", label: "Accept", icon: CheckCheck },
+  rework: { kind: "rework", label: "Send back", icon: Undo2, input: true },
   retry: { kind: "retry", label: "Retry", icon: RotateCcw },
   pause: { kind: "pause", label: "Pause", icon: Pause },
   resume: { kind: "resume", label: "Resume", icon: Play },
@@ -34,14 +36,17 @@ function available(t: BoardTask, failed: boolean): { all: Kind[]; primary?: Kind
   if (isTerminal(t.status)) return { all: [] };
   const all: Kind[] = [];
   if (t.status === "BACKLOG" || t.status === "READY") all.push("run");
+  // Work in review with no agent reviewer waits for a person: accept it or send it back.
+  const yours = t.status === "IN_REVIEW" && !t.reviewer;
+  if (yours) all.push("accept", "rework");
   if (t.status !== "BACKLOG") all.push("retry");
   all.push(t.paused_by ? "resume" : "pause", "direct", "reassign", "reprioritize", "cancel");
-  const primary: Kind | undefined = t.paused_by ? "resume" : t.status === "BACKLOG" ? "run" : t.status === "BLOCKED" || t.status === "REWORK" || failed ? "retry" : undefined;
+  const primary: Kind | undefined = yours ? "accept" : t.paused_by ? "resume" : t.status === "BACKLOG" ? "run" : t.status === "BLOCKED" || t.status === "REWORK" || failed ? "retry" : undefined;
   return { all, primary };
 }
 
 const titles: Record<Kind, string> = {
-  run: "Run this task now?", retry: "Retry this task?", pause: "Pause this task?", resume: "Resume this task?", direct: "Send this directive?",
+  run: "Run this task now?", accept: "Accept this work?", rework: "Send it back?", retry: "Retry this task?", pause: "Pause this task?", resume: "Resume this task?", direct: "Send this directive?",
   reassign: "Reassign this task?", reprioritize: "Change the priority?", cancel: "Cancel this task?",
 };
 
@@ -51,6 +56,8 @@ function explain(a: Action, t: Task): string {
   switch (a.Kind) {
     case "run": return `${name} is released to the team and starts as soon as ${t.assignee || "an agent"} is free.`;
     case "retry": return `${name} is released to run again.`;
+    case "accept": return `${name} is done. ${t.assignee || "The assignee"}'s submission is accepted.`;
+    case "rework": return `${name} goes back to ${t.assignee || "the assignee"} with your feedback: ${a.Text}`;
     case "pause": return `No new runs of ${name} start until you resume it. A run in progress continues.`;
     case "resume": return `${name} can run again.`;
     case "direct": return `${t.assignee || "The assignee"} gets this directive${a.Urgent ? " now, interrupting the current run" : " on the next run"}: ${a.Text}`;
@@ -142,7 +149,10 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (kind === "direct") {
+    if (kind === "rework") {
+      if (!text.trim()) return setError("Write what should change");
+      onSubmit({ ...base, Text: text.trim() });
+    } else if (kind === "direct") {
       if (!text.trim()) return setError("Write what the assignee should do");
       onSubmit({ ...base, Text: text.trim(), Urgent: urgent });
     } else if (kind === "reassign") {
@@ -160,6 +170,7 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
   };
 
   const head: Record<string, [string, string]> = {
+    rework: ["Send back for rework", `${task.assignee || "The assignee"} gets the task back with what should change.`],
     direct: ["Direct the assignee", `${task.assignee || "The assignee"} gets it on their next run of this task; an urgent one interrupts the current run.`],
     reassign: ["Reassign", "Who should work on this task?"],
     reprioritize: ["Change priority", "Higher runs first. The board orders by it."],
@@ -182,6 +193,12 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
             <Switch id="act-urgent" checked={urgent} onCheckedChange={setUrgent} />
           </label>
         </>
+      )}
+      {kind === "rework" && (
+        <Field id="act-feedback" label="What should change" error={error}>
+          <Textarea id="act-feedback" autoFocus rows={4} value={text} onChange={(e) => { setText(e.target.value); setError(""); }}
+            placeholder="Run the tests too and attach the output." className="text-base md:text-sm" />
+        </Field>
       )}
       {kind === "reassign" && (
         <Field id="act-assignee" label="Assignee" error={error}>

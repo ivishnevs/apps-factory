@@ -128,7 +128,7 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string         // pause, resume, retry, run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
+	Kind       string         // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
 	TaskID     string         // task actions
 	Project    string         // say, create
 	Title      string         // create (Text is the description)
@@ -171,6 +171,10 @@ func (a Action) Describe() string {
 		return "cancel " + a.TaskID
 	case "answer":
 		return "answer " + a.MessageID + ": " + a.Text
+	case "accept":
+		return "accept " + a.TaskID
+	case "rework":
+		return "send " + a.TaskID + " back for rework: " + a.Text
 	case "approve", "reject":
 		return a.Kind + " " + a.ApprovalID + ": " + a.Text
 	case "say":
@@ -541,6 +545,13 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 			body["answers"] = a.Answers
 		}
 		err = c.API.Do(ctx, "POST", "/inbox/"+url.PathEscape(a.MessageID)+"/answer", body, &result)
+	case "accept", "rework":
+		// The owner's review of a task in review (factory tasks review): accept it, or send it back with feedback.
+		body := map[string]any{"version": a.Version, "accept": a.Kind == "accept", "request_id": rid}
+		if a.Text != "" {
+			body["feedback"] = a.Text
+		}
+		err = c.API.Do(ctx, "POST", task+"/review", body, &result)
 	case "approve", "reject":
 		err = c.API.Do(ctx, "POST", "/approvals/"+url.PathEscape(a.ApprovalID)+"/decision", map[string]any{"version": a.Version, "action": a.Kind, "reason": a.Text, "request_id": rid}, &result)
 	case "say":
