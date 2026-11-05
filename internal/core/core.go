@@ -48,6 +48,8 @@ type Core struct {
 	Prices config.Prices
 	// Telegram routes owner messages from the Telegram channel (waits-events-cost-cli D4).
 	Telegram TelegramConfig
+	// bots runs the companies' Telegram bots (telegram-per-company).
+	bots telegramBots
 	// wakeups wakes the waiting node polls of a company; pollers keeps one poll per node (http-node-transport).
 	wakeups        notifier
 	pollers        polls
@@ -200,6 +202,11 @@ func (c *Core) Handler() http.Handler {
 		}
 		// Nodes without a credential yet (node-identity D3).
 		if c.enrollmentGateway(w, r) {
+			return
+		}
+		// A company bot's updates from Telegram, checked by the webhook's secret (telegram-per-company).
+		if strings.HasPrefix(r.URL.Path, "/telegram/hook/") && r.Method == http.MethodPost {
+			c.telegramHook(w, r)
 			return
 		}
 		// Sign-in (user-accounts D3) needs no credential.

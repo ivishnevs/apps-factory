@@ -577,7 +577,9 @@ are shown in plain words; IDs appear only where a person needs them.
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies
   (owners and admins), showing the code the terminal printed.
 - **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Members (everyone reads;
-  owners change roles and remove; the last owner stays), Projects (name, repository, branch, team), Access tokens
+  owners change roles and remove; the last owner stays), Projects (name, repository, branch, team), Integrations
+  (Telegram: the company's bot from a @BotFather token — owners and admins; Connect Telegram for one's own chat with
+  a t.me link, the daily digest switch, Disconnect; see [messaging](messaging.md#telegram)), Access tokens
   (admins; the token is shown once) and Account. Owners invite people from Members: a single-use link for the
   admin or member role, valid 7 days, shown once and revocable while open (`team-invitations`). `/invite/<token>`
   shows the company, role and who invited; signed out it offers sign-in (a new person then joins that company

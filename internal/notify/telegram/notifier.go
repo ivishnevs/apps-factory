@@ -4,68 +4,166 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Item is an attention feed row to send; a question waiting for the owner names it and its options.
-type Item struct {
-	Seq        int64
-	Text       string
-	QuestionID string
-	Options    []string
+// A company's Telegram bot (telegram-per-company): every person of the company binds their own chat and gets what
+// is meant for their role; in the chat a reply goes to exactly that message, @name to that agent, and plain text
+// is a reply to the last message from an agent. The bot says where every message went.
+
+// Roles of the people a chat belongs to (as in the company).
+const (
+	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+)
+
+// OwnerKey is the person of a chat bound with the owner's CLI token (factory telegram bind): an owner.
+const OwnerKey = "owner"
+
+// Target is what a delivered message is about: a reply to it goes there.
+type Target struct {
+	// Question is the question the message carries (answered while it waits).
+	Question string `json:"q,omitempty"`
+	// Agent wrote the message; Project is where.
+	Agent   string `json:"a,omitempty"`
+	Project string `json:"p,omitempty"`
+	// Label names the sender for the confirmation ("Thread PO · Product team").
+	Label string `json:"l,omitempty"`
 }
 
-// Question is a question waiting for the owner (for reminders).
+// Item is an attention feed row to send.
+type Item struct {
+	Seq  int64
+	Text string
+	// Target is set for a message from an agent (a question or an escalation).
+	Target  Target
+	Options []string
+	// OwnersOnly: questions to the owner; other items (connectors, pauses, reports) go to owners and admins.
+	OwnersOnly bool
+}
+
+// Question is a question waiting for an owner (reminders, /inbox).
 type Question struct {
-	ID        string
+	Target    Target
 	Text      string
 	CreatedAt time.Time
 }
 
-// State is what the notifier keeps between ticks and restarts (Core stores it).
-type State struct {
-	ChatID       int64  `json:"chat_id,omitempty"`
-	BindCode     string `json:"bind_code,omitempty"`
-	BindExpires  int64  `json:"bind_expires,omitempty"`
-	FeedAfter    int64  `json:"feed_after"`
-	UpdateOffset int64  `json:"update_offset"`
-	// Sent maps a Telegram message to the question it carries, so a reply to it answers that question.
-	Sent map[string]string `json:"sent,omitempty"`
+// Bind is a one-time connect code.
+type Bind struct {
+	Who     string `json:"who"`
+	Expires int64  `json:"expires"`
+}
+
+// Person is one bound chat: whose it is and what the bot keeps for it.
+type Person struct {
+	ChatID    int64 `json:"chat_id"`
+	FeedAfter int64 `json:"feed_after"`
+	// Sent maps a delivered message to what it is about, so a reply goes there; Last is the last message from an
+	// agent (plain text answers it).
+	Sent map[string]Target `json:"sent,omitempty"`
+	Last *Target           `json:"last,omitempty"`
 	// Reminded counts the reminders sent per pending question (4 h, then 24 h).
 	Reminded  map[string]int `json:"reminded,omitempty"`
 	DigestDay string         `json:"digest_day,omitempty"`
+	NoDigest  bool           `json:"no_digest,omitempty"`
 	StopAsked int64          `json:"stop_asked,omitempty"`
+	BoundAt   int64          `json:"bound_at,omitempty"`
 }
 
-// Backend is Core's side: the feed, questions, answers and owner actions.
+// State is what the notifier keeps between ticks and restarts (Core stores it).
+type State struct {
+	UpdateOffset int64              `json:"update_offset"`
+	Binds        map[string]Bind    `json:"binds,omitempty"`
+	People       map[string]*Person `json:"people,omitempty"`
+	// Before telegram-per-company one chat was bound for the owner; it becomes People[OwnerKey].
+	ChatID    int64  `json:"chat_id,omitempty"`
+	FeedAfter int64  `json:"feed_after,omitempty"`
+	DigestDay string `json:"digest_day,omitempty"`
+}
+
+// Normalize fills the maps and moves a chat bound before telegram-per-company to the owner.
+func (s *State) Normalize() {
+	if s.Binds == nil {
+		s.Binds = map[string]Bind{}
+	}
+	if s.People == nil {
+		s.People = map[string]*Person{}
+	}
+	if s.ChatID != 0 {
+		if s.People[OwnerKey] == nil {
+			s.People[OwnerKey] = &Person{ChatID: s.ChatID, FeedAfter: s.FeedAfter, DigestDay: s.DigestDay}
+		}
+		s.ChatID, s.FeedAfter, s.DigestDay = 0, 0, ""
+	}
+	for _, p := range s.People {
+		if p.Sent == nil {
+			p.Sent = map[string]Target{}
+		}
+		if p.Reminded == nil {
+			p.Reminded = map[string]int{}
+		}
+	}
+}
+
+// ByChat finds who a chat belongs to.
+func (s *State) ByChat(chat int64) (string, *Person) {
+	for who, p := range s.People {
+		if p.ChatID == chat {
+			return who, p
+		}
+	}
+	return "", nil
+}
+
+// Backend is Core's side: the feed, questions, answers and owner actions of one company.
 type Backend interface {
 	LoadState(ctx context.Context) (State, error)
 	SaveState(ctx context.Context, s State) error
+	// Company is the company's display name.
+	Company(ctx context.Context) string
+	// Role is the person's role in the company; ErrNotFound-like errors (Gone) unbind the chat.
+	Role(ctx context.Context, who string) (string, error)
 	// FeedTail is the latest feed sequence (a freshly bound chat starts after it).
 	FeedTail(ctx context.Context) (int64, error)
 	// Attention lists attention rows after the cursor, oldest first.
 	Attention(ctx context.Context, after int64) ([]Item, error)
 	PendingQuestions(ctx context.Context) ([]Question, error)
-	// Answer answers the question with option index choice, or with text when choice < 0. key makes a
-	// repeated update apply once (the answer's request_id).
-	Answer(ctx context.Context, question string, choice int, text, key string) (string, error)
+	// Choose answers a question with option index choice (a button). key makes a repeated update apply once.
+	Choose(ctx context.Context, question string, choice int, key string) (string, error)
+	// Reply sends text to what target is about: the question while it waits, else its sender's conversation.
+	Reply(ctx context.Context, target Target, text, key string) (string, error)
+	// Message sends text to agent ("" for the only team lead), in project when given.
+	Message(ctx context.Context, agent, project, text, key string) (string, error)
 	Status(ctx context.Context) (string, error)
 	Stop(ctx context.Context) (string, error)
-	// OwnerInput gives text to a direct report ("" for the default one).
-	OwnerInput(ctx context.Context, agent, text, key string) (string, error)
 	Digest(ctx context.Context, now time.Time) (string, error)
 	// Applied and MarkApplied deduplicate updates by update_id.
 	Applied(ctx context.Context, update int64) (bool, error)
 	MarkApplied(ctx context.Context, update int64) error
 }
 
+// Gone is the error Role returns for a person who left the company: their chat is unbound.
+type Gone struct{}
+
+func (Gone) Error() string { return "no longer in the company" }
+
 // Reminder ages of an unanswered owner question.
 var Reminders = []time.Duration{4 * time.Hour, 24 * time.Hour}
 
 // StopConfirmWindow is how long a /stop waits for its confirmation.
 const StopConfirmWindow = 5 * time.Minute
+
+// sentKept bounds the remembered messages per chat (a reply to an older one is plain text then).
+const sentKept = 200
+
+const help = "Reply to a message to answer it. @name text writes to that agent. Plain text answers the last message " +
+	"from an agent. Commands: /inbox, /status, /digest on|off, /stop (owners and admins), /disconnect."
 
 type Notifier struct {
 	API     API
@@ -76,6 +174,9 @@ type Notifier struct {
 	DigestAt string
 	// PollTimeout is the getUpdates long-poll timeout (0 in tests).
 	PollTimeout time.Duration
+	// Webhook: updates arrive through Handle; Tick only sends.
+	Webhook bool
+	mu      sync.Mutex
 }
 
 func (n *Notifier) now() time.Time {
@@ -87,13 +188,20 @@ func (n *Notifier) now() time.Time {
 
 // Run ticks until ctx ends; a failed tick (Telegram or Core unreachable) is retried with a backoff.
 func (n *Notifier) Run(ctx context.Context) {
-	wait := time.Second
+	base := time.Second
+	if n.Webhook {
+		base = 3 * time.Second
+	}
+	wait := base
 	for ctx.Err() == nil {
 		if err := n.Tick(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			slog.Warn("telegram tick", "error", err)
 			wait = min(wait*2, time.Minute)
 		} else {
-			wait = time.Second
+			wait = base
 		}
 		select {
 		case <-ctx.Done():
@@ -102,20 +210,41 @@ func (n *Notifier) Run(ctx context.Context) {
 	}
 }
 
-// Tick applies new updates, then (once a chat is bound) sends attention items, reminders and the digest.
-func (n *Notifier) Tick(ctx context.Context) error {
+func (n *Notifier) load(ctx context.Context) (State, error) {
 	st, err := n.Backend.LoadState(ctx)
+	st.Normalize()
+	return st, err
+}
+
+// Tick applies new updates (unless they come by webhook), then sends every bound person their items, reminders
+// and digest. The long poll runs outside the lock, so the website's changes (Update) never wait for it.
+func (n *Notifier) Tick(ctx context.Context) error {
+	var updates []Update
+	if !n.Webhook {
+		st, err := n.Backend.LoadState(ctx)
+		if err != nil {
+			return err
+		}
+		if updates, err = n.API.Updates(ctx, st.UpdateOffset, n.PollTimeout); err != nil {
+			return err
+		}
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	st, err := n.load(ctx)
 	if err != nil {
 		return err
 	}
-	if st.Sent == nil {
-		st.Sent = map[string]string{}
+	for _, u := range updates {
+		if u.UpdateID < st.UpdateOffset {
+			continue
+		}
+		st.UpdateOffset = u.UpdateID + 1
+		if err = n.once(ctx, &st, u); err != nil {
+			break
+		}
 	}
-	if st.Reminded == nil {
-		st.Reminded = map[string]int{}
-	}
-	err = n.inbound(ctx, &st)
-	if err == nil && st.ChatID != 0 {
+	if err == nil {
 		err = n.outbound(ctx, &st)
 	}
 	if serr := n.Backend.SaveState(ctx, st); err == nil {
@@ -124,39 +253,51 @@ func (n *Notifier) Tick(ctx context.Context) error {
 	return err
 }
 
-func (n *Notifier) inbound(ctx context.Context, st *State) error {
-	updates, err := n.API.Updates(ctx, st.UpdateOffset, n.PollTimeout)
+// Handle applies one update that came by webhook.
+func (n *Notifier) Handle(ctx context.Context, u Update) error {
+	return n.Update(ctx, func(st *State) error { return n.once(ctx, st, u) })
+}
+
+// Update changes the state under the notifier's lock (the website binding or unbinding a chat).
+func (n *Notifier) Update(ctx context.Context, change func(*State) error) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	st, err := n.load(ctx)
 	if err != nil {
 		return err
 	}
-	for _, u := range updates {
-		st.UpdateOffset = max(st.UpdateOffset, u.UpdateID+1)
-		done, err := n.Backend.Applied(ctx, u.UpdateID)
-		if err != nil {
-			return err
-		}
-		if done {
-			continue
-		}
-		if err = n.apply(ctx, st, u); err != nil {
-			return err
-		}
-		if err = n.Backend.MarkApplied(ctx, u.UpdateID); err != nil {
-			return err
-		}
+	if err = change(&st); err != nil {
+		return err
 	}
-	return nil
+	return n.Backend.SaveState(ctx, st)
 }
 
-func (n *Notifier) say(ctx context.Context, st *State, text string, replyTo int64) error {
-	_, err := n.API.Send(ctx, st.ChatID, text, nil, replyTo)
+func (n *Notifier) once(ctx context.Context, st *State, u Update) error {
+	done, err := n.Backend.Applied(ctx, u.UpdateID)
+	if err != nil || done {
+		return err
+	}
+	if err = n.apply(ctx, st, u); err != nil {
+		return err
+	}
+	return n.Backend.MarkApplied(ctx, u.UpdateID)
+}
+
+func (n *Notifier) say(ctx context.Context, chat int64, text string, replyTo int64) error {
+	_, err := n.API.Send(ctx, chat, shorten(text, 4000), nil, replyTo)
 	return err
 }
+
+func manager(role string) bool { return role == RoleOwner || role == RoleAdmin }
 
 func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 	key := "telegram-" + strconv.FormatInt(u.UpdateID, 10)
 	if c := u.Callback; c != nil {
-		if c.Message == nil || c.Message.Chat.ID != st.ChatID || st.ChatID == 0 {
+		if c.Message == nil {
+			return nil
+		}
+		who, p := st.ByChat(c.Message.Chat.ID)
+		if p == nil {
 			return nil
 		}
 		notice := "ok"
@@ -164,14 +305,14 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		switch {
 		case len(parts) == 3 && parts[0] == "a":
 			choice, _ := strconv.Atoi(parts[2])
-			out, err := n.Backend.Answer(ctx, parts[1], choice, "", key)
+			out, err := n.Backend.Choose(ctx, parts[1], choice, key)
 			if err != nil {
 				notice = "not applied: " + err.Error()
-			} else if err = n.say(ctx, st, out, c.Message.MessageID); err != nil {
+			} else if err = n.say(ctx, p.ChatID, out, c.Message.MessageID); err != nil {
 				return err
 			}
 		case c.Data == "stop|confirm":
-			if err := n.stop(ctx, st, c.Message.MessageID); err != nil {
+			if err := n.stop(ctx, who, p, c.Message.MessageID); err != nil {
 				return err
 			}
 		}
@@ -182,102 +323,217 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		return nil
 	}
 	text := strings.TrimSpace(m.Text)
-	if code, ok := strings.CutPrefix(text, "/start "); ok {
-		// Binding: the one-time code from factory telegram bind, before it expires.
-		if st.BindCode != "" && strings.TrimSpace(code) == st.BindCode && n.now().Unix() < st.BindExpires {
-			tail, err := n.Backend.FeedTail(ctx)
-			if err != nil {
-				return err
-			}
-			st.ChatID, st.BindCode, st.BindExpires, st.FeedAfter = m.Chat.ID, "", 0, tail
-			return n.say(ctx, st, "Bound: this chat gets the factory's attention items and the daily digest.", 0)
-		}
-		return nil
+	if code, ok := strings.CutPrefix(text, "/start"); ok {
+		return n.bind(ctx, st, m.Chat.ID, strings.TrimSpace(code))
 	}
-	if st.ChatID == 0 || m.Chat.ID != st.ChatID {
-		return nil // only the bound owner chat is heard
+	who, p := st.ByChat(m.Chat.ID)
+	if p == nil {
+		return n.say(ctx, m.Chat.ID, "This chat is not connected. In App Factory open Settings → Integrations → Connect Telegram.", 0)
+	}
+	role, err := n.Backend.Role(ctx, who)
+	if _, gone := err.(Gone); gone {
+		delete(st.People, who)
+		return n.say(ctx, m.Chat.ID, "You are no longer in "+n.Backend.Company(ctx)+": this chat is disconnected.", 0)
+	}
+	if err != nil {
+		return err
+	}
+	reply := func(out string, err error, prefix string) error {
+		if err != nil {
+			out = prefix + err.Error()
+		}
+		return n.say(ctx, p.ChatID, out, m.MessageID)
 	}
 	switch {
+	case text == "/help":
+		return n.say(ctx, p.ChatID, help, m.MessageID)
 	case text == "/status":
 		out, err := n.Backend.Status(ctx)
-		if err != nil {
-			out = "status unavailable: " + err.Error()
-		}
-		return n.say(ctx, st, out, m.MessageID)
+		return reply(out, err, "status unavailable: ")
+	case text == "/disconnect":
+		delete(st.People, who)
+		return n.say(ctx, p.ChatID, "Disconnected from "+n.Backend.Company(ctx)+". Connect again from Settings → Integrations.", m.MessageID)
+	case text == "/digest on" || text == "/digest off":
+		p.NoDigest = text == "/digest off"
+		return n.say(ctx, p.ChatID, map[bool]string{true: "Daily digest off.", false: "Daily digest on."}[p.NoDigest], m.MessageID)
+	case text == "/inbox":
+		return n.inbox(ctx, p, role, m.MessageID)
 	case text == "/stop":
-		st.StopAsked = n.now().Unix()
-		_, err := n.API.Send(ctx, st.ChatID, "Stop the whole company? Every live run is revoked and nothing new starts until factory start. Confirm within 5 minutes.", []Button{{Text: "Confirm stop", Data: "stop|confirm"}}, m.MessageID)
+		if !manager(role) {
+			return n.say(ctx, p.ChatID, "Only owners and admins can stop the company.", m.MessageID)
+		}
+		p.StopAsked = n.now().Unix()
+		_, err := n.API.Send(ctx, p.ChatID, "Stop the whole company? Every live run is revoked and nothing new starts until it is started again. Confirm within 5 minutes.", []Button{{Text: "Confirm stop", Data: "stop|confirm"}}, m.MessageID)
 		return err
 	case text == "/stop confirm":
-		return n.stop(ctx, st, m.MessageID)
-	case m.ReplyTo != nil && st.Sent[strconv.FormatInt(m.ReplyTo.MessageID, 10)] != "":
-		out, err := n.Backend.Answer(ctx, st.Sent[strconv.FormatInt(m.ReplyTo.MessageID, 10)], -1, text, key)
-		if err != nil {
-			out = "not applied: " + err.Error()
-		}
-		return n.say(ctx, st, out, m.MessageID)
+		return n.stop(ctx, who, p, m.MessageID)
 	case text == "" || strings.HasPrefix(text, "/"):
-		return n.say(ctx, st, "Commands: /status, /stop. Reply to a question to answer it; any other message goes to your default direct report, or @name to address one.", m.MessageID)
+		return n.say(ctx, p.ChatID, help, m.MessageID)
+	case m.ReplyTo != nil && p.Sent[strconv.FormatInt(m.ReplyTo.MessageID, 10)] != (Target{}):
+		t := p.Sent[strconv.FormatInt(m.ReplyTo.MessageID, 10)]
+		out, err := n.Backend.Reply(ctx, t, text, key)
+		return reply(out, err, "not delivered: ")
+	case strings.HasPrefix(text, "@"):
+		name, body, _ := strings.Cut(text[1:], " ")
+		project := ""
+		if p.Last != nil {
+			project = p.Last.Project
+		}
+		out, err := n.Backend.Message(ctx, strings.TrimRight(name, ",:"), project, strings.TrimSpace(body), key)
+		return reply(out, err, "not delivered: ")
+	case p.Last != nil:
+		out, err := n.Backend.Reply(ctx, *p.Last, text, key)
+		return reply(out, err, "not delivered: ")
 	}
-	agent, body := "", text
-	if strings.HasPrefix(text, "@") {
-		name, rest, _ := strings.Cut(text[1:], " ")
-		agent, body = name, strings.TrimSpace(rest)
+	out, err := n.Backend.Message(ctx, "", "", text, key)
+	return reply(out, err, "not delivered: ")
+}
+
+// bind connects the chat with a one-time code from Settings (or factory telegram bind).
+func (n *Notifier) bind(ctx context.Context, st *State, chat int64, code string) error {
+	b, ok := st.Binds[code]
+	now := n.now().Unix()
+	for c, x := range st.Binds {
+		if x.Expires <= now {
+			delete(st.Binds, c)
+		}
 	}
-	out, err := n.Backend.OwnerInput(ctx, agent, body, key)
+	if code == "" || !ok || b.Expires <= now {
+		if _, p := st.ByChat(chat); p != nil {
+			return n.say(ctx, chat, "This chat is connected. "+help, 0)
+		}
+		return n.say(ctx, chat, "This connect link has expired or was used. Open Settings → Integrations → Connect Telegram for a new one.", 0)
+	}
+	delete(st.Binds, code)
+	tail, err := n.Backend.FeedTail(ctx)
 	if err != nil {
-		out = "not delivered: " + err.Error()
+		return err
 	}
-	return n.say(ctx, st, out, m.MessageID)
+	if who, p := st.ByChat(chat); p != nil && who != b.Who {
+		delete(st.People, who) // one chat, one person
+	}
+	st.People[b.Who] = &Person{ChatID: chat, FeedAfter: tail, Sent: map[string]Target{}, Reminded: map[string]int{}, BoundAt: now}
+	return n.say(ctx, chat, "Connected to "+n.Backend.Company(ctx)+". You get what needs you and a daily digest.\n\n"+help, 0)
 }
 
 // stop runs the kill switch only within the confirmation window of a /stop.
-func (n *Notifier) stop(ctx context.Context, st *State, replyTo int64) error {
-	if st.StopAsked == 0 || n.now().Unix()-st.StopAsked > int64(StopConfirmWindow.Seconds()) {
-		return n.say(ctx, st, "No /stop to confirm: send /stop first.", replyTo)
+func (n *Notifier) stop(ctx context.Context, who string, p *Person, replyTo int64) error {
+	if role, err := n.Backend.Role(ctx, who); err != nil || !manager(role) {
+		return n.say(ctx, p.ChatID, "Only owners and admins can stop the company.", replyTo)
 	}
-	st.StopAsked = 0
+	if p.StopAsked == 0 || n.now().Unix()-p.StopAsked > int64(StopConfirmWindow.Seconds()) {
+		return n.say(ctx, p.ChatID, "No /stop to confirm: send /stop first.", replyTo)
+	}
+	p.StopAsked = 0
 	out, err := n.Backend.Stop(ctx)
 	if err != nil {
 		out = "stop failed: " + err.Error()
 	}
-	return n.say(ctx, st, out, replyTo)
+	return n.say(ctx, p.ChatID, out, replyTo)
+}
+
+// send delivers an item to a person and remembers what it is about.
+func (n *Notifier) send(ctx context.Context, p *Person, text string, t Target, options []string) error {
+	buttons := []Button{}
+	for i, o := range options {
+		buttons = append(buttons, Button{Text: o, Data: fmt.Sprintf("a|%s|%d", t.Question, i)})
+	}
+	id, err := n.API.Send(ctx, p.ChatID, shorten(text, 4000), buttons, 0)
+	if err != nil {
+		return err
+	}
+	if t != (Target{}) {
+		p.Sent[strconv.FormatInt(id, 10)] = t
+		last := t
+		p.Last = &last
+		if len(p.Sent) > sentKept {
+			ids := make([]int64, 0, len(p.Sent))
+			for k := range p.Sent {
+				v, _ := strconv.ParseInt(k, 10, 64)
+				ids = append(ids, v)
+			}
+			slices.Sort(ids)
+			for _, v := range ids[:len(ids)-sentKept] {
+				delete(p.Sent, strconv.FormatInt(v, 10))
+			}
+		}
+	}
+	return nil
+}
+
+func (n *Notifier) inbox(ctx context.Context, p *Person, role string, replyTo int64) error {
+	if role != RoleOwner {
+		return n.say(ctx, p.ChatID, "Questions to the owner wait for owners; nothing waits for you here.", replyTo)
+	}
+	qs, err := n.Backend.PendingQuestions(ctx)
+	if err != nil {
+		return err
+	}
+	if len(qs) == 0 {
+		return n.say(ctx, p.ChatID, "Nothing waits for you.", replyTo)
+	}
+	if err = n.say(ctx, p.ChatID, fmt.Sprintf("%d waiting for you. Reply to one to answer it.", len(qs)), replyTo); err != nil {
+		return err
+	}
+	for _, q := range qs[:min(len(qs), 10)] {
+		if err = n.send(ctx, p, q.Text, q.Target, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (n *Notifier) outbound(ctx context.Context, st *State) error {
-	items, err := n.Backend.Attention(ctx, st.FeedAfter)
-	if err != nil {
-		return err
-	}
-	for _, it := range items {
-		if it.Text == "" {
-			st.FeedAfter = it.Seq
+	var pending []Question
+	loaded := false
+	for who, p := range st.People {
+		role, err := n.Backend.Role(ctx, who)
+		if _, gone := err.(Gone); gone {
+			delete(st.People, who)
 			continue
 		}
-		buttons := []Button{}
-		for i, o := range it.Options {
-			buttons = append(buttons, Button{Text: o, Data: fmt.Sprintf("a|%s|%d", it.QuestionID, i)})
-		}
-		text := it.Text
-		if it.QuestionID != "" {
-			text += "\n\nReply to this message to answer."
-		}
-		id, err := n.API.Send(ctx, st.ChatID, shorten(text, 4000), buttons, 0)
 		if err != nil {
-			return err // the cursor stays: the item is sent again on the next tick
+			return err
 		}
-		if it.QuestionID != "" {
-			st.Sent[strconv.FormatInt(id, 10)] = it.QuestionID
+		items, err := n.Backend.Attention(ctx, p.FeedAfter)
+		if err != nil {
+			return err
 		}
-		st.FeedAfter = it.Seq
+		for _, it := range items {
+			if it.Text != "" && (role == RoleOwner || !it.OwnersOnly && role == RoleAdmin) {
+				text := it.Text
+				if it.Target.Question != "" {
+					text += "\n\nReply to this message to answer."
+				}
+				if err = n.send(ctx, p, text, it.Target, it.Options); err != nil {
+					return err // the cursor stays: the item is sent again on the next tick
+				}
+			}
+			p.FeedAfter = it.Seq
+		}
+		if role == RoleOwner {
+			if !loaded {
+				if pending, err = n.Backend.PendingQuestions(ctx); err != nil {
+					return err
+				}
+				loaded = true
+			}
+			if err = n.remind(ctx, p, pending); err != nil {
+				return err
+			}
+		}
+		if err = n.digest(ctx, p); err != nil {
+			return err
+		}
 	}
-	pending, err := n.Backend.PendingQuestions(ctx)
-	if err != nil {
-		return err
-	}
+	return nil
+}
+
+func (n *Notifier) remind(ctx context.Context, p *Person, pending []Question) error {
 	open := map[string]bool{}
 	for _, q := range pending {
-		open[q.ID] = true
+		id := q.Target.Question
+		open[id] = true
 		age := n.now().Sub(q.CreatedAt)
 		due := 0
 		for _, r := range Reminders {
@@ -285,32 +541,25 @@ func (n *Notifier) outbound(ctx context.Context, st *State) error {
 				due++
 			}
 		}
-		if due <= st.Reminded[q.ID] {
+		if due <= p.Reminded[id] {
 			continue
 		}
 		// One reminder covers every age already passed (a Core gap sends one, not two).
-		id, err := n.API.Send(ctx, st.ChatID, shorten(fmt.Sprintf("Reminder: waiting for your answer for %s.\n%s\n\nReply to this message to answer.", age.Round(time.Minute), q.Text), 4000), nil, 0)
-		if err != nil {
+		if err := n.send(ctx, p, fmt.Sprintf("Reminder: waiting for your answer for %s.\n%s\n\nReply to this message to answer.", age.Round(time.Minute), q.Text), q.Target, nil); err != nil {
 			return err
 		}
-		st.Sent[strconv.FormatInt(id, 10)] = q.ID
-		st.Reminded[q.ID] = due
+		p.Reminded[id] = due
 	}
-	for id := range st.Reminded {
+	for id := range p.Reminded {
 		if !open[id] {
-			delete(st.Reminded, id)
+			delete(p.Reminded, id)
 		}
 	}
-	for k, q := range st.Sent {
-		if !open[q] {
-			delete(st.Sent, k)
-		}
-	}
-	return n.digest(ctx, st)
+	return nil
 }
 
-func (n *Notifier) digest(ctx context.Context, st *State) error {
-	if n.DigestAt == "" {
+func (n *Notifier) digest(ctx context.Context, p *Person) error {
+	if n.DigestAt == "" || p.NoDigest {
 		return nil
 	}
 	loc := n.Location
@@ -323,17 +572,17 @@ func (n *Notifier) digest(ctx context.Context, st *State) error {
 		return fmt.Errorf("telegram digest_at %q: want HH:MM", n.DigestAt)
 	}
 	day := now.Format("2006-01-02")
-	if st.DigestDay == day || now.Hour()*60+now.Minute() < at.Hour()*60+at.Minute() {
+	if p.DigestDay == day || now.Hour()*60+now.Minute() < at.Hour()*60+at.Minute() {
 		return nil
 	}
 	text, err := n.Backend.Digest(ctx, n.now())
 	if err != nil {
 		return err
 	}
-	if err = n.say(ctx, st, shorten(text, 4000), 0); err != nil {
+	if err = n.say(ctx, p.ChatID, text, 0); err != nil {
 		return err
 	}
-	st.DigestDay = day
+	p.DigestDay = day
 	return nil
 }
 

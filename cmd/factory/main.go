@@ -5,7 +5,6 @@ import (
 	"appfactory/internal/blobstore"
 	"appfactory/internal/config"
 	"appfactory/internal/core"
-	"appfactory/internal/notify/telegram"
 	"appfactory/internal/policies"
 	"appfactory/internal/secrets"
 	"appfactory/internal/storage"
@@ -268,7 +267,8 @@ func run() error {
 	// Catalogs live in storage (company-self-service D1, D4): every company's current version, the own company
 	// seeded from the repository on its first start.
 	c := core.Core{Store: s, Company: company, Root: root, Token: os.Getenv("FACTORY_TOKEN"), ExplicitExits: os.Getenv("FACTORY_EXPLICIT_EXITS") == "1",
-		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT")}}
+		Prices: prices, Telegram: core.TelegramConfig{Project: os.Getenv("FACTORY_TELEGRAM_PROJECT"), Token: os.Getenv("FACTORY_TELEGRAM_TOKEN"),
+			DigestAt: env("FACTORY_TELEGRAM_DIGEST_AT", "18:00"), Poll: os.Getenv("FACTORY_TELEGRAM_POLL") == "1"}}
 	if c.Auth, err = signIn(); err != nil {
 		return err
 	}
@@ -290,17 +290,8 @@ func run() error {
 	server := &http.Server{Addr: listen, Handler: withWebAPI(&c, os.Getenv("FACTORY_WEB_LOCAL") == "1"), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errs := make(chan error, 2)
 	go func() { errs <- c.Run(ctx) }()
-	if token := os.Getenv("FACTORY_TELEGRAM_TOKEN"); token != "" {
-		// The bot token stays in the environment; it is never logged.
-		zone, _ := s.CompanyTimeZone(ctx, company)
-		loc, err := time.LoadLocation(zone)
-		if err != nil {
-			loc = time.UTC
-		}
-		n := &telegram.Notifier{API: telegram.API{Token: token}, Backend: c.TelegramBackend(), Location: loc, DigestAt: env("FACTORY_TELEGRAM_DIGEST_AT", "18:00"), PollTimeout: 20 * time.Second}
-		go n.Run(ctx)
-		slog.Info("telegram notifier started")
-	}
+	// Company bots (telegram-per-company) and FACTORY_TELEGRAM_TOKEN for the default company; tokens are never logged.
+	go c.RunTelegram(ctx)
 	go func() { errs <- server.ListenAndServe() }()
 	slog.Info("core ready", "address", server.Addr)
 	select {

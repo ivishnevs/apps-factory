@@ -133,3 +133,20 @@ func (a API) Updates(ctx context.Context, offset int64, timeout time.Duration) (
 func (a API) AnswerCallback(ctx context.Context, id, text string) error {
 	return a.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": id, "text": text}, nil)
 }
+
+// Me is GetMe: the bot's identity (validates a token).
+func (a API) Me(ctx context.Context) (User, error) {
+	var u User
+	err := a.call(ctx, "getMe", map[string]any{}, &u)
+	return u, err
+}
+
+// SetWebhook makes Telegram post updates to url with secret in the X-Telegram-Bot-Api-Secret-Token header.
+func (a API) SetWebhook(ctx context.Context, url, secret string) error {
+	return a.call(ctx, "setWebhook", map[string]any{"url": url, "secret_token": secret, "allowed_updates": []string{"message", "callback_query"}}, nil)
+}
+
+// DeleteWebhook switches the bot back to getUpdates.
+func (a API) DeleteWebhook(ctx context.Context) error {
+	return a.call(ctx, "deleteWebhook", map[string]any{}, nil)
+}

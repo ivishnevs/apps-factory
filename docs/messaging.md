@@ -166,36 +166,55 @@ future stages. See [verification](messaging-verification.md).
 
 ## Telegram
 
-Core runs a Telegram notifier when `FACTORY_TELEGRAM_TOKEN` is set (one bot per company; the token stays in the
-environment and is never logged or put into errors). `factory telegram bind` (`POST /telegram/bind`) returns a
-one-time code valid for 15 minutes; sending `/start CODE` to the bot binds that chat. Only the bound chat is heard.
+Every company may have its own bot (telegram-per-company). An owner or admin creates it with @BotFather and adds
+its token in Settings → Integrations (`PUT /telegram/bot`); Core checks it with `getMe`, keeps it sealed under the
+company key (core-secret-store; it needs `FACTORY_SECRETS_KEY`) and never shows or logs it. `DELETE /telegram/bot`
+removes it and disconnects every chat. `FACTORY_TELEGRAM_TOKEN` stays the default company's bot when that company
+stores none (a single-company Core, as before).
+
+Updates: with an https `FACTORY_PUBLIC_URL` Core sets a webhook `<public>/telegram/hook/<company>` with a random
+secret and accepts only requests carrying it; otherwise (and with `FACTORY_TELEGRAM_POLL=1`, and always for the
+environment's bot) Core long-polls. The website's changes and incoming updates are applied one at a time per bot.
+
+**Each person connects their own chat.** Settings → Integrations → Connect Telegram (`POST /telegram/connect`)
+gives a one-time link `https://t.me/<bot>?start=<code>` valid 15 minutes; `factory telegram bind` does the same for
+the owner's CLI token (`send /start CODE`). A chat belongs to one person; `/disconnect` in the chat or Disconnect on
+the website (`DELETE /telegram/me`) unbinds it, and a person who leaves the company is disconnected.
 
 Outbound, and nothing else:
 
-- attention feed rows (`attention = true`, see [reports and decisions](reports-decisions.md#event-feed-and-costs)):
-  a question or escalation that reached the owner (with its single-choice options as buttons), a node in trouble
-  (`node.restart_loop`, `node.check_failed`, `node.low_disk`, …), a quota pause, a report needing owner action;
-- reminders for a question still waiting for the owner at 4 h and at 24 h (one reminder covers ages already
-  passed);
-- one daily digest at `FACTORY_TELEGRAM_DIGEST_AT` (default 18:00) in the company time zone: done, in progress,
-  waiting for the owner, failures and retries, nodes, cost of the day.
+- attention feed rows: a question or escalation that reached the owner goes to **owners** (with its single-choice
+  options as buttons), headed by who asks and where (`❓ Thread PO · product team`, project / task); a connector in
+  trouble (`node.restart_loop`, `node.check_failed`, `node.low_disk`, …), a quota pause or a report needing action
+  goes to **owners and admins**;
+- reminders for a question still waiting for the owner at 4 h and at 24 h, to owners (one reminder covers ages
+  already passed);
+- one daily digest at `FACTORY_TELEGRAM_DIGEST_AT` (default 18:00) in the company time zone to everyone connected
+  who keeps it on (`/digest on|off`, the Daily digest switch on the website, `PATCH /telegram/me`).
 
 Routine events (handoffs, submits, retries) stay in `factory watch` and `factory log`. A failed send keeps the
-feed cursor and is retried with a backoff (1 s doubling to 1 min).
+person's feed cursor and is retried with a backoff (1 s doubling to 1 min).
 
-Inbound:
+**Inbound: where a message goes.** Several managers may write to one person, so the rule is fixed and the bot says
+where every message went:
 
-- a button, or a reply to a question message, answers that question (`request_id` `telegram-<update_id>`); a
-  structured form still needs `factory inbox answer`;
-- `/status` returns the status snapshot in short form;
-- `/stop` asks for confirmation (a button or `/stop confirm` within 5 minutes) and then runs the kill switch;
-  `/stop` alone does nothing;
-- any other text is owner input exactly as `factory conversations say` (`POST /messages`): `@name text` addresses
-  a team lead, other text goes to the lead of the project's team (see
-  [agent configuration](agent-configuration.md#hierarchy)). It is an owner question on the owner conversation
-  `owner-<agent>-<project>`, delivered as an authority `message` trigger on the agent's conversation task
-  (`conv-<agent>-<project>`). The project is `FACTORY_TELEGRAM_PROJECT`, or the company's only project when unset.
+- a button answers that question;
+- a **reply** to a message goes to exactly that message: a waiting question is answered, any other message continues
+  its sender's conversation (another agent's or Core's own message continues with the lead of its team);
+- **`@name text`** writes to that team lead (one of the owner's direct reports);
+- **plain text** is a reply to the last message from an agent the bot delivered to this person; before any, it goes
+  to the only team lead, or the bot asks for `@name`;
+- the bot confirms: `Answered calorie-manager · calorie team: Inter`, `→ manager · core team`.
 
-Every update is applied once: Core records applied `update_id`s (`notify_updates`, migration 0031) and the answer
-carries the update as its idempotency key. The notifier's state (bound chat, feed cursor, reminders, digest day)
-is `notify_state`.
+A message to a lead is an owner message like `POST /messages`: on the owner conversation `owner-<agent>-<project>`,
+delivered as an authority `message` trigger on the agent's conversation task. The project is the one of the message
+answered, else `FACTORY_TELEGRAM_PROJECT`, else the lead's team's project, else the company's only project.
+
+Commands: `/inbox` (owners: what waits, each as a message to reply to), `/status`, `/digest on|off`, `/stop` (owners
+and admins; confirmation by a button or `/stop confirm` within 5 minutes, then the kill switch), `/disconnect`,
+`/help`. A structured form still needs the Inbox on the website.
+
+Every update is applied once: Core records applied `update_id`s per company (`notify_updates`; a new bot starts
+afresh) and an answer carries the update as its idempotency key. The bot's state (connect codes, people, their
+cursors, the messages a reply can point to, reminders, digest days) is `notify_state`; a chat bound before
+telegram-per-company becomes the owner's.

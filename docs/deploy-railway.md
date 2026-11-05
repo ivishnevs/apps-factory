@@ -30,6 +30,9 @@ FACTORY_OIDC_PROVIDERS=github
 FACTORY_MULTI_COMPANY=1                  # people add companies from the company menu
 ```
 
+Telegram needs nothing here: each company adds its own bot in Settings → Integrations, and with the https
+`FACTORY_PUBLIC_URL` Core takes its updates by webhook (`/telegram/hook/<company>`).
+
 Core listens on `PORT` (Railway sets it). `FACTORY_WEB_LOCAL` stays unset: on a public Core the web needs sign-in.
 
 ## web variables

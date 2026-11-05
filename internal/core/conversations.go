@@ -133,6 +133,12 @@ func (c *Core) ownerMessage(ctx context.Context, company, project, team, body, m
 	if !ok {
 		return messaging.Message{}, errNoAddressee
 	}
+	return c.ownerMessageTo(ctx, company, project, agent, body, messageType, requestID)
+}
+
+// ownerMessageTo sends an owner message to agent on the owner conversation with it in project (Telegram routes
+// to an agent it already chose).
+func (c *Core) ownerMessageTo(ctx context.Context, company, project, agent, body, messageType, requestID string) (messaging.Message, error) {
 	conv, err := c.Store.CreateConversation(ctx, company, messaging.ConversationCreate{ID: "owner-" + agent + "-" + project, ProjectID: project, Agent: agent, Title: "Owner and " + agent, RequestID: "owner-conversation-" + agent + "-" + project})
 	if err != nil {
 		return messaging.Message{}, err

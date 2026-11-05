@@ -1,12 +1,13 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Clock, Copy, FolderGit2, KeyRound, LogOut, Pencil, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, Pencil, Trash2, UserRound, Users } from "lucide-react";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
+import { TelegramSettings } from "@/components/app/settings/telegram";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,7 @@ import type { Project } from "@/lib/api/types";
 import { ago } from "@/lib/format";
 
 // Settings of this company (saas-web-ui 2.3): General (name, time zone), Members (roles), Projects (name,
-// repository, branch, team), Access tokens (for the CLI and scripts) and your Account. Switching and adding
+// repository, branch, team), Integrations (Telegram), Access tokens (for the CLI and scripts) and your Account. Switching and adding
 // companies is in the company menu. The tab is in the address (?tab=members) so links and reloads land on it.
 const roleWords: Record<Role, string> = {
   owner: "Everything, including members and the company's name",
@@ -352,7 +353,7 @@ function Account() {
   );
 }
 
-const tabs = ["general", "members", "projects", "tokens", "account"] as const;
+const tabs = ["general", "members", "projects", "integrations", "tokens", "account"] as const;
 type Tab = (typeof tabs)[number];
 
 function SettingsPage() {
@@ -366,7 +367,7 @@ function SettingsPage() {
   const role = info.data.role;
   const manage = canManage(role);
   const visible = tabs.filter((t) => t !== "tokens" || manage);
-  const words: Record<Tab, string> = { general: "General", members: "Members", projects: "Projects", tokens: "Tokens", account: "Account" };
+  const words: Record<Tab, string> = { general: "General", members: "Members", projects: "Projects", integrations: "Integrations", tokens: "Tokens", account: "Account" };
   return (
     <>
       <PageHeader title="Settings" description={<>{info.data.name} · your role: <span className="font-medium capitalize">{role}</span> ({roleWords[role].toLowerCase()})</>} />
@@ -377,6 +378,11 @@ function SettingsPage() {
         <TabsContent value="general"><General role={role} /></TabsContent>
         <TabsContent value="members"><Members role={role} /></TabsContent>
         <TabsContent value="projects"><Projects role={role} /></TabsContent>
+        <TabsContent value="integrations">
+          <Section title="Telegram" icon={MessageCircle} description="Questions, alerts and the daily digest in Telegram, answered from there.">
+            <TelegramSettings manage={manage} />
+          </Section>
+        </TabsContent>
         {manage && <TabsContent value="tokens"><Tokens /></TabsContent>}
         <TabsContent value="account"><Account /></TabsContent>
       </Tabs>

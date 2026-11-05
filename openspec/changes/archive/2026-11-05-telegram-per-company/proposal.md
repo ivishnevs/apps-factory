@@ -1,5 +1,4 @@
-Status: decided 2026-11-05, ready to implement (open details have defaults, see the end). Nothing is
-implemented.
+Status: done 2026-11-05 (decided by the owner the same day; open details took their defaults).
 
 ## Why
 
@@ -19,8 +18,8 @@ text goes to "the lead of the project's team", which is ambiguous with more than
 - **Per person.** Each member binds their own private chat (Settings → Integrations → "Connect Telegram" gives a
   link `t.me/<bot>?start=<code>`, valid 15 minutes). What a person receives follows their role: questions and
   escalations that reach the owner go to owners (and admins when the escalation names them); messages an agent
-  addresses to a person go to that person; everyone may turn the daily digest on or off. `/stop` in the chat or
-  "Disconnect" in the web unbinds.
+  addresses to a person go to that person; everyone may turn the daily digest on or off. `/disconnect` in the chat
+  or "Disconnect" in the web unbinds (`/stop` stays the kill switch, owners and admins).
 - **Webhooks, not polling.** Each company's bot gets a webhook `https://<core>/telegram/<company>/<secret>` set by
   Core when the token is saved; one Core serves any number of bots without a poller each.
 - **Several managers in one chat** (the question the owner raised):
