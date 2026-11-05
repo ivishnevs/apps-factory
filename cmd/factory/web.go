@@ -123,5 +123,15 @@ func webPage(r *http.Request) bool {
 			return true
 		}
 	}
+	// A browser opening any other address (a link, a typo) gets the web's page or its "not found", not Core's 401;
+	// API clients, nodes and the sign-in never ask for HTML on these.
+	if strings.Contains(r.Header.Get("Accept"), "text/html") && r.Header.Get("Signature-Input") == "" && r.Header.Get("Authorization") == "" {
+		for _, prefix := range []string{"/api/", "/auth/", "/downloads/", "/agent/"} {
+			if strings.HasPrefix(p, prefix) {
+				return false
+			}
+		}
+		return p != "/install.sh" && p != "/health"
+	}
 	return false
 }

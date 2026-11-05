@@ -115,6 +115,20 @@ func TestWebPagesThroughCore(t *testing.T) {
 			t.Fatal("Core route went to the web UI:", p)
 		}
 	}
+	// A browser's unknown address gets the web (its not-found page); an API client's gets Core.
+	for path, web := range map[string]bool{"/nope": true, "/tasks": true, "/install.sh": false, "/auth/providers": false} {
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if strings.HasPrefix(string(b), "page ") != web {
+			t.Fatal("browser", path, string(b))
+		}
+	}
 	res, err := http.Post(srv.URL+"/c/default", "text/plain", nil)
 	if err != nil {
 		t.Fatal(err)
