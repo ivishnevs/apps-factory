@@ -15,7 +15,8 @@
 ## 3. Security
 
 - [ ] 3.1 Security review of the public surface; findings fixed.
-- [ ] 3.2 Dependency update pass (Go, web, Claude worker, Dex image).
+- [ ] 3.2 `connector-trust` done (runs confined, local policy, signed releases, Security page, pentest).
+- [ ] 3.3 Dependency update pass (Go, web, Claude worker, Dex image).
 
 ## 4. Legal and data
 
