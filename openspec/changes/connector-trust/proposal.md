@@ -61,8 +61,9 @@ An honest look at today (2026-11-05):
   remove, and how to report a vulnerability (security contact, later a bug bounty).
 - **In the product:** the install step and the connect page say "outgoing connections only, runs confined to your
   project folders, you can pause or remove it any time", with a link to the details.
-- **Independent check:** an external penetration test of Core and the connector before the public launch, with a
-  summary published (`saas-release-readiness`).
+- **Security testing by AI agents** (owner's decision): a red-team run against the sandbox Core and a connector
+  before each release — the public routes, connector sign-in, invitations, and malicious repositories trying to
+  escape the sandbox — with the cases kept as regression tests and a summary published.
 - **No machine at all:** cloud connectors (`hosted-connectors`) for people who do not want anything installed.
 
 ## Decisions needed
@@ -71,8 +72,10 @@ An honest look at today (2026-11-05):
    project? (Some existing flows that touch files outside the worktree would need the opt-in.)
 2. Isolated mode (container / VM): build it now as an option, or after the sandbox default?
 3. Open the connector's source (proposed) — and under which license?
-4. Apple Developer account for signing and notarization ($99/year) and a code-signing setup for Linux.
-5. Budget and timing for an external penetration test before launch.
+4. Signing: the owner has an Apple Developer account (2026-11-05). Binaries installed with curl are not
+   quarantined, so signing is for trust now and required for a downloadable .pkg/.dmg and the Mac app later.
+5. Decided 2026-11-05: the penetration test is done by AI agents (a security team of our own, repeated before
+   releases, prompt-injection cases included); an independent test may follow for enterprise customers.
 
 ## Impact
 
