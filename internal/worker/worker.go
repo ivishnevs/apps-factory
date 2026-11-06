@@ -606,6 +606,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				launch.Env = setEnv(launch.Env, "FACTORY_CONVERSATION", "1")
 				vars = append(vars, "FACTORY_CONVERSATION")
 			}
+			if skillsRoot != "" {
+				// factory_skills_read tells the agent where the skill's scripts are (SkillsRoot/<name>).
+				launch.Env = setEnv(launch.Env, "FACTORY_SKILLS_DIR", skillsRoot)
+				vars = append(vars, "FACTORY_SKILLS_DIR")
+			}
 			if wt != nil {
 				scan, _ := json.Marshal(w.Worktrees.ScanCommand())
 				launch.Env = setEnv(launch.Env, "FACTORY_SCAN_COMMAND", string(scan))

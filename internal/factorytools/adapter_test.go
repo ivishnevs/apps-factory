@@ -311,3 +311,34 @@ func TestAdapterFactsOutsideARepository(t *testing.T) {
 		t.Fatal("facts of a conversation run", f, err)
 	}
 }
+
+// TestSkillsReadLocalDir: factory_skills_read answers the skill's directory on the node (local_dir), where
+// its scripts are; a name that is not one directory, or a skill the node did not stage, gets none.
+func TestSkillsReadLocalDir(t *testing.T) {
+	f, srv := newFakeCore(t)
+	f.handlers["/agent/call"] = func(int) (int, string, string) { return 200, `{"name":"blender","content":"# Blender"}`, "" }
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "blender", "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &Adapter{URL: srv.URL, Token: "run.tok", SkillsDir: root}
+	read := func(skill string) map[string]any {
+		v, err := a.Call(context.Background(), Call{Name: "factory_skills_read", Arguments: map[string]any{"skill": skill}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.(map[string]any)
+	}
+	if v := read("blender"); v["local_dir"] != filepath.Join(root, "blender") || v["content"] != "# Blender" {
+		t.Fatal(v)
+	}
+	for _, skill := range []string{"other", "../blender", ".."} {
+		if v := read(skill); v["local_dir"] != nil {
+			t.Fatal(skill, v)
+		}
+	}
+	a.SkillsDir = ""
+	if v := read("blender"); v["local_dir"] != nil {
+		t.Fatal(v)
+	}
+}
