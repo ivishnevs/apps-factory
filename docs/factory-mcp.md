@@ -27,7 +27,6 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 | factory_task_accept / reject | factory.task.review | Another agent's IN_REVIEW work; rejection needs feedback |
 | factory_artifact_register / list / get / request_approval | factory.artifact.register / list / get / request_approval | Immutable artifact versions and owner content approval |
 | factory_owner_request_approval / factory_approval_get | factory.owner.request_approval / factory.approval.get | Exact action approval and scoped status |
-| factory_skills_list / search / read | factory.skills.list / search / read | Metadata or lazy confined resource |
 
 With explicit exits on (`FACTORY_EXPLICIT_EXITS=1`, see below) `factory_task_submit`, `factory_task_accept` and
 `factory_task_reject` leave the list; the exit tools and, for agents with authority, the directive tool join it:

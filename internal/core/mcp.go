@@ -356,47 +356,6 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 			}
 		}
 	}
-	if strings.HasPrefix(p.Name, "factory_skills_") {
-		reg := c.cat(c.companyFrom(r)).Skills
-		if reg == nil {
-			http.Error(w, "skill registry unavailable", 503)
-			return
-		}
-		available := []string{}
-		for _, s := range snapshot.AvailableSkills {
-			for _, v := range current.AvailableSkills {
-				if s == v {
-					available = append(available, s)
-					break
-				}
-			}
-		}
-		if p.Name == "factory_skills_read" {
-			skill := args["skill"].(string)
-			found := false
-			for _, s := range available {
-				if s == skill {
-					found = true
-				}
-			}
-			if !found {
-				http.Error(w, "skill not available to run", 403)
-				return
-			}
-			resource, _ := args["resource"].(string)
-			content, err := c.skillFile(r.Context(), c.companyFrom(r), skill, resource)
-			if err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
-			write(w, map[string]string{"name": skill, "content": content})
-			return
-		}
-		q, _ := args["q"].(string)
-		category, _ := args["category"].(string)
-		write(w, reg.Entries(available, q, category))
-		return
-	}
 	if p.Name == "factory_settings_get" {
 		// Read-only, for the run's own company and project only.
 		scope, _ := args["scope"].(string)

@@ -35,7 +35,6 @@ def run(text, session=''):
             if with_mcp:
                 calls = api('GET', '/runs/' + spec['id'] + '/tool-calls')
                 assert any(c['tool'] == 'factory_project_get' and c['status'] == 200 for c in calls), calls
-                assert any(c['tool'] == 'factory_skills_read' and c['status'] == 200 for c in calls), calls
             print(json.dumps({'run_id': spec['id'], 'status': saved['status'],
                 'session_id': saved['session_id'], 'result': saved['result'], 'events': len(events)}))
             return saved
@@ -44,7 +43,7 @@ def run(text, session=''):
 
 if with_mcp:
     api('POST', '/projects', {'id': project, 'name': project, 'workspace': str(workspace)})
-prefix = 'Use only Factory MCP. Read the current project with factory_project_get and openspec references/conventions.md with factory_skills_read. Then reply with exactly ' if with_mcp else 'Reply with exactly '
+prefix = 'Use only Factory MCP. Read the current project with factory_project_get . Then reply with exactly ' if with_mcp else 'Reply with exactly '
 first = run(prefix + ('FOUNDATION_OK. Do not modify files.' if with_mcp else 'FOUNDATION_OK. Do not use tools or modify files.'))
 assert (first['result'].strip().endswith('FOUNDATION_OK') if with_mcp else first['result'].strip() == 'FOUNDATION_OK'), first['result']
 second = run(prefix + ('RESUME_OK. Do not modify files.' if with_mcp else 'RESUME_OK. Do not use tools or modify files.'), first['session_id'])

@@ -44,9 +44,6 @@ type Adapter struct {
 	RetryBase time.Duration
 	// Redact are credential values the node knows (FACTORY_REDACT_FILE); attachments are uploaded without them.
 	Redact []string
-	// SkillsDir holds this run's skills as the node staged them, SkillsDir/<name> with their scripts and
-	// references (FACTORY_SKILLS_DIR); factory_skills_read answers the skill's directory as local_dir.
-	SkillsDir string
 
 	mu      sync.Mutex
 	ack     int64
@@ -177,27 +174,7 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 	if err = json.Unmarshal(b, &v); err != nil {
 		return string(b), nil
 	}
-	if c.Name == "factory_skills_read" {
-		a.localSkill(v, c.Arguments)
-	}
 	return v, nil
-}
-
-// localSkill adds the skill's directory on this node (local_dir) to a factory_skills_read answer: Core
-// serves the text, while the scripts and references SKILL.md names are files the run executes from that
-// directory (an agent that does not know it searched the whole disk for them).
-func (a *Adapter) localSkill(v any, args map[string]any) {
-	answer, ok := v.(map[string]any)
-	name, _ := args["skill"].(string)
-	if !ok || a.SkillsDir == "" || name == "" || name != filepath.Base(name) || name == "." || name == ".." {
-		return
-	}
-	dir := filepath.Join(a.SkillsDir, name)
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return
-	}
-	answer["local_dir"] = dir
-	answer["local_dir_note"] = "This skill's files (SKILL.md, scripts/, references/) are under local_dir on this machine; paths in SKILL.md are relative to it. Run its scripts from there; do not search the disk for them."
 }
 
 type exitRefusal struct {
@@ -580,7 +557,6 @@ func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 			return nil, fmt.Errorf("FACTORY_REDACT_FILE: %w", err)
 		}
 	}
-	a.SkillsDir = getenv("FACTORY_SKILLS_DIR")
 	if a.Workdir == "" {
 		a.Workdir, _ = os.Getwd()
 	}

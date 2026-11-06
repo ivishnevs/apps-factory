@@ -128,6 +128,10 @@ func TestProfilePolicyContext(t *testing.T) {
 	if strings.Contains(a.Instructions, "SECRET_SKILL_BODY") || strings.Contains(a.Instructions, "Only for managers") {
 		t.Fatal("eager skill loading or wrong role policy")
 	}
+	// Skills are opened natively in the runtime, from the skill's directory (native-skills-in-runs).
+	if !strings.Contains(a.Instructions, "never search the disk") || strings.Contains(a.Instructions, "factory skills read") {
+		t.Fatal(a.Instructions)
+	}
 	if !strings.Contains(a.Instructions, "First skill") || !strings.Contains(a.Instructions, "Never publish") {
 		t.Fatal("missing context")
 	}

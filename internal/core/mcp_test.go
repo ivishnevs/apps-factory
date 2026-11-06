@@ -147,11 +147,9 @@ func TestRunScopedMCP(t *testing.T) {
 		t.Fatal("approval bypass", w.Code, w.Body.String())
 	}
 	c.Agents["demo"] = a
-	if w = tool("skills_read", map[string]any{"skill": "openspec", "resource": "references/conventions.md"}); w.Code != 200 || !strings.Contains(w.Body.String(), "AGENT_CONFIG_OK") {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	if w = tool("skills_read", map[string]any{"skill": "openspec", "resource": "../../.env"}); w.Code != 400 {
-		t.Fatal("skill traversal", w.Code)
+	// Skills reach the runtime natively (native-skills-in-runs): runs have no skills tools.
+	if w = tool("skills_read", map[string]any{"skill": "openspec"}); w.Code != 400 {
+		t.Fatal("skills tool still served to runs", w.Code, w.Body.String())
 	}
 	// Submission is a draft while the runtime still holds the writer lock.
 	if w = tool("task_submit", map[string]any{"id": child.ID, "version": child.Version, "submission": map[string]any{"summary": "wrong task"}, "request_id": "wrong-submit"}); w.Code != 403 {

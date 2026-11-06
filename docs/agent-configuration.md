@@ -121,7 +121,8 @@ too).
 ## Runtime context
 
 Context contains the prompt, deduplicated applicable policy instructions, tool/approval settings,
-communication metadata and descriptions of available skills. Skill bodies are read on demand.
+communication metadata and descriptions of available skills. Skills are installed in the runtime for the run and
+opened natively (docs/skills.md).
 Core checks skill operations and named-agent task operations with the resolved policy evaluator.
 Factory MCP binds agent operations to run credentials and checks captured plus current permissions.
 See factory-mcp.md. Trusted agents have full host access, so shell bypass remains possible.

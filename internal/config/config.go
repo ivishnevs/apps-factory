@@ -775,7 +775,7 @@ func (c *Catalog) finish(src source, a *Agent) error {
 		ctx.WriteString("Projects: you may start a new project with factory_project_create (project_id, name, description, repo_mode local|github|existing). Every call needs the owner's approval of that exact call: request it with factory_owner_request_approval and finish the turn; nothing is created before approval. Then create the project's first tasks with factory_task_create and its project_id.\n")
 	}
 	if len(a.AvailableSkills) > 0 {
-		ctx.WriteString("Available skills (metadata only; read on demand with factory skills read AGENT SKILL [RESOURCE]):\n")
+		ctx.WriteString("Your skills are installed for this run in your runtime's own skills (Claude Code: the Skill tool; Codex: your skills list); open one there when it applies. A skill's scripts and references are files in that skill's directory, shown when you open it: paths in SKILL.md are relative to it, run its scripts from there, and never search the disk for them. Skills:\n")
 		for _, s := range c.Skills.Entries(a.AvailableSkills, "", "") {
 			fmt.Fprintf(&ctx, "- %s: %s (categories: %s)\n", s.Name, s.Description, strings.Join(s.Categories, ", "))
 		}

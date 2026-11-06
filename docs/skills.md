@@ -69,9 +69,9 @@ factory skills read demo openspec
 factory skills read demo openspec references/conventions.md
 ```
 
-Owner CLI reads the authenticated Core API using FACTORY_URL/FACTORY_TOKEN. Native Codex uses
-Factory MCP tools factory_skills_list/search/read with a run-scoped credential. Worker injects
-only skill metadata and tool instructions, never the owner token. See factory-mcp.md.
+Owner CLI and the web read the authenticated Core API using FACTORY_URL/FACTORY_TOKEN. Runs do not read skills
+through Core: their skills reach the runtime natively (below), and the run instructions list the skills (name,
+description) and say that a skill's scripts and references are in the skill's directory (native-skills-in-runs).
 
 HTTP endpoints: GET /agents/{agent}/skills (optional q/category query),
 GET /agents/{agent}/skills/{skill} (optional resource query, defaults to SKILL.md).
@@ -86,4 +86,6 @@ Runs on a node get their offered skills from Core: Core pins each skill's hash i
 that run) into its store `<state_dir>/skills/store/sha256-…` (verified, read-only, removed after 14 days unused) and
 copies the run's skills into a per-run view the drivers install from. A hash that does not verify, or that Core does
 not hold, ends the run `setup_failed` before the runtime starts; a skill without a pin (a Core without a skill index)
-is skipped with a warning. Reads through Core (`factory_skills_read`) serve the pinned version from Core's blobs.
+is skipped with a warning. Claude Code reads the view as project skills (`<cwd>/.claude/skills/<name>`, its Skill tool
+shows the skill's directory); Codex gets the view as an extra skills root (`skills/extraRoots/set`) and lists each skill
+with its path. Factory MCP offers runs no skills tools.

@@ -52,9 +52,6 @@ func Definitions() []Tool {
 	for _, action := range []string{"accept", "reject"} {
 		add("task_"+action, "task.review", "Review another agent's IN_REVIEW task: "+action+". Rejection requires feedback.", map[string]any{"id": s(), "version": n, "feedback": s(), "request_id": s()}, "id", "version", "request_id")
 	}
-	add("skills_list", "skills.list", "List skill metadata available to this agent.", map[string]any{})
-	add("skills_search", "skills.search", "Search available skill metadata.", map[string]any{"q": s(), "category": s()})
-	add("skills_read", "skills.read", "Read SKILL.md or a confined skill resource lazily. The answer's local_dir is the skill's directory on this machine: its scripts and references are there.", map[string]any{"skill": s(), "resource": s()}, "skill")
 	question := map[string]any{"type": "object", "properties": map[string]any{"id": s(), "type": s(), "question": s(), "options": arr}, "required": []string{"id", "type", "question"}, "additionalProperties": false}
 	messageProps := func() map[string]any {
 		return map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "blocking": map[string]any{"type": "boolean"}, "questions": map[string]any{"type": "array", "items": question}, "timeout_seconds": n, "request_id": s()}

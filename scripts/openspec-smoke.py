@@ -107,7 +107,7 @@ except urllib.error.HTTPError as error:
 else:
     raise AssertionError('Invalid change name accepted')
 
-plan = create_task('manager', 'OPENSPEC_PLAN', ('This is a bounded OpenSpec scenario. Read the shared openspec skill via factory_skills_read. '
+plan = create_task('manager', 'OPENSPEC_PLAN', ('This is a bounded OpenSpec scenario. Open the shared openspec skill from your runtime's skills. '
     'OpenSpec lives in this repository under openspec/ (already initialized). Create exactly one change add-greeting with the installed official openspec CLI '
     '(inspect openspec new change --help first). Author proposal.md (sections Why, What Changes, Capabilities with New Capabilities greeting, Impact), '
     'specs/greeting/spec.md (## ADDED Requirements, ### Requirement: Greeting file, a SHALL requirement that greeting.txt equals HELLO_OPENSPEC followed by one newline, '
