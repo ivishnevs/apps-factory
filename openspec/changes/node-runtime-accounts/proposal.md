@@ -12,8 +12,6 @@ one laptop — every next agent run silently uses it:
 - the company's work spends another account's limits (an employer's Team plan for a personal company), which may
   break that account's terms;
 - the person's own sessions and the agents share and exhaust one account's limits;
-- Factory's quota tracking (`quota_key: claude-subscription`) mixes two accounts under one key; a rate limit of
-  one is attributed to the other;
 - nobody is told: the owner learns from a bill or a limit.
 
 ## What Changes
@@ -31,17 +29,15 @@ one laptop — every next agent run silently uses it:
    pauses that runtime on the node (its runs stay queued, other runtimes go on) and puts an item in the owner's
    Inbox and Telegram: "Claude on mac-main now uses organisation X (Team), it used your personal Max. Continue with
    it / Keep paused". Continuing records the new fingerprint. A logged-out runtime is reported the same way.
-3. **Quota keys follow the account.** Rate-limit state and usage are kept per account fingerprint, so limits of two
-   accounts never mix; the Costs page shows usage per account.
 
-Not in this change (later, with connector-trust / saas-billing): a company choosing which account its work may use
-on a shared node, several accounts per runtime on one node.
+Not in this change (owner 2026-11-06: the node's own login plus the change check are enough): limits and usage per
+account; a company choosing which account its work may use on a shared node; several accounts per runtime on one node.
 
 ## Impact
 
 Node: runtime config directories and login command, account fingerprint and per-run check, pause of one runtime,
 doctor; installer migration. Drivers: Claude shim and Codex app-server get the config directories. Core: Inbox item
-and Telegram notice for an account change, quota keys per account, Connectors page. Spec: `runtime-drivers`.
+and Telegram notice for an account change, Connectors page. Spec: `runtime-drivers`.
 Related: `connector-trust` (what the node may do as the user), `hosted-connectors` (own vs cloud work).
 
 ## Open points

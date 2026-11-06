@@ -17,5 +17,4 @@
 - [ ] 3.1 Fingerprint per runtime (plan, organisation id, email hash) recorded at login / first run.
 - [ ] 3.2 Check before each run; a change or logout pauses that runtime on the node with the reason.
 - [ ] 3.3 Core: Inbox item and Telegram notice with Continue / Keep paused; Continue records the new fingerprint.
-- [ ] 3.4 Quota keys and rate-limit state per account fingerprint; Costs per account.
-- [ ] 3.5 Tests: account switch pauses only that runtime; continue resumes; logout reported.
+- [ ] 3.4 Tests: account switch pauses only that runtime; continue resumes; logout reported.

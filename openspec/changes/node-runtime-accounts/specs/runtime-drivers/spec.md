@@ -18,7 +18,3 @@ owner which account it is now, with a choice to continue on it or keep it paused
 - **WHEN** the Claude account of a node changes from a personal plan to an organisation's plan
 - **THEN** no Claude run SHALL start on that node until the owner continues, and the owner SHALL get an Inbox item
   naming the new plan and organisation
-
-#### Scenario: Limits per account
-- **WHEN** one account hits its rate limit
-- **THEN** the limit SHALL be recorded for that account only
