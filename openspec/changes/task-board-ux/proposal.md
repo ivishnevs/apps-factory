@@ -1,5 +1,6 @@
 Status: proposed 2026-11-06 by the owner (open a task in a modal, review the board's UX); review findings below,
-nothing implemented. Decisions marked "owner" are open.
+nothing implemented. Owner decisions 2026-11-06: the task panel is postponed (the task page stays as it is for now);
+instead of a priority scale and Waiting grouping, the columns are renamed (see "Owner decisions").
 
 ## Why
 
@@ -49,7 +50,8 @@ in the way:
   running tasks, project writer, node slots, unpushed work on a node) instead of a free-text detail; the web says
   "gameplay-dev runs 2 of 2 · starts when one ends" with links to the running tasks. "All nodes busy" only when the
   nodes are full.
-- **Blocked column (owner 2026-11-06).** A new column between Backlog and Waiting for tasks that will not move
+- **A column for tasks that need someone (owner 2026-11-06; named Blocked before Waiting was renamed to Blocked,
+  now "Needs action" proposed).** A new column for tasks that will not move
   without someone acting: waiting on you or another person (decision, approval, answer, review by people), escalated,
   parked for inspection, a failed run awaiting a decision, status BLOCKED, no connector can run it or its connector is
   offline, no assignee, paused. Each card says who has to act and what to do; yours stay amber and first. Waiting
@@ -70,3 +72,14 @@ in the way:
 Web: tasks board and task view (`web/src/app/c/[company]/tasks`, `components/app/tasks`, `lib/humanize`), routing
 (intercepted route for the panel). Core: structured capacity reason in the task verdict and overview. Spec:
 `owner-web` (board and task view). Related: `human-review-visibility` (who a review waits on), `team-page-clarity`.
+
+## Owner decisions (2026-11-06)
+
+- **Task over the board: postponed.** The task keeps opening as its own page for now; "Task opens over the board" and
+  "Instant open" are not in this round.
+- **Rename the columns now** (web, TUI, Telegram, Home; the engine statuses and API values stay as they are):
+  Ready → **To do**, Waiting → **Blocked**, Running → **In progress**. Backlog, In review and Done stay.
+  The column list becomes Backlog, Blocked, To do, In progress, In review, Done.
+- **Priority scale and Waiting grouping: not now.**
+- Open (owner): with Waiting renamed to Blocked, the proposed separate column for tasks that need someone to act
+  needs its own name (proposed: **Needs action**) or is folded into Blocked with the "needs you" marking only.

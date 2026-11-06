@@ -6,12 +6,13 @@
 
 ## 2. Catalog and node
 
-- [ ] 2.1 `spec.runtime.context_window` (agent and profile, k/M suffixes), validation per provider; runtime option
-      `context_window`; tests.
+- [ ] 2.1 `spec.runtime.context_window` required (agent or profile; k/M suffixes or `max`), validation per provider;
+      runtime option `context_window`; tests including a missing window.
+- [ ] 2.3 One-time migration: write `max` explicitly on every profile of existing catalogs.
 - [ ] 2.2 Claude driver: the run's environment; Codex driver: thread config override; tests.
 
 ## 3. Defaults and visibility
 
-- [ ] 3.1 Preset defaults (owner confirms numbers); update the game team's catalog.
+- [ ] 3.1 Presets, wizard and editor write the maximum explicitly; the editor suggests lower values per role.
 - [ ] 3.2 Context size against the window in the chat and runs; compaction events in the conversation.
 - [ ] 3.3 Measure the producer's conversation before and after (context per call, cache-read tokens per run).

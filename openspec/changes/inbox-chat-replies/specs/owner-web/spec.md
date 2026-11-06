@@ -7,3 +7,7 @@ An Inbox item that belongs to a conversation SHALL offer a reply to that convers
 #### Scenario: Lead replies with questions
 - **WHEN** the producer's reply in the chat asks the owner to choose between options
 - **THEN** the owner SHALL be able to answer it from the Inbox item, and the link SHALL open that conversation
+
+#### Scenario: Answered in the chat
+- **WHEN** the owner answers the producer's question in the chat instead of the Inbox
+- **THEN** the Inbox item SHALL disappear

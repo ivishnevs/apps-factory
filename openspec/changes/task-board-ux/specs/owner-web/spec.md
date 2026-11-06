@@ -1,40 +1,34 @@
 ## ADDED Requirements
 
-### Requirement: Task opens over the board
-The web SHALL open a task from the board over the board (a panel on desktop, a full-screen sheet on phone) with a
-shareable `/tasks/{id}` URL, and closing it SHALL return to the board exactly as it was (filters, open columns,
-scroll). Reloading or opening the URL directly SHALL show the task's full page.
-
-#### Scenario: Looking through tasks
-- **WHEN** the owner opens a card in the Waiting column, reads it and presses Esc
-- **THEN** the board SHALL show the same columns, filters and scroll position as before, with no reload
-
-#### Scenario: Next task
-- **WHEN** the owner presses next in an open task
-- **THEN** the panel SHALL show the next task of the same column
-
 ### Requirement: One status vocabulary
-The board's column for a task SHALL be the status shown for it everywhere in the web (card, task panel, task page,
-Home).
+The board's column for a task SHALL be the status shown for it everywhere in the web (card, task page,
+Home, TUI, Telegram).
+
+The columns SHALL be Backlog, Blocked, To do, In progress, In review and Done.
 
 #### Scenario: Task waiting for dependencies
 - **WHEN** a READY task waits for its dependencies
-- **THEN** its card, panel and page SHALL all call it Waiting and name the task it waits on, and the task header
-  SHALL NOT show "ready"
+- **THEN** its card and page SHALL call it Blocked and name the task it waits on, and the task header SHALL NOT
+  show "ready"
 
-### Requirement: Blocked apart from Waiting
+#### Scenario: Runnable task
+- **WHEN** a READY task can start
+- **THEN** it SHALL be shown as To do
+
+### Requirement: Needs action apart from Blocked
 The board SHALL show tasks that cannot move without someone acting (a person's decision, approval, answer or review;
-an escalation; a run to inspect; status BLOCKED; no capable or online connector; no assignee; a pause) in a Blocked
-column, each with who has to act and what to do, and SHALL keep in Waiting only tasks that start on their own in
-their turn (dependencies, artifacts in progress, timer waits, questions to agents).
+an escalation; a run to inspect; status BLOCKED; no capable or online connector; no assignee; a pause) apart from
+Blocked (the column name is open: Needs action proposed), each with who has to act and what to do, and SHALL keep in
+Blocked only tasks that start on their own in their turn (dependencies, artifacts in progress, timer waits, questions
+to agents).
 
 #### Scenario: Escalated task
 - **WHEN** a task is parked by an escalation to the owner
-- **THEN** it SHALL be in Blocked, first, marked as waiting on you, with what to do
+- **THEN** it SHALL be shown as needing action, first, marked as waiting on you, with what to do
 
 #### Scenario: Dependency wait
 - **WHEN** a task waits only for another task to finish
-- **THEN** it SHALL be in Waiting, not Blocked
+- **THEN** it SHALL be in Blocked, not among the tasks needing action
 
 ### Requirement: Capacity reasons name the limit
 A queued task SHALL say which limit holds it: the agent's concurrent-run limit (with the agent and its running

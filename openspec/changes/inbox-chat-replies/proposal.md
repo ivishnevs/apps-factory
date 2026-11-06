@@ -1,4 +1,5 @@
-Status: problem recorded 2026-11-05 by the owner; to be designed. Nothing implemented.
+Status: problem recorded 2026-11-05 by the owner; owner decided 2026-11-06 together with `decision-approval-ux`:
+questions come in the chat, the Inbox lists only what is open and clears when answered anywhere. Nothing implemented.
 
 ## Why
 
@@ -33,3 +34,9 @@ where they see them.
 
 Web Inbox cards and chat deep links, agent messaging instructions (ask vs answer), possibly Core detecting
 questions in answers. Related: `decision-approval-ux`, `telegram-reply-routing`, `lead-brainstorm-mode`.
+
+## Owner decision (2026-11-06)
+
+Questions and decisions to approve come from the lead in the chat. The Inbox is the list of what is open now
+(unanswered questions, undecided decisions), answerable in place as today; an answer in the chat or the Inbox removes
+the item. Read-only "To read" items for answered conversations are not kept: what needs no answer stays in the chat.

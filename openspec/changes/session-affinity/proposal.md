@@ -1,5 +1,5 @@
-Status: proposed 2026-11-06 by the owner (do not split an agent's session across nodes; release it when its node
-is gone). Nothing implemented.
+Status: proposed 2026-11-06 by the owner; owner decided 2026-11-06: the lock is released only when its node is
+inactive beyond a timeout, never because the node is busy. Nothing implemented.
 
 ## Why
 
@@ -21,15 +21,17 @@ Today only unpushed work pins a task to a node (task-worktrees: a hard pin, rele
   node that holds that session. Core records the session's node with the session (the node of the run that produced
   it). While the affinity holds, other nodes do not get the run in their offers and a claim from them is refused
   with retry `affinity`; the holder takes it when it has a free slot.
-- **Released when the holder cannot take it.** The affinity is released, and any capable node may take the run
-  (starting a fresh session with the existing note, and the affinity moves to that node), when the holder is:
-  offline beyond the node offline timeout, removed, paused, no longer able to run the agent (driver, labels), or
-  when the run has waited for it longer than the affinity wait (default 10 minutes; per company setting, owner to
-  confirm). A busy holder is waited for up to that time — a short wait keeps the session, a long one costs more than
-  a fresh start.
+- **Released only when the holder is inactive, after a timeout (owner 2026-11-06).** The first node that claims
+  an agent's run on a task locks that (agent, task) pair — and a conversation — to itself. Every later run of the
+  pair (rework, re-review, the next message) can be taken only by that node while it is active, however long it is
+  busy: a busy node is waited for, the lock is not released for it. When the node becomes inactive (offline, its
+  heartbeat lost, paused, removed, or no longer able to run the agent), a release timer starts. If the node is active
+  again before the timer ends, the timer is cleared and the lock stays. If it is still inactive when the timer ends,
+  the lock is released: any capable node may take the run, starts a fresh session with the existing note, and the
+  lock moves to it.
 - **Two strengths, named like Kubernetes node affinity.** The existing pin of unpushed work stays *required*
   (released only by the owner's `reset-workspace`, since the work exists only on that node); session affinity is
-  *preferred* (released automatically as above). Both are shown on the task: "Waiting for mac-main, it holds this
+  *preferred* in that it is released automatically after the inactivity timeout. Both are shown on the task: "Waiting for mac-main, it holds this
   agent's session (up to 8 min more)" / "Its unpushed work is on mac-main".
 - **New sessions go anywhere.** A run without a session to continue (a task's first run, a new agent on it, a
   reset) has no affinity.
@@ -42,7 +44,7 @@ session, node lease.
 ## Impact
 
 Core: session's node recorded with the run's session, offers and claim filtered by affinity with release rules,
-reason `affinity` in the task verdict, company setting for the wait. Node: nothing new (it already reports whether
+reason `affinity` in the task verdict, inactivity timer per lock, company setting for the release timeout. Node: nothing new (it already reports whether
 it resumed). Web and TUI: the reason on the task, resumed/fresh on runs. Specs: `node-transport` (offers and claim).
 Related: `task-worktrees` (required pin), `node-runtime-accounts` (sessions belong to a node's runtime login),
 `agent-context-window`.

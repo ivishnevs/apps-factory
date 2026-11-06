@@ -53,8 +53,7 @@ taken in one go; the Inbox should only be a safety net, so important decisions a
   approve action in the chat counts as the owner's authorization); it does not raise a new approval asking the same
   thing again. A separate approval is only for what the answer did not cover.
 - **Inbox as a safety net, not a second channel.** Pending questions and decisions are mirrored in the Inbox only
-  so they are not lost; answering or deciding in the chat clears them there, and the Inbox shows a short history of
-  decisions taken in the chat so they can be found later.
+  so they are not lost; answering or deciding in the chat clears them there, and the Inbox keeps no history (owner 2026-11-06).
 - **Always in the chat.** Proposals and their discussion live in the person's chat with the lead (not only in an
   escalation thread or an Inbox notification); the Inbox is the to-do list that points to it.
 - Whatever is chosen: one pending item per decision (approving in one place clears it everywhere), the agent is
@@ -81,3 +80,11 @@ run's question) could not be decided at all ("decided, expired or changed meanwh
 Decision tools (propose may create the approval), Inbox and chat UI (actions on proposals), Telegram buttons,
 `reports-decisions` spec wording. Related: `human-review-visibility`, `lead-brainstorm-mode`,
 `telegram-reply-routing`.
+
+## Owner decision (2026-11-06): the chat is the channel, the Inbox is what is open now
+
+- The manager (lead) sends questions and decisions to approve **in the chat** with the person.
+- The Inbox is a feed of what is **open now**: unanswered questions and undecided decisions. Each item can be
+  answered or decided right there, as today.
+- Answering or deciding **anywhere** (in the chat or in the Inbox) removes the item from the Inbox. The Inbox does
+  not accumulate history; the history is the chat and the decisions registry.

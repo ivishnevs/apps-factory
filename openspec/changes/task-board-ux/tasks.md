@@ -1,12 +1,14 @@
 ## 1. Decisions (owner)
 
-- [ ] 1.1 Side panel or centred modal for the task (side panel recommended).
-- [ ] 1.2 Priority: show rank within the project, or a fixed scale.
-- [ ] 1.3 Waiting: grouped sections or a filter; dependency waits collapsed by default.
+- [x] 1.1 Task panel postponed; the task page stays (owner 2026-11-06).
+- [x] 1.2 Priority scale: not now (owner 2026-11-06).
+- [x] 1.3 Waiting grouping: not now; columns renamed instead (owner 2026-11-06).
+- [ ] 1.5 Name of the "needs someone to act" column now that Waiting is Blocked (Needs action proposed), or fold it
+      into Blocked.
 - [x] 1.4 A Blocked column for tasks that need someone to act; Waiting only for what comes in its turn (owner
       2026-11-06).
 
-## 2. Task over the board
+## 2. Task over the board (postponed)
 
 - [ ] 2.1 Intercepted route `/tasks/{id}` opens the panel over the board; reload/share opens the full page.
 - [ ] 2.2 Panel renders from the board's data at once, fills details when loaded; prefetch on hover.
@@ -21,10 +23,11 @@
       the column, not the engine status.
 - [ ] 3.5 Blocked column: one shared classification (Core verdict or web model) of "needs someone to act" vs "comes
       in its turn"; board, phone bar, Home; tests for every reason.
-- [ ] 3.4 Priority mark with a scale per decision 1.2.
+- [ ] 3.4 Rename columns: Ready → To do, Waiting → Blocked, Running → In progress (web, TUI, Telegram, Home);
+      engine statuses unchanged.
 
 ## 4. Board content
 
-- [ ] 4.1 Waiting grouped by what it waits on per decision 1.3.
+- [ ] 4.1 (not now) Waiting grouped by what it waits on.
 - [ ] 4.2 Running cards with run time, last step and node.
 - [ ] 4.3 Header actions untruncated; UX pass on phone and desktop (focus, contrast, touch targets, empty/loading).

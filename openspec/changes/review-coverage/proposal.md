@@ -1,4 +1,5 @@
-Status: problem recorded 2026-11-05 by the owner (a blocker in practice); to be designed. Nothing implemented.
+Status: problem recorded 2026-11-05 by the owner (a blocker in practice); owner decided 2026-11-06: a hard gate,
+every task outside the backlog has a reviewer. Nothing implemented.
 
 ## Why
 
@@ -25,3 +26,18 @@ QA work".)
 
 Catalog loader validation (review coverage per agent), team presets and wizard, Core review resolution, web team
 page and board. Related: `human-review-visibility`, `team-page-clarity`, `people-attribution`.
+
+## Owner decision (2026-11-06): a hard gate on the task
+
+- **A reviewer is required on every task except in the backlog.** A task may lack a reviewer only while it is in
+  BACKLOG; it cannot be made ready (To do) without one, and no later status may lose it.
+- **Agents set it.** An agent that creates a task straight into ready or moves a task to ready must set the reviewer
+  (an agent or a person: the owner or a named member); Core refuses the call otherwise with a clear error naming the
+  missing reviewer. The review policy may suggest the reviewer (the tool's error and the brief say whom the policy
+  would choose), but the task carries it explicitly.
+- **People get the same error.** In the web and TUI, making a task ready without a reviewer is refused with "Reviewer
+  is required"; the new-task form and the task page have a reviewer field (prefilled from the policy's suggestion).
+- **Catalog validation stays as the second line:** agents not covered by a rule are warned about in the catalog, so
+  the suggestion exists, but the gate is on the task.
+- Existing open tasks without a reviewer: a one-time fill from the policy where it resolves one; the rest are listed
+  to the owner.

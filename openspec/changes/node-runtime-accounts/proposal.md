@@ -1,4 +1,4 @@
-Status: proposed 2026-11-06; the owner agreed to options 1 and 2 below. Nothing implemented.
+Status: accepted 2026-11-06 by the owner (options 1 and 2, confirmed again for the roadmap). Nothing implemented.
 
 ## Why
 

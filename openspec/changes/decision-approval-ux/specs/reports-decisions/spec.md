@@ -29,3 +29,12 @@ when they are answered or decided in the chat.
 - **WHEN** the owner answers the producer's question "bo3 or bo5?" with an explicit choice of bo3
 - **THEN** the decision bo3 SHALL be recorded with a reference to that answer and no approval asking to confirm bo3
   SHALL arrive in the Inbox
+
+### Requirement: Inbox holds only what is open
+Questions and decisions to approve SHALL be sent by the lead in the chat with the person; the Inbox SHALL list only
+those still unanswered or undecided, each answerable there, and an item SHALL leave the Inbox as soon as it is
+answered or decided in the chat or in the Inbox. The Inbox SHALL NOT keep answered or decided items as history.
+
+#### Scenario: Decided in the chat
+- **WHEN** the producer asks in the chat to approve a map rotation and the owner approves it in the chat
+- **THEN** the matching Inbox item SHALL disappear and nothing about it SHALL remain in the Inbox

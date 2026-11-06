@@ -1,5 +1,5 @@
-Status: proposed 2026-11-06 by the owner (give agents a context window of their own, not 1M for everyone).
-Nothing implemented.
+Status: proposed 2026-11-06 by the owner; owner decided 2026-11-06: the window is a required field, written
+explicitly (no implicit default). Nothing implemented.
 
 ## Why
 
@@ -16,15 +16,19 @@ tail. Most agents do not need 1M; some (a developer on a large task) may.
 
 ## What Changes
 
-- **Context window per agent.** `spec.runtime.context_window` (tokens, e.g. `200k`) in the catalog, on an agent or
-  its profile: the size at which the runtime compacts the session. Unset keeps the model's full window. Validated
-  against the provider (a minimum and the model's maximum).
+- **Context window per agent, required and explicit (owner 2026-11-06).** `spec.runtime.context_window` (tokens,
+  e.g. `200k`, or `max`) in the catalog, on an agent or its profile: the size at which the runtime compacts the
+  session. Every agent must resolve one; the catalog refuses an agent without it. There is no implicit default:
+  presets, the team wizard and the agent editor write the model's maximum explicitly (`max` or the number), so the
+  value is always visible and the owner lowers it where wanted. Existing catalogs are migrated once by writing the
+  maximum explicitly on each profile. Validated against the provider (a minimum and the model's maximum).
 - **The node applies it to every run.** Claude: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the run's environment (Claude
   Code clamps it to the model's window). Codex: the auto-compact token limit as a thread configuration override.
   The setting is per run process, so parallel runs of one agent each keep their own context under the same limit;
   on a resumed session the runtime compacts as soon as the session passes it, in whichever run that happens.
-- **Defaults in presets.** Conversations and leads 200k; QA, designers, artists 200k; developers 400k; the owner
-  changes any of them (owner to confirm the numbers). The game team's catalog is updated after confirmation.
+- **Presets start at the maximum.** Presets and new agents carry the model's maximum explicitly; lower values
+  (e.g. 200k for conversations and leads, 400k for developers) are the owner's choice per agent, suggested in the
+  editor, not applied silently.
 - **Visible context.** The chat and the agent's runs show the session's current context size against its window
   (the TUI already reads it from the runtimes, `internal/tui/ctxusage.go`), and a compaction appears in the
   conversation as an event ("context compacted: 966k → 58k").
