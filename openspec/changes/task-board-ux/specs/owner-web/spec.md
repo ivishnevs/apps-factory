@@ -19,7 +19,22 @@ Home).
 
 #### Scenario: Task waiting for dependencies
 - **WHEN** a READY task waits for its dependencies
-- **THEN** its card, panel and page SHALL all call it Waiting and name the task it waits on
+- **THEN** its card, panel and page SHALL all call it Waiting and name the task it waits on, and the task header
+  SHALL NOT show "ready"
+
+### Requirement: Blocked apart from Waiting
+The board SHALL show tasks that cannot move without someone acting (a person's decision, approval, answer or review;
+an escalation; a run to inspect; status BLOCKED; no capable or online connector; no assignee; a pause) in a Blocked
+column, each with who has to act and what to do, and SHALL keep in Waiting only tasks that start on their own in
+their turn (dependencies, artifacts in progress, timer waits, questions to agents).
+
+#### Scenario: Escalated task
+- **WHEN** a task is parked by an escalation to the owner
+- **THEN** it SHALL be in Blocked, first, marked as waiting on you, with what to do
+
+#### Scenario: Dependency wait
+- **WHEN** a task waits only for another task to finish
+- **THEN** it SHALL be in Waiting, not Blocked
 
 ### Requirement: Capacity reasons name the limit
 A queued task SHALL say which limit holds it: the agent's concurrent-run limit (with the agent and its running
