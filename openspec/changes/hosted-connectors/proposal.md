@@ -115,3 +115,14 @@ wizard choice), `saas-billing` (packs through the same provider, credits include
     credits, model usage is the company's own.
 - Open: the credit naming is now only a billing word (credits proposed); markup, packs and expiry, sizes and idle
   time, and the default "where a team works" stay as proposed until decided; the Sprites spike comes first.
+
+## Remaining decisions taken by Claude at the owner's request (2026-11-06)
+
+- **Credits** are the unit; retail markup ×1.33 over our cost (so 2,000 included credits ≈ $20 retail ≈ $15 cost).
+- **Order:** virtual nodes with the company's own token first (only machine time in credits: no model-cost risk for
+  us), then with our token (model usage in credits) once metering is proven.
+- **Packs:** $10, $25, $50; optional auto top-up when the balance falls under a threshold; bought credits expire
+  after 12 months, included monthly credits at the end of the month.
+- **Sizes:** Small (2 vCPU, 4 GB) and Large (4 vCPU, 8 GB, for builds and Blender); suspended after 10 minutes idle.
+- **Default placement:** a team works on its own nodes only; overflow to virtual nodes is an explicit opt-in per team.
+- All of it is checked against the Fly.io Sprites spike (0.2) and may change with what it shows.

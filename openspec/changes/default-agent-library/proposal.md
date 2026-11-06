@@ -1,4 +1,5 @@
-Status: proposed 2026-11-05 by the owner; nothing implemented. The game studio (first real team) is the pilot.
+Status: direction decided 2026-11-06 by the owner (see "Decision"); the concrete presets are generated during
+implementation. Nothing implemented. The game studio (first real team) is the pilot.
 
 ## Why
 
@@ -45,3 +46,10 @@ equipped, and start.
 - License review for every vendored skill; attribution file in the release.
 - Related: `saas-release-readiness` (the library is part of the launch), `hosted-connectors` (presets that need no
   connector of one's own).
+
+## Decision (2026-11-06)
+
+The product ships a large, ready-configured catalog of skills and agents, and ready teams assembled from them. A
+person who does not want to deal with settings picks a ready team; one who does builds their own team by choosing
+agents from the catalog (and adjusting them). Which agents, skills and teams exactly is generated during
+implementation (by field, with the game studio as the pilot), not decided up front.

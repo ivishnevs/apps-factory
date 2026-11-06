@@ -70,3 +70,10 @@ on invitations; provider webhook route), the dispatcher (connectors over the lim
 - **Trial:** 14 days of Pro without a card.
 - **Yearly prices:** later.
 - Prices ($29 for Pro) and included credits remain placeholders.
+
+## Decisions (2026-11-06, later the same day)
+
+- **Prices for now:** Free $0 (1 own node, no invitations, no virtual nodes); Pro $29 / month (5 own nodes,
+  invitations, 2,000 credits a month for virtual nodes). Revisited before launch.
+- **On-prem: postponed as an idea.** Installing Core at the customer, its licence and especially its updates need
+  their own discussion and plan; launch plans are Free and Pro.

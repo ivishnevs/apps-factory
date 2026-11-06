@@ -1,4 +1,5 @@
-Status: idea recorded 2026-11-05 by the owner; to be designed. Nothing implemented in the product (done by hand for
+Status: decided 2026-11-06: capabilities are a required field of every agent (does / needs / produces / reviewed by).
+Idea recorded 2026-11-05 by the owner. Nothing implemented in the product (done by hand for
 the game team, catalog version 42).
 
 ## Why

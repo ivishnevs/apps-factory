@@ -1,6 +1,6 @@
 ## 1. Design
 
-- [ ] 1.1 Capabilities template (does / needs / produces / reviewed by); required or recommended; owner decides.
+- [x] 1.1 Required on every agent: does / needs / produces / reviewed by (owner 2026-11-06).
 
 ## 2. Implementation
 

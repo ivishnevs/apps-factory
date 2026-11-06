@@ -1,7 +1,6 @@
 ## 0. Decisions and spike
 
-- [ ] 0.1 Owner decides naming, markup, keys (ours or bring-your-own), packs and expiry, sizes and idle
-  time, default placement.
+- [x] 0.1 Credits ×1.33; own-token virtual nodes first, our token after; packs $10/25/50, auto top-up, 12-month expiry; Small/Large, 10 min idle; own nodes only by default (decided by Claude at the owner's request 2026-11-06).
 - [ ] 0.2 Spike: Fly.io Sprites API (create, suspend and resume times, disk persistence, pricing per second, limits,
   networking to Core); a `factory-node` image runs in a Sprite and claims a task. Result written into `design.md`.
 

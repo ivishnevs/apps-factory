@@ -1,5 +1,5 @@
-Status: open question recorded 2026-11-05 by the owner; not analysed or decided. Nothing implemented. The
-answer may be "keep documents": the change exists to weigh both ways and give a reasoned answer.
+Status: decided 2026-11-06 by the owner: all configuration moves to structured database tables, editable through
+the UI and the API. Design and migration plan to do. Nothing implemented.
 
 ## Why
 
@@ -60,3 +60,12 @@ documents as the storage with entity APIs and display names on top, without a mi
 
 Storage (new migrations, data migration), the catalog loader and Core's per-company catalog cache, catalog,
 preset and skill routes, web catalog editors, `company-catalog`, `team-builder` and `skill-registry` specs.
+
+## Decision (2026-11-06)
+
+All configuration (teams, agents, profiles, policies, prompts, skills and their scopes, quota keys, node hooks, MCP
+servers, company and project settings) lives in structured database tables with stable ids and references, and is
+changed through the UI and the API (entity by entity: an agent's parameter, a team's title), not by editing YAML
+documents. YAML stays only as import and export (backup, moving a team). Versions with author and note, rollback, and
+the run's snapshot at dispatch are kept. This is the base for the agent catalog and ready teams
+(`default-agent-library`) and for scoped catalog changes by leads (`agent-company-authority`).

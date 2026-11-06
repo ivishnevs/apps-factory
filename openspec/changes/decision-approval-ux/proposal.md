@@ -69,11 +69,13 @@ implement A.
 Also found on 2026-11-05: an approval whose question was withdrawn (a newer owner message superseded the ended
 run's question) could not be decided at all ("decided, expired or changed meanwhile"); fixed in Core the same day.
 
-## Open questions
+## Open questions (answered 2026-11-06)
 
-- Whether some decision categories need no owner at all (decision-autonomy already
-  delegates categories such as technical).
-- How a rejection with a reason flows back to the agent (decision-autonomy's durable rejection follow-up).
+- Decisions without the owner: configured by delegation — the owner delegates decision categories (per project or
+  team, to a lead) and those are decided by the agent without approval; everything not delegated comes to people
+  (builds on `decision-autonomy`'s delegated categories; the delegation is shown and editable in the UI).
+- A rejection with a reason goes back to the agent as a message in the same chat (and a durable follow-up so the
+  agent acts on it).
 
 ## Impact
 

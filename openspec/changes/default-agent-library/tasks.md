@@ -1,6 +1,6 @@
 ## 0. Decisions
 
-- [ ] 0.1 Owner: the field list and the first 30 presets; skills ours vs vendored; which team presets ship at launch.
+- [x] 0.1 Large ready catalog of skills and agents, ready teams built from them; pick a team or assemble one from catalog agents; the concrete list is generated during implementation (owner 2026-11-06).
 
 ## 1. Pilot: game studio
 
