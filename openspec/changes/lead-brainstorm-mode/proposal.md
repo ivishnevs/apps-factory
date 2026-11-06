@@ -28,12 +28,7 @@ plainly what it understood and what it started, so people can stop or correct it
 
 ## Open questions
 
-- Where the company's mission and direction live so the lead can judge "fits the direction" (company settings, a
-  document, recorded decisions).
-- How strict the gate is: instructions only, or Core refusing task creation from a brainstorm conversation until
-  the lead posted its summary.
-- Whether the summary needs an explicit "go" from people for large plans (above a size or cost), and how that
-  relates to approvals.
+Answered on 2026-11-06 (see "Decision").
 
 ## Impact
 
