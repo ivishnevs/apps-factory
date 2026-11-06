@@ -69,3 +69,35 @@ changed through the UI and the API (entity by entity: an agent's parameter, a te
 documents. YAML stays only as import and export (backup, moving a team). Versions with author and note, rollback, and
 the run's snapshot at dispatch are kept. This is the base for the agent catalog and ready teams
 (`default-agent-library`) and for scoped catalog changes by leads (`agent-company-authority`).
+
+## Proposed design (2026-11-06, for the owner's review)
+
+**Plain rows, edited in place.** Changing an agent is an update of its row (or rows: its skills, its rules); the UI
+and the API change one field of one entity. No whole-catalog versions.
+
+**What replaces versions, and why each part is kept:**
+- **Change log (append-only):** every change writes who, when, which entity, before and after, and the note. Needed
+  for audit (`people-attribution`: who changed the producer's prompt) and for undo.
+- **Undo instead of rollback of the catalog:** "revert this change" applies its before-values (refused if the entity
+  changed since, with the conflict shown).
+- **Row version for concurrent edits:** each entity has a version number; a save with an old one is refused, so two
+  people (or an agent and a person) do not overwrite each other silently. Agents' catalog changes use it the way they
+  use the catalog base version today.
+- **Runs need nothing more:** a run already stores its resolved agent configuration (`config_snapshot`,
+  `config_hash`) at dispatch, so what it ran with stays known after any edit.
+
+**YAML only as a file format:** export of a team or the whole company (backup, moving a team, sharing a preset) and
+import of such a file; never the place where the configuration lives.
+
+## Migration without breaking the running company
+
+1. Tables are created next to the current `catalog_versions` / `catalog_documents`; nothing is removed.
+2. A one-time import per company (under the company pause, between runs) turns the current catalog version into rows.
+3. Check before switching: for every agent, the resolved configuration from the rows must produce the same
+   `config_hash` as from the documents; any difference stops the switch and is shown.
+4. Core switches the company to the tables (per company flag); live and queued runs carry their snapshots and are not
+   affected.
+5. Compatibility while the clients move: the document API (`GET /catalog`, `/catalog/document`, `POST /catalog`,
+   the agents' `factory_catalog_change`) keeps working on top of the rows — documents are rendered from rows, a
+   document change is parsed and applied as row changes — until the web, TUI and agent tools use the entity API.
+6. The document tables stay read-only for a while (switch back possible), then are dropped.

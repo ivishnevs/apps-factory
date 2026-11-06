@@ -4,7 +4,9 @@
 - [x] 0.2 Not needed: decided directly (owner 2026-11-06).
 - [x] 0.3 Tables: all configuration in the database, changed through the UI and the API; YAML only for import and
       export (owner 2026-11-06).
-- [ ] 0.4 Table design, versioning and rollback model, migration plan; reviewed with the owner.
+- [ ] 0.4 Owner reviews the proposed design: plain rows, change log with undo, row versions, YAML as a file format,
+      migration with a config_hash check and a document-API compatibility layer.
+- [ ] 0.5 Table design.
 
 ## 1. Implementation
 
