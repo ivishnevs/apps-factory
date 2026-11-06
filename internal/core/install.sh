@@ -143,7 +143,13 @@ if [ "$SERVICE" = 1 ]; then
     mkdir -p "$HOME/Library/LaunchAgents"
     "$FN" launchd -config "$CONFIG" > "$PLIST"
     launchctl bootout "gui/$(id -u)/com.appfactory.node" >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/$(id -u)" "$PLIST"
+    # bootout returns before the old service is gone: bootstrap fails with "5: Input/output error" until it is.
+    n=0
+    until launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; do
+      n=$((n + 1))
+      [ "$n" -lt 10 ] || die "launchd did not start the node: run launchctl bootstrap gui/$(id -u) $PLIST"
+      sleep 1
+    done
     say "  launchd agent com.appfactory.node; log: $HOME/Library/Logs/factory-node.log"
   else
     CONF="${XDG_CONFIG_HOME:-$HOME/.config}"
