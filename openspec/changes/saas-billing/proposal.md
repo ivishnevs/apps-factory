@@ -1,5 +1,5 @@
-Status: plans decided 2026-11-05 (connectors as the metric, invitations from Pro, cloud credits in Pro and Team);
-prices, provider and trial still need the owner. Nothing is implemented.
+Status: plans revised 2026-11-06 by the owner: Free, Pro and On-prem (no Team); Paddle, 14-day Pro trial without a
+card, yearly prices later; prices still placeholders. Nothing is implemented.
 
 ## Why
 
@@ -58,3 +58,15 @@ your team").
 
 `internal/storage` (plans, account subscription, usage counts), `internal/core` (limit checks on connecting connectors and
 on invitations; provider webhook route), the dispatcher (connectors over the limit take no work), web Billing page and the limit messages, `docs/billing.md`, a new `saas-billing` spec.
+
+## Decisions (2026-11-06)
+
+- **Plans: Free, Pro, On-prem.** The Team plan is dropped.
+  - Free and Pro as above (own nodes 1 / 5, invitations from Pro, credits for virtual nodes in Pro).
+  - **On-prem:** the customer installs Core on their own infrastructure (with their nodes); licensed, priced
+    separately (to define: per company or per node, updates and support). Needs an installable Core (packaging,
+    migrations, backups, upgrades) — tracked in `saas-release-readiness`.
+- **Provider: Paddle** (merchant of record, handles taxes).
+- **Trial:** 14 days of Pro without a card.
+- **Yearly prices:** later.
+- Prices ($29 for Pro) and included credits remain placeholders.

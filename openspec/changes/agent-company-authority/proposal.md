@@ -1,4 +1,4 @@
-Status: question recorded 2026-11-05 by the owner; to be analysed and decided. Nothing changed.
+Status: decided 2026-11-06 by the owner (see "Decision"); ready to implement. Nothing changed yet.
 
 ## Why
 
@@ -45,3 +45,13 @@ How it works today (checked 2026-11-05):
 
 Agent tools and authority (factory_catalog_change scope checks in Core), approvals UI, team page, presets
 (defaults), docs. Related: `structured-catalog`, `people-attribution`, `team-page-clarity`, `review-coverage`.
+
+## Decision (2026-11-06)
+
+- Only a team's lead (manager role) may propose catalog changes, and only for its own team (its agents, prompts,
+  skills, team settings). Other roles ask their lead.
+- Company-wide changes (other teams, company settings, secrets, MCP servers, node hooks, quota keys) need an explicit
+  grant to that lead (a "company manager" capability given by an owner).
+- Destructive changes (deleting a team, an agent or a project) always need the owner, even where admins may approve
+  the rest.
+- Every change still needs a person's approval, explained in plain words.

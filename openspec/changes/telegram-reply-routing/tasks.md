@@ -1,7 +1,7 @@
 ## 1. Verify and design
 
 - [ ] 1.1 Reproduce with two people and two Telegram chats; record every direction and what each person sees.
-- [ ] 1.2 Design: message origin, reply routing per person, who gets questions; owner approves.
+- [x] 1.2 Rule: answer in the channel of the person's last message in that conversation (owner 2026-11-06); details after 1.1.
 
 ## 2. Implementation
 

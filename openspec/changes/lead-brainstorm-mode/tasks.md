@@ -1,6 +1,6 @@
 ## 1. Design
 
-- [ ] 1.1 Where the company's mission and direction live; how strict the brainstorm gate is; owner decides.
+- [x] 1.1 Direction on the project; instructions only; explicit go above ~5 tasks; ask only when it changes the plan, once, with recommended answers (owner 2026-11-06).
 
 ## 2. Implementation
 
@@ -9,3 +9,6 @@
 - [ ] 2.2 Chat: the lead's plan summary shown clearly; stop or change just-created tasks from the reply.
 - [ ] 2.3 Evals: an idea leads to questions and a plan, an explicit task request to a task, an in-direction choice
       to a decision reported without asking.
+- [ ] 2.4 Project settings: goal and direction field; shown in the lead's brief.
+- [ ] 2.5 Evals for "no interrogation": a clear request or follow-up gets no questions; an unclear idea gets one
+      batch of questions with recommended answers.

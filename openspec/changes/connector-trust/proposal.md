@@ -1,4 +1,5 @@
-Status: proposal — raised by the owner 2026-11-05; needs the owner's decisions (section "Decisions needed").
+Status: decided 2026-11-06 by the owner (see "Decisions 2026-11-06"); packaging and updates moved to
+`node-packaging-updates`.
 Nothing is implemented.
 
 ## Why
@@ -83,3 +84,15 @@ An honest look at today (2026-11-05):
 doctor --security), the Codex driver and `workers/claude` (sandbox modes), the installer (OS user, isolated mode),
 Core (refusals from the machine's policy, connector security summary), web (Connectors security panel, install and
 connect wording, landing Security page), docs (`docs/security.md`), release tooling (signing, notarization, SBOM).
+
+## Decisions (2026-11-06)
+
+1. Default sandbox: runs confined to the task's worktree for everyone; full access only as a local opt-in per project
+   in `node.yaml`.
+2. Isolated mode (container / VM): after the sandbox default, not now.
+3. The connector's source is published, under Apache-2.0 (or a similar permissive license).
+4. Binaries are signed and notarized with the owner's Apple Developer account.
+5. (2026-11-05) Penetration test by our own AI security team before releases.
+
+Also raised: a node without runtime dependencies (no Node.js to install) and updates that reach every node — see
+`node-packaging-updates`.

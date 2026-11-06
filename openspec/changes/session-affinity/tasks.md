@@ -1,7 +1,7 @@
 ## 1. Decisions (owner)
 
 - [x] 1.1 Release only after the holder is inactive beyond a timeout, never for being busy (owner 2026-11-06).
-- [ ] 1.2 Release timeout value (30 minutes proposed), one company setting.
+- [x] 1.2 Release timeout: 90 minutes, one company setting (owner 2026-11-06).
 
 ## 2. Core
 

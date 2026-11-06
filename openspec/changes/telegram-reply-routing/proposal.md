@@ -1,4 +1,5 @@
-Status: problem recorded 2026-11-05 by the owner; to be verified and designed. Nothing implemented.
+Status: rule decided 2026-11-06 by the owner (answer in the channel of the person's last message); to verify and
+implement. Nothing implemented.
 
 ## Why
 
@@ -37,3 +38,11 @@ What the code does today (checked 2026-11-05):
 Telegram notifier and backend (outbound of conversation replies, per-person routing), messaging (origin of a
 message: web or the person's Telegram chat), web chat. Depends on `people-attribution`; related:
 `human-review-visibility`, `lead-brainstorm-mode`.
+
+## Decision (2026-11-06)
+
+**Answer where the person last wrote.** A reply, question or follow-up for a person goes to the channel in which
+Factory last received a message from that person in that conversation: Telegram if they last wrote from Telegram,
+the web chat if they last wrote in the web. Everything stays visible in the web chat in any case; the rule decides
+where the person is notified and where they can answer. Per person, so two people sharing a conversation each get
+answers in their own channel.

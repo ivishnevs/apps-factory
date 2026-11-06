@@ -1,4 +1,5 @@
-Status: idea recorded 2026-11-05 by the owner; not designed or implemented.
+Status: accepted 2026-11-06 by the owner; who reviews is settled by `review-coverage` (the reviewer is required and
+explicit on every task outside the backlog). Ready to implement. Nothing implemented.
 
 ## Why
 
@@ -31,3 +32,10 @@ added on 2026-11-05; this change is about knowing that and when a person must ac
 
 Task creation and reassign dialogs, task view and board, activity feed, inbox, Telegram notifier, review
 resolution in Core. Related: `people-attribution`, `team-page-clarity`.
+
+## Owner decision (2026-11-06)
+
+Who reviews is no longer open: `review-coverage` makes the reviewer an explicit, required field of every task outside
+the backlog, so a task in review always names its reviewer (an agent or a person). What remains here: warn when work
+will come back to a person, show "waiting for your review (NAME)" on the task, card and feed, and notify that person
+(Inbox item while it is open, Telegram) with Accept / Send back.

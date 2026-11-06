@@ -1,6 +1,6 @@
 ## 1. Decide
 
-- [ ] 1.1 Pros and cons of the options (as is, scoped by default, by role, destructive needs the owner); owner decides.
+- [x] 1.1 Leads only, own team by default; company-wide by explicit grant; destructive always the owner (owner 2026-11-06).
 
 ## 2. After the decision
 

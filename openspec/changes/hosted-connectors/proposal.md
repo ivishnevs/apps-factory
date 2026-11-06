@@ -1,4 +1,5 @@
-Status: proposal — needs the owner's decisions (section "Decisions needed") and a technical spike on Fly.io Sprites.
+Status: naming decided 2026-11-06 (virtual nodes; connectors renamed nodes); remaining decisions and a technical
+spike on Fly.io Sprites still needed.
 Updated 2026-11-05: own connectors and cloud work kept apart (budgets, Costs), naming options, credit pricing.
 Nothing is implemented. Raised by the owner on 2026-11-05.
 
@@ -103,3 +104,14 @@ New `internal/cloud` (Fly Sprites client: create, resume, suspend, destroy; node
 as wait reasons, resume a suspended Sprite for claimable work), the cost ledger (compute seconds, priced amount),
 web (Connectors: "Run in App Factory cloud", Costs → Your machines / Cloud, credit packs, cloud budgets and "where a team works" on team pages, setup
 wizard choice), `saas-billing` (packs through the same provider, credits included in plans), docs.
+
+## Decisions (2026-11-06)
+
+- **Virtual nodes.** Hosted machines are called virtual nodes, and the product calls every machine a **node** (the
+  word "connector" goes away, see `nodes-naming`). A virtual node is created in one click from the web.
+- **Two kinds of virtual node:**
+  - with **our model token**: the company pays its model usage and machine time in credits (billing as above);
+  - with the **company's own token** (bring your own key or subscription login): only machine time is paid in
+    credits, model usage is the company's own.
+- Open: the credit naming is now only a billing word (credits proposed); markup, packs and expiry, sizes and idle
+  time, and the default "where a team works" stay as proposed until decided; the Sprites spike comes first.

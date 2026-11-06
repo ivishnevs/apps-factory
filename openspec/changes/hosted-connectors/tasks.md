@@ -24,4 +24,4 @@
   cloud budget as wait reasons that never touch own connectors; tests.
 - [ ] 2.4 Web: Costs split into Your machines / Cloud; credit balance, packs and auto top-up; cloud budgets and
   "where a team works" on team pages; low-balance warnings; browser check.
-- [ ] 2.5 Packs through the `saas-billing` provider; credits included in Pro and Team.
+- [ ] 2.5 Packs through the `saas-billing` provider; credits included in Pro (Team dropped 2026-11-06).

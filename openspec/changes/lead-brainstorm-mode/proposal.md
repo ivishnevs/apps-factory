@@ -1,4 +1,4 @@
-Status: idea recorded 2026-11-05 by the owner; not designed or implemented.
+Status: decided 2026-11-06 by the owner (see "Decision"); ready to implement. Nothing implemented.
 
 ## Why
 
@@ -40,3 +40,18 @@ plainly what it understood and what it started, so people can stop or correct it
 Lead instructions (built-in policy for the manager role), conversation briefs, possibly a "plan summary" message
 type in the chat and a way to undo just-created tasks; company settings for the mission. Related:
 `people-attribution` (the lead knows which person it talks to), `human-review-visibility`.
+
+## Decision (2026-11-06)
+
+- **Direction lives on the project, not the company.** Each project has its goal and direction (a field in the
+  project's settings next to its rules); the lead judges "fits the direction" against the project's, plus recorded
+  decisions.
+- **Instructions only.** Core does not block task creation; the behaviour is the lead's built-in instructions plus
+  evals.
+- **Explicit "go" for big plans.** A plan of more than about 5 tasks waits for an explicit go; smaller ones start, and
+  the lead always posts its summary (what it understood, the plan, decisions it took, tasks created).
+- **No interrogation (owner).** Brainstorming is not asking questions on every message. The lead asks only when an
+  idea or goal is genuinely unclear and the answer changes what it would do; then once, all questions together, with
+  its recommended answer for each so the person can just say "ok". Clear requests, follow-ups, small changes and
+  anything decidable within the project's direction and recorded decisions are done without questions. When in
+  doubt, the lead acts on its best reading and says what it assumed.

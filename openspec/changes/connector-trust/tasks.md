@@ -1,7 +1,6 @@
 ## 0. Decisions
 
-- [ ] 0.1 Owner decides the default sandbox, isolated mode timing, open source and license, signing accounts and
-  the pentest (proposal).
+- [x] 0.1 Worktree sandbox by default, isolated mode later, source open under Apache-2.0, Apple signing (owner 2026-11-06).
 
 ## 1. Confinement
 

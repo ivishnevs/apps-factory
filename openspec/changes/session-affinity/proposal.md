@@ -1,5 +1,5 @@
 Status: proposed 2026-11-06 by the owner; owner decided 2026-11-06: the lock is released only when its node is
-inactive beyond a timeout, never because the node is busy. Nothing implemented.
+inactive beyond a timeout, never because the node is busy; release timeout 90 minutes (company setting). Nothing implemented.
 
 ## Why
 

@@ -1,6 +1,6 @@
 ## 1. Design
 
-- [ ] 1.1 Who reviews a task with no agent reviewer (creator, team manager, owners); wording; owner decides.
+- [x] 1.1 Settled by review-coverage: the task names its reviewer explicitly (owner 2026-11-06).
 
 ## 2. Implementation
 
