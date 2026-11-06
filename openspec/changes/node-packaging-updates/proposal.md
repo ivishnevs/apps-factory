@@ -1,5 +1,5 @@
 Status: raised 2026-11-06 by the owner ("can we package it without dependencies like node, and support updates
-somehow"); to be analysed. Nothing implemented.
+somehow"); owner decided 2026-11-07: the Claude shim ships as a single executable (option 2). Nothing implemented.
 
 ## Why
 
@@ -16,7 +16,9 @@ this is a support burden and a security risk (old binaries).
   - ship a pinned Node.js runtime inside the node package, used only by the shim (simple; adds ~40 MB per platform);
   - build the shim into a single executable (Node SEA or Bun compile) shipped with the node;
   - drive Claude Code without the SDK shim (its native binary in streaming JSON mode from Go), removing JavaScript.
-  Recommendation to verify: a single-executable shim first; driving Claude Code directly as the long-term goal.
+  **Decided (owner 2026-11-07): the single executable.** The shim is compiled into one executable per platform
+  (Node SEA or Bun compile, whichever runs the Claude Agent SDK correctly) and shipped next to the node binary;
+  no Node.js on the machine. Driving Claude Code directly from Go stays a possible later step.
 - **Runtimes.** Claude Code and Codex stay the person's installs (their logins, `node-runtime-accounts`), but the node
   checks supported version ranges (already) and can install or update them on request (`factory-node runtimes
   update`), never silently.

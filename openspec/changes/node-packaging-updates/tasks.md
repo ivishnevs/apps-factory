@@ -1,7 +1,7 @@
 ## 1. Analyse
 
-- [ ] 1.1 Size and start time of the three shim options; whether the Claude Agent SDK runs as a single executable;
-      whether Claude Code can be driven directly from Go with the features we use (MCP, hooks, resume, skills).
+- [x] 1.1 Shim as a single executable, no Node.js on the machine (owner 2026-11-07).
+- [ ] 1.3 Pick Node SEA or Bun compile: the Claude Agent SDK runs correctly, size and start time per platform.
 - [ ] 1.2 Update flow: drain, switch, health check, rollback on macOS (launchd) and Linux (systemd); owner approves.
 
 ## 2. Implementation (after 1)
