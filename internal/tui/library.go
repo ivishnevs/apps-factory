@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"regexp"
 
@@ -62,8 +63,15 @@ func (c *HTTPClient) Blob(ctx context.Context, sha256 string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid blob digest")
 	}
 	b := &limitedBuffer{max: maxArtifactPreview}
-	err := c.API.Fetch(ctx, "/blobs/"+sha256, "", b)
+	err := c.CopyBlob(ctx, sha256, b)
 	return b.buf, err
+}
+
+func (c *HTTPClient) CopyBlob(ctx context.Context, sha256 string, out io.Writer) error {
+	if !ValidSHA256(sha256) {
+		return fmt.Errorf("invalid blob digest")
+	}
+	return c.transfer().Fetch(ctx, "/blobs/"+sha256, "", out)
 }
 
 // TaskExits are a task's accepted exits with their facts (the pull request).
@@ -106,4 +114,12 @@ func (c *FixtureClient) Blob(_ context.Context, sha256 string) ([]byte, error) {
 		return []byte(b), nil
 	}
 	return nil, fmt.Errorf("blob %s not in the fixture", sha256)
+}
+
+func (c *FixtureClient) CopyBlob(ctx context.Context, sha256 string, out io.Writer) error {
+	b, err := c.Blob(ctx, sha256)
+	if err == nil {
+		_, err = out.Write(b)
+	}
+	return err
 }

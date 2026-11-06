@@ -362,9 +362,47 @@ func contentType(name string, b []byte) string {
 	return t
 }
 
-// sendContent writes raw content sandboxed (no scripts, no same origin), typed by name; ?download=1 makes
-// it a download named after the file.
-func sendContent(w http.ResponseWriter, r *http.Request, b []byte, name string) {
+// contentTransferTime bounds streaming one artifact or blob to the browser (up to 64 MiB over a slow link);
+// the server's write timeout is sized for JSON calls.
+const contentTransferTime = 10 * time.Minute
+
+// contentWriter streams raw content to the browser: the headers (contentHeaders) are set on the first write,
+// typed by name or sniffed from the first bytes, so a failure before any content is still answered as an
+// error, and a file of any stored size passes without being held in memory.
+type contentWriter struct {
+	w       http.ResponseWriter
+	r       *http.Request
+	name    string
+	started bool
+}
+
+func newContentWriter(w http.ResponseWriter, r *http.Request, name string) *contentWriter {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(contentTransferTime))
+	return &contentWriter{w: w, r: r, name: name}
+}
+
+func (c *contentWriter) Write(p []byte) (int, error) {
+	if !c.started {
+		c.started = true
+		contentHeaders(c.w, c.r, c.name, p)
+	}
+	return c.w.Write(p)
+}
+
+// done answers err when nothing was sent yet, and an empty file when the content is empty; an error after
+// the first bytes cuts the response short (the browser sees a failed download).
+func (c *contentWriter) done(err error) {
+	switch {
+	case err != nil && !c.started:
+		reply(c.w, nil, err)
+	case err == nil && !c.started:
+		contentHeaders(c.w, c.r, c.name, nil)
+	}
+}
+
+// contentHeaders types raw content by name (or its first bytes) and sandboxes it (no scripts, no same
+// origin); ?download=1 makes it a download named after the file.
+func contentHeaders(w http.ResponseWriter, r *http.Request, name string, b []byte) {
 	w.Header().Set("Content-Type", contentType(name, b))
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -372,5 +410,4 @@ func sendContent(w http.ResponseWriter, r *http.Request, b []byte, name string) 
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": cmpOr(path.Base(name), "download")}))
 	}
-	_, _ = w.Write(b)
 }

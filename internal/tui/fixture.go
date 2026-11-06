@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -294,6 +295,14 @@ func (c *FixtureClient) ArtifactContent(_ context.Context, project, artifact, ve
 		return []byte(b), nil
 	}
 	return nil, fmt.Errorf("artifact %s %s has no content in the fixture", artifact, version)
+}
+
+func (c *FixtureClient) CopyArtifact(ctx context.Context, project, artifact, version string, out io.Writer) error {
+	b, err := c.ArtifactContent(ctx, project, artifact, version)
+	if err == nil {
+		_, err = out.Write(b)
+	}
+	return err
 }
 
 // Costs groups the fixture's ledger rows (UTC days) as GET /costs would.

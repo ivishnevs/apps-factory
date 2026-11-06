@@ -106,12 +106,8 @@ func (s *Server) Handler() http.Handler {
 		reply(w, v, err)
 	})
 	mux.HandleFunc("GET /api/artifacts/{project}/{artifact}/{version}", func(w http.ResponseWriter, r *http.Request) {
-		b, err := s.state(r).client.ArtifactContent(r.Context(), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"))
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		sendContent(w, r, b, cmp.Or(r.URL.Query().Get("name"), r.PathValue("artifact")))
+		out := newContentWriter(w, r, cmp.Or(r.URL.Query().Get("name"), r.PathValue("artifact")))
+		out.done(s.state(r).client.CopyArtifact(r.Context(), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"), out))
 	})
 	// Task materials (materials.go): what a task produced, the Library across the company, and the blobs
 	// behind report attachments (raw, typed by the file name, sandboxed).
@@ -143,12 +139,8 @@ func (s *Server) Handler() http.Handler {
 			reply(w, nil, fmt.Errorf("%w: a SHA-256 digest required", errInput))
 			return
 		}
-		b, err := s.state(r).client.Blob(r.Context(), r.PathValue("sha256"))
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		sendContent(w, r, b, r.URL.Query().Get("name"))
+		out := newContentWriter(w, r, r.URL.Query().Get("name"))
+		out.done(s.state(r).client.CopyBlob(r.Context(), r.PathValue("sha256"), out))
 	})
 	mux.HandleFunc("POST /api/action", func(w http.ResponseWriter, r *http.Request) {
 		// A plain cross-site form cannot set this header, so a page elsewhere cannot act as the owner.

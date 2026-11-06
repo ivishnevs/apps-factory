@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -677,3 +678,36 @@ func TestHTTPClientCreateTask(t *testing.T) {
 		t.Fatal("a backlog task without dependencies:", b)
 	}
 }
+
+// TestHTTPClientCopyLargeArtifact: an artifact larger than the preview bound streams whole through
+// CopyArtifact (the web's download), while ArtifactContent (the terminal preview) stays bounded.
+func TestHTTPClientCopyLargeArtifact(t *testing.T) {
+	size := maxArtifactPreview + 5<<20
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/projects/p/artifacts/pack/v4/content" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.Copy(w, io.LimitReader(zeros{}, int64(size)))
+	}))
+	defer srv.Close()
+	c := &HTTPClient{API: worker.API{URL: srv.URL, Token: testToken, Client: &http.Client{Timeout: time.Second}}}
+	var n countWriter
+	if err := c.CopyArtifact(context.Background(), "p", "pack", "v4", &n); err != nil || int(n) != size {
+		t.Fatal(err, n)
+	}
+	if _, err := c.ArtifactContent(context.Background(), "p", "pack", "v4"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatal(err)
+	}
+	if err := c.CopyArtifact(context.Background(), "p", "nope", "v1", &n); err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatal(err)
+	}
+}
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+type countWriter int
+
+func (c *countWriter) Write(p []byte) (int, error) { *c += countWriter(len(p)); return len(p), nil }

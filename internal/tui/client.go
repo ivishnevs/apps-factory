@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -266,8 +267,10 @@ type Client interface {
 	RunEvents(ctx context.Context, run string) ([]RunEvent, error)
 	// Messages are a conversation's messages, oldest first; an unknown conversation has none.
 	Messages(ctx context.Context, conversation string) ([]messaging.Message, error)
-	// ArtifactContent is an uploaded artifact version's content.
+	// ArtifactContent is an uploaded artifact version's content, at most maxArtifactPreview bytes.
 	ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error)
+	// CopyArtifact streams an uploaded artifact version's content of any stored size into out.
+	CopyArtifact(ctx context.Context, project, artifact, version string, out io.Writer) error
 	// Costs reads the cost ledger since a moment, grouped for the Costs screen.
 	Costs(ctx context.Context, since time.Time) (CostView, error)
 	// Reports are a project's reports, oldest first; task narrows them to one task (library.go).
@@ -278,8 +281,10 @@ type Client interface {
 	ArtifactApproval(ctx context.Context, project, artifact, version string) (*approvals.Approval, error)
 	// TaskExits are a task's accepted exits with their facts (the pull request).
 	TaskExits(ctx context.Context, task string) ([]storage.TaskExit, error)
-	// Blob is a stored blob's content (a report attachment).
+	// Blob is a stored blob's content (a report attachment), at most maxArtifactPreview bytes.
 	Blob(ctx context.Context, sha256 string) ([]byte, error)
+	// CopyBlob streams a stored blob of any stored size into out.
+	CopyBlob(ctx context.Context, sha256 string, out io.Writer) error
 }
 
 // HTTPClient talks to a running Core with the owner token (FACTORY_URL, FACTORY_TOKEN). The token is only
@@ -492,8 +497,29 @@ const maxArtifactPreview = 32 << 20
 
 func (c *HTTPClient) ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error) {
 	b := &limitedBuffer{max: maxArtifactPreview}
-	err := c.API.Fetch(ctx, "/projects/"+url.PathEscape(project)+"/artifacts/"+url.PathEscape(artifact)+"/"+url.PathEscape(version)+"/content", "", b)
+	err := c.CopyArtifact(ctx, project, artifact, version, b)
 	return b.buf, err
+}
+
+func (c *HTTPClient) CopyArtifact(ctx context.Context, project, artifact, version string, out io.Writer) error {
+	return c.transfer().Fetch(ctx, "/projects/"+url.PathEscape(project)+"/artifacts/"+url.PathEscape(artifact)+"/"+url.PathEscape(version)+"/content", "", out)
+}
+
+// blobTransferTime bounds one artifact or blob download, as Core bounds it (a file of up to 64 MiB over a
+// slow link); the API client's own timeout is sized for JSON calls.
+const blobTransferTime = 10 * time.Minute
+
+// transfer is the API with blobTransferTime instead of the client's timeout.
+func (c *HTTPClient) transfer() worker.API {
+	api := c.API
+	if api.Client != nil {
+		cl := *api.Client
+		cl.Timeout = blobTransferTime
+		api.Client = &cl
+	} else {
+		api.Client = &http.Client{Timeout: blobTransferTime}
+	}
+	return api
 }
 
 // limitedBuffer keeps at most max bytes and fails beyond.
