@@ -3,8 +3,7 @@
 - [x] 1.1 Task panel postponed; the task page stays (owner 2026-11-06).
 - [x] 1.2 Priority scale: not now (owner 2026-11-06).
 - [x] 1.3 Waiting grouping: not now; columns renamed instead (owner 2026-11-06).
-- [ ] 1.5 Name of the "needs someone to act" column now that Waiting is Blocked (Needs action proposed), or fold it
-      into Blocked.
+- [x] 1.5 No separate column: tasks that need someone stay in Blocked, first and marked (owner 2026-11-06).
 - [x] 1.4 A Blocked column for tasks that need someone to act; Waiting only for what comes in its turn (owner
       2026-11-06).
 
@@ -21,8 +20,8 @@
 - [ ] 3.2 Web: "AGENT runs N of N" with links; "All nodes busy" only for full nodes.
 - [ ] 3.3 One status vocabulary (column names) on card, panel, page, Home and Telegram; the task header badge shows
       the column, not the engine status.
-- [ ] 3.5 Blocked column: one shared classification (Core verdict or web model) of "needs someone to act" vs "comes
-      in its turn"; board, phone bar, Home; tests for every reason.
+- [ ] 3.5 Blocked: tasks that need someone first and marked with who acts and what to do (one shared
+      classification of "needs someone" vs "comes in its turn"); board, phone bar, Home; tests for every reason.
 - [ ] 3.4 Rename columns: Ready → To do, Waiting → Blocked, Running → In progress (web, TUI, Telegram, Home);
       engine statuses unchanged.
 

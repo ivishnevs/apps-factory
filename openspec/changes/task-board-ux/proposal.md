@@ -81,5 +81,6 @@ Web: tasks board and task view (`web/src/app/c/[company]/tasks`, `components/app
   Ready → **To do**, Waiting → **Blocked**, Running → **In progress**. Backlog, In review and Done stay.
   The column list becomes Backlog, Blocked, To do, In progress, In review, Done.
 - **Priority scale and Waiting grouping: not now.**
-- Open (owner): with Waiting renamed to Blocked, the proposed separate column for tasks that need someone to act
-  needs its own name (proposed: **Needs action**) or is folded into Blocked with the "needs you" marking only.
+- **No separate column for tasks that need someone** (owner 2026-11-06): they stay in Blocked (the former Waiting,
+  where today they show with the amber "needs you" marking), first in the column, each marked with who has to act
+  and what to do. The "A column for tasks that need someone" item above is replaced by this.

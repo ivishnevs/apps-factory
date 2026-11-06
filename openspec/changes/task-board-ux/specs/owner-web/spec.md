@@ -15,20 +15,19 @@ The columns SHALL be Backlog, Blocked, To do, In progress, In review and Done.
 - **WHEN** a READY task can start
 - **THEN** it SHALL be shown as To do
 
-### Requirement: Needs action apart from Blocked
-The board SHALL show tasks that cannot move without someone acting (a person's decision, approval, answer or review;
-an escalation; a run to inspect; status BLOCKED; no capable or online connector; no assignee; a pause) apart from
-Blocked (the column name is open: Needs action proposed), each with who has to act and what to do, and SHALL keep in
-Blocked only tasks that start on their own in their turn (dependencies, artifacts in progress, timer waits, questions
-to agents).
+### Requirement: Tasks that need someone are marked in Blocked
+Tasks that cannot move without someone acting (a person's decision, approval, answer or review; an escalation; a run
+to inspect; status BLOCKED; no capable or online connector; no assignee; a pause) SHALL stay in the Blocked column,
+first, each marked with who has to act and what to do; those waiting on the viewer SHALL be marked "needs you". There
+SHALL be no separate column for them.
 
 #### Scenario: Escalated task
 - **WHEN** a task is parked by an escalation to the owner
-- **THEN** it SHALL be shown as needing action, first, marked as waiting on you, with what to do
+- **THEN** it SHALL be first in Blocked, marked "needs you", with what to do
 
 #### Scenario: Dependency wait
 - **WHEN** a task waits only for another task to finish
-- **THEN** it SHALL be in Blocked, not among the tasks needing action
+- **THEN** it SHALL be in Blocked, unmarked, naming the task it waits on
 
 ### Requirement: Capacity reasons name the limit
 A queued task SHALL say which limit holds it: the agent's concurrent-run limit (with the agent and its running
