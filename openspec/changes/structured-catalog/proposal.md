@@ -70,7 +70,7 @@ documents. YAML stays only as import and export (backup, moving a team). Version
 the run's snapshot at dispatch are kept. This is the base for the agent catalog and ready teams
 (`default-agent-library`) and for scoped catalog changes by leads (`agent-company-authority`).
 
-## Proposed design (2026-11-06, for the owner's review)
+## Design (approved by the owner 2026-11-06)
 
 **Plain rows, edited in place.** Changing an agent is an update of its row (or rows: its skills, its rules); the UI
 and the API change one field of one entity. No whole-catalog versions.
