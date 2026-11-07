@@ -74,6 +74,8 @@ type Person struct {
 	NoDigest  bool           `json:"no_digest,omitempty"`
 	StopAsked int64          `json:"stop_asked,omitempty"`
 	BoundAt   int64          `json:"bound_at,omitempty"`
+	// RepliesAfter is the feed cursor of agents' replies routed to this chat (telegram-reply-routing).
+	RepliesAfter int64 `json:"replies_after,omitempty"`
 }
 
 // State is what the notifier keeps between ticks and restarts (Core stores it).
@@ -286,6 +288,12 @@ func (n *Notifier) once(ctx context.Context, st *State, u Update) error {
 func (n *Notifier) say(ctx context.Context, chat int64, text string, replyTo int64) error {
 	_, err := n.API.Send(ctx, chat, shorten(text, 4000), nil, replyTo)
 	return err
+}
+
+// Replier is an optional Backend: agents' replies in chats where this person last wrote from Telegram
+// (telegram-reply-routing).
+type Replier interface {
+	Replies(ctx context.Context, who, role string, after int64) ([]Item, error)
 }
 
 // PersonContexter is an optional Backend: it attributes what a bound person does from Telegram to them
@@ -527,6 +535,23 @@ func (n *Notifier) outbound(ctx context.Context, st *State) error {
 				}
 			}
 			p.FeedAfter = it.Seq
+		}
+		if rp, ok := n.Backend.(Replier); ok {
+			if p.RepliesAfter == 0 {
+				p.RepliesAfter = p.FeedAfter // from binding on: no replay of older chats
+			}
+			replies, err := rp.Replies(ctx, who, role, p.RepliesAfter)
+			if err != nil {
+				return err
+			}
+			for _, it := range replies {
+				if it.Text != "" {
+					if err = n.send(ctx, p, it.Text+"\n\nReply to this message to answer.", it.Target, it.Options); err != nil {
+						return err
+					}
+				}
+				p.RepliesAfter = it.Seq
+			}
 		}
 		if role == RoleOwner {
 			if !loaded {

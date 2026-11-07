@@ -46,3 +46,13 @@ Factory last received a message from that person in that conversation: Telegram 
 the web chat if they last wrote in the web. Everything stays visible in the web chat in any case; the rule decides
 where the person is notified and where they can answer. Per person, so two people sharing a conversation each get
 answers in their own channel.
+
+## Implementation (2026-11-07)
+
+- Owner messages and answers record the person and the channel they came from (`channel`: web or telegram).
+- The Telegram notifier asks Core for each bound person's replies (a cursor per person): an agent's message in an
+  owner chat goes to the Telegram chat of the person whose last message in that chat came from Telegram; after a
+  web message it stays in the web. Questions in such a chat reach that person too, admins included (owners get
+  questions as attention items already, so they are not sent twice). Replying in Telegram continues the chat.
+- 1.1 was checked with a test of two people instead of a manual run: before, agent replies never reached Telegram
+  and admins never got questions.

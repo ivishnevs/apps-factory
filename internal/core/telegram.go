@@ -377,7 +377,60 @@ func (c *Core) updateTelegramPerson(ctx context.Context, company, who string, ch
 // PersonContext attributes a bound person's Telegram actions to them (people-attribution); who is a user id, or the
 // owner key of a chat bound before people were bound one by one.
 func (b telegramBackend) PersonContext(ctx context.Context, who string) context.Context {
-	return storage.WithPerson(ctx, b.c.personOf(ctx, b.Company(ctx), who))
+	p := b.c.personOf(ctx, b.Company(ctx), who)
+	if p.ID == "" {
+		p.ID = who
+	}
+	p.Channel = "telegram"
+	return storage.WithPerson(ctx, p)
+}
+
+// Replies are the agents' messages in owner chats after the cursor that go to who's Telegram chat
+// (telegram-reply-routing): the reply goes where the person last wrote in that chat. Questions to owners already
+// come as attention items, so for an owner only non-questions are listed here.
+func (b telegramBackend) Replies(ctx context.Context, who, role string, after int64) ([]telegram.Item, error) {
+	page, err := b.c.Store.Feed(ctx, b.company, storage.FeedFilter{}, after, 50)
+	if err != nil {
+		return nil, err
+	}
+	out := []telegram.Item{}
+	for _, f := range page.Items {
+		it := telegram.Item{Seq: f.Sequence}
+		if f.Type == "message.created" {
+			if m, err := b.c.Store.Message(ctx, b.company, f.EntityID); err == nil && m.Sender != "owner" && m.Recipient == "owner" && strings.HasPrefix(m.ConversationID, "owner-") &&
+				!(m.MessageType == "question" && role == telegram.RoleOwner) && b.lastWriter(ctx, m) == who {
+				it.Target = telegram.Target{Agent: m.Sender, Project: m.ProjectID, Label: b.label(m.Sender)}
+				if m.MessageType == "question" && (m.Status == "PENDING" || m.Status == "ESCALATED") {
+					it.Text, it.Target = b.questionItem(m)
+				} else {
+					it.Text = fmt.Sprintf("💬 %s\n%s\n\n%s", it.Target.Label, m.ProjectID, m.Body)
+				}
+			}
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// lastWriter is the person whose last message before m in m's chat came from Telegram ("" when it came from the web).
+func (b telegramBackend) lastWriter(ctx context.Context, m messaging.Message) string {
+	ms, err := b.c.Store.Messages(ctx, b.company, m.ConversationID)
+	if err != nil {
+		return ""
+	}
+	var last *messaging.Message
+	for i := range ms {
+		if ms[i].ID == m.ID {
+			break
+		}
+		if ms[i].Sender == "owner" {
+			last = &ms[i]
+		}
+	}
+	if last == nil || last.Channel != "telegram" {
+		return ""
+	}
+	return last.PersonID
 }
 
 func (b telegramBackend) LoadState(ctx context.Context) (telegram.State, error) {

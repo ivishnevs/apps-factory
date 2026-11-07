@@ -210,7 +210,9 @@ func (c *Core) sessionGateway(w http.ResponseWriter, r *http.Request, m *http.Se
 	}
 	p.Role = role
 	ctx = context.WithValue(context.WithValue(ctx, principalKey{}, p), companyKey{}, company)
-	ctx = storage.WithPerson(ctx, c.personOf(ctx, company, sess.User)) // people-attribution
+	person := c.personOf(ctx, company, sess.User) // people-attribution
+	person.Channel = "web"
+	ctx = storage.WithPerson(ctx, person)
 	r = r.WithContext(ctx)
 	if role == storage.RoleMember && secretsPath(r.URL.Path) {
 		n := &namesOnly{ResponseWriter: w}

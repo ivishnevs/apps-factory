@@ -177,7 +177,7 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	// exists (decision-approval-ux: questions and decisions come in the chat), not to a thread of its own.
 	if in.Sender == "owner" {
 		if p := PersonFrom(ctx); p.ID != "" || p.Name != "" {
-			m.Person, m.PersonID = personName(ctx), p.ID
+			m.Person, m.PersonID, m.Channel = personName(ctx), p.ID, p.Channel
 		}
 	}
 	if m.ConversationID == "" && in.Recipient == "owner" && in.Sender != "factory" && in.Sender != "system" && in.Sender != "owner" && m.ProjectID != "" {
@@ -402,6 +402,11 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		}
 	}
 	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE"}
+	if in.Sender == "owner" {
+		if p := PersonFrom(ctx); p.ID != "" || p.Name != "" {
+			answer.Person, answer.PersonID, answer.Channel = personName(ctx), p.ID, p.Channel
+		}
+	}
 	if !m.Blocking && m.Sender != "owner" && m.Sender != "factory" {
 		answer.Status = "UNREAD"
 		answer.DeliveryStatus = "PENDING"

@@ -12,6 +12,8 @@ type personKey struct{}
 type Person struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Channel is where the person acts from: "web" or "telegram" (telegram-reply-routing).
+	Channel string `json:"channel,omitempty"`
 }
 
 // WithPerson returns ctx carrying p.
