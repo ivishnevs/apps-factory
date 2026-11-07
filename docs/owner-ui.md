@@ -113,14 +113,14 @@ Below 110 columns the dashboard shows Agent Tree, Tasks and Activity; at 80×24 
 
 ## 2 Board
 
-Columns by state — Backlog · Ready · Running · Waiting · In review · Done (Cancelled with `z`) — each a
+Columns by state — Backlog · To do · In progress · Blocked · In review · Done (Cancelled with `z`) — each a
 panel with its color dot and count; cards inside with a thin border in the column color (the focused card
 has a heavy accent border). A card: status dot (pulsing when its run is live) and title (`⚠` when it waits on
 you), id, project chip and priority marker (`▲` ≥ 8, `△` ≥ 5, `▽`), assignee chip with today's cost of the
 task and its age, and one live line: the run's current step with a spinner, what it waits on, `↳ you: …`,
 or `✓ done 3h ago`. Arrows/`hjkl` move between columns and cards; columns scroll horizontally when they do
 not fit (`◀ more` / `more ▶`). `/` filters (`a:AGENT s:STATUS ! open words`), `!` keeps what waits on you,
-`n` creates a task (below). A task whose run is QUEUED stays in Ready with `◷ queued: …` — why no node claims
+`n` creates a task (below). A task whose run is QUEUED stays in To do with `◷ queued: …` — why no node claims
 it yet (below).
 
 `enter` opens the card as a modal: state, origin (who created it from which task and run), why it waits and

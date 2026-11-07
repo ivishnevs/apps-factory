@@ -108,7 +108,7 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
   return (
     <>
       {/* Desktop: in the header. */}
-      <div className="hidden items-center gap-2 md:flex">
+      <div className="hidden shrink-0 items-center gap-2 md:flex">
         <Button onClick={() => start(lead)} disabled={pending}><Lead.icon />{Lead.label}{Lead.input && "…"}</Button>
         {menu(<Button variant="outline" size="icon" aria-label="More actions"><MoreHorizontal /></Button>)}
       </div>

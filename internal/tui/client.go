@@ -31,6 +31,7 @@ type Task struct {
 	tasks.Task
 	Reason  string        `json:"reason"`
 	Clearer tasks.Clearer `json:"clearer"`
+	Wait    *tasks.Wait   `json:"wait,omitempty"`
 }
 
 // Agent is one catalog agent as the UI shows it.

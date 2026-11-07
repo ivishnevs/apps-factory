@@ -3,7 +3,7 @@
  2 tasks  · z shows cancelled                                                                                     more ▶
  ✗ repository setup failed on mac-studio: gh is not authenticated on node mac-studio: run gh auth login
    fix it on the node; P4-1 retries on its own, r on it retries now
-╭─────── ● Backlog 0 ────────╮╭──────── ● Ready 2 ─────────╮╭─────── ● Running 0 ────────╮╭─────── ● Waiting 0 ────────╮
+╭─────── ● Backlog 0 ────────╮╭──────── ● To do 2 ─────────╮╭───── ● In progress 0 ──────╮╭─────── ● Blocked 0 ────────╮
 │   —                        ││ ╭────────────────────────╮ ││   —                        ││   —                        │
 │                            ││ │ ● Task 1               │ ││                            ││                            │
 │                            ││ │ P4-1  project-4     ▲8 │ ││                            ││                            │

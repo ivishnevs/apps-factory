@@ -11,7 +11,7 @@ import type { Comment, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, 
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { isTerminal, runCost, since } from "./model";
+import { columns, type ColumnKey, isTerminal, runCost, since } from "./model";
 import { cleanText, humanize, party as partyOf, taskName, triggerWords, type Lookup, type Party } from "@/lib/humanize";
 import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
@@ -36,12 +36,16 @@ function Block({ title, children, className, action }: { title: string; children
   );
 }
 
-export function Header({ task, project, pr, now, actions }: { task: BoardTask; project: string; pr?: PRFacts; now: number; actions: React.ReactNode }) {
+// Header: the task's column (the status the owner sees on the board), not the engine status.
+export function Header({ task, project, pr, now, actions, column }: { task: BoardTask; project: string; pr?: PRFacts; now: number; actions: React.ReactNode; column?: ColumnKey }) {
+  const col = column ? columns.find((c) => c.key === column) : undefined;
   return (
     <header>
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <span className="font-mono" title={task.id}>{displayId(task.id)}</span>
-        <StatusBadge value={task.status} />
+        {col && col.key !== "done"
+          ? <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass(col.tone))} title={`Status: ${task.status.replace(/_/g, " ").toLowerCase()}`}>{col.name.toLowerCase()}</span>
+          : <StatusBadge value={task.status} />}
         {task.paused_by && <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("REWORK"))}>paused by {task.paused_by === "owner" ? "you" : task.paused_by}</span>}
         {task.cancel_requested && !isTerminal(task.status) && <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("BLOCKED"))}>cancelling</span>}
         <PriorityMark value={task.priority} className="ml-1" />

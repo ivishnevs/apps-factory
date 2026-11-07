@@ -21,9 +21,9 @@
 ╰────────────────────────────────────────────────╯╰─────────────────────────────────────────────╯╰─────────────────────────────────────────╯
 ╭─────────────────────────────────────────── Activity ───────────────────────────────────────────╮╭──────────────── Pulse ─────────────────╮
 │ 14:27:00  [owner]       new project   project project-5 created by owner; repository: new loc… ││ Backlog   ▇▇▇····················   3  │
-│ 14:27:30  [developer-1] says          “All 42 tests pass. Submitting for review.”              ││ Ready     ▇▇▇▇▇▇·················   6  │
-│ 14:27:30  [reviewer]    Bash          $ go test ./...                                          ││ Running   ▇▇·····················   2  │
-│ 14:28:00  [owner]       comment       → reviewer  Please check Task 1 on a large input.        ││ Waiting   ▇▇▇▇▇··················   5  │
+│ 14:27:30  [developer-1] says          “All 42 tests pass. Submitting for review.”              ││ To do     ▇▇▇▇▇▇·················   6  │
+│ 14:27:30  [reviewer]    Bash          $ go test ./...                                          ││ In progre…▇▇·····················   2  │
+│ 14:28:00  [owner]       comment       → reviewer  Please check Task 1 on a large input.        ││ Blocked   ▇▇▇▇▇··················   5  │
 │ 14:28:00  [developer-1] exit_submit   reviewer=pm summary="module 1 with an offline store, 42… ││ In review ▇▇·····················   2  │
 │ 14:28:02  [developer-1] refused       exit guard refused the turn's end: submit needs a pushe… ││ Done      ▇▇▇▇···················   4  │
 │ 14:28:03  [developer-1]               tool error: 409 {"reason":"branch_not_pushed","hint":"p… ││                                        │

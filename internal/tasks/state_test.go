@@ -120,3 +120,35 @@ func TestEvaluateNamesTheResolveCommand(t *testing.T) {
 		t.Fatal(v)
 	}
 }
+
+// TestCapacityWait: a capacity verdict carries its case in structured form (task-board-ux 3.1), so the web can
+// say "AGENT runs N of N" instead of guessing from the detail text.
+func TestCapacityWait(t *testing.T) {
+	cases := []struct {
+		name string
+		set  func(*Snapshot)
+		want Wait
+	}{
+		{"agent limit", func(s *Snapshot) {
+			s.AgentRun, s.AgentLive, s.AgentCap = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"}, 2, 2
+		}, Wait{Kind: WaitAgent, Agent: "dev", Live: 2, Limit: 2, TaskID: "other", RunID: "r2"}},
+		{"agent project limit", func(s *Snapshot) {
+			s.AgentRun, s.AgentLive, s.AgentCap, s.AgentProjectLive, s.AgentProjectCap = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"}, 1, 3, 1, 1
+		}, Wait{Kind: WaitAgentProject, Agent: "dev", Live: 1, Limit: 1, TaskID: "other", RunID: "r2"}},
+		{"writer", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "RUNNING", TaskID: "other"} }, Wait{Kind: WaitWriter, TaskID: "other", RunID: "r3"}},
+		{"lost writer", func(s *Snapshot) { s.WriterRun = &Run{ID: "r3", Status: "ENDED", TaskID: "other", Lost: true} }, Wait{Kind: WaitWriter, TaskID: "other", RunID: "r3", Lost: true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := ready()
+			c.set(&s)
+			v := Evaluate(s)
+			if v.Reason != ReasonCapacity || v.Wait == nil || *v.Wait != c.want {
+				t.Fatalf("verdict %+v wait %+v, want %+v", v, v.Wait, c.want)
+			}
+		})
+	}
+	if v := Evaluate(ready()); v.Wait != nil {
+		t.Fatalf("runnable verdict has a wait: %+v", v.Wait)
+	}
+}

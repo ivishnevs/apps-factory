@@ -1,5 +1,5 @@
 Status: proposed 2026-11-06 by the owner (open a task in a modal, review the board's UX); review findings below,
-nothing implemented. Owner decisions 2026-11-06: the task panel is postponed (the task page stays as it is for now);
+implemented 2026-11-07 except the task panel (postponed), the priority scale and Waiting grouping (not now). Owner decisions 2026-11-06: the task panel is postponed (the task page stays as it is for now);
 instead of a priority scale and Waiting grouping, the columns are renamed (see "Owner decisions").
 
 ## Why
@@ -84,3 +84,16 @@ Web: tasks board and task view (`web/src/app/c/[company]/tasks`, `components/app
 - **No separate column for tasks that need someone** (owner 2026-11-06): they stay in Blocked (the former Waiting,
   where today they show with the amber "needs you" marking), first in the column, each marked with who has to act
   and what to do. The "A column for tasks that need someone" item above is replaced by this.
+
+## Implementation (2026-11-07)
+
+- Core: a capacity verdict carries `wait` {kind: agent | agent_project | writer | pinned_node | nodes, agent, live,
+  limit, task_id, run_id, node, lost} on task reads and the overview; runs carry `node_id`.
+- Web: "gameplay-dev runs 2 of 2 · Starts when one ends" with a link to the oldest running task; "All nodes busy" only
+  for full nodes. Columns Backlog, Blocked, To do, In progress, In review, Done (web, TUI); the task header shows the
+  column, the engine status in its tooltip. Blocked lists yours first (amber), then tasks that need someone else
+  ("Needs action", red), then those waiting their turn. In progress cards show the run time and the node.
+- Decided during implementation: "needs action" = waits on you, BLOCKED or REWORK status, no assignee, no capable or
+  offline node, a missing secret, an artifact approval, a pause other than a usage limit, an escalation, an
+  inspection, a manual block, or a question to a person; questions to agents, dependencies, subtasks and timers
+  wait their turn.

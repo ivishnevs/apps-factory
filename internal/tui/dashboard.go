@@ -678,7 +678,7 @@ func (m *Model) activityLines(w, h int) []string {
 
 // boardColumns are the kanban columns.
 var boardColumns = []struct{ key, name string }{
-	{"backlog", "Backlog"}, {"ready", "Ready"}, {"running", "Running"}, {"waiting", "Waiting"}, {"review", "In review"}, {"done", "Done"}, {"cancelled", "Cancelled"},
+	{"backlog", "Backlog"}, {"ready", "To do"}, {"running", "In progress"}, {"waiting", "Blocked"}, {"review", "In review"}, {"done", "Done"}, {"cancelled", "Cancelled"},
 }
 
 func columnColor(key string) lipgloss.Style {

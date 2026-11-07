@@ -4,8 +4,14 @@
 
 export interface Clearer { who: string; action: string }
 export interface Trigger { seq: number; kind: string; actor: string; authority: boolean; ref_id?: string }
+// Wait is a capacity verdict in structured form (internal/tasks Wait): the agent's limit, the project workspace,
+// the task's node or full nodes.
+export interface Wait {
+  kind: "agent" | "agent_project" | "writer" | "pinned_node" | "nodes"; agent?: string; live?: number; limit?: number;
+  task_id?: string; run_id?: string; node?: string; lost?: boolean;
+}
 export interface Verdict {
-  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[];
+  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait;
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
@@ -22,7 +28,7 @@ export interface Task {
   progress_at?: number; implementer?: string; reviewer?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
   // Added by the overview: the why reason and who clears it.
-  reason: string; clearer: Clearer;
+  reason: string; clearer: Clearer; wait?: Wait;
 }
 
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
@@ -81,7 +87,7 @@ export interface RunSpec {
 export type RunPhase = "QUEUED" | "CLAIMED" | "RUNNING" | "CANCELLING" | "ENDED";
 export interface Run {
   started_at: number; finished_at: number; spec: RunSpec; status: RunPhase; session_id: string; result: string;
-  usage?: Usage[]; outcome?: string;
+  usage?: Usage[]; outcome?: string; node_id?: string;
 }
 
 // A run event: the envelope's payload is the worker event (protocol.Event); data holds the runtime's raw

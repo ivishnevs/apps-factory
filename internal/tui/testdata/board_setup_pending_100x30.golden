@@ -2,7 +2,7 @@
   1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
  0 tasks  · z shows cancelled                                                                 more ▶
  ◌ the new local repository is set up when the first task runs · n adds the first task
-╭───────── ● Backlog 0 ─────────╮╭────────── ● Ready 0 ──────────╮╭───────── ● Running 0 ──────────╮
+╭───────── ● Backlog 0 ─────────╮╭────────── ● To do 0 ──────────╮╭─────── ● In progress 0 ────────╮
 │   —                           ││   —                           ││   —                            │
 │                               ││                               ││                                │
 │                               ││                               ││                                │

@@ -1,7 +1,7 @@
  ◆ APP FACTORY  [ ● all 17% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ] [ ✗ project-4 0% ] [ ◌ project-5 ]                              14:30
   1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs                                  ● fixture demo │ Company 1 │ ▶ running │ ⚠ 7
  9 tasks  · z shows cancelled                                                                                                                             more ▶
-╭──────── ● Backlog 1 ─────────╮╭───────── ● Ready 2 ──────────╮╭──────── ● Running 1 ─────────╮╭──────── ● Waiting 3 ─────────╮╭─────── ● In review 0 ────────╮
+╭──────── ● Backlog 1 ─────────╮╭───────── ● To do 2 ──────────╮╭────── ● In progress 1 ───────╮╭──────── ● Blocked 3 ─────────╮╭─────── ● In review 0 ────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││   —                          │
 │ ┃ ● Task 6                 ┃ ││ │ ◷ Task 9                 │ ││ │ ● Task 3                 │ ││ │ ● ⚠ Task 1               │ ││                              │
 │ ┃ P1-6  project-1       ▽2 ┃ ││ │ P1-9  project-1       ▲8 │ ││ │ P1-3  project-1    ✗3 △7 │ ││ │ P1-1  project-1       ▲9 │ ││                              │

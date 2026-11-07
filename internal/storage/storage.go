@@ -101,6 +101,8 @@ type Run struct {
 	Usage UsageList `json:"usage,omitempty"`
 	// Outcome is how the run ended (reliable-recovery D1); empty while it is live.
 	Outcome string `json:"outcome,omitempty"`
+	// NodeID is the node that claimed the run ("" while queued).
+	NodeID string `json:"node_id,omitempty"`
 }
 
 // UsageList is runs.usage: JSON of the last reported Event.usage, empty when none.
@@ -201,7 +203,7 @@ func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) 
 func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	var r Run
 	var b []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome)
+	err := s.DB.QueryRowContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome,node_id FROM runs WHERE company_id=? AND id=?", company, id).Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome, &r.NodeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -212,7 +214,7 @@ func (s *Store) Get(ctx context.Context, company, id string) (Run, error) {
 	return r, err
 }
 func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome FROM runs WHERE company_id=? ORDER BY created_at,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT spec,status,session_id,result,started_at,finished_at,usage,outcome,node_id FROM runs WHERE company_id=? ORDER BY created_at,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +223,7 @@ func (s *Store) List(ctx context.Context, company string) ([]Run, error) {
 	for rows.Next() {
 		var r Run
 		var b []byte
-		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome); err != nil {
+		if err = rows.Scan(&b, &r.Status, &r.SessionID, &r.Result, &r.StartedAt, &r.FinishedAt, &r.Usage, &r.Outcome, &r.NodeID); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(b, &r.Spec); err != nil {

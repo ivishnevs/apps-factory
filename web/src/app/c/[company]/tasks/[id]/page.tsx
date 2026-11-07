@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { TaskMaterials } from "@/components/app/materials/task-materials";
 import { EmptyState, ErrorState } from "@/components/app/page";
 import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
-import { isTerminal, useClock, useHydrated, useOverviewData } from "@/components/app/tasks/model";
+import { columnOf, isTerminal, runsByTask, useClock, useHydrated, useOverviewData } from "@/components/app/tasks/model";
 import { TaskActions } from "@/components/app/tasks/task-actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, useTask } from "@/lib/api/client";
@@ -52,7 +52,7 @@ export default function Page() {
   return (
     <div className="pb-20 md:pb-0">
       {back}
-      <Header task={task} project={project} pr={pr} now={now}
+      <Header task={task} project={project} pr={pr} now={now} column={columnOf(task, runsByTask(ov))}
         actions={<TaskActions task={task} agents={ov?.agents ?? []} hasOpenChildren={children.some((c) => !isTerminal(c.status))} failed={failed} />} />
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
         <div className="grid min-w-0 grid-cols-1 gap-6 lg:col-start-1 lg:row-start-1">

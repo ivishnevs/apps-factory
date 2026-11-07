@@ -179,10 +179,11 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 		if !n.Online {
 			state = "offline since " + time.Unix(n.LastSeen, 0).UTC().Format(time.RFC3339)
 		}
-		return hold(ReasonCapacity, fmt.Sprintf("the task's unpushed work is on node %s, %s", n.label(), state), "node:"+n.ID, fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout))
+		return wait(hold(ReasonCapacity, fmt.Sprintf("the task's unpushed work is on node %s, %s", n.label(), state), "node:"+n.ID, fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout)),
+			Wait{Kind: WaitPinnedNode, Node: n.label()})
 	}
 	if why := s.nodesFull(); why != "" {
-		return hold(ReasonCapacity, "capable nodes are full: "+why, "scheduler", "wait for a run on a capable node to end and be sealed")
+		return wait(hold(ReasonCapacity, "capable nodes are full: "+why, "scheduler", "wait for a run on a capable node to end and be sealed"), Wait{Kind: WaitNodes})
 	}
 	return Verdict{}
 }

@@ -3,9 +3,9 @@
 import { CircleUserRound, Clock, Hand, Loader2 } from "lucide-react";
 import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
-import type { Task } from "@/lib/api/types";
+import type { FactoryNode, Run, Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { agentHue, columns, type ColumnKey, initials, needsOwner, showWhy, since } from "./model";
+import { agentHue, columns, type ColumnKey, elapsed, initials, needsAction, needsOwner, showWhy, since } from "./model";
 import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
 
@@ -59,13 +59,21 @@ export function WhyLine({ task, look, now, compact, className }: {
   );
 }
 
-export function TaskCard({ task, project, now, column, look, className }: { task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; className?: string }) {
+// TaskCard: a task on the board. In progress cards show the run time and node; cards that need someone to act
+// are marked (yours amber, others red) so they stand out from tasks that wait their turn.
+export function TaskCard({ task, project, now, column, look, run, nodes, className }: {
+  task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; run?: Run; nodes?: FactoryNode[]; className?: string;
+}) {
   const col = column && columns.find((c) => c.key === column);
   const badge = !col && ["CANCELLED", "BLOCKED", "REWORK"].includes(task.status);
+  const yours = needsOwner(task), action = !yours && needsAction(task);
+  const node = run?.node_id ? nodes?.find((n) => n.node_id === run.node_id)?.name ?? run.node_id.slice(0, 8) : "";
+  const live = run && run.status !== "QUEUED" && run.started_at > 0;
   return (
     <Link href={`/tasks/${encodeURIComponent(task.id)}`}
       className={cn("group relative block rounded-xl border bg-card p-3.5 shadow-xs transition-[border-color,box-shadow,transform] duration-150 hover:border-foreground/20 hover:shadow-sm focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.99]",
-        needsOwner(task) && "border-amber-500/50 bg-amber-50/40 dark:border-amber-400/30 dark:bg-amber-400/[0.04]", className)}>
+        yours && "border-amber-500/50 bg-amber-50/40 dark:border-amber-400/30 dark:bg-amber-400/[0.04]",
+        action && "border-red-500/40 dark:border-red-400/30", className)}>
       <div className="mb-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         <span className="shrink-0 font-mono" title={task.id}>{displayId(task.id)}</span>
         <span aria-hidden className="text-muted-foreground/40">·</span>
@@ -77,7 +85,15 @@ export function TaskCard({ task, project, now, column, look, className }: { task
         </span>
       </div>
       <p className="line-clamp-2 text-[15px] font-medium leading-snug text-foreground wrap-anywhere sm:text-sm">{task.title}</p>
-      {showWhy(task) && <WhyLine task={task} look={look} now={now} compact className="mt-1.5" />}
+      {action && <p className="mt-1.5 text-[11px] font-semibold tracking-wide text-red-700 uppercase dark:text-red-300">Needs action</p>}
+      {showWhy(task) && <WhyLine task={task} look={look} now={now} compact className={action ? "mt-0.5" : "mt-1.5"} />}
+      {live && (
+        <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin [animation-duration:2.5s]" />
+          <span className="tabular-nums" title="Run time">{elapsed(run.started_at, now)}</span>
+          {node && <><span aria-hidden className="text-muted-foreground/40">·</span><span className="min-w-0 truncate" title="Node">{node}</span></>}
+        </p>
+      )}
       <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <AgentAvatar name={task.assignee} size="xs" />
         <span className="min-w-0 truncate">{task.assignee || "Unassigned"}</span>

@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 import { displayId } from "./format";
+import type { Wait } from "./api/types";
 
 // Core explains why a task does not run as a CLI-shaped verdict (internal/tasks/state.go Evaluate and park):
 // a reason, a detail with raw IDs and statuses, and a clearer {who, action} whose action is often a
@@ -39,6 +40,7 @@ export interface Verdictish {
   detail?: string;
   clearer?: { who: string; action: string };
   status?: string;
+  wait?: Wait;
 }
 
 const HEX = /\b[0-9a-f]{20,}\b/g;
@@ -92,7 +94,7 @@ export function party(who: string | undefined, look?: Lookup): Party | undefined
   if (who === "owner") return { label: "You", you: true };
   if (who.startsWith("run:")) return { label: "The current run", href: `/runs/${encodeURIComponent(who.slice(4))}` };
   if (who.startsWith("task:")) { const id = who.slice(5); return { label: taskName(id, look), href: `/tasks/${encodeURIComponent(id)}` }; }
-  if (who.startsWith("node")) return { label: "Its connector", href: "/nodes" };
+  if (who.startsWith("node")) return { label: "Its node", href: "/nodes" };
   if (who === "children") return { label: "Its subtasks" };
   if (who === "reviewer") return { label: "The reviewer" };
   const agents = who.split(",").map((w) => w.trim().replace(/^agent:/, "")).filter(Boolean);
@@ -239,6 +241,10 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     }
     return out({ headline: "Idle", brief: "Nothing to do yet", detail: "It has nothing new to act on.", next: `It wakes on a comment or a directive; ${release(v.status)} in the task menu starts it now.`, you: false });
   }
+  if (reason === "secret_missing") {
+    return out({ headline: "A secret is missing", brief: "Set it on the Secrets page", detail: note ?? "A secret its agent needs is not set.",
+      who: { label: "You", you: true, href: "/secrets" }, you: true, next: "Set the secret on the Secrets page; it starts after that." });
+  }
   if (reason === "pinned_node_unavailable") {
     return out({ headline: "Its node is offline", brief: "Answer in the inbox", detail: "The node with its unsaved work is unavailable.",
       next: "Bring the node back, or answer the escalation in your inbox to continue on another node." });
@@ -246,6 +252,32 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
   if (reason === "no_capable_node") {
     return out({ headline: "No node can run it", brief: "Start a capable node", detail: note ? `${capital(note)}.` : "No online node has what its agent needs.",
       next: "Start or fix a node with what this agent needs." });
+  }
+  if (reason === "capacity" && v.wait) {
+    const w = v.wait;
+    const blocker: Party | undefined = w.task_id ? { label: taskName(w.task_id, look), href: `/tasks/${encodeURIComponent(w.task_id)}` }
+      : w.run_id ? { label: "Another run", href: `/runs/${encodeURIComponent(w.run_id)}` } : undefined;
+    const runs = (n?: number) => `${n ?? 1} run${n === 1 ? "" : "s"}`;
+    switch (w.kind) {
+      case "agent":
+        return out({ headline: `${w.agent} runs ${w.live} of ${w.limit}`, label: "Agent at its limit", brief: "Starts when one ends", who: blocker,
+          detail: `${w.agent} already runs ${runs(w.live)}, its limit${w.task_id ? `; the oldest is ${taskName(w.task_id, look, true)}` : ""}.`,
+          next: "It starts when one of the agent's runs ends.", you: false, queued: true });
+      case "agent_project":
+        return out({ headline: `${w.agent} runs ${w.live} of ${w.limit} here`, label: "Agent at its project limit", brief: "Starts when one ends", who: blocker,
+          detail: `${w.agent} already runs ${runs(w.live)} in this project, its limit per project.`,
+          next: "It starts when one of the agent's runs in this project ends.", you: false, queued: true });
+      case "writer":
+        return out({ headline: "Project busy", brief: w.lost ? "A lost run holds the project" : "Another run uses the project", who: blocker,
+          detail: `${w.task_id ? taskName(w.task_id, look, true) : "Another task"} is using the project's workspace${w.lost ? "; its node has not confirmed the run ended" : ""}.`,
+          next: w.lost ? "It starts when the node reports the lost run gone, or you resolve the run." : "It starts when that run ends.", you: false, queued: true });
+      case "pinned_node":
+        return out({ headline: `Waiting for node ${w.node ?? ""}`.trim(), brief: "Its unsaved work is there", who: { label: w.node ? `Node ${w.node}` : "Its node", href: "/nodes" },
+          detail: "Its unsaved work is on a node that is busy, paused or offline.", next: "It continues on that node when it is back.", you: false, queued: true });
+      case "nodes":
+        return out({ headline: "All nodes busy", brief: "Starts when a node frees up", detail: "Every node that can run it is full.", who: undefined,
+          next: "It starts when a run on a capable node ends.", you: false, queued: true });
+    }
   }
   if (reason === "capacity") {
     const agent = /^agent (\S+) is busy/.exec(detail)?.[1];

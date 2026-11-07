@@ -16,17 +16,17 @@
 
 ## 3. Words and reasons
 
-- [ ] 3.1 Core: structured capacity reason (agent limit, project writer, node slots, unpushed work); tests.
-- [ ] 3.2 Web: "AGENT runs N of N" with links; "All nodes busy" only for full nodes.
-- [ ] 3.3 One status vocabulary (column names) on card, panel, page, Home and Telegram; the task header badge shows
+- [x] 3.1 Core: structured capacity reason (agent limit, project writer, node slots, unpushed work); tests.
+- [x] 3.2 Web: "AGENT runs N of N" with links; "All nodes busy" only for full nodes.
+- [x] 3.3 One status vocabulary (column names) on card, panel, page, Home and Telegram; the task header badge shows
       the column, not the engine status.
-- [ ] 3.5 Blocked: tasks that need someone first and marked with who acts and what to do (one shared
+- [x] 3.5 Blocked: tasks that need someone first and marked with who acts and what to do (one shared
       classification of "needs someone" vs "comes in its turn"); board, phone bar, Home; tests for every reason.
-- [ ] 3.4 Rename columns: Ready → To do, Waiting → Blocked, Running → In progress (web, TUI, Telegram, Home);
+- [x] 3.4 Rename columns: Ready → To do, Waiting → Blocked, Running → In progress (web, TUI, Telegram, Home);
       engine statuses unchanged.
 
 ## 4. Board content
 
 - [ ] 4.1 (not now) Waiting grouped by what it waits on.
-- [ ] 4.2 Running cards with run time, last step and node.
-- [ ] 4.3 Header actions untruncated; UX pass on phone and desktop (focus, contrast, touch targets, empty/loading).
+- [x] 4.2 Running cards with run time, last step and node.
+- [x] 4.3 Header actions untruncated; UX pass on phone and desktop (focus, contrast, touch targets, empty/loading).

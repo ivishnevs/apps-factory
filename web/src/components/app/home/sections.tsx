@@ -153,7 +153,7 @@ function RunRow({ run, task, queued, now }: { run: Run; task?: BoardTask; queued
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{run.spec.agent}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {waiting ? <span className="text-sky-700 dark:text-sky-300">Waiting for a connector{queued && queued !== "Waiting for a node" ? ` · ${queued}` : ""}</span> : what}
+          {waiting ? <span className="text-sky-700 dark:text-sky-300">Waiting for a node{queued && queued !== "Waiting for a node" ? ` · ${queued}` : ""}</span> : what}
         </span>
       </span>
       <span className="shrink-0 text-right">

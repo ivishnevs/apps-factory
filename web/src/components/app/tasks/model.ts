@@ -64,16 +64,19 @@ export function runsByTask(ov?: Overview) {
   return { live, queued };
 }
 
-// Board columns, in order (as the terminal board groups them: a run waiting for a node is still Ready).
+// Board columns, in order (as the terminal board groups them: a run waiting for a node is still To do). The keys
+// are stable; the names are what the owner sees everywhere (task-board-ux: Ready → To do, Waiting → Blocked,
+// Running → In progress). Engine statuses (READY, REWORK, BLOCKED) stay as they are.
 export type ColumnKey = "backlog" | "ready" | "waiting" | "running" | "review" | "done";
 export const columns: { key: ColumnKey; name: string; tone: string }[] = [
   { key: "backlog", name: "Backlog", tone: "BACKLOG" },
-  { key: "waiting", name: "Waiting", tone: "REWORK" },
-  { key: "ready", name: "Ready", tone: "READY" },
-  { key: "running", name: "Running", tone: "IN_PROGRESS" },
+  { key: "waiting", name: "Blocked", tone: "REWORK" },
+  { key: "ready", name: "To do", tone: "READY" },
+  { key: "running", name: "In progress", tone: "IN_PROGRESS" },
   { key: "review", name: "In review", tone: "IN_REVIEW" },
   { key: "done", name: "Done", tone: "DONE" },
 ];
+export const columnName = (k: ColumnKey) => columns.find((c) => c.key === k)?.name ?? k;
 
 export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKey {
   if (isTerminal(t.status)) return "done";
@@ -82,8 +85,23 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
   if (runs.queued.has(t.id)) return "ready";
   if (runs.live.has(t.id) || t.status === "IN_PROGRESS") return "running";
   if (t.status === "BLOCKED" || t.status === "REWORK" || t.reason.startsWith("parked:") || t.reason.startsWith("paused:") ||
-    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node"].includes(t.reason)) return "waiting";
+    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node", "secret_missing"].includes(t.reason)) return "waiting";
   return "ready";
+}
+
+// needsAction: the task will not move until someone acts (task-board-ux 3.5) — you or another person, its node
+// or the setup — as opposed to waiting its turn (dependencies, subtasks, a timer, a question to an agent).
+// One classification for the board, the phone bar and Home.
+export function needsAction(t: { reason?: string; status?: string; clearer?: { who: string } }): boolean {
+  const r = t.reason ?? "", who = t.clearer?.who ?? "";
+  if (isTerminal(t.status ?? "") || r === "backlog" || r === "terminal") return false;
+  if (needsOwner(t)) return true;
+  if (t.status === "BLOCKED" || t.status === "REWORK") return true;
+  if (["unassigned", "pinned_node_unavailable", "no_capable_node", "secret_missing", "artifacts"].includes(r)) return true;
+  if (r.startsWith("paused:")) return who !== "time";
+  if (r === "parked:escalation" || r === "parked:inspect" || r === "parked:block") return true;
+  if (r === "parked:ask") return who === "owner" || who.startsWith("member:") || who.startsWith("person:");
+  return false;
 }
 
 // Why a task is where it is, in words: a short label and what clears it ("you" when it is the owner).

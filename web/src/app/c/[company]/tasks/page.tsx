@@ -6,7 +6,7 @@ import { useRouter } from "@/components/app/link";
 import { Suspense, useMemo, useState } from "react";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { toneClass } from "@/components/app/status";
-import { columnOf, columns, isConversation, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
+import { columnOf, columns, isConversation, needsAction, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
 import { NewProject } from "@/components/app/project/new-project";
 import { NewTask } from "@/components/app/tasks/new-task";
 import { SetupNotice } from "@/components/app/project/setup-notice";
@@ -23,12 +23,13 @@ import { cn } from "@/lib/utils";
 const ALL = "all";
 type View = "open" | "you" | ColumnKey;
 const views: { key: View; name: string }[] = [
-  { key: "open", name: "Open" }, { key: "you", name: "Needs you" }, { key: "running", name: "Running" }, { key: "waiting", name: "Waiting" },
-  { key: "ready", name: "Ready" }, { key: "review", name: "In review" }, { key: "backlog", name: "Backlog" }, { key: "done", name: "Done" },
+  { key: "open", name: "Open" }, { key: "you", name: "Needs you" }, { key: "running", name: "In progress" }, { key: "waiting", name: "Blocked" },
+  { key: "ready", name: "To do" }, { key: "review", name: "In review" }, { key: "backlog", name: "Backlog" }, { key: "done", name: "Done" },
 ];
 
-// Owner first, then by priority, then the most recently changed.
-const order = (a: Task, b: Task) => Number(needsOwner(b)) - Number(needsOwner(a)) || b.priority - a.priority || b.updated_at - a.updated_at;
+// Yours first, then what needs someone else to act, then by priority, then the most recently changed.
+const order = (a: Task, b: Task) => Number(needsOwner(b)) - Number(needsOwner(a)) || Number(needsAction(b)) - Number(needsAction(a))
+  || b.priority - a.priority || b.updated_at - a.updated_at;
 
 export default function Page() {
   return <Suspense fallback={<BoardSkeleton />}><Tasks /></Suspense>;
@@ -63,8 +64,8 @@ function Tasks() {
   };
   const onNewTask = (v: boolean) => set("new", v ? "task" : "", "");
 
+  const runs = useMemo(() => runsByTask(ov), [ov]);
   const { filtered, byCol } = useMemo(() => {
-    const runs = runsByTask(ov);
     const teamOf = new Map((ov?.status ?? []).map((s) => [s.project.id, s.project.team ?? ""]));
     const needle = q.trim().toLowerCase();
     const filtered = ((ov?.tasks ?? []) as BoardTask[])
@@ -78,7 +79,7 @@ function Tasks() {
     const byCol = new Map<ColumnKey, Task[]>(columns.map((c) => [c.key, []]));
     for (const f of filtered) byCol.get(f.col)!.push(f.task);
     return { filtered, byCol };
-  }, [ov, project, assignee, team, q]);
+  }, [ov, runs, project, assignee, team, q]);
 
   const count = (v: View) => v === "open" ? filtered.filter((f) => f.col !== "done").length
     : v === "you" ? filtered.filter((f) => f.col !== "done" && needsOwner(f.task)).length : byCol.get(v)?.length ?? 0;
@@ -159,7 +160,7 @@ function Tasks() {
             </div>
             {list.length === 0 ? <Empty view={view} filtered={filteredOut} emptyProject={!!current && !projectHasTasks} /> : (
               <ul className="grid gap-2.5 sm:grid-cols-2">
-                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
+                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} run={runs.live.get(f.task.id)} nodes={ov.nodes} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
               </ul>
             )}
           </div>
@@ -200,7 +201,7 @@ function Tasks() {
                       )}
                     </header>
                     <div className="flex flex-col gap-2">
-                      {items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} />)}
+                      {items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} nodes={ov.nodes} />)}
                     </div>
                   </section>
                 );

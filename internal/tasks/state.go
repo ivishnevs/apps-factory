@@ -163,6 +163,29 @@ type Verdict struct {
 	Clearer Clearer `json:"clearer"`
 	// Pending triggers the next run of the task will be briefed on.
 	Pending []Trigger `json:"pending_triggers,omitempty"`
+	// Wait is the capacity case in structured form (task-board-ux 3.1), set when Reason is capacity.
+	Wait *Wait `json:"wait,omitempty"`
+}
+
+// Wait kinds of a capacity verdict.
+const (
+	WaitAgent        = "agent"         // the assignee runs Limit of Limit runs
+	WaitAgentProject = "agent_project" // the assignee's per-project limit
+	WaitWriter       = "writer"        // another run holds the project workspace
+	WaitPinnedNode   = "pinned_node"   // the task's unpushed work is on a busy, offline or paused node
+	WaitNodes        = "nodes"         // every capable node is full
+)
+
+// Wait says what a queued task waits for: the agent's limit, the project workspace, its node or full nodes.
+type Wait struct {
+	Kind   string `json:"kind"`
+	Agent  string `json:"agent,omitempty"`
+	Live   int    `json:"live,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	TaskID string `json:"task_id,omitempty"` // the oldest run's task holding the slot
+	RunID  string `json:"run_id,omitempty"`
+	Node   string `json:"node,omitempty"`
+	Lost   bool   `json:"lost,omitempty"`
 }
 
 // Evaluate returns the first reason in D3 order why the task does not run now, or runnable.
@@ -255,17 +278,21 @@ func Evaluate(s Snapshot) Verdict {
 			projectLimit = limit
 		}
 		if live >= limit {
-			return v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs, oldest %s (task %s)", t.Assignee, live, limit, r.ID, r.TaskID), "run:"+r.ID, "wait for the agent's current run")
+			return wait(v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs, oldest %s (task %s)", t.Assignee, live, limit, r.ID, r.TaskID), "run:"+r.ID, "wait for the agent's current run"),
+				Wait{Kind: WaitAgent, Agent: t.Assignee, Live: live, Limit: limit, TaskID: r.TaskID, RunID: r.ID})
 		}
 		if s.AgentProjectLive >= projectLimit {
-			return v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs in this project", t.Assignee, s.AgentProjectLive, projectLimit), "run:"+r.ID, "wait for the agent's current run in this project")
+			return wait(v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs in this project", t.Assignee, s.AgentProjectLive, projectLimit), "run:"+r.ID, "wait for the agent's current run in this project"),
+				Wait{Kind: WaitAgentProject, Agent: t.Assignee, Live: s.AgentProjectLive, Limit: projectLimit, TaskID: r.TaskID, RunID: r.ID})
 		}
 	}
 	if r := s.WriterRun; r != nil {
 		if r.Lost {
-			return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by lost run %s whose runtime may still run (task %s)", r.ID, r.TaskID), "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" continue|retry|cancel EVIDENCE")
+			return wait(v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by lost run %s whose runtime may still run (task %s)", r.ID, r.TaskID), "node", "the node reports the runtime gone, or factory runs resolve "+r.ID+" continue|retry|cancel EVIDENCE"),
+				Wait{Kind: WaitWriter, TaskID: r.TaskID, RunID: r.ID, Lost: true})
 		}
-		return v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the run in the project workspace")
+		return wait(v(ReasonCapacity, fmt.Sprintf("project workspace writer slot held by run %s (task %s)", r.ID, r.TaskID), "run:"+r.ID, "wait for the run in the project workspace"),
+			Wait{Kind: WaitWriter, TaskID: r.TaskID, RunID: r.ID})
 	}
 	if s.ProjectSetup != "" {
 		return v(ReasonProjectSetup, s.ProjectSetup, "node", "wait for the project's repository setup (its first task's run); a failed setup names its reason in the project's feed")
@@ -274,6 +301,12 @@ func Evaluate(s Snapshot) Verdict {
 		return v(n.Reason, n.Detail, n.Clearer.Who, n.Clearer.Action)
 	}
 	return v(ReasonRunnable, "", "scheduler", "dispatch on the next tick")
+}
+
+// wait attaches the structured capacity case to a verdict.
+func wait(v Verdict, w Wait) Verdict {
+	v.Wait = &w
+	return v
 }
 
 // park returns the first active park of a kind.
