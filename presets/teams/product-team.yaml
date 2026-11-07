@@ -92,6 +92,15 @@ spec:
         roles:
         - developer
         type: review
+      - instruction: Work of roles without their own reviewer (design, QA, review) is reviewed by the team's lead before it
+          counts as done; submit it for review with factory_exit_submit. The lead's own work is reviewed by people.
+        name: lead-review
+        required: true
+        reviewer: '@product-owner'
+        roles:
+        - designer
+        - qa
+        type: review
       - instruction: Requirement changes (an OpenSpec proposal or spec deltas) in your pull request need the product owner's
           approval as well; ask before changing requirements.
         name: requirements-review

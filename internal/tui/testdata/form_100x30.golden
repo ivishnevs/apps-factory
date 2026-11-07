@@ -4,15 +4,15 @@
 ╭───────── ● Backlog 3 ─────────╮╭──────── ● To do 6 +3 ─────────╮╭─────── ● In progress 2 ────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
 │ ┃ ● ⚠ Task 4                ┃ ││ │ ◷ Task 9                  │ ││ │ ● Task 2                   │ │
-│ ┃ P2-4  project-2        ▽3 ┃ ││ │ P1-9  project-1        ▲8 │ ││ │ P3-2  project-3      ✗1 ▲8 │ │
-│ ┃ ●╭─────────────────────────────────────── New task ───────────────────────────────────────╮m │ │
-│ ┃ ↳│   Project       project-1                                                              │  │ │
-│ ┗━━│ ▸ Title         what needs doing                                                       │──╯ │
-│ ╭──│   Description   details, acceptance criteria (ctrl+e opens $EDITOR)                    │──╮ │
+│ ┃ P╭─────────────────────────────────────── New task ───────────────────────────────────────╮8 │ │
+│ ┃ ●│   Project       project-1                                                              │m │ │
+│ ┃ ↳│ ▸ Title         what needs doing                                                       │  │ │
+│ ┗━━│   Description   details, acceptance criteria (ctrl+e opens $EDITOR)                    │──╯ │
+│ ╭──│                                                                                        │──╮ │
 │ │ ●│                                                                                        │  │ │
 │ │ P│                                                                                        │7 │ │
-│ │ ●│                                                                                        │m │ │
-│ │ ○│   Assignee      unassigned                                                             │… │ │
+│ │ ●│   Assignee      unassigned                                                             │m │ │
+│ │ ○│   Reviewer      you                                                                    │… │ │
 │ ╰──│   Priority      5          -1000..1000, higher runs first                              │──╯ │
 │ ╭──│   Depends on    ☐ P1-1  ☐ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9                 │    │
 │ │ ●│   Ready now     ● yes — released to the board                                          │    │

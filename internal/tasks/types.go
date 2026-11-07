@@ -131,6 +131,9 @@ type Task struct {
 	// its assignee while the task is IN_REVIEW.
 	Implementer string `json:"implementer,omitempty"`
 	Reviewer    string `json:"reviewer,omitempty"`
+	// ReviewBy is who reviews the task's work (review-coverage): an agent, "owner" or "member:USER". Required on
+	// every task outside the backlog (Core refuses ready without it); a submit naming no reviewer goes to it.
+	ReviewBy string `json:"review_by,omitempty"`
 	// FreshSession: the next run starts a new runtime session (reset_workspace moved the task off its node).
 	FreshSession bool `json:"fresh_session,omitempty"`
 	// BlockedOn are the dependencies a factory_exit_block added (explicit-exits-authority D1): authority input
@@ -219,6 +222,8 @@ type Create struct {
 	Actor             string     `json:"actor,omitempty"`
 	// Ready creates the task released for scheduling (READY, or waiting for its artifacts).
 	Ready bool `json:"ready,omitempty"`
+	// ReviewBy is the task's reviewer (Task.ReviewBy); Core requires it with Ready.
+	ReviewBy string `json:"review_by,omitempty"`
 	// SideEffects: the task's runs act outside the workspace; failures are inspected, not retried.
 	SideEffects bool `json:"side_effects,omitempty"`
 	// Trusted metadata set by Core, never decoded from a request body.
@@ -236,6 +241,8 @@ type Update struct {
 	OpenSpecChange    *string     `json:"openspec_change,omitempty"`
 	Dependencies      *[]string   `json:"dependencies,omitempty"`
 	SideEffects       *bool       `json:"side_effects,omitempty"`
+	// ReviewBy sets the task's reviewer; Core refuses clearing it outside the backlog.
+	ReviewBy *string `json:"review_by,omitempty"`
 	// Model sets the task's model override ("" clears it); only an authority over the task may set it.
 	Model     *string `json:"model,omitempty"`
 	RequestID string  `json:"request_id,omitempty"`

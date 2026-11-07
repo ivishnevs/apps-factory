@@ -166,6 +166,19 @@ func TestRunScopedMCP(t *testing.T) {
 	if w = tool("task_accept", map[string]any{"id": task.ID, "version": task.Version, "request_id": "self-review"}); w.Code != 403 {
 		t.Fatal("self review", w.Code)
 	}
+	// review-coverage: a task leaves the backlog only with its reviewer.
+	if w = tool("task_ready", map[string]any{"id": child.ID, "version": child.Version, "request_id": "ready-child-0"}); w.Code != 400 || !strings.Contains(w.Body.String(), "Reviewer is required") || !strings.Contains(w.Body.String(), "review_by") {
+		t.Fatal("ready without a reviewer", w.Code, w.Body.String())
+	}
+	if w = tool("task_update", map[string]any{"id": child.ID, "version": child.Version, "review_by": "demo", "request_id": "self-reviewer"}); w.Code != 400 {
+		t.Fatal("assignee as reviewer", w.Code, w.Body.String())
+	}
+	if w = tool("task_update", map[string]any{"id": child.ID, "version": child.Version, "review_by": "owner", "request_id": "reviewer-child"}); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &child); err != nil || child.ReviewBy != "owner" {
+		t.Fatal(err, child)
+	}
 	if w = tool("task_ready", map[string]any{"id": child.ID, "version": child.Version, "request_id": "ready-child"}); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

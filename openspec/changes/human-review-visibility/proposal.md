@@ -39,3 +39,10 @@ Who reviews is no longer open: `review-coverage` makes the reviewer an explicit,
 the backlog, so a task in review always names its reviewer (an agent or a person). What remains here: warn when work
 will come back to a person, show "waiting for your review (NAME)" on the task, card and feed, and notify that person
 (Inbox item while it is open, Telegram) with Accept / Send back.
+
+## Implementation (2026-11-07)
+
+Tasks in review say whom they wait for ("Waiting for your review", "… by qa", "… by NAME") on the board, the task
+page ("Waiting for review by") and Home; reviews for people are attention items (Telegram, feed) and the Inbox lists
+them under "Reviews for you" with Accept and Send back. The new-task form warns "It comes back to you for review"
+when you are the reviewer. 2.4 (trivial tasks done without review) stays optional and is not done.

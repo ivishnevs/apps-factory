@@ -15,6 +15,7 @@ import { columns, type ColumnKey, isTerminal, runCost, since } from "./model";
 import { cleanText, humanize, party as partyOf, taskName, triggerWords, type Lookup, type Party } from "@/lib/humanize";
 import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
+import { reviewerName } from "./reviewer";
 
 const stamp = (t?: number | string) => {
   if (!t) return "";
@@ -286,7 +287,10 @@ export function DetailsList({ task, parent, cost, now, look }: { task: Task; par
   if (task.dependencies?.length) rows.push(["Depends on", <span key="d" className="flex flex-col items-end gap-1.5">{task.dependencies.map((d) => <TaskLink key={d} id={d} look={look} />)}</span>]);
   if (task.blocked_on?.length) rows.push(["Blocked on", <span key="b" className="flex flex-col items-end gap-1.5">{task.blocked_on.map((d) => <TaskLink key={d} id={d} look={look} />)}</span>]);
   if (task.implementer) rows.push(["Implementer", task.implementer]);
-  if (task.reviewer) rows.push(["Reviewer", task.reviewer]);
+  // The task's reviewer (review-coverage); while in review, whom it waits for (human-review-visibility).
+  const reviewing = task.status === "IN_REVIEW" ? (task.reviewer || task.review_by || "owner") : task.review_by;
+  if (reviewing) rows.push([task.status === "IN_REVIEW" ? "Waiting for review by" : "Reviewer", reviewerName(reviewing)]);
+  else if (task.status === "BACKLOG") rows.push(["Reviewer", <span key="r" className="text-muted-foreground">Not set (required before it runs)</span>]);
   if (task.model) rows.push(["Model", <span key="m" className="font-mono text-xs">{task.model}</span>]);
   rows.push(["Attempt", String(task.attempt)]);
   if (task.fail_streak) rows.push(["Failures in a row", String(task.fail_streak)]);

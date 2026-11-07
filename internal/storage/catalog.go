@@ -20,6 +20,9 @@ type CatalogVersion struct {
 	Note      string `json:"note,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	Documents int    `json:"documents"`
+	// Warnings are what the saved catalog allows but should not (review-coverage: agents no review rule
+	// covers); set on a save or dry run, not stored.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Catalog is a version with its documents (path → content).

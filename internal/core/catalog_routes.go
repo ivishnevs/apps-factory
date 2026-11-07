@@ -148,12 +148,17 @@ func (c *Core) ApplyCatalogChange(ctx context.Context, company, author string, c
 		return storage.CatalogVersion{}, err
 	}
 	if ch.DryRun {
-		if _, err = c.loadCatalog(company, docs); err != nil {
+		cat, err := c.loadCatalog(company, docs)
+		if err != nil {
 			return storage.CatalogVersion{}, fmt.Errorf("%w: %v", storage.ErrInput, err)
 		}
-		return storage.CatalogVersion{Version: ch.Base, Documents: len(docs)}, nil
+		return storage.CatalogVersion{Version: ch.Base, Documents: len(docs), Warnings: config.ReviewCoverage(cat)}, nil
 	}
-	return c.SaveCatalog(ctx, company, storage.CatalogSave{Base: ch.Base, Docs: docs, Author: author, Note: ch.Note})
+	v, err := c.SaveCatalog(ctx, company, storage.CatalogSave{Base: ch.Base, Docs: docs, Author: author, Note: ch.Note})
+	if err == nil {
+		v.Warnings = config.ReviewCoverage(c.cat(company))
+	}
+	return v, err
 }
 
 func (c *Core) catalogRoutes(m *http.ServeMux) {

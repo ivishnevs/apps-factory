@@ -2,7 +2,7 @@
 
 import { Check, Plus } from "lucide-react";
 import { useRouter } from "@/components/app/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { Field, touchInput } from "./field";
 import { isConversation, isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
+import { ReviewerSelect, useReviewSuggestion } from "./reviewer";
 import { displayId } from "@/lib/format";
 import { setupView } from "@/lib/project-setup";
 
@@ -52,6 +53,11 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
   const [priority, setPriority] = useState("5");
   const [deps, setDeps] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
+  // The reviewer (review-coverage): prefilled from the review policy for the chosen assignee until changed.
+  const [reviewBy, setReviewBy] = useState("");
+  const [reviewTouched, setReviewTouched] = useState(false);
+  const suggestion = useReviewSuggestion(assignee === NONE ? "" : assignee).data?.review_by;
+  useEffect(() => { if (!reviewTouched && suggestion) setReviewBy(suggestion); }, [suggestion, reviewTouched]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { run, pending } = useOwnerAction();
 
@@ -69,10 +75,12 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
     if (!Number.isInteger(p) || priority.trim() === "") errs.priority = "A whole number";
     else if (p < -1000 || p > 1000) errs.priority = "Between -1000 and 1000";
     if (ready && assignee === NONE) errs.assignee = "A ready task needs an assignee";
+    if (ready && !reviewBy) errs.reviewer = "Reviewer is required";
+    if (reviewBy && reviewBy === assignee) errs.reviewer = "Someone other than the assignee";
     setErrors(errs);
     if (Object.keys(errs).length) return;
     const a: Action = { Kind: "create", Project: project, Title: title.trim(), Text: text.trim(), Priority: p,
-      Assignee: assignee === NONE ? "" : assignee, Deps: deps.filter((d) => candidates.some((c) => c.id === d)), Ready: ready };
+      Assignee: assignee === NONE ? "" : assignee, Deps: deps.filter((d) => candidates.some((c) => c.id === d)), Ready: ready, ReviewBy: reviewBy || undefined };
     const res = await run(a, { title: "Create this task?", confirm: "Create task" });
     if (res === null) return;
     onDone();
@@ -116,6 +124,10 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
             <Input id="nt-priority" inputMode="numeric" value={priority} onChange={(e) => setPriority(e.target.value)} aria-invalid={!!errors.priority} className={touchInput} />
           </Field>
         </div>
+        <Field id="nt-reviewer" label="Reviewer" error={errors.reviewer}
+          hint={reviewBy === "owner" ? "It comes back to you for review before it is done." : suggestion && reviewBy === suggestion ? "Suggested by the team's review rules." : "Who checks the work before it is done; required before it runs."}>
+          <ReviewerSelect id="nt-reviewer" value={reviewBy} onChange={(v) => { setReviewBy(v); setReviewTouched(true); }} agents={overview.agents} assignee={assignee === NONE ? "" : assignee} />
+        </Field>
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Depends on</legend>
           {candidates.length === 0 ? <p className="text-xs text-muted-foreground">No open tasks in this project.</p> : (

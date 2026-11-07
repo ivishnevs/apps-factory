@@ -1199,6 +1199,24 @@ func ReviewerFor(agents map[string]Agent, agent, reviewer string) string {
 	return ""
 }
 
+// ReviewCoverage lists agents no review rule gives an agent reviewer (review-coverage 2.1), with whom their
+// tasks default to: the team's lead, or the owner for the lead itself and teams without a lead.
+func ReviewCoverage(c *Catalog) []string {
+	var out []string
+	for _, name := range Names(c.Agents) {
+		a := c.Agents[name]
+		if _, reviewer := a.Review(); reviewer != "" && ReviewerFor(c.Agents, name, reviewer) != "" {
+			continue
+		}
+		if lead := c.Lead(a.Spec.Team); lead != "" && lead != name {
+			out = append(out, fmt.Sprintf("agent %s has no review rule: its tasks default to review by the lead %s", name, lead))
+			continue
+		}
+		out = append(out, fmt.Sprintf("agent %s has no review rule: its tasks default to review by the owner", name))
+	}
+	return out
+}
+
 // ReviewPaths are the path rules of the agent's review rules.
 func (a Agent) ReviewPaths() []policies.ReviewPathRule {
 	var out []policies.ReviewPathRule

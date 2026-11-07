@@ -215,7 +215,7 @@ func TestWorktreeReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	var task tasks.Task
-	if err = api.Do(ctx, "POST", "/tasks", tasks.Create{ProjectID: project.ID, Title: "work", Assignee: "demo", RequestID: "work"}, &task); err != nil {
+	if err = api.Do(ctx, "POST", "/tasks", tasks.Create{ProjectID: project.ID, Title: "work", Assignee: "demo", ReviewBy: "owner", RequestID: "work"}, &task); err != nil {
 		t.Fatal(err)
 	}
 	if err = api.Do(ctx, "POST", "/tasks/"+task.ID+"/actions", tasks.Action{Version: task.Version, Action: "ready"}, &task); err != nil {

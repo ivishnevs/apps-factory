@@ -64,6 +64,10 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 		item.Attention = true
 	case e.Type == "message.escalated":
 		item.Attention = true
+	case e.Type == "task.submitted" && str("status") == "IN_REVIEW" && str("reviewer") == "":
+		// Work submitted for people's review (human-review-visibility 2.3): the owner is told (Telegram, feed).
+		item.Attention = true
+		item.Summary, _ = excerpt("submitted for your review: "+str("title"), 4096)
 	}
 	return item
 }

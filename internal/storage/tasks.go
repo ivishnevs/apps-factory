@@ -352,7 +352,7 @@ func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]t
 }
 func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.create", in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
-		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, OriginTask: in.OriginTask, OriginRun: in.OriginRun, SideEffects: in.SideEffects, Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
+		t := tasks.Task{ID: in.ID, ProjectID: in.ProjectID, Title: in.Title, Description: in.Description, Priority: in.Priority, Assignee: in.Assignee, CreatedBy: in.CreatedBy, ParentTaskID: in.ParentTaskID, OpenSpecChange: in.OpenSpecChange, Dependencies: in.Dependencies, RequiredArtifacts: in.RequiredArtifacts, OriginTask: in.OriginTask, OriginRun: in.OriginRun, SideEffects: in.SideEffects, ReviewBy: strings.TrimSpace(in.ReviewBy), Status: "BACKLOG", Version: 1, CreatedAt: tx.now().Unix(), UpdatedAt: tx.now().Unix()}
 		if t.ID == "" {
 			t.ID = protocol.ID()
 		}
@@ -573,6 +573,9 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		if in.SideEffects != nil {
 			t.SideEffects = *in.SideEffects
 		}
+		if in.ReviewBy != nil {
+			t.ReviewBy = strings.TrimSpace(*in.ReviewBy)
+		}
 		if in.Model != nil {
 			// Core checked the authority and the assignee's provider.
 			t.Model = strings.TrimSpace(*in.Model)
@@ -617,6 +620,20 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		return t, err
 	})
 }
+
+// SetReviewBy sets a task's reviewer in any status (the review-coverage fill of open tasks); no trigger.
+func (s *Store) SetReviewBy(ctx context.Context, company, id, by string) error {
+	_, err := mutate(ctx, s, company, "task.review_by:"+id, "", nil, func(tx *Tx) (tasks.Task, error) {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return t, err
+		}
+		t.ReviewBy = by
+		return t, saveTask(ctx, tx, &t, "task.updated")
+	})
+	return err
+}
+
 func editableRun(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if t.CurrentRunID == "" {
 		return nil

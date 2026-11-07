@@ -66,7 +66,9 @@ func TestEvaluateReasons(t *testing.T) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "artifact: waiting for owner approval of layout@1"
 			s.UnapprovedArtifacts = []Artifact{{ID: "layout", Version: "1"}}
 		}, ReasonArtifacts, "owner"},
-		{"in review", func(s *Snapshot) { s.Task.Status = "IN_REVIEW" }, ReasonIdle, "reviewer"},
+		{"in review by people", func(s *Snapshot) { s.Task.Status = "IN_REVIEW" }, ReasonIdle, "owner"},
+		{"in review by an agent", func(s *Snapshot) { s.Task.Status, s.Task.Reviewer, s.Task.Assignee = "IN_REVIEW", "qa", "qa" }, ReasonIdle, "qa"},
+		{"in review by a member", func(s *Snapshot) { s.Task.Status, s.Task.ReviewBy = "IN_REVIEW", "member:u1" }, ReasonIdle, "member:u1"},
 		{"ready without trigger", func(s *Snapshot) { s.WakeSeq, s.HandledSeq, s.Pending = 3, 3, nil }, ReasonIdle, "owner"},
 		{"rework", func(s *Snapshot) { s.Task.Status = "REWORK" }, ReasonIdle, "owner"},
 		{"agent busy", func(s *Snapshot) { s.AgentRun = &Run{ID: "r2", Status: "RUNNING", TaskID: "other"} }, ReasonCapacity, "run:r2"},

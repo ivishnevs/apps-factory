@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpDown, Ban, CheckCheck, Megaphone, MoreHorizontal, Pause, Play, RotateCcw, Undo2, UserRoundPen } from "lucide-react";
+import { ArrowUpDown, Ban, CheckCheck, Eye, Megaphone, MoreHorizontal, Pause, Play, RotateCcw, Undo2, UserRoundPen } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,8 +15,9 @@ import { cn } from "@/lib/utils";
 import { Field, touchInput } from "./field";
 import { isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
+import { ReviewerSelect, reviewerName, useReviewSuggestion } from "./reviewer";
 
-type Kind = "pause" | "resume" | "retry" | "run" | "accept" | "rework" | "cancel" | "reassign" | "reprioritize" | "direct";
+type Kind = "pause" | "resume" | "retry" | "run" | "accept" | "rework" | "cancel" | "reassign" | "reprioritize" | "direct" | "reviewer";
 interface Def { kind: Kind; label: string; icon: React.ElementType; destructive?: boolean; input?: boolean }
 const defs: Record<Kind, Def> = {
   run: { kind: "run", label: "Run now", icon: Play },
@@ -28,6 +29,7 @@ const defs: Record<Kind, Def> = {
   direct: { kind: "direct", label: "Direct", icon: Megaphone, input: true },
   reassign: { kind: "reassign", label: "Reassign", icon: UserRoundPen, input: true },
   reprioritize: { kind: "reprioritize", label: "Change priority", icon: ArrowUpDown, input: true },
+  reviewer: { kind: "reviewer", label: "Change reviewer", icon: Eye, input: true },
   cancel: { kind: "cancel", label: "Cancel task", icon: Ban, destructive: true, input: true },
 };
 
@@ -40,22 +42,25 @@ function available(t: BoardTask, failed: boolean): { all: Kind[]; primary?: Kind
   const yours = t.status === "IN_REVIEW" && !t.reviewer;
   if (yours) all.push("accept", "rework");
   if (t.status !== "BACKLOG") all.push("retry");
-  all.push(t.paused_by ? "resume" : "pause", "direct", "reassign", "reprioritize", "cancel");
+  all.push(t.paused_by ? "resume" : "pause", "direct", "reassign");
+  if (["BACKLOG", "READY", "REWORK", "BLOCKED"].includes(t.status)) all.push("reviewer");
+  all.push("reprioritize", "cancel");
   const primary: Kind | undefined = yours ? "accept" : t.paused_by ? "resume" : t.status === "BACKLOG" ? "run" : t.status === "BLOCKED" || t.status === "REWORK" || failed ? "retry" : undefined;
   return { all, primary };
 }
 
 const titles: Record<Kind, string> = {
   run: "Run this task now?", accept: "Accept this work?", rework: "Send it back?", retry: "Retry this task?", pause: "Pause this task?", resume: "Resume this task?", direct: "Send this directive?",
-  reassign: "Reassign this task?", reprioritize: "Change the priority?", cancel: "Cancel this task?",
+  reassign: "Reassign this task?", reprioritize: "Change the priority?", cancel: "Cancel this task?", reviewer: "Change the reviewer?",
 };
 
 // explain: what an action does to this task, in words, for its confirmation.
 function explain(a: Action, t: Task): string {
   const name = `“${t.title}”`;
   switch (a.Kind) {
-    case "run": return `${name} is released to the team and starts as soon as ${t.assignee || "an agent"} is free.`;
-    case "retry": return `${name} is released to run again.`;
+    case "run": return `${name} is released to the team and starts as soon as ${t.assignee || "an agent"} is free.${a.ReviewBy ? ` ${reviewerName(a.ReviewBy)} review${a.ReviewBy === "owner" ? "" : "s"} its work.` : ""}`;
+    case "retry": return `${name} is released to run again.${a.ReviewBy ? ` ${reviewerName(a.ReviewBy)} review${a.ReviewBy === "owner" ? "" : "s"} its work.` : ""}`;
+    case "reviewer": return `${reviewerName(a.ReviewBy)} review${a.ReviewBy === "owner" ? "" : "s"} the work of ${name}.`;
     case "accept": return `${name} is done. ${t.assignee || "The assignee"}'s submission is accepted.`;
     case "rework": return `${name} goes back to ${t.assignee || "the assignee"} with your feedback: ${a.Text}`;
     case "pause": return `No new runs of ${name} start until you resume it. A run in progress continues.`;
@@ -71,10 +76,13 @@ function explain(a: Action, t: Task): string {
 export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: BoardTask; agents: Agent[]; hasOpenChildren: boolean; failed: boolean }) {
   const { run, pending } = useOwnerAction();
   const [dialog, setDialog] = useState<Kind | null>(null);
+  // A release needs the task's reviewer (review-coverage): without one, Run now / Retry ask for it first.
+  const [releaseKind, setReleaseKind] = useState<Kind | null>(null);
   const { all, primary } = available(task, failed);
   if (all.length === 0) return null;
 
   const start = (k: Kind) => {
+    if ((k === "run" || k === "retry") && !task.review_by) { setReleaseKind(k); setDialog("reviewer"); return; }
     if (defs[k].input) { setDialog(k); return; }
     const a: Action = { Kind: k, TaskID: task.id, Version: task.version };
     if (k === "pause") a.Text = "paused by owner";
@@ -83,6 +91,13 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
   };
   const submit = async (a: Action) => {
     setDialog(null);
+    if (a.Kind === "reviewer" && releaseKind) {
+      const k = releaseKind;
+      setReleaseKind(null);
+      const rel: Action = { Kind: k, TaskID: task.id, Version: task.version, ReviewBy: a.ReviewBy };
+      await run(rel, { title: titles[k], confirm: defs[k].label, description: explain(rel, task) });
+      return;
+    }
     await run(a, { title: titles[a.Kind as Kind], confirm: a.Kind === "cancel" ? "Cancel task" : defs[a.Kind as Kind].label, destructive: a.Kind === "cancel", description: explain(a, task) });
   };
   const lead = primary ?? "direct";
@@ -119,26 +134,29 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
           {menu(<Button variant="outline" className="h-11 px-4" aria-label="More actions"><MoreHorizontal />More</Button>)}
         </div>
       </div>
-      <InputDialog kind={dialog} task={task} agents={agents} hasOpenChildren={hasOpenChildren} onClose={() => setDialog(null)} onSubmit={submit} />
+      <InputDialog kind={dialog} task={task} agents={agents} hasOpenChildren={hasOpenChildren} release={!!releaseKind} onClose={() => { setDialog(null); setReleaseKind(null); }} onSubmit={submit} />
     </>
   );
 }
 
-function InputDialog({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
-  kind: Kind | null; task: Task; agents: Agent[]; hasOpenChildren: boolean; onClose: () => void; onSubmit: (a: Action) => void;
+function InputDialog({ kind, task, agents, hasOpenChildren, release, onClose, onSubmit }: {
+  kind: Kind | null; task: Task; agents: Agent[]; hasOpenChildren: boolean; release?: boolean; onClose: () => void; onSubmit: (a: Action) => void;
 }) {
   return (
     <Dialog open={!!kind} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
-        {kind && <InputForm key={kind} kind={kind} task={task} agents={agents} hasOpenChildren={hasOpenChildren} onClose={onClose} onSubmit={onSubmit} />}
+        {kind && <InputForm key={kind} kind={kind} task={task} agents={agents} hasOpenChildren={hasOpenChildren} release={release} onClose={onClose} onSubmit={onSubmit} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
-  kind: Kind; task: Task; agents: Agent[]; hasOpenChildren: boolean; onClose: () => void; onSubmit: (a: Action) => void;
+function InputForm({ kind, task, agents, hasOpenChildren, release, onClose, onSubmit }: {
+  kind: Kind; task: Task; agents: Agent[]; hasOpenChildren: boolean; release?: boolean; onClose: () => void; onSubmit: (a: Action) => void;
 }) {
+  const suggestion = useReviewSuggestion(kind === "reviewer" ? task.assignee : "").data?.review_by;
+  const [reviewBy, setReviewBy] = useState(task.review_by ?? "");
+  const shownReviewer = reviewBy || suggestion || "";
   const [text, setText] = useState("");
   const [urgent, setUrgent] = useState(false);
   const [cascade, setCascade] = useState(hasOpenChildren);
@@ -166,6 +184,10 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
       onSubmit({ ...base, Priority: p });
     } else if (kind === "cancel") {
       onSubmit({ ...base, Text: text.trim() || undefined, Cascade: cascade });
+    } else if (kind === "reviewer") {
+      if (!shownReviewer) return setError("Reviewer is required");
+      if (shownReviewer === task.assignee) return setError("Someone other than the assignee");
+      onSubmit({ ...base, ReviewBy: shownReviewer });
     }
   };
 
@@ -175,6 +197,7 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
     reassign: ["Reassign", "Who should work on this task?"],
     reprioritize: ["Change priority", "Higher runs first. The board orders by it."],
     cancel: ["Cancel task", "The task stops for good and a run in progress is stopped."],
+    reviewer: [release ? "Choose its reviewer" : "Change reviewer", release ? "Reviewer is required: who checks the work before it is done?" : "Who checks the work before it is done?"],
   };
   return (
     <form onSubmit={submit} className="grid gap-4" noValidate>
@@ -208,6 +231,11 @@ function InputForm({ kind, task, agents, hasOpenChildren, onClose, onSubmit }: {
               {agents.map((a) => <SelectItem key={a.name} value={a.name}>{a.name}{a.role && <span className="text-muted-foreground"> · {a.role}</span>}</SelectItem>)}
             </SelectContent>
           </Select>
+        </Field>
+      )}
+      {kind === "reviewer" && (
+        <Field id="act-reviewer" label="Reviewer" hint={suggestion && shownReviewer === suggestion ? "Suggested by the team's review rules." : undefined} error={error}>
+          <ReviewerSelect id="act-reviewer" value={shownReviewer} onChange={(v) => { setReviewBy(v); setError(""); }} agents={agents} assignee={task.assignee} />
         </Field>
       )}
       {kind === "reprioritize" && (

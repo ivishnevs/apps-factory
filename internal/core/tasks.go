@@ -90,6 +90,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Ready && !c.taskPermit(w, r, p.Actor, "factory.task.ready", false, false) {
 			return
 		}
+		if !c.reviewGateCreate(w, r, &p) {
+			return
+		}
 		p.CreatedBy = "owner"
 		if p.Actor != "" {
 			p.CreatedBy = p.Actor
@@ -104,6 +107,11 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		}
 		v, err := c.Store.CreateTask(r.Context(), c.companyFrom(r), p)
 		reply(w, v, err)
+	})
+	m.HandleFunc("POST /tasks/review-fill", c.reviewFill)
+	// The reviewer the review policy suggests for an assignee's task (review-coverage 3.3: the forms prefill it).
+	m.HandleFunc("GET /tasks/review-suggestion", func(w http.ResponseWriter, r *http.Request) {
+		write(w, map[string]string{"review_by": c.suggestReviewer(c.companyFrom(r), r.URL.Query().Get("assignee"))})
 	})
 	m.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.list", false, false) {
@@ -239,7 +247,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		operation := "factory.task.update"
-		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil {
+		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil {
 			operation = "factory.task.assign"
 		}
 		if !c.taskPermit(w, r, p.Actor, operation, false, false) {
@@ -254,6 +262,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			}
 		}
 		if p.Model != nil && !c.modelOverride(w, r, p) {
+			return
+		}
+		if !c.reviewGateUpdate(w, r, r.PathValue("id"), &p) {
 			return
 		}
 		v, err := c.Store.UpdateTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
@@ -300,6 +311,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 			if !c.agentExists(w, c.companyFrom(r), t.Assignee) {
+				return
+			}
+			if !c.reviewGateReady(w, r, t) {
 				return
 			}
 		}

@@ -46,7 +46,7 @@ func TestTaskEngineRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	var a, second tasks.Task
-	create := tasks.Create{ProjectID: project.ID, Title: "first", Assignee: "demo", RequestID: "first"}
+	create := tasks.Create{ProjectID: project.ID, Title: "first", Assignee: "demo", ReviewBy: "owner", RequestID: "first"}
 	if err = api.Do(root, "POST", "/tasks", create, &a); err != nil {
 		t.Fatal(err)
 	}

@@ -379,7 +379,7 @@ func TestCreateTaskForm(t *testing.T) {
 	fillDemoForm(m)
 	run(m, key(m, "ctrl+s"))
 	a := lastSent(t, c)
-	if a.Kind != "create" || a.Project != "project-1" || a.Title != "Export items as CSV" || a.Text != "One row per item." || a.Assignee != "developer-1" || a.Priority != 7 || !a.Ready || len(a.Deps) != 1 || a.Deps[0] != "P1-3" {
+	if a.Kind != "create" || a.Project != "project-1" || a.Title != "Export items as CSV" || a.Text != "One row per item." || a.Assignee != "developer-1" || a.Priority != 7 || !a.Ready || len(a.Deps) != 1 || a.Deps[0] != "P1-3" || a.ReviewBy != "owner" {
 		t.Fatalf("%+v", a)
 	}
 	if m.form != nil || !strings.Contains(m.toast, "create task") {

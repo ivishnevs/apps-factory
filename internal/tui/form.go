@@ -23,6 +23,7 @@ type formState struct {
 	title    textinput.Model
 	desc     textarea.Model
 	assignee int // 0 is unassigned, then the catalog agents
+	reviewer int // 0 is you (the owner), then the catalog agents (review-coverage: required on a ready task)
 	prio     textinput.Model
 	deps     map[string]bool
 	depAt    int
@@ -39,6 +40,7 @@ const (
 	fTitle
 	fDesc
 	fAssignee
+	fReviewer
 	fPriority
 	fDeps
 	fReady
@@ -46,7 +48,7 @@ const (
 	fCount
 )
 
-var formLabels = [fCount]string{"Project", "Title", "Description", "Assignee", "Priority", "Depends on", "Ready now", ""}
+var formLabels = [fCount]string{"Project", "Title", "Description", "Assignee", "Reviewer", "Priority", "Depends on", "Ready now", ""}
 
 type (
 	formDoneMsg struct {
@@ -95,6 +97,14 @@ func (f *formState) projectID() string {
 	return ""
 }
 
+// reviewBy is the form's reviewer: owner, or an agent.
+func (f *formState) reviewBy() string {
+	if f.reviewer > 0 && f.reviewer <= len(f.agents) {
+		return f.agents[f.reviewer-1]
+	}
+	return "owner"
+}
+
 func (f *formState) assigneeName() string {
 	if f.assignee > 0 && f.assignee <= len(f.agents) {
 		return f.agents[f.assignee-1]
@@ -131,7 +141,7 @@ func (f *formState) focusField() tea.Cmd {
 // validate checks the fields; errors are shown at their field.
 func (m *Model) validateForm(f *formState) (Action, bool) {
 	f.errs = map[int]string{}
-	a := Action{Kind: "create", Project: f.projectID(), Title: strings.TrimSpace(f.title.Value()), Text: strings.TrimSpace(f.desc.Value()), Assignee: f.assigneeName(), Ready: f.ready}
+	a := Action{Kind: "create", Project: f.projectID(), Title: strings.TrimSpace(f.title.Value()), Text: strings.TrimSpace(f.desc.Value()), Assignee: f.assigneeName(), Ready: f.ready, ReviewBy: f.reviewBy()}
 	if a.Project == "" {
 		f.errs[fProject] = "no project"
 	}
@@ -153,6 +163,9 @@ func (m *Model) validateForm(f *formState) (Action, bool) {
 	a.Priority = p
 	if a.Ready && a.Assignee == "" {
 		f.errs[fAssignee] = "a ready task needs an assignee"
+	}
+	if a.ReviewBy == a.Assignee {
+		f.errs[fReviewer] = "someone other than the assignee"
 	}
 	for _, t := range m.depCandidates(f) {
 		if f.deps[t.ID] {
@@ -296,6 +309,9 @@ func (f *formState) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		case fAssignee:
 			n := len(f.agents) + 1
 			f.assignee = (f.assignee + d + n) % n
+		case fReviewer:
+			n := len(f.agents) + 1
+			f.reviewer = (f.reviewer + d + n) % n
 		case fDeps:
 			f.depAt = min(max(f.depAt+d, 0), max(len(cands)-1, 0))
 		case fReady:
@@ -376,6 +392,12 @@ func (m *Model) formLines(w, h int) []string {
 	}
 	lines = append(lines, label(fAssignee)+choice(fAssignee, who))
 	errLine(fAssignee)
+	rv := "you"
+	if r := f.reviewBy(); r != "owner" {
+		rv = r
+	}
+	lines = append(lines, label(fReviewer)+choice(fReviewer, rv))
+	errLine(fReviewer)
 	lines = append(lines, label(fPriority)+" "+f.prio.View()+stDim.Render("  -1000..1000, higher runs first"))
 	errLine(fPriority)
 	cands := m.depCandidates(f)

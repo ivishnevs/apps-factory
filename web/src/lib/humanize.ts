@@ -227,7 +227,11 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       next: `It retries on its own; ${release(v.status)} in the task menu starts it now.`, who: undefined, you: false });
   }
   if (reason === "idle") {
-    if (/waiting for review/.test(detail) || who === "reviewer") {
+    if (v.status === "IN_REVIEW" || /waiting for review/.test(detail) || who === "reviewer") {
+      // Whom the review waits for (human-review-visibility): you, a member or an agent.
+      if (who === "owner") return out({ headline: "Waiting for your review", brief: "Accept or send back", detail: "The work is submitted and waits for you to review it.", next: "Accept it or send it back from the task menu." });
+      if (who.startsWith("member:")) return out({ headline: `Waiting for review by ${who.slice(7)}`, detail: "The work is submitted and waits for a person to review it.", who: { label: who.slice(7) }, next: "They accept it or send it back for rework." });
+      if (who && who !== "reviewer") return out({ headline: `Waiting for review by ${who}`, detail: `The work is submitted and waits for ${who} to review it.`, next: "The reviewer accepts it or sends it back for rework." });
       return out({ headline: "Waiting for review", detail: "The work is submitted and waits for a reviewer.", next: "The reviewer accepts it or sends it back for rework." });
     }
     if (/review rejected/.test(detail)) {

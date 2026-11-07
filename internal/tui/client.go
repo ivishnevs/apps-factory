@@ -139,6 +139,7 @@ type Action struct {
 	Version    int            // task, message or approval version
 	Text       string         // reason, comment, directive, answer body
 	Assignee   string         // reassign
+	ReviewBy   string         // create, run, retry, reviewer: the task's reviewer (an agent, owner or member:USER)
 	Priority   int            // reprioritize
 	Urgent     bool           // direct
 	Cascade    bool           // cancel
@@ -164,6 +165,8 @@ func (a Action) Describe() string {
 		return "directive to " + a.TaskID + u + ": " + a.Text
 	case "reassign":
 		return "reassign " + a.TaskID + " to " + a.Assignee
+	case "reviewer":
+		return "set the reviewer of " + a.TaskID + " to " + a.ReviewBy
 	case "reprioritize":
 		return fmt.Sprintf("reprioritize %s to %d", a.TaskID, a.Priority)
 	case "cancel":
@@ -185,6 +188,9 @@ func (a Action) Describe() string {
 		r := ""
 		if a.Ready {
 			r = ", ready"
+		}
+		if a.ReviewBy != "" {
+			r += ", reviewed by " + a.ReviewBy
 		}
 		return fmt.Sprintf("create task %q in %s for %s (priority %d%s)", a.Title, a.Project, a.Assignee, a.Priority, r)
 	case "create_project":
@@ -550,9 +556,20 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		err = c.API.Do(ctx, "POST", task+"/reassign", map[string]any{"version": a.Version, "assignee": a.Assignee, "reason": a.Text, "request_id": rid}, &result)
 	case "reprioritize":
 		err = c.API.Do(ctx, "POST", task+"/reprioritize", map[string]any{"version": a.Version, "priority": a.Priority, "request_id": rid}, &result)
+	case "reviewer":
+		err = c.API.Do(ctx, "PATCH", task, map[string]any{"version": a.Version, "review_by": a.ReviewBy, "request_id": rid}, &result)
 	case "retry", "run":
-		// run and retry release the task at its version (an owner ready), as factory run|retry do.
-		err = c.API.Do(ctx, "POST", task+"/actions", map[string]any{"version": a.Version, "action": "ready", "reason": a.Kind + " by owner", "request_id": rid}, &result)
+		// run and retry release the task at its version (an owner ready), as factory run|retry do; a reviewer
+		// chosen with it is set first (review-coverage: no release without one).
+		version := a.Version
+		if a.ReviewBy != "" {
+			var t tasks.Task
+			if err = c.API.Do(ctx, "PATCH", task, map[string]any{"version": a.Version, "review_by": a.ReviewBy, "request_id": rid + "-reviewer"}, &t); err != nil {
+				return "", err
+			}
+			version = t.Version
+		}
+		err = c.API.Do(ctx, "POST", task+"/actions", map[string]any{"version": version, "action": "ready", "reason": a.Kind + " by owner", "request_id": rid}, &result)
 	case "cancel":
 		body := map[string]any{"version": a.Version, "action": "cancel", "request_id": rid}
 		if a.Text != "" {
@@ -590,6 +607,9 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 			deps = []string{}
 		}
 		body := map[string]any{"project_id": a.Project, "title": a.Title, "description": a.Text, "priority": a.Priority, "assignee": a.Assignee, "dependencies": deps, "request_id": rid}
+		if a.ReviewBy != "" {
+			body["review_by"] = a.ReviewBy
+		}
 		if a.Ready {
 			body["ready"] = true // created released (READY, or waiting for its dependencies)
 		}

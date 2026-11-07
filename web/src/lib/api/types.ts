@@ -25,7 +25,7 @@ export interface Task {
   created_at: number; updated_at: number; version: number; current_run_id?: string; attempt: number; result?: string;
   submission?: Submission; review_feedback?: string; block_reason?: string; cancel_requested: boolean;
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
-  progress_at?: number; implementer?: string; reviewer?: string; blocked_on?: string[]; model?: string;
+  progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
   // Added by the overview: the why reason and who clears it.
   reason: string; clearer: Clearer; wait?: Wait;
@@ -150,7 +150,7 @@ export interface TaskDetail {
 // create_project (NewProject is the POST /projects body), hold, release, read.
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
-  Text?: string; Assignee?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
+  Text?: string; Assignee?: string; ReviewBy?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
   Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string;
   NewProject?: ProjectCreate;
 }

@@ -256,7 +256,15 @@ func Evaluate(s Snapshot) Verdict {
 	}
 	switch t.Status {
 	case "IN_REVIEW":
-		return v(ReasonIdle, "submitted, waiting for review", "reviewer", "factory tasks review "+t.ID+" VERSION accept|reject")
+		// Who the review waits for (human-review-visibility): the agent reviewer, else the task's person
+		// (member:USER), else the owner.
+		who := "owner"
+		if t.Reviewer != "" {
+			who = t.Reviewer
+		} else if strings.HasPrefix(t.ReviewBy, "member:") {
+			who = t.ReviewBy
+		}
+		return v(ReasonIdle, "submitted, waiting for review by "+who, who, "factory tasks review "+t.ID+" VERSION accept|reject")
 	case "REWORK":
 		return v(ReasonIdle, "review rejected; rework is not released", "owner", "factory tasks ready "+t.ID+" VERSION")
 	case "IN_PROGRESS":

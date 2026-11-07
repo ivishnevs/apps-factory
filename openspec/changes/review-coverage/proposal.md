@@ -1,5 +1,5 @@
 Status: problem recorded 2026-11-05 by the owner (a blocker in practice); owner decided 2026-11-06: a hard gate,
-every task outside the backlog has a reviewer. Nothing implemented.
+every task outside the backlog has a reviewer. Implemented 2026-11-07 (see "Implementation").
 
 ## Why
 
@@ -41,3 +41,16 @@ page and board. Related: `human-review-visibility`, `team-page-clarity`, `people
   the suggestion exists, but the gate is on the task.
 - Existing open tasks without a reviewer: a one-time fill from the policy where it resolves one; the rest are listed
   to the owner.
+
+## Implementation (2026-11-07)
+
+- `review_by` on the task (an agent, `owner` or `member:USER`); Core refuses ready-create, release and clearing it
+  outside the backlog with "Reviewer is required" and the policy's suggestion; tools `factory_task_create` and
+  `factory_task_update` take it.
+- Decided during implementation: the suggestion is the review rule's reviewer, else the team's lead, else the owner
+  (so the lead reviews uncovered roles and the lead's work goes to people without a rule per team); the catalog is
+  not refused for uncovered agents, the save returns warnings (the gate is on the task, as decided); team presets
+  got a `lead-review` rule for designers and QA; the terminal's new-task form got a Reviewer field (default: you), and a
+  release there without one shows Core's refusal; the one-time fill is an admin route run once
+  per company (`POST /tasks/review-fill`), and with the owner as last fallback no task is left unfilled.
+- A submit naming no reviewer goes to the task's reviewer before the policy's default.

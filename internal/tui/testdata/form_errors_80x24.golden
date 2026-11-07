@@ -1,8 +1,7 @@
  ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ pro… 14:30
   1  2 Board  3  4  5 6  6 •1  7 ⚠2  8          ● │ Company 1 │ ▶ running │ ⚠ 7
  23 tasks  · z shows cancelled                                            more ▶
-╭─────────── ● Backlog 3 +1 ───────────╮╭──────────── ● To do 6 +4 ────────────╮
-│ ╭──────────────────────────────── New task ────────────────────────────────╮ │
+╭─╭──────────────────────────────── New task ────────────────────────────────╮─╮
 │ │   Project       project-1                                                │ │
 │ │ ▸ Title         what needs doing                                         │ │
 │ │                 ✗ a title is required                                    │ │
@@ -10,6 +9,7 @@
 │ │                                                                          │ │
 │ │   Assignee      unassigned                                               │ │
 │ │                 ✗ a ready task needs an assignee                         │ │
+│ │   Reviewer      you                                                      │ │
 │ │   Priority      5          -1000..1000, higher runs first                │ │
 │ │   Depends on    ☐ P1-1  ☐ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9   │ │
 │ │   Ready now     ● yes — released to the board                            │ │

@@ -184,3 +184,16 @@ refused (`409 review_required`) unless an approved review verdict is bound to it
 done also needs an approval by that path's reviewer. A reviewer is resolved in the agent's team, which is the
 project's (company-teams D5): `role:qa` is the `qa` agent of that team, a named reviewer must be another agent of
 that team. Without review rules the agent's prompt decides whether work goes to review.
+
+### The task's reviewer (review-coverage)
+
+Every task outside the backlog names its reviewer in `review_by`: another agent, `owner`, or `member:USER`.
+Core refuses to create a task ready, to release it (`tasks ready`, Run now, Retry) or to clear `review_by` outside
+the backlog without one: `400 Reviewer is required: set review_by …; the review policy suggests review_by "NAME"`.
+The suggestion (`GET /tasks/review-suggestion?assignee=AGENT`, which prefills the web forms) is the agent's review
+rule reviewer, else its team's lead, else the owner. A submit that names no reviewer goes to the task's agent
+reviewer; a person as reviewer sends the review to people (the task shows "Waiting for your review", the Inbox lists
+it under "Reviews for you" and Telegram tells the owner), and the policy's default reviewer is not applied.
+Saving the catalog returns `warnings` for agents no review rule covers, with whom their tasks default to.
+`POST /tasks/review-fill` (admins; `{"dry_run": true}` lists only) gives open tasks without a reviewer the
+suggestion once.

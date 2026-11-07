@@ -266,6 +266,7 @@ func fillDemoForm(m *Model) {
 	for m.form.assigneeName() != "developer-1" {
 		press(m, "right")
 	}
+	press(m, "tab") // the reviewer stays "you"
 	press(m, "tab")
 	press(m, "backspace")
 	typeText(m, "7")

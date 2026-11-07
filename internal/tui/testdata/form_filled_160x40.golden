@@ -9,15 +9,15 @@
 │ ┃ ○ not released           ┃ ││ │ ◷ queued: driver disabl… │ ││ │ ⠋ ▸ go test ./src/... -… │ ││ │ ↳ you: wait for P1-3, P… │ ││                              │
 │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││                              │
 │                              ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
-│                              ││ │ ● Task 7                 │ ││                              ││ │ ● ⚠ Task 5               │ ││                              │
 │                              ││ │╭─────────────────────────────────────── New task ───────────────────────────────────────╮│ ││                              │
 │                              ││ ││   Project       project-1                                                              ││ ││                              │
 │                              ││ ││   Title         Export items as CSV                                                    ││ ││                              │
-│                              ││ ╰│   Description   One row per item.                                                      │╯ ││                              │
+│                              ││ ││   Description   One row per item.                                                      ││ ││                              │
+│                              ││ ╰│                                                                                        │╯ ││                              │
 │                              ││  │                                                                                        │╮ ││                              │
 │                              ││  │                                                                                        ││ ││                              │
-│                              ││  │                                                                                        ││ ││                              │
 │                              ││  │   Assignee      developer-1 · developer                                                ││ ││                              │
+│                              ││  │   Reviewer      you                                                                    ││ ││                              │
 │                              ││  │   Priority      7          -1000..1000, higher runs first                              ││ ││                              │
 │                              ││  │   Depends on    ☐ P1-1  ☑ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9                 │╯ ││                              │
 │                              ││  │ ▸ Ready now     ● yes — released to the board                                          │  ││                              │

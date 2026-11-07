@@ -94,7 +94,7 @@ func requiredRole(method, path string) string {
 	case read:
 		return storage.RoleMember
 	case under("/catalog"), under("/secrets"), under("/skills"), under("/nodes"), under("/node-keys"), under("/node-enrollments"), under("/settings"),
-		under("/presets"), under("/setup"), under("/telegram/bot"), path == "/telegram/bind", path == "/stop", path == "/projects",
+		under("/presets"), under("/setup"), under("/telegram/bot"), path == "/telegram/bind", path == "/stop", path == "/projects", path == "/tasks/review-fill",
 		method == http.MethodPatch && projectPath.MatchString(path):
 		return storage.RoleAdmin
 	}

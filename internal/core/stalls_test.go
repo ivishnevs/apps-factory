@@ -150,7 +150,13 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 			t.Fatal(err)
 		}
 		page, _ := s.Feed(ctx, co, storage.FeedFilter{Task: "review", Attention: true}, 0, 100)
-		return len(page.Items)
+		n := 0
+		for _, it := range page.Items {
+			if it.Type == "task.alert.idle" { // the submit for people's review is an attention row of its own
+				n++
+			}
+		}
+		return n
 	}
 	if n := idle(23 * time.Hour); n != 0 {
 		t.Fatal("idle alert before a day", n)
