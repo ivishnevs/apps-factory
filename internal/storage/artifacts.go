@@ -98,6 +98,17 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 			return a, err
 		}
 		a.Size = blob.Size
+		if in.Dedup {
+			// The same content as the artifact's latest version is that version, not a new one.
+			latest, err := getDoc[artifacts.Record](ctx, tx, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND id=? ORDER BY seq DESC LIMIT 1", tx.company, project, a.ID)
+			if err == nil && latest.SHA256 == a.SHA256 {
+				latest.Unchanged = true
+				return latest, nil
+			}
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return a, err
+			}
+		}
 	}
 	b, _ := json.Marshal(a)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_versions(project_id,id,version,uri,body,company_id,sha256,size) VALUES(?,?,?,?,?,?,?,?)", project, a.ID, a.Version, a.URI, b, tx.company, a.SHA256, a.Size); err != nil {
@@ -106,6 +117,15 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 	return a, entityEvent(ctx, tx, "artifact.registered", project, a.ID, a)
 }
 func (s *Store) RegisterArtifact(ctx context.Context, company, project string, in artifacts.Register) (artifacts.Record, error) {
+	in.Dedup = true
+	rec, err := s.registerArtifact(ctx, company, project, in)
+	if err == nil && !rec.Unchanged {
+		rec, _ = s.ListArchiveImages(ctx, company, project, rec) // best effort: the version is registered either way
+	}
+	return rec, err
+}
+
+func (s *Store) registerArtifact(ctx context.Context, company, project string, in artifacts.Register) (artifacts.Record, error) {
 	return mutate(ctx, s, company, "artifact.register:"+project, in.RequestID, in, func(tx *Tx) (artifacts.Record, error) {
 		if in.RequestID == "" {
 			return artifacts.Record{}, inputError("request_id required")
@@ -157,6 +177,23 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 		}
 		if err == nil && (old.Status == "PENDING" || old.Status == "APPROVED") {
 			return a, ErrConflict
+		}
+		// Older versions' open requests are superseded by this one (artifact-duplicates 1.3): they leave the Inbox and
+		// the agent is told; the agent waits for the newest only.
+		older, err := listDocs[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND project_id=? AND kind='artifact' AND artifact_id=? AND artifact_version<>? AND status='PENDING'", tx.company, project, in.ArtifactID, in.ArtifactVersion)
+		if err != nil {
+			return a, err
+		}
+		for _, o := range older {
+			if m, e := messageTx(ctx, tx, o.MessageID); e == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
+				if _, e = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + o.ID + " SUPERSEDED by version " + in.ArtifactVersion + ": the newer version is under review.", RequestID: "superseded-" + o.ID}); e != nil {
+					return a, e
+				}
+			}
+			o.Status, o.DecisionReason, o.DecidedAt = "SUPERSEDED", "superseded by version "+in.ArtifactVersion, tx.now().Unix()
+			if err = saveApproval(ctx, tx, &o, "approval.superseded"); err != nil {
+				return a, err
+			}
 		}
 		timeout := in.TimeoutSeconds
 		if timeout == 0 {

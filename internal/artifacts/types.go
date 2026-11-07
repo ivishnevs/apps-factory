@@ -10,8 +10,20 @@ type Record struct {
 	RunID     string `json:"run_id,omitempty"`
 	CreatedBy string `json:"created_by"`
 	CreatedAt int64  `json:"created_at"`
+	// ArchiveImages are the images inside a zip or tar version (artifact-duplicates).
+	ArchiveImages []ArchiveEntry `json:"archive_images,omitempty"`
+	// Unchanged: a register of the same content as the latest version answered with that version, nothing new.
+	Unchanged bool `json:"unchanged,omitempty"`
+}
+
+// ArchiveEntry is one file inside an archive version.
+type ArchiveEntry struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
 }
 type Register struct {
+	// Dedup: content equal to the artifact's latest version answers with that version (artifact-duplicates).
+	Dedup     bool           `json:"-"`
 	Artifact  tasks.Artifact `json:"artifact"`
 	TaskID    string         `json:"task_id"`
 	RunID     string         `json:"run_id,omitempty"`

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"strconv"
@@ -47,6 +48,7 @@ func (c *Core) blobRoutes(m *http.ServeMux) {
 		rc, b, err := c.Store.OpenBlob(r.Context(), c.companyFrom(r), r.PathValue("sha256"))
 		sendBlob(w, rc, b, err)
 	})
+	m.HandleFunc("GET /projects/{project}/artifacts/{artifact}/{version}/entry", c.archiveEntry)
 	m.HandleFunc("GET /projects/{project}/artifacts/{artifact}/{version}/content", func(w http.ResponseWriter, r *http.Request) {
 		a, err := c.Store.Artifact(r.Context(), c.companyFrom(r), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"))
 		if err != nil {
@@ -60,6 +62,18 @@ func (c *Core) blobRoutes(m *http.ServeMux) {
 		rc, b, err := c.Store.OpenBlob(r.Context(), c.companyFrom(r), a.SHA256)
 		sendBlob(w, rc, b, err)
 	})
+}
+
+// archiveEntry serves one file inside an archive version (artifact-duplicates: archived images in the Library).
+func (c *Core) archiveEntry(w http.ResponseWriter, r *http.Request) {
+	var buf bytes.Buffer
+	if err := c.Store.CopyArchiveEntry(r.Context(), c.companyFrom(r), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"), r.URL.Query().Get("path"), &buf); err != nil {
+		reply(w, nil, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+	_, _ = w.Write(buf.Bytes())
 }
 
 func sendBlob(w http.ResponseWriter, rc io.ReadCloser, b storage.Blob, err error) {

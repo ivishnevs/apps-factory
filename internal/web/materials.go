@@ -47,8 +47,21 @@ type Material struct {
 	Report     *MaterialReport   `json:"report,omitempty"`
 	Approval   *MaterialApproval `json:"approval,omitempty"`
 	PR         *storage.PRFacts  `json:"pr,omitempty"`
+	// Archive names the archive version an image comes from (artifact-duplicates: images inside archives).
+	Archive string `json:"archive,omitempty"`
+	// Versions are the artifact's older versions in the Library (one card per artifact), newest first.
+	Versions []MaterialVersion `json:"versions,omitempty"`
 
 	artifactID string
+}
+
+// MaterialVersion is an older version of a Library artifact.
+type MaterialVersion struct {
+	Version    string `json:"version"`
+	CreatedAt  int64  `json:"created_at"`
+	ContentURL string `json:"content_url,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Size       int64  `json:"size,omitempty"`
 }
 
 // MaterialReport is the report a file came with.
@@ -152,7 +165,14 @@ func collect(project string, reps []reports.Report, records []artifacts.Record, 
 		}
 	}
 	for _, r := range records {
-		add(fromArtifact(project, r.Artifact, "artifact", r.TaskID, r.RunID, r.CreatedBy, r.CreatedAt))
+		m := fromArtifact(project, r.Artifact, "artifact", r.TaskID, r.RunID, r.CreatedBy, r.CreatedAt)
+		add(m)
+		for _, e := range r.ArchiveImages {
+			name := path.Base(e.Path)
+			add(Material{ID: m.ID + "#" + e.Path, Kind: "image", Source: "archive", Name: name, Path: e.Path, Version: r.Version, Size: e.Size,
+				ContentURL: "/api/artifacts/" + url.PathEscape(project) + "/" + url.PathEscape(r.ID) + "/" + url.PathEscape(r.Version) + "/entry?" + url.Values{"path": {e.Path}, "name": {name}}.Encode(),
+				ProjectID:  project, TaskID: r.TaskID, RunID: r.RunID, Author: r.CreatedBy, CreatedAt: r.CreatedAt, Archive: m.Name + " " + r.Version})
+		}
 	}
 	for _, r := range reps {
 		for _, m := range fromReport(r) {
@@ -277,6 +297,7 @@ func (l *library) read(ctx context.Context, c tui.Client) ([]Material, error) {
 	}
 	titles(out, o.Tasks)
 	newestFirst(out)
+	out = oneCardPerArtifact(out)
 	l.list, l.at = out, time.Now()
 	return out, nil
 }
@@ -410,4 +431,25 @@ func contentHeaders(w http.ResponseWriter, r *http.Request, name string, b []byt
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": cmpOr(path.Base(name), "download")}))
 	}
+}
+
+// oneCardPerArtifact keeps an artifact's newest version in the Library and lists the older ones on it
+// (artifact-duplicates 2.1); the list is newest first, so the first version seen is the newest.
+func oneCardPerArtifact(ms []Material) []Material {
+	out := make([]Material, 0, len(ms))
+	at := map[string]int{}
+	for _, m := range ms {
+		if m.artifactID == "" || m.Source != "artifact" {
+			out = append(out, m)
+			continue
+		}
+		key := m.ProjectID + "\x00" + m.artifactID
+		if i, ok := at[key]; ok {
+			out[i].Versions = append(out[i].Versions, MaterialVersion{Version: m.Version, CreatedAt: m.CreatedAt, ContentURL: m.ContentURL, URL: m.URL, Size: m.Size})
+			continue
+		}
+		at[key] = len(out)
+		out = append(out, m)
+	}
+	return out
 }

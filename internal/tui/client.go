@@ -287,6 +287,8 @@ type Client interface {
 	ArtifactContent(ctx context.Context, project, artifact, version string) ([]byte, error)
 	// CopyArtifact streams an uploaded artifact version's content of any stored size into out.
 	CopyArtifact(ctx context.Context, project, artifact, version string, out io.Writer) error
+	// CopyArchiveEntry streams one file inside an archive artifact version (artifact-duplicates).
+	CopyArchiveEntry(ctx context.Context, project, artifact, version, entry string, out io.Writer) error
 	// Costs reads the cost ledger since a moment, grouped for the Costs screen.
 	Costs(ctx context.Context, since time.Time) (CostView, error)
 	// Reports are a project's reports, oldest first; task narrows them to one task (library.go).
@@ -515,6 +517,10 @@ func (c *HTTPClient) ArtifactContent(ctx context.Context, project, artifact, ver
 	b := &limitedBuffer{max: maxArtifactPreview}
 	err := c.CopyArtifact(ctx, project, artifact, version, b)
 	return b.buf, err
+}
+
+func (c *HTTPClient) CopyArchiveEntry(ctx context.Context, project, artifact, version, entry string, out io.Writer) error {
+	return c.transfer().Fetch(ctx, "/projects/"+url.PathEscape(project)+"/artifacts/"+url.PathEscape(artifact)+"/"+url.PathEscape(version)+"/entry?path="+url.QueryEscape(entry), "", out)
 }
 
 func (c *HTTPClient) CopyArtifact(ctx context.Context, project, artifact, version string, out io.Writer) error {

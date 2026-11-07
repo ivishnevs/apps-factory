@@ -297,6 +297,11 @@ func (c *FixtureClient) ArtifactContent(_ context.Context, project, artifact, ve
 	return nil, fmt.Errorf("artifact %s %s has no content in the fixture", artifact, version)
 }
 
+// CopyArchiveEntry: fixtures hold no archives.
+func (c *FixtureClient) CopyArchiveEntry(ctx context.Context, project, artifact, version, entry string, out io.Writer) error {
+	return fmt.Errorf("artifact %s %s has no archive entry %s", artifact, version, entry)
+}
+
 func (c *FixtureClient) CopyArtifact(ctx context.Context, project, artifact, version string, out io.Writer) error {
 	b, err := c.ArtifactContent(ctx, project, artifact, version)
 	if err == nil {

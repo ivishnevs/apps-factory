@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -105,6 +106,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		v, err := s.state(r).client.Costs(r.Context(), time.Now().Add(-d))
 		reply(w, v, err)
+	})
+	mux.HandleFunc("GET /api/artifacts/{project}/{artifact}/{version}/entry", func(w http.ResponseWriter, r *http.Request) {
+		entry := r.URL.Query().Get("path")
+		out := newContentWriter(w, r, cmp.Or(r.URL.Query().Get("name"), path.Base(entry)))
+		out.done(s.state(r).client.CopyArchiveEntry(r.Context(), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"), entry, out))
 	})
 	mux.HandleFunc("GET /api/artifacts/{project}/{artifact}/{version}", func(w http.ResponseWriter, r *http.Request) {
 		out := newContentWriter(w, r, cmp.Or(r.URL.Query().Get("name"), r.PathValue("artifact")))

@@ -1,4 +1,4 @@
-Status: accepted 2026-11-06 by the owner; ready to implement. Nothing implemented.
+Status: accepted 2026-11-06 by the owner; implemented 2026-11-07 except the cleanup of the game project's existing duplicates (2.3), which is listed to the owner first.
 
 ## Why
 
@@ -33,3 +33,15 @@ task (2d5baba4, concept sheets of 4 classes, artist-2d):
 Core artifact registration (hash check), archive listing (zip and tar readers, limits), approval lifecycle
 (superseded), Library and Inbox in the web, agent tool answers. Spec: `artifact-approvals`. Related:
 `approval-delegation`.
+
+## Implementation (2026-11-07)
+
+- `factory_artifact_upload` / `factory_artifact_register` of content equal to the artifact's latest version answer
+  with that version and `"unchanged": true`; no new version, no new approval. (Submissions keep registering the
+  versions they name, so their references stay valid.)
+- Uploaded zip and tar (`.tar`, `.tar.gz`, `.tgz`) versions list their images (png, jpg, webp, gif, svg; up to 1,000;
+  archives up to 512 MiB; absolute, `..` and `__MACOSX` paths skipped); `GET .../artifacts/{id}/{version}/entry?path=`
+  serves one, and the Library shows them as images "from pack.zip v4".
+- A new version's approval request closes the older versions' open requests as `SUPERSEDED` (the agent gets the
+  answer "superseded by vN"); they leave the Inbox.
+- The Library shows one card per artifact (the newest version, "v4 · 4 versions") with the older versions on it.

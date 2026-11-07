@@ -15,7 +15,8 @@ export function MaterialRow({ m, now, onOpen, context, className }: {
   context?: React.ReactNode; className?: string;
 }) {
   const ago = since(m.created_at, now);
-  const meta = [kinds[m.kind]?.label, m.kind === "pull_request" ? "" : fileSize(m.size), authorName(m.author), ago && (ago === "now" ? "just now" : `${ago} ago`)].filter(Boolean);
+  const meta = [kinds[m.kind]?.label, m.archive && `from ${m.archive}`, m.versions?.length && `${m.version} · ${m.versions.length + 1} versions`,
+    m.kind === "pull_request" ? "" : fileSize(m.size), authorName(m.author), ago && (ago === "now" ? "just now" : `${ago} ago`)].filter(Boolean);
   const inner = (
     <>
       <KindIcon kind={m.kind} />
