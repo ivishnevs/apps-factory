@@ -26,6 +26,8 @@ type Project struct {
 	Direction string `json:"direction,omitempty"`
 	// Archived hides the project from the lists (projects-page); its history stays.
 	Archived bool `json:"archived,omitempty"`
+	// Approvals overrides its team's approval modes (approval-delegation); empty modes inherit.
+	Approvals ApprovalModes `json:"approvals,omitzero"`
 	// RepoMode is how the project's repository came to be (project-creation D1): "local" (a new git repository
 	// the node creates under its projects_root), "github" (a new private GitHub repository created through the
 	// node's gh, cloned there), "existing" (a repository that exists: workspace path and/or repo_url, onboarded
@@ -188,12 +190,13 @@ type ProjectUpdate struct {
 	Description string `json:"description"`
 	RequestID   string `json:"request_id,omitempty"`
 	// Nil keeps the current value; "" clears it.
-	RepoURL              *string `json:"repo_url,omitempty"`
-	DefaultBranch        *string `json:"default_branch,omitempty"`
-	ReviewAfterConflicts *string `json:"review_after_conflicts,omitempty"`
-	Rules                *string `json:"rules,omitempty"`
-	Direction            *string `json:"direction,omitempty"`
-	Archived             *bool   `json:"archived,omitempty"`
+	RepoURL              *string        `json:"repo_url,omitempty"`
+	DefaultBranch        *string        `json:"default_branch,omitempty"`
+	ReviewAfterConflicts *string        `json:"review_after_conflicts,omitempty"`
+	Rules                *string        `json:"rules,omitempty"`
+	Direction            *string        `json:"direction,omitempty"`
+	Archived             *bool          `json:"archived,omitempty"`
+	Approvals            *ApprovalModes `json:"approvals,omitempty"`
 	// Team moves the project to another team, only while it has no live tasks (company-teams D4).
 	Team *string `json:"team,omitempty"`
 }

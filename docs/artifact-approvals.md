@@ -147,3 +147,19 @@ URI for one version in the project, use a new version. A historical URI is never
 and quarantine. `scripts/artifact-approvals-smoke.py --restart-core` checks with real Codex: v1 approve → QA,
 v2 reject → waiting, v3 approve → QA. Core and a node must be running. Results:
 [verification](artifact-approvals-verification.md).
+
+## Who approves (approval-delegation)
+
+A team (`spec.approvals` of its team document) or a project (`approvals`, edited on the project page, overriding its
+team) sets who approves each kind: `internal_artifacts` (the team's own material), `external_artifacts` (what leaves
+the company) and `decisions`. Modes: `owner` (people only, a hard gate no agent passes), `agent` with `agent: NAME`
+(that agent decides and escalates when unsure) and `lead` (the team's lead decides what the owner's earlier answers
+and recorded decisions cover, citing them). Defaults: internal material and decisions `lead`, external material
+`owner`. Decisions about money and destructive changes always go to people.
+
+`factory_artifact_request_approval` takes `audience` (`internal` or `external`, the default). When the mode names an
+agent other than the requester, Core sends that agent the request; it stays out of the people's Inbox until the agent
+escalates. The agent decides with `factory_approval_decide` (`approve`, `reject` or `escalate`, a reason, and `cites`
+— required for the lead's approvals); the approval records `decided_by`, the setting and the citations.
+`factory_decision_decide` is allowed where the project's decision mode names the agent (the lead with `cites`), as
+well as in policy-delegated categories; a people-only decision mode refuses agents even there.

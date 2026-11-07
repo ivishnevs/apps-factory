@@ -37,6 +37,7 @@ export interface Project {
   // team: the team of the company that works on it (company-teams).
   id: string; name: string; team?: string; description: string; workspace: string; version: number; created_at: number;
   updated_at: number; repo_url?: string; default_branch?: string; rules?: string; direction?: string; archived?: boolean;
+  approvals?: import("./types-catalog").ApprovalModes;
   // project-creation: how the repository came to be, who created the project (an agent's request carries its
   // approval) and its setup on the node; workspace is "" until the setup is ready. No setup: nothing to set up.
   repo_mode?: RepoMode; created_by?: string; approval_id?: string; setup?: ProjectSetup;
@@ -126,6 +127,7 @@ export interface Approval {
   id: string; project_id: string; agent: string; task_id?: string; run_id: string; message_id: string; kind?: string;
   artifact?: Artifact; call: { name: string; arguments?: Record<string, unknown> }; reason: string; status: string;
   version: number; created_at: number; expires_at: number; decided_at?: number; decision_reason?: string;
+  audience?: string; delegate?: string; setting?: string; escalated?: boolean; decided_by?: string; cites?: string[];
 }
 
 export interface Comment { id: string; author: string; text: string; created_at: number }

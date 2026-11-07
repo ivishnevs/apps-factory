@@ -107,13 +107,18 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 			// The request's question may be gone (withdrawn when a newer owner message superseded the ended run's
 			// question): the approval is still decided, and approvalDecided tells the agent.
 			if m.Status == "PENDING" || m.Status == "ESCALATED" {
-				if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
+				by := ""
+				if in.DecidedBy != "" {
+					by = " by " + in.DecidedBy + " (delegated: " + a.Setting + ")"
+				}
+				if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
 					return a, err
 				}
 			}
 		}
 		a.DecidedAt = tx.now().Unix()
 		a.DecisionReason = in.Reason
+		a.DecidedBy, a.Cites = in.DecidedBy, in.Cites
 		err = saveApproval(ctx, tx, &a, "approval.resolved")
 		if err == nil && a.Kind == "artifact" {
 			err = reconcileArtifactTasks(ctx, tx)

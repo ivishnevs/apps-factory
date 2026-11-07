@@ -20,6 +20,7 @@ type Decision struct {
 	Status                string           `json:"status"`
 	Value                 string           `json:"value"`
 	Alternatives          []string         `json:"alternatives,omitempty"`
+	Cites                 []string         `json:"cites,omitempty"`
 	Rationale             string           `json:"rationale"`
 	CreatedBy             string           `json:"created_by"`
 	ApprovedBy            string           `json:"approved_by,omitempty"`
@@ -80,4 +81,8 @@ type Decide struct {
 	Propose
 	SupersedesID      string `json:"supersedes_id,omitempty"`
 	SupersedesVersion int    `json:"supersedes_version,omitempty"`
+	// Cites are the owner's earlier answers or recorded decisions a delegated decision relies on (approval-delegation).
+	Cites []string `json:"cites,omitempty"`
+	// Delegation is the approval setting Core allowed the decision under ("" for a policy-delegated category).
+	Delegation string `json:"-"`
 }

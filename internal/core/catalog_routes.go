@@ -36,6 +36,8 @@ type TeamView struct {
 	Profile       string       `json:"profile,omitempty"`
 	Agents        []TeamMember `json:"agents"`
 	Projects      []string     `json:"projects"`
+	// Approvals are the team's approval modes (approval-delegation); empty modes use the defaults.
+	Approvals tasks.ApprovalModes `json:"approvals,omitzero"`
 }
 
 // teamViews are company's teams with their agents and projects.
@@ -44,7 +46,7 @@ func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
 	out := []TeamView{}
 	for _, name := range cat.TeamNames() {
 		t := cat.Teams[name]
-		v := TeamView{Name: name, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}}
+		v := TeamView{Name: name, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals}
 		for _, agent := range cat.TeamAgents(name) {
 			m := teamMember(cat.Agents, agent)
 			if dir, err := config.CompanyDir(company); err == nil {

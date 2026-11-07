@@ -1,6 +1,7 @@
 package config
 
 import (
+	"appfactory/internal/tasks"
 	"fmt"
 	"path"
 	"strings"
@@ -27,6 +28,8 @@ type TeamSpec struct {
 	Lead          string `yaml:"lead" json:"lead"`
 	AuditAssignee string `yaml:"audit_assignee" json:"audit_assignee,omitempty"`
 	Profile       string `yaml:"profile" json:"profile,omitempty"`
+	// Approvals is who approves the team's artifacts and decisions (approval-delegation); projects may override it.
+	Approvals tasks.ApprovalModes `yaml:"approvals" json:"approvals,omitzero"`
 }
 
 // Auditor is the team's onboarding audit assignee.

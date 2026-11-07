@@ -140,6 +140,13 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		in.Agent = run.Spec.Agent
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
+		if in.Audience != "" && in.Audience != "internal" && in.Audience != "external" {
+			http.Error(w, "audience must be internal (the team's own material) or external (what leaves the company)", 400)
+			return
+		}
+		rd := requestDelegation{audience: in.Audience, requester: run.Spec.Agent}
+		c.artifactDelegate(r.Context(), c.companyFrom(r), run.Spec.Project, &rd)
+		in.Delegate, in.Setting = rd.delegate, rd.setting
 		v, err := c.Store.RequestArtifactApproval(r.Context(), c.companyFrom(r), run.Spec.Project, in)
 		reply(w, v, err)
 	default:

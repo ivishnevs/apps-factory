@@ -27,7 +27,8 @@ export default function InboxPage() {
 
   const { decide, read } = useMemo(() => {
     const inbox = ov?.inbox ?? [];
-    const approvals = (ov?.approvals ?? []).filter((a) => a.status === "PENDING" || !a.status);
+    // A delegated approval is the delegate's until it escalates (approval-delegation).
+    const approvals = (ov?.approvals ?? []).filter((a) => (a.status === "PENDING" || !a.status) && (!a.delegate || a.escalated));
     const apById = new Map(approvals.map((a) => [a.id, a]));
     const used = new Set<string>();
     const items: Item[] = inbox.map((m) => {

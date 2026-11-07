@@ -21,6 +21,15 @@ type Approval struct {
 	ExpiresAt      int64             `json:"expires_at"`
 	DecidedAt      int64             `json:"decided_at,omitempty"`
 	DecisionReason string            `json:"decision_reason,omitempty"`
+	// Delegation (approval-delegation): Audience internal|external of an artifact; Delegate the agent that decides
+	// under Setting (e.g. "team game: internal_artifacts agent game-designer") until it escalates to people;
+	// DecidedBy the agent that decided and Cites what it relied on.
+	Audience  string   `json:"audience,omitempty"`
+	Delegate  string   `json:"delegate,omitempty"`
+	Setting   string   `json:"setting,omitempty"`
+	Escalated bool     `json:"escalated,omitempty"`
+	DecidedBy string   `json:"decided_by,omitempty"`
+	Cites     []string `json:"cites,omitempty"`
 }
 type Request struct {
 	ProjectID, Agent, TaskID, RunID string
@@ -33,10 +42,13 @@ type Request struct {
 	Kind string `json:"-"`
 }
 type Decision struct {
-	Version   int    `json:"version"`
-	Action    string `json:"action"`
-	Reason    string `json:"reason"`
-	RequestID string `json:"request_id"`
+	// DecidedBy and Cites: an agent's decision under delegation (set by Core); empty for people.
+	DecidedBy string   `json:"-"`
+	Cites     []string `json:"-"`
+	Version   int      `json:"version"`
+	Action    string   `json:"action"`
+	Reason    string   `json:"reason"`
+	RequestID string   `json:"request_id"`
 	// Urgent delivers an approved artifact version like an urgent directive (explicit-exits-authority D6):
 	// live runs of the tasks it wakes are stopped and resume with it.
 	Urgent bool `json:"urgent,omitempty"`

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"appfactory/internal/tasks"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -253,11 +254,29 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	if p.Name == "factory_decision_decide" {
 		category, _ := p.Arguments["category"].(string)
-		if len(snapshot.DecisionAuthority(category)) == 0 || len(current.DecisionAuthority(category)) == 0 {
-			http.Error(w, "explicit decision category delegation required in captured and current policy", 403)
+		cites, _ := p.Arguments["cites"].([]any)
+		// approval-delegation: people-only modes and money or destructive categories always go to people; otherwise a
+		// policy-delegated category, or the project's decision mode naming this agent (the lead with cites).
+		if mode, _, setting := c.approvalMode(r.Context(), c.companyFrom(r), run.Spec.Project, tasks.KindDecisions); mode.Mode == tasks.ApproveOwner || tasks.PeopleOnlyCategory(category) {
+			http.Error(w, "this decision is approved by people only ("+setting+"): propose it with factory_decision_propose", 403)
 			return
 		}
-		ops["factory.decision.decide."+category] = true
+		if len(snapshot.DecisionAuthority(category)) > 0 && len(current.DecisionAuthority(category)) > 0 {
+			ops["factory.decision.decide."+category] = true
+		} else if ok, setting, err := c.decisionDelegation(r.Context(), c.companyFrom(r), run.Spec.Project, run.Spec.Agent, category, len(cites)); ok {
+			r = r.WithContext(context.WithValue(r.Context(), delegationKey{}, setting))
+		} else {
+			msg := "explicit decision category delegation required in captured and current policy, or the project's decision mode naming you: propose it with factory_decision_propose"
+			if err != nil {
+				msg = err.Error()
+			}
+			http.Error(w, msg, 403)
+			return
+		}
+	}
+	if p.Name == "factory_approval_decide" {
+		c.approvalDecideTool(w, r, p, run)
+		return
 	}
 	// A project is created only with the owner's approval of the exact call (project-creation D4).
 	// A catalog change is applied only with the owner's approval of the exact call (company-self-service 3.7).

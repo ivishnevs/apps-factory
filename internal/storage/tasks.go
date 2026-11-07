@@ -273,6 +273,12 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 			}
 			p.Direction = *in.Direction
 		}
+		if in.Approvals != nil {
+			if err = in.Approvals.Validate(); err != nil {
+				return p, inputError(err.Error())
+			}
+			p.Approvals = *in.Approvals
+		}
 		if in.Archived != nil {
 			if *in.Archived && !p.Archived {
 				var live int

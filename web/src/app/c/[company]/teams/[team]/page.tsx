@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/ap
 import { Editor, MemberCard } from "@/components/app/team/catalog";
 import { SkillPicker } from "@/components/app/team/skill-picker";
 import { LeadAuthority } from "@/components/app/team/authority";
+import { ApprovalModesView } from "@/components/app/project/approvals";
 import { AddAgentSheet, AgentFormSheet, SetupBanner } from "@/components/app/team/builder";
 import { Button } from "@/components/ui/button";
 import { useCatalog, useCompanyInfo, useSetup, useTeams } from "@/lib/api/client";
@@ -59,6 +60,8 @@ export default function Page() {
           <dd className="text-xs text-muted-foreground">Defaults every agent of the team starts from</dd>
         </div>
       </dl>
+      <h2 className="mb-2 text-sm font-medium text-muted-foreground">Who approves</h2>
+      <div className="mb-6"><ApprovalModesView modes={team.approvals} lead={team.lead} /></div>
       <h2 className="mb-2 text-sm font-medium text-muted-foreground">Agents</h2>
       {team.agents.length === 0 ? <EmptyState title="No agents" icon={Layers} /> : (
         <ul className="mb-6 grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} onOpen={setOpen} onSkills={manage ? () => setPicking(m.name) : undefined} onEdit={manage ? () => setEditing(m.name) : undefined} />)}</ul>

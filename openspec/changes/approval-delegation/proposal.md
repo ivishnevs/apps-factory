@@ -1,5 +1,5 @@
 Status: accepted 2026-11-06 by the owner (configurable; the lead decides from earlier answers; a hard gate can be
-switched on); to design and implement. Nothing implemented.
+switched on); implemented 2026-11-07 except 3.3, the game team's prompts, which wait for the owner's go (see "Implementation").
 
 ## Why
 
@@ -39,3 +39,17 @@ Core: approval modes per team/project and kind, agent approvals under delegation
 artifact approvals and decisions (`decision-autonomy` delegation) use the same setting. Catalog/configuration
 (`structured-catalog`), team and project pages, Inbox (only what reaches people). Specs: `artifact-approvals`,
 `decision-autonomy`. Supersedes task 2.3 of `decision-approval-ux`.
+
+## Implementation (2026-11-07)
+
+- Modes `owner` / `agent` / `lead` per kind (`internal_artifacts`, `external_artifacts`, `decisions`) on the team
+  document and the project; resolution project → team → default (internal and decisions: lead; external: owner).
+- Artifact requests carry `audience`; a delegated request goes to the delegate as a message and is hidden from the
+  people's Inbox until `factory_approval_decide` escalates it; approve/reject record `decided_by`, setting and cites.
+- Decisions: `factory_decision_decide` works under the project's decision mode (the lead with cites); `owner` mode
+  refuses agents even in policy-delegated categories; money and destructive categories always go to people.
+- Web: "Who approves" on the project page (editable, "As the team" inherits) and on the team page (read-only; the
+  team's modes are edited in its document).
+- Decided during implementation: an artifact request without `audience` counts as external (people), so nothing that
+  might leave the company is delegated by omission; "money and destructive" is recognised from the decision category
+  (spend, budget, purchase, payment, money, cost, price, destructive, delete, legal).

@@ -28,4 +28,9 @@ type ApprovalRequest struct {
 	Blocking        bool   `json:"blocking,omitempty"`
 	TimeoutSeconds  int    `json:"timeout_seconds,omitempty"`
 	RequestID       string `json:"request_id"`
+	// Audience is internal (the team's own material) or external (what leaves the company; the default).
+	Audience string `json:"audience,omitempty"`
+	// Delegate and Setting are set by Core from the approval modes (approval-delegation).
+	Delegate string `json:"-"`
+	Setting  string `json:"-"`
 }

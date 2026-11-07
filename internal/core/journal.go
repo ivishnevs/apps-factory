@@ -203,6 +203,7 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 			return
 		}
 		in.Actor, in.RunID, in.TaskID = run.Spec.Agent, run.Spec.ID, run.Spec.TaskID
+		in.Delegation, _ = r.Context().Value(delegationKey{}).(string)
 		v, err := c.Store.DecideDecision(ctx, c.companyFrom(r), run.Spec.Project, in, current)
 		reply(w, v, err)
 	case "factory_decision_propose":

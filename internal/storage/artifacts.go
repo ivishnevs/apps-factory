@@ -141,7 +141,8 @@ func (s *Store) ArtifactApproval(ctx context.Context, company, project, id, vers
 }
 func (s *Store) RequestArtifactApproval(ctx context.Context, company, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "artifact.approval:"+project+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
-		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix()}
+		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix(),
+			Audience: in.Audience, Delegate: in.Delegate, Setting: in.Setting}
 		if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.Agent == "" || in.Agent == "owner" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
 			return a, inputError("agent, reason, request_id and bounded timeout required")
 		}
@@ -169,6 +170,7 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 		}
 		a.MessageID = m.ID
 		m.ApprovalID = a.ID
+		m.DelegatedTo = a.Delegate
 		mb, _ := json.Marshal(m)
 		if _, err = tx.ExecContext(ctx, "UPDATE messages SET body=? WHERE id=?", mb, m.ID); err != nil {
 			return a, err
@@ -177,9 +179,41 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,kind,artifact_id,artifact_version,company_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", a.ID, project, a.Agent, a.TaskID, "artifact:"+a.ID, m.ID, a.Status, b, "artifact", in.ArtifactID, in.ArtifactVersion, tx.company); err != nil {
 			return a, err
 		}
+		if a.Delegate != "" {
+			// The delegate decides it (approval-delegation): it gets the request; people see it once it escalates.
+			body := fmt.Sprintf("Approval %s for you to decide: %s asks to approve artifact %s version %s: %s\nYou decide it under %s. Use factory_approval_decide with approval_id %s and action approve or reject (with a reason; cite the owner's earlier answers or recorded decisions you rely on in cites), or escalate when you are unsure, it is out of your remit or it conflicts with a recorded decision: then people decide.", a.ID, in.Agent, in.ArtifactID, in.ArtifactVersion, in.Reason, a.Setting, a.ID)
+			if _, err = sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, Sender: "factory", Recipient: a.Delegate, MessageType: "review_request", Body: body, RequestID: "delegate-" + a.ID}); err != nil {
+				return a, err
+			}
+		}
 		return a, entityEvent(ctx, tx, "approval.requested", project, a.ID, a)
 	})
 }
+
+// EscalateApproval hands a delegated approval to people (approval-delegation): it appears in their Inbox.
+func (s *Store) EscalateApproval(ctx context.Context, company, id, agent, reason string) (approvals.Approval, error) {
+	return mutate(ctx, s, company, "approval.escalate:"+id, "", nil, func(tx *Tx) (approvals.Approval, error) {
+		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
+		if err != nil {
+			return a, err
+		}
+		if a.Status != "PENDING" || a.Delegate != agent || a.Escalated {
+			return a, ErrConflict
+		}
+		a.Escalated = true
+		m, err := messageTx(ctx, tx, a.MessageID)
+		if err != nil {
+			return a, err
+		}
+		m.DelegatedTo = ""
+		m.Body += "\n" + agent + " handed it to you: " + reason
+		if err = saveMessage(ctx, tx, &m, "message.escalated_by_delegate"); err != nil {
+			return a, err
+		}
+		return a, saveApproval(ctx, tx, &a, "approval.escalated")
+	})
+}
+
 func requiredArtifacts(ctx context.Context, tx *Tx, project string, refs []tasks.Artifact) error {
 	if len(refs) > 64 {
 		return inputError("at most 64 required artifacts")

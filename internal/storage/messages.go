@@ -75,7 +75,7 @@ func (s *Store) Inbox(ctx context.Context, company, project string) ([]messaging
 	// undecided decision proposals, reports asking for the owner's action, escalations. Notifications and answers
 	// stay in the chat; the Inbox keeps no history.
 	return s.presentMessages(ctx, company, `SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND (
- message_type='question' AND status='PENDING' OR status='UNREAD' AND (coalesce(body->>'decision_id','')<>'' OR coalesce(body->>'report_id','')<>'')))) ORDER BY created_at,seq`, company, project, project)
+ message_type='question' AND status='PENDING' AND coalesce(body->>'delegated_to','')='' OR status='UNREAD' AND (coalesce(body->>'decision_id','')<>'' OR coalesce(body->>'report_id','')<>'')))) ORDER BY created_at,seq`, company, project, project)
 }
 
 func (s *Store) presentMessages(ctx context.Context, company, query string, args ...any) ([]messaging.Message, error) {

@@ -546,8 +546,13 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 		}
 		rules := snapshot.DecisionAuthority(in.Category)
 		liveRules := current.DecisionAuthority(in.Category)
+		authority := "policy"
 		if len(rules) == 0 || len(liveRules) == 0 {
-			return d, inputError("explicit decision category delegation required in captured and current policy")
+			if in.Delegation == "" {
+				return d, inputError("explicit decision category delegation required in captured and current policy")
+			}
+			// approval-delegation: Core checked the project's decision mode; the decision records it and its citations.
+			authority, rules, liveRules = "delegated", []string{in.Delegation}, []string{in.Delegation}
 		}
 		b, _ := json.Marshal(in)
 		topic := canonicalTopic(in.Topic)
@@ -573,7 +578,7 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 			}
 		}
 		if active != nil {
-			if active.Authority != "policy" || active.Category != in.Category || active.ID != in.SupersedesID || active.Version != in.SupersedesVersion {
+			if active.Authority != "policy" && active.Authority != "delegated" || active.Category != in.Category || active.ID != in.SupersedesID || active.Version != in.SupersedesVersion {
 				return d, ErrConflict
 			}
 		} else if in.SupersedesID != "" || in.SupersedesVersion != 0 {
@@ -583,7 +588,7 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 		live, _ := json.Marshal(current)
 		liveHash := sha256.Sum256(live)
 		now := tx.now().Unix()
-		d = decisions.Decision{ID: protocol.ID(), ProjectID: project, Topic: topic, Category: in.Category, Status: "approved", Value: in.Value, Rationale: in.Rationale, CreatedBy: in.Actor, ApprovedBy: in.Actor, RecordedBy: in.Actor, Authority: "policy", AuthorityRules: rules, CurrentAuthorityRules: liveRules, ConfigHash: hex.EncodeToString(capturedHash[:]), CurrentConfigHash: hex.EncodeToString(liveHash[:]), TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
+		d = decisions.Decision{ID: protocol.ID(), ProjectID: project, Topic: topic, Category: in.Category, Status: "approved", Value: in.Value, Rationale: in.Rationale, CreatedBy: in.Actor, ApprovedBy: in.Actor, RecordedBy: in.Actor, Authority: authority, Cites: in.Cites, AuthorityRules: rules, CurrentAuthorityRules: liveRules, ConfigHash: hex.EncodeToString(capturedHash[:]), CurrentConfigHash: hex.EncodeToString(liveHash[:]), TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
 		if active != nil {
 			active.Status = "superseded"
 			active.SupersededBy = d.ID

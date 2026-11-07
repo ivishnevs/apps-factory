@@ -26,6 +26,9 @@ type Question struct {
 	Options  []string `json:"options,omitempty"`
 }
 type Message struct {
+	// DelegatedTo: an approval request an agent decides under delegation (approval-delegation); hidden from the
+	// people's Inbox until that agent escalates it.
+	DelegatedTo      string         `json:"delegated_to,omitempty"`
 	ReportID         string         `json:"report_id,omitempty"`
 	DecisionID       string         `json:"decision_id,omitempty"`
 	ApprovalID       string         `json:"approval_id,omitempty"`
