@@ -711,3 +711,18 @@ func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 type countWriter int
 
 func (c *countWriter) Write(p []byte) (int, error) { *c += countWriter(len(p)); return len(p), nil }
+
+// The Inbox and chat decision cards read /decisions/{id} through the catalog client (decision-approval-ux); a refused
+// path rendered every proposal as an empty card (owner, 2026-11-07).
+func TestCatalogPathAllowsDecisions(t *testing.T) {
+	for _, p := range []string{"/decisions/e4a63d3d32258e75d1aced72696f757e", "/catalog", "/catalog/agents/producer", "/companies"} {
+		if !catalogPath(p) {
+			t.Errorf("catalogPath(%q) = false", p)
+		}
+	}
+	for _, p := range []string{"/tasks", "/secrets/X", "/decisionsx"} {
+		if catalogPath(p) {
+			t.Errorf("catalogPath(%q) = true", p)
+		}
+	}
+}

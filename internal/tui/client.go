@@ -794,8 +794,10 @@ type CatalogClient interface {
 }
 
 // catalogPath accepts only the catalog's Core paths.
+// catalogPath lists the Core paths the web may read or post through the catalog client; /decisions is the read the
+// Inbox and chat decision cards need (decision-approval-ux), refused before 2026-11-07 so every card rendered empty.
 func catalogPath(p string) bool {
-	for _, prefix := range []string{"/catalog", "/templates", "/companies"} {
+	for _, prefix := range []string{"/catalog", "/templates", "/companies", "/decisions"} {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") || strings.HasPrefix(p, prefix+"?") {
 			return true
 		}
