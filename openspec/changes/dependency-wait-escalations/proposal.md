@@ -37,12 +37,25 @@ normal state, and from a manual block used as "keep waiting".
   dependencies; answer the stalled escalation with keep_waiting". The agent instructions for managers say the same.
   To hold a task for an unplanned reason an agent still blocks it; to make it wait for work it adds a dependency.
 
+- **Two prod crashes of 2026-11-07 (bugs, fixed here).**
+  - *A reopened escalation collides with its closed question.* The `stalled` escalation on M5b-P3 reopened with the
+    same words and request id as the question answered at 02:03; its fingerprint hit the `unique_question` index and
+    the insert failed. The fingerprint of a Factory question includes the opening (escalation episode), so a
+    reopened escalation asks a new question; a collision on a Factory question is treated as "already asked", never
+    as an error.
+  - *One failing sweep stops Core for every company.* `maintain` returns the first error of any step
+    (`sweepStalls`, `checkUnmerged`, cost pricing), the tick fails and Core exits; on prod it restarted every ~5 s
+    for all tenants because of one task. Background sweeps log the error with company and task, raise a
+    `sweep_failed` alert once per episode and go on with the next task and company; only storage loss stays fatal.
+    Hand fix on prod: the closed questions of that task got a distinct fingerprint.
+
 ## Impact
 
 - `internal/core/stalls.go` (threshold, activity, target), `internal/storage/escalations.go` (answers `keep_waiting`,
   `drop_dependency`, snooze), `internal/storage/tasks.go` / `internal/core/tasks.go` (refused agent block),
   `internal/factorytools` descriptions, the manager instructions, company config (`stalls.backlog_after`), web and TUI
-  escalation answers.
+  escalation answers, `internal/storage/messages.go` (question fingerprint), `internal/core/core.go` (`maintain`
+  error isolation).
 - Specs: `run-recovery` (Stall detection), `task-engine` (agent block on a dependency wait).
 - Related: `task-board-ux` (Waiting renamed Blocked), `park-watchdog` (parks without activity).
 

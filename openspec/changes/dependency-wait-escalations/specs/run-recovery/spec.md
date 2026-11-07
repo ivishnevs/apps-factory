@@ -34,3 +34,20 @@ episode for tasks idle or without progress longer than the configured intervals.
   assignee
 - **THEN** A SHALL get a `stalled` escalation to its assignee's manager naming C, which SHALL clear when C is assigned
   and released or closes, and the answer `drop_dependency` SHALL release A from its children park
+
+## ADDED Requirements
+
+### Requirement: Sweep failures are isolated
+An error in a background sweep (stalls, unmerged pull requests, cost pricing) for one company or task SHALL NOT stop
+Core or the sweeps of other companies and tasks: Core SHALL log it with company and task, raise one `sweep_failed`
+alert per episode and continue. A reopened Factory escalation SHALL ask a new question, and a duplicate Factory
+question SHALL resolve to the existing one rather than fail.
+
+#### Scenario: Reopened escalation with the same text
+- **WHEN** a `stalled` escalation is answered, clears and opens again for the same task with the same words
+- **THEN** a new question SHALL be created and Core SHALL keep running
+
+#### Scenario: One task breaks the sweep
+- **WHEN** the stall sweep fails on one task of company A
+- **THEN** Core SHALL keep running, the other tasks of A and all other companies SHALL be swept, and one
+  `sweep_failed` alert SHALL name the task

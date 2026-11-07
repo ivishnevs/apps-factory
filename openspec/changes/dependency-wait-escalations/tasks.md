@@ -1,3 +1,10 @@
+## 0. Prod crashes (2026-11-07)
+
+- [ ] 0.1 Factory question fingerprint per escalation episode; a duplicate Factory question returns the existing one
+      instead of failing; regression test: escalation answered, cleared, reopened with the same text.
+- [ ] 0.2 Isolate background sweeps in `maintain`: an error of one company or task is logged, alerted once
+      (`sweep_failed`) and skipped; the tick and the other companies continue; test with an injected failing task.
+
 ## 1. Stall detection
 
 - [ ] 1.1 `stalls.backlog_after` in the company config (default 24h, validated minimum); a BACKLOG dependency or child
