@@ -47,6 +47,10 @@ func (c *Core) approvalRoutes(m *http.ServeMux) {
 				http.Error(w, "only an owner or admin may approve a change of the company's setup", http.StatusForbidden)
 				return
 			}
+			if destructiveCatalogChange(a.Call) && !(principalOf(r).Role == "" || principalOf(r).Role == storage.RoleOwner) {
+				http.Error(w, "deleting a team or an agent needs an owner's approval", http.StatusForbidden)
+				return
+			}
 		}
 		c.approvalMu.Lock()
 		defer c.approvalMu.Unlock()
@@ -59,6 +63,20 @@ func (c *Core) approvalRoutes(m *http.ServeMux) {
 // making that change, so a member cannot: a catalog change can point an agent's MCP server at any address and hand it
 // a secret, which would give the member the value (core-secret-store D2).
 var adminApprovedCalls = map[string]bool{"factory_catalog_change": true, "factory_project_create": true}
+
+// destructiveCatalogChange: a factory_catalog_change that deletes a team or an agent (agent-company-authority: the
+// owner approves those, even where admins approve the rest).
+func destructiveCatalogChange(call factorytools.Call) bool {
+	if call.Name != "factory_catalog_change" {
+		return false
+	}
+	for _, p := range catalogChangeOf(call).Delete {
+		if strings.Contains(p, "/agents/") || strings.Contains(p, "/teams/") || strings.HasPrefix(p, "agents/") || strings.HasPrefix(p, "teams/") {
+			return true
+		}
+	}
+	return false
+}
 
 // mayApprove says whether role may approve a. An empty role is a caller with no company role, such as a test that
 // reaches the route directly; the gate gives every request through Handler a role.
@@ -117,6 +135,18 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 	if !allowed(target) {
 		http.Error(w, "policy denies target action", 403)
 		return
+	}
+	// agent-company-authority: a catalog change outside the agent's authority is refused before people are asked.
+	if call.Name == "factory_catalog_change" {
+		ch := catalogChangeOf(call)
+		var next *config.Catalog
+		if docs, err := c.changedDocs(r.Context(), c.companyFrom(r), ch); err == nil {
+			next, _ = c.loadCatalog(c.companyFrom(r), docs)
+		}
+		if err := c.catalogScope(c.companyFrom(r), run.Spec.Agent, ch, next); err != nil {
+			http.Error(w, err.Error(), 403)
+			return
+		}
 	}
 	for _, a := range []config.Agent{snapshot, current} {
 		owner := false

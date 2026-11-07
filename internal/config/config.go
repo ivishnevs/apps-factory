@@ -91,6 +91,11 @@ type Spec struct {
 		MaxRetries                  int `yaml:"max_retries" json:"max_retries"`
 	} `yaml:"execution" json:"execution"`
 	Policies []string `yaml:"policies" json:"policies"`
+	// Authority.Company lets a team lead propose catalog changes beyond its own team (agent-company-authority): other
+	// teams and company-wide settings. Only people grant it; every change still needs a person's approval.
+	Authority struct {
+		Company bool `yaml:"company" json:"company,omitempty"`
+	} `yaml:"authority" json:"authority,omitzero"`
 	// Workspace.Mode: "" or shared runs in the project workspace; worktree runs each task in its own worktree;
 	// scratch (no repository) runs in the project workspace through the Local allocator.
 	Workspace struct {

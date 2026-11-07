@@ -284,6 +284,14 @@ func (c *Core) catalogTool(w http.ResponseWriter, r *http.Request, name string, 
 			}
 		}
 	}
+	var next *config.Catalog
+	if docs, err := c.changedDocs(r.Context(), company, ch); err == nil {
+		next, _ = c.loadCatalog(company, docs)
+	}
+	if err := c.catalogScope(company, run.Spec.Agent, ch, next); err != nil {
+		http.Error(w, err.Error(), 403)
+		return
+	}
 	v, err := c.ApplyCatalogChange(r.Context(), company, run.Spec.Agent, ch)
 	reply(w, v, err)
 }

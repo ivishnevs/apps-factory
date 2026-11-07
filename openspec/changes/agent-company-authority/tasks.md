@@ -4,8 +4,8 @@
 
 ## 2. After the decision
 
-- [ ] 2.1 Core: scope checks of factory_catalog_change by agent capability; tests (own team allowed, other team
+- [x] 2.1 Core: scope checks of factory_catalog_change by agent capability; tests (own team allowed, other team
       refused without a grant).
-- [ ] 2.2 Web: each agent's authority in plain words on the team page, grant and revoke; approvals of catalog
+- [x] 2.2 Web: each agent's authority in plain words on the team page, grant and revoke; approvals of catalog
       changes explained (added, changed, deleted, teams affected), destructive ones highlighted.
-- [ ] 2.3 Presets' defaults and docs.
+- [x] 2.3 Presets' defaults and docs.

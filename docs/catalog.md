@@ -121,3 +121,14 @@ GET  /setup                                   # what keeps work from running: mi
 
 A refusal names the form field it is about (`{"field": "reports_to", "error": …}`). The setup status never refuses
 anything: runs wait with a clear reason (`secret_missing`, no node means queued).
+
+## What agents may change (agent-company-authority)
+
+Only a team's lead (its `lead`, or an agent with role `manager`) proposes catalog changes with
+`factory_catalog_change`, and only for its own team: the team document, its agents' documents and prompts, its
+profile and the policies only its agents use. Other teams and company-wide documents (skills, quota keys, node hooks,
+MCP servers, prices, policies shared between teams) need the lead's company grant, `spec.authority.company: true`,
+which only people set (the team page's "Allow company changes", owners only; a catalog change that grants it is
+refused). A change outside the agent's authority is refused when it asks for approval, and again when it runs.
+Deleting a team or an agent waits for an owner's approval even where admins approve the rest. Every change still
+needs a person's approval; the Inbox shows it in plain words (what changes, what is deleted).

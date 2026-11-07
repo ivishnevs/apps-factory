@@ -1,4 +1,4 @@
-Status: decided 2026-11-06 by the owner (see "Decision"); ready to implement. Nothing changed yet.
+Status: decided 2026-11-06 by the owner (see "Decision"); implemented 2026-11-07.
 
 ## Why
 
@@ -55,3 +55,14 @@ Agent tools and authority (factory_catalog_change scope checks in Core), approva
 - Destructive changes (deleting a team, an agent or a project) always need the owner, even where admins may approve
   the rest.
 - Every change still needs a person's approval, explained in plain words.
+
+## Implementation (2026-11-07)
+
+- Core: `factory_catalog_change` is checked when the agent asks for approval and when it runs: lead (team lead or
+  role manager) only; own team's documents only (team, agents, prompts, the team's profile, policies only its agents
+  use); company documents and other teams need `spec.authority.company`; a change granting that is refused (people
+  only). Approving a deletion of a team or an agent needs the owner role.
+- Web: the team page's Lead card says what the lead may change and has the owner's "Allow company changes" / "Limit to
+  this team"; catalog change approvals show what changes and what is deleted, deletions highlighted.
+- Decided during implementation: the grant is a field of the lead's agent document (`spec.authority.company`), so it
+  lives with the agent and its history; "who approved" waits for `people-attribution`.

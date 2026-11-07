@@ -7,6 +7,7 @@ import Link from "@/components/app/link";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { Editor, MemberCard } from "@/components/app/team/catalog";
 import { SkillPicker } from "@/components/app/team/skill-picker";
+import { LeadAuthority } from "@/components/app/team/authority";
 import { AddAgentSheet, AgentFormSheet, SetupBanner } from "@/components/app/team/builder";
 import { Button } from "@/components/ui/button";
 import { useCatalog, useCompanyInfo, useSetup, useTeams } from "@/lib/api/client";
@@ -23,7 +24,8 @@ export default function Page() {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const setup = useSetup();
-  const manage = canManage(useCompanyInfo().data?.role);
+  const role = useCompanyInfo().data?.role;
+  const manage = canManage(role);
   const team = teams.data?.teams.find((t) => t.name === name);
   const back = <Link href="/teams" className="-ml-2 mb-3 inline-flex h-10 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="size-4" />Teams</Link>;
   if (teams.error) return <>{back}<ErrorState error={teams.error} /></>;
@@ -44,6 +46,7 @@ export default function Page() {
           <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><Crown className="size-3.5" />Lead</dt>
           <dd className="mt-1 font-medium">{team.lead}</dd>
           <dd className="text-xs text-muted-foreground">Plans the work and answers your messages</dd>
+          <dd><LeadAuthority lead={team.lead} team={team.name} owner={role === "owner"} /></dd>
         </div>
         <div className="rounded-xl border bg-card p-4">
           <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><ClipboardCheck className="size-3.5" />Onboarding</dt>

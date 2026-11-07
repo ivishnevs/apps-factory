@@ -166,6 +166,8 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
       <div className="mt-4">
         {artifact && ap.artifact ? <ArtifactPreview project={ap.project_id} artifact={ap.artifact} /> : ap.call?.name === "factory_project_create" ? (
           <ProjectRequest args={ap.call.arguments ?? {}} />
+        ) : ap.call?.name === "factory_catalog_change" ? (
+          <CatalogChangeRequest args={ap.call.arguments ?? {}} />
         ) : (
           <div className="overflow-hidden rounded-xl border">
             <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2">
@@ -249,6 +251,42 @@ function ProjectRequest({ args }: { args: Record<string, unknown> }) {
         )}
       </dl>
       <p className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">Nothing is created until you approve. The repository is set up when the project&apos;s first task runs.</p>
+    </div>
+  );
+}
+
+// CatalogChangeRequest (agent-company-authority 2.2): a catalog change in plain words — which agents, prompts, teams
+// and company settings change, and what is deleted (highlighted: deleting a team or an agent needs an owner).
+function catalogItem(p: string): string {
+  const file = p.split("/").pop() ?? p;
+  const name = file.replace(/\.(ya?ml|md)$/, "");
+  if (p.startsWith("prompts/")) return `the prompt of ${name}`;
+  if (/(^|\/)agents\//.test(p)) return `agent ${name}`;
+  if (/(^|\/)teams\//.test(p)) return `team ${name}`;
+  if (/(^|\/)profiles\//.test(p)) return `shared settings ${name}`;
+  if (/(^|\/)policies\//.test(p)) return `rules ${name}`;
+  if (/skills\.ya?ml$/.test(p)) return "the company's skills";
+  if (/quota_keys\.ya?ml$/.test(p)) return "the company's subscriptions";
+  if (/node-hooks\//.test(p)) return "the node hooks";
+  return p;
+}
+function CatalogChangeRequest({ args }: { args: Record<string, unknown> }) {
+  const put = Object.keys((args.put as Record<string, unknown>) ?? {});
+  const del = ((args.delete as unknown[]) ?? []).map(String);
+  const destructive = del.filter((p) => /(^|\/)(agents|teams)\//.test(p));
+  return (
+    <div className="space-y-2 rounded-xl border p-3 text-sm">
+      {typeof args.note === "string" && args.note && <p className="font-medium">{args.note}</p>}
+      {put.length > 0 && <p><span className="text-muted-foreground">Changes or adds:</span> {put.map(catalogItem).join(", ")}</p>}
+      {del.length > 0 && (
+        <p className={destructive.length ? "font-medium text-red-700 dark:text-red-300" : ""}>
+          <span className={destructive.length ? "" : "text-muted-foreground"}>Deletes:</span> {del.map(catalogItem).join(", ")}
+          {destructive.length > 0 && " — only an owner can approve this"}
+        </p>
+      )}
+      <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Documents</summary>
+        <ul className="mt-1 font-mono">{[...put, ...del].map((p) => <li key={p}>{p}</li>)}</ul>
+      </details>
     </div>
   );
 }

@@ -221,3 +221,51 @@ func TestAgentCatalogChangeNeedsApproval(t *testing.T) {
 		t.Fatalf("%+v", hist)
 	}
 }
+
+// TestCatalogScope (agent-company-authority 2.1): a lead changes its own team only; other teams and company-wide
+// documents need its company grant; other roles cannot propose; deletions of teams and agents are the owner's.
+func TestCatalogScope(t *testing.T) {
+	ctx := context.Background()
+	h := newProjectHarness(t)
+	h.c.Root, h.c.Agents = "../..", nil
+	if err := h.c.LoadCatalogs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	co := storage.DefaultCompany
+	cat := h.c.cat(co)
+	lead := cat.Lead(cat.Agents["demo"].Spec.Team)
+	other := ""
+	for name, a := range cat.Agents {
+		if a.Spec.Team != cat.Agents["demo"].Spec.Team {
+			other = name
+			break
+		}
+	}
+	change := func(put map[string]string, del ...string) CatalogChange {
+		return CatalogChange{Base: 1, Put: put, Delete: del}
+	}
+	if err := h.c.catalogScope(co, lead, change(map[string]string{cat.Agents["demo"].Spec.Prompt.File: "x"}), nil); err != nil {
+		t.Fatal("own team refused:", err)
+	}
+	if other != "" {
+		if err := h.c.catalogScope(co, lead, change(map[string]string{cat.Agents[other].Spec.Prompt.File: "x"}), nil); err == nil || !strings.Contains(err.Error(), "company grant") {
+			t.Fatal("other team allowed:", err)
+		}
+	}
+	if err := h.c.catalogScope(co, lead, change(map[string]string{"configs/skills.yaml": "x"}), nil); err == nil || !strings.Contains(err.Error(), "company-wide") {
+		t.Fatal("company document allowed:", err)
+	}
+	if err := h.c.catalogScope(co, "demo", change(map[string]string{cat.Agents["demo"].Spec.Prompt.File: "x"}), nil); err == nil || !strings.Contains(err.Error(), "lead") {
+		t.Fatal("a non-lead proposed a change:", err)
+	}
+	granted := cat.Agents[lead]
+	granted.Spec.Authority.Company = true
+	cat.Agents[lead] = granted
+	if err := h.c.catalogScope(co, lead, change(map[string]string{"configs/skills.yaml": "x"}), nil); err != nil {
+		t.Fatal("granted lead refused:", err)
+	}
+	del := factorytools.Call{Name: "factory_catalog_change", Arguments: map[string]any{"delete": []any{"configs/agents/demo.yaml"}}}
+	if !destructiveCatalogChange(del) || destructiveCatalogChange(factorytools.Call{Name: "factory_catalog_change", Arguments: map[string]any{"delete": []any{"prompts/demo.md"}}}) {
+		t.Fatal("destructive detection")
+	}
+}
