@@ -10,7 +10,7 @@
 
 ## 1. Implementation
 
-- [ ] 1.1 Tables and migrations; import of existing catalogs; tests. (Tables, import and a render round-trip test done 2026-11-07; the per-company switch is left.)
-- [ ] 1.2 Core reads and validates the structured catalog; runs keep a snapshot at dispatch.
-- [ ] 1.3 Entity API routes (team rename and title among them); web editors move to them.
-- [ ] 1.4 YAML import and export; docs.
+- [x] 1.1 Tables and migrations; import of existing catalogs; tests.
+- [x] 1.2 Core reads and validates the structured catalog; runs keep a snapshot at dispatch.
+- [x] 1.3 Entity API routes (team rename and title among them); web editors move to them.
+- [x] 1.4 YAML import and export; docs.

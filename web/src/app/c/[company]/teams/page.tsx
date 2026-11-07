@@ -7,6 +7,7 @@ import Link from "@/components/app/link";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { Editor, HistoryList } from "@/components/app/team/catalog";
 import { NewTeamSheet, SetupBanner } from "@/components/app/team/builder";
+import { CatalogChanges, CatalogFile } from "@/components/app/team/catalog-tools";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -93,7 +94,13 @@ function Teams() {
             </div>
           )}
         </TabsContent>
-        <TabsContent value="history"><HistoryList current={version} /></TabsContent>
+        <TabsContent value="history">
+          <div className="space-y-6">
+            <section><h2 className="mb-2 text-sm font-medium text-muted-foreground">Changes</h2><CatalogChanges manage={manage} /></section>
+            <section><h2 className="mb-2 text-sm font-medium text-muted-foreground">The whole configuration as a file</h2><CatalogFile manage={manage} /></section>
+            <section><h2 className="mb-2 text-sm font-medium text-muted-foreground">Versions</h2><HistoryList current={version} /></section>
+          </div>
+        </TabsContent>
       </Tabs>
       <Editor path={open} base={version} onClose={() => setOpen(null)} />
       {manage && <NewTeamSheet open={newTeam} onClose={() => setNewTeam(false)} />}

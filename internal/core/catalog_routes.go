@@ -30,6 +30,7 @@ type CatalogChange struct {
 // TeamView is one team of the resolved catalog.
 type TeamView struct {
 	Name          string       `json:"name"`
+	Title         string       `json:"title,omitempty"`
 	Description   string       `json:"description,omitempty"`
 	Lead          string       `json:"lead"`
 	AuditAssignee string       `json:"audit_assignee"`
@@ -46,7 +47,7 @@ func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
 	out := []TeamView{}
 	for _, name := range cat.TeamNames() {
 		t := cat.Teams[name]
-		v := TeamView{Name: name, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals}
+		v := TeamView{Name: name, Title: t.Metadata.Title, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals}
 		for _, agent := range cat.TeamAgents(name) {
 			m := teamMember(cat.Agents, agent)
 			if dir, err := config.CompanyDir(company); err == nil {
@@ -164,6 +165,7 @@ func (c *Core) ApplyCatalogChange(ctx context.Context, company, author string, c
 }
 
 func (c *Core) catalogRoutes(m *http.ServeMux) {
+	c.catalogEntityRoutes(m)
 	m.HandleFunc("GET /catalog", func(w http.ResponseWriter, r *http.Request) {
 		company := c.companyFrom(r)
 		version, _ := strconv.ParseInt(r.URL.Query().Get("version"), 10, 64)

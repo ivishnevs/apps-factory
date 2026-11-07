@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/ap
 import { Editor, MemberCard } from "@/components/app/team/catalog";
 import { SkillPicker } from "@/components/app/team/skill-picker";
 import { LeadAuthority } from "@/components/app/team/authority";
+import { RenameTeam } from "@/components/app/team/rename";
 import { ApprovalModesView } from "@/components/app/project/approvals";
 import { AddAgentSheet, AgentFormSheet, SetupBanner } from "@/components/app/team/builder";
 import { Button } from "@/components/ui/button";
@@ -35,8 +36,9 @@ export default function Page() {
   return (
     <>
       {back}
-      <PageHeader title={team.name} description={team.description}
+      <PageHeader title={team.title || team.name} description={team.description}
         actions={<>
+          {manage && <RenameTeam team={team.name} title={team.title} />}
           <Button asChild variant="outline" className="h-10"><Link href={`/tasks?team=${encodeURIComponent(team.name)}`}>Tasks</Link></Button>
           <Button asChild variant="outline" className="h-10"><Link href={`/chat?team=${encodeURIComponent(team.name)}`}><MessageSquare className="size-4" />Chat with {team.lead}</Link></Button>
           {manage && <Button className="h-10" onClick={() => setAdding(true)}><Plus className="size-4" />Add agent</Button>}

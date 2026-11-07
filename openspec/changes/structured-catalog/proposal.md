@@ -101,3 +101,12 @@ import of such a file; never the place where the configuration lives.
    the agents' `factory_catalog_change`) keeps working on top of the rows — documents are rendered from rows, a
    document change is parsed and applied as row changes — until the web, TUI and agent tools use the entity API.
 6. The document tables stay read-only for a while (switch back possible), then are dropped.
+
+## Implementation (2026-11-07)
+
+Entities with titles, specs and row versions, synced on every save; change log with undo; entity API (team rename =
+title); YAML export and import; a per-company switch that checks every agent resolves the same. Decided during
+implementation: entity edits are saved as catalog versions too (documents mirror the entities), so runs' snapshots,
+history, rollback, the YAML editor and `factory_catalog_change` keep working unchanged; the web agent and team
+editors keep their routes (they write through the same sync), and the team page gets Rename, the History tab the
+changes with Undo and the YAML file download and load.

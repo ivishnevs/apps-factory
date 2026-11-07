@@ -12,7 +12,7 @@ export interface TeamMember {
 // A team of the company (company-teams): its lead gets the owner's unaddressed messages in its projects.
 export interface ApprovalMode { mode: "" | "owner" | "agent" | "lead"; agent?: string }
 export interface ApprovalModes { internal_artifacts?: ApprovalMode; external_artifacts?: ApprovalMode; decisions?: ApprovalMode }
-export interface TeamView { name: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes }
+export interface TeamView { name: string; title?: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes }
 export interface Teams { company: string; version: number; teams: TeamView[] }
 
 export interface CatalogChange { base: number; put?: Record<string, string>; delete?: string[]; note?: string; dry_run?: boolean }

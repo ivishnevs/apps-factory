@@ -132,7 +132,16 @@ func (c *Core) reloadCatalog(ctx context.Context, company string) error {
 	if cur.Version == c.catalogVersion(company) {
 		return nil
 	}
-	cat, err := c.loadCatalog(company, cur.Docs)
+	docs := cur.Docs
+	// structured-catalog: a switched company's catalog is its entities (documents mirror them version by version).
+	if src, err := c.Store.CatalogSource(ctx, company); err == nil && src == "entities" {
+		es, err := c.Store.CatalogEntities(ctx, company)
+		if err != nil {
+			return err
+		}
+		docs = storage.RenderEntities(es)
+	}
+	cat, err := c.loadCatalog(company, docs)
 	if err != nil {
 		return err
 	}
@@ -162,6 +171,10 @@ func (c *Core) SaveCatalog(ctx context.Context, company string, in storage.Catal
 	}
 	v, err := c.Store.SaveCatalog(ctx, company, in)
 	if err != nil {
+		return v, err
+	}
+	// structured-catalog: every save keeps the entities in step (the document API is the compatibility layer).
+	if _, err = c.Store.ImportCatalogEntities(ctx, company, v.Version, in.Author); err != nil {
 		return v, err
 	}
 	if err = c.reloadCatalog(ctx, company); err != nil {

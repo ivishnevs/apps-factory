@@ -29,6 +29,8 @@ type Metadata struct {
 	Description string `yaml:"description" json:"description"`
 	// Preset is "<preset>@<version>" of the preset an agent or team was copied from (team-builder D2).
 	Preset string `yaml:"preset" json:"preset,omitempty"`
+	// Title is the display name (structured-catalog): renaming changes it, references keep using Name.
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
 }
 type Spec struct {
 	Extends string `yaml:"extends" json:"extends,omitempty"`

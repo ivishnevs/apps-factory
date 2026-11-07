@@ -132,3 +132,19 @@ which only people set (the team page's "Allow company changes", owners only; a c
 refused). A change outside the agent's authority is refused when it asks for approval, and again when it runs.
 Deleting a team or an agent waits for an owner's approval even where admins approve the rest. Every change still
 needs a person's approval; the Inbox shows it in plain words (what changes, what is deleted).
+
+## Structured catalog (structured-catalog)
+
+The configuration is also kept as entities (`catalog_entities`: kind, name, display title, parsed spec, the
+document it renders to, `row_version`), synced on every catalog save, with a change log (`catalog_changes`: who,
+note, each entity's document before and after).
+
+- `GET /catalog/entities`, `PUT /catalog/entities/{kind}/{name}` (`row_version`, and `title`, `spec` or `content`;
+  409 on a stale `row_version`) — e.g. renaming a team is its `title`; references keep its name.
+- `GET /catalog/changes`, `POST /catalog/changes/{seq}/undo` (puts back the documents before that change).
+- `GET /catalog/export` (one YAML file, each document after `# path: P`; prompts as comment blocks) and
+  `POST /catalog/import {"yaml": ...}`.
+- `POST /catalog/entities/switch` makes the entities the company's source after checking they resolve every agent
+  the same (`{"source": "documents"}` switches back). Every entity edit is also saved as a catalog version, so run
+  snapshots, version history, rollback and the document API (`POST /catalog`, `factory_catalog_change`, the YAML
+  editor) keep working as the compatibility layer.
