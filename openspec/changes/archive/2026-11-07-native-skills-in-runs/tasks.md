@@ -10,6 +10,6 @@
 
 ## 3. Rollout
 
-- [ ] 3.1 Full test suite; push; upgrade the owner's node (company pause, wait for live runs).
-- [ ] 3.2 Verify on a real run (Claude and Codex) that the agent opens a skill natively and runs its script from
+- [x] 3.1 Full test suite; push; upgrade the owner's node (company pause, wait for live runs).
+- [x] 3.2 Verify on a real run (Claude and Codex) that the agent opens a skill natively and runs its script from
       the skill's directory.
