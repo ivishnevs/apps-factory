@@ -268,7 +268,13 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		return m, err
 	}
 	canonical, _ := json.Marshal(m.Questions)
-	fingerprint := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.ToLower(m.Body)), " ") + "\x00" + m.Sender + "\x00" + m.Recipient + "\x00" + m.TaskID + "\x00" + string(canonical)))
+	// Factory's own questions (escalations, quota) are deduplicated by their escalation, not by text: an escalation
+	// cleared and opened again asks the same words, so its request id is part of the fingerprint.
+	unique := ""
+	if m.Sender == "factory" {
+		unique = "\x00" + in.RequestID
+	}
+	fingerprint := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.ToLower(m.Body)), " ") + "\x00" + m.Sender + "\x00" + m.Recipient + "\x00" + m.TaskID + "\x00" + string(canonical) + unique))
 	b, _ := json.Marshal(m)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:]), tx.company); err != nil {
 		return m, err

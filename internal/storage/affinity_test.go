@@ -106,3 +106,29 @@ func TestSessionAffinity(t *testing.T) {
 		t.Fatal(d)
 	}
 }
+
+// TestEscalationReopens: an escalation cleared and opened again with the same words asks a new question (the
+// unique question index once crashed Core's tick on it).
+func TestEscalationReopens(t *testing.T) {
+	s, _ := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "app", Name: "app", Workspace: "/tmp/reopen-app"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask(ctx, co, tasks.Create{ID: "dep", ProjectID: "app", Title: "dep", RequestID: "d"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTask(ctx, co, tasks.Create{ID: "t", ProjectID: "app", Title: "t", Assignee: "dev", Dependencies: []string{"dep"}, Ready: true, RequestID: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []EscalationWant{{TaskID: "t", RefID: "dep", Summary: "waits on dep, which is in BACKLOG"}}
+	for i := 0; i < 3; i++ {
+		if err := s.SyncEscalations(ctx, co, "stalled", want); err != nil {
+			t.Fatal(i, err)
+		}
+		if err := s.SyncEscalations(ctx, co, "stalled", nil); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+}
