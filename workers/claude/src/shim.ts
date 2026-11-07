@@ -373,7 +373,7 @@ export async function runShim(io: ShimIO): Promise<void> {
       beforePrompt: () => start,
       newSessionId: io.newSessionId,
       query: io.query,
-      executable: launch.executable ?? (io.env["CLAUDE_CODE_EXECUTABLE"] || undefined),
+      executable: runExecutable(launch.executable, io.env),
       allowApiKey: launch.allow_api_key,
       settingSources: launch.setting_sources,
       ...(launch.exit_file ? { exitGuard: { file: launch.exit_file, retries: launch.exit_guard_retries ?? 2 } } : {}),
@@ -412,10 +412,17 @@ export function sdkVersion(): string {
   return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
 }
 
+// runExecutable is the Claude Code binary of a run: the launch line's, else CLAUDE_CODE_EXECUTABLE, else in the
+// single-executable build the one install.sh put next to the package (the SDK cannot find it there by itself: no
+// node_modules, "Native CLI binary for linux-x64 not found"); undefined lets the SDK resolve its bundled binary.
+export function runExecutable(launchExecutable: string | undefined, env: NodeJS.ProcessEnv, packaged = singleExecutable): string | undefined {
+  return launchExecutable ?? (env["CLAUDE_CODE_EXECUTABLE"] || (packaged ? bundledExecutable(packaged) : undefined));
+}
+
 // The native Claude Code binary: next to the single executable's package, else bundled with the SDK, resolved like
 // the SDK does.
-export function bundledExecutable(): string {
-  if (singleExecutable) {
+export function bundledExecutable(packaged = singleExecutable): string {
+  if (packaged) {
     return join(dirname(process.execPath), "..", "claude-code", process.platform === "win32" ? "claude.exe" : "claude");
   }
   const base = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;

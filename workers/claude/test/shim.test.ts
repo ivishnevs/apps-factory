@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { AccountInfo, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { costBaseline, probe, runShim, sdkVersion, type Launch, type ShimEvent } from "../src/shim.js";
+import { costBaseline, probe, runExecutable, runShim, sdkVersion, type Launch, type ShimEvent } from "../src/shim.js";
 import type { QueryFn } from "../src/runtime.js";
 
 // Recorded SDK message streams shared with internal/driver/claude (Go) tests. Each scenario is
@@ -459,4 +459,14 @@ test("external MCP servers join factory in mcpServers and their denied tools in 
 
   const bad = await shim(JSON.stringify({ ...baseLaunch(), mcp_servers: { factory: { type: "http", url: "https://x.test" } } }), query, {});
   assert.equal(bad[0]!.event, "error");
+});
+
+test("run executable: launch line, then CLAUDE_CODE_EXECUTABLE, then the packaged binary next to the package", () => {
+  assert.equal(runExecutable("/opt/claude", { CLAUDE_CODE_EXECUTABLE: "/env/claude" }, true), "/opt/claude");
+  assert.equal(runExecutable(undefined, { CLAUDE_CODE_EXECUTABLE: "/env/claude" }, true), "/env/claude");
+  // The single-executable build has no node_modules: without a fallback the SDK fails with
+  // "Native CLI binary for linux-x64 not found" (seen on a Linux node, 2026-11-07).
+  const packaged = runExecutable(undefined, {}, true);
+  assert.ok(packaged?.endsWith(join("claude-code", process.platform === "win32" ? "claude.exe" : "claude")), packaged);
+  assert.equal(runExecutable(undefined, {}, false), undefined);
 });
