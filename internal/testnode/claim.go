@@ -47,6 +47,12 @@ func ClaimStarted(t testing.TB, s *storage.Store, company, run string) (storage.
 	t.Helper()
 	ensureClaimNode(t, s, company)
 	ctx := context.Background()
+	// The claim node claimed the run's earlier session runs before OwnRun moved them to an enrolled node; give them
+	// back so session affinity sees the claim node as the session's holder.
+	if _, err := s.DB.ExecContext(ctx, `UPDATE runs SET node_id=$1 WHERE company_id=$2 AND status='ENDED' AND session_id<>''
+ AND session_id=(SELECT spec->>'session_id' FROM runs WHERE company_id=$2 AND id=$3)`, ClaimNodeID, company, run); err != nil {
+		t.Fatal(err)
+	}
 	c, err := s.ClaimV2(ctx, company, run, storage.ClaimRequest{NodeID: ClaimNodeID, Epoch: 1, ClaimID: protocol.ID()})
 	var r *storage.Refusal
 	if errors.As(err, &r) {

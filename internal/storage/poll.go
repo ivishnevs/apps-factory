@@ -98,7 +98,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	sort.Strings(providers)
 	providerJSON, _ := json.Marshal(providers)
 	skipJSON, _ := json.Marshal(append([]string{}, skip...))
-	rows, err := s.DB.QueryContext(ctx, `SELECT r.id,r.spec->>'provider',coalesce(r.spec->'config_snapshot','null'),coalesce(w.node_id,'') FROM runs r
+	rows, err := s.DB.QueryContext(ctx, `SELECT r.id,r.spec->>'provider',coalesce(r.spec->'config_snapshot','null'),coalesce(w.node_id,''),coalesce(r.spec->>'session_id','') FROM runs r
  LEFT JOIN workspaces w ON w.company_id=r.company_id AND w.task_id=r.task_id AND w.unpushed=1 AND w.node_id!=''
  WHERE r.company_id=? AND r.status='QUEUED' AND r.spec->>'provider' IN (SELECT jsonb_array_elements_text(?::jsonb))
  AND r.id NOT IN (SELECT jsonb_array_elements_text(?::jsonb))
@@ -106,20 +106,44 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
+	type candidate struct {
+		id, provider, session string
+		snapshot              []byte
+	}
+	var cands []candidate
 	for rows.Next() {
-		var id, provider, pinned string
-		var snapshot []byte
-		if err = rows.Scan(&id, &provider, &snapshot, &pinned); err != nil {
+		var c candidate
+		var pinned string
+		if err = rows.Scan(&c.id, &c.provider, &c.snapshot, &pinned, &c.session); err != nil {
+			rows.Close()
 			return out, err
 		}
-		if left[provider] == 0 || pinned != "" && pinned != node || len(tasks.MissingLabels(n.Labels, AgentLabels(snapshot))) > 0 {
+		if pinned != "" && pinned != node || len(tasks.MissingLabels(n.Labels, AgentLabels(c.snapshot))) > 0 {
 			continue
 		}
-		left[provider]--
-		out = append(out, Offer{RunID: id, Provider: provider})
+		cands = append(cands, c)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return out, err
+	}
+	for _, c := range cands {
+		if left[c.provider] == 0 {
+			continue
+		}
+		// Runs whose session another active node holds are not offered (the claim refuses them too).
+		if c.session != "" {
+			spec := protocol.RunSpec{SessionID: c.session, Provider: protocol.RuntimeProvider(c.provider), ConfigSnapshot: c.snapshot}
+			if a, err := sessionAffinity(ctx, s.DB, company, c.id, spec, node, s.Now()); err != nil {
+				return out, err
+			} else if a != nil {
+				continue
+			}
+		}
+		left[c.provider]--
+		out = append(out, Offer{RunID: c.id, Provider: c.provider})
+	}
+	return out, nil
 }
 
 // NodeWork is the node's poll work: stops of its current epoch's live runs Core revoked or gave a stop reason,

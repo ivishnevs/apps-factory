@@ -308,6 +308,15 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       detail: by ? `${taskName(by, look, true)} sets up the project's repository first.` : "The project's first task sets up its repository first.",
       next: "It starts on its own once the repository is ready.", you: false });
   }
+  if (reason === "affinity") {
+    // session-affinity: the node holding the agent's session takes the run (a queued run's reason).
+    const node = /^(.+?) holds this agent's session/.exec(detail)?.[1];
+    const inactive = /and is (offline|paused|removed|unable to run the agent)/.exec(detail)?.[1];
+    return out({ headline: node ? `Waiting for ${node}` : "Waiting for its node", label: "Waiting for the node with its session", brief: "It holds this agent's session",
+      detail: inactive ? `${node ?? "The node"} holds this agent's session and is ${inactive}; another node takes the run after the release and starts a fresh session.`
+        : `${node ?? "The node"} holds this agent's session and takes the run when it has a free slot, so the agent keeps its memory.`,
+      who: { label: node ?? "Its node", href: "/nodes" }, next: inactive ? "It moves to another node on its own after the release." : "It starts when that node has a free slot.", you: false, queued: true });
+  }
   if (reason === "runnable") return out({ headline: "Starting soon", detail: "It is next in line to run.", who: undefined, you: false });
   return out({ headline: capital(reason.replace(/[:_]/g, " ")), detail: note, next: cleanText(action, look) || undefined });
 }

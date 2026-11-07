@@ -356,8 +356,9 @@ task's total.
 
 - `factory comment TASK TEXT [--urgent]`: an owner comment (authority input, `owner_comment`); `--urgent` sends an
   urgent directive that stops the running run.
-- `factory run TASK` / `factory retry TASK`: the owner's `ready` at the task's current version (a BACKLOG,
-  REWORK or held task runs now; counters and backoff reset).
+- `factory run TASK [--review-by WHO]` / `factory retry TASK [--review-by WHO]`: the owner's `ready` at the task's
+  current version (a BACKLOG, REWORK or held task runs now; counters and backoff reset). A task without a reviewer
+  is refused ("Reviewer is required"); `--review-by` sets it first (an agent, `owner` or `member:USER`).
 - `factory costs [--task T | --agent A | --model [M]] [--by task|agent|day|model|project | --day] [--since 24h]`.
 - Task pause/resume/reassign/cancel are authority actions of `factory tasks …` (hierarchy); `reopen` and
   `reset-workspace` have no owner endpoint yet (a workspace reset is the `reset_workspace` escalation answer).
@@ -460,3 +461,15 @@ cancellation.
 - `GET /feed/stream` streams the feed as server-sent events (`id` = feed sequence; filters `project`, `task`,
   `attention`); a client reconnecting with `Last-Event-ID` or `?after=` receives every later row once. The
   stream is exempt from the server's write timeout.
+
+## Session affinity
+
+A run that continues a session (the (task, agent) session of a rework or re-review, or a conversation's next
+message) is taken only by the node that holds the session — the node of the session's latest run — while that
+node is active, however busy it is: other nodes are not offered the run and their claims are refused with retry
+`affinity`; the queued reason says "Waiting for NODE, it holds this agent's session". When the holder becomes
+inactive (offline, paused, removed, or unable to run the agent), a release timer starts (`session_locks`); a holder
+active again clears it. When the company's timeout passes (default 90 minutes, `PUT
+/settings/company/session_affinity {"release_minutes": N}`, 10 minutes to 7 days), any capable node takes the run,
+starts a fresh session with the usual note, and the lock moves to it. Runs without a session go anywhere. The pin of
+unpushed work (above) is stronger: it is released only by `reset_workspace`.

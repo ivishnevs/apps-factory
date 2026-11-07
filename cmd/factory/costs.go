@@ -39,14 +39,24 @@ func ownerTaskCommand(ctx context.Context, api worker.API, args []string) error 
 	case "run", "retry":
 		// run and retry release the task at its current version: counters, backoff and a retry escalation
 		// are reset (an owner ready).
+		// --review-by sets the task's reviewer first (review-coverage: no release without one).
+		reviewBy := ""
+		if len(args) == 4 && args[2] == "--review-by" {
+			reviewBy, args = args[3], args[:2]
+		}
 		if len(args) != 2 {
-			return fmt.Errorf("%s TASK", args[0])
+			return fmt.Errorf("%s TASK [--review-by AGENT|owner|member:USER]", args[0])
 		}
 		var t struct {
 			Version int `json:"version"`
 		}
 		if err := api.Do(ctx, "GET", "/tasks/"+url.PathEscape(args[1]), nil, &t); err != nil {
 			return err
+		}
+		if reviewBy != "" {
+			if err := api.Do(ctx, "PATCH", "/tasks/"+url.PathEscape(args[1]), map[string]any{"version": t.Version, "review_by": reviewBy, "request_id": protocol.ID()}, &t); err != nil {
+				return err
+			}
 		}
 		body := map[string]any{"version": t.Version, "action": "ready", "reason": args[0] + " by owner", "request_id": protocol.ID()}
 		if err := api.Do(ctx, "POST", "/tasks/"+url.PathEscape(args[1])+"/actions", body, &result); err != nil {

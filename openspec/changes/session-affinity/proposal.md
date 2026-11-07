@@ -1,5 +1,5 @@
 Status: proposed 2026-11-06 by the owner; owner decided 2026-11-06: the lock is released only when its node is
-inactive beyond a timeout, never because the node is busy; release timeout 90 minutes (company setting). Nothing implemented.
+inactive beyond a timeout, never because the node is busy; release timeout 90 minutes (company setting). Implemented 2026-11-07 (3.2, the before/after count, is a measurement left to do).
 
 ## Why
 
@@ -48,3 +48,14 @@ reason `affinity` in the task verdict, inactivity timer per lock, company settin
 it resumed). Web and TUI: the reason on the task, resumed/fresh on runs. Specs: `node-transport` (offers and claim).
 Related: `task-worktrees` (required pin), `node-runtime-accounts` (sessions belong to a node's runtime login),
 `agent-context-window`.
+
+## Implementation (2026-11-07)
+
+- The session's node is read from `runs.node_id` of the session's latest other run (no new column: 2.1 needed no
+  migration of its own); `session_locks` keeps the inactivity timers, `companies.session_affinity_minutes` the
+  timeout (default 90).
+- Offers skip runs whose session an active other node holds; the claim refuses them with retry `affinity`; the
+  queued reason `affinity` names the holder and, when it is inactive, the release time (`until`).
+- Decided during implementation: an offline holder's timer starts at its last heartbeat and a paused one's at the
+  pause, so the 90 minutes count from when the node actually became inactive; a company-wide pause does not count as
+  the holder's inactivity (every node is paused alike).

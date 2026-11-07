@@ -423,6 +423,15 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		if pinned != "" && pinned != req.NodeID {
 			return out, retry("pinned")
 		}
+		// Session affinity (session-affinity): a continued session stays with its node while that node is active.
+		if a, err := sessionAffinity(ctx, tx, company, id, spec, req.NodeID, tx.now()); err != nil {
+			return out, err
+		} else if a != nil {
+			if err = tx.Commit(); err != nil { // the inactivity timer
+				return out, err
+			}
+			return out, &Refusal{Retry: true, Reason: "affinity", Detail: a.detail()}
+		}
 	}
 	if paused, err := pausedFor(ctx, tx, spec.Project, spec.Agent, QuotaKey(spec.ConfigSnapshot, spec.Agent)); err != nil {
 		return out, err

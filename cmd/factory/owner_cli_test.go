@@ -150,7 +150,10 @@ func TestOwnerCLIControls(t *testing.T) {
 	if _, err = s.CreateTask(ctx, co, tasks.Create{ID: "later", ProjectID: "p1", Title: "later", Assignee: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if out = cli("run", "later"); !strings.Contains(out, `"status": "READY"`) {
+	if err = ownerTaskCommand(ctx, api, []string{"run", "later"}); err == nil || !strings.Contains(err.Error(), "Reviewer is required") {
+		t.Fatal("run without a reviewer", err)
+	}
+	if out = cli("run", "later", "--review-by", "owner"); !strings.Contains(out, `"status": "READY"`) {
 		t.Fatal(out)
 	}
 	if _, err = s.PriceRunCosts(ctx, co, nil); err != nil {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"appfactory/internal/config"
 	"appfactory/internal/protocol"
@@ -53,6 +54,22 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		}
 		err := c.Store.SetCompanyRules(r.Context(), c.companyFrom(r), p.Rules)
 		reply(w, map[string]string{"scope": "company", "rules": p.Rules}, err)
+	})
+	// Session affinity's release timeout (session-affinity): how long a node holding an agent's session may be
+	// inactive before another node takes its runs and starts fresh.
+	m.HandleFunc("GET /settings/company/session_affinity", func(w http.ResponseWriter, r *http.Request) {
+		d, err := c.Store.SessionAffinity(r.Context(), c.companyFrom(r))
+		reply(w, map[string]any{"release_minutes": int64(d / time.Minute)}, err)
+	})
+	m.HandleFunc("PUT /settings/company/session_affinity", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			ReleaseMinutes int64 `json:"release_minutes"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		err := c.Store.SetSessionAffinity(r.Context(), c.companyFrom(r), time.Duration(p.ReleaseMinutes)*time.Minute)
+		reply(w, map[string]any{"release_minutes": p.ReleaseMinutes}, err)
 	})
 	// The company's time zone sets the day of the daily retry budget (reliable-recovery D2).
 	m.HandleFunc("GET /settings/company/time_zone", func(w http.ResponseWriter, r *http.Request) {

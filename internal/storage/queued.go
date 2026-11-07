@@ -24,6 +24,7 @@ const (
 	QueuedPaused         = "paused"          // a company, project, agent or quota key pause
 	QueuedAgentBusy      = "agent_busy"      // the agent's concurrency cap (per agent or per project)
 	QueuedPinned         = "pinned"          // only the node holding the task's unpushed work may take it
+	QueuedAffinity       = "affinity"        // only the node holding the agent's session may take it (session-affinity)
 	QueuedNoSlot         = "no_slot"         // every slot of the node is held
 	QueuedResourceBusy   = "resource_busy"   // a resource class of the node is held
 	QueuedNodePaused     = "node_paused"     // the owner paused the node, or its disk is below critical
@@ -167,6 +168,20 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 			return &QueuedReason{Reason: n.Reason, Detail: "the task's unpushed work is on " + nodeLabel(n.Name, n.Node) + ": " + n.Detail, Until: n.Until, Nodes: nodes}, nil
 		}
 		return &QueuedReason{Reason: QueuedUnclaimed, Detail: nodeLabel(nodes[i].Name, nodes[i].Node) + " has room; waiting for its claim", Nodes: nodes}, nil
+	}
+	// Session affinity: the holder of the session takes it while active; Until is the release when it is not.
+	if a, err := sessionAffinity(ctx, tx, tx.company, id, spec, "", now); err != nil {
+		return nil, err
+	} else if a != nil {
+		label := a.Holder
+		if i := slices.IndexFunc(nodes, func(n QueuedNode) bool { return n.Node == a.Holder }); i >= 0 {
+			label = nodeLabel(nodes[i].Name, nodes[i].Node)
+		}
+		detail := label + " holds this agent's session; it takes the run when it has a free slot"
+		if a.Inactive != "" {
+			detail = label + " holds this agent's session and is " + a.Inactive + "; another node may take it after the release"
+		}
+		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes}, nil
 	}
 	best := -1
 	for i, n := range nodes {
