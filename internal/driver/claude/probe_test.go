@@ -69,3 +69,52 @@ func TestProbeChecksWhatLaunchRuns(t *testing.T) {
 		t.Fatalf("%+v", rs)
 	}
 }
+
+// TestSingleExecutableNeedsNoNode (node-packaging-updates 2.1): with bin/factory-claude in the package the driver
+// runs it directly, Installed needs no Node.js and Probe neither checks nor runs node.
+func TestSingleExecutableNeedsNoNode(t *testing.T) {
+	files := map[string]bool{"/opt/af/bin/factory-claude": true}
+	var ran []string
+	h := node.Host{
+		Getenv:   func(string) string { return "" },
+		LookPath: func(string) (string, error) { return "", errors.New("not on PATH") },
+		Stat: func(p string) (fs.FileInfo, error) {
+			if files[p] {
+				return os.Stat("probe_test.go")
+			}
+			return nil, fs.ErrNotExist
+		},
+		Run: func(_ context.Context, name string, args ...string) (string, string, error) {
+			line := strings.Join(append([]string{name}, args...), " ")
+			ran = append(ran, line)
+			if line == "/opt/af/bin/factory-claude --probe" {
+				return `{"event":"probe","claude_code_version":"` + SupportedClaudeCode + `","sdk_version":"` + SupportedSDK + `","account":{"subscriptionType":"max","apiKeySource":"none"}}` + "\n", "", nil
+			}
+			return "", "", errors.New("unexpected command " + line)
+		},
+	}
+	d := Driver{Host: &h, BinDir: "/opt/af/bin", Node: "/missing/node"}
+	if !d.Installed() {
+		t.Fatal("single executable present, driver not installed")
+	}
+	for _, r := range d.Probe(context.Background()) {
+		if r.Status != node.Pass {
+			t.Errorf("%s = %+v", r.Check, r)
+		}
+		if r.Check == "claude.node" {
+			t.Errorf("Node.js checked for the single executable: %+v", r)
+		}
+	}
+	if len(ran) != 1 {
+		t.Fatalf("ran %q", ran)
+	}
+	if cmd := d.command("--probe"); cmd.Path != "/opt/af/bin/factory-claude" || strings.Join(cmd.Args[1:], " ") != "--probe" {
+		t.Fatalf("%s %q", cmd.Path, cmd.Args)
+	}
+	if got := DefaultShimFor("/opt/af/bin", func(p string) bool { return files[p] }); got != "/opt/af/bin/factory-claude" {
+		t.Fatal(got)
+	}
+	if got := DefaultShimFor("/opt/old/bin", func(string) bool { return false }); !strings.HasSuffix(got, "workers/claude/dist/src/shim.js") {
+		t.Fatal(got)
+	}
+}

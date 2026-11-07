@@ -400,21 +400,30 @@ export interface ProbeIO {
   timeoutMs?: number;
 }
 
-const requireHere = createRequire(import.meta.url);
+// The single-executable build (node-packaging-updates 2.1) has no node_modules: the build embeds the SDK version and
+// the node package ships the Claude Code binary at <package>/runtimes/claude/claude.
+declare const __APPFACTORY_SDK_VERSION__: string | undefined;
+const singleExecutable = typeof __APPFACTORY_SDK_VERSION__ === "string";
+const requireHere = () => createRequire(import.meta.url);
 
 export function sdkVersion(): string {
-  const entry = requireHere.resolve("@anthropic-ai/claude-agent-sdk");
+  if (singleExecutable) return __APPFACTORY_SDK_VERSION__ as string;
+  const entry = requireHere().resolve("@anthropic-ai/claude-agent-sdk");
   return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
 }
 
-// The native Claude Code binary bundled with the SDK, resolved like the SDK does.
+// The native Claude Code binary: next to the single executable's package, else bundled with the SDK, resolved like
+// the SDK does.
 export function bundledExecutable(): string {
+  if (singleExecutable) {
+    return join(dirname(process.execPath), "..", "runtimes", "claude", process.platform === "win32" ? "claude.exe" : "claude");
+  }
   const base = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
   const exe = process.platform === "win32" ? "claude.exe" : "claude";
   const candidates = process.platform === "linux" ? [base, `${base}-musl`] : [base];
   for (const c of candidates) {
     try {
-      return requireHere.resolve(`${c}/${exe}`);
+      return requireHere().resolve(`${c}/${exe}`);
     } catch {
       // try the next libc variant
     }
@@ -476,7 +485,7 @@ export async function probe(io: ProbeIO): Promise<boolean> {
   }
 }
 
-async function main() {
+export async function main() {
   const log = (line: string) => process.stderr.write(line.endsWith("\n") ? line : line + "\n");
   if (process.argv.includes("--probe")) {
     const ok = await probe({ output: process.stdout, env: process.env, executable: process.env["CLAUDE_CODE_EXECUTABLE"] || undefined });
@@ -489,7 +498,7 @@ async function main() {
 }
 
 const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(realpathSync(entry)).href) {
+if (!singleExecutable && entry && import.meta.url === pathToFileURL(realpathSync(entry)).href) {
   main().catch((err) => {
     process.stderr.write(`shim: ${String(err)}\n`);
     process.exit(1);

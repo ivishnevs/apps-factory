@@ -91,6 +91,9 @@ func (d Driver) ResumePolicy(prev driver.Outcome, sameNode bool) bool {
 func (d Driver) command(extra ...string) *exec.Cmd {
 	args := d.Args
 	if args == nil {
+		if d.standalone() {
+			return exec.Command(d.shimPath(), extra...)
+		}
 		args = []string{d.shimPath()}
 	}
 	return exec.Command(d.nodeBinary(), append(append([]string{}, args...), extra...)...)

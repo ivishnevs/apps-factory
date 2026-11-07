@@ -32,21 +32,45 @@ func (d Driver) nodeBinary() string {
 	return d.Node
 }
 
-// shimPath is the shim Launch runs: Shim, else the build next to BinDir (runner.Drivers' default);
-// with neither set it is DefaultShim.
+// SingleExecutable is the shim compiled with its Node.js runtime (node-packaging-updates 2.1), shipped in the node
+// package's bin directory; it runs without Node.js on the machine.
+const SingleExecutable = "factory-claude"
+
+// shimPath is the shim Launch runs: Shim, else the single executable in BinDir, else the build next to BinDir
+// (runner.Drivers' default); with neither set it is DefaultShim.
 func (d Driver) shimPath() string {
 	if d.Shim != "" {
 		return d.Shim
 	}
+	if exe := filepath.Join(d.binDir(), SingleExecutable); d.host().Exists(exe) {
+		return exe
+	}
 	return filepath.Join(d.binDir(), "..", "workers", "claude", "dist", "src", "shim.js")
 }
 
-// Installed reports whether Claude is set up on this node: the Node binary and the built shim, or the
-// workers/claude checkout the shim is built from (Probe then fails with the "make build" hint). A node
+// standalone reports whether the shim is the single executable, which runs without Node.js.
+func (d Driver) standalone() bool {
+	return !strings.HasSuffix(d.shimPath(), ".js")
+}
+
+// DefaultShimFor is the shim a node with bin directory binDir runs: the single executable when the package has one,
+// else the built shim.js next to it.
+func DefaultShimFor(binDir string, exists func(string) bool) string {
+	if exe := filepath.Join(binDir, SingleExecutable); exists(exe) {
+		return exe
+	}
+	return filepath.Join(binDir, "..", "workers", "claude", "dist", "src", "shim.js")
+}
+
+// Installed reports whether Claude is set up on this node: the single executable, or the Node binary and the built
+// shim, or the workers/claude checkout the shim is built from (Probe then fails with the "make build" hint). A node
 // without either (Codex only) skips the Claude checks.
 func (d Driver) Installed() bool {
 	h := d.host()
 	shim := d.shimPath()
+	if d.standalone() {
+		return h.Exists(shim)
+	}
 	source := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(shim))), "package.json")
 	return d.nodeFound(h) && (h.Exists(shim) || h.Exists(source))
 }
@@ -65,9 +89,14 @@ func (d Driver) nodeFound(h node.Host) bool {
 // version pair and its login. The probe asks accountInfo without a prompt, so it never makes a model call.
 func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 	h := d.host()
-	nodeCheck := d.nodeCheck(ctx, h)
-	r := []node.CheckResult{nodeCheck}
 	shim := filepath.Clean(d.shimPath())
+	// The single executable carries its own Node.js: no Node.js check (node-packaging-updates 2.1).
+	nodeCheck := node.CheckResult{Check: "claude.node", Status: node.Pass, Detail: "built into " + SingleExecutable}
+	r := []node.CheckResult{}
+	if !d.standalone() {
+		nodeCheck = d.nodeCheck(ctx, h)
+		r = append(r, nodeCheck)
+	}
 	if !h.Exists(shim) {
 		return append(r, node.CheckResult{Check: "claude.shim", Status: node.Fail, Detail: shim + " missing", Hint: "make build (npm ci + tsc in workers/claude)"})
 	}
@@ -108,6 +137,9 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 // probe runs `node shim.js --probe` on the host, pinning Executable like CheckVersion does.
 func (d Driver) probe(ctx context.Context, h node.Host, shim string) (probeLine, error) {
 	name, args := d.nodeBinary(), []string{shim, "--probe"}
+	if d.standalone() {
+		name, args = shim, []string{"--probe"}
+	}
 	var env []string
 	if d.Executable != "" {
 		env = append(env, "CLAUDE_CODE_EXECUTABLE="+d.Executable)
@@ -116,7 +148,7 @@ func (d Driver) probe(ctx context.Context, h node.Host, shim string) (probeLine,
 		env = append(env, "CLAUDE_CONFIG_DIR="+d.ConfigDir)
 	}
 	if len(env) > 0 {
-		name, args = "env", append(append(env, d.nodeBinary()), args...)
+		name, args = "env", append(append(env, name), args...)
 	}
 	out, errOut, err := h.Run(ctx, name, args...)
 	p, perr := parseProbe(out, err)

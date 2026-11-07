@@ -59,18 +59,11 @@ for t in curl tar git; do
   command -v "$t" >/dev/null 2>&1 || die "$t is required"
 done
 if command -v sha256sum >/dev/null 2>&1; then SUM="sha256sum"; elif command -v shasum >/dev/null 2>&1; then SUM="shasum -a 256"; else die "sha256sum or shasum is required"; fi
-NODE_BIN=""
-CLAUDE=0
-if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-  major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-  if [ "$major" -ge 22 ] 2>/dev/null; then
-    NODE_BIN=$(command -v node); CLAUDE=1; say "  Node.js $(node --version): Claude agents can run"
-  else
-    say "  Node.js $(node --version) is older than 22: Claude agents are off (install Node.js 22+ and run this again)"
-  fi
-else
-  say "  no Node.js: Claude agents are off (install Node.js 22+ and run this again)"
-fi
+# Claude agents need nothing installed: the package carries the shim as one executable and the pinned Claude Code
+# is downloaded below (node-packaging-updates 2.1).
+CLAUDE=1
+if command -v sha512sum >/dev/null 2>&1; then SUM512="sha512sum"; elif command -v shasum >/dev/null 2>&1; then SUM512="shasum -a 512"; else SUM512=""; fi
+[ -n "$SUM512" ] || { CLAUDE=0; say "  no sha512sum or shasum: Claude agents are off"; }
 # Codex: the node supports exactly one version; npm installs it next to the node, else a matching global one.
 CODEX_BIN=""
 if command -v npm >/dev/null 2>&1; then
@@ -93,16 +86,33 @@ want=$(grep " $PKG\$" "$TMP/SHA256SUMS" | cut -d' ' -f1)
 got=$($SUM "$TMP/$PKG" | cut -d' ' -f1)
 [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum of $PKG does not match"
 mkdir -p "$HOME_DIR"
-rm -rf "$HOME_DIR/bin" "$HOME_DIR/workers"
+rm -rf "$HOME_DIR/bin" "$HOME_DIR/workers" "$HOME_DIR/runtimes"
 tar -xzf "$TMP/$PKG" -C "$HOME_DIR"
 say "  installed in $HOME_DIR ($(cat "$HOME_DIR/VERSION" 2>/dev/null || echo unknown))"
 
 if [ "$CLAUDE" = 1 ]; then
-  step "Installing the Claude runtime (pinned Claude Code for $OS-$ARCH)"
-  if (cd "$HOME_DIR/workers/claude" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --no-update-notifier --loglevel=error); then
-    :
+  step "Installing Claude Code (pinned for $OS-$ARCH)"
+  libc=any
+  if [ "$OS" = linux ]; then
+    libc=glibc
+    if ls /lib/ld-musl-* >/dev/null 2>&1; then libc=musl; fi
+  fi
+  lock=$(grep "^$libc " "$HOME_DIR/runtimes/claude.lock" 2>/dev/null || true)
+  url=$(echo "$lock" | cut -d' ' -f2); want=$(echo "$lock" | cut -d' ' -f3)
+  if [ -z "$url" ] || ! curl -fsSL "$url" -o "$TMP/claude.tgz"; then
+    say "  could not download Claude Code: Claude agents are off"; CLAUDE=0
+  elif [ "$($SUM512 "$TMP/claude.tgz" | cut -d' ' -f1)" != "$want" ]; then
+    say "  Claude Code download does not match its checksum: Claude agents are off"; CLAUDE=0
   else
-    say "  npm ci failed: Claude agents are off"; CLAUDE=0
+    mkdir -p "$TMP/claude" "$HOME_DIR/runtimes/claude"
+    tar -xzf "$TMP/claude.tgz" -C "$TMP/claude"
+    mv -f "$TMP/claude/package/claude" "$HOME_DIR/runtimes/claude/claude"
+    chmod 755 "$HOME_DIR/runtimes/claude/claude"
+    if [ "$OS" = darwin ]; then
+      # The shim's executable is rebuilt with its script inside; sign it for this Mac (ad hoc).
+      codesign --sign - --force "$HOME_DIR/bin/factory-claude" >/dev/null 2>&1 || say "  warning: could not sign factory-claude"
+    fi
+    say "  Claude Code $("$HOME_DIR/runtimes/claude/claude" --version 2>/dev/null | head -1)"
   fi
 fi
 
@@ -127,7 +137,7 @@ if [ ! -f "$CONFIG" ]; then
     echo "projects_root: \"$HOME/AppFactory/projects\""
     echo "drivers:"
     if [ -n "$CODEX_BIN" ]; then echo "  codex: {enabled: true, binary: \"$CODEX_BIN\"}"; else echo "  codex: {enabled: false}"; fi
-    if [ "$CLAUDE" = 1 ]; then echo "  claude: {enabled: true, node: \"$NODE_BIN\"}"; else echo "  claude: {enabled: false}"; fi
+    if [ "$CLAUDE" = 1 ]; then echo "  claude: {enabled: true}"; else echo "  claude: {enabled: false}"; fi
     echo "# Each task in its own git worktree, so a team's agents work in one project at once."
     echo "worktrees: {enabled: true}"
     echo "# Codex agents write only in their task's worktree (connector-trust); full lets them act as you everywhere."

@@ -357,7 +357,7 @@ func doctor(args []string) (int, error) {
 	cc := c.Drivers.Claude
 	shim := cc.Shim
 	if shim == "" && c.BinDir != "" {
-		shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
+		shim = claude.DefaultShimFor(c.BinDir, func(p string) bool { _, err := os.Stat(p); return err == nil })
 	}
 	accounts := node.AccountsDir(c.StateDir)
 	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: accounts}},

@@ -16,11 +16,16 @@ display: open it anywhere you are signed in), `--no-service` (do not install lau
 
 What it does:
 
-1. Checks the platform (macOS or Linux, arm64 or amd64), `curl`, `tar`, `git`; Node.js 22+ with `npm` for Claude
-   agents; without `npm`, a global `codex-cli` of the supported version for Codex agents.
+1. Checks the platform (macOS or Linux, arm64 or amd64), `curl`, `tar`, `git`; `npm` for Codex agents (without
+   `npm`, a global `codex-cli` of the supported version). Claude agents need nothing installed.
 2. Downloads `factory-node-<os>-<arch>.tar.gz` and checks it against `SHA256SUMS`, unpacks `bin/` (`factory-node`,
-   `factory-shim`, `factory-mcp`) and `workers/claude/` into `~/.app-factory`.
-3. `npm ci` in `workers/claude`: the lockfile pins the Claude Agent SDK and the Claude Code build of the platform.
+   `factory-shim`, `factory-mcp`, `factory-claude`) and `runtimes/claude.lock` into `~/.app-factory`.
+   `factory-claude` is the Claude shim built as one executable with its Node.js runtime (Node single executable
+   application on the official Node.js 22 build of the platform, node-packaging-updates): no Node.js on the machine.
+3. Downloads the pinned Claude Code build of the platform (the Claude Agent SDK's own platform package, URL and
+   sha512 in `runtimes/claude.lock`; glibc or musl on Linux), checks its sha512 and puts the binary at
+   `~/.app-factory/runtimes/claude/claude`, where `factory-claude` finds it. On macOS it signs `factory-claude` for
+   the machine (`codesign --sign -`), because injecting the shim invalidates the Node.js signature.
    `npm install @openai/codex@<supported>` into `~/.app-factory/codex`.
 4. Writes `~/.app-factory/node.yaml` once (name, `state_dir` `~/.app-factory/state`, `bin_dir`, `projects_root`
    `~/AppFactory/projects`, the drivers it could set up, `worktrees: {enabled: true}` so each task runs in its own
@@ -65,7 +70,7 @@ Core serves `GET /install.sh` and `GET /downloads/node/<file>` without a credent
 
 ## Not yet
 
-A desktop app, Homebrew, signed and notarized binaries, self-update, Windows, a node without Node.js for Claude.
+A desktop app, Homebrew, signed and notarized binaries, self-update, Windows, Codex without npm.
 
 ## The node's own runtime logins (node-runtime-accounts)
 

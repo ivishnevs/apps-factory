@@ -40,7 +40,7 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 	if cc := c.Drivers.Claude; cc.On() && allowed("claude") {
 		shim := cc.Shim
 		if shim == "" && c.BinDir != "" {
-			shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
+			shim = claude.DefaultShimFor(c.BinDir, func(p string) bool { _, err := os.Stat(p); return err == nil })
 		}
 		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, StateDir: c.StateDir, FullAccess: c.Policy.FullAccess})
 	}
