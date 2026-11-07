@@ -19,12 +19,12 @@ What it does:
 1. Checks the platform (macOS or Linux, arm64 or amd64), `curl`, `tar`, `git`; `npm` for Codex agents (without
    `npm`, a global `codex-cli` of the supported version). Claude agents need nothing installed.
 2. Downloads `factory-node-<os>-<arch>.tar.gz` and checks it against `SHA256SUMS`, unpacks `bin/` (`factory-node`,
-   `factory-shim`, `factory-mcp`, `factory-claude`) and `runtimes/claude.lock` into `~/.app-factory`.
+   `factory-shim`, `factory-mcp`, `factory-claude`) and `claude-code/claude.lock` into `~/.app-factory`.
    `factory-claude` is the Claude shim built as one executable with its Node.js runtime (Node single executable
    application on the official Node.js 22 build of the platform, node-packaging-updates): no Node.js on the machine.
 3. Downloads the pinned Claude Code build of the platform (the Claude Agent SDK's own platform package, URL and
-   sha512 in `runtimes/claude.lock`; glibc or musl on Linux), checks its sha512 and puts the binary at
-   `~/.app-factory/runtimes/claude/claude`, where `factory-claude` finds it. On macOS it signs `factory-claude` for
+   sha512 in `claude-code/claude.lock`; glibc or musl on Linux), checks its sha512 and puts the binary at
+   `~/.app-factory/claude-code/claude` (not `runtimes/`, which holds the node's own logins), where `factory-claude` finds it. On macOS it signs `factory-claude` for
    the machine (`codesign --sign -`), because injecting the shim invalidates the Node.js signature.
    `npm install @openai/codex@<supported>` into `~/.app-factory/codex`.
 4. Writes `~/.app-factory/node.yaml` once (name, `state_dir` `~/.app-factory/state`, `bin_dir`, `projects_root`

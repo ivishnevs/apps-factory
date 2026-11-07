@@ -101,6 +101,10 @@ func claudeBinary(c node.Config) string {
 			binDir = filepath.Dir(exe)
 		}
 	}
+	// The package's Claude Code (node-packaging-updates), else the one of a node built from the repository.
+	if exe := filepath.Join(binDir, "..", "claude-code", "claude"); fileExists(exe) {
+		return exe
+	}
 	matches, _ := filepath.Glob(filepath.Join(binDir, "..", "workers", "claude", "node_modules", "@anthropic-ai", "claude-agent-sdk-*", "claude"))
 	if len(matches) > 0 {
 		return matches[0]
@@ -169,4 +173,9 @@ func accounts(args []string) (int, error) {
 		}
 	}
 	return 0, nil
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

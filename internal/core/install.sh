@@ -86,7 +86,8 @@ want=$(grep " $PKG\$" "$TMP/SHA256SUMS" | cut -d' ' -f1)
 got=$($SUM "$TMP/$PKG" | cut -d' ' -f1)
 [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum of $PKG does not match"
 mkdir -p "$HOME_DIR"
-rm -rf "$HOME_DIR/bin" "$HOME_DIR/workers" "$HOME_DIR/runtimes"
+# runtimes/ holds the node's own runtime logins (node-runtime-accounts): never removed here.
+rm -rf "$HOME_DIR/bin" "$HOME_DIR/workers" "$HOME_DIR/claude-code"
 tar -xzf "$TMP/$PKG" -C "$HOME_DIR"
 say "  installed in $HOME_DIR ($(cat "$HOME_DIR/VERSION" 2>/dev/null || echo unknown))"
 
@@ -97,22 +98,22 @@ if [ "$CLAUDE" = 1 ]; then
     libc=glibc
     if ls /lib/ld-musl-* >/dev/null 2>&1; then libc=musl; fi
   fi
-  lock=$(grep "^$libc " "$HOME_DIR/runtimes/claude.lock" 2>/dev/null || true)
+  lock=$(grep "^$libc " "$HOME_DIR/claude-code/claude.lock" 2>/dev/null || true)
   url=$(echo "$lock" | cut -d' ' -f2); want=$(echo "$lock" | cut -d' ' -f3)
   if [ -z "$url" ] || ! curl -fsSL "$url" -o "$TMP/claude.tgz"; then
     say "  could not download Claude Code: Claude agents are off"; CLAUDE=0
   elif [ "$($SUM512 "$TMP/claude.tgz" | cut -d' ' -f1)" != "$want" ]; then
     say "  Claude Code download does not match its checksum: Claude agents are off"; CLAUDE=0
   else
-    mkdir -p "$TMP/claude" "$HOME_DIR/runtimes/claude"
+    mkdir -p "$TMP/claude"
     tar -xzf "$TMP/claude.tgz" -C "$TMP/claude"
-    mv -f "$TMP/claude/package/claude" "$HOME_DIR/runtimes/claude/claude"
-    chmod 755 "$HOME_DIR/runtimes/claude/claude"
+    mv -f "$TMP/claude/package/claude" "$HOME_DIR/claude-code/claude"
+    chmod 755 "$HOME_DIR/claude-code/claude"
     if [ "$OS" = darwin ]; then
       # The shim's executable is rebuilt with its script inside; sign it for this Mac (ad hoc).
       codesign --sign - --force "$HOME_DIR/bin/factory-claude" >/dev/null 2>&1 || say "  warning: could not sign factory-claude"
     fi
-    say "  Claude Code $("$HOME_DIR/runtimes/claude/claude" --version 2>/dev/null | head -1)"
+    say "  Claude Code $("$HOME_DIR/claude-code/claude" --version 2>/dev/null | head -1)"
   fi
 fi
 

@@ -9,7 +9,7 @@
 ## 2. Implementation (after 1)
 
 - [x] 2.1 Node package without a Node.js requirement; doctor no longer checks Node.js. Claude Code is downloaded by
-      install.sh from the SDK's npm platform package pinned in `runtimes/claude.lock` (sha512); macOS signs
+      install.sh from the SDK's npm platform package pinned in `claude-code/claude.lock` (sha512); macOS signs
       `factory-claude` ad hoc on install.
 - [ ] 2.2 Self-update with drain, verification, rollback; per-company automatic or with approval; channels.
 - [ ] 2.3 Core: supported node version range; nodes below it get no work; web shows versions and "update".

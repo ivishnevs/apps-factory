@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the node packages handed out by Core (node-install D1):
-#   factory-node-<os>-<arch>.tar.gz with bin/{factory-node,factory-shim,factory-mcp,factory-claude}, runtimes/claude.lock
+#   factory-node-<os>-<arch>.tar.gz with bin/{factory-node,factory-shim,factory-mcp,factory-claude}, claude-code/claude.lock
 #   (the pinned Claude Code binary install.sh downloads and verifies) and VERSION, for darwin/linux x arm64/amd64, plus
 #   SHA256SUMS. factory-claude is the Claude shim as one executable (node-packaging-updates 2.1): no Node.js on nodes.
 # Usage: scripts/package-node.sh OUT_DIR [VERSION]
@@ -44,22 +44,22 @@ claude_lock() {
 for p in $PLATFORMS; do
   os=${p%/*}; arch=${p#*/}
   stage="$WORK/stage-$os-$arch"
-  mkdir -p "$stage/bin" "$stage/runtimes"
+  mkdir -p "$stage/bin" "$stage/claude-code"
   for cmd in factory-node factory-shim factory-mcp; do
     (cd "$ROOT" && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$stage/bin/$cmd" "./cmd/$cmd")
   done
   cp "$WORK/sea/$os-$arch/factory-claude" "$stage/bin/factory-claude"
-  claude_lock "$os" "$arch" > "$stage/runtimes/claude.lock"
+  claude_lock "$os" "$arch" > "$stage/claude-code/claude.lock"
   echo "$VERSION" > "$stage/VERSION"
   # SBOM (connector-trust 2.2): the Go modules of each binary and the shim's npm lockfile pins, in one JSON file.
   {
     printf '{"version":"%s","platform":"%s/%s","go_modules":' "$VERSION" "$os" "$arch"
     (cd "$ROOT" && go version -m "$stage/bin/factory-node" | awk '$1=="dep"||$1=="mod"{printf "%s{\"path\":\"%s\",\"version\":\"%s\"}", (n++?",":"["), $2, $3} END{if(!n)printf "["; printf "]"}')
     # factory-claude: the Node.js runtime it is built on and the npm packages bundled into it.
-    printf ',"node_runtime":"%s","npm_packages":%s,"claude_code":"runtimes/claude.lock"}\n' "${NODE_SEA_VERSION:-22.18.0}" \
+    printf ',"node_runtime":"%s","npm_packages":%s,"claude_code":"claude-code/claude.lock"}\n' "${NODE_SEA_VERSION:-22.18.0}" \
       "$(node -e 'const p=require(process.argv[1]).packages;console.log(JSON.stringify(Object.entries(p).filter(([k,v])=>k&&!v.dev&&!/claude-agent-sdk-/.test(k)).map(([k,v])=>({name:k.replace(/^.*node_modules\//,""),version:v.version}))))' "$SHIM/package-lock.json")"
   } > "$stage/SBOM.json"
-  tar -czf "$OUT/factory-node-$os-$arch.tar.gz" -C "$stage" VERSION SBOM.json bin runtimes
+  tar -czf "$OUT/factory-node-$os-$arch.tar.gz" -C "$stage" VERSION SBOM.json bin claude-code
 done
 
 cd "$OUT"

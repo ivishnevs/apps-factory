@@ -401,7 +401,7 @@ export interface ProbeIO {
 }
 
 // The single-executable build (node-packaging-updates 2.1) has no node_modules: the build embeds the SDK version and
-// the node package ships the Claude Code binary at <package>/runtimes/claude/claude.
+// install.sh puts the Claude Code binary at <package>/claude-code/claude.
 declare const __APPFACTORY_SDK_VERSION__: string | undefined;
 const singleExecutable = typeof __APPFACTORY_SDK_VERSION__ === "string";
 const requireHere = () => createRequire(import.meta.url);
@@ -416,7 +416,7 @@ export function sdkVersion(): string {
 // the SDK does.
 export function bundledExecutable(): string {
   if (singleExecutable) {
-    return join(dirname(process.execPath), "..", "runtimes", "claude", process.platform === "win32" ? "claude.exe" : "claude");
+    return join(dirname(process.execPath), "..", "claude-code", process.platform === "win32" ? "claude.exe" : "claude");
   }
   const base = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
   const exe = process.platform === "win32" ? "claude.exe" : "claude";
