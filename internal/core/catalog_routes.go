@@ -204,6 +204,15 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 		}
 		write(w, map[string]any{"version": cat.Version, "path": p, "size": len(content), "content": content})
 	})
+	// structured-catalog step 1: the catalog as entities (import from the current version; read).
+	m.HandleFunc("GET /catalog/entities", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.CatalogEntities(r.Context(), c.companyFrom(r))
+		reply(w, v, err)
+	})
+	m.HandleFunc("POST /catalog/entities/import", func(w http.ResponseWriter, r *http.Request) {
+		n, err := c.Store.ImportCatalogEntities(r.Context(), c.companyFrom(r), 0, author(r))
+		reply(w, map[string]int{"entities": n}, err)
+	})
 	m.HandleFunc("POST /catalog", func(w http.ResponseWriter, r *http.Request) {
 		var ch CatalogChange
 		if !decodeMax(w, r, &ch, 64<<20) {
