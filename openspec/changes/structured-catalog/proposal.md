@@ -110,3 +110,5 @@ implementation: entity edits are saved as catalog versions too (documents mirror
 history, rollback, the YAML editor and `factory_catalog_change` keep working unchanged; the web agent and team
 editors keep their routes (they write through the same sync), and the team page gets Rename, the History tab the
 changes with Undo and the YAML file download and load.
+
+Migration (2026-11-07): the owner's company ilya-75ba24 is switched to entities (23 entities; the check found every agent resolving the same). The other companies belong to other accounts and switch when their owners (or the operator, with the owner's go) run POST /catalog/entities/switch.
