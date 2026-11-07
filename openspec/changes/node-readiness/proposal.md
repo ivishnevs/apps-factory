@@ -11,6 +11,7 @@ them as "Escalated to you", although nothing was wrong with the tasks:
 |---|---|
 | bb04523f, 35a0a25e, 118cccd0: `retries_exhausted`, "last run setup_failed: git clone … Repository not found" (9 runs) | The new nodes had no GitHub access (no `gh auth` on Linux; the second Mac's account had no access to the private repo). Core kept offering the project's runs to them. |
 | 727a3193: two runs `failed` on Linux, "Native CLI binary for linux-x64 not found" | The packaged node's Claude runs did not get the Claude Code binary next to the package; the probe did, so the node showed Claude "enabled". |
+| 35a0a25e: two review runs `failed`, "--dangerously-skip-permissions cannot be used with root/sudo privileges" | The node was installed as root; Claude Code refuses to run agents as root. install.sh supports `--os-user`, but nothing warns or refuses. |
 | Linux node would stop when the owner logs out | install.sh enabled a user unit for root without `loginctl enable-linger`. |
 | `git.user` failed on the Linux node (and on the owner's Mac service) | No git identity for the node's user; commits need one. |
 | Agents could not run `godot` or `openspec` on Linux | Nothing tells Core which tools a project needs; the node took the work anyway. |
@@ -35,7 +36,9 @@ Two defects in how Core treats this:
   each a command and a version check). Nodes probe them per project with `forge.repo` (clone access) and report them;
   Core offers a project's runs only to nodes that meet them. The Nodes page shows per project "ready" or what is
   missing.
-- **Installer on Linux.** For a user unit, install.sh enables linger (or tells how); it checks the git identity and
+- **Installer on Linux.** Run as root without `--os-user`, install.sh stops and offers `--os-user factory` (Claude
+  Code does not run agents as root; agents should not have root on the host anyway); the doctor fails the Claude
+  driver on a root node with that hint. For a user unit, install.sh enables linger (or tells how); it checks the git identity and
   asks for it; it reports the Node.js version when a project requirement needs a newer one.
 - **Escalations name the node.** When a node fault does reach the owner (every node failed), the question names the
   node and the fix, and `retry` is offered only after a node passed its check again.

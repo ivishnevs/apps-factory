@@ -12,7 +12,8 @@
 
 ## 3. Installer
 
-- [ ] 3.1 install.sh on Linux: enable linger for user units; git identity check and prompt; Node.js version hint.
+- [ ] 3.1 install.sh on Linux: refuse root without `--os-user` (offer `--os-user factory`), doctor fails Claude on
+      a root node; enable linger for user units; git identity check and prompt; Node.js version hint.
 
 ## 4. Verify
 
