@@ -15,8 +15,14 @@
 - [ ] 3.1 install.sh on Linux: refuse root without `--os-user` (offer `--os-user factory`), doctor fails Claude on
       a root node; enable linger for user units; git identity check and prompt; Node.js version hint.
 
-## 4. Verify
+## 4. Pause and session leases
 
-- [ ] 4.1 Sandbox: a node without repository access gets a readiness fault and no runs, the task runs on another node
+- [ ] 4.1 Pause shows held session leases and waiting runs, asks "release now" or "keep until timeout"; queued
+      `affinity` runs behind a paused node show "waits for <node> until HH:MM" with "Release now"; one notice per
+      pause; tests.
+
+## 5. Verify
+
+- [ ] 5.1 Sandbox: a node without repository access gets a readiness fault and no runs, the task runs on another node
       with its retries untouched; with only that node, the task waits `no_ready_node` and does not escalate before
       the fault is fixed.

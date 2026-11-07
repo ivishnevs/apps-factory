@@ -40,6 +40,14 @@ Two defects in how Core treats this:
   Code does not run agents as root; agents should not have root on the host anyway); the doctor fails the Claude
   driver on a root node with that hint. For a user unit, install.sh enables linger (or tells how); it checks the git identity and
   asks for it; it reports the Node.js version when a project requirement needs a newer one.
+- **Pausing a node that holds sessions asks what to do with them.** Pausing a node shows the session leases it holds
+  (session-affinity) and the runs waiting for them, and asks: release them now (the runs go to another node and start
+  a fresh session from Core's context), or keep them until the release timeout (default 90 min, for a short pause).
+  A run queued with reason `affinity` behind a paused node shows on the task and the board as "waits for <node>
+  (paused) until HH:MM" with a "Release now" action, and the owner gets one notice per pause naming those tasks. Seen
+  2026-11-07: pausing MacBook-Air-Juliya held network-dev's run of 727a3193 for 90 minutes while the owner's Mac had
+  free slots, and network-dev's whole queue (the playtest server deploy) waited behind it; the board showed the task
+  under To do although it had a queued run.
 - **Escalations name the node.** When a node fault does reach the owner (every node failed), the question names the
   node and the fix, and `retry` is offered only after a node passed its check again.
 
