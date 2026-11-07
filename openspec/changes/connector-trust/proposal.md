@@ -97,15 +97,20 @@ connect wording, landing Security page), docs (`docs/security.md`), release tool
 Also raised: a node without runtime dependencies (no Node.js to install) and updates that reach every node — see
 `node-packaging-updates`.
 
-## Implementation (2026-11-07, partial)
+## Implementation (2026-11-07)
 
-- Done: `sandbox: worktree` for Codex (workspace-write, writes in the worktree and its repository's `.git`, network
-  on), written by the installer for new nodes; `factory-node pause/resume` (local, immediate, Core cannot lift it);
-  local activity log and `factory-node activity`; `factory-node uninstall`; `docs/security.md`.
-- Decided during implementation: existing nodes keep full access until their owner sets `sandbox: worktree` (switching
-  a running team silently could break tools it relies on outside the worktree, such as Godot imports); new nodes get
-  the worktree sandbox.
-- Not done: Claude's worktree confinement and an unreadable home directory (1.1 for Claude), the node.yaml policy of
-  allowed projects/runtimes with refusals reported to Core (1.2), the Linux OS user (1.4), the isolated mode (1.5),
-  `doctor --security` and the web security panel (rest of 2.1), signing and SBOM (2.2: needs the Apple developer
-  account), publishing the source (2.3), the landing Security page and pentest (3.1 web part, 3.2).
+- 1.1 `sandbox: worktree`: Codex in workspace-write (writes in the worktree and its `.git`, network on); Claude with
+  Claude Code's Bash sandbox (writes in the worktree, its `.git`, temp) and deny rules for `~/.ssh`, `~/.aws`,
+  `~/.gnupg`, `~/.config/gcloud`, `~/.kube` and the node's key files. Codex cannot be denied reads (runtime limit).
+- 1.2 node.yaml `policy`: `projects`, `runtimes` (other drivers do not start, so no work is offered), `full_access`;
+  a refused run ends `setup_failed` with "refused by this node's local policy" (on the run page) and in the activity
+  log. `network` is accepted and reserved.
+- 1.3 `factory-node pause/resume` (local, Core cannot lift it) and `uninstall`. 1.4 `install.sh --os-user NAME` on
+  Linux. 2.1 local activity log, `factory-node doctor -security`, the node's security summary in its heartbeat and
+  "Security on this machine" on the Nodes page. 2.2 `SBOM.json` per package. 3.1 `docs/security.md`, the public
+  `/security` page linked from the landing and the install steps.
+- Decided during implementation: existing nodes keep `sandbox: full` until their owner switches (a silent switch
+  could break tools a running team uses outside the worktree); new installs get `worktree`.
+- Waiting for the owner: 1.5 isolated mode (decided "later"), signing and notarization (Apple developer account),
+  publishing the source (a public action: the owner's go), the security contact address (3.1), the penetration test
+  budget (3.2).

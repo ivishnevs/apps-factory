@@ -115,7 +115,7 @@ func webPage(r *http.Request) bool {
 		return false
 	}
 	p := r.URL.Path
-	if p == "/" || p == "/favicon.ico" || p == "/signin" || p == "/welcome" {
+	if p == "/" || p == "/favicon.ico" || p == "/signin" || p == "/welcome" || p == "/security" {
 		return true
 	}
 	for _, prefix := range []string{"/c/", "/_next/", "/connect/", "/invite/", "/signin/"} {

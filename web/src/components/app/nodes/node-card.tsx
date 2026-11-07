@@ -136,6 +136,8 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
           </p>
         ))}
 
+        <NodeSecurity sec={(n.health as { security?: SecurityInfo } | undefined)?.security} />
+
         {(n.labels ?? []).length > 0 && (
           <div className="flex flex-wrap gap-1.5">{(n.labels ?? []).map((l) => <span key={l} className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{l}</span>)}</div>
         )}
@@ -154,5 +156,30 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         {onRevoke && <Button variant="ghost" className="h-10 text-red-600 hover:text-red-700 dark:text-red-400" onClick={onRevoke} disabled={busy}>Revoke</Button>}
       </footer>
     </article>
+  );
+}
+
+// NodeSecurity (connector-trust 2.1): what agents may touch on this machine, as its person set it in node.yaml.
+interface SecurityInfo { sandbox: string; locally_paused?: boolean; projects?: string[]; runtimes?: string[]; full_access?: string[]; own_claude_login: boolean; own_codex_login: boolean; keys_private: boolean }
+function NodeSecurity({ sec }: { sec?: SecurityInfo }) {
+  if (!sec) return null;
+  const rows: [string, string, boolean][] = [
+    ["Agents", sec.sandbox === "worktree" ? "write only in their task's worktree" : "act as the machine's user everywhere", sec.sandbox === "worktree"],
+    ["Projects", sec.projects?.length ? sec.projects.join(", ") : "all of the company", !!sec.projects?.length],
+    ["Logins", `Claude ${sec.own_claude_login ? "own" : "shared with the user"}, Codex ${sec.own_codex_login ? "own" : "shared with the user"}`, sec.own_claude_login && sec.own_codex_login],
+    ["Node keys", sec.keys_private ? "private" : "readable by others", sec.keys_private],
+  ];
+  if (sec.full_access?.length) rows.push(["Full access", sec.full_access.join(", "), false]);
+  if (sec.locally_paused) rows.push(["Local pause", "paused on the machine", false]);
+  return (
+    <details className="rounded-lg border px-3 py-2 text-xs">
+      <summary className="cursor-pointer font-medium">Security on this machine</summary>
+      <dl className="mt-2 space-y-1">
+        {rows.map(([k, v, ok]) => (
+          <div key={k} className="flex gap-2"><dt className="w-20 shrink-0 text-muted-foreground">{k}</dt><dd className={ok ? "" : "text-amber-700 dark:text-amber-300"}>{v}</dd></div>
+        ))}
+      </dl>
+      <p className="mt-2 text-muted-foreground">Set on the machine in node.yaml; check with factory-node doctor -security.</p>
+    </details>
   );
 }

@@ -64,7 +64,7 @@ export default function Landing() {
           ))}
         </section>
       </main>
-      <footer className="border-t py-6 text-center text-xs text-muted-foreground">App Factory</footer>
+      <footer className="border-t py-6 text-center text-xs text-muted-foreground">App Factory · <a href="/security" className="underline-offset-4 hover:underline">Security</a></footer>
     </div>
   );
 }

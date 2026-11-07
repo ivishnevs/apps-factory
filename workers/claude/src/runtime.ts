@@ -54,6 +54,9 @@ export interface RuntimeInput {
   // from env. disallowedTools adds their denied tools (mcp__<server>__<tool>).
   mcpServers?: Record<string, ExternalMcpServer>;
   disallowedTools?: string[];
+  // Worktree confinement (connector-trust): Claude Code's sandbox for Bash (writes only in allow_write) and deny
+  // rules so no tool reads deny_read.
+  sandbox?: { allow_write: string[]; deny_read: string[] };
   // Aborted by execution timeout, owner cancellation or lost lease.
   signal: AbortSignal;
   emit: Emit;
@@ -210,6 +213,17 @@ export function runtimeOptions(input: RuntimeInput, sessionId: string, abortCont
     ...(input.executable ? { pathToClaudeCodeExecutable: input.executable } : {}),
     ...(input.log ? { stderr: input.log } : {}),
     ...(input.exitGuard || input.commandGuard ? { hooks: runtimeHooks(input) } : {}),
+    ...(input.sandbox ? sandboxOptions(input.sandbox) : {}),
+  };
+}
+
+// sandboxOptions confines a run to its worktree: Bash runs in Claude Code's sandbox with writes only in allow_write,
+// and permission deny rules keep every tool from reading deny_read (they apply in bypassPermissions mode too).
+export function sandboxOptions(sb: { allow_write: string[]; deny_read: string[] }): Pick<Options, "sandbox" | "settings"> {
+  const deny = sb.deny_read.flatMap((p) => [`Read(${p}/**)`, `Read(${p})`, `Edit(${p}/**)`]);
+  return {
+    sandbox: { enabled: true, autoAllowBashIfSandboxed: true, filesystem: { allowWrite: sb.allow_write, denyRead: sb.deny_read } } as Options["sandbox"],
+    settings: { permissions: { deny } } as Options["settings"],
   };
 }
 

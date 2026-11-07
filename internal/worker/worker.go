@@ -177,7 +177,9 @@ type HTTPError struct {
 func (e *HTTPError) Error() string { return fmt.Sprintf("Core HTTP %d: %s", e.Status, e.Message) }
 
 type Worker struct {
-	Allocator workspace.Allocator
+	// LocalPolicy refuses a run this node's person does not allow (connector-trust, node.yaml policy); "" runs it.
+	LocalPolicy func(protocol.RunSpec) string
+	Allocator   workspace.Allocator
 	// Company is the company of the node this executor belongs to; empty means storage.DefaultCompany.
 	Company string
 	API     API
@@ -448,6 +450,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		return setupFailed(fmt.Errorf("invalid RunSpec"))
 	}
 	w.Inventory.Set(spec.ID, node.RunStarting)
+	if w.LocalPolicy != nil {
+		// connector-trust: the machine's person decides what runs here; a refused run ends before anything starts.
+		if why := w.LocalPolicy(spec); why != "" {
+			node.LogActivity(w.StateDir, node.Activity{Event: "run.refused_by_policy", Run: spec.ID, Agent: spec.Agent, Project: spec.Project, Outcome: why})
+			return emit("failed", protocol.Event{Status: ended, Result: "refused by this node's local policy (node.yaml): " + why, Outcome: outcomeSetupFailed})
+		}
+	}
 	if spec.ProjectSetup != nil && !spec.Conversation {
 		// The project's repository is set up first (project-creation D2); the run continues in it.
 		a, err := w.setupProject(ctx, spec, lease)

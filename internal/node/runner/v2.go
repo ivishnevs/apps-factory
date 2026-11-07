@@ -94,6 +94,8 @@ type Health struct {
 	Checks []node.CheckResult `json:"checks"`
 	// StalledSeconds: no heartbeat succeeded for that long (more than StallReport); sent until one is delivered.
 	StalledSeconds int64 `json:"stalled_seconds,omitempty"`
+	// Security is what the machine's person set for agents here (connector-trust), shown on the Nodes page.
+	Security *node.Security `json:"security,omitempty"`
 }
 
 // StallReport is how long heartbeats must fail before the node reports node.heartbeat_stalled (node-agent D7).
@@ -295,6 +297,8 @@ func (s *session) hooksHash() string {
 func (s *session) health() Health {
 	// Driver probes are not health checks: a failing driver reaches Core in drivers (driver_unsupported).
 	h := Health{CPUs: runtime.NumCPU(), BusySlots: s.busy(), Checks: []node.CheckResult{}}
+	sec := node.SecurityOf(s.cfg)
+	h.Security = &sec
 	if s.checks != nil {
 		h.Checks = append(h.Checks, s.checks()...)
 	}

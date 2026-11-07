@@ -50,6 +50,8 @@ type Config struct {
 	// Sandbox is what agent runtimes may touch (connector-trust): "full" (as the user, the default of nodes installed
 	// before it) or "worktree" (Codex writes only in its worktree; written by the installer for new nodes).
 	Sandbox string `yaml:"sandbox"`
+	// Policy is what this machine's person allows here (connector-trust): projects, runtimes, full-access projects.
+	Policy Policy `yaml:"policy"`
 	// ProjectsRoot is where the node creates the repositories of new projects and clones existing ones given
 	// by URL (project-creation D3); empty is <state_dir>/projects. A leading ~/ is the user's home.
 	ProjectsRoot string `yaml:"projects_root"`

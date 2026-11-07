@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,8 @@ type Driver struct {
 	// Sandbox "worktree" runs Codex in workspace-write: it writes only in the run's working directory (and its git
 	// repository), with network on; "" or "full" is danger-full-access as before (connector-trust).
 	Sandbox string
+	// FullAccess are projects whose runs are not confined (node.yaml policy.full_access).
+	FullAccess []string
 }
 
 // withHome is env with the node's CODEX_HOME, when it has one.
@@ -108,7 +111,11 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		stopRuntime()
 		return nil, err
 	}
-	s := &session{sandbox: d.Sandbox, client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, d.withHome(l.Env)), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	sandbox := d.Sandbox
+	if slices.Contains(d.FullAccess, l.Spec.Project) {
+		sandbox = "full"
+	}
+	s := &session{sandbox: sandbox, client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, d.withHome(l.Env)), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	if err = s.open(ctx, l); err != nil {
 		s.Close()
 		return nil, err

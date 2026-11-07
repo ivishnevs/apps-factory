@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"time"
 
 	"appfactory/internal/driver"
@@ -25,7 +26,8 @@ import (
 // Drivers builds the enabled drivers of c. getenv supplies CODEX_BIN.
 func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 	var r []driver.Driver
-	if c.Drivers.Codex.On() {
+	allowed := func(rt string) bool { return len(c.Policy.Runtimes) == 0 || slices.Contains(c.Policy.Runtimes, rt) } // connector-trust: policy.runtimes
+	if c.Drivers.Codex.On() && allowed("codex") {
 		bin := c.Drivers.Codex.Binary
 		if bin == "" {
 			bin = getenv("CODEX_BIN")
@@ -33,14 +35,14 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 		if bin == "" {
 			bin = "codex"
 		}
-		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox})
+		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, FullAccess: c.Policy.FullAccess})
 	}
-	if cc := c.Drivers.Claude; cc.On() {
+	if cc := c.Drivers.Claude; cc.On() && allowed("claude") {
 		shim := cc.Shim
 		if shim == "" && c.BinDir != "" {
 			shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
 		}
-		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: node.AccountsDir(c.StateDir)})
+		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, StateDir: c.StateDir, FullAccess: c.Policy.FullAccess})
 	}
 	return r
 }
@@ -220,6 +222,8 @@ func Run(ctx context.Context, n Node) error {
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
 		w.RuntimeActivity = func() { n.health.activity(string(d.Name())) }
+		policy := c.Policy
+		w.LocalPolicy = func(spec protocol.RunSpec) string { return policy.Refuse(spec.Project, string(spec.Provider)) }
 		if s != nil {
 			w.NodeID, w.Inventory = s.inv.NodeID, s.inv
 		}

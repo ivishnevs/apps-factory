@@ -36,7 +36,13 @@ for p in $PLATFORMS; do
   cp "$SHIM/package.json" "$SHIM/package-lock.json" "$stage/workers/claude/"
   cp "$SHIM"/dist/src/*.js "$stage/workers/claude/dist/src/"
   echo "$VERSION" > "$stage/VERSION"
-  tar -czf "$OUT/factory-node-$os-$arch.tar.gz" -C "$stage" VERSION bin workers
+  # SBOM (connector-trust 2.2): the Go modules of each binary and the shim's npm lockfile pins, in one JSON file.
+  {
+    printf '{"version":"%s","platform":"%s/%s","go_modules":' "$VERSION" "$os" "$arch"
+    (cd "$ROOT" && go version -m "$stage/bin/factory-node" | awk '$1=="dep"||$1=="mod"{printf "%s{\"path\":\"%s\",\"version\":\"%s\"}", (n++?",":"["), $2, $3} END{if(!n)printf "["; printf "]"}')
+    printf ',"npm_lockfile":"workers/claude/package-lock.json"}\n'
+  } > "$stage/SBOM.json"
+  tar -czf "$OUT/factory-node-$os-$arch.tar.gz" -C "$stage" VERSION SBOM.json bin workers
 done
 
 cd "$OUT"

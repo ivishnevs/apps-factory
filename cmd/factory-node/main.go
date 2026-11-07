@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | pause [REASON] | resume | activity [-n 50] | uninstall [-keep-state] [-yes] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | pause [REASON] | resume | activity [-n 50] | uninstall [-keep-state] [-yes] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-security] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -307,8 +307,23 @@ func doctor(args []string) (int, error) {
 	repo := fs.String("repo", "", "repository URL checked with git ls-remote (optional)")
 	drivers := fs.String("drivers", "", "comma list of drivers to require (default: every installed one)")
 	path := fs.String("config", "", "node.yaml of the node (default $"+node.ConfigEnv+")")
+	security := fs.Bool("security", false, "only what agents may touch here and what protects the node (connector-trust)")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
+	}
+	if *security {
+		c, err := node.LoadConfig(node.ConfigPath(*path))
+		if err != nil {
+			return 2, err
+		}
+		results := node.SecurityChecks(c)
+		if err := node.Render(os.Stdout, results); err != nil {
+			return 1, err
+		}
+		if node.Failed(results) {
+			return 1, nil
+		}
+		return 0, nil
 	}
 	h := node.LocalHost(runtime.GOOS)
 	d := node.Doctor{Host: h, DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo}

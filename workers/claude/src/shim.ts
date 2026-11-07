@@ -50,6 +50,8 @@ export interface Launch {
   mcp_servers?: Record<string, ExternalMcpServer>;
   // mcp__<server>__<tool> names of denied external tools.
   disallowed_tools?: string[];
+  // Worktree confinement (connector-trust): Bash writes only in allow_write; deny_read is unreadable to every tool.
+  sandbox?: { allow_write: string[]; deny_read: string[] };
 }
 
 // factoryShimDecider decides a command line with `factory-shim --decide` (one matcher for the PATH
@@ -364,6 +366,7 @@ export async function runShim(io: ShimIO): Promise<void> {
       mcpCommand: launch.mcp_command,
       ...(launch.mcp_servers ? { mcpServers: launch.mcp_servers } : {}),
       ...(launch.disallowed_tools ? { disallowedTools: launch.disallowed_tools } : {}),
+      ...(launch.sandbox ? { sandbox: launch.sandbox } : {}),
       signal: stop.signal,
       emit: n.emit,
       observe: n.observe,

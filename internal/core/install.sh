@@ -2,7 +2,8 @@
 # App Factory node installer (node-install D4), served by Core at /install.sh.
 #   curl -fsSL {{{.CoreURL}}}/install.sh | sh                      # connect by signing in on the web
 #   curl -fsSL {{{.CoreURL}}}/install.sh | sh -s -- --code fne_... # connect with an enrollment code
-# Options: --code CODE, --name NAME, --no-service, --no-browser. FACTORY_NODE_HOME (default ~/.app-factory).
+# Options: --code CODE, --name NAME, --no-service, --no-browser, --os-user NAME (Linux: install for a separate system
+# user that owns nothing else, connector-trust). FACTORY_NODE_HOME (default ~/.app-factory).
 # Running it again upgrades the node in place: node.yaml and the keys are kept.
 set -eu
 
@@ -13,12 +14,15 @@ CODE=""
 NAME=""
 SERVICE=1
 BROWSER=""
+OS_USER=""
+ARGS=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --code) CODE="$2"; shift 2 ;;
-    --name) NAME="$2"; shift 2 ;;
-    --no-service) SERVICE=0; shift ;;
-    --no-browser) BROWSER="-no-browser"; shift ;;
+    --code) CODE="$2"; ARGS="$ARGS --code $2"; shift 2 ;;
+    --name) NAME="$2"; ARGS="$ARGS --name $2"; shift 2 ;;
+    --no-service) SERVICE=0; ARGS="$ARGS --no-service"; shift ;;
+    --no-browser) BROWSER="-no-browser"; ARGS="$ARGS --no-browser"; shift ;;
+    --os-user) OS_USER="$2"; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -37,6 +41,18 @@ case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
   *) die "unsupported processor $(uname -m)" ;;
 esac
+
+if [ -n "$OS_USER" ]; then
+  # A separate user (connector-trust 1.4): agents then cannot read this user's files at all.
+  [ "$OS" = linux ] || die "--os-user is for Linux; on macOS create a standard user in System Settings and install there"
+  [ "$(id -un)" = "$OS_USER" ] || {
+    id "$OS_USER" >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/sh "$OS_USER" || die "could not create user $OS_USER"
+    sudo loginctl enable-linger "$OS_USER" >/dev/null 2>&1 || true
+    self=$(mktemp); curl -fsSL "$CORE_URL/install.sh" -o "$self" && chmod 644 "$self"
+    step "Installing as user $OS_USER"
+    exec sudo -u "$OS_USER" -H sh "$self" $ARGS
+  }
+fi
 
 step "Checking this machine ($OS-$ARCH)"
 for t in curl tar git; do

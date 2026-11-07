@@ -14,6 +14,8 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -55,6 +57,12 @@ type Driver struct {
 	// empty shares the machine user's login. AccountsDir is where the node records the login's account.
 	ConfigDir   string
 	AccountsDir string
+	// Sandbox "worktree" confines runs to their worktree (connector-trust); StateDir holds the node's keys, which
+	// confined runs cannot read.
+	Sandbox  string
+	StateDir string
+	// FullAccess are projects whose runs are not confined (node.yaml policy.full_access).
+	FullAccess []string
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }
@@ -226,6 +234,13 @@ type launchLine struct {
 	MCPServers map[string]mcpServer `json:"mcp_servers,omitempty"`
 	// DisallowedTools are mcp__<server>__<tool> names of denied external tools (--disallowedTools).
 	DisallowedTools []string `json:"disallowed_tools,omitempty"`
+	// Sandbox confines the run to its worktree (connector-trust, node.yaml sandbox: worktree).
+	Sandbox *sandboxLine `json:"sandbox,omitempty"`
+}
+
+type sandboxLine struct {
+	AllowWrite []string `json:"allow_write"`
+	DenyRead   []string `json:"deny_read"`
 }
 
 // mcpServer is a Claude Code MCP server config of type http.
@@ -275,6 +290,9 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	launch.GuardCommand = guard
 	if launch.MCPServers, launch.DisallowedTools, err = externalServers(l.ExternalMCP); err != nil {
 		return nil, err
+	}
+	if d.Sandbox == "worktree" && !slices.Contains(d.FullAccess, l.Spec.Project) {
+		launch.Sandbox = d.sandbox(l.Cwd)
 	}
 	line, err := json.Marshal(launch)
 	if err != nil {
@@ -626,4 +644,24 @@ func signal(ev *driver.Event, kind string, line []byte) error {
 		ev.Kind, ev.Quota = driver.EventQuota, q
 	}
 	return nil
+}
+
+// sandbox is the worktree confinement of a run in cwd: writes in the worktree, its repository's .git and the temp
+// directory; the user's SSH, cloud and GPG keys and the node's own keys unreadable.
+func (d Driver) sandbox(cwd string) *sandboxLine {
+	sb := &sandboxLine{AllowWrite: []string{cwd, os.TempDir()}}
+	if out, err := exec.Command("git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output(); err == nil {
+		if dir := strings.TrimSpace(string(out)); dir != "" && !strings.HasPrefix(dir, cwd) {
+			sb.AllowWrite = append(sb.AllowWrite, dir)
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, p := range []string{".ssh", ".aws", ".gnupg", ".config/gcloud", ".kube"} {
+			sb.DenyRead = append(sb.DenyRead, filepath.Join(home, p))
+		}
+	}
+	if d.StateDir != "" {
+		sb.DenyRead = append(sb.DenyRead, filepath.Join(d.StateDir, node.SignKeyFile), filepath.Join(d.StateDir, node.BoxKeyFile))
+	}
+	return sb
 }
