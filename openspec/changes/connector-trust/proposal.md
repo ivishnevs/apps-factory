@@ -96,3 +96,16 @@ connect wording, landing Security page), docs (`docs/security.md`), release tool
 
 Also raised: a node without runtime dependencies (no Node.js to install) and updates that reach every node — see
 `node-packaging-updates`.
+
+## Implementation (2026-11-07, partial)
+
+- Done: `sandbox: worktree` for Codex (workspace-write, writes in the worktree and its repository's `.git`, network
+  on), written by the installer for new nodes; `factory-node pause/resume` (local, immediate, Core cannot lift it);
+  local activity log and `factory-node activity`; `factory-node uninstall`; `docs/security.md`.
+- Decided during implementation: existing nodes keep full access until their owner sets `sandbox: worktree` (switching
+  a running team silently could break tools it relies on outside the worktree, such as Godot imports); new nodes get
+  the worktree sandbox.
+- Not done: Claude's worktree confinement and an unreadable home directory (1.1 for Claude), the node.yaml policy of
+  allowed projects/runtimes with refusals reported to Core (1.2), the Linux OS user (1.4), the isolated mode (1.5),
+  `doctor --security` and the web security panel (rest of 2.1), signing and SBOM (2.2: needs the Apple developer
+  account), publishing the source (2.3), the landing Security page and pentest (3.1 web part, 3.2).

@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | pause [REASON] | resume | activity [-n 50] | uninstall [-keep-state] [-yes] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -55,6 +55,14 @@ func run(args []string) (int, error) {
 		return login(args[1:])
 	case "accounts":
 		return accounts(args[1:])
+	case "pause":
+		return pauseLocal(true, args[1:])
+	case "resume":
+		return pauseLocal(false, args[1:])
+	case "activity":
+		return activity(args[1:])
+	case "uninstall":
+		return uninstall(args[1:])
 	case "rotate-keys":
 		return rotateKeys(args[1:])
 	case "run":

@@ -33,7 +33,7 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 		if bin == "" {
 			bin = "codex"
 		}
-		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir)})
+		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox})
 	}
 	if cc := c.Drivers.Claude; cc.On() {
 		shim := cc.Shim
@@ -209,7 +209,7 @@ func Run(ctx context.Context, n Node) error {
 		events.Dir = filepath.Join(c.StateDir, "runs")
 	}
 	go events.Run(ctx, time.Second)
-	pool := &Pool{Slots: c.Slots}
+	pool := &Pool{Slots: c.Slots, StateDir: c.StateDir}
 	names := []string{}
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Events: events, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,

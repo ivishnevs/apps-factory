@@ -39,6 +39,9 @@ type Driver struct {
 	// machine user's ~/.codex. AccountsDir is where the node records the login's account.
 	Home        string
 	AccountsDir string
+	// Sandbox "worktree" runs Codex in workspace-write: it writes only in the run's working directory (and its git
+	// repository), with network on; "" or "full" is danger-full-access as before (connector-trust).
+	Sandbox string
 }
 
 // withHome is env with the node's CODEX_HOME, when it has one.
@@ -105,7 +108,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 		stopRuntime()
 		return nil, err
 	}
-	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, d.withHome(l.Env)), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	s := &session{sandbox: d.Sandbox, client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, d.withHome(l.Env)), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	if err = s.open(ctx, l); err != nil {
 		s.Close()
 		return nil, err
@@ -114,6 +117,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 }
 
 type session struct {
+	sandbox          string
 	client           *rpc.Client
 	stopRuntime      context.CancelFunc
 	prompt           string
@@ -176,6 +180,14 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 		approval = "untrusted"
 	}
 	params := map[string]any{"cwd": l.Cwd, "approvalPolicy": approval, "sandbox": "danger-full-access", "developerInstructions": l.Instructions}
+	if s.sandbox == "worktree" {
+		params["sandbox"] = "workspace-write"
+		ws := map[string]any{"network_access": true}
+		if roots := gitWritableRoots(l.Cwd); len(roots) > 0 {
+			ws["writable_roots"] = roots
+		}
+		params["config"] = map[string]any{"sandbox_workspace_write": ws}
+	}
 	if model, ok := l.Spec.RuntimeOptions["model"].(string); ok && model != "" && model != "default" {
 		params["model"] = model
 	}
@@ -542,3 +554,17 @@ type loginRequired struct{}
 func (loginRequired) Error() string      { return "ChatGPT login required; API-key auth is not supported" }
 func (loginRequired) RunOutcome() string { return driver.OutcomePausedOut }
 func (loginRequired) AuthFailed() bool   { return true }
+
+// gitWritableRoots are the git directories a worktree's commits write to besides the worktree itself (its common
+// .git of the main repository), for the workspace-write sandbox.
+func gitWritableRoots(cwd string) []string {
+	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return nil
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" || strings.HasPrefix(dir, cwd+string(filepath.Separator)) || dir == cwd {
+		return nil
+	}
+	return []string{dir}
+}

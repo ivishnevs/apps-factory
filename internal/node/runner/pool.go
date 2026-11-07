@@ -35,6 +35,8 @@ type Pool struct {
 	Now       func() time.Time
 	// Refused is called for an offer whose claim Core refused for now (the poller skips it a while).
 	Refused func(run string)
+	// StateDir keeps the local activity log (connector-trust): what ran on this machine, readable without Core.
+	StateDir string
 
 	mu     sync.Mutex
 	ctx    context.Context
@@ -191,9 +193,15 @@ func (p *Pool) loop(ctx context.Context, i, gen int, offers <-chan Offer) {
 		if !p.update(i, gen, func(s *slot) { s.busy, s.run = true, o.RunID }) {
 			return
 		}
+		node.LogActivity(p.StateDir, node.Activity{Event: "run.offered", Run: o.RunID, Runtime: o.Provider})
 		refused := src.Process(ctx, o.RunID, func(run string, cancel context.CancelFunc) {
 			p.update(i, gen, func(s *slot) { s.run, s.cancel = run, cancel })
 		})
+		outcome := "ended"
+		if refused {
+			outcome = "refused"
+		}
+		node.LogActivity(p.StateDir, node.Activity{Event: "run." + outcome, Run: o.RunID})
 		p.update(i, gen, func(s *slot) { s.busy, s.run, s.cancel, s.beat = false, "", nil, p.now() })
 		if refused && p.Refused != nil {
 			p.Refused(o.RunID)

@@ -114,6 +114,8 @@ if [ ! -f "$CONFIG" ]; then
     if [ "$CLAUDE" = 1 ]; then echo "  claude: {enabled: true, node: \"$NODE_BIN\"}"; else echo "  claude: {enabled: false}"; fi
     echo "# Each task in its own git worktree, so a team's agents work in one project at once."
     echo "worktrees: {enabled: true}"
+    echo "# Codex agents write only in their task's worktree (connector-trust); full lets them act as you everywhere."
+    echo "sandbox: worktree"
   } > "$CONFIG"
 fi
 if ! command -v gitleaks >/dev/null 2>&1; then

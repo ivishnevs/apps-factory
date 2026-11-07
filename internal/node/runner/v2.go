@@ -243,7 +243,9 @@ func (s *session) register(ctx context.Context, reason string) error {
 }
 
 // claimable: Core has not paused the node and it is not re-registering.
-func (s *session) claimable() bool { return !s.paused.Load() && !s.switching.Load() }
+func (s *session) claimable() bool {
+	return !s.paused.Load() && !s.switching.Load() && !node.LocallyPaused(s.cfg.StateDir) // connector-trust: factory-node pause
+}
 
 // run sends the inventory heartbeat every interval until ctx ends; it fails when the node must stop.
 func (s *session) run(ctx context.Context) error {

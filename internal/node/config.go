@@ -47,6 +47,9 @@ type Config struct {
 	// RuntimeEnv adds environment variable names (NAME_* for a prefix) to the allowlist of what agent runtimes
 	// inherit from the node (worker.RuntimeEnv); the node's and the owner's credentials never pass.
 	RuntimeEnv []string `yaml:"runtime_env"`
+	// Sandbox is what agent runtimes may touch (connector-trust): "full" (as the user, the default of nodes installed
+	// before it) or "worktree" (Codex writes only in its worktree; written by the installer for new nodes).
+	Sandbox string `yaml:"sandbox"`
 	// ProjectsRoot is where the node creates the repositories of new projects and clones existing ones given
 	// by URL (project-creation D3); empty is <state_dir>/projects. A leading ~/ is the user's home.
 	ProjectsRoot string `yaml:"projects_root"`

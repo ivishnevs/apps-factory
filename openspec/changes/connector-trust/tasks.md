@@ -9,7 +9,7 @@
   and the node keys fails).
 - [ ] 1.2 Local policy in `node.yaml` (project folders, runtimes, full-access opt-in per project, network rule,
   slots); refusals reported to Core and shown in the web; tests.
-- [ ] 1.3 `factory-node pause` (local, immediate) and `factory-node uninstall`; tests.
+- [x] 1.3 `factory-node pause` (local, immediate) and `factory-node uninstall`; tests.
 - [ ] 1.4 Linux installer: optional `appfactory` OS user.
 - [ ] 1.5 Isolated mode (container or VM) as an option.
 
@@ -22,6 +22,6 @@
 
 ## 3. Communicated
 
-- [ ] 3.1 `docs/security.md` and a Security page on the landing; wording on the install and connect pages;
+- [x] 3.1 `docs/security.md` and a Security page on the landing; wording on the install and connect pages;
   security contact.
 - [ ] 3.2 External penetration test before launch; summary published (`saas-release-readiness`).
