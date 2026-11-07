@@ -11,6 +11,11 @@ metadata:
 spec:
   role: manager
   agent:
+    capabilities:
+    - "Does: owns the requirements, the plan and the backlog; splits goals into tasks"
+    - "Needs: the owner's goals and direction"
+    - "Produces: specs, prioritised tasks with dependencies, progress reports"
+    - "Reviewed by: the owner"
     communication:
       can_create_tasks: true
       can_assign_tasks: true

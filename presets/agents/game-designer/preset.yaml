@@ -10,7 +10,12 @@ metadata:
   - games
 spec:
   role: designer
-  agent: {}
+  agent:
+    capabilities:
+    - "Does: mechanics, balance, levels, the difficulty curve and art direction"
+    - "Needs: the product goal and scope from the lead"
+    - "Produces: design specs with concrete numbers, level layouts, an art style guide"
+    - "Reviewed by: the lead"
   skills:
   - openspec
   secrets: []

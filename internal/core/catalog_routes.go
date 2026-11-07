@@ -152,11 +152,11 @@ func (c *Core) ApplyCatalogChange(ctx context.Context, company, author string, c
 		if err != nil {
 			return storage.CatalogVersion{}, fmt.Errorf("%w: %v", storage.ErrInput, err)
 		}
-		return storage.CatalogVersion{Version: ch.Base, Documents: len(docs), Warnings: config.ReviewCoverage(cat)}, nil
+		return storage.CatalogVersion{Version: ch.Base, Documents: len(docs), Warnings: append(config.ReviewCoverage(cat), config.CapabilityWarnings(cat)...)}, nil
 	}
 	v, err := c.SaveCatalog(ctx, company, storage.CatalogSave{Base: ch.Base, Docs: docs, Author: author, Note: ch.Note})
 	if err == nil {
-		v.Warnings = config.ReviewCoverage(c.cat(company))
+		v.Warnings = append(config.ReviewCoverage(c.cat(company)), config.CapabilityWarnings(c.cat(company))...)
 	}
 	return v, err
 }

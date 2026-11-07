@@ -380,7 +380,7 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		agents := c.cat(c.companyFrom(r)).Agents
 		for _, name := range config.Names(agents) {
 			a := agents[name]
-			out = append(out, map[string]any{"name": name, "role": a.Spec.Role, "capabilities": a.Spec.Capabilities})
+			out = append(out, map[string]any{"name": name, "role": a.Spec.Role, "team": a.Spec.Team, "description": a.Metadata.Description, "capabilities": a.Spec.Capabilities})
 		}
 		write(w, out)
 		return

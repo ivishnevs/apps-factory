@@ -641,3 +641,37 @@ func TestCatalogFromFS(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+// TestTeamRosterInLeadInstructions (agent-capabilities 2.3): agents that create or assign tasks get their team's
+// roster with roles, descriptions and capabilities.
+func TestTeamRosterInLeadInstructions(t *testing.T) {
+	c, err := LoadCatalog("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for name, a := range c.Agents {
+		if !a.Spec.Communication.CanCreateTasks && !a.Spec.Communication.CanAssignTasks {
+			if strings.Contains(a.Instructions, "Your team (assign work") {
+				t.Fatalf("%s gets the roster without planning work", name)
+			}
+			continue
+		}
+		mates := 0
+		for other, o := range c.Agents {
+			if other != name && o.Spec.Team == a.Spec.Team {
+				mates++
+			}
+		}
+		if mates == 0 {
+			continue
+		}
+		found = true
+		if !strings.Contains(a.Instructions, "Your team (assign work") {
+			t.Fatalf("%s plans work without the roster:\n%s", name, a.Instructions)
+		}
+	}
+	if !found {
+		t.Skip("no planning agent with teammates in the repository catalog")
+	}
+}

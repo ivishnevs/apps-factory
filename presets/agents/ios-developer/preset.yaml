@@ -12,6 +12,11 @@ metadata:
 spec:
   role: developer
   agent:
+    capabilities:
+    - "Does: builds and tests native iOS apps with Xcode"
+    - "Needs: a task with acceptance criteria; designs and specs it depends on"
+    - "Produces: pull requests with passing builds and tests, simulator screenshots"
+    - "Reviewed by: QA"
     labels:
     - xcode
     execution:

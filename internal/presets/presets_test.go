@@ -141,3 +141,27 @@ func TestPresetJSONLists(t *testing.T) {
 		}
 	}
 }
+
+// TestPresetCapabilities (agent-capabilities 2.1): every agent preset says what it does, needs, produces and who
+// reviews it.
+func TestPresetCapabilities(t *testing.T) {
+	lib, err := Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, a := range lib.Agents {
+		caps, _ := a.Spec.Agent["capabilities"].([]any)
+		have := map[string]bool{}
+		for _, c := range caps {
+			s, _ := c.(string)
+			for _, k := range []string{"Does:", "Needs:", "Produces:", "Reviewed by:"} {
+				if strings.HasPrefix(s, k) {
+					have[k] = true
+				}
+			}
+		}
+		if len(have) != 4 {
+			t.Errorf("preset %s capabilities %v miss does/needs/produces/reviewed by", name, caps)
+		}
+	}
+}

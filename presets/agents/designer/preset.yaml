@@ -9,7 +9,12 @@ metadata:
   - design
 spec:
   role: designer
-  agent: {}
+  agent:
+    capabilities:
+    - "Does: user flows, screens, interface specs and assets"
+    - "Needs: requirements and acceptance criteria from the lead"
+    - "Produces: design specs and assets for the developers"
+    - "Reviewed by: the lead"
   skills:
   - openspec
   secrets: []

@@ -10,7 +10,12 @@ metadata:
   - review
 spec:
   role: reviewer
-  agent: {}
+  agent:
+    capabilities:
+    - "Does: reviews submitted code for correctness and quality"
+    - "Needs: a submitted pull request and its task"
+    - "Produces: review verdicts with concrete feedback"
+    - "Reviewed by: the lead"
   skills:
   - openspec
   secrets: []

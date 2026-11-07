@@ -780,8 +780,38 @@ func (c *Catalog) finish(src source, a *Agent) error {
 			fmt.Fprintf(&ctx, "- %s: %s (categories: %s)\n", s.Name, s.Description, strings.Join(s.Categories, ", "))
 		}
 	}
+	// The team roster (agent-capabilities 2.3): who does what, needs what and is reviewed by whom, for agents that
+	// plan and hand out work, so they follow the input chains and link tasks with dependencies.
+	if a.Spec.Communication.CanCreateTasks || a.Spec.Communication.CanAssignTasks {
+		ctx.WriteString("Your team (assign work by what each agent does and needs; when one agent's work needs another's output, create both tasks and link them with dependencies):\n")
+		for _, name := range Names(c.Agents) {
+			o := c.Agents[name]
+			if name == a.Metadata.Name || o.Spec.Team != a.Spec.Team {
+				continue
+			}
+			fmt.Fprintf(&ctx, "- %s (%s)", name, o.Spec.Role)
+			if o.Metadata.Description != "" {
+				fmt.Fprintf(&ctx, ": %s", o.Metadata.Description)
+			}
+			if len(o.Spec.Capabilities) > 0 {
+				fmt.Fprintf(&ctx, ". %s", strings.Join(o.Spec.Capabilities, "; "))
+			}
+			ctx.WriteString("\n")
+		}
+	}
 	a.Instructions = ctx.String()
 	return nil
+}
+
+// CapabilityWarnings lists agents without capabilities (agent-capabilities: required; the save warns).
+func CapabilityWarnings(c *Catalog) []string {
+	var out []string
+	for _, name := range Names(c.Agents) {
+		if len(c.Agents[name].Spec.Capabilities) == 0 {
+			out = append(out, fmt.Sprintf("agent %s has no capabilities: say what it does, needs, produces and who reviews it", name))
+		}
+	}
+	return out
 }
 
 // RuntimeOptions are the runtime_options keys each driver reads (runtime-drivers D1). Drivers declare

@@ -10,7 +10,12 @@ metadata:
   - review
 spec:
   role: qa
-  agent: {}
+  agent:
+    capabilities:
+    - "Does: verifies delivered behaviour and reviews developers' pull requests"
+    - "Needs: submitted work with its task and acceptance criteria"
+    - "Produces: review verdicts, defect reports with steps and evidence"
+    - "Reviewed by: the lead"
   skills:
   - openspec
   - mobile-app-testing

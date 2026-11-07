@@ -238,9 +238,15 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
   const save = async () => {
     if (!draft) return;
     setError(null);
+    // agent-capabilities: required, so leads know what the agent does, needs, produces and who reviews it.
+    if (!(draft.agent.spec.capabilities ?? []).some((c) => c.trim())) {
+      setError(new Error("Capabilities are required: what it does, what it needs, what it produces and who reviews it"));
+      return;
+    }
     setBusy(true);
     try {
-      await core(`/catalog/agents/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ base: draft.base, agent: draft.agent, prompt: draft.prompt }) });
+      const agent = { ...draft.agent, spec: { ...draft.agent.spec, capabilities: (draft.agent.spec.capabilities ?? []).map((c) => c.trim()).filter(Boolean) } };
+      await core(`/catalog/agents/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ base: draft.base, agent, prompt: draft.prompt }) });
       toast.success(`${name} saved`);
       await refresh();
       onClose();
@@ -276,6 +282,12 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
           {draft && spec && (
             <>
               <Field label="Description" error={fieldError(error, "description")}><Input value={draft.agent.metadata.description} onChange={(e) => set((d) => { d.agent.metadata.description = e.target.value; })} /></Field>
+              <Field label="Capabilities" error={fieldError(error, "capabilities")}>
+                <Textarea value={(spec.capabilities ?? []).join("\n")} rows={4} className="text-base md:text-sm"
+                  placeholder={"Does: implements specified tasks with tests\nNeeds: a task with acceptance criteria\nProduces: pull requests with passing checks\nReviewed by: QA"}
+                  onChange={(e) => set((d) => { d.agent.spec.capabilities = e.target.value.split("\n").map((l) => l.trimEnd()).filter((l, i, a) => l.trim() || i < a.length - 1); })} />
+                <span className="block text-xs text-muted-foreground">One line each: what it does, what it needs (and from whom), what it produces, who reviews it. Leads plan with it.</span>
+              </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Reports to" error={fieldError(error, "reports_to")}>
                   <Select value={spec.reports_to ?? ""} onValueChange={(v) => set((d) => { d.agent.spec.reports_to = v; })}>

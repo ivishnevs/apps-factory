@@ -4,6 +4,6 @@
 
 ## 2. Implementation
 
-- [ ] 2.1 Capabilities on every agent preset; tests that presets have them.
-- [ ] 2.2 Agent editor and team wizard: field with template and examples; warning when empty.
-- [ ] 2.3 Team roster (role, description, capabilities) in leads' briefs; factory_agent_list returns the description.
+- [x] 2.1 Capabilities on every agent preset; tests that presets have them.
+- [x] 2.2 Agent editor and team wizard: field with template and examples; warning when empty.
+- [x] 2.3 Team roster (role, description, capabilities) in leads' briefs; factory_agent_list returns the description.

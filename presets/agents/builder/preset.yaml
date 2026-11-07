@@ -12,6 +12,11 @@ metadata:
 spec:
   role: developer
   agent:
+    capabilities:
+    - "Does: plans, builds, tests and ships the whole product alone"
+    - "Needs: the owner's goal and direction"
+    - "Produces: merged pull requests, release builds, reports"
+    - "Reviewed by: the owner"
     communication:
       can_create_tasks: true
       can_assign_tasks: true

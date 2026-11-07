@@ -9,7 +9,12 @@ metadata:
   - engineering
 spec:
   role: developer
-  agent: {}
+  agent:
+    capabilities:
+    - "Does: implements specified tasks with tests"
+    - "Needs: a task with acceptance criteria; designs and specs it depends on"
+    - "Produces: pull requests with passing checks"
+    - "Reviewed by: QA or the reviewer"
   skills:
   - openspec
   - task-pull-request

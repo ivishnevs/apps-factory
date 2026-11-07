@@ -21,6 +21,7 @@ export interface AgentSpec {
   prompt?: { file?: string };
   communication?: { can_message?: string[]; can_create_tasks?: boolean; can_assign_tasks?: boolean };
   skills?: { include?: string[] };
+  capabilities?: string[];
   [k: string]: unknown;
 }
 export interface Agent { apiVersion?: string; kind?: string; metadata: { name: string; description: string; preset?: string }; spec: AgentSpec }

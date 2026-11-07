@@ -29,3 +29,14 @@ dependencies, work started without its inputs.
 Presets (`presets/agents`), agent editor and team wizard (web), catalog validation (warning), run briefs (team
 roster for leads), `factory_agent_list`. Related: `default-agent-library`, `team-page-clarity`,
 `lead-brainstorm-mode`, `review-coverage`.
+
+## Implementation (2026-11-07)
+
+- Every agent preset has capabilities (Does / Needs / Produces / Reviewed by); a test keeps it so.
+- The agent editor has a Capabilities field with a template and refuses to save an agent without them; catalog saves
+  (and dry runs) return a warning per agent without capabilities.
+- Agents that create or assign tasks get their team's roster (role, description, capabilities) in their
+  instructions, with the rule to follow input chains and link tasks with dependencies; `factory_agent_list` returns
+  team and description too.
+- Decided during implementation: "required" is enforced where people edit (the editor) and warned in Core, not
+  refused by the catalog loader, so existing companies' catalogs keep loading and saving.
