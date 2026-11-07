@@ -1,9 +1,10 @@
 ## 1. Model and scheduling
 
-- [ ] 1.1 `assignee: member:<user>` validated against the company's members; wait reason `with_person`; the
-      scheduler never dispatches a person's task; migration-free if the column stays text; tests.
-- [ ] 1.2 Person actions: `take`, `start`, `done` (optional pull request → IN_REVIEW until merged), `give_back`;
-      authority: the person and the owner; a live run must be stopped before `take`; tests.
+- [ ] 1.1 `assignee: member:<user>` validated against the company's members; the scheduler never dispatches a
+      person's task; state explanation "assigned to <person>"; no new status or wait reason; tests.
+- [ ] 1.2 The existing transitions (start, submit for review with a pull request, rework, done on merge) available to
+      the assigned person and the owner, with the same rules as for an agent's run; reassignment stops a live run
+      first; tests.
 
 ## 2. Agents
 
@@ -19,10 +20,10 @@
 
 ## 4. UI
 
-- [ ] 4.1 Web board: "Take it", Start / Done (pull request field) / Give back, person avatar on cards, "Mine"
+- [ ] 4.1 Web board: people in the assignee picker, the same status moves for the assigned person, avatar on cards, "Mine"
       filter; TUI and CLI (`--assignee me`).
 
 ## 5. Verify
 
-- [ ] 5.1 Sandbox company: the owner takes a task two agent tasks depend on, merges a pull request and presses Done
-      with it; the task becomes DONE on merge and both dependents start without any escalation or manual action.
+- [ ] 5.1 Sandbox company: the owner assigns to themself a task two agent tasks depend on, moves it to review with a pull
+      request; the task becomes DONE on approval and merge and both dependents start without any escalation or manual action.

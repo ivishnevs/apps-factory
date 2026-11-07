@@ -1,25 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: Tasks assigned to people
-A task's assignee MAY be a person of the company (`member:<user>`). Core SHALL NOT schedule or dispatch runs for it
-and SHALL show its wait reason as `with_person`. The person and the owner MAY take a task without a live run, start
-it, mark it done (with an optional pull request) and give it back to an agent. A done action with a pull request on a
-connected repository SHALL move the task to IN_REVIEW and to DONE when the pull request is merged; without one the
-task SHALL be DONE at once. Tasks that depend on a person's task SHALL wait in the normal dependency wait and SHALL
-become schedulable when it is DONE.
+A task's assignee MAY be a person of the company (`member:<user>`), set in the same assignee field as an agent. Such
+a task SHALL use the same statuses, transitions, review and merge rules as any task; Core SHALL NOT dispatch runs
+for it, and the assigned person and the owner SHALL be able to make the transitions an agent's run makes. Tasks that
+depend on a person's task SHALL wait in the normal dependency wait and SHALL become schedulable when it is DONE.
 
 #### Scenario: Owner takes a task on the board
-- **WHEN** the owner presses "Take it" on a READY task with no live run
-- **THEN** the task SHALL be assigned to the owner and no run SHALL be dispatched for it
+- **WHEN** the owner picks themself as the assignee of a READY task with no live run
+- **THEN** the task SHALL stay READY, assigned to the owner, and no run SHALL be dispatched for it
 
 #### Scenario: Dependents continue after the merge
-- **WHEN** tasks A and B depend on the owner's task P and the owner marks P done with pull request #200
-- **THEN** P SHALL be IN_REVIEW until #200 is merged, then DONE, and A and B SHALL be scheduled without an
+- **WHEN** tasks A and B depend on the owner's task P and the owner moves P to IN_REVIEW with pull request #200
+- **THEN** P SHALL become DONE when its reviewer approves and #200 is merged, and A and B SHALL be scheduled without an
   escalation or manual action
 
 #### Scenario: Give back
-- **WHEN** the person gives the task back to an agent
-- **THEN** the task SHALL be assigned to that agent and scheduled as usual
+- **WHEN** the person reassigns the task to an agent
+- **THEN** the task SHALL be scheduled for that agent as usual
 
 ### Requirement: A person's task is not a stall
 A dependency on a person's task SHALL NOT open a `stalled` escalation. When a person's task has not changed for the
