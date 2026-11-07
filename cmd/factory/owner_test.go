@@ -165,7 +165,7 @@ func TestEscalationsCLI(t *testing.T) {
 	if err = json.Unmarshal([]byte(out), &open); err != nil || len(open) != 1 || open[0].Target != "owner" {
 		t.Fatal(out, err)
 	}
-	if err = ownerCommand(ctx, api, []string{"answer", open[0].MessageID, "maybe"}); err == nil || !strings.Contains(err.Error(), "unblock, cancel") {
+	if err = ownerCommand(ctx, api, []string{"answer", open[0].MessageID, "maybe"}); err == nil || !strings.Contains(err.Error(), "keep_waiting, drop_dependency, cancel") {
 		t.Fatal(err)
 	}
 	capture(t, func() error { return ownerCommand(ctx, api, []string{"answer", open[0].MessageID, "unblock"}) })

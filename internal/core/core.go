@@ -395,7 +395,7 @@ func (c *Core) maintain(ctx context.Context) error {
 		c.Store.Continuity.Observe(c.Store.Now())
 	}
 	for _, company := range c.companies() {
-		if err := c.maintainCompany(ctx, company); err != nil {
+		if err := c.isolate(ctx, company, "expiry", c.maintainCompany(ctx, company)); err != nil {
 			return err
 		}
 	}
@@ -409,7 +409,7 @@ func (c *Core) maintain(ctx context.Context) error {
 		return err
 	}
 	for _, company := range c.companies() {
-		if _, err := c.Store.PriceRunCosts(ctx, company, c.Prices); err != nil {
+		if _, err := c.Store.PriceRunCosts(ctx, company, c.Prices); c.isolate(ctx, company, "cost pricing", err) != nil {
 			return err
 		}
 	}

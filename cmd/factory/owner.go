@@ -160,11 +160,16 @@ func ownerCommand(ctx context.Context, api worker.API, args []string) error {
 		body := map[string]any{"version": m.Version, "body": text, "request_id": protocol.ID()}
 		switch {
 		case len(m.Questions) == 1 && m.Questions[0].Type == "single_choice":
-			// One choice (escalations): the answer is the option, e.g. factory answer MSG unblock.
-			if !slices.Contains(m.Questions[0].Options, args[2]) {
+			// One choice (escalations): the answer is the option, e.g. factory answer MSG keep_waiting. unblock is the
+			// former name of drop_dependency (dependency-wait-escalations 2.2).
+			choice := args[2]
+			if choice == "unblock" && slices.Contains(m.Questions[0].Options, "drop_dependency") {
+				choice = "drop_dependency"
+			}
+			if !slices.Contains(m.Questions[0].Options, choice) {
 				return fmt.Errorf("answer one of: %s", strings.Join(m.Questions[0].Options, ", "))
 			}
-			body["answers"] = map[string]any{m.Questions[0].ID: args[2]}
+			body["answers"] = map[string]any{m.Questions[0].ID: choice}
 		case len(m.Questions) > 0:
 			return fmt.Errorf("message %s has a structured form; use: inbox answer %s JSON_FILE", args[1], args[1])
 		}

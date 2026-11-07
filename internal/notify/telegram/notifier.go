@@ -461,7 +461,7 @@ func (n *Notifier) stop(ctx context.Context, who string, p *Person, replyTo int6
 func (n *Notifier) send(ctx context.Context, p *Person, text string, t Target, options []string) error {
 	buttons := []Button{}
 	for i, o := range options {
-		buttons = append(buttons, Button{Text: o, Data: fmt.Sprintf("a|%s|%d", t.Question, i)})
+		buttons = append(buttons, Button{Text: optionLabel(o), Data: fmt.Sprintf("a|%s|%d", t.Question, i)})
 	}
 	id, err := n.API.Send(ctx, p.ChatID, shorten(text, 4000), buttons, 0)
 	if err != nil {
@@ -633,4 +633,16 @@ func shorten(s string, limit int) string {
 		return s
 	}
 	return s[:limit] + "…"
+}
+
+// optionLabel shows a Factory escalation answer as what it does (dependency-wait-escalations 2.2); the button still
+// answers with the option itself.
+func optionLabel(o string) string {
+	switch o {
+	case "keep_waiting":
+		return "Keep waiting"
+	case "drop_dependency":
+		return "Stop waiting for this task"
+	}
+	return o
 }

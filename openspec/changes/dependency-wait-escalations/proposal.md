@@ -1,5 +1,5 @@
-Status: proposed 2026-11-07 by the owner (options 2 and 3 of the analysis below, plus "a task that waits on its
-dependencies goes back to waiting, never a manual block"). Nothing implemented.
+Status: implemented 2026-11-07 (owner-proposed: options 2 and 3 of the analysis below, plus "a task that waits on its
+dependencies goes back to waiting, never a manual block"). The threshold is a company setting (`/settings/company/stalls`), like session affinity, not a company.yaml key.
 
 ## Why
 

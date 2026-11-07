@@ -183,7 +183,7 @@ func TestTelegramAttentionOnly(t *testing.T) {
 		t.Fatal(got)
 	}
 	markup, _ := th.bot.last()["reply_markup"].(map[string]any)
-	if b, _ := json.Marshal(markup); !strings.Contains(string(b), `"text":"unblock"`) || !strings.Contains(string(b), `"text":"cancel"`) {
+	if b, _ := json.Marshal(markup); !strings.Contains(string(b), `"text":"Keep waiting"`) || !strings.Contains(string(b), `"text":"Stop waiting for this task"`) || !strings.Contains(string(b), `"text":"cancel"`) {
 		t.Fatal(string(b))
 	}
 	th.tick()
@@ -229,14 +229,14 @@ func TestTelegramInbound(t *testing.T) {
 		Rows [][]telegram.Button `json:"inline_keyboard"`
 	}
 	_ = json.Unmarshal(markup, &kb)
-	if len(kb.Rows) != 2 || kb.Rows[0][0].Text != "unblock" {
+	if len(kb.Rows) != 3 || kb.Rows[1][0].Text != "Stop waiting for this task" {
 		t.Fatal(string(markup))
 	}
-	press := telegram.Update{UpdateID: 10, Callback: &telegram.CallbackQuery{ID: "cb", Data: kb.Rows[0][0].Data, Message: &telegram.Message{MessageID: int64(sent["message_id"].(int64)), Chat: telegram.Chat{ID: ownerChat}}}}
+	press := telegram.Update{UpdateID: 10, Callback: &telegram.CallbackQuery{ID: "cb", Data: kb.Rows[1][0].Data, Message: &telegram.Message{MessageID: int64(sent["message_id"].(int64)), Chat: telegram.Chat{ID: ownerChat}}}}
 	th.bot.push(press)
 	th.tick()
 	esc, _ := th.s.Escalations(ctx, co, false)
-	if len(esc) != 1 || esc[0].Status != "answered" || esc[0].Answer != "unblock" || esc[0].Actor != "owner" {
+	if len(esc) != 1 || esc[0].Status != "answered" || esc[0].Answer != "drop_dependency" || esc[0].Actor != "owner" {
 		t.Fatalf("%+v", esc)
 	}
 

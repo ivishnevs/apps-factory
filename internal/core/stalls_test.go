@@ -78,7 +78,7 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 	}
 	byRef := map[string]storage.Escalation{open[0].RefID: open[0], open[1].RefID: open[1]}
 	// Routed to the assignee's manager (reports_to).
-	if !strings.Contains(byRef["spec"].Summary, "cancelled") || !strings.Contains(byRef["design"].Summary, "BACKLOG") || byRef["spec"].Target != "manager" || byRef["design"].Target != "manager" {
+	if !strings.Contains(byRef["spec"].Summary, "cancelled") || !strings.Contains(byRef["design"].Summary, "no assignee") || byRef["spec"].Target != "manager" || byRef["design"].Target != "manager" {
 		t.Fatalf("%+v", byRef)
 	}
 	if snap, _ := s.TaskSnapshot(ctx, co, "build"); c.evaluate(snap).Reason != tasks.ReasonParked+tasks.ParkEscalation {
@@ -123,7 +123,7 @@ func TestStallEscalationsAndIdleAlerts(t *testing.T) {
 	}
 	all, _ := s.Escalations(ctx, co, false)
 	for _, e := range all {
-		if e.RefID == "spec" && (e.Status != "answered" || e.Answer != "unblock" || e.Actor != "owner") || e.RefID == "design" && e.Status != "cleared" {
+		if e.RefID == "spec" && (e.Status != "answered" || e.Answer != "drop_dependency" || e.Actor != "owner") || e.RefID == "design" && e.Status != "cleared" {
 			t.Fatalf("%+v", all)
 		}
 	}
@@ -201,8 +201,13 @@ func TestStallChildrenPark(t *testing.T) {
 		}
 		return out
 	}
+	// A planned child in BACKLOG is not a stall before the company's threshold (dependency-wait-escalations 1.1).
+	if got := open(); len(got) != 0 {
+		t.Fatalf("BACKLOG child escalated before the threshold: %+v", got)
+	}
+	h.fake.Advance(storage.DefaultStallBacklogAfter)
 	got := open()
-	if len(got) != 1 || got[0].RefID != "kid" || got[0].Summary != "waits on its child kid, which is in BACKLOG" || got[0].Target != "manager" {
+	if len(got) != 1 || got[0].RefID != "kid" || got[0].Summary != `waits on its child kid ("kid"), which has been in BACKLOG without change for 24h` || got[0].Target != "manager" {
 		t.Fatalf("%+v", got)
 	}
 	if again := open(); len(again) != 1 || again[0].ID != got[0].ID {
@@ -219,7 +224,7 @@ func TestStallChildrenPark(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = open()
-	if len(got) != 1 || got[0].RefID != "orphan" || !strings.Contains(got[0].Summary, "child orphan, which") {
+	if len(got) != 1 || got[0].RefID != "orphan" || !strings.Contains(got[0].Summary, "child orphan (\"orphan\"), which has no assignee") {
 		t.Fatalf("%+v", got)
 	}
 	q, _ := h.s.Message(ctx, co, got[0].MessageID)

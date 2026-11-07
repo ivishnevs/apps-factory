@@ -389,13 +389,21 @@ Task pause and reprioritize keep the wait (its timer and episode); a closed task
 
 Once a minute Core's tick checks every released, non-terminal task (reliable-recovery D8):
 
-- `stalled` — the task depends on a task that is in BACKLOG, has no assignee, or was cancelled (a cancelled
-  dependency never becomes DONE). This opens an **escalation** (below) per (task, dependency), answers
-  `unblock` (stop waiting on that dependency) or `cancel` (cancel the waiting task); it clears itself when the
-  dependency is assigned and released, or closes. A task parked on its children (`parked:children`) stalls the
-  same way on an open child in BACKLOG or without an assignee ("waits on its child X, which is in BACKLOG"): one
-  escalation per (task, child) to the assignee's manager, cleared when the child is assigned and released or
-  closes; `unblock` releases the parent from its children park.
+- `stalled` — the task depends on a task that has no assignee or was cancelled (a cancelled dependency never
+  becomes DONE), or on a planned task in BACKLOG that has not changed (status, assignee, priority, dependencies, or
+  its own dependencies) for the company's `backlog_after` (default 24h; `GET|PUT /settings/company/stalls`,
+  `backlog_after_minutes`, 1h–720h). This opens an **escalation** (below) per (task, dependency) to the assignee's
+  manager, answers `keep_waiting` (the wait is planned: the escalation closes and does not reopen until the
+  dependency changes or another `backlog_after` passes), `drop_dependency` ("Stop waiting for this task"; the former
+  `unblock`, still accepted) or `cancel`. It clears itself when the dependency moves, is assigned and released, or
+  closes. A task parked on its children (`parked:children`) stalls the same way on an open child: one escalation per
+  (task, child), and `drop_dependency` releases the parent from its children park.
+- A task that waits on open dependencies is not blocked by hand: an agent's `block` of a READY task with open
+  dependencies is refused (409) with the hint to keep the wait; the owner's block stays allowed. To hold a task
+  for other work, add that work as a dependency.
+- `sweep_failed` — a background sweep (stalls, unmerged branches, cost pricing) failed for one task or company:
+  it is logged with company and task, a task gets one `task.alert.sweep_failed` per episode, and Core goes on with
+  the other tasks and companies; only lost storage stops Core.
 - `idle` — the task has an assignee and its `why` reason has been `idle` for 24 hours: one attention feed event
   `task.alert.idle` per episode (`task_alerts`, migration 0012), cleared with `task.alert_cleared.idle`.
 - `no_progress` — the task's runs have made no progress (Failure, retry and cancellation) for 8 hours since

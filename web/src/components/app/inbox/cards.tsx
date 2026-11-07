@@ -128,6 +128,17 @@ function AnswerForm({ msg, h }: { msg: Message; h: InboxHandlers }) {
   );
 }
 
+// Factory escalation answers read as what they do (dependency-wait-escalations 2.2); other options as written.
+const answerLabels: Record<string, string> = {
+  keep_waiting: "Keep waiting",
+  drop_dependency: "Stop waiting for this task",
+  reset_workspace: "Reset the workspace",
+};
+
+export function optionLabel(o: string): string {
+  return answerLabels[o] ?? o.replace(/[-_]/g, " ");
+}
+
 function Options({ q, value, onChange }: { q: Question; value?: string; onChange: (v: string) => void }) {
   const opts = q.options ?? [];
   const other = value !== undefined && !opts.includes(value);
@@ -145,7 +156,7 @@ function Options({ q, value, onChange }: { q: Question; value?: string; onChange
             <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", on && "border-foreground bg-foreground")}>
               {on && <span className="size-1.5 rounded-full bg-background" />}
             </span>
-            <span className="min-w-0 break-words">{isOther ? "Something else…" : o.replace(/[-_]/g, " ")}</span>
+            <span className="min-w-0 break-words">{isOther ? "Something else…" : optionLabel(o)}</span>
           </button>
         );
       })}

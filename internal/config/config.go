@@ -805,6 +805,8 @@ func (c *Catalog) finish(src source, a *Agent) error {
 			}
 			ctx.WriteString("\n")
 		}
+		// dependency-wait-escalations 3.2: a planned wait is a dependency, never a manual block.
+		ctx.WriteString("Waiting: a task with open dependencies waits and starts by itself when they are done; never block it to hold it (that is refused, and only the owner clears a block). To make a task wait for work, add that work as a dependency. A stalled escalation about a planned wait: answer keep_waiting; drop_dependency removes the dependency.\n")
 	}
 	a.Instructions = ctx.String()
 	return nil

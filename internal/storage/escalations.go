@@ -48,7 +48,9 @@ type EscalationWant struct {
 
 // escalationAnswers are the allowed answers per reason; their effects are in applyEscalationAnswer.
 var escalationAnswers = map[string][]string{
-	"stalled":                 {"unblock", "cancel"},
+	// stalled: keep_waiting keeps the plan (dependency-wait-escalations 2.1); drop_dependency was unblock, which
+	// stays accepted from older clients.
+	"stalled":                 {"keep_waiting", "drop_dependency", "cancel"},
 	"pinned_node_unavailable": {"reset_workspace", "cancel"},
 	"workspace_diverged":      {"reset_workspace", "cancel"},
 }
@@ -73,22 +75,45 @@ func (s *Store) SyncEscalations(ctx context.Context, company, reason string, wan
 	for _, e := range open {
 		current[e.TaskID+"\x00"+e.RefID] = e
 	}
+	// Each escalation opens and closes in its own savepoint: one task that fails is skipped and reported, the
+	// others are synced (dependency-wait-escalations 0.2).
+	var failed SweepErrors
+	isolated := func(task string, f func() error) error {
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT sync_escalation"); err != nil {
+			return err
+		}
+		if err := f(); err != nil {
+			if _, rerr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT sync_escalation"); rerr != nil {
+				return rerr
+			}
+			failed = append(failed, SweepFailure{TaskID: task, Err: err})
+			return nil
+		}
+		_, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT sync_escalation")
+		return err
+	}
 	for _, w := range want {
 		key := w.TaskID + "\x00" + w.RefID
 		if _, ok := current[key]; ok {
 			delete(current, key)
 			continue
 		}
-		if err = openEscalation(ctx, tx, reason, answers, w); err != nil {
+		if err = isolated(w.TaskID, func() error { return openEscalation(ctx, tx, reason, answers, w) }); err != nil {
 			return err
 		}
 	}
 	for _, e := range current {
-		if err = closeEscalation(ctx, tx, e, "cleared", "", "system", "condition cleared"); err != nil {
+		if err = isolated(e.TaskID, func() error { return closeEscalation(ctx, tx, e, "cleared", "", "system", "condition cleared") }); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	if len(failed) > 0 {
+		return failed
+	}
+	return nil
 }
 
 func openEscalation(ctx context.Context, tx *Tx, reason string, answers []string, w EscalationWant) error {
@@ -158,6 +183,13 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 	}
 	e := es[0]
 	answer, _ := in.Answers[EscalationAnswerID].(string)
+	if e.Reason == "stalled" {
+		// Escalations opened before dependency-wait-escalations offer unblock; every stalled one takes today's answers.
+		if answer == "unblock" {
+			answer = "drop_dependency"
+		}
+		e.Answers = escalationAnswers["stalled"]
+	}
 	if !slices.Contains(e.Answers, answer) {
 		return inputError("escalation answer must be one of " + strings.Join(e.Answers, ", "))
 	}
@@ -182,8 +214,8 @@ func answerEscalation(ctx context.Context, tx *Tx, m messaging.Message, in messa
 		return err
 	}
 	t, err := taskTx(ctx, tx, e.TaskID)
-	if err != nil || t.Status == "DONE" || t.Status == "CANCELLED" || answer == "accept" {
-		return err // accept leaves the task idle until new input
+	if err != nil || t.Status == "DONE" || t.Status == "CANCELLED" || answer == "accept" || answer == "keep_waiting" {
+		return err // accept leaves the task idle until new input; keep_waiting leaves it in its wait
 	}
 	return addTrigger(ctx, tx, &t, "answer", authority, in.Sender, m.ID, "escalation "+e.Reason+": "+answer)
 }
@@ -241,7 +273,9 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			}
 		}
 		return comment(ctx, tx, t.ID, actor, "reset_workspace: continue from the remote branch; unpushed work stays on node "+e.RefID)
-	case "unblock": // stalled: stop waiting on the stuck dependency
+	case "keep_waiting": // stalled: the wait is planned; the sweep snoozes it (KeptWaiting)
+		return comment(ctx, tx, t.ID, actor, "escalation stalled: keeps waiting on "+e.RefID)
+	case "drop_dependency", "unblock": // stalled: stop waiting on the stuck dependency
 		if !slices.Contains(t.Dependencies, e.RefID) {
 			// A stuck child of a task parked on its children: the parent stops waiting on its children.
 			if err = clearParks(ctx, tx, t, tasks.ParkChildren, anyRef, "overridden"); err != nil {

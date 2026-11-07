@@ -71,6 +71,22 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		err := c.Store.SetSessionAffinity(r.Context(), c.companyFrom(r), time.Duration(p.ReleaseMinutes)*time.Minute)
 		reply(w, map[string]any{"release_minutes": p.ReleaseMinutes}, err)
 	})
+	// How long a planned BACKLOG dependency may stay unchanged before its waiting task escalates as stalled
+	// (dependency-wait-escalations 1.1).
+	m.HandleFunc("GET /settings/company/stalls", func(w http.ResponseWriter, r *http.Request) {
+		d, err := c.Store.StallBacklogAfter(r.Context(), c.companyFrom(r))
+		reply(w, map[string]any{"backlog_after_minutes": int64(d / time.Minute)}, err)
+	})
+	m.HandleFunc("PUT /settings/company/stalls", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			BacklogAfterMinutes int64 `json:"backlog_after_minutes"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		err := c.Store.SetStallBacklogAfter(r.Context(), c.companyFrom(r), time.Duration(p.BacklogAfterMinutes)*time.Minute)
+		reply(w, map[string]any{"backlog_after_minutes": p.BacklogAfterMinutes}, err)
+	})
 	// The company's time zone sets the day of the daily retry budget (reliable-recovery D2).
 	m.HandleFunc("GET /settings/company/time_zone", func(w http.ResponseWriter, r *http.Request) {
 		zone, err := c.Store.CompanyTimeZone(r.Context(), c.companyFrom(r))
@@ -320,6 +336,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				http.Error(w, "authority over the task required to cancel it", 403)
 				return
 			}
+		}
+		if p.Action == "block" && c.dependencyWaitBlock(w, r, p.Actor) {
+			return
 		}
 		if p.Action == "ready" {
 			t, err := c.Store.Task(r.Context(), c.companyFrom(r), r.PathValue("id"))
@@ -581,4 +600,30 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 		return err
 	}
 	return nil
+}
+
+// dependencyWaitBlock refuses an agent's block of a task that already waits on open dependencies and is held by
+// nothing else (dependency-wait-escalations 3.1): waiting is not a manual block, which only the owner clears. The
+// owner's block stays allowed. It reports whether it answered the request.
+func (c *Core) dependencyWaitBlock(w http.ResponseWriter, r *http.Request, actor string) bool {
+	company := c.companyFrom(r)
+	if _, agent := c.cat(company).Agents[actor]; !agent {
+		return false
+	}
+	t, err := c.Store.Task(r.Context(), company, r.PathValue("id"))
+	if err != nil || t.Status != "READY" || t.BlockReason != "" {
+		return false
+	}
+	waiting := []string{}
+	for _, id := range t.Dependencies {
+		if d, err := c.Store.Task(r.Context(), company, id); err == nil && d.Status != "DONE" {
+			waiting = append(waiting, id)
+		}
+	}
+	if len(waiting) == 0 {
+		return false
+	}
+	http.Error(w, "task "+t.ID+" already waits on its dependencies ("+strings.Join(waiting, ", ")+") and starts by itself when they are done; "+
+		"do not block it. If a stalled escalation asks about it, answer keep_waiting. To make it wait for other work, add that task as a dependency.", 409)
+	return true
 }

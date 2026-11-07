@@ -282,7 +282,7 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 		if len(msg.Questions) == 1 && q.Type == "single_choice" {
 			opts := []string{}
 			for i, o := range q.Options {
-				label := " " + o + " "
+				label := " " + optionLabel(o) + " "
 				if i == s.option {
 					label = lipgloss.NewStyle().Background(theme.accent).Foreground(theme.onAccent).Bold(true).Render(label)
 				} else {
@@ -326,4 +326,16 @@ func byteSize(n int64) string {
 		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// optionLabel shows a Factory escalation answer as what it does (dependency-wait-escalations 2.2); the answer sent
+// stays the option itself.
+func optionLabel(o string) string {
+	switch o {
+	case "keep_waiting":
+		return "Keep waiting"
+	case "drop_dependency":
+		return "Stop waiting for this task"
+	}
+	return o
 }

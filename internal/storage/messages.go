@@ -277,10 +277,6 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	if m.Recipient == "owner" {
 		m.DeliveryStatus = "NONE"
 	}
-	// An agent recipient gets the message as a trigger on its conversation task (hierarchy D5).
-	if err = deliverTx(ctx, tx, &m); err != nil {
-		return m, err
-	}
 	canonical, _ := json.Marshal(m.Questions)
 	// Factory's own questions (escalations, quota) are deduplicated by their escalation, not by text: an escalation
 	// cleared and opened again asks the same words, so its request id is part of the fingerprint.
@@ -289,6 +285,22 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		unique = "\x00" + in.RequestID
 	}
 	fingerprint := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.ToLower(m.Body)), " ") + "\x00" + m.Sender + "\x00" + m.Recipient + "\x00" + m.TaskID + "\x00" + string(canonical) + unique))
+	if m.Sender == "factory" && m.MessageType == "question" {
+		// A Factory question already asked (same escalation) is that question, never an insert error: a failed
+		// insert would abort the transaction and, in a background sweep, stop Core (dependency-wait-escalations 0.1).
+		var existing string
+		err = tx.QueryRowContext(ctx, "SELECT id FROM messages WHERE company_id=? AND conversation_id=? AND fingerprint=? AND message_type='question'", tx.company, m.ConversationID, hex.EncodeToString(fingerprint[:])).Scan(&existing)
+		if err == nil {
+			return messageTx(ctx, tx, existing)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return m, err
+		}
+	}
+	// An agent recipient gets the message as a trigger on its conversation task (hierarchy D5).
+	if err = deliverTx(ctx, tx, &m); err != nil {
+		return m, err
+	}
 	b, _ := json.Marshal(m)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:]), tx.company); err != nil {
 		return m, err
@@ -397,7 +409,15 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	}
 	// Options are suggestions: a free-text body without form answers is always an answer (hierarchy D3).
 	if len(in.Answers) > 0 {
-		if err = validAnswers(m.Questions, in.Answers); err != nil {
+		qs := m.Questions
+		if m.Sender == "factory" && len(qs) == 1 && (slices.Contains(qs[0].Options, "unblock") || slices.Contains(qs[0].Options, "drop_dependency")) {
+			// A stalled escalation takes today's answers and the legacy unblock, whichever words its question was
+			// asked with (dependency-wait-escalations 2.2); answerEscalation applies them.
+			q := qs[0]
+			q.Options = append(slices.Clone(q.Options), "keep_waiting", "drop_dependency", "unblock")
+			qs = []messaging.Question{q}
+		}
+		if err = validAnswers(qs, in.Answers); err != nil {
 			return m, err
 		}
 	}
