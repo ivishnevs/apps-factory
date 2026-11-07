@@ -53,3 +53,19 @@ The product ships a large, ready-configured catalog of skills and agents, and re
 person who does not want to deal with settings picks a ready team; one who does builds their own team by choosing
 agents from the catalog (and adjusting them). Which agents, skills and teams exactly is generated during
 implementation (by field, with the game studio as the pilot), not decided up front.
+
+## Implementation (2026-11-07)
+
+- Library: 30 agent presets (software 11, games 7, growth 3, content 3, business 6) and 10 team presets (Game studio,
+  Web product, Growth, Content studio, Business operations, plus the five earlier ones), 15 Factory skills (12 new,
+  Apache-2.0, each with an eval task).
+- Format: `category` and `examples` on presets, validated by the loader; skills carry `license` and `metadata.eval`,
+  with an 8 KiB / 64 KiB budget checked by a test; `docs/library.md`.
+- Web: Teams & agents → Library (fields, search, Create this team, Add to a team); Skills shows "What agents can do"
+  first and sources under "Advanced".
+- Pilot: the game studio presets are the owner's running Gnome Arena team (producer, designer, gameplay, network
+  and UI developers, 2D artist, QA; designer reviews art, producer reviews design and QA work) generalised; it has
+  been running on the owner's project since 2026-11-06, and its fixes (lead review of uncovered roles, art review,
+  two concurrent runs for busy roles) are in the presets.
+- Decided during implementation: the concrete list above (owner: "generated during implementation"); business
+  presets that touch money, law or hiring prepare work for people and never decide.

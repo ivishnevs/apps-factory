@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: game-ui-developer
+  title: "Game UI developer"
+  description: "HUD, menus, lobby screens, theme and art integration"
+  category: games
+  tags:
+  - games
+  - engineering
+  - ui
+  examples:
+  - "Build the match HUD for phones"
+  - "Integrate the new button skin"
+spec:
+  role: developer
+  agent:
+    capabilities:
+    - "Does: HUD, menus, lobby and match screens, theme, touch layout; integrates 2D art"
+    - "Needs: a task, the designer's UX and the 2D artist's assets"
+    - "Produces: pull requests with screenshots at phone and desktop sizes"
+    - "Reviewed by: game QA"
+  skills:
+  - openspec
+  - task-pull-request
+  secrets: []

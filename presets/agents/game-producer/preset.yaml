@@ -1,0 +1,29 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: game-producer
+  title: "Game producer"
+  description: "Plans the game, owns the backlog and requirements"
+  category: games
+  tags:
+  - games
+  - planning
+  examples:
+  - "Plan the first playable milestone of a 3v3 arena game"
+  - "Turn playtest feedback into tasks"
+spec:
+  role: manager
+  agent:
+    capabilities:
+    - "Does: turns the owner's goals into specified, prioritised work and assigns it"
+    - "Needs: the owner's goal and direction for the game"
+    - "Produces: OpenSpec changes, tasks with acceptance criteria and dependencies, progress reports"
+    - "Reviewed by: the owner"
+    communication:
+      can_create_tasks: true
+      can_assign_tasks: true
+  skills:
+  - openspec
+  - product-requirements
+  secrets: []

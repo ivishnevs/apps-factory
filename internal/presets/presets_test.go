@@ -165,3 +165,43 @@ func TestPresetCapabilities(t *testing.T) {
 		}
 	}
 }
+
+// TestFactorySkills (default-agent-library 2.2): every Factory skill shipped in the release has a license, an eval
+// (an example task and what good output contains) and stays within the size budget.
+func TestFactorySkills(t *testing.T) {
+	dirs, err := os.ReadDir("../../skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		dir := filepath.Join("../../skills", d.Name())
+		b, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(b)
+		fm := s
+		if i := strings.Index(s[4:], "\n---"); strings.HasPrefix(s, "---\n") && i > 0 {
+			fm = s[:i+4]
+		}
+		if !strings.Contains(fm, "\nlicense: ") || !strings.Contains(fm, "\n  eval: ") {
+			t.Errorf("skill %s: license and metadata.eval required", d.Name())
+		}
+		if len(b) > 8<<10 {
+			t.Errorf("skill %s: SKILL.md is %d bytes, budget 8 KiB", d.Name(), len(b))
+		}
+		var total int64
+		_ = filepath.Walk(dir, func(_ string, fi os.FileInfo, _ error) error {
+			if fi != nil && !fi.IsDir() {
+				total += fi.Size()
+			}
+			return nil
+		})
+		if total > 64<<10 {
+			t.Errorf("skill %s: %d bytes, budget 64 KiB", d.Name(), total)
+		}
+	}
+}

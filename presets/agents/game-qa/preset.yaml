@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: game-qa
+  title: "Game QA"
+  description: "Reviews code and playtests builds"
+  category: games
+  tags:
+  - games
+  - quality
+  examples:
+  - "Review a netcode pull request"
+  - "Playtest the new map"
+spec:
+  role: qa
+  agent:
+    capabilities:
+    - "Does: reviews pull requests, runs tests, bot matches and playtests, reports defects"
+    - "Needs: submitted work with its task and acceptance criteria"
+    - "Produces: review verdicts, defect reports with evidence, what-to-try checklists"
+    - "Reviewed by: the producer"
+  skills:
+  - openspec
+  - code-review
+  - game-playtest
+  secrets: []

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Crown, FileText, FolderGit2, History, Plus, Users } from "lucide-react";
+import { BookOpen, ChevronRight, Crown, FileText, FolderGit2, History, Plus, Users } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import Link from "@/components/app/link";
@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/ap
 import { Editor, HistoryList } from "@/components/app/team/catalog";
 import { NewTeamSheet, SetupBanner } from "@/components/app/team/builder";
 import { CatalogChanges, CatalogFile } from "@/components/app/team/catalog-tools";
+import { PresetLibrary } from "@/components/app/team/library";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,7 @@ function Teams() {
       <Tabs defaultValue="teams">
         <TabsList className="mb-4">
           <TabsTrigger value="teams"><Users className="size-4" />Teams</TabsTrigger>
+          <TabsTrigger value="library"><BookOpen className="size-4" />Library</TabsTrigger>
           <TabsTrigger value="documents"><FileText className="size-4" />Advanced (YAML)</TabsTrigger>
           <TabsTrigger value="history"><History className="size-4" />History</TabsTrigger>
         </TabsList>
@@ -94,6 +96,7 @@ function Teams() {
             </div>
           )}
         </TabsContent>
+        <TabsContent value="library"><PresetLibrary manage={manage} /></TabsContent>
         <TabsContent value="history">
           <div className="space-y-6">
             <section><h2 className="mb-2 text-sm font-medium text-muted-foreground">Changes</h2><CatalogChanges manage={manage} /></section>

@@ -5,9 +5,13 @@ metadata:
   name: product-owner
   title: Product owner
   description: Owns the requirements and the plan
+  category: software
   tags:
   - product
   - planning
+  examples:
+  - "Write requirements for a feature"
+  - "Plan the next milestone"
 spec:
   role: manager
   agent:

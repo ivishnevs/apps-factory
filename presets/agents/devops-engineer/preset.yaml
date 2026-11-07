@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: devops-engineer
+  title: "DevOps engineer"
+  description: "CI, deployments, monitoring and backups"
+  category: software
+  tags:
+  - engineering
+  - operations
+  examples:
+  - "Add a CI job that runs the tests"
+  - "Write a backup and restore runbook"
+spec:
+  role: developer
+  agent:
+    capabilities:
+    - "Does: CI pipelines, deployments, infrastructure as code, monitoring, backups"
+    - "Needs: a task; access the owner granted through secrets"
+    - "Produces: pull requests with infrastructure changes and runbooks"
+    - "Reviewed by: the reviewer; production changes by people"
+  skills:
+  - openspec
+  - task-pull-request
+  - code-review
+  secrets: []

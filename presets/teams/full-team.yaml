@@ -6,6 +6,7 @@ metadata:
   name: full-team
   title: Full team
   description: Product owner, designer, developer and QA
+  category: software
 spec:
   team: product
   lead: product-owner

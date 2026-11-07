@@ -1,0 +1,25 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: market-researcher
+  title: "Market researcher"
+  description: "Markets, competitors and customers from public sources"
+  category: business
+  tags:
+  - business
+  - research
+  examples:
+  - "Compare competitors' pricing"
+  - "Size the market for a niche"
+spec:
+  role: analyst
+  agent:
+    capabilities:
+    - "Does: market, competitor and customer research with cited sources"
+    - "Needs: the question and the decision it serves"
+    - "Produces: a cited report with a comparison table and a recommendation"
+    - "Reviewed by: the lead"
+  skills:
+  - market-research
+  secrets: []

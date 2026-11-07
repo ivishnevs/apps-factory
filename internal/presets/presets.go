@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -39,7 +40,14 @@ type Meta struct {
 	Title       string   `yaml:"title" json:"title"`
 	Description string   `yaml:"description" json:"description"`
 	Tags        []string `yaml:"tags" json:"tags,omitempty"`
+	// Category is the library's field (default-agent-library): software, games, growth, content or business.
+	Category string `yaml:"category" json:"category"`
+	// Examples are tasks the preset is made for (the library shows them; eval seeds for an agent preset).
+	Examples []string `yaml:"examples" json:"examples,omitempty"`
 }
+
+// Categories are the library's fields, in display order.
+var Categories = []string{"software", "games", "growth", "content", "business"}
 
 // Agent is an agent preset.
 type Agent struct {
@@ -140,6 +148,8 @@ func Load(root string) (*Library, error) {
 			return nil, fmt.Errorf("agent preset %s: kind AgentPreset named as its directory", e.Name())
 		case a.Spec.Role == "" || strings.TrimSpace(a.Prompt) == "":
 			return nil, fmt.Errorf("agent preset %s: role and prompt required", e.Name())
+		case !slices.Contains(Categories, a.Metadata.Category) || len(a.Metadata.Examples) == 0:
+			return nil, fmt.Errorf("agent preset %s: category (one of %s) and example tasks required", e.Name(), strings.Join(Categories, ", "))
 		}
 		for _, s := range a.Spec.Skills {
 			if _, err := os.Stat(filepath.Join(root, "skills", s, "SKILL.md")); err != nil {
@@ -188,6 +198,9 @@ func Load(root string) (*Library, error) {
 			if ta.Key == t.Spec.Lead && ta.ReportsTo != "owner" {
 				return nil, fmt.Errorf("team preset %s: the lead reports to the owner", n)
 			}
+		}
+		if !slices.Contains(Categories, t.Metadata.Category) {
+			return nil, fmt.Errorf("team preset %s: category one of %s required", n, strings.Join(Categories, ", "))
 		}
 		if !keys[t.Spec.Lead] {
 			return nil, fmt.Errorf("team preset %s: lead %q is not an agent of the team", n, t.Spec.Lead)

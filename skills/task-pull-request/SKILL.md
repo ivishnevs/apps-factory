@@ -1,8 +1,10 @@
 ---
 name: task-pull-request
 description: Finish a code task through its pull request - submit for review, then after approval update from the default branch, resolve conflicts, merge with gh pr merge and exit done.
+license: Apache-2.0
 metadata:
   categories: git, review
+  eval: "Finish a reviewed code task. Good: updated from the default branch, conflicts resolved, merged with gh pr merge, exit done."
 ---
 
 A code task runs on its own branch (`af/<task>…`) in its own worktree. The branch reaches the default branch

@@ -1,8 +1,10 @@
 ---
 name: mobile-app-testing
 description: Drive and verify iOS and Android apps without touching the host UI - debug launch arguments, deep links and UI tests by accessibility identifier.
+license: Apache-2.0
 metadata:
   categories: mobile, ios, android, testing
+  eval: "Test a sign-up screen in the iOS simulator. Good: build, run, screenshots of each state, defects with steps."
 ---
 
 Never drive the host's UI. Clicking or typing into Simulator.app, the Android emulator window or any other

@@ -379,13 +379,16 @@ export default function Page() {
       ) : (
         <Tabs defaultValue="installed">
           <TabsList className="mb-4">
-            <TabsTrigger value="installed"><Sparkles className="size-4" />Installed</TabsTrigger>
+            <TabsTrigger value="installed"><Sparkles className="size-4" />What agents can do</TabsTrigger>
             <TabsTrigger value="library"><BookOpen className="size-4" />Library</TabsTrigger>
-            <TabsTrigger value="sources"><FolderGit2 className="size-4" />Sources</TabsTrigger>
+            <TabsTrigger value="sources"><FolderGit2 className="size-4" />Advanced: sources</TabsTrigger>
           </TabsList>
           <TabsContent value="installed"><Installed manage={manage} base={base} /></TabsContent>
           <TabsContent value="library"><Library manage={manage} base={base} /></TabsContent>
-          <TabsContent value="sources"><Sources manage={manage} /></TabsContent>
+          <TabsContent value="sources">
+            <p className="mb-3 text-sm text-muted-foreground">Git, private and archive sources add your own skills beyond the library. Most companies do not need them.</p>
+            <Sources manage={manage} />
+          </TabsContent>
         </Tabs>
       )}
     </>

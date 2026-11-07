@@ -1,0 +1,114 @@
+# Team preset (team-builder D1, default-agent-library): copied into a company catalog under team-prefixed names.
+apiVersion: factory/v1
+kind: TeamPreset
+metadata:
+  name: business-ops
+  title: "Business operations"
+  description: "Product manager with research, analytics, support, finance, recruiting and legal drafting"
+  category: business
+spec:
+  team: ops
+  lead: product-manager
+  agents:
+  - key: product-manager
+    preset: product-manager
+    reports_to: owner
+    can_message:
+    - researcher
+    - analyst
+    - support
+    - finance
+    - recruiter
+    - legal
+    - owner
+  - key: researcher
+    preset: market-researcher
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - analyst
+    - support
+    - finance
+    - recruiter
+    - legal
+  - key: analyst
+    preset: data-analyst
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - researcher
+    - support
+    - finance
+    - recruiter
+    - legal
+  - key: support
+    preset: support-agent
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - researcher
+    - analyst
+    - finance
+    - recruiter
+    - legal
+  - key: finance
+    preset: finance-analyst
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - researcher
+    - analyst
+    - support
+    - recruiter
+    - legal
+  - key: recruiter
+    preset: recruiter
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - researcher
+    - analyst
+    - support
+    - finance
+    - legal
+  - key: legal
+    preset: legal-drafter
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - researcher
+    - analyst
+    - support
+    - finance
+    - recruiter
+  profile:
+    workspace:
+      mode: worktree
+    runtime:
+      provider: claude
+      model: default
+      quota_key: claude-subscription
+    tools:
+      mode: denylist
+    approvals:
+      mode: selective
+    execution:
+      max_concurrent_runs: 1
+      timeout: 60m
+      max_retries: 0
+    communication:
+      can_message:
+      - owner
+  policies:
+    review:
+      rules:
+      - name: lead-review
+        type: review
+        required: true
+        reviewer: '@product-manager'
+        roles:
+        - analyst
+        - support
+        - coordinator
+        - writer
+        instruction: "Work is reviewed by the product manager; money, legal and hiring decisions are people's."

@@ -6,6 +6,7 @@ metadata:
   name: product-team
   title: Product team
   description: Product owner, developer and reviewer
+  category: software
 spec:
   team: product
   lead: product-owner

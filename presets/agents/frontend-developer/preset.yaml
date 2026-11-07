@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: frontend-developer
+  title: "Frontend developer"
+  description: "Web interfaces, accessible and responsive"
+  category: software
+  tags:
+  - engineering
+  - frontend
+  examples:
+  - "Build the settings page"
+  - "Fix keyboard navigation in the menu"
+spec:
+  role: developer
+  agent:
+    capabilities:
+    - "Does: web screens and components, accessible and responsive"
+    - "Needs: a task, the designer's flows and the API it uses"
+    - "Produces: pull requests with screenshots on phone and desktop"
+    - "Reviewed by: the reviewer or QA"
+  skills:
+  - openspec
+  - task-pull-request
+  - code-review
+  secrets: []

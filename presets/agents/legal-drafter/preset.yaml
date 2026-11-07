@@ -1,0 +1,25 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: legal-drafter
+  title: "Legal drafter"
+  description: "Drafts business documents for a lawyer's review"
+  category: business
+  tags:
+  - business
+  - legal
+  examples:
+  - "Draft terms of service"
+  - "Review a contractor agreement for risks"
+spec:
+  role: writer
+  agent:
+    capabilities:
+    - "Does: drafts terms, privacy notes and simple contracts with risks flagged"
+    - "Needs: jurisdiction, parties and the business facts"
+    - "Produces: drafts marked not legal advice, with a risk list"
+    - "Reviewed by: a lawyer and the owner"
+  skills:
+  - legal-draft
+  secrets: []

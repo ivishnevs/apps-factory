@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: backend-developer
+  title: "Backend developer"
+  description: "APIs, data and services with tests"
+  category: software
+  tags:
+  - engineering
+  - backend
+  examples:
+  - "Add an endpoint to export items as CSV"
+  - "Add a migration for soft-deleted users"
+spec:
+  role: developer
+  agent:
+    capabilities:
+    - "Does: APIs, data models, migrations and services with tests"
+    - "Needs: a task with acceptance criteria and the spec it implements"
+    - "Produces: pull requests with passing tests and migration notes"
+    - "Reviewed by: the reviewer or QA"
+  skills:
+  - openspec
+  - task-pull-request
+  - code-review
+  secrets: []

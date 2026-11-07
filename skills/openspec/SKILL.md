@@ -1,8 +1,10 @@
 ---
 name: openspec
 description: Work with a project's OpenSpec specifications and changes in its repository.
+license: Apache-2.0
 metadata:
   categories: planning, documentation
+  eval: "Write a small OpenSpec change for adding CSV export. Good: proposal, tasks and a delta spec that validate with openspec validate --strict."
 ---
 
 Read the relevant project specification and active change before changing behavior.

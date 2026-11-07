@@ -1,0 +1,25 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: editor
+  title: "Editor"
+  description: "Edits for clarity, accuracy and style"
+  category: content
+  tags:
+  - content
+  - review
+  examples:
+  - "Edit a blog post"
+  - "Check facts in a case study"
+spec:
+  role: reviewer
+  agent:
+    capabilities:
+    - "Does: edits drafts for clarity, accuracy, structure and style"
+    - "Needs: a draft and its brief"
+    - "Produces: edited drafts with a change note, a verdict"
+    - "Reviewed by: the content lead"
+  skills:
+  - writing-editing
+  secrets: []

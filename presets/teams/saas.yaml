@@ -6,6 +6,7 @@ metadata:
   name: saas
   title: SaaS team
   description: Product owner, two developers and a reviewer for a web product
+  category: software
 spec:
   team: saas
   lead: product-owner

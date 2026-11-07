@@ -1,0 +1,26 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: social-media-manager
+  title: "Social media manager"
+  description: "Posts, calendar and community replies"
+  category: growth
+  tags:
+  - growth
+  - social
+  examples:
+  - "Draft two weeks of launch posts"
+  - "Summarise this week's comments and questions"
+spec:
+  role: marketer
+  agent:
+    capabilities:
+    - "Does: a posting calendar, posts and community replies"
+    - "Needs: the growth plan, brand voice and approved visuals"
+    - "Produces: scheduled drafts and a weekly engagement report"
+    - "Reviewed by: the growth lead; publishing approved by people"
+  skills:
+  - marketing-plan
+  - writing-editing
+  secrets: []

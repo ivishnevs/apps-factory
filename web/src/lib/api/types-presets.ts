@@ -1,6 +1,6 @@
 // The team builder (team-builder D1–D4): the release's presets, an agent's document as fields, the setup status.
 
-export interface PresetMeta { name: string; title: string; description: string; tags?: string[] }
+export interface PresetMeta { name: string; title: string; description: string; tags?: string[]; category?: string; examples?: string[] }
 export interface PresetSecret { name: string; env: string; file?: boolean; why?: string }
 
 export interface AgentPreset {

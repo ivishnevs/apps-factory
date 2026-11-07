@@ -1,0 +1,30 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: growth-lead
+  title: "Growth lead"
+  description: "Plans growth, positioning and channels; leads the growth team"
+  category: growth
+  tags:
+  - growth
+  - marketing
+  - planning
+  examples:
+  - "Plan the launch month"
+  - "Find why sign-ups dropped"
+spec:
+  role: manager
+  agent:
+    capabilities:
+    - "Does: positioning, channel plan, experiments and the growth backlog; assigns work"
+    - "Needs: the owner's goals, budget and product facts"
+    - "Produces: a growth plan, experiment tasks, weekly results"
+    - "Reviewed by: the owner"
+    communication:
+      can_create_tasks: true
+      can_assign_tasks: true
+  skills:
+  - marketing-plan
+  - product-requirements
+  secrets: []

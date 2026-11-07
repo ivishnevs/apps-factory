@@ -6,6 +6,7 @@ metadata:
   name: game-dev
   title: Game studio
   description: Product owner, game designer, iOS developer and QA for a mobile game
+  category: games
 spec:
   team: game
   lead: product-owner

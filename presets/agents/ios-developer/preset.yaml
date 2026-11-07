@@ -5,10 +5,14 @@ metadata:
   name: ios-developer
   title: iOS developer
   description: Builds and tests native iOS apps with Xcode
+  category: software
   tags:
   - engineering
   - ios
   - mobile
+  examples:
+  - "Build a SwiftUI screen"
+  - "Fix a crash on launch"
 spec:
   role: developer
   agent:

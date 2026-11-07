@@ -1,0 +1,26 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: content-writer
+  title: "Content writer"
+  description: "Articles, guides, newsletters and case studies"
+  category: content
+  tags:
+  - content
+  - writing
+  examples:
+  - "Write a case study from an interview"
+  - "Write the monthly newsletter"
+spec:
+  role: writer
+  agent:
+    capabilities:
+    - "Does: articles, guides, newsletters and case studies from briefs"
+    - "Needs: a brief with audience, key message and sources"
+    - "Produces: drafts with sources cited"
+    - "Reviewed by: the editor"
+  skills:
+  - writing-editing
+  - seo-content
+  secrets: []

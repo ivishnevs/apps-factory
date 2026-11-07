@@ -1,0 +1,83 @@
+# Team preset (team-builder D1, default-agent-library): copied into a company catalog under team-prefixed names.
+apiVersion: factory/v1
+kind: TeamPreset
+metadata:
+  name: growth
+  title: "Growth team"
+  description: "Growth lead, SEO writer, social media manager, content writer and data analyst"
+  category: growth
+spec:
+  team: growth
+  lead: growth-lead
+  agents:
+  - key: growth-lead
+    preset: growth-lead
+    reports_to: owner
+    can_message:
+    - seo-writer
+    - social
+    - writer
+    - analyst
+    - owner
+  - key: seo-writer
+    preset: seo-writer
+    reports_to: growth-lead
+    can_message:
+    - growth-lead
+    - social
+    - writer
+    - analyst
+  - key: social
+    preset: social-media-manager
+    reports_to: growth-lead
+    can_message:
+    - growth-lead
+    - seo-writer
+    - writer
+    - analyst
+  - key: writer
+    preset: content-writer
+    reports_to: growth-lead
+    can_message:
+    - growth-lead
+    - seo-writer
+    - social
+    - analyst
+  - key: analyst
+    preset: data-analyst
+    reports_to: growth-lead
+    can_message:
+    - growth-lead
+    - seo-writer
+    - social
+    - writer
+  profile:
+    workspace:
+      mode: worktree
+    runtime:
+      provider: claude
+      model: default
+      quota_key: claude-subscription
+    tools:
+      mode: denylist
+    approvals:
+      mode: selective
+    execution:
+      max_concurrent_runs: 1
+      timeout: 60m
+      max_retries: 0
+    communication:
+      can_message:
+      - owner
+  policies:
+    review:
+      rules:
+      - name: lead-review
+        type: review
+        required: true
+        reviewer: '@growth-lead'
+        roles:
+        - writer
+        - marketer
+        - analyst
+        instruction: "Drafts and analyses are reviewed by the growth lead; publishing and spending need people's approval."

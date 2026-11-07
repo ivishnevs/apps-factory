@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: seo-writer
+  title: "SEO writer"
+  description: "Search-friendly articles and pages"
+  category: growth
+  tags:
+  - growth
+  - content
+  - seo
+  examples:
+  - "Write a guide for a high-intent keyword"
+  - "Refresh three underperforming pages"
+spec:
+  role: writer
+  agent:
+    capabilities:
+    - "Does: keyword research and search-friendly pages and articles"
+    - "Needs: the product, the audience and the growth plan"
+    - "Produces: drafts with keywords, structure and on-page basics"
+    - "Reviewed by: the editor or the growth lead"
+  skills:
+  - seo-content
+  - writing-editing
+  secrets: []

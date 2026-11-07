@@ -1,0 +1,27 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: gameplay-developer
+  title: "Gameplay developer"
+  description: "Combat, abilities, movement, camera, controls, bots and levels"
+  category: games
+  tags:
+  - games
+  - engineering
+  examples:
+  - "Implement a dash ability with a cooldown"
+  - "Add bots that capture the flag"
+spec:
+  role: developer
+  agent:
+    capabilities:
+    - "Does: implements gameplay rules, controls, camera, bots and levels with tests"
+    - "Needs: a task and the game designer's spec with numbers"
+    - "Produces: pull requests with passing unit and integration tests"
+    - "Reviewed by: game QA"
+  skills:
+  - openspec
+  - task-pull-request
+  - code-review
+  secrets: []

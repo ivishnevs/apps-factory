@@ -5,8 +5,12 @@ metadata:
   name: developer
   title: Developer
   description: Implements specified tasks
+  category: software
   tags:
   - engineering
+  examples:
+  - "Implement a specified feature with tests"
+  - "Fix a reported bug"
 spec:
   role: developer
   agent:

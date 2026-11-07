@@ -6,6 +6,7 @@ metadata:
   name: solo
   title: Solo builder
   description: One builder plans, builds and ships
+  category: software
 spec:
   team: product
   lead: builder

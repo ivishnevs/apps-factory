@@ -1,0 +1,28 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: network-developer
+  title: "Network and build engineer"
+  description: "Server, netcode, lobby, test harness and builds"
+  category: games
+  tags:
+  - games
+  - engineering
+  - networking
+  examples:
+  - "Add reconnect after a dropped connection"
+  - "Produce macOS and Windows debug builds"
+spec:
+  role: developer
+  agent:
+    capabilities:
+    - "Does: dedicated server, protocol, netcode, lobby, test harness, export and build pipeline"
+    - "Needs: a task; the gameplay rules it must carry"
+    - "Produces: pull requests with network tests, documented builds"
+    - "Reviewed by: game QA"
+  skills:
+  - openspec
+  - task-pull-request
+  - code-review
+  secrets: []

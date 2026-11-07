@@ -1,0 +1,25 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: recruiter
+  title: "Recruiter"
+  description: "Role profiles, job posts and structured interviews"
+  category: business
+  tags:
+  - business
+  - people
+  examples:
+  - "Prepare hiring for a support specialist"
+  - "Summarise interview scores"
+spec:
+  role: coordinator
+  agent:
+    capabilities:
+    - "Does: role profiles, job posts, screening questions and interview rubrics"
+    - "Needs: the role's outcomes from the hiring manager"
+    - "Produces: a role profile, a post, a rubric and a candidate summary"
+    - "Reviewed by: the hiring manager; hiring decided by people"
+  skills:
+  - recruiting
+  secrets: []

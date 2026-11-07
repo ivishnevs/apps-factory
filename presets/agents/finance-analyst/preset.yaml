@@ -1,0 +1,26 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: finance-analyst
+  title: "Finance analyst"
+  description: "Models, budgets and reports (not financial advice)"
+  category: business
+  tags:
+  - business
+  - finance
+  examples:
+  - "Model runway for the next 12 months"
+  - "Compute unit economics per plan"
+spec:
+  role: analyst
+  agent:
+    capabilities:
+    - "Does: financial models, budgets, unit economics and monthly reports"
+    - "Needs: prices, costs and actuals from the owner"
+    - "Produces: transparent models with scenarios and a risk list"
+    - "Reviewed by: the owner"
+  skills:
+  - financial-model
+  - data-analysis
+  secrets: []

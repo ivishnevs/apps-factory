@@ -5,9 +5,13 @@ metadata:
   name: reviewer
   title: Reviewer
   description: Reviews submitted work
+  category: software
   tags:
   - engineering
   - review
+  examples:
+  - "Review a pull request"
+  - "Check tests of a change"
 spec:
   role: reviewer
   agent:

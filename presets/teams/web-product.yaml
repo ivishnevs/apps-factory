@@ -1,0 +1,81 @@
+# Team preset (team-builder D1, default-agent-library): copied into a company catalog under team-prefixed names.
+apiVersion: factory/v1
+kind: TeamPreset
+metadata:
+  name: web-product
+  title: "Web product team"
+  description: "Product manager, backend and frontend developers, DevOps and a reviewer"
+  category: software
+spec:
+  team: web
+  lead: product-manager
+  agents:
+  - key: product-manager
+    preset: product-manager
+    reports_to: owner
+    can_message:
+    - backend
+    - frontend
+    - devops
+    - reviewer
+    - owner
+  - key: backend
+    preset: backend-developer
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - frontend
+    - devops
+    - reviewer
+  - key: frontend
+    preset: frontend-developer
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - backend
+    - devops
+    - reviewer
+  - key: devops
+    preset: devops-engineer
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - backend
+    - frontend
+    - reviewer
+  - key: reviewer
+    preset: reviewer
+    reports_to: product-manager
+    can_message:
+    - product-manager
+    - backend
+    - frontend
+    - devops
+  profile:
+    workspace:
+      mode: worktree
+    runtime:
+      provider: claude
+      model: default
+      quota_key: claude-subscription
+    tools:
+      mode: denylist
+    approvals:
+      mode: selective
+    execution:
+      max_concurrent_runs: 1
+      timeout: 60m
+      max_retries: 0
+    communication:
+      can_message:
+      - owner
+  policies:
+    review:
+      rules:
+      - name: code-review
+        type: review
+        required: true
+        reviewer: '@reviewer'
+        roles:
+        - developer
+        instruction: "Code is reviewed before it is merged; submit with factory_exit_submit and merge after an approved verdict."

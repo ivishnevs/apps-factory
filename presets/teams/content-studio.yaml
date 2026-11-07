@@ -1,0 +1,76 @@
+# Team preset (team-builder D1, default-agent-library): copied into a company catalog under team-prefixed names.
+apiVersion: factory/v1
+kind: TeamPreset
+metadata:
+  name: content-studio
+  title: "Content studio"
+  description: "Content lead, writers and an editor"
+  category: content
+spec:
+  team: content
+  lead: content-lead
+  agents:
+  - key: content-lead
+    preset: content-lead
+    reports_to: owner
+    can_message:
+    - writer
+    - seo-writer
+    - editor
+    - owner
+  - key: writer
+    preset: content-writer
+    reports_to: content-lead
+    can_message:
+    - content-lead
+    - seo-writer
+    - editor
+  - key: seo-writer
+    preset: seo-writer
+    reports_to: content-lead
+    can_message:
+    - content-lead
+    - writer
+    - editor
+  - key: editor
+    preset: editor
+    reports_to: content-lead
+    can_message:
+    - content-lead
+    - writer
+    - seo-writer
+  profile:
+    workspace:
+      mode: worktree
+    runtime:
+      provider: claude
+      model: default
+      quota_key: claude-subscription
+    tools:
+      mode: denylist
+    approvals:
+      mode: selective
+    execution:
+      max_concurrent_runs: 1
+      timeout: 60m
+      max_retries: 0
+    communication:
+      can_message:
+      - owner
+  policies:
+    review:
+      rules:
+      - name: editing
+        type: review
+        required: true
+        reviewer: '@editor'
+        roles:
+        - writer
+        instruction: "Drafts are edited and approved by the editor before they count as done."
+      - name: lead-review
+        type: review
+        required: true
+        reviewer: '@content-lead'
+        roles:
+        - reviewer
+        instruction: "The editor's work is reviewed by the content lead."

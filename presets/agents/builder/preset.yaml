@@ -5,10 +5,14 @@ metadata:
   name: builder
   title: Builder
   description: Plans, builds and ships the product alone
+  category: software
   tags:
   - solo
   - engineering
   - planning
+  examples:
+  - "Build and ship a small web app end to end"
+  - "Fix a bug and release"
 spec:
   role: developer
   agent:

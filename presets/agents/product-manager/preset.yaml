@@ -1,0 +1,30 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: product-manager
+  title: "Product manager"
+  description: "Requirements, priorities and the roadmap"
+  category: business
+  tags:
+  - business
+  - product
+  - planning
+  examples:
+  - "Write requirements for team invitations"
+  - "Prioritise the next quarter"
+spec:
+  role: manager
+  agent:
+    capabilities:
+    - "Does: requirements, priorities, roadmap; splits goals into tasks and assigns them"
+    - "Needs: the owner's goals and what users say"
+    - "Produces: requirements, prioritised tasks, a roadmap, release notes"
+    - "Reviewed by: the owner"
+    communication:
+      can_create_tasks: true
+      can_assign_tasks: true
+  skills:
+  - product-requirements
+  - openspec
+  secrets: []

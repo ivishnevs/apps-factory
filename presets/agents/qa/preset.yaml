@@ -5,9 +5,13 @@ metadata:
   name: qa
   title: QA
   description: Verifies delivered behaviour
+  category: software
   tags:
   - quality
   - review
+  examples:
+  - "Verify a feature against its criteria"
+  - "Report defects with steps"
 spec:
   role: qa
   agent:

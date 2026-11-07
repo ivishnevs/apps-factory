@@ -5,8 +5,12 @@ metadata:
   name: designer
   title: Designer
   description: Designs flows and interfaces
+  category: software
   tags:
   - design
+  examples:
+  - "Design the onboarding flow"
+  - "Draw the settings screen states"
 spec:
   role: designer
   agent:

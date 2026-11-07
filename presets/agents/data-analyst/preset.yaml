@@ -1,0 +1,25 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: data-analyst
+  title: "Data analyst"
+  description: "Reproducible analyses and dashboards"
+  category: business
+  tags:
+  - business
+  - analytics
+  examples:
+  - "Explain a drop in sign-ups"
+  - "Define the activation metric"
+spec:
+  role: analyst
+  agent:
+    capabilities:
+    - "Does: reproducible analyses, metrics definitions and simple dashboards"
+    - "Needs: the question, access to the data"
+    - "Produces: scripts in the repository, results with limits stated"
+    - "Reviewed by: the lead"
+  skills:
+  - data-analysis
+  secrets: []

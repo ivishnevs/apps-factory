@@ -1,0 +1,126 @@
+# Team preset (team-builder D1, default-agent-library): copied into a company catalog under team-prefixed names.
+apiVersion: factory/v1
+kind: TeamPreset
+metadata:
+  name: game-studio
+  title: "Game studio"
+  description: "Producer, game designer, gameplay, network and UI developers, 2D artist and QA for a multiplayer game"
+  category: games
+spec:
+  team: game
+  lead: producer
+  agents:
+  - key: producer
+    preset: game-producer
+    reports_to: owner
+    can_message:
+    - game-designer
+    - gameplay-dev
+    - network-dev
+    - ui-dev
+    - artist-2d
+    - game-qa
+    - owner
+  - key: game-designer
+    preset: game-designer
+    reports_to: producer
+    can_message:
+    - producer
+    - gameplay-dev
+    - network-dev
+    - ui-dev
+    - artist-2d
+    - game-qa
+  - key: gameplay-dev
+    preset: gameplay-developer
+    reports_to: producer
+    can_message:
+    - producer
+    - game-designer
+    - network-dev
+    - ui-dev
+    - artist-2d
+    - game-qa
+  - key: network-dev
+    preset: network-developer
+    reports_to: producer
+    can_message:
+    - producer
+    - game-designer
+    - gameplay-dev
+    - ui-dev
+    - artist-2d
+    - game-qa
+  - key: ui-dev
+    preset: game-ui-developer
+    reports_to: producer
+    can_message:
+    - producer
+    - game-designer
+    - gameplay-dev
+    - network-dev
+    - artist-2d
+    - game-qa
+  - key: artist-2d
+    preset: artist-2d
+    reports_to: producer
+    can_message:
+    - producer
+    - game-designer
+    - gameplay-dev
+    - network-dev
+    - ui-dev
+    - game-qa
+  - key: game-qa
+    preset: game-qa
+    reports_to: producer
+    can_message:
+    - producer
+    - game-designer
+    - gameplay-dev
+    - network-dev
+    - ui-dev
+    - artist-2d
+  profile:
+    workspace:
+      mode: worktree
+    runtime:
+      provider: claude
+      model: default
+      quota_key: claude-subscription
+    tools:
+      mode: denylist
+    approvals:
+      mode: selective
+    execution:
+      max_concurrent_runs: 1
+      timeout: 60m
+      max_retries: 0
+    communication:
+      can_message:
+      - owner
+  policies:
+    review:
+      rules:
+      - name: code-review
+        type: review
+        required: true
+        reviewer: '@game-qa'
+        roles:
+        - developer
+        instruction: "Code is reviewed by QA before it is merged; submit with factory_exit_submit and merge after an approved verdict."
+      - name: art-review
+        type: review
+        required: true
+        reviewer: '@game-designer'
+        roles:
+        - artist
+        instruction: "2D art is reviewed by the game designer against the art direction before it is merged."
+      - name: lead-review
+        type: review
+        required: true
+        reviewer: '@producer'
+        roles:
+        - designer
+        - qa
+        instruction: "Design and QA work is reviewed by the producer."

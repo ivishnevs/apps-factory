@@ -63,11 +63,12 @@ export function useSetupBanner() {
 }
 
 // NewTeamSheet: a team from the preset gallery (its agents are named <team>-<key>).
-export function NewTeamSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewTeamSheet({ open, onClose, initialPreset }: { open: boolean; onClose: () => void; initialPreset?: string }) {
   const presets = useTeamPresets();
   const catalog = useCatalog();
   const refresh = useRefresh();
-  const [preset, setPreset] = useState("");
+  const [preset, setPreset] = useState(initialPreset ?? "");
+  useEffect(() => { if (initialPreset) setPreset(initialPreset); }, [initialPreset]);
   const [team, setTeam] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -150,11 +151,15 @@ function OverridesFields({ value, onChange, team, error, presetPrompt }: { value
 }
 
 // AddAgentSheet: an agent from an agent preset (with overrides) or a custom one, in team.
-export function AddAgentSheet({ team, open, onClose }: { team: TeamView; open: boolean; onClose: () => void }) {
+export function AddAgentSheet({ team, open, onClose, initialPreset }: { team: TeamView; open: boolean; onClose: () => void; initialPreset?: string }) {
   const presets = useAgentPresets();
   const catalog = useCatalog();
   const refresh = useRefresh();
   const [preset, setPreset] = useState<AgentPreset | null>(null);
+  useEffect(() => {
+    const p = initialPreset ? presets.data?.find((x) => x.metadata.name === initialPreset) : undefined;
+    if (p) { setPreset(p); setName((n) => n || p.metadata.name); }
+  }, [initialPreset, presets.data]);
   const [name, setName] = useState("");
   const [ov, setOv] = useState<AgentOverrides>({});
   const [role, setRole] = useState("developer");

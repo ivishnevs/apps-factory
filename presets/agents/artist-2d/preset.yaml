@@ -1,0 +1,25 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: artist-2d
+  title: "2D artist"
+  description: "UI art, icons, key art and textures with image generation"
+  category: games
+  tags:
+  - games
+  - art
+  examples:
+  - "Draw a family of 12 spell icons"
+  - "Make the app icon in three sizes"
+spec:
+  role: artist
+  agent:
+    capabilities:
+    - "Does: UI skin, HUD elements, icons, portraits, key art, app icon and textures"
+    - "Needs: the game designer's art direction and asset manifest"
+    - "Produces: checked assets in pull requests with a contact sheet and an in-game screenshot"
+    - "Reviewed by: the game designer"
+  skills:
+  - task-pull-request
+  secrets: []

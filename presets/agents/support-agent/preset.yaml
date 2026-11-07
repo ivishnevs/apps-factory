@@ -1,0 +1,26 @@
+# Agent preset (team-builder D1, default-agent-library): copied into a company catalog, never linked.
+apiVersion: factory/v1
+kind: AgentPreset
+metadata:
+  name: support-agent
+  title: "Support agent"
+  description: "Answers customers and turns patterns into fixes"
+  category: business
+  tags:
+  - business
+  - support
+  examples:
+  - "Answer this week's open tickets"
+  - "Write a help article for the top question"
+spec:
+  role: support
+  agent:
+    capabilities:
+    - "Does: answers customer requests, tags them, drafts help articles"
+    - "Needs: product knowledge and the support inbox access people grant"
+    - "Produces: answers, tagged requests, weekly patterns and help articles"
+    - "Reviewed by: the lead; refunds and promises by people"
+  skills:
+  - customer-support
+  - writing-editing
+  secrets: []
