@@ -71,7 +71,11 @@ func (s *Store) Messages(ctx context.Context, company, conversation string) ([]m
 	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND conversation_id=? ORDER BY seq", company, conversation)
 }
 func (s *Store) Inbox(ctx context.Context, company, project string) ([]messaging.Message, error) {
-	return s.presentMessages(ctx, company, "SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND status IN ('PENDING','UNREAD'))) ORDER BY created_at,seq", company, project, project)
+	// What is open now (decision-approval-ux, inbox-chat-replies): questions and approvals waiting for an answer,
+	// undecided decision proposals, reports asking for the owner's action, escalations. Notifications and answers
+	// stay in the chat; the Inbox keeps no history.
+	return s.presentMessages(ctx, company, `SELECT body FROM messages WHERE company_id=? AND (?='' OR project_id=?) AND (status='ESCALATED' OR (recipient='owner' AND (
+ message_type='question' AND status='PENDING' OR status='UNREAD' AND (coalesce(body->>'decision_id','')<>'' OR coalesce(body->>'report_id','')<>'')))) ORDER BY created_at,seq`, company, project, project)
 }
 
 func (s *Store) presentMessages(ctx context.Context, company, query string, args ...any) ([]messaging.Message, error) {
@@ -168,6 +172,11 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 			timeout = 86400
 		}
 		m.Deadline = m.CreatedAt + int64(timeout)
+	}
+	// An agent's question, notification or proposal to the owner goes to the owner's chat with that agent when it
+	// exists (decision-approval-ux: questions and decisions come in the chat), not to a thread of its own.
+	if m.ConversationID == "" && in.Recipient == "owner" && in.Sender != "factory" && in.Sender != "system" && in.Sender != "owner" && m.ProjectID != "" {
+		m.ConversationID = ownerChat(ctx, tx, in.Sender, m.ProjectID)
 	}
 	if m.ConversationID == "" {
 		chain := in.RunID

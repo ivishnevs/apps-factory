@@ -40,3 +40,10 @@ questions in answers. Related: `decision-approval-ux`, `telegram-reply-routing`,
 Questions and decisions to approve come from the lead in the chat. The Inbox is the list of what is open now
 (unanswered questions, undecided decisions), answerable in place as today; an answer in the chat or the Inbox removes
 the item. Read-only "To read" items for answered conversations are not kept: what needs no answer stays in the chat.
+
+## Implementation (2026-11-07)
+
+Questions to the owner come in the chat with buttons (agent messages to the owner go to that chat); the Inbox lists
+only open items, each answerable in place; "in chat" opens that conversation. The separate Reply box on read-only
+items is not needed: such items are no longer in the Inbox (owner 2026-11-06). Lead briefs ask with options instead of
+questions inside answers.

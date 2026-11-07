@@ -152,7 +152,7 @@ export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
   Text?: string; Assignee?: string; ReviewBy?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
   Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string;
-  NewProject?: ProjectCreate;
+  NewProject?: ProjectCreate; DecisionID?: string; Status?: string; Value?: string;
 }
 
 // How Core provisions a new project's repository (project-creation).
@@ -165,3 +165,10 @@ export interface ProjectCreate {
 }
 
 export interface Meta { describe: string; mode: "live" | "demo" }
+
+// A project decision (internal/decisions Decision): proposed, under_discussion, approved, rejected or superseded.
+export interface Decision {
+  id: string; project_id: string; category?: string; topic: string; status: string; value: string; alternatives?: string[];
+  rationale: string; created_by: string; approved_by?: string; review_rationale?: string; version: number; task_id?: string;
+  message_id?: string; created_at: number; updated_at: number;
+}

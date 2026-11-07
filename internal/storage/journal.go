@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -270,7 +271,7 @@ func (s *Store) Decisions(ctx context.Context, company, project, status, topic s
 func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
 	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
 		now := tx.now().Unix()
-		d := decisions.Decision{ID: protocol.ID(), ProjectID: project, Category: in.Category, Topic: canonicalTopic(in.Topic), Status: "proposed", Value: in.Value, Rationale: in.Rationale, CreatedBy: in.Actor, TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
+		d := decisions.Decision{ID: protocol.ID(), ProjectID: project, Category: in.Category, Topic: canonicalTopic(in.Topic), Status: "proposed", Value: in.Value, Alternatives: in.Alternatives, Rationale: in.Rationale, CreatedBy: in.Actor, TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
 		if d.CreatedBy == "" {
 			d.CreatedBy = "owner"
 		}
@@ -278,13 +279,25 @@ func (s *Store) ProposeDecision(ctx context.Context, company, project string, in
 		if err != nil || len(b) > 32*1024 || in.RequestID == "" || d.Topic == "" || len(d.Topic) > 256 || strings.TrimSpace(d.Value) == "" || len(d.Value) > 16*1024 || strings.TrimSpace(d.Rationale) == "" || len(d.Rationale) > 8192 {
 			return d, inputError("request_id, bounded topic, value and rationale required")
 		}
+		if len(d.Alternatives) > 6 {
+			return d, inputError("at most 6 alternatives")
+		}
+		for _, a := range d.Alternatives {
+			if strings.TrimSpace(a) == "" || len(a) > 1024 {
+				return d, inputError("alternatives must be non-empty and at most 1024 bytes")
+			}
+		}
 		if _, err = projectTx(ctx, tx, project); err != nil {
 			return d, err
 		}
 		if err = journalLinks(ctx, tx, project, d.TaskID, d.RunID, d.Artifacts); err != nil {
 			return d, err
 		}
-		d.MessageID, err = journalNotice(ctx, tx, project, d.TaskID, d.RunID, d.CreatedBy, "Decision proposal "+d.ID+" ["+d.Topic+"]: "+shortText(d.Value, 1024)+"\nRationale: "+shortText(d.Rationale, 1024), "", d.ID)
+		notice := "Decision proposal " + d.ID + " [" + d.Topic + "]: " + shortText(d.Value, 1024) + "\nRationale: " + shortText(d.Rationale, 1024)
+		for i, a := range d.Alternatives {
+			notice += fmt.Sprintf("\nAlternative %d: %s", i+1, shortText(a, 512))
+		}
+		d.MessageID, err = journalNotice(ctx, tx, project, d.TaskID, d.RunID, d.CreatedBy, notice, "", d.ID)
 		if err != nil {
 			return d, err
 		}
@@ -360,6 +373,12 @@ func (s *Store) RecordDecision(ctx context.Context, company, id string, in decis
 			}
 			d.ApprovedBy = "owner"
 			d.Authority = "owner"
+			if v := strings.TrimSpace(in.Value); v != "" && in.Actor == "owner" {
+				if len(v) > 16*1024 {
+					return d, inputError("value up to 16 KiB")
+				}
+				d.Value = v // the person's choice: an alternative or their own words
+			}
 		}
 		d.Status = in.Status
 		d.RecordedBy = in.Actor
@@ -371,16 +390,61 @@ func (s *Store) RecordDecision(ctx context.Context, company, id string, in decis
 			}
 		}
 		if in.Status == "rejected" && d.CreatedBy != "owner" {
-			reaction, e := sendMessageTx(ctx, tx, messaging.Send{ProjectID: d.ProjectID, TaskID: d.TaskID, Sender: "owner", Recipient: d.CreatedBy, MessageType: "review_result", DecisionID: d.ID, Body: "Owner rejected decision " + d.ID + " [" + d.Topic + "]. Reason: " + in.Rationale + "\nReconsider the plan and affected tasks. Respect this rejection; propose an alternative or block work with a concrete reason if no permitted path remains. Do not automatically roll back completed effects.", RequestID: "decision-rejected-" + d.ID})
+			reaction, e := sendMessageTx(ctx, tx, messaging.Send{ProjectID: d.ProjectID, TaskID: d.TaskID, Sender: "owner", Recipient: d.CreatedBy, MessageType: "review_result", DecisionID: d.ID, ConversationID: ownerChat(ctx, tx, d.CreatedBy, d.ProjectID), Body: "Owner rejected decision " + d.ID + " [" + d.Topic + "]. Reason: " + in.Rationale + "\nReconsider the plan and affected tasks. Respect this rejection; propose an alternative or block work with a concrete reason if no permitted path remains. Do not automatically roll back completed effects.", RequestID: "decision-rejected-" + d.ID})
 			if e != nil {
 				return d, e
 			}
 			d.ReactionMessageID = reaction.ID
 		}
+		// The owner decided directly (Inbox or chat, decision-approval-ux): the agent is told at once, and its own
+		// pending request to record this decision is closed, so nobody decides twice.
+		if in.Actor == "owner" && in.ApprovalID == "" && in.Status == "approved" && d.CreatedBy != "owner" && d.CreatedBy != "system" {
+			reaction, e := sendMessageTx(ctx, tx, messaging.Send{ProjectID: d.ProjectID, TaskID: d.TaskID, Sender: "owner", Recipient: d.CreatedBy, MessageType: "review_result", DecisionID: d.ID, ConversationID: ownerChat(ctx, tx, d.CreatedBy, d.ProjectID), Body: "Owner approved decision " + d.ID + " [" + d.Topic + "]: " + shortText(d.Value, 2048) + "\nNote: " + shortText(in.Rationale, 1024) + "\nIt is recorded as approved; do not request approval for it again.", RequestID: "decision-approved-" + d.ID})
+			if e != nil {
+				return d, e
+			}
+			d.ReactionMessageID = reaction.ID
+		}
+		if in.Actor == "owner" && in.ApprovalID == "" && in.Status != "under_discussion" {
+			if err = supersedeRecordApprovals(ctx, tx, d.ID); err != nil {
+				return d, err
+			}
+		}
 		err = saveDecision(ctx, tx, &d, "decision.recorded")
 		return d, err
 	})
 }
+
+// ownerChat is the owner's chat with agent in project when it exists ("" otherwise: the message gets its own chain).
+func ownerChat(ctx context.Context, tx *Tx, agent, project string) string {
+	id := "owner-" + agent + "-" + project
+	if _, err := conversationTx(ctx, tx, id); err != nil {
+		return ""
+	}
+	return id
+}
+
+// supersedeRecordApprovals closes the pending approvals of factory_decision_record calls for decision id: the
+// owner decided it directly.
+func supersedeRecordApprovals(ctx context.Context, tx *Tx, id string) error {
+	pending, err := listDocs[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND status='PENDING' AND (body->'call'->>'name')='factory_decision_record' AND (body->'call'->'arguments'->>'decision_id')=?", tx.company, id)
+	if err != nil {
+		return err
+	}
+	for _, a := range pending {
+		if m, e := messageTx(ctx, tx, a.MessageID); e == nil && m.Status == "PENDING" {
+			if _, e = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " is not needed: the owner decided " + id + " directly.", RequestID: "superseded-" + a.ID}); e != nil {
+				return e
+			}
+		}
+		a.Status = "REVOKED"
+		if err = saveApproval(ctx, tx, &a, "approval.superseded"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func excerpt(s string, max int) (string, bool) {
 	if len(s) <= max {
 		return s, false

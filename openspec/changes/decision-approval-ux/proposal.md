@@ -1,5 +1,5 @@
 Status: owner chose A and C on 2026-11-05 (actionable proposals in the Inbox, plus approving from the chat with an
-explicit action); to be designed. Nothing implemented.
+explicit action); implemented 2026-11-07 (see "Implementation").
 
 ## Why
 
@@ -90,3 +90,18 @@ Decision tools (propose may create the approval), Inbox and chat UI (actions on 
   answered or decided right there, as today.
 - Answering or deciding **anywhere** (in the chat or in the Inbox) removes the item from the Inbox. The Inbox does
   not accumulate history; the history is the chat and the decisions registry.
+
+## Implementation (2026-11-07)
+
+- `factory_decision_propose` takes `alternatives`; the notice lists them. The owner records directly with an optional
+  `value` (an alternative or their own words); the agent is told in the chat; pending approvals of
+  `factory_decision_record` for that decision are closed as `REVOKED`.
+- Agents' messages to the owner (questions, notifications, proposals) go to the owner's chat with that agent when it
+  exists; the Inbox query keeps only open items (pending questions, approvals, undecided proposals, report notices,
+  escalations).
+- Web: one decision card in the Inbox and in the chat (options with the recommendation marked, "Something else…",
+  Approve, Reject with a reason, Discuss → the chat). Lead conversation briefs say to ask with options and propose
+  with alternatives, not to request the record approval.
+- Decided during implementation: report notices that ask for the owner's action stay in the Inbox ("Reports for
+  you"), since they are open items; Telegram does not get decision buttons yet (it keeps notifying; the decision is
+  taken in the web), recorded as a follow-up.

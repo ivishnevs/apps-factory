@@ -209,8 +209,9 @@ func TestOwnerNotificationInboxRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The Inbox lists only what is open (decision-approval-ux): a notification stays in the conversation.
 	inbox, err := s.Inbox(ctx, DefaultCompany, "p")
-	if err != nil || len(inbox) != 1 {
+	if err != nil || len(inbox) != 0 {
 		t.Fatal(inbox, err)
 	}
 	if _, err = s.ReadInbox(ctx, DefaultCompany, m.ID, 0, "stale"); !errors.Is(err, ErrConflict) {

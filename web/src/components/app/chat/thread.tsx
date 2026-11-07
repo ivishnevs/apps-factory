@@ -1,5 +1,6 @@
 "use client";
 
+import { DecisionCard } from "@/components/app/decision-card";
 import { ArrowLeft, ArrowUp, CircleHelp, Radio, Star } from "lucide-react";
 import Link from "@/components/app/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -71,6 +72,7 @@ function Bubble({ msg, agent, first, last }: { msg: Message; agent: string; firs
           mine ? (last ? "rounded-br-md" : "") : (last ? "rounded-bl-md" : ""))}>
           <Body text={msg.body} />
           {!!msg.questions?.length && <Questions msg={msg} agent={agent} />}
+          {msg.decision_id && !mine && msg.message_type === "review_request" && <DecisionCard id={msg.decision_id} compact inChat />}
           {answers.map(([k, v]) => <p key={k} className="mt-1 text-xs opacity-70">↳ {k}: {String(v)}</p>)}
         </div>
         {last && (

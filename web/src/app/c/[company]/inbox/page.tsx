@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
+import { DecisionCard } from "@/components/app/decision-card";
 import { ApprovalCard, answerable, MessageCard, type InboxHandlers } from "@/components/app/inbox/cards";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { useAction, useOverview } from "@/lib/api/client";
@@ -37,8 +38,9 @@ export default function InboxPage() {
     for (const ap of approvals) {
       if (!used.has(ap.id)) items.push({ key: `a:${ap.id}`, ap, blocking: false, due: ap.expires_at, at: ap.created_at, decide: true });
     }
+    // Only what is open (decision-approval-ux): questions, approvals, decision proposals, reports asking for action.
     const live = items.filter((i) => !gone.has(i.key));
-    return { decide: live.filter((i) => i.decide).sort(order), read: live.filter((i) => !i.decide).sort((a, b) => b.at - a.at) };
+    return { decide: live.filter((i) => i.decide || !!i.msg?.decision_id).sort(order), read: live.filter((i) => !i.decide && !i.msg?.decision_id).sort((a, b) => b.at - a.at) };
   }, [ov?.inbox, ov?.approvals, gone]);
 
   // Work submitted for your review (human-review-visibility 2.3): tasks in review that wait for you.
@@ -100,6 +102,7 @@ export default function InboxPage() {
               <Section title="Needs your decision" count={decide.length}>
                 {decide.map((i) => i.ap
                   ? <ApprovalCard key={i.key} ap={i.ap} msg={i.msg} projectName={projectName[i.ap.project_id]} h={h} />
+                  : i.msg?.decision_id ? <DecisionItem key={i.key} msg={i.msg} projectName={projectName[i.msg.project_id]} />
                   : <MessageCard key={i.key} msg={i.msg!} projectName={projectName[i.msg!.project_id]} h={h} />)}
               </Section>
             )}
@@ -109,7 +112,7 @@ export default function InboxPage() {
               </Section>
             )}
             {read.length > 0 && (
-              <Section title="To read" count={read.length}>
+              <Section title="Reports for you" count={read.length}>
                 {read.map((i) => <MessageCard key={i.key} msg={i.msg!} projectName={projectName[i.msg!.project_id]} h={h} />)}
               </Section>
             )}
@@ -158,6 +161,16 @@ function ReviewCard({ task, projectName, busy, onReview }: {
           </>
         )}
       </div>
+    </article>
+  );
+}
+
+// DecisionItem: a lead's decision proposal; decided here or in the chat (decision-approval-ux).
+function DecisionItem({ msg, projectName }: { msg: Message; projectName?: string }) {
+  return (
+    <article className="rounded-2xl border bg-card p-4 shadow-xs">
+      <p className="text-xs text-muted-foreground">{projectName ?? msg.project_id} · proposed by {msg.sender}</p>
+      <DecisionCard id={msg.decision_id!} />
     </article>
   );
 }

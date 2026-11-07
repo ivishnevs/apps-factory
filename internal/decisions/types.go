@@ -19,6 +19,7 @@ type Decision struct {
 	Topic                 string           `json:"topic"`
 	Status                string           `json:"status"`
 	Value                 string           `json:"value"`
+	Alternatives          []string         `json:"alternatives,omitempty"`
 	Rationale             string           `json:"rationale"`
 	CreatedBy             string           `json:"created_by"`
 	ApprovedBy            string           `json:"approved_by,omitempty"`
@@ -36,17 +37,21 @@ type Decision struct {
 	UpdatedAt             int64            `json:"updated_at"`
 }
 type Propose struct {
-	Category  string           `json:"category,omitempty"`
-	Topic     string           `json:"topic"`
-	Value     string           `json:"value"`
-	Rationale string           `json:"rationale"`
-	TaskID    string           `json:"task_id,omitempty"`
-	RunID     string           `json:"run_id,omitempty"`
-	Artifacts []tasks.Artifact `json:"artifacts,omitempty"`
-	RequestID string           `json:"request_id"`
-	Actor     string           `json:"-"`
+	Category string `json:"category,omitempty"`
+	Topic    string `json:"topic"`
+	Value    string `json:"value"`
+	// Alternatives are the other options the person may choose instead of Value (decision-approval-ux).
+	Alternatives []string         `json:"alternatives,omitempty"`
+	Rationale    string           `json:"rationale"`
+	TaskID       string           `json:"task_id,omitempty"`
+	RunID        string           `json:"run_id,omitempty"`
+	Artifacts    []tasks.Artifact `json:"artifacts,omitempty"`
+	RequestID    string           `json:"request_id"`
+	Actor        string           `json:"-"`
 }
 type Record struct {
+	// Value is the person's choice when approving (an alternative or their own words); empty keeps the proposal's.
+	Value             string             `json:"value,omitempty"`
 	Version           int                `json:"version"`
 	Status            string             `json:"status"`
 	Rationale         string             `json:"rationale"`

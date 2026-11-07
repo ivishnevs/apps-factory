@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -181,6 +182,15 @@ func (s *Server) Handler() http.Handler {
 			reply(w, v, err)
 		})
 	}
+	// A decision (decision-approval-ux: the Inbox and the chat show proposals with their alternatives).
+	mux.HandleFunc("GET /api/decisions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		cc, ok := catalog(w, r)
+		if !ok {
+			return
+		}
+		v, err := cc.CatalogGet(r.Context(), "/decisions/"+url.PathEscape(r.PathValue("id")))
+		reply(w, v, err)
+	})
 	for _, p := range []string{"/catalog", "/catalog/rollback", "/companies"} {
 		mux.HandleFunc("POST /api"+p, func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("X-Factory-Web") != "1" {

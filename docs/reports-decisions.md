@@ -55,6 +55,18 @@ Existing run snapshots retain their original context after replacement. Use deci
 current/full records, especially before repeating an owner question. Decisions are context, never
 permission grants. Runtime-neutral snapshots support later agent/runtime additions.
 
+### Deciding in the chat and the Inbox (decision-approval-ux)
+
+A proposal (`factory_decision_propose`) may list `alternatives` next to its recommended `value`. It reaches the owner
+in their chat with the proposing agent (when that chat exists; otherwise in its own thread) and in the Inbox under
+"Needs your decision", both with the options: Approve the chosen option or your own words (`POST
+/decisions/{id}/record` with `status: approved` and `value`), Reject with a reason, or Discuss (opens the chat; the
+proposal stays open). Deciding in either place clears it everywhere; the agent gets the outcome as a message in the
+same chat, and a pending approval it requested for `factory_decision_record` of the same decision is closed
+(`REVOKED`), so nobody decides twice. An agent's questions and notifications to the owner also go to that chat.
+The Inbox lists only what is open: questions and approvals waiting for an answer, undecided proposals, reports asking
+for the owner's action, escalations and reviews; notifications and answers stay in the chat.
+
 ## API and CLI
 
 Owner endpoints use FACTORY_TOKEN:

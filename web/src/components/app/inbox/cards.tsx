@@ -42,8 +42,8 @@ function escalationWhy(reason: string): string {
   return `Why it came to you: ${r}.`;
 }
 
-function Shell({ kind, blocking, from, project, taskId, at, due, dueVerb, children }: {
-  kind: Kind; blocking?: boolean; from: string; project?: string; taskId?: string; at: number; due?: number; dueVerb?: string; children: React.ReactNode;
+function Shell({ kind, blocking, from, project, taskId, conversation, at, due, dueVerb, children }: {
+  kind: Kind; blocking?: boolean; from: string; project?: string; taskId?: string; conversation?: string; at: number; due?: number; dueVerb?: string; children: React.ReactNode;
 }) {
   const l = look[kind];
   return (
@@ -58,7 +58,7 @@ function Shell({ kind, blocking, from, project, taskId, at, due, dueVerb, childr
         From <span className="font-medium text-foreground">{from}</span>
         {project && <> · {project}</>}
         {taskId && (taskId.startsWith("conv-")
-          ? <> · <Link href="/chat" className="text-foreground underline-offset-4 hover:underline">in chat</Link></>
+          ? <> · <Link href={conversation?.startsWith("owner-") ? `/chat?c=${encodeURIComponent(conversation)}` : "/chat"} className="text-foreground underline-offset-4 hover:underline">in chat</Link></>
           : <> · <Link href={`/tasks/${taskId}`} className="font-mono text-foreground underline-offset-4 hover:underline" title={taskId}>{displayId(taskId)}</Link></>)}
       </p>
       <div className="mt-3">{children}</div>
@@ -69,7 +69,7 @@ function Shell({ kind, blocking, from, project, taskId, at, due, dueVerb, childr
 export function MessageCard({ msg, projectName, h }: { msg: Message; projectName?: string; h: InboxHandlers }) {
   const kind = kindOf(msg);
   return (
-    <Shell kind={kind} blocking={msg.blocking} from={msg.sender} project={projectName ?? msg.project_id} taskId={msg.task_id} at={msg.created_at} due={msg.deadline}>
+    <Shell kind={kind} blocking={msg.blocking} from={msg.sender} project={projectName ?? msg.project_id} taskId={msg.task_id} conversation={msg.conversation_id} at={msg.created_at} due={msg.deadline}>
       <Markdown text={msg.body} className="font-medium" />
       {msg.escalation_reason && <p className="mt-2 text-xs text-muted-foreground">{escalationWhy(msg.escalation_reason)}</p>}
       {msg.may_be_outdated && (

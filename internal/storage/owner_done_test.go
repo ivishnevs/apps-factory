@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"appfactory/internal/messaging"
 	"context"
 	"strings"
 	"testing"
@@ -27,7 +28,8 @@ func TestOwnerTaskDoneNotice(t *testing.T) {
 	}
 	finish("mine", "owner")
 	finish("theirs", "ceo")
-	inbox, err := s.Inbox(ctx, DefaultCompany, "")
+	// Notifications are not Inbox items any more (decision-approval-ux); the notice is a message to the owner.
+	inbox, err := listDocs[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND recipient='owner' ORDER BY seq", DefaultCompany)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -140,6 +140,9 @@ type Action struct {
 	Text       string         // reason, comment, directive, answer body
 	Assignee   string         // reassign
 	ReviewBy   string         // create, run, retry, reviewer: the task's reviewer (an agent, owner or member:USER)
+	DecisionID string         // decide: the proposed decision (Version is its version)
+	Status     string         // decide: approved, rejected or under_discussion
+	Value      string         // decide: the chosen value when approving (an alternative or the person's own)
 	Priority   int            // reprioritize
 	Urgent     bool           // direct
 	Cascade    bool           // cancel
@@ -167,6 +170,12 @@ func (a Action) Describe() string {
 		return "reassign " + a.TaskID + " to " + a.Assignee
 	case "reviewer":
 		return "set the reviewer of " + a.TaskID + " to " + a.ReviewBy
+	case "decide":
+		d := a.Status + " decision " + a.DecisionID
+		if a.Value != "" {
+			d += ": " + a.Value
+		}
+		return d
 	case "reprioritize":
 		return fmt.Sprintf("reprioritize %s to %d", a.TaskID, a.Priority)
 	case "cancel":
@@ -558,6 +567,17 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		err = c.API.Do(ctx, "POST", task+"/reprioritize", map[string]any{"version": a.Version, "priority": a.Priority, "request_id": rid}, &result)
 	case "reviewer":
 		err = c.API.Do(ctx, "PATCH", task, map[string]any{"version": a.Version, "review_by": a.ReviewBy, "request_id": rid}, &result)
+	case "decide":
+		// The owner decides a proposal directly (decision-approval-ux): approve (optionally another value), reject.
+		why := a.Text
+		if why == "" {
+			why = a.Status + " by the owner"
+		}
+		body := map[string]any{"version": a.Version, "status": a.Status, "rationale": why, "request_id": rid}
+		if a.Value != "" {
+			body["value"] = a.Value
+		}
+		err = c.API.Do(ctx, "POST", "/decisions/"+url.PathEscape(a.DecisionID)+"/record", body, &result)
 	case "retry", "run":
 		// run and retry release the task at its version (an owner ready), as factory run|retry do; a reviewer
 		// chosen with it is set first (review-coverage: no release without one).
