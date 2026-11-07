@@ -64,3 +64,5 @@ Follow-up (2026-11-07): 3.3 — a node's driver disabled by an account change sh
 the Nodes page; Core hands the acceptance to the node in its next poll answer (`accept_accounts`, delivered once) and
 the node records the new account at its next check. 2.4 — `factory ui` on a node reads sessions from the node's own
 login directories in node.yaml. 1.1 and 1.2 are the owner's first `factory-node login claude|codex` on the Mac.
+
+Verified on the owner's Mac (2026-11-07): with its own CLAUDE_CONFIG_DIR, Claude Code (2.1.284) reports no login while the user's terminal login (Claude Ultra) stays as it is; with its own CODEX_HOME, Codex reports "Not logged in" while the user's stays "Logged in using ChatGPT". The node's runtimes are therefore independent of the person's logins; the remaining part of 1.1/1.2 is the owner's first factory-node login claude|codex (it signs in to the owner's accounts, which only the owner does).
