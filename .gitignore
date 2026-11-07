@@ -13,3 +13,5 @@ docs/roadmap.md
 /dist/
 /factory
 /.env.railway
+# The web app's Projects pages (projects-page) are source, not a projects directory.
+!web/src/app/c/[[]company]/projects/
