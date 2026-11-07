@@ -1,5 +1,6 @@
 Status: proposed 2026-11-06 by the owner; owner decided 2026-11-06: the window is a required field, written
-explicitly (no implicit default). Nothing implemented.
+explicitly (no implicit default). Nothing implemented. **Deferred by the owner 2026-11-07** after the research
+below; meanwhile the producer of the owner's company runs with a 200k window set by hand (see "Interim setting").
 
 ## Why
 
@@ -35,6 +36,44 @@ tail. Most agents do not need 1M; some (a developer on a large task) may.
 
 Compaction keeps a summary, not the full history; exact details of earlier rounds stay available to the agent from
 Factory (task description, comments, review notes, history) through its tools.
+
+## Research (2026-11-07)
+
+Claude Code ([model configuration](https://code.claude.com/docs/en/model-config.md),
+[environment variables](https://code.claude.com/docs/en/env-vars.md)):
+
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is the documented way for scripts; it takes precedence over `/autocompact`,
+  `--autocompact` and the `autoCompactWindow` setting, so nothing else on the node overrides it.
+- Range 100,000 to 1,000,000 tokens, capped at the model's window; a lower value is raised to 100k (a test
+  window below 100k is not possible). `k`/`M` suffixes need Claude Code v2.1.304+, and a bare number is tokens
+  (`200` is 200 tokens): the driver passes a plain token count. Leading zeros are accepted (checked on 2.1.319:
+  `0000200000` is read without a warning; an unusable value prints "isn't a usable size, so Claude Code ignores
+  it" in `-p` mode too, so a wrong value is visible in the run log).
+- Default without a window: models with a native 1M window (Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable) compact at
+  about 967k, which matches the measured 966k → 58k.
+- `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` holds every such model at 200k: simpler, but one value for all agents.
+- Idle compaction (`CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`, default 200k, v2.1.290+) compacts an idle conversation;
+  its behaviour under the Agent SDK is not documented.
+- Not documented: whether a resumed session already above the window compacts on its first call. This is the
+  one thing to check on a real run.
+
+Codex (`config.toml`: `model_context_window`, `model_auto_compact_token_limit`, capped at about 90% of the
+window): [openai/codex#16033](https://github.com/openai/codex/issues/16033) is open (bug, regression; still
+reproduced on 0.162.0 and main): with `model_auto_compact_token_limit` set, auto-compaction does not fire and
+sessions fail with "ran out of room in the model's context window" in a loop. The workaround is to leave both keys
+unset. So the Codex part waits for a fix (check the node's Codex version against the issue before enabling it);
+of the owner's agents only artist-2d runs on Codex.
+
+Consequences for the tasks: 1.1 becomes a smoke run inside 2.2 (window 100k, a resumed session above it); 1.2 is
+blocked on #16033; validation's minimum is 100k for Claude.
+
+## Interim setting (2026-11-07)
+
+Until this change is implemented, a window is set per agent without code through `spec.secrets`: a company string
+secret `producer_compact_window` = `0000200000` (secrets need at least 8 characters; the leading zeros also keep
+the redaction of secret values from masking `200000` in logs) delivered as `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to
+the producer of the owner's company (`ilya-75ba24`). The shim passes the environment to Claude Code unchanged.
+Implementing this change replaces it: remove the secret use and the secret, set `context_window: 200k`.
 
 Not in this change: rotating conversation sessions with a written handover (to reconsider if compaction alone
 loses too much in long conversations); context-mode or other tool-output filtering (measure first with an A/B run).

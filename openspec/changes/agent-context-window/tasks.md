@@ -1,8 +1,10 @@
 ## 1. Verify
 
-- [ ] 1.1 Claude Code: CLAUDE_CODE_AUTO_COMPACT_WINDOW compacts a resumed session at the set size (small test
-      window, real run); the compaction event shows in the session.
-- [ ] 1.2 Codex: the auto-compact token limit set per thread through app-server, same check.
+- [ ] 1.1 Claude Code: CLAUDE_CODE_AUTO_COMPACT_WINDOW compacts a resumed session at the set size (window 100k,
+      the minimum; a resumed session above it; real run, done as the smoke run of 2.2); the compaction event shows
+      in the session.
+- [ ] 1.2 Codex: the auto-compact token limit set per thread through app-server, same check. Blocked on
+      openai/codex#16033 (auto-compaction does not fire with the limit set); check the node's Codex version first.
 
 ## 2. Catalog and node
 
