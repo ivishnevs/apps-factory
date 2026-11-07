@@ -35,6 +35,24 @@ type Driver struct {
 	Args []string
 	// Host runs Probe; nil is the local machine.
 	Host *node.Host
+	// Home is the node's own Codex configuration and login (CODEX_HOME, node-runtime-accounts); empty shares the
+	// machine user's ~/.codex. AccountsDir is where the node records the login's account.
+	Home        string
+	AccountsDir string
+}
+
+// withHome is env with the node's CODEX_HOME, when it has one.
+func (d Driver) withHome(env []string) []string {
+	if d.Home == "" {
+		return env
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if !strings.HasPrefix(e, "CODEX_HOME=") {
+			out = append(out, e)
+		}
+	}
+	return append(out, "CODEX_HOME="+d.Home)
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeCodex }
@@ -82,12 +100,12 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	}
 	// The runtime has its own lifetime so cancellation can first send turn/interrupt.
 	runtimeCtx, stopRuntime := context.WithCancel(context.Background())
-	client, err := rpc.StartEnv(runtimeCtx, d.binary(), args, l.Env)
+	client, err := rpc.StartEnv(runtimeCtx, d.binary(), args, d.withHome(l.Env))
 	if err != nil {
 		stopRuntime()
 		return nil, err
 	}
-	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, l.Env), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
+	s := &session{client: client, stopRuntime: stopRuntime, prompt: l.Spec.Prompt, guards: newGuards(l.Guards, d.withHome(l.Env)), exitGuard: l.ExitGuard, guardLeft: l.ExitGuardRetries, events: make(chan driver.Event, 64), done: make(chan driver.Result, 1), stop: make(chan struct{})}
 	if err = s.open(ctx, l); err != nil {
 		s.Close()
 		return nil, err

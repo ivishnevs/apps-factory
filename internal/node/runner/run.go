@@ -33,14 +33,14 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 		if bin == "" {
 			bin = "codex"
 		}
-		r = append(r, codex.Driver{Binary: bin})
+		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir)})
 	}
 	if cc := c.Drivers.Claude; cc.On() {
 		shim := cc.Shim
 		if shim == "" && c.BinDir != "" {
 			shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
 		}
-		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir})
+		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: node.AccountsDir(c.StateDir)})
 	}
 	return r
 }

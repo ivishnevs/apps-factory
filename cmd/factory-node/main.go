@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -49,7 +49,12 @@ func run(args []string) (int, error) {
 	case "enroll":
 		return enroll(args[1:])
 	case "login":
+		if len(args) > 1 && (args[1] == "claude" || args[1] == "codex") {
+			return runtimeLogin(args[1], args[2:])
+		}
 		return login(args[1:])
+	case "accounts":
+		return accounts(args[1:])
 	case "rotate-keys":
 		return rotateKeys(args[1:])
 	case "run":
@@ -331,8 +336,9 @@ func doctor(args []string) (int, error) {
 	if shim == "" && c.BinDir != "" {
 		shim = filepath.Join(c.BinDir, "..", "workers", "claude", "dist", "src", "shim.js")
 	}
-	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h}},
-		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey}}}
+	accounts := node.AccountsDir(c.StateDir)
+	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: accounts}},
+		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: accounts}}}
 	known := []string{}
 	for _, rt := range d.Runtimes {
 		known = append(known, rt.Name)

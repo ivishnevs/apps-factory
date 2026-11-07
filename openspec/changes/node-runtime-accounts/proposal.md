@@ -1,4 +1,4 @@
-Status: accepted 2026-11-06 by the owner (options 1 and 2, confirmed again for the roadmap). Nothing implemented.
+Status: accepted 2026-11-06 by the owner (options 1 and 2, confirmed again for the roadmap). Implemented 2026-11-07 except the on-machine checks 1.1/1.2, transcripts from the node's directories (2.4) and the Inbox Continue button (3.3); see "Implementation".
 
 ## Why
 
@@ -45,3 +45,17 @@ Related: `connector-trust` (what the node may do as the user), `hosted-connector
 - Claude Code on macOS keeps the login in the Keychain; with its own `CLAUDE_CONFIG_DIR` it must use a separate
   Keychain entry. To verify on the owner's Mac before building (task 1.1).
 - Windows and Linux nodes: the same directories; Claude on Linux keeps the login in the config directory.
+
+## Implementation (2026-11-07)
+
+- `drivers.claude.config_dir` / `drivers.codex.home` in node.yaml; runs and probes get `CLAUDE_CONFIG_DIR` /
+  `CODEX_HOME`. `factory-node login claude|codex` runs the runtime's own login against `~/.app-factory/runtimes/…` and
+  writes node.yaml (`-copy-current` copies this user's Codex login); doctor and the node's checks warn while a runtime
+  shares the user's login.
+- Every probe compares the runtime's account with the recorded one (`<state_dir>/accounts/RUNTIME.json`: plan,
+  organisation, a hash of the email or the Codex account id): the first is recorded, a different one fails
+  `RUNTIME.account`, which disables that runtime on the node until `factory-node accounts accept RUNTIME`.
+- Decided during implementation: the change reaches people through the existing node check failure (feed and
+  Telegram attention), and "Continue" is the node command for now; an Inbox button needs a Core-to-node command and
+  is left for later (3.3). Installing does not log in by itself: the owner runs `factory-node login claude|codex`
+  once (1.1 and 1.2 are checked then: separate Keychain entry, own sessions).

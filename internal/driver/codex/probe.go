@@ -44,7 +44,11 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 			Hint: install + "; a newer version needs `make schema` and a verified app-server protocol first"})
 	}
 	r = append(r, node.CheckResult{Check: "codex.version", Status: node.Pass, Detail: v})
-	out, errOut, err = h.Run(ctx, bin, "login", "status")
+	if d.Home != "" {
+		out, errOut, err = h.Run(ctx, "env", "CODEX_HOME="+d.Home, bin, "login", "status")
+	} else {
+		out, errOut, err = h.Run(ctx, bin, "login", "status")
+	}
 	msg := node.FirstLine(out + "\n" + errOut)
 	if err != nil {
 		if node.TransientRun(out, errOut, err) {
@@ -52,5 +56,14 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 		}
 		return append(r, node.CheckResult{Check: "codex.auth", Status: node.Fail, Detail: "not logged in: " + msg, Hint: "codex login (ChatGPT account)"})
 	}
-	return append(r, node.CheckResult{Check: "codex.auth", Status: node.Pass, Detail: msg})
+	r = append(r, node.CheckResult{Check: "codex.auth", Status: node.Pass, Detail: msg})
+	if d.AccountsDir != "" {
+		// node-runtime-accounts: a different account than the one recorded disables Codex on this node.
+		r = append(r, node.CheckAccount(d.AccountsDir, node.CodexAccount(d.Home)))
+	}
+	if d.Home == "" && d.AccountsDir != "" {
+		r = append(r, node.CheckResult{Check: "codex.login", Status: node.Warn, Detail: "runs use this user's own Codex login: logging in to another account in the terminal changes the agents' account too",
+			Hint: "give the node its own login: factory-node login codex"})
+	}
+	return r
 }

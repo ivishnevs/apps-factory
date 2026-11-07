@@ -51,9 +51,27 @@ type Driver struct {
 	// the built shim is BinDir/../workers/claude/dist/src/shim.js).
 	Host   *node.Host
 	BinDir string
+	// ConfigDir is the node's own Claude Code configuration and login (CLAUDE_CONFIG_DIR, node-runtime-accounts);
+	// empty shares the machine user's login. AccountsDir is where the node records the login's account.
+	ConfigDir   string
+	AccountsDir string
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }
+
+// withConfigDir is env with the node's CLAUDE_CONFIG_DIR, when it has one.
+func (d Driver) withConfigDir(env []string) []string {
+	if d.ConfigDir == "" {
+		return env
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if !strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=") {
+			out = append(out, e)
+		}
+	}
+	return append(out, "CLAUDE_CONFIG_DIR="+d.ConfigDir)
+}
 func (d Driver) Capabilities() driver.Capabilities {
 	return driver.Capabilities{Resume: true, MCP: true, Activity: true, Cost: true, ToolPolicy: true, ExitGuard: true, ExternalMCP: true}
 }
@@ -268,7 +286,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	}
 	// The shim has its own lifetime so cancellation can first send an interrupt.
 	cmd := d.command()
-	cmd.Env = l.Env
+	cmd.Env = d.withConfigDir(l.Env)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()

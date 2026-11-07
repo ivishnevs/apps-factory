@@ -66,3 +66,24 @@ Core serves `GET /install.sh` and `GET /downloads/node/<file>` without a credent
 ## Not yet
 
 A desktop app, Homebrew, signed and notarized binaries, self-update, Windows, a node without Node.js for Claude.
+
+## The node's own runtime logins (node-runtime-accounts)
+
+By default a node's agents use the machine user's own Claude Code and Codex logins (`~/.claude` and the Keychain,
+`~/.codex`), so logging in to another account in a terminal changes the agents' account too; `doctor` warns about it
+(`claude.login`, `codex.login`). Give the node its own logins once:
+
+```sh
+factory-node login claude            # Claude Code's /login against ~/.app-factory/runtimes/claude
+factory-node login codex             # codex login against ~/.app-factory/runtimes/codex
+factory-node login codex -copy-current   # or start from this user's current Codex login
+```
+
+Each writes `drivers.claude.config_dir` / `drivers.codex.home` to `node.yaml` (passed to every run as
+`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); restart the node to use them.
+
+Either way the node records the account each runtime is logged in to (plan, organisation, a hash; never the email)
+in `<state_dir>/accounts/`. A different account fails the `claude.account` / `codex.account` check, which disables
+that runtime on the node (its runs stay queued, the other runtime goes on) and reaches the owner as a node check
+failure (feed, Telegram). `factory-node accounts` lists the recorded accounts; `factory-node accounts accept
+claude|codex` continues with the new one from the next check.

@@ -91,14 +91,32 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 	} else {
 		r = append(r, node.CheckResult{Check: "claude.version", Status: node.Pass, Detail: v})
 	}
-	return append(r, d.auth(h, p))
+	auth := d.auth(h, p)
+	r = append(r, auth)
+	if auth.Status == node.Pass && d.AccountsDir != "" {
+		// node-runtime-accounts: a different account than the one recorded disables Claude on this node.
+		a := p.Account
+		r = append(r, node.CheckAccount(d.AccountsDir, node.Account{Runtime: "claude", Plan: a.SubscriptionType, Org: a.Organization, Hash: node.AccountHash(a.Email, a.Organization)}))
+	}
+	if d.ConfigDir == "" && d.AccountsDir != "" && auth.Status == node.Pass {
+		r = append(r, node.CheckResult{Check: "claude.login", Status: node.Warn, Detail: "runs use this user's own Claude login: logging in to another account in the terminal changes the agents' account too",
+			Hint: "give the node its own login: factory-node login claude"})
+	}
+	return r
 }
 
 // probe runs `node shim.js --probe` on the host, pinning Executable like CheckVersion does.
 func (d Driver) probe(ctx context.Context, h node.Host, shim string) (probeLine, error) {
 	name, args := d.nodeBinary(), []string{shim, "--probe"}
+	var env []string
 	if d.Executable != "" {
-		name, args = "env", append([]string{"CLAUDE_CODE_EXECUTABLE=" + d.Executable, d.nodeBinary()}, args...)
+		env = append(env, "CLAUDE_CODE_EXECUTABLE="+d.Executable)
+	}
+	if d.ConfigDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+d.ConfigDir)
+	}
+	if len(env) > 0 {
+		name, args = "env", append(append(env, d.nodeBinary()), args...)
 	}
 	out, errOut, err := h.Run(ctx, name, args...)
 	p, perr := parseProbe(out, err)

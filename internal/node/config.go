@@ -80,6 +80,8 @@ type CodexConfig struct {
 	Enabled *bool `yaml:"enabled"` // default true
 	// Binary defaults to CODEX_BIN, else codex.
 	Binary string `yaml:"binary"`
+	// Home is the node's own Codex login (CODEX_HOME, node-runtime-accounts): factory-node login codex sets it.
+	Home string `yaml:"home"`
 }
 
 // ClaudeConfig is the Go driver (internal/driver/claude), the only way Claude runs; off by default: enable it on
@@ -91,6 +93,9 @@ type ClaudeConfig struct {
 	Shim        string `yaml:"shim"`
 	Executable  string `yaml:"executable"`
 	AllowAPIKey bool   `yaml:"allow_api_key"`
+	// ConfigDir is the node's own Claude Code login (CLAUDE_CONFIG_DIR, node-runtime-accounts): factory-node login
+	// claude sets it.
+	ConfigDir string `yaml:"config_dir"`
 }
 
 // Probes: Interval runs each driver's Probe (binary, version range, auth; no model call), VersionInterval
