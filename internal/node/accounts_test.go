@@ -27,6 +27,10 @@ func TestRuntimeAccounts(t *testing.T) {
 	if strings.Contains(r.Detail, "@") {
 		t.Fatal("the email leaks:", r.Detail)
 	}
+	personal2 := Account{Runtime: "codex", Plan: "Max", Org: "me@example.com's Organization", Hash: AccountHash("x")}
+	if r := CheckAccount(t.TempDir(), personal2); strings.Contains(r.Detail, "@") {
+		t.Fatal("the email leaks through the organisation:", r.Detail)
+	}
 	if err := AcceptAccount(dir, "claude"); err != nil {
 		t.Fatal(err)
 	}

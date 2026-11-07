@@ -71,10 +71,20 @@ func AcceptAccount(dir, runtime string) error {
 	return err
 }
 
+// publicOrg keeps an organisation name that names a person's email out of records and messages ("x@y's
+// Organization" is how personal Claude accounts are named).
+func publicOrg(org string) string {
+	if strings.Contains(org, "@") {
+		return "a personal organization"
+	}
+	return org
+}
+
 // CheckAccount compares the runtime's current account with the recorded one: the first one seen is recorded; a
 // different one fails the check (the probe disables the runtime) with what changed and how to continue.
 func CheckAccount(dir string, now Account) CheckResult {
 	check := now.Runtime + ".account"
+	now.Org = publicOrg(now.Org)
 	if dir == "" || now.Hash == "" {
 		return CheckResult{Check: check, Status: Skip, Detail: "account not identified"}
 	}
@@ -90,6 +100,7 @@ func CheckAccount(dir string, now Account) CheckResult {
 		}
 		return CheckResult{Check: check, Status: Pass, Detail: "recorded " + now.words()}
 	}
+	old.Org = publicOrg(old.Org)
 	if old.Hash == now.Hash {
 		return CheckResult{Check: check, Status: Pass, Detail: now.words()}
 	}
