@@ -36,7 +36,7 @@ export interface Agent { name: string; role?: string; reports_to?: string; provi
 export interface Project {
   // team: the team of the company that works on it (company-teams).
   id: string; name: string; team?: string; description: string; workspace: string; version: number; created_at: number;
-  updated_at: number; repo_url?: string; default_branch?: string; rules?: string;
+  updated_at: number; repo_url?: string; default_branch?: string; rules?: string; direction?: string; archived?: boolean;
   // project-creation: how the repository came to be, who created the project (an agent's request carries its
   // approval) and its setup on the node; workspace is "" until the setup is ready. No setup: nothing to set up.
   repo_mode?: RepoMode; created_by?: string; approval_id?: string; setup?: ProjectSetup;

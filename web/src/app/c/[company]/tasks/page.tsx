@@ -126,7 +126,7 @@ function Tasks() {
             <SelectTrigger aria-label="Project" className="w-full data-[size=default]:h-11 sm:w-40 sm:data-[size=default]:h-9"><SelectValue /></SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value={ALL}>All projects</SelectItem>
-              {ov?.status.filter((s) => team === ALL || s.project.team === team).map((s) => <SelectItem key={s.project.id} value={s.project.id}>{s.project.name}</SelectItem>)}
+              {ov?.status.filter((s) => (team === ALL || s.project.team === team) && (!s.project.archived || s.project.id === project)).map((s) => <SelectItem key={s.project.id} value={s.project.id}>{s.project.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={assignee} onValueChange={(v) => set("assignee", v, ALL)}>

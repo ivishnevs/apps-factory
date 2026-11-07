@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users } from "lucide-react";
+import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users, FolderGit2 } from "lucide-react";
 import Link, { useAppPath } from "@/components/app/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
@@ -18,6 +18,7 @@ import { ConfirmProvider } from "./confirm";
 export const nav = [
   { href: "/", label: "Home", icon: Home },
   { href: "/tasks", label: "Tasks", icon: KanbanSquare },
+  { href: "/projects", label: "Projects", icon: FolderGit2 },
   { href: "/inbox", label: "Inbox", icon: Inbox, badge: "inbox" as const },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/feed", label: "Activity", icon: Activity },

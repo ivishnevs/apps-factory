@@ -1,4 +1,4 @@
-Status: decided 2026-11-06 by the owner (see "Decision"); ready to implement. Nothing implemented.
+Status: decided 2026-11-06 by the owner (see "Decision"); implemented 2026-11-07 except the evals (see "Implementation").
 
 ## Why
 
@@ -50,3 +50,14 @@ type in the chat and a way to undo just-created tasks; company settings for the 
   its recommended answer for each so the person can just say "ok". Clear requests, follow-ups, small changes and
   anything decidable within the project's direction and recorded decisions are done without questions. When in
   doubt, the lead acts on its best reading and says what it assumed.
+
+## Implementation (2026-11-07)
+
+- Projects have `direction` (goal and direction), edited on the project page next to the rules; every brief carries
+  it with "decide what fits it yourself; ask people only about what does not".
+- Conversations with a person carry the built-in lead behaviour: clear requests done as asked; ideas discussed with
+  options and a plan; questions only when the answer changes the plan, once, batched, each with a recommended answer;
+  decisions within the direction taken without asking; a summary of understanding, plan, own decisions and created
+  tasks; more than about 5 tasks wait for an explicit go; stop or change on just-created tasks is honoured.
+- Not done: 2.2 (a dedicated plan-summary message in the chat: the summary is an ordinary reply for now) and the evals
+  2.3 / 2.5, which need runs of real agents and a scoring harness; to do when the eval harness exists.

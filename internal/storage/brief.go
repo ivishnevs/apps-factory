@@ -199,6 +199,9 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	if strings.TrimSpace(rules) != "" {
 		fmt.Fprintf(&b, "Company rules:\n%s\n", strings.TrimSpace(rules))
 	}
+	if strings.TrimSpace(p.Direction) != "" {
+		fmt.Fprintf(&b, "Project goal and direction (decide what fits it yourself; ask people only about what does not):\n%s\n", strings.TrimSpace(p.Direction))
+	}
 	if strings.TrimSpace(p.Rules) != "" {
 		fmt.Fprintf(&b, "Project rules:\n%s\n", strings.TrimSpace(p.Rules))
 	}
@@ -212,6 +215,8 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	if t.Kind == tasks.KindConversation {
 		b.WriteString("This is your conversation task: it stays open. Handle the input above, then end with factory_exit_done (handled; summarize what you did). Do not poll or wait within a turn.\n")
 		if t.Counterpart == "owner" {
+			// lead-brainstorm-mode: think with the person first, without interrogating them.
+			b.WriteString("Working with the person in this chat: a clear request (\"create a task: …\" with what it needs) is done as asked. An idea, a goal or a wish is discussed first: propose options and trade-offs, challenge weak points, state the plan you would follow. Ask only when it is genuinely unclear and the answer changes what you would do; then ask once, all questions together, each with your recommended answer so they can just say ok. Follow-ups, small changes and anything that fits the project's direction and recorded decisions are decided by you without asking; when in doubt act on your best reading and say what you assumed. Before or when work starts, post a short summary: what you understood, the plan, the decisions you took yourself and the tasks you created (with their ids), so they can stop or change them. A plan of more than about 5 tasks waits for their explicit go; smaller ones start at once. If they reply stop or change to just-created tasks, cancel or update those tasks.\n")
 			// decision-approval-ux, inbox-chat-replies: what needs the person comes as something they can act on in the chat.
 			b.WriteString("When you need the person to choose or confirm, ask with factory_owner_ask and list the options (they get buttons in this chat); do not end a reply with a question they cannot answer there. For a decision with options, use factory_decision_propose with the recommendation as value and the rest as alternatives; they approve, pick or reject it here and you get the outcome, so do not also request approval of factory_decision_record. When their answer here already is the decision, record it with factory_decision_decide only in a delegated category; otherwise propose it once.\n")
 		}

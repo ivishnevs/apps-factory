@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -543,15 +544,22 @@ func TestRulesInBriefAndSettingsGet(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	p, _ := h.s.Project(ctx, storage.DefaultCompany, "notes")
-	rules := "Metric units only."
-	if _, err := h.s.UpdateProject(ctx, storage.DefaultCompany, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Rules: &rules}); err != nil {
+	rules, direction := "Metric units only.", "A calm notes app for one person."
+	if _, err := h.s.UpdateProject(ctx, storage.DefaultCompany, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Rules: &rules, Direction: &direction}); err != nil {
 		t.Fatal(err)
 	}
 	h.create("ru", "notes", "demo")
 	r := h.start("ru")
 	run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id)
-	if !strings.Contains(run.Spec.Prompt, "Company rules:\nPrices in EUR.") || !strings.Contains(run.Spec.Prompt, "Project rules:\nMetric units only.") {
+	if !strings.Contains(run.Spec.Prompt, "Company rules:\nPrices in EUR.") || !strings.Contains(run.Spec.Prompt, "Project rules:\nMetric units only.") ||
+		!strings.Contains(run.Spec.Prompt, "direction") || !strings.Contains(run.Spec.Prompt, "A calm notes app for one person.") {
 		t.Fatal(run.Spec.Prompt)
+	}
+	// projects-page: archiving refuses a project with tasks in work.
+	p, _ = h.s.Project(ctx, storage.DefaultCompany, "notes")
+	yes := true
+	if _, err := h.s.UpdateProject(ctx, storage.DefaultCompany, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Archived: &yes}); !errors.Is(err, storage.ErrConflict) {
+		t.Fatal("archived with a task in work", err)
 	}
 	for scope, want := range map[string]string{"company": "Prices in EUR.", "project": "Metric units only."} {
 		w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_settings_get", Arguments: map[string]any{"scope": scope}}, nil)

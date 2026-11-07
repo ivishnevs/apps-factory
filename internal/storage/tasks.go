@@ -267,6 +267,24 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 			}
 			p.Rules = *in.Rules
 		}
+		if in.Direction != nil {
+			if len(*in.Direction) > MaxRules {
+				return p, inputError("direction up to 8 KiB")
+			}
+			p.Direction = *in.Direction
+		}
+		if in.Archived != nil {
+			if *in.Archived && !p.Archived {
+				var live int
+				if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED','BACKLOG') AND COALESCE(body->>'kind','')<>'conversation'", tx.company, id).Scan(&live); err != nil {
+					return p, err
+				}
+				if live > 0 {
+					return p, fmt.Errorf("%w: project %s has %d tasks in work: finish, cancel or move them to the backlog before archiving it", ErrConflict, id, live)
+				}
+			}
+			p.Archived = *in.Archived
+		}
 		if in.ReviewAfterConflicts != nil {
 			if err = validReviewPolicy(*in.ReviewAfterConflicts); err != nil {
 				return p, err

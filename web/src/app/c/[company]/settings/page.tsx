@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, Pencil, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, ChevronRight, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, Trash2, UserRound, Users } from "lucide-react";
+import Link from "@/components/app/link";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -11,9 +12,8 @@ import { TelegramSettings } from "@/components/app/settings/telegram";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { core, signOut, useCompanyInfo, useMe, useTeams } from "@/lib/api/client";
+import { core, signOut, useCompanyInfo, useMe } from "@/lib/api/client";
 import { canManage, type Role } from "@/lib/api/types-account";
 import type { Project } from "@/lib/api/types";
 import { ago } from "@/lib/format";
@@ -206,77 +206,28 @@ function Invitations() {
   );
 }
 
-function ProjectSheet({ project, onClose }: { project: Project; onClose: () => void }) {
-  const teams = useTeams();
-  const qc = useQueryClient();
-  const [f, setF] = useState({ name: project.name, description: project.description ?? "", repo_url: project.repo_url ?? "", default_branch: project.default_branch ?? "", team: project.team ?? "" });
-  const [busy, setBusy] = useState(false);
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const body: Record<string, unknown> = { version: project.version, name: f.name.trim(), description: f.description.trim(), repo_url: f.repo_url.trim(), default_branch: f.default_branch.trim() };
-      if (f.team && f.team !== (project.team ?? "")) body.team = f.team;
-      await core(`/projects/${encodeURIComponent(project.id)}`, { method: "PATCH", body: JSON.stringify(body) });
-      await Promise.all([qc.invalidateQueries({ queryKey: ["projects"] }), qc.invalidateQueries({ queryKey: ["overview"] })]);
-      toast.success("Project saved");
-      onClose();
-    } catch (err) { fail(err); setBusy(false); }
-  };
-  const field = (k: keyof typeof f, label: string, hint?: string) => (
-    <label className="block space-y-1.5 text-sm"><span className="font-medium">{label}</span>
-      <Input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
-      {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
-    </label>
-  );
-  return (
-    <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
-        <SheetHeader className="border-b px-5 py-4"><SheetTitle>{project.name}</SheetTitle><SheetDescription>Project <span className="font-mono">{project.id}</span></SheetDescription></SheetHeader>
-        <form onSubmit={save} className="space-y-4 overflow-y-auto px-5 py-5">
-          {field("name", "Name")}
-          {field("description", "Description")}
-          {field("repo_url", "Repository", "The git URL agents clone and push to.")}
-          {field("default_branch", "Default branch", "Pull requests go into it.")}
-          <label className="block space-y-1.5 text-sm"><span className="font-medium">Team</span>
-            <select className="h-10 w-full rounded-md border bg-background px-2" value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })}>
-              {!f.team && <option value="">Choose a team</option>}
-              {(teams.data?.teams ?? []).map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
-            </select>
-            <span className="block text-xs text-muted-foreground">Moving a project to another team works only while it has no tasks in progress.</span>
-          </label>
-          <div className="flex gap-2 pt-2">
-            <Button type="button" variant="outline" className="h-10 flex-1" onClick={onClose}>Cancel</Button>
-            <Button type="submit" className="h-10 flex-1" disabled={busy || !f.name.trim()}>Save</Button>
-          </div>
-        </form>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function Projects({ role }: { role: Role }) {
+// Projects moved to their own pages (projects-page 1.3): Settings lists them and links there.
+function Projects() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => core<Project[]>("/projects") });
-  const [editing, setEditing] = useState<Project | null>(null);
-  const manage = canManage(role);
   return (
-    <Section title="Projects" icon={FolderGit2} description="Each project is a repository a team works in. Create new ones from the board.">
+    <Section title="Projects" icon={FolderGit2} description="Each project has its own page: goal and direction, rules, repository, team and archiving.">
       {projects.error ? <ErrorState error={projects.error} /> : !projects.data ? <LoadingRows rows={2} /> : projects.data.length === 0 ? (
-        <EmptyState icon={FolderGit2} title="No projects yet" hint="Create the first one from the board or the setup steps." className="py-8" />
+        <EmptyState icon={FolderGit2} title="No projects yet" hint="Create the first one on the Projects page." className="py-8" />
       ) : (
         <ul className="divide-y rounded-xl border">
           {projects.data.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{p.name}{p.team && <span className="ml-2 text-xs font-normal text-muted-foreground">team {p.team}</span>}</p>
-                <p className="truncate text-xs text-muted-foreground">{p.repo_url || "No repository yet"}{p.default_branch ? ` · ${p.default_branch}` : ""}</p>
-              </div>
-              {manage && <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing(p)}><Pencil className="size-4" />Edit</Button>}
+            <li key={p.id}>
+              <Link href={`/projects/${encodeURIComponent(p.id)}`} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/50">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{p.name}{p.team && <span className="ml-2 text-xs font-normal text-muted-foreground">team {p.team}</span>}{p.archived && <span className="ml-2 text-xs font-normal text-muted-foreground">archived</span>}</p>
+                  <p className="truncate text-xs text-muted-foreground">{p.repo_url || "No repository yet"}{p.default_branch ? ` · ${p.default_branch}` : ""}</p>
+                </div>
+                <ChevronRight className="size-4 text-muted-foreground" />
+              </Link>
             </li>
           ))}
         </ul>
       )}
-      {editing && <ProjectSheet project={editing} onClose={() => setEditing(null)} />}
     </Section>
   );
 }
@@ -377,7 +328,7 @@ function SettingsPage() {
         </TabsList>
         <TabsContent value="general"><General role={role} /></TabsContent>
         <TabsContent value="members"><Members role={role} /></TabsContent>
-        <TabsContent value="projects"><Projects role={role} /></TabsContent>
+        <TabsContent value="projects"><Projects /></TabsContent>
         <TabsContent value="integrations">
           <Section title="Telegram" icon={MessageCircle} description="Questions, alerts and the daily digest in Telegram, answered from there.">
             <TelegramSettings manage={manage} />
