@@ -54,6 +54,28 @@ func principalOf(r *http.Request) principal {
 	return p
 }
 
+// personOf is a company member as people-attribution records them: the user id and the name (else the e-mail's
+// local part). An unknown user is recorded by id.
+func (c *Core) personOf(ctx context.Context, company, user string) storage.Person {
+	if user == "" || c.Store == nil {
+		return storage.Person{}
+	}
+	members, err := c.Store.Members(ctx, company)
+	if err != nil {
+		return storage.Person{ID: user}
+	}
+	for _, m := range members {
+		if m.User == user {
+			name := m.Name
+			if name == "" {
+				name, _, _ = strings.Cut(m.Email, "@")
+			}
+			return storage.Person{ID: user, Name: name}
+		}
+	}
+	return storage.Person{ID: user}
+}
+
 // author names who did something in records (catalog versions, owner tokens): `user:<id>` for a signed-in
 // user, `owner` for the owner's CLI token and the operator's CLI as before.
 func author(r *http.Request) string {
@@ -188,6 +210,7 @@ func (c *Core) sessionGateway(w http.ResponseWriter, r *http.Request, m *http.Se
 	}
 	p.Role = role
 	ctx = context.WithValue(context.WithValue(ctx, principalKey{}, p), companyKey{}, company)
+	ctx = storage.WithPerson(ctx, c.personOf(ctx, company, sess.User)) // people-attribution
 	r = r.WithContext(ctx)
 	if role == storage.RoleMember && secretsPath(r.URL.Path) {
 		n := &namesOnly{ResponseWriter: w}

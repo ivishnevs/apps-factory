@@ -119,6 +119,9 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 		a.DecidedAt = tx.now().Unix()
 		a.DecisionReason = in.Reason
 		a.DecidedBy, a.Cites = in.DecidedBy, in.Cites
+		if in.DecidedBy == "" {
+			a.DecidedByPerson = personName(ctx)
+		}
 		err = saveApproval(ctx, tx, &a, "approval.resolved")
 		if err == nil && a.Kind == "artifact" {
 			err = reconcileArtifactTasks(ctx, tx)

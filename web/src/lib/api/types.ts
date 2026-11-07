@@ -25,7 +25,7 @@ export interface Task {
   created_at: number; updated_at: number; version: number; current_run_id?: string; attempt: number; result?: string;
   submission?: Submission; review_feedback?: string; block_reason?: string; cancel_requested: boolean;
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
-  progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; blocked_on?: string[]; model?: string;
+  progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
   // Added by the overview: the why reason and who clears it.
   reason: string; clearer: Clearer; wait?: Wait;
@@ -110,13 +110,13 @@ export interface ToolCall {
 
 export interface FeedItem {
   sequence: number; event_id: string; type: string; entity_id: string; project_id: string; created_at: string;
-  status?: string; summary?: string; task_id?: string; run_id?: string; agent?: string; actor?: string; attention?: boolean; ref?: string;
+  status?: string; summary?: string; task_id?: string; run_id?: string; agent?: string; actor?: string; attention?: boolean; ref?: string; person?: string;
 }
 export interface Page<T> { items: T[]; next_after?: number; has_more?: boolean; [k: string]: unknown }
 
 export interface Question { id: string; type: string; question: string; options?: string[] }
 export interface Message {
-  id: string; project_id: string; task_id?: string; sender: string; recipient: string; conversation_id: string;
+  id: string; project_id: string; task_id?: string; sender: string; recipient: string; conversation_id: string; person?: string; person_id?: string;
   message_type: string; body: string; questions?: Question[]; answers?: Record<string, unknown>; in_reply_to?: string;
   blocking: boolean; status: string; version: number; created_at: number; deadline?: number; delivery_status: string;
   escalation_reason?: string; category?: string; approval_id?: string; report_id?: string; decision_id?: string;
@@ -130,7 +130,7 @@ export interface Approval {
   audience?: string; delegate?: string; setting?: string; escalated?: boolean; decided_by?: string; cites?: string[];
 }
 
-export interface Comment { id: string; author: string; text: string; created_at: number }
+export interface Comment { id: string; author: string; text: string; created_at: number; person?: string }
 export interface PRFacts { number: number; state: string; head_sha: string; url?: string }
 export interface ExitFacts { head: string; dirty: boolean; branch: string; default_branch: string; ahead_of_default: number; pushed: boolean; pr?: PRFacts }
 export interface TaskExit { run_id: string; kind: string; facts?: ExitFacts; created_at: number }

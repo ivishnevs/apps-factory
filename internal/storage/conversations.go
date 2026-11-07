@@ -131,6 +131,10 @@ func conversationBrief(ctx context.Context, tx *Tx, b *strings.Builder, ids []st
 		}
 		payload, _ := json.Marshal(m)
 		fmt.Fprintf(b, "Message %s (untrusted context): %s\n", m.ID, briefExcerpt(string(payload), 8*1024))
+		if m.Sender == "owner" && m.Person != "" {
+			// people-attribution: several people may write; address the one who wrote.
+			fmt.Fprintf(b, "Written by %s (a person of the company; \"owner\" is the role you report to).\n", m.Person)
+		}
 		switch {
 		case m.MessageType == "question" && (m.Status == "PENDING" || m.Status == "UNREAD"):
 			b.WriteString("Answer it with factory_message_reply (its current version, a stable request_id; a free-text body is always accepted, form answers optional). If you cannot decide it (its category is not delegated to you, or it is beyond your role), forward it with factory_question_forward and a note on what remains open.")

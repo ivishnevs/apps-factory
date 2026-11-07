@@ -383,6 +383,9 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		if t.CreatedBy == "" {
 			t.CreatedBy = "owner"
 		}
+		if t.CreatedBy == "owner" {
+			t.CreatedByPerson = personName(ctx)
+		}
 		if t.Dependencies == nil {
 			t.Dependencies = []string{}
 		}
@@ -852,7 +855,11 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if author == "" {
 		author = "owner"
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments VALUES(?,?,?,?,?,?)", protocol.ID(), id, author, text, tx.now().Unix(), tx.company)
+	person := ""
+	if author == "owner" {
+		person = personName(ctx)
+	}
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person) VALUES(?,?,?,?,?,?,?)", protocol.ID(), id, author, text, tx.now().Unix(), tx.company, person)
 	return err
 }
 func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {

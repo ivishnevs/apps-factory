@@ -26,6 +26,8 @@ type FeedItem struct {
 	Actor     string    `json:"actor,omitempty"`
 	Attention bool      `json:"attention,omitempty"`
 	Ref       string    `json:"ref,omitempty"`
+	// Person is the person behind actor owner (people-attribution).
+	Person string `json:"person,omitempty"`
 }
 
 // feedRow derives the feed columns of an entity event from the entity snapshot. The backfill in
@@ -85,8 +87,11 @@ var AttentionKinds = map[string]bool{
 // feed records a feed row in the caller's transaction.
 func feed(ctx context.Context, tx *Tx, item FeedItem) error {
 	item.Attention = item.Attention || AttentionKinds[item.Type]
-	if err := tx.QueryRowContext(ctx, "INSERT INTO feed_events(company_id,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING seq",
-		tx.company, item.EventID, item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Type, item.ProjectID, item.EntityID, item.TaskID, item.RunID, item.Agent, item.Actor, item.Status, item.Summary, item.Attention, item.Ref).Scan(&item.Sequence); err != nil {
+	if item.Person == "" && (item.Actor == "owner" || item.Actor == "") {
+		item.Person = personName(ctx)
+	}
+	if err := tx.QueryRowContext(ctx, "INSERT INTO feed_events(company_id,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref,person) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING seq",
+		tx.company, item.EventID, item.CreatedAt.UTC().Format(time.RFC3339Nano), item.Type, item.ProjectID, item.EntityID, item.TaskID, item.RunID, item.Agent, item.Actor, item.Status, item.Summary, item.Attention, item.Ref, item.Person).Scan(&item.Sequence); err != nil {
 		return err
 	}
 	return nil
@@ -133,7 +138,7 @@ func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after in
 		b, _ := json.Marshal(f.Agents)
 		agents, list = string(b), string(b)
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT seq,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref FROM feed_events
+	rows, err := s.DB.QueryContext(ctx, `SELECT seq,id,at,kind,project_id,entity_id,task_id,run_id,agent,actor,status,summary,attention,ref,person FROM feed_events
  WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR task_id=?) AND (?=0 OR attention=1) AND seq>?
  AND (?='' OR agent IN (SELECT jsonb_array_elements_text(?::jsonb)) OR task_id IN (SELECT t.id FROM tasks t WHERE t.company_id=feed_events.company_id
   AND (t.assignee IN (SELECT jsonb_array_elements_text(?::jsonb)) OR (t.body->>'origin_task') IN (SELECT o.id FROM tasks o WHERE o.company_id=t.company_id AND o.assignee IN (SELECT jsonb_array_elements_text(?::jsonb))))))
@@ -146,7 +151,7 @@ func (s *Store) Feed(ctx context.Context, company string, f FeedFilter, after in
 	for rows.Next() {
 		var item FeedItem
 		var at string
-		if err = rows.Scan(&item.Sequence, &item.EventID, &at, &item.Type, &item.ProjectID, &item.EntityID, &item.TaskID, &item.RunID, &item.Agent, &item.Actor, &item.Status, &item.Summary, &item.Attention, &item.Ref); err != nil {
+		if err = rows.Scan(&item.Sequence, &item.EventID, &at, &item.Type, &item.ProjectID, &item.EntityID, &item.TaskID, &item.RunID, &item.Agent, &item.Actor, &item.Status, &item.Summary, &item.Attention, &item.Ref, &item.Person); err != nil {
 			return out, err
 		}
 		if len(out.Items) == limit {

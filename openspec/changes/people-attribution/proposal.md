@@ -1,4 +1,4 @@
-Status: bug recorded 2026-11-05 by the owner; fix to be designed. Nothing implemented.
+Status: bug recorded 2026-11-05 by the owner; fixed 2026-11-07 (see "Implementation").
 
 ## Why
 
@@ -27,3 +27,16 @@ Telegram request, but tasks, messages, answers, reviews, approvals and actions s
 Storage (person columns on tasks, task events, messages, approvals, catalog versions), Core routes taking the
 session's person, web feed, task, chat and inbox views, agent briefs, Telegram. Related: a human manager per
 team (questions of a team go to its manager) may follow as a separate change.
+
+## Implementation (2026-11-07)
+
+- Design (decided during implementation): Core puts the person into the request context — the signed-in member
+  (session) or the person bound to a Telegram chat; storage records it next to "owner" wherever an owner action is
+  written: messages (`person`, `person_id`), tasks (`created_by_person`), comments and feed rows (`person` columns,
+  migration 0022), approvals (`decided_by_person`) and decisions (`recorded_by_person`). The CLI's tokens and the
+  operator carry no person. Existing rows are not backfilled. A name is the member's name, else the e-mail's local
+  part.
+- Agents: a person's message in a brief carries "Written by NAME (a person of the company; owner is the role you
+  report to)".
+- Web: task "Created … by NAME", comments, chat bubbles of other people and feed rows show the person; the signed-in
+  person still sees "you".

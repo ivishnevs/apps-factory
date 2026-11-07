@@ -382,6 +382,9 @@ func (s *Store) RecordDecision(ctx context.Context, company, id string, in decis
 		}
 		d.Status = in.Status
 		d.RecordedBy = in.Actor
+		if in.Actor == "owner" {
+			d.RecordedByPerson = personName(ctx)
+		}
 		d.ReviewRationale = in.Rationale
 		d.ApprovalID = in.ApprovalID
 		if in.Status != "under_discussion" {

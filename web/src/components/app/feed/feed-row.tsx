@@ -104,7 +104,7 @@ export function FeedRow({ item, fresh, projectName, title }: {
         <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
           <span className={cn("font-medium", item.attention || item.type === "project.setup_failed" ? "text-red-600 dark:text-red-400" : "text-foreground/70")}>{verb(item.type)}</span>
           {who && <><Dot /><span className="font-medium text-foreground/80">{who}</span></>}
-          {who && item.actor && item.agent && item.actor !== item.agent && <span className="hidden sm:inline">by {item.actor}</span>}
+          {who && item.actor && item.agent && item.actor !== item.agent && <span className="hidden sm:inline">by {item.actor === "owner" && item.person ? item.person : item.actor}</span>}
           {(projectName || item.project_id) && <><Dot /><span>{projectName || item.project_id}</span></>}
           {item.task_id && summary !== taskTitle && (taskTitle
             ? <><Dot /><span className="min-w-0 max-w-[14rem] truncate sm:max-w-xs" title={taskTitle}>{taskTitle}</span></>

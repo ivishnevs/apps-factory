@@ -24,12 +24,14 @@ type Approval struct {
 	// Delegation (approval-delegation): Audience internal|external of an artifact; Delegate the agent that decides
 	// under Setting (e.g. "team game: internal_artifacts agent game-designer") until it escalates to people;
 	// DecidedBy the agent that decided and Cites what it relied on.
-	Audience  string   `json:"audience,omitempty"`
-	Delegate  string   `json:"delegate,omitempty"`
-	Setting   string   `json:"setting,omitempty"`
-	Escalated bool     `json:"escalated,omitempty"`
-	DecidedBy string   `json:"decided_by,omitempty"`
-	Cites     []string `json:"cites,omitempty"`
+	Audience  string `json:"audience,omitempty"`
+	Delegate  string `json:"delegate,omitempty"`
+	Setting   string `json:"setting,omitempty"`
+	Escalated bool   `json:"escalated,omitempty"`
+	DecidedBy string `json:"decided_by,omitempty"`
+	// DecidedByPerson is the person who decided (people-attribution); empty for agents and the CLI.
+	DecidedByPerson string   `json:"decided_by_person,omitempty"`
+	Cites           []string `json:"cites,omitempty"`
 }
 type Request struct {
 	ProjectID, Agent, TaskID, RunID string

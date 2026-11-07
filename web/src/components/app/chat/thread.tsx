@@ -1,6 +1,7 @@
 "use client";
 
 import { DecisionCard } from "@/components/app/decision-card";
+import { usePerson } from "@/lib/person";
 import { ArrowLeft, ArrowUp, CircleHelp, Radio, Star } from "lucide-react";
 import Link from "@/components/app/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -60,6 +61,7 @@ function Questions({ msg, agent }: { msg: Message; agent: string }) {
 }
 
 function Bubble({ msg, agent, first, last }: { msg: Message; agent: string; first: boolean; last: boolean }) {
+  const person = usePerson();
   const mine = msg.sender === "owner";
   const kind = msg.message_type && !["question", "answer"].includes(msg.message_type) ? msg.message_type.replace(/_/g, " ") : "";
   const answers = Object.entries(msg.answers ?? {}).filter(([k]) => !(msg.questions ?? []).some((q) => q.id === k));
@@ -77,7 +79,7 @@ function Bubble({ msg, agent, first, last }: { msg: Message; agent: string; firs
         </div>
         {last && (
           <span className="mt-1 px-1 text-[11px] tabular-nums text-muted-foreground">
-            {clock(msg.created_at)}{kind && ` · ${kind}`}{msg.may_be_outdated && " · may be outdated"}
+            {mine && msg.person && person(msg.person, msg.person_id) !== "you" && `${msg.person} · `}{clock(msg.created_at)}{kind && ` · ${kind}`}{msg.may_be_outdated && " · may be outdated"}
           </span>
         )}
       </div>

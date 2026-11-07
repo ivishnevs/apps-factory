@@ -175,6 +175,11 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	}
 	// An agent's question, notification or proposal to the owner goes to the owner's chat with that agent when it
 	// exists (decision-approval-ux: questions and decisions come in the chat), not to a thread of its own.
+	if in.Sender == "owner" {
+		if p := PersonFrom(ctx); p.ID != "" || p.Name != "" {
+			m.Person, m.PersonID = personName(ctx), p.ID
+		}
+	}
 	if m.ConversationID == "" && in.Recipient == "owner" && in.Sender != "factory" && in.Sender != "system" && in.Sender != "owner" && m.ProjectID != "" {
 		m.ConversationID = ownerChat(ctx, tx, in.Sender, m.ProjectID)
 	}

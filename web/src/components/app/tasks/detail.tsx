@@ -16,6 +16,7 @@ import { cleanText, humanize, party as partyOf, taskName, triggerWords, type Loo
 import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
 import { reviewerName } from "./reviewer";
+import { usePerson } from "@/lib/person";
 
 const stamp = (t?: number | string) => {
   if (!t) return "";
@@ -214,6 +215,7 @@ export function ReviewNotes({ task, look }: { task: Task; look?: Lookup }) {
 }
 
 export function Comments({ taskId, comments, now, look }: { taskId: string; comments: Comment[]; now: number; look?: Lookup }) {
+  const person = usePerson();
   const [text, setText] = useState("");
   const { run, pending } = useOwnerAction();
   const send = async (e: React.FormEvent) => {
@@ -230,7 +232,7 @@ export function Comments({ taskId, comments, now, look }: { taskId: string; comm
             <li key={c.id} className="flex gap-3">
               <AgentAvatar name={c.author} size="sm" className="mt-0.5" />
               <div className={cn("min-w-0 flex-1 rounded-xl rounded-tl-sm px-3.5 py-2.5", c.author === "owner" ? "bg-foreground/[0.06]" : "bg-muted/60")}>
-                <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? "You" : c.author}</span><span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
+                <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? person(c.person, undefined, "You") : c.author}</span><span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
                 <p className="mt-0.5 text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(c.text, look)}</p>
               </div>
             </li>
@@ -281,8 +283,9 @@ export function Timeline({ events, now, look }: { events: FeedItem[]; now: numbe
 }
 
 export function DetailsList({ task, parent, cost, now, look }: { task: Task; parent?: string; cost: number; now: number; look?: Lookup }) {
+  const person = usePerson();
   const rows: [string, React.ReactNode][] = [];
-  rows.push(["Created", <span key="c" title={stamp(task.created_at)}>{since(task.created_at, now)} ago by {task.created_by === "owner" ? "you" : task.created_by}</span>]);
+  rows.push(["Created", <span key="c" title={stamp(task.created_at)}>{since(task.created_at, now)} ago by {task.created_by === "owner" ? person(task.created_by_person) : task.created_by}</span>]);
   if (parent) rows.push(["Parent", <TaskLink key="p" id={parent} look={look} />]);
   if (task.dependencies?.length) rows.push(["Depends on", <span key="d" className="flex flex-col items-end gap-1.5">{task.dependencies.map((d) => <TaskLink key={d} id={d} look={look} />)}</span>]);
   if (task.blocked_on?.length) rows.push(["Blocked on", <span key="b" className="flex flex-col items-end gap-1.5">{task.blocked_on.map((d) => <TaskLink key={d} id={d} look={look} />)}</span>]);

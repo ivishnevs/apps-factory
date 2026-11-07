@@ -25,6 +25,7 @@ type Decision struct {
 	CreatedBy             string           `json:"created_by"`
 	ApprovedBy            string           `json:"approved_by,omitempty"`
 	RecordedBy            string           `json:"recorded_by,omitempty"`
+	RecordedByPerson      string           `json:"recorded_by_person,omitempty"`
 	ReviewRationale       string           `json:"review_rationale,omitempty"`
 	Version               int              `json:"version"`
 	TaskID                string           `json:"task_id,omitempty"`

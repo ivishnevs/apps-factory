@@ -374,6 +374,12 @@ func (c *Core) updateTelegramPerson(ctx context.Context, company, who string, ch
 	return b.SaveState(ctx, st)
 }
 
+// PersonContext attributes a bound person's Telegram actions to them (people-attribution); who is a user id, or the
+// owner key of a chat bound before people were bound one by one.
+func (b telegramBackend) PersonContext(ctx context.Context, who string) context.Context {
+	return storage.WithPerson(ctx, b.c.personOf(ctx, b.Company(ctx), who))
+}
+
 func (b telegramBackend) LoadState(ctx context.Context) (telegram.State, error) {
 	var st telegram.State
 	raw, err := b.c.Store.NotifyState(ctx, b.company, telegramChannel)

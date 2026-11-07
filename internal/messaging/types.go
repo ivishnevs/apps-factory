@@ -26,6 +26,9 @@ type Question struct {
 	Options  []string `json:"options,omitempty"`
 }
 type Message struct {
+	// Person is the person who wrote an owner message (people-attribution); empty for agents and older messages.
+	Person   string `json:"person,omitempty"`
+	PersonID string `json:"person_id,omitempty"`
 	// DelegatedTo: an approval request an agent decides under delegation (approval-delegation); hidden from the
 	// people's Inbox until that agent escalates it.
 	DelegatedTo      string         `json:"delegated_to,omitempty"`

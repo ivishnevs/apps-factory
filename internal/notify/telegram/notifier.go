@@ -288,6 +288,19 @@ func (n *Notifier) say(ctx context.Context, chat int64, text string, replyTo int
 	return err
 }
 
+// PersonContexter is an optional Backend: it attributes what a bound person does from Telegram to them
+// (people-attribution).
+type PersonContexter interface {
+	PersonContext(ctx context.Context, who string) context.Context
+}
+
+func (n *Notifier) as(ctx context.Context, who string) context.Context {
+	if pc, ok := n.Backend.(PersonContexter); ok {
+		return pc.PersonContext(ctx, who)
+	}
+	return ctx
+}
+
 func manager(role string) bool { return role == RoleOwner || role == RoleAdmin }
 
 func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
@@ -300,6 +313,7 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		if p == nil {
 			return nil
 		}
+		ctx = n.as(ctx, who)
 		notice := "ok"
 		parts := strings.SplitN(c.Data, "|", 3)
 		switch {
@@ -327,6 +341,9 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		return n.bind(ctx, st, m.Chat.ID, strings.TrimSpace(code))
 	}
 	who, p := st.ByChat(m.Chat.ID)
+	if p != nil {
+		ctx = n.as(ctx, who)
+	}
 	if p == nil {
 		return n.say(ctx, m.Chat.ID, "This chat is not connected. In App Factory open Settings → Integrations → Connect Telegram.", 0)
 	}

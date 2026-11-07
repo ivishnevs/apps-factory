@@ -136,8 +136,10 @@ type Task struct {
 	SideEffects bool `json:"side_effects,omitempty"`
 	// Implementer submitted the task (factory_exit_submit); Reviewer is the agent asked to review it and is
 	// its assignee while the task is IN_REVIEW.
-	Implementer string `json:"implementer,omitempty"`
-	Reviewer    string `json:"reviewer,omitempty"`
+	// CreatedByPerson is the person behind created_by owner (people-attribution).
+	CreatedByPerson string `json:"created_by_person,omitempty"`
+	Implementer     string `json:"implementer,omitempty"`
+	Reviewer        string `json:"reviewer,omitempty"`
 	// ReviewBy is who reviews the task's work (review-coverage): an agent, "owner" or "member:USER". Required on
 	// every task outside the backlog (Core refuses ready without it); a submit naming no reviewer goes to it.
 	ReviewBy string `json:"review_by,omitempty"`
