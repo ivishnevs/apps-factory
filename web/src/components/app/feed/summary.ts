@@ -105,7 +105,7 @@ export function feedSummary(item: FeedItem, title: (id: string) => string | unde
   }
   if (t === "owner.paused" || t === "owner.resumed") {
     if ((m = raw.match(reHex("^node HEX(?::\\s*(?:--reason\\s+)?([\\s\\S]*))?$", "")))) {
-      return (t === "owner.paused" ? "Paused a connector" : "Resumed a connector") + (m[1] ? `: ${prose(m[1], title)}` : "");
+      return (t === "owner.paused" ? "Paused a node" : "Resumed a node") + (m[1] ? `: ${prose(m[1], title)}` : "");
     }
   }
   // Connectors (nodes): what happened to the machine, without epochs, keys or fingerprints.
@@ -123,7 +123,7 @@ export function feedSummary(item: FeedItem, title: (id: string) => string | unde
   }
   if (t === "node.enrolled" && (m = raw.match(/^node (\S+) waits for approval/))) return `${m[1]} waits for your approval`;
   if (t.startsWith("node.") && /fingerprint/.test(raw)) return raw.replace(/,?\s*fingerprint [0-9a-f-]+/i, "").replace(/^node /i, "");
-  if (t === "node.revoked") return /^node [0-9a-f]{32} revoked$/i.test(raw) || /^node revoked$/i.test(raw) ? "A connector was revoked" : raw.replace(/^node /i, "");
+  if (t === "node.revoked") return /^node [0-9a-f]{32} revoked$/i.test(raw) || /^node revoked$/i.test(raw) ? "A node was revoked" : raw.replace(/^node /i, "");
   if (t.startsWith("node.")) return raw.replace(/^node /i, "");
 
   if (t === "approval.requested" && (m = raw.match(/^factory_project_create:\s*([\s\S]*)$/))) {

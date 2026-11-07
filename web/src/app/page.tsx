@@ -20,7 +20,7 @@ function useSignedIn() {
 
 const steps = [
   { icon: Users, title: "Pick a team", text: "A product owner, developers, QA, a designer — from presets you can tune: prompts, models, skills." },
-  { icon: Cpu, title: "Connect your machine", text: "One command installs the connector. Agents run there, on your Claude and Codex subscriptions." },
+  { icon: Cpu, title: "Connect your machine", text: "One command installs the node. Agents run there, on your Claude and Codex subscriptions." },
   { icon: Bot, title: "Give the lead a goal", text: "The lead plans, splits the work and hands it out; the team builds, reviews and tests." },
   { icon: ShieldCheck, title: "You decide", text: "Questions, approvals and merged pull requests come to your inbox. Costs and a kill switch are one click away." },
 ];

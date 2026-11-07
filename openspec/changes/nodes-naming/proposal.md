@@ -17,3 +17,9 @@ Two words for one thing; and the coming hosted machines are "virtual nodes" (`ho
 ## Impact
 
 Web (navigation, pages, copy, routes with redirects), landing and docs copy, Telegram texts, `owner-web` spec wording.
+
+## Implementation (2026-11-07)
+
+Web copy (navigation, pages, buttons, empty states, reasons, feed, landing), the Telegram digest and the pause scope
+say "node"; `/c/{company}/connectors` redirects to `/nodes`; a test over the web sources fails on "connector" outside
+comments. Code identifiers (`InstallConnector`) and developer docs keep their names.

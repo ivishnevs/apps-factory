@@ -105,10 +105,10 @@ function Wizard() {
         </Step>
         <Step n={3} title="A machine to run on" done={!s.no_node} icon={Server}>
           {!s.no_node ? (
-            <p>Connected: {nodes.map((n) => n.name).join(", ") || "a connector"}. <Link href="/nodes" className="underline">Connectors</Link></p>
+            <p>Connected: {nodes.map((n) => n.name).join(", ") || "a node"}. <Link href="/nodes" className="underline">Nodes</Link></p>
           ) : manage ? (
             <>
-              <p>Agents run on a machine of yours (a Mac or a Linux server), on your Claude and Codex subscriptions. Install the connector there:</p>
+              <p>Agents run on a machine of yours (a Mac or a Linux server), on your Claude and Codex subscriptions. Install the node there:</p>
               <div className="rounded-xl border p-4 text-foreground"><InstallConnector /></div>
             </>
           ) : <p>An owner or admin connects a machine.</p>}

@@ -30,11 +30,11 @@ export function setupView(p: Project, nodes?: FactoryNode[]): SetupView | undefi
   const what = p.repo_mode === "existing" ? "Repository is onboarded" : "Repository is created";
   if (s.state === "running") {
     return { state: "running", tone: "info", title: node ? `Setting up on ${node}` : "Setting up the repository", taskId: s.task_id,
-      detail: p.repo_mode === "existing" ? "The first task's run starts in it once the connector has checked it." : "The first task's run starts once it is ready." };
+      detail: p.repo_mode === "existing" ? "The first task's run starts in it once the node has checked it." : "The first task's run starts once it is ready." };
   }
   if (s.state === "failed") {
     return { state: "failed", tone: "bad", title: node ? `Setup failed on ${node}` : "Repository setup failed", taskId: s.task_id,
-      detail: cleanText(s.reason) || "The connector could not set up the repository.",
+      detail: cleanText(s.reason) || "The node could not set up the repository.",
       hint: "Fix the cause on that machine, then retry the task. It also retries on its own." };
   }
   const audit = s.audit && s.audit_task_id;

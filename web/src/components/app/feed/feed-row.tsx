@@ -74,7 +74,7 @@ function verb(t: string) {
   if (t.startsWith("task.parked.")) return "Parked";
   if (t.startsWith("task.unparked.")) return "Resumed";
   if (t.startsWith("openspec.")) return "OpenSpec";
-  if (t.startsWith("node.")) return "Connector";
+  if (t.startsWith("node.")) return "Node";
   if (t.startsWith("driver")) return "Runtime";
   if (t.startsWith("run.") || t === "report.created") return "Run";
   if (t.startsWith("approval.")) return "Approval";

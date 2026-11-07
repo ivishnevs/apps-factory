@@ -47,5 +47,5 @@ export function addressee(body: string, reports: string[], def: string): string 
 }
 
 // The scope of a pause in words (quota_key → quota key).
-export const scopeName = (s: string) => (s === "quota_key" ? "subscription" : s === "node" ? "connector" : s);
+export const scopeName = (s: string) => (s === "quota_key" ? "subscription" : s === "node" ? "node" : s);
 export const companyPause = (pauses: Pause[] | undefined) => (pauses ?? []).find((p) => p.scope === "company");

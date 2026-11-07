@@ -77,11 +77,11 @@ function Stats({ ov }: { ov: Overview }) {
   const slots = online.reduce((n, x) => n + (x.slots ?? 0), 0), used = online.reduce((n, x) => n + x.in_use.runs, 0);
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <Stat href="/feed" icon={Play} accent="text-emerald-600 dark:text-emerald-400" label="Agents working" value={running} sub={queued ? `${queued} waiting for a connector` : "nothing waiting"} />
+      <Stat href="/feed" icon={Play} accent="text-emerald-600 dark:text-emerald-400" label="Agents working" value={running} sub={queued ? `${queued} waiting for a node` : "nothing waiting"} />
       <Stat href="/tasks" icon={forYou ? Hand : KanbanSquare} accent={forYou ? "text-amber-600 dark:text-amber-400" : undefined} label="Open tasks" value={work.length}
         sub={forYou ? <span className="text-amber-700 dark:text-amber-300">{forYou} need{forYou === 1 ? "s" : ""} you</span> : `${ov.pending.in_review} in review`} />
       <Stat href="/costs" icon={CircleDollarSign} label="Spent today" value={usd(ov.costs_today.total.cost_usd)} sub={`${ov.costs_today.total.runs} runs`} />
-      <Stat href="/nodes" icon={Server} label="Connectors online" value={<>{online.length}<span className="text-base font-normal text-muted-foreground">/{ov.nodes.length}</span></>}
+      <Stat href="/nodes" icon={Server} label="Nodes online" value={<>{online.length}<span className="text-base font-normal text-muted-foreground">/{ov.nodes.length}</span></>}
         sub={`${used} of ${slots} agent slots busy`} />
     </div>
   );

@@ -92,7 +92,7 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
   const Icon = done ? CheckCircle2 : you ? Hand : live ? Loader2 : queued || h.queued ? Clock : CircleDot;
   const triggers = why.pending_triggers ?? [];
   const msg = /\bm-[\w-]+/.exec(why.clearer?.action ?? "")?.[0];
-  const headline = done ? h.headline : queued ? "Waiting for a connector" : h.headline;
+  const headline = done ? h.headline : queued ? "Waiting for a node" : h.headline;
   const detail = done ? undefined : q ? q.detail : h.detail;
   return (
     <section aria-label="Status" className={cn("rounded-2xl border p-4 sm:p-5",

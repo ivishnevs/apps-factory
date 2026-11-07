@@ -23,7 +23,7 @@ import { ago } from "@/lib/format";
 // companies is in the company menu. The tab is in the address (?tab=members) so links and reloads land on it.
 const roleWords: Record<Role, string> = {
   owner: "Everything, including members and the company's name",
-  admin: "Teams, skills, secrets, connectors, projects and tokens",
+  admin: "Teams, skills, secrets, nodes, projects and tokens",
   member: "Tasks, chats and approvals",
 };
 

@@ -81,7 +81,7 @@ export default function ConnectPage() {
                 ) : r.status === "approved" ? (
                   <div className="space-y-3">
                     <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400"><Check className="size-4" />Connected to {eligible.find((c) => c.company === r.company)?.name ?? r.company}. The terminal continues on its own.</p>
-                    <Button asChild className="h-10 w-full"><NextLink href={`/c/${encodeURIComponent(r.company ?? company)}/nodes`}>See your connectors</NextLink></Button>
+                    <Button asChild className="h-10 w-full"><NextLink href={`/c/${encodeURIComponent(r.company ?? company)}/nodes`}>See your nodes</NextLink></Button>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">{r.status === "expired" ? "This request expired. Run the installer (or factory-node login) again." : "This request was cancelled."}</p>

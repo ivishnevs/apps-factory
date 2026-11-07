@@ -79,7 +79,7 @@ export default function Page() {
 
   return (
     <>
-      <PageHeader title="Connectors & control" description="The machines your agents run on, what is paused, and the kill switch" actions={manage ? <AddNode /> : undefined} />
+      <PageHeader title="Nodes & control" description="The machines your agents run on, what is paused, and the kill switch" actions={manage ? <AddNode /> : undefined} />
       {error && <div className="mb-4"><ErrorState error={error} /></div>}
       {isLoading ? (
         <div className="space-y-4">
@@ -102,7 +102,7 @@ export default function Page() {
             </div>
             {ov.errors?.pauses && <div className="mb-3"><ErrorState error={ov.errors.pauses} /></div>}
             {pauses.length === 0 ? (
-              <EmptyState icon={Play} title="Nothing is paused" hint="Pause a project, an agent, a connector or a subscription to hold its new work." className="py-8" />
+              <EmptyState icon={Play} title="Nothing is paused" hint="Pause a project, an agent, a node or a subscription to hold its new work." className="py-8" />
             ) : (
               <ul className="divide-y overflow-hidden rounded-2xl border bg-card shadow-xs">
                 {pauses.map((p) => <PauseRow key={`${p.scope}/${p.target}`} p={p} label={label(p)} busy={pending} onResume={() => release(p)} />)}
@@ -112,7 +112,7 @@ export default function Page() {
 
           <section aria-labelledby="nodes-title">
             <div className="mb-3">
-              <h2 id="nodes-title" className="text-base font-semibold">Connectors <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{nodes.length}</span></h2>
+              <h2 id="nodes-title" className="text-base font-semibold">Nodes <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{nodes.length}</span></h2>
               <p className="text-sm text-muted-foreground">
                 {nodes.filter((n) => n.online).length} online · {nodes.reduce((s, n) => s + (n.in_use?.runs ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.slots ?? 0), 0)} agent slots busy
               </p>
@@ -121,7 +121,7 @@ export default function Page() {
             {nodes.length === 0 ? (
               manage ? (
                 <div className="rounded-2xl border bg-card p-4 md:p-5"><p className="mb-4 font-medium">Connect your first machine</p><InstallConnector /></div>
-              ) : <EmptyState icon={Server} title="No connectors yet" hint="An owner or admin connects the company's machines." />
+              ) : <EmptyState icon={Server} title="No nodes yet" hint="An owner or admin connects the company's machines." />
             ) : (
               <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
                 {nodes.map((n) => {

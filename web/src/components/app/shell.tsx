@@ -25,7 +25,7 @@ export const nav = [
   { href: "/costs", label: "Costs", icon: CircleDollarSign, manage: true },
   // Manage (saas-web-ui D6): the company's setup.
   { href: "/teams", label: "Teams & agents", icon: Users, section: "Manage" },
-  { href: "/nodes", label: "Connectors", icon: Server },
+  { href: "/nodes", label: "Nodes", icon: Server },
   { href: "/skills", label: "Skills", icon: Sparkles },
   { href: "/secrets", label: "Secrets", icon: KeyRound },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -103,7 +103,7 @@ function NewCompanyDialog({ open, onClose }: { open: boolean; onClose: () => voi
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New company</DialogTitle>
-          <DialogDescription>A separate company with its own teams, connectors, secrets and skills. You are its owner.</DialogDescription>
+          <DialogDescription>A separate company with its own teams, nodes, secrets and skills. You are its owner.</DialogDescription>
         </DialogHeader>
         <form onSubmit={create} className="space-y-4">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Side project" maxLength={100} autoFocus required aria-label="Company name" />

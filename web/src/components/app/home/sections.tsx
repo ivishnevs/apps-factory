@@ -299,7 +299,7 @@ export function Team({ ov }: { ov: Overview }) {
 
 export function Nodes({ ov, now }: { ov: Overview; now: number }) {
   return (
-    <Section title="Connectors" count={ov.nodes.length} href="/nodes" linkLabel="Manage">
+    <Section title="Nodes" count={ov.nodes.length} href="/nodes" linkLabel="Manage">
       {ov.nodes.length === 0 ? <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No machine is connected yet.</p> : (
         <ul>
           {ov.nodes.map((n) => {

@@ -64,7 +64,7 @@ export function InstallConnector() {
   };
   return (
     <div className="space-y-5 text-sm">
-      {platform === "" && <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-800 dark:text-amber-300">Connectors run on macOS and Linux. Run the command on such a machine.</p>}
+      {platform === "" && <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-800 dark:text-amber-300">Nodes run on macOS and Linux. Run the command on such a machine.</p>}
       <div className="flex gap-1 rounded-lg border p-1">
         {(["signin", "code"] as const).map((m) => (
           <button key={m} type="button" onClick={() => setMode(m)} className={`flex-1 rounded-md px-2 py-1.5 text-sm ${mode === m ? "bg-accent font-medium" : "text-muted-foreground"}`}>
@@ -75,14 +75,14 @@ export function InstallConnector() {
       {mode === "signin" ? (
         <ol className="list-decimal space-y-3 pl-5">
           <li><p className="mb-2">On the machine, in a terminal:</p><CommandLine command={d.command} /></li>
-          <li>It installs the connector, then opens a page here to approve the machine. Compare the code it shows with the terminal and connect it.</li>
-          <li>The connector starts on its own and appears below. No browser on that machine? End the command with <span className="font-mono">sh -s -- --no-browser</span> and open the printed address anywhere you are signed in.</li>
+          <li>It installs the node, then opens a page here to approve the machine. Compare the code it shows with the terminal and connect it.</li>
+          <li>The node starts on its own and appears below. No browser on that machine? End the command with <span className="font-mono">sh -s -- --no-browser</span> and open the printed address anywhere you are signed in.</li>
         </ol>
       ) : issued ? (
         <ol className="list-decimal space-y-3 pl-5">
           <li><p className="mb-2">On the machine:</p><CommandLine command={`${d.command} -s -- --code ${issued.code}`} />
             <p className="mt-1.5 text-xs text-muted-foreground">The code works once and expires {new Date(issued.expires_at * 1000).toLocaleString([], { hour: "2-digit", minute: "2-digit" })}. It is shown only now.</p></li>
-          <li>It prints the connector&apos;s fingerprint and waits: approve <span className="font-medium">{issued.name}</span> under Waiting for approval after comparing it.</li>
+          <li>It prints the node&apos;s fingerprint and waits: approve <span className="font-medium">{issued.name}</span> under Waiting for approval after comparing it.</li>
         </ol>
       ) : (
         <form onSubmit={submit} className="space-y-3">
@@ -95,7 +95,7 @@ export function InstallConnector() {
       <details className="rounded-lg border px-3 py-2">
         <summary className="cursor-pointer font-medium">What the machine needs · manual download</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-          <li>macOS or Linux, <span className="font-mono">git</span>, Node.js 22+ (Claude and Codex runtimes are installed next to the connector).</li>
+          <li>macOS or Linux, <span className="font-mono">git</span>, Node.js 22+ (Claude and Codex runtimes are installed next to the node).</li>
           <li>Signed in to Claude (<span className="font-mono">claude</span>) and/or Codex (<span className="font-mono">codex login</span>) with your subscription.</li>
         </ul>
         {d.available.length > 0 ? (
@@ -105,7 +105,7 @@ export function InstallConnector() {
             ))}
             <li><a className="underline" href={`${d.core_url}/downloads/node/SHA256SUMS`}>SHA256SUMS</a></li>
           </ul>
-        ) : <p className="mt-2 text-muted-foreground">This server has no connector packages.</p>}
+        ) : <p className="mt-2 text-muted-foreground">This server has no node packages.</p>}
       </details>
     </div>
   );
@@ -115,10 +115,10 @@ export function AddNode() {
   const [open, setOpen] = useState(false);
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild><Button className="h-10"><Plus className="size-4" />Add a connector</Button></SheetTrigger>
+      <SheetTrigger asChild><Button className="h-10"><Plus className="size-4" />Add a node</Button></SheetTrigger>
       <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
         <SheetHeader className="border-b px-5 py-4">
-          <SheetTitle>Add a connector</SheetTitle>
+          <SheetTitle>Add a node</SheetTitle>
           <SheetDescription>A machine of yours that runs your agents. It connects out to App Factory; it needs no open port.</SheetDescription>
         </SheetHeader>
         <div className="overflow-y-auto px-5 py-5"><InstallConnector /></div>

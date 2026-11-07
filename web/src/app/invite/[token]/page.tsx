@@ -16,7 +16,7 @@ import type { Me } from "@/lib/api/types-account";
 // join with one click. A used, revoked or expired link says so.
 interface Preview { company: string; company_name: string; role: "admin" | "member"; invited_by: string; expires_at: number; open: boolean }
 
-const roleWords = { admin: "an admin: teams, skills, secrets, connectors, projects", member: "a member: tasks, chats and approvals" };
+const roleWords = { admin: "an admin: teams, skills, secrets, nodes, projects", member: "a member: tasks, chats and approvals" };
 
 async function getJSON<T>(path: string): Promise<T | null> {
   const res = await fetch(path, { credentials: "same-origin" });

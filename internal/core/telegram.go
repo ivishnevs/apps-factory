@@ -690,7 +690,7 @@ func (b telegramBackend) Digest(ctx context.Context, now time.Time) (string, err
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Daily digest %s\ndone: %d\nin progress: %d runs\nwaiting for you: %d\nfailures and retries: %d (escalations %d)\nconnectors: %d, %d offline\ncost of the day: $%.2f over %d runs (%d without a price)",
+	return fmt.Sprintf("Daily digest %s\ndone: %d\nin progress: %d runs\nwaiting for you: %d\nfailures and retries: %d (escalations %d)\nnodes: %d, %d offline\ncost of the day: $%.2f over %d runs (%d without a price)",
 		now.Format("2006-01-02"), counts["done"], running, pending.Total, counts["retries"], counts["escalations"], len(nodes), offline, costs.Total.CostUSD, costs.Total.Runs, costs.Total.Sources["none"]), nil
 }
 
