@@ -45,3 +45,7 @@ Core artifact registration (hash check), archive listing (zip and tar readers, l
 - A new version's approval request closes the older versions' open requests as `SUPERSEDED` (the agent gets the
   answer "superseded by vN"); they leave the Inbox.
 - The Library shows one card per artifact (the newest version, "v4 · 4 versions") with the older versions on it.
+
+2.3 listed to the owner (2026-11-07): of 130 versions in the game project, 2 contents are stored more than once —
+gnome-arena-rumbler-concept-sheet v1–v4 and gnome-arena-mender-concept-sheet v1–v4 are byte-identical (6 redundant
+versions, 12.7 MB). Removing the redundant versions waits for the owner's yes; new uploads no longer duplicate.
