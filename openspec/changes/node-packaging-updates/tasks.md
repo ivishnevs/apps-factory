@@ -13,4 +13,5 @@
       `factory-claude` ad hoc on install.
 - [ ] 2.2 Self-update with drain, verification, rollback; per-company automatic or with approval; channels.
 - [ ] 2.3 Core: supported node version range; nodes below it get no work; web shows versions and "update".
-- [ ] 2.4 `factory-node runtimes update` on request.
+- [x] 2.4 `factory-node runtimes update` on request (Claude Code from claude.lock, Codex with npm into the node's
+      directory; a Codex installed elsewhere gets the command to run).

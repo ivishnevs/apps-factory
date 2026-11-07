@@ -68,6 +68,13 @@ Core serves `GET /install.sh` and `GET /downloads/node/<file>` without a credent
 (default `<root>/dist/node`). The script names `FACTORY_CORE_URL`, else the request's scheme and host
 (`X-Forwarded-Proto`, `X-Forwarded-Host` behind a proxy). Nodes need `https` unless Core is on the same machine.
 
+## Updating the runtimes
+
+`factory-node runtimes update [claude|codex]` installs or updates the runtimes to the versions this node supports,
+only when you run it: Claude Code from the package's `claude-code/claude.lock` (sha512 checked, the file replaced
+atomically, so running agents finish on the old one), Codex with `npm install` into `~/.app-factory/codex` (a Codex
+installed elsewhere is yours: the command says what to run). Logins stay as they are; restart the node afterwards.
+
 ## Not yet
 
 A desktop app, Homebrew, signed and notarized binaries, self-update, Windows, Codex without npm.

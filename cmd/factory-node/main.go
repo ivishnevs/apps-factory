@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | pause [REASON] | resume | activity [-n 50] | uninstall [-keep-state] [-yes] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-security] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m]"
+const usage = "usage: factory-node run [-config node.yaml] [-slots N] | login [-config node.yaml] [-name NAME] [-no-browser] | login claude|codex [-config node.yaml] [-copy-current] | accounts [accept claude|codex] | pause [REASON] | resume | activity [-n 50] | uninstall [-keep-state] [-yes] | enroll [-config node.yaml] CODE | rotate-keys [-config node.yaml] | doctor [-config node.yaml] [-security] [-disk-path DIR] [-low-gib N] [-critical-gib N] [-repo URL] [-drivers codex,claude] | launchd [-config node.yaml] [-label LABEL] | systemd [-config node.yaml] [-unit NAME] [-system] [-user USER] [-env-file PATH] | workspace reset -task ID [-project P] [-config node.yaml] [-wait 1m] | runtimes update [claude|codex] [-config node.yaml]"
 
 func main() {
 	code, err := run(os.Args[1:])
@@ -71,6 +71,8 @@ func run(args []string) (int, error) {
 		return launchd(args[1:])
 	case "systemd":
 		return systemd(args[1:])
+	case "runtimes":
+		return runtimes(args[1:])
 	case "workspace":
 		if len(args) > 1 && args[1] == "reset" {
 			return resetWorkspace(args[2:])
