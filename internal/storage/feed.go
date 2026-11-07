@@ -66,6 +66,8 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 		item.Attention = true
 	case e.Type == "message.escalated":
 		item.Attention = true
+	case e.Type == "message.created" && str("recipient") == "owner" && str("decision_id") != "" && str("message_type") == "review_request":
+		item.Attention = true // a decision proposal: Telegram offers its options (decision-approval-ux)
 	case e.Type == "task.submitted" && str("status") == "IN_REVIEW" && str("reviewer") == "":
 		// Work submitted for people's review (human-review-visibility 2.3): the owner is told (Telegram, feed).
 		item.Attention = true

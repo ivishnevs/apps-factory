@@ -59,3 +59,8 @@ Related: `connector-trust` (what the node may do as the user), `hosted-connector
   Telegram attention), and "Continue" is the node command for now; an Inbox button needs a Core-to-node command and
   is left for later (3.3). Installing does not log in by itself: the owner runs `factory-node login claude|codex`
   once (1.1 and 1.2 are checked then: separate Keychain entry, own sessions).
+
+Follow-up (2026-11-07): 3.3 — a node's driver disabled by an account change shows "Continue with the new account" on
+the Nodes page; Core hands the acceptance to the node in its next poll answer (`accept_accounts`, delivered once) and
+the node records the new account at its next check. 2.4 — `factory ui` on a node reads sessions from the node's own
+login directories in node.yaml. 1.1 and 1.2 are the owner's first `factory-node login claude|codex` on the Mac.

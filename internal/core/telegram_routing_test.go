@@ -2,7 +2,10 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"appfactory/internal/decisions"
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/notify/telegram"
@@ -63,5 +66,40 @@ func TestTelegramReplyRouting(t *testing.T) {
 	reply("still green", "r2")
 	if got := routed("u-mia"); len(got) != 1 {
 		t.Fatalf("a reply to a web message went to Telegram: %v", got)
+	}
+}
+
+// TestTelegramDecisionButtons (decision-approval-ux 2.2): a proposal reaches Telegram with its options; a choice
+// approves that option.
+func TestTelegramDecisionButtons(t *testing.T) {
+	ctx := context.Background()
+	h := newProjectHarness(t)
+	co := storage.DefaultCompany
+	if _, w := h.create(map[string]any{"id": "tgd", "name": "TGD", "workspace": "/tmp/tgd"}); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	d, err := h.s.ProposeDecision(ctx, co, "tgd", decisions.Propose{Topic: "map size", Value: "small", Alternatives: []string{"medium", "large"}, Rationale: "3v3", Actor: "demo", RequestID: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := telegramBackend{c: h.c, company: co}
+	items, err := b.Attention(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var target string
+	for _, it := range items {
+		if len(it.Options) == 3 && it.Options[1] == "medium" {
+			target = it.Target.Question
+		}
+	}
+	if target == "" {
+		t.Fatalf("no proposal with options in %+v", items)
+	}
+	if out, err := b.Choose(ctx, target, 1, "k"); err != nil || !strings.Contains(out, "medium") {
+		t.Fatal(out, err)
+	}
+	if got, _ := h.s.Decision(ctx, co, d.ID); got.Status != "approved" || got.Value != "medium" {
+		t.Fatalf("%+v", got)
 	}
 }

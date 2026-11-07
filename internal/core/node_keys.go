@@ -1,6 +1,7 @@
 package core
 
 import (
+	"appfactory/internal/protocol"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -113,6 +114,15 @@ func (c *Core) nodeKeyRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /node-install", func(w http.ResponseWriter, r *http.Request) {
 		base := c.nodeURL(r)
 		reply(w, map[string]any{"core_url": base, "command": "curl -fsSL " + base + "/install.sh | sh", "available": c.nodePackages()}, nil)
+	})
+	// node-runtime-accounts 3.3: continue with a node runtime's changed account (people only; admin role).
+	m.HandleFunc("POST /nodes/{id}/accounts/{runtime}/accept", func(w http.ResponseWriter, r *http.Request) {
+		if _, agent := r.Context().Value(runKey{}).(protocol.RunSpec); agent {
+			http.Error(w, "people only", 403)
+			return
+		}
+		err := c.Store.AcceptNodeAccount(r.Context(), c.companyFrom(r), r.PathValue("id"), r.PathValue("runtime"))
+		reply(w, map[string]bool{"ok": err == nil}, err)
 	})
 	m.HandleFunc("POST /nodes/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RevokeNode(r.Context(), c.companyFrom(r), r.PathValue("id")))

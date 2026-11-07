@@ -132,3 +132,23 @@ func TestEscalationReopens(t *testing.T) {
 		}
 	}
 }
+
+// TestAcceptNodeAccount (node-runtime-accounts 3.3): an acceptance reaches the node once, in its poll work.
+func TestAcceptNodeAccount(t *testing.T) {
+	s, _ := clockStore(t)
+	ctx := context.Background()
+	register(t, s, "n1", 1)
+	if err := s.AcceptNodeAccount(ctx, DefaultCompany, "n1", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcceptNodeAccount(ctx, DefaultCompany, "n1", "basic"); err == nil {
+		t.Fatal("an unknown runtime accepted")
+	}
+	w, err := s.NodeWork(ctx, DefaultCompany, "n1", 1)
+	if err != nil || len(w.AcceptAccounts) != 1 || w.AcceptAccounts[0] != "claude" {
+		t.Fatal(w.AcceptAccounts, err)
+	}
+	if w, _ = s.NodeWork(ctx, DefaultCompany, "n1", 1); len(w.AcceptAccounts) != 0 {
+		t.Fatal("delivered twice")
+	}
+}

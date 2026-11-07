@@ -61,3 +61,9 @@ type in the chat and a way to undo just-created tasks; company settings for the 
   tasks; more than about 5 tasks wait for an explicit go; stop or change on just-created tasks is honoured.
 - Not done: 2.2 (a dedicated plan-summary message in the chat: the summary is an ordinary reply for now) and the evals
   2.3 / 2.5, which need runs of real agents and a scoring harness; to do when the eval harness exists.
+
+Follow-up (2026-11-07): 2.2 — task ids in a lead's reply show in the chat as the tasks with their state and Stop.
+2.3 and 2.5 — `scripts/lead-evals.py` runs four scenarios (clear request, unclear idea, in-direction choice,
+follow-up) against a lead in a project and judges them from Core's records (tasks created, questions asked and
+batched with recommendations, decisions stated). It spends real runs, so it runs on an evaluation project; it has
+not been run on the owner's company.

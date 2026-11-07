@@ -1,5 +1,10 @@
 "use client";
 
+import { useConfirm } from "@/components/app/confirm";
+import { toast } from "sonner";
+import { core } from "@/lib/api/client";
+import { useState } from "react";
+
 import { CircleAlert, HardDrive, Pause, Play, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
@@ -20,7 +25,7 @@ export function nodeCare(n: FactoryNode) {
   return "";
 }
 
-function Driver({ d }: { d: NodeDriver }) {
+function Driver({ d, nodeId }: { d: NodeDriver; nodeId?: string }) {
   const now = Date.now() / 1000;
   const state = !d.ok ? "bad" : d.transient_failures ? "warn" : "ok";
   return (
@@ -36,6 +41,7 @@ function Driver({ d }: { d: NodeDriver }) {
           </span>
         </div>
         {!d.ok && <p className="mt-0.5 break-words text-xs text-muted-foreground">{d.check || "probe"} check failed{d.detail ? `: ${d.detail}` : ""}</p>}
+        {!d.ok && d.check?.endsWith(".account") && nodeId && <AcceptAccount nodeId={nodeId} runtime={d.name} />}
       </div>
     </li>
   );
@@ -108,7 +114,7 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         <div>
           <p className="text-xs font-medium text-muted-foreground">Runtimes</p>
           {(n.drivers ?? []).length === 0 ? <p className="mt-1 text-sm text-red-600 dark:text-red-400">No drivers</p> : (
-            <ul className="divide-y divide-border/60">{(n.drivers ?? []).map((d) => <Driver key={d.name} d={d} />)}</ul>
+            <ul className="divide-y divide-border/60">{(n.drivers ?? []).map((d) => <Driver key={d.name} d={d} nodeId={n.node_id} />)}</ul>
           )}
         </div>
 
@@ -182,4 +188,21 @@ function NodeSecurity({ sec }: { sec?: SecurityInfo }) {
       <p className="mt-2 text-muted-foreground">Set on the machine in node.yaml; check with factory-node doctor -security.</p>
     </details>
   );
+}
+
+// AcceptAccount (node-runtime-accounts 3.3): continue with the runtime's new account; the node records it at its next
+// check and runs that runtime's agents again.
+function AcceptAccount({ nodeId, runtime }: { nodeId: string; runtime: string }) {
+  const confirm = useConfirm();
+  const [done, setDone] = useState(false);
+  const accept = async () => {
+    if (!(await confirm({ title: `Continue with the new ${runtime} account?`, description: "The company's work on this node will use the account the runtime is logged in to now. The node takes it at its next check (within about 10 minutes).", confirm: "Continue" }))) return;
+    try {
+      await core(`/nodes/${encodeURIComponent(nodeId)}/accounts/${runtime}/accept`, { method: "POST", body: "{}" });
+      setDone(true);
+      toast.success("The node takes the new account at its next check");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+  return done ? <p className="mt-1 text-xs text-muted-foreground">Accepted; waiting for the node&apos;s next check.</p>
+    : <Button variant="outline" size="sm" className="mt-1.5 h-8" onClick={accept}>Continue with the new account</Button>;
 }

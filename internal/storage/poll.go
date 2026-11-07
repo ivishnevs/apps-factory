@@ -30,11 +30,13 @@ type PollWork struct {
 	Cleanup []string `json:"cleanup"`
 	// SyncJobs are private skill sources the node fetches (skill-registry D3).
 	SyncJobs []SyncJob `json:"sync_jobs"`
+	// AcceptAccounts are runtimes whose changed account a person accepted (node-runtime-accounts 3.3).
+	AcceptAccounts []string `json:"accept_accounts,omitempty"`
 }
 
 // Empty reports whether w lists nothing.
 func (w PollWork) Empty() bool {
-	return len(w.Stop) == 0 && len(w.Reset) == 0 && len(w.Cleanup) == 0 && len(w.SyncJobs) == 0
+	return len(w.Stop) == 0 && len(w.Reset) == 0 && len(w.Cleanup) == 0 && len(w.SyncJobs) == 0 && len(w.AcceptAccounts) == 0
 }
 
 // Key identifies w's contents, so a poll answers a list it already delivered only once (the heartbeat stays
@@ -179,7 +181,21 @@ func (s *Store) NodeWork(ctx context.Context, company, node string, epoch int64)
 		return out, err
 	}
 	out.SyncJobs, err = s.NodeSyncJobs(ctx, company, node)
+	if err != nil {
+		return out, err
+	}
+	// Delivered once: the node applies them on receipt (a lost answer means accepting again).
+	out.AcceptAccounts, err = s.strings(ctx, "DELETE FROM node_account_accepts WHERE company_id=? AND node_id=? RETURNING runtime", company, node)
 	return out, err
+}
+
+// AcceptNodeAccount asks the node to continue with its runtime's current account (node-runtime-accounts 3.3).
+func (s *Store) AcceptNodeAccount(ctx context.Context, company, node, runtime string) error {
+	if runtime != "claude" && runtime != "codex" {
+		return inputError("runtime must be claude or codex")
+	}
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO node_account_accepts(company_id,node_id,runtime,created_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING", company, node, runtime, s.Now().Unix())
+	return err
 }
 
 func (s *Store) strings(ctx context.Context, q string, args ...any) ([]string, error) {

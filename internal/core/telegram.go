@@ -1,6 +1,7 @@
 package core
 
 import (
+	"appfactory/internal/decisions"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -516,6 +517,14 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 	for _, f := range page.Items {
 		where := strings.Trim(f.ProjectID+"/"+f.TaskID, "/")
 		it := telegram.Item{Seq: f.Sequence, Text: fmt.Sprintf("⚠ %s %s: %s", where, f.Type, f.Summary)}
+		if d, m, ok := b.proposalOf(ctx, f); ok {
+			it.Text = fmt.Sprintf("🗳 %s\n%s\nDecision: %s\n\n%s", b.label(m.Sender), m.ProjectID, d.Topic, m.Body)
+			it.Target = telegram.Target{Question: m.ID, Agent: m.Sender, Project: m.ProjectID, Label: b.label(m.Sender)}
+			it.Options = append([]string{d.Value}, d.Alternatives...)
+			it.OwnersOnly = true
+			out = append(out, it)
+			continue
+		}
 		if m, ok := b.questionOf(ctx, f); ok {
 			if asked[m.ID] { // one message per question (its message and escalation rows); no text sends nothing
 				out = append(out, telegram.Item{Seq: f.Sequence})
@@ -549,7 +558,45 @@ func (b telegramBackend) PendingQuestions(ctx context.Context) ([]telegram.Quest
 }
 
 func (b telegramBackend) Choose(ctx context.Context, id string, choice int, key string) (string, error) {
+	if m, err := b.c.Store.Message(ctx, b.company, id); err == nil && m.DecisionID != "" && m.MessageType == "review_request" {
+		return b.decide(ctx, m, choice, key)
+	}
 	return b.answer(ctx, id, choice, "", key)
+}
+
+// proposalOf is the open decision proposal a feed row announces (decision-approval-ux: decided from Telegram too).
+func (b telegramBackend) proposalOf(ctx context.Context, item storage.FeedItem) (decisions.Decision, messaging.Message, bool) {
+	if item.Type != "message.created" {
+		return decisions.Decision{}, messaging.Message{}, false
+	}
+	m, err := b.c.Store.Message(ctx, b.company, item.EntityID)
+	if err != nil || m.DecisionID == "" || m.MessageType != "review_request" {
+		return decisions.Decision{}, m, false
+	}
+	d, err := b.c.Store.Decision(ctx, b.company, m.DecisionID)
+	if err != nil || (d.Status != "proposed" && d.Status != "under_discussion") {
+		return d, m, false
+	}
+	return d, m, true
+}
+
+// decide approves the option chosen for a proposal (index into value, alternatives…).
+func (b telegramBackend) decide(ctx context.Context, m messaging.Message, choice int, key string) (string, error) {
+	d, err := b.c.Store.Decision(ctx, b.company, m.DecisionID)
+	if err != nil {
+		return "", err
+	}
+	if d.Status != "proposed" && d.Status != "under_discussion" {
+		return "This decision is already " + d.Status + ".", nil
+	}
+	options := append([]string{d.Value}, d.Alternatives...)
+	if choice < 0 || choice >= len(options) {
+		return "", fmt.Errorf("choose one of the options, or reject it in the web")
+	}
+	if _, err = b.c.Store.RecordDecision(ctx, b.company, d.ID, decisions.Record{Version: d.Version, Status: "approved", Value: options[choice], Rationale: "Chosen in Telegram", Actor: "owner", RequestID: key}); err != nil {
+		return "", err
+	}
+	return "Approved " + d.Topic + ": " + options[choice], nil
 }
 
 // answer answers a waiting question with option index choice, or with text when choice < 0.

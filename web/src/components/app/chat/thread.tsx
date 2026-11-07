@@ -10,6 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Message, Question } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { ErrorState } from "@/components/app/page";
+import { useOverview } from "@/lib/api/client";
+import { useOwnerAction as useTaskAction } from "@/components/app/tasks/use-owner-action";
 import { useOwnerAction } from "@/components/app/nodes/owner-action";
 import { AgentAvatar } from "./agent-avatar";
 import { clock, dayKey, dayLabel } from "./time";
@@ -75,6 +77,7 @@ function Bubble({ msg, agent, first, last }: { msg: Message; agent: string; firs
           <Body text={msg.body} />
           {!!msg.questions?.length && <Questions msg={msg} agent={agent} />}
           {msg.decision_id && !mine && msg.message_type === "review_request" && <DecisionCard id={msg.decision_id} compact inChat />}
+          {!mine && <CreatedTasks body={msg.body} />}
           {answers.map(([k, v]) => <p key={k} className="mt-1 text-xs opacity-70">↳ {k}: {String(v)}</p>)}
         </div>
         {last && (
@@ -217,3 +220,30 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
   );
 }
 
+
+// CreatedTasks (lead-brainstorm-mode 2.2): tasks a lead names in its summary, with their state and a Stop for the
+// ones not finished, so a person can stop or open just-created work from the reply.
+function CreatedTasks({ body }: { body: string }) {
+  const { data: ov } = useOverview();
+  const { run, pending } = useTaskAction();
+  const ids = Array.from(new Set(body.match(/\b[0-9a-f]{32}\b/g) ?? []));
+  const tasks = ids.map((id) => ov?.tasks.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t && (t as { kind?: string }).kind !== "conversation");
+  if (tasks.length === 0) return null;
+  return (
+    <ul className="mt-2 space-y-1.5 border-t border-foreground/10 pt-2">
+      {tasks.map((t) => {
+        const open = t.status !== "DONE" && t.status !== "CANCELLED";
+        return (
+          <li key={t.id} className="flex items-center gap-2 text-xs">
+            <Link href={`/tasks/${t.id}`} className="min-w-0 flex-1 truncate underline-offset-4 hover:underline">{t.title}</Link>
+            <span className="shrink-0 opacity-70">{t.status.toLowerCase().replace(/_/g, " ")}</span>
+            {open && (
+              <Button size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={pending}
+                onClick={() => run({ Kind: "cancel", TaskID: t.id, Version: t.version, Text: "stopped from the chat" }, { title: `Stop "${t.title}"?`, confirm: "Stop task", destructive: true })}>Stop</Button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

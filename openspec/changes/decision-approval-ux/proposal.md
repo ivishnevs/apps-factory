@@ -105,3 +105,6 @@ Decision tools (propose may create the approval), Inbox and chat UI (actions on 
 - Decided during implementation: report notices that ask for the owner's action stay in the Inbox ("Reports for
   you"), since they are open items; Telegram does not get decision buttons yet (it keeps notifying; the decision is
   taken in the web), recorded as a follow-up.
+
+Follow-up (2026-11-07): Telegram offers a proposal's options as buttons; a choice approves that option (rejecting
+stays in the web and the chat, where a reason can be written).

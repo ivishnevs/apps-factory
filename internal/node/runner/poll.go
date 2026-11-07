@@ -35,6 +35,8 @@ type pollAnswer struct {
 	Cleanup      []string  `json:"cleanup"`
 	HooksChanged bool      `json:"hooks_changed"`
 	SyncJobs     []syncJob `json:"sync_jobs"`
+	// AcceptAccounts: a person continued with these runtimes' changed accounts (node-runtime-accounts 3.3).
+	AcceptAccounts []string `json:"accept_accounts"`
 }
 
 // skips are runs whose claim Core refused for now; the poll asks Core not to offer them until their time passed.
@@ -167,6 +169,13 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 		}
 		for _, j := range a.SyncJobs {
 			s.startSyncJob(ctx, j)
+		}
+		for _, rt := range a.AcceptAccounts {
+			if err := node.AcceptAccount(node.AccountsDir(s.cfg.StateDir), rt); err != nil {
+				slog.Error("accept account", "runtime", rt, "error", err)
+			} else {
+				slog.Info("account accepted from the web; the next check records it", "runtime", rt)
+			}
 		}
 		taken := 0
 		for _, o := range a.Offers {

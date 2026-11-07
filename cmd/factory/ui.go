@@ -1,12 +1,14 @@
 package main
 
 import (
+	"appfactory/internal/node"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -21,7 +23,8 @@ const uiUsage = "ui [--demo | --fixture PATH | --record PATH] [--notify desktop|
 // (--fixture, --demo: no Core needed), or records Core's current state into a fixture (--record). --notify
 // says how a new question, approval or escalation for the owner notifies (a macOS notification by default,
 // the terminal bell elsewhere); --claude-config-dir and --codex-home find runs' local session files when the
-// UI runs on a node's machine (defaults: $CLAUDE_CONFIG_DIR or ~/.claude, $CODEX_HOME or ~/.codex).
+// UI runs on a node's machine (defaults: the node's own login directories from node.yaml, else $CLAUDE_CONFIG_DIR or ~/.claude, $CODEX_HOME or
+// ~/.codex).
 func uiCommand(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -92,6 +95,21 @@ func uiCommand(ctx context.Context, args []string) error {
 			return nil
 		}
 		client = c
+	}
+	// node-runtime-accounts 2.4: a node with its own runtime logins keeps sessions in its directories (node.yaml).
+	nodeYAML := node.ConfigPath("")
+	if home, _ := os.UserHomeDir(); nodeYAML == "" && home != "" {
+		if _, err := os.Stat(filepath.Join(home, ".app-factory", "node.yaml")); err == nil {
+			nodeYAML = filepath.Join(home, ".app-factory", "node.yaml")
+		}
+	}
+	if c, err := node.LoadConfig(nodeYAML); err == nil && nodeYAML != "" {
+		if *claudeDir == "" && os.Getenv("CLAUDE_CONFIG_DIR") == "" {
+			*claudeDir = node.ExpandHome(c.Drivers.Claude.ConfigDir)
+		}
+		if *codexHome == "" && os.Getenv("CODEX_HOME") == "" {
+			*codexHome = node.ExpandHome(c.Drivers.Codex.Home)
+		}
 	}
 	m := tui.New(tui.Options{Client: client, Now: now, Notify: *notify,
 		Local: tui.LocalTranscripts{ClaudeDir: *claudeDir, CodexHome: *codexHome, Off: mode != "live"}})
