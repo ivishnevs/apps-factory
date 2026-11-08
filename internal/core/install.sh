@@ -50,7 +50,8 @@ if [ -n "$OS_USER" ]; then
     sudo loginctl enable-linger "$OS_USER" >/dev/null 2>&1 || true
     self=$(mktemp); curl -fsSL "$CORE_URL/install.sh" -o "$self" && chmod 644 "$self"
     step "Installing as user $OS_USER"
-    exec sudo -u "$OS_USER" -H sh "$self" $ARGS
+    # sudo drops XDG_RUNTIME_DIR, and systemctl --user then cannot reach the user's manager (started by linger).
+    exec sudo -u "$OS_USER" -H XDG_RUNTIME_DIR="/run/user/$(id -u "$OS_USER")" sh "$self" $ARGS
   }
 fi
 
