@@ -75,6 +75,11 @@ the redaction of secret values from masking `200000` in logs) delivered as `CLAU
 the producer of the owner's company (`ilya-75ba24`). The shim passes the environment to Claude Code unchanged.
 Implementing this change replaces it: remove the secret use and the secret, set `context_window: 200k`.
 
+**Per-kind shape (2026-11-08, work-and-conversation-runs).** The window is set separately for work runs and
+conversation runs: `context_window` is one value or `{work, conversation}`, and the node applies the value of the
+run's kind. work-and-conversation-runs ships it as an optional field; when this change is revived, its required,
+explicit window takes that shape (presets write both values, e.g. `{work: max, conversation: 200k}`).
+
 Not in this change: rotating conversation sessions with a written handover (to reconsider if compaction alone
 loses too much in long conversations); context-mode or other tool-output filtering (measure first with an A/B run).
 
