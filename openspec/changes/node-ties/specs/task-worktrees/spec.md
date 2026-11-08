@@ -16,3 +16,16 @@ worktree from the remote branch and the WIP commit's files.
 - **WHEN** a run times out with a credential in an uncommitted file
 - **THEN** the WIP SHALL NOT be pushed, and the task SHALL stay tied to the node by its work with the reason that the
   work could not be saved
+
+## ADDED Requirements
+
+### Requirement: Review runs in a disposable copy
+A run of a task by an agent that is not its implementer (a reviewer) SHALL run in its own disposable worktree checked
+out from the pushed head of the task branch and removed after the run. It SHALL NOT use or change the implementer's
+worktree, SHALL NOT change the task's workspace record and SHALL NOT tie the task to its node.
+
+#### Scenario: Reviewer merges main locally to test
+- **WHEN** the implementer pushed the task branch from node A and a reviewer on node B merges `origin/main` into its
+  copy, runs the tests and requests changes
+- **THEN** the task SHALL NOT be tied to node B, and the implementer's next run on any node SHALL start from the
+  remote branch without the reviewer's merge commit or files
