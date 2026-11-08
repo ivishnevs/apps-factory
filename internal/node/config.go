@@ -142,7 +142,28 @@ func ConfigPath(flag string) string {
 	if flag != "" {
 		return flag
 	}
-	return os.Getenv(ConfigEnv)
+	if p := os.Getenv(ConfigEnv); p != "" {
+		return p
+	}
+	return InstalledConfig()
+}
+
+// InstalledConfig is the node.yaml install.sh writes ($FACTORY_NODE_HOME, else ~/.app-factory) when it exists, so
+// commands run by hand (factory-node login claude, doctor) use the installed node's settings without -config.
+func InstalledConfig() string {
+	dir := os.Getenv("FACTORY_NODE_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		dir = filepath.Join(home, ".app-factory")
+	}
+	p := filepath.Join(dir, "node.yaml")
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
 }
 
 // LoadConfig reads node.yaml strictly over the defaults; an empty path is the defaults alone.

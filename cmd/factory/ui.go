@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -98,11 +97,6 @@ func uiCommand(ctx context.Context, args []string) error {
 	}
 	// node-runtime-accounts 2.4: a node with its own runtime logins keeps sessions in its directories (node.yaml).
 	nodeYAML := node.ConfigPath("")
-	if home, _ := os.UserHomeDir(); nodeYAML == "" && home != "" {
-		if _, err := os.Stat(filepath.Join(home, ".app-factory", "node.yaml")); err == nil {
-			nodeYAML = filepath.Join(home, ".app-factory", "node.yaml")
-		}
-	}
 	if c, err := node.LoadConfig(nodeYAML); err == nil && nodeYAML != "" {
 		if *claudeDir == "" && os.Getenv("CLAUDE_CONFIG_DIR") == "" {
 			*claudeDir = node.ExpandHome(c.Drivers.Claude.ConfigDir)

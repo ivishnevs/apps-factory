@@ -192,6 +192,27 @@ func TestConfigPath(t *testing.T) {
 	if ConfigPath("") != "/env/node.yaml" || ConfigPath("/flag.yaml") != "/flag.yaml" {
 		t.Fatal("flag must win over env")
 	}
+	home := t.TempDir()
+	t.Setenv(ConfigEnv, "")
+	t.Setenv("FACTORY_NODE_HOME", "")
+	t.Setenv("HOME", home)
+	if ConfigPath("") != "" {
+		t.Fatal("no installed node.yaml: defaults")
+	}
+	installed := filepath.Join(home, ".app-factory", "node.yaml")
+	if err := os.MkdirAll(filepath.Dir(installed), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, []byte("name: n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ConfigPath("") != installed {
+		t.Fatalf("installed node.yaml must be found: %q", ConfigPath(""))
+	}
+	t.Setenv("FACTORY_NODE_HOME", t.TempDir())
+	if ConfigPath("") != "" {
+		t.Fatal("FACTORY_NODE_HOME without node.yaml: defaults")
+	}
 }
 
 func testLog() (*slog.Logger, *bytes.Buffer) {
