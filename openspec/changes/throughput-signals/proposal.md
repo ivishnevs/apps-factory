@@ -41,6 +41,24 @@ predictable. Factory has the data to see all three by itself.
 
 Not in scope: automatic limit changes, automatic dependency rewrites, cost budgets (cost-ledger).
 
+## Open use cases (seen 2026-11-08, no solution chosen yet)
+
+Morning of 2026-11-08, same project: the playtest server was deployed, but the board showed To do 0 and almost
+everything Blocked; the Hetzner node had 2 free slots and nothing to run. Cases to cover, simplest fix first:
+
+1. **The manager serializes work by hand.** After an integration gate failed from CPU overload on the Mac, the
+   producer announced "no integration runs or merges on the Mac until I say your turn". Six tasks (MS-1, flag-run-pacing
+   4.4/5.x/tuning, arena-mode follow-up, VP-2b) parked waiting for that message. The order lives only in the
+   producer's messages; the owner cannot see the queue or who is next.
+2. **A task waiting for a message wakes on a timer.** Those six tasks park with `wait` (1 of 12) and wake every
+   1–2 hours, find no "your turn" and park again: each wake is a paid run, and when the message does come the task
+   still sleeps until its timer. Same shape as decision-waits, but for a directive or message.
+3. **The manager does not know what a node can do.** The producer treats the Mac as the only place for gates and
+   captures; it was never told the Linux node runs the headless suites and screenshots (only iOS and real FPS need the
+   Mac). Nodes report empty labels, so nothing in Factory tells it either.
+4. **A question to the owner hides among the blocks.** The VP-2b verdict (an inbox question) gated a task and the
+   plan after it, but on the board it looked like one more blocked card.
+
 ## Impact
 
 Company config (`concurrency`), scheduler limits, stall sweep (`throughput` notice), task create/update warnings
