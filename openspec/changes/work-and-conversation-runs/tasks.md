@@ -4,12 +4,18 @@
       validation and catalog round trip; tests.
 - [ ] 1.2 Count live runs by kind (run spec `conversation`) in task evaluation (`agentLive`), the scheduler, the node
       claim and queued-run reasons; a conversation no longer waits behind work; tests for both directions.
+- [ ] 1.3 Node `conversation_slots` (default 1): heartbeat reports them, the claim counts conversation runs against
+      them first, then against work slots; work runs never use them; tests.
+- [ ] 1.4 Conversation affinity: a queued conversation run waits at most `session_affinity.conversation_wait`
+      (default 5 min) for the node holding its session, then starts a fresh session on any node; the brief carries the
+      recent conversation history; tests.
 
 ## 2. Context window per kind
 
 - [ ] 2.1 `runtime.context_window` accepts a value or `{work, conversation}`; validated against the provider.
 - [ ] 2.2 Node drivers set the compaction window from the run kind (Claude env, Codex thread config); tests.
-- [ ] 2.3 Owner's company: replace the producer's `producer_compact_window` secret with `context_window`.
+- [ ] 2.3 Owner's company: `context_window: {work: max, conversation: 200k}` on every agent; remove the producer's
+      `producer_compact_window` secret use and the secret.
 
 ## 3. Why it cannot answer
 

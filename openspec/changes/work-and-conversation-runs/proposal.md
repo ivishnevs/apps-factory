@@ -1,6 +1,6 @@
 Status: proposed 2026-11-08 by the owner ("run limits and the context window set separately for work and for
 communication: work runs stay at their maximum, a conversation can always run next to them, conversations get a
-smaller context; the chat says why an agent cannot answer"). Nothing implemented.
+smaller context; the chat says why an agent cannot answer"). Open questions decided the same day (see Decisions). Nothing implemented.
 
 ## Why
 
@@ -54,24 +54,29 @@ Seen on the owner's company (2026-11-08):
 Not in scope: several parallel sessions of one conversation (a conversation stays one session, its messages are
 batched into the next run); per-sender conversation threads; cost budgets.
 
-## Open questions
+## Decisions (owner 2026-11-08, on Claude's suggestions)
 
-1. **Node slots.** A conversation run still takes a node slot. When every slot is busy with work, the conversation
-   waits (case 1 moves from the agent limit to the node). Options: (a) a per-node `conversation_slots` (default 1)
-   on top of `slots`, used only by conversation runs; (b) conversations may exceed `slots` by one; (c) no change.
-   Suggested: (a), conversation runs are light (no worktree, no writer slot, mostly model time).
-2. **Session affinity for conversations.** A conversation session is pinned to the node that holds it; if that node
-   is full or paused, the conversation waits up to the affinity timeout (90 min). Should conversations fall back to
-   a fresh session elsewhere after a short wait (e.g. 5 min), relying on compaction summaries and Factory history?
-3. **Cross-project conversation limit default.** One conversation per project needs no limit; an agent in many
-   projects could run many at once. Default unlimited, or equal to the work limit?
-4. **Relation to agent-context-window.** That change is deferred by the owner. Implement only the per-kind window
-   here (optional field, no required-explicit migration), or revive it with the per-kind shape?
-5. **Role defaults (throughput-signals 1.1).** Role concurrency defaults apply to the work limit only; confirm.
+1. **Node slots: conversation slots on top of work slots.** A node gets `conversation_slots` (default 1) besides
+   `slots`; conversation runs take a conversation slot first and a work slot only when none is free. Work runs never
+   use conversation slots. Conversation runs are light (no worktree, no writer slot, mostly model time), so a full node
+   still answers.
+2. **Conversations do not wait long for their node.** A conversation run waits for the node holding its session for
+   at most 5 minutes (`session_affinity.conversation_wait`, company setting), then starts a fresh session on any node
+   with a free slot; the brief carries the last compaction summary or the recent conversation history from Factory.
+   Work runs keep the existing affinity rules.
+3. **Cross-project conversation limit: none by default.** Each project has one conversation task per agent and its
+   runs are sequential; node conversation slots bound the total. `execution.conversation.max_concurrent_runs` stays
+   available for an owner who wants a cap.
+4. **Window per kind is optional here.** `runtime.context_window` (one value or `{work, conversation}`) is an optional
+   field; without it the runtime's default applies, as today. agent-context-window stays deferred; if revived, it
+   takes this per-kind shape. The owner's company sets `{work: max, conversation: 200k}` for every agent once this
+   ships, replacing the producer's secret.
+5. **Role defaults (throughput-signals 1.1) apply to work runs only.**
 
 ## Impact
 
-Agent config (`execution.conversation`, `runtime.context_window` per kind), run counting in storage (evaluate,
-scheduler, node claim, queued reasons), node drivers (window per run kind), conversation task clearer text, chat and
-team page (web, TUI). Specs: `task-engine`, `agent-config`. Related: `agent-context-window` (window shape),
+Agent config (`execution.conversation`, `runtime.context_window` per kind), node config (`conversation_slots`),
+company setting `session_affinity.conversation_wait`, run counting in storage (evaluate, scheduler, node claim, queued
+reasons), node drivers (window per run kind), conversation task clearer text, chat and
+team page (web, TUI). Specs: `task-engine`, `agent-config`, `node-agent`. Related: `agent-context-window` (window shape),
 `throughput-signals` (role defaults, idle-capacity signal), `session-affinity`, `node-readiness`.
