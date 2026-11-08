@@ -69,7 +69,9 @@ func (s *Store) pollNode(ctx context.Context, company, node string, epoch int64)
 	return n, nil
 }
 
-// Offers lists queued runs of company the node can take, oldest first: at most free[provider] runs of each provider
+// Offers lists queued runs of company the node can take (sticky-work-first): the runs pinned to this node (their
+// task's unpushed work is here) first, then the runs whose agent session this node holds, then the others, each
+// group oldest first; at most free[provider] runs of each provider
 // whose driver is usable on the node, none for a paused node, without the runs in skip (claims the node had refused
 // lately) and without runs whose task's unpushed work is pinned to another node or whose agent needs labels the node
 // lacks. The claim re-checks all of it, plus caps, resource classes and project setup.
@@ -104,13 +106,15 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
  LEFT JOIN workspaces w ON w.company_id=r.company_id AND w.task_id=r.task_id AND w.unpushed=1 AND w.node_id!=''
  WHERE r.company_id=? AND r.status='QUEUED' AND r.spec->>'provider' IN (SELECT jsonb_array_elements_text(?::jsonb))
  AND r.id NOT IN (SELECT jsonb_array_elements_text(?::jsonb))
- ORDER BY r.created_at,r.seq LIMIT ?`, company, string(providerJSON), string(skipJSON), maxOfferScan)
+ ORDER BY CASE WHEN w.node_id=? THEN 0 ELSE 1 END,r.created_at,r.seq LIMIT ?`, company, string(providerJSON), string(skipJSON), node, maxOfferScan)
 	if err != nil {
 		return out, err
 	}
 	type candidate struct {
 		id, provider, session string
 		snapshot              []byte
+		// rank orders the offers: 0 pinned here, 1 session held here, 2 the rest.
+		rank int
 	}
 	var cands []candidate
 	for rows.Next() {
@@ -123,12 +127,28 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 		if pinned != "" && pinned != node || len(tasks.MissingLabels(n.Labels, AgentLabels(c.snapshot))) > 0 {
 			continue
 		}
+		c.rank = 2
+		if pinned == node {
+			c.rank = 0
+		}
 		cands = append(cands, c)
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
 		return out, err
 	}
+	for i := range cands {
+		if cands[i].rank == 2 && cands[i].session != "" {
+			holder, err := sessionHolder(ctx, s.DB, company, cands[i].session, cands[i].id)
+			if err != nil {
+				return out, err
+			}
+			if holder == node {
+				cands[i].rank = 1
+			}
+		}
+	}
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].rank < cands[j].rank })
 	for _, c := range cands {
 		if left[c.provider] == 0 {
 			continue

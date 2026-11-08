@@ -47,6 +47,8 @@ type Agent struct {
 type Node struct {
 	storage.Node
 	InUse storage.NodeUse `json:"in_use"`
+	// Tied is what only this node may run now (sticky-work-first): pinned tasks and the queued runs waiting for it.
+	Tied storage.NodeTied `json:"tied"`
 }
 
 // Health is GET /health.

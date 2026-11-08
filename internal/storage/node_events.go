@@ -338,3 +338,90 @@ func alertLongOffline(ctx context.Context, tx *Tx, cutoff int64) error {
 	}
 	return nil
 }
+
+// NodeTied is what is tied to a node (sticky-work-first 2.2): open tasks whose unpushed work is in its worktrees, and
+// the queued runs only it may take now (pinned there, or continuing an agent session it holds).
+type NodeTied struct {
+	Pinned  []string  `json:"pinned"`
+	Waiting []TiedRun `json:"waiting"`
+}
+
+// TiedRun is a queued run waiting for its node; Tie is "pinned" or "session".
+type TiedRun struct {
+	RunID  string `json:"run_id"`
+	TaskID string `json:"task_id"`
+	Agent  string `json:"agent"`
+	Tie    string `json:"tie"`
+}
+
+// NodesTied lists, per node, the pinned open tasks and the queued runs waiting for it.
+func (s *Store) NodesTied(ctx context.Context, company string) (map[string]NodeTied, error) {
+	out := map[string]NodeTied{}
+	add := func(node string, f func(*NodeTied)) {
+		t := out[node]
+		if t.Pinned == nil {
+			t.Pinned, t.Waiting = []string{}, []TiedRun{}
+		}
+		f(&t)
+		out[node] = t
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT w.node_id,w.task_id FROM workspaces w JOIN tasks t ON t.company_id=w.company_id AND t.id=w.task_id
+ WHERE w.company_id=? AND w.unpushed=1 AND w.node_id!='' AND t.status NOT IN ('DONE','CANCELLED') ORDER BY w.task_id`, company)
+	if err != nil {
+		return nil, err
+	}
+	pinnedTo := map[string]string{}
+	for rows.Next() {
+		var node, task string
+		if err = rows.Scan(&node, &task); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		pinnedTo[task] = node
+		add(node, func(t *NodeTied) { t.Pinned = append(t.Pinned, task) })
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	rows, err = s.DB.QueryContext(ctx, `SELECT id,coalesce(task_id,''),agent,coalesce(spec->>'session_id','') FROM runs
+ WHERE company_id=? AND status='QUEUED' ORDER BY created_at,seq LIMIT ?`, company, maxOfferScan)
+	if err != nil {
+		return nil, err
+	}
+	var queued []TiedRun
+	sessions := map[string]string{}
+	for rows.Next() {
+		var r TiedRun
+		var session string
+		if err = rows.Scan(&r.RunID, &r.TaskID, &r.Agent, &session); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		queued = append(queued, r)
+		sessions[r.RunID] = session
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, r := range queued {
+		if node := pinnedTo[r.TaskID]; node != "" {
+			r.Tie = "pinned"
+			add(node, func(t *NodeTied) { t.Waiting = append(t.Waiting, r) })
+			continue
+		}
+		if sessions[r.RunID] == "" {
+			continue
+		}
+		holder, err := sessionHolder(ctx, s.DB, company, sessions[r.RunID], r.RunID)
+		if err != nil {
+			return nil, err
+		}
+		if holder != "" {
+			r.Tie = "session"
+			add(holder, func(t *NodeTied) { t.Waiting = append(t.Waiting, r) })
+		}
+	}
+	return out, nil
+}

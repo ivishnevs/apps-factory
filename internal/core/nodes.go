@@ -66,10 +66,17 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 			return
 		}
 		use, err := c.Store.NodesInUse(r.Context(), c.companyFrom(r))
-		// Each node with in_use: the runs and resources its current epoch's unended runs hold (factory status).
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		tied, err := c.Store.NodesTied(r.Context(), c.companyFrom(r))
+		// Each node with in_use: the runs and resources its current epoch's unended runs hold (factory status), and
+		// tied: its pinned tasks and the queued runs waiting for it (sticky-work-first).
 		type nodeView struct {
 			storage.Node
-			InUse storage.NodeUse `json:"in_use"`
+			InUse storage.NodeUse  `json:"in_use"`
+			Tied  storage.NodeTied `json:"tied"`
 		}
 		out := make([]nodeView, 0, len(nodes))
 		for _, n := range nodes {
@@ -77,7 +84,11 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 			if u.Resources == nil {
 				u.Resources = map[string]int{}
 			}
-			out = append(out, nodeView{n, u})
+			t := tied[n.NodeID]
+			if t.Pinned == nil {
+				t.Pinned, t.Waiting = []string{}, []storage.TiedRun{}
+			}
+			out = append(out, nodeView{n, u, t})
 		}
 		reply(w, out, err)
 	})

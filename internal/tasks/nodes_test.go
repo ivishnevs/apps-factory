@@ -55,7 +55,7 @@ func TestEvaluateNodeReasons(t *testing.T) {
 		}, ReasonLiveRun, "RUNNING"},
 		{"paused before nodes", func(s *Snapshot) { s.Needs.Labels = []string{"windows"}; s.Paused = []string{"company"} }, ReasonPaused + "company", ""},
 		{"pinned node free", func(s *Snapshot) { s.PinnedNode = "n1" }, ReasonRunnable, ""},
-		{"pinned node full", func(s *Snapshot) { s.PinnedNode = "n1"; s.Nodes[0].Held = 2 }, ReasonCapacity, "mini-1 (n1): all 2 slots held"},
+		{"pinned node full", func(s *Snapshot) { s.PinnedNode = "n1"; s.Nodes[0].Held = 2 }, ReasonCapacity, "unpushed work is on node mini-1 (n1), which is full (mini-1 (n1): all 2 slots held)"},
 		{"pinned, another node full does not matter", func(s *Snapshot) { s.PinnedNode = "n1"; s.Nodes[1].Held = 4 }, ReasonRunnable, ""},
 		{"pinned node offline briefly", func(s *Snapshot) {
 			s.PinnedNode, s.Nodes[0].Online, s.Nodes[0].LastSeen = "n1", false, now.Add(-10*time.Minute).Unix()
@@ -79,8 +79,17 @@ func TestEvaluateNodeReasons(t *testing.T) {
 			}
 		})
 	}
-	// The escalation check ignores parks and needs: an escalated task is still pinned_node_unavailable.
+	// sticky-work-first 2.1: a pinned task on a full online node waits for that node, not for all nodes.
 	s := base()
+	s.PinnedNode, s.Nodes[0].Held = "n1", 2
+	if v := Evaluate(s); v.Clearer.Who != "node:n1" || !strings.Contains(v.Clearer.Action, "takes this task first") {
+		t.Fatalf("pinned to a full node: %+v", v.Clearer)
+	}
+	if w := s.nodeReason(true).Wait; w == nil || w.Kind != WaitPinnedNode || w.Node != "mini-1 (n1)" {
+		t.Fatalf("pinned to a full node: wait %+v", w)
+	}
+	// The escalation check ignores parks and needs: an escalated task is still pinned_node_unavailable.
+	s = base()
 	s.PinnedNode, s.Needs, s.Parks = "gone", NodeNeeds{}, []Park{{Kind: ParkEscalation, RefID: "m1", Reason: "pinned"}}
 	if why := PinnedUnavailable(s); why == "" || Evaluate(s).Reason != ReasonParked+ParkEscalation {
 		t.Fatal(why, Evaluate(s))

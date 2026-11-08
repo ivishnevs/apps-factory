@@ -295,6 +295,14 @@ func (m *Model) nodeCard(n Node, w int, selected bool) []string {
 		}
 		row("held", strings.Join(parts, stFaint.Render(" · ")))
 	}
+	// Tied work (sticky-work-first): tasks whose unsaved work is here and the runs waiting for this node.
+	if len(n.Tied.Pinned) > 0 || len(n.Tied.Waiting) > 0 {
+		v := fmt.Sprintf("%d task(s) with unsaved work here", len(n.Tied.Pinned))
+		if len(n.Tied.Waiting) > 0 {
+			v += stYellow.Render(fmt.Sprintf(" · %d run(s) waiting for this node", len(n.Tied.Waiting)))
+		}
+		row("tied", v)
+	}
 	// Drivers.
 	for i, d := range n.Drivers {
 		k := ""

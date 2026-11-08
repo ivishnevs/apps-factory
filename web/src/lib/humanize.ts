@@ -290,6 +290,14 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     const blocker: Party | undefined = other ? { label: taskName(other, look), href: `/tasks/${encodeURIComponent(other)}` } : runId ? { label: "Another run", href: `/runs/${encodeURIComponent(runId)}` } : p;
     if (agent) return out({ headline: "Agent busy", brief: `${agent} is on another task`, detail: `${agent} is working on ${other ? taskName(other, look, true) : "another task"}.`, who: blocker, next: "It starts when the agent is free." });
     if (/writer slot/.test(detail)) return out({ headline: "Project busy", brief: "Another run uses the project", detail: `${other ? taskName(other, look, true) : "Another task"} is using the project's workspace.`, who: blocker, next: "It starts when that run ends." });
+    // "the task's unpushed work is on node NAME (ID), which is full (...)" or "..., paused|offline since ..." (tasks/nodes.go).
+    const pin = /unpushed work is on node (.+?)(?: \([0-9a-f]+\))?(?:, which is (full)|, (paused|offline))/.exec(detail);
+    if (pin) {
+      const [, node, full] = pin;
+      return out({ headline: `Waiting for ${node}`, label: "Waiting for its node", brief: full ? "That node is full" : "Its unsaved work is there",
+        detail: full ? `Its unsaved work is on ${node}, which has no free slot; that node takes it first when a run there ends.` : `Its unsaved work is on ${node}, which is ${pin[3]}.`,
+        who: { label: node, href: "/nodes" }, next: full ? "It starts on that node as soon as a slot frees." : "It continues on that node when it is back.", you: false, queued: true });
+    }
     if (/unpushed work is on node/.test(detail)) return out({ headline: "Waiting for its node", detail: "Its unsaved work is on a node that is busy or offline.", who: { label: "Its node", href: "/nodes" }, next: "It continues on that node when it is back." });
     return out({ headline: "All nodes busy", brief: "Starts when a node frees up", detail: "Every node that can run it is full.", who: undefined, next: "It starts when a run on a capable node ends." });
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleUserRound, Clock, Hand, Loader2 } from "lucide-react";
+import { CircleUserRound, Clock, Hand, Loader2, Pin } from "lucide-react";
 import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import type { FactoryNode, Run, Task } from "@/lib/api/types";
@@ -69,6 +69,8 @@ export function TaskCard({ task, project, now, column, look, run, nodes, classNa
   const yours = needsOwner(task), action = !yours && needsAction(task);
   const node = run?.node_id ? nodes?.find((n) => n.node_id === run.node_id)?.name ?? run.node_id.slice(0, 8) : "";
   const live = run && run.status !== "QUEUED" && run.started_at > 0;
+  // sticky-work-first: a task whose unsaved work is on a node runs only there; the card names that node.
+  const pinnedTo = !live && !["DONE", "CANCELLED"].includes(task.status) ? nodes?.find((n) => n.tied?.pinned?.includes(task.id)) : undefined;
   return (
     <Link href={`/tasks/${encodeURIComponent(task.id)}`}
       className={cn("group relative block rounded-xl border bg-card p-3.5 shadow-xs transition-[border-color,box-shadow,transform] duration-150 hover:border-foreground/20 hover:shadow-sm focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.99]",
@@ -97,6 +99,11 @@ export function TaskCard({ task, project, now, column, look, run, nodes, classNa
       <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <AgentAvatar name={task.assignee} size="xs" />
         <span className="min-w-0 truncate">{task.assignee || "Unassigned"}</span>
+        {pinnedTo && (
+          <span className="flex min-w-0 shrink items-center gap-1" title={`Its unsaved work is on ${pinnedTo.name || pinnedTo.node_id}; it runs only there`}>
+            <Pin aria-hidden className="size-3 shrink-0" /><span className="truncate">{pinnedTo.name || pinnedTo.node_id.slice(0, 8)}</span>
+          </span>
+        )}
         <span className="ml-auto shrink-0 tabular-nums" title="Last updated">{since(task.updated_at, now)}</span>
       </div>
     </Link>

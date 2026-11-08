@@ -182,7 +182,16 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 		return wait(hold(ReasonCapacity, fmt.Sprintf("the task's unpushed work is on node %s, %s", n.label(), state), "node:"+n.ID, fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout)),
 			Wait{Kind: WaitPinnedNode, Node: n.label()})
 	}
-	if why := s.nodesFull(); why != "" {
+	if why := s.nodesFull(); why != "" && s.PinnedNode != "" {
+		// Online but full (sticky-work-first 2.1): the task waits for that node, not for "all nodes"; it is offered
+		// first there when a slot frees.
+		label := s.PinnedNode
+		if n := s.node(s.PinnedNode); n != nil {
+			label = n.label()
+		}
+		return wait(hold(ReasonCapacity, "the task's unpushed work is on node "+label+", which is full ("+why+")", "node:"+s.PinnedNode,
+			"wait for a free slot on that node; it takes this task first"), Wait{Kind: WaitPinnedNode, Node: label})
+	} else if why != "" {
 		return wait(hold(ReasonCapacity, "capable nodes are full: "+why, "scheduler", "wait for a run on a capable node to end and be sealed"), Wait{Kind: WaitNodes})
 	}
 	return Verdict{}

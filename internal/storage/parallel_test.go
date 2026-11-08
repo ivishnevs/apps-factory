@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +179,85 @@ func TestWorkspaceDiverged(t *testing.T) {
 	}
 	if got, _ = s.Task(ctx, co, "t"); got.Status != "READY" || got.NotBefore != 0 || strings.HasPrefix(reason(), tasks.ReasonParked) {
 		t.Fatal(got.Status, reason())
+	}
+}
+
+// TestOffersTiedWorkFirst (sticky-work-first 1.1): a polling node is offered the runs pinned to it first, then the
+// runs whose session it holds, then the older untied runs; another node is offered only the untied ones.
+func TestOffersTiedWorkFirst(t *testing.T) {
+	s, fake := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "app", Name: "app", Workspace: "/tmp/tied-app", RepoURL: "https://example.com/app.git"}); err != nil {
+		t.Fatal(err)
+	}
+	register(t, s, "n1", 1, func(r *NodeRegistration) { r.Worktrees, r.Slots = true, 4 })
+	register(t, s, "n2", 1, func(r *NodeRegistration) { r.Worktrees, r.Slots = true, 4 })
+	worktree := []byte(`{"spec":{"workspace":{"mode":"worktree"},"execution":{"max_concurrent_runs":8}}}`)
+	dispatch := func(id, run string) protocol.RunSpec {
+		t.Helper()
+		v, err := s.Task(ctx, co, id)
+		if errors.Is(err, ErrNotFound) {
+			v, err = s.CreateTask(ctx, co, tasks.Create{ID: id, ProjectID: "app", Title: id, Assignee: "dev", Ready: true, RequestID: "c-" + id})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: run, Project: "app", Agent: "dev", Provider: protocol.RuntimeCodex, ConfigSnapshot: worktree})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	old := dispatch("old", "r-old")
+	// "held" ran on n1 and left its session there; "pin" ran on n1 and left unpushed work there.
+	for i, id := range []string{"held", "pin"} {
+		first := dispatch(id, "r-"+id+"-1")
+		c, err := claimV2(s, first.ID, "n1", 1, fmt.Sprintf("1-0-%d", i+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id == "pin" {
+			if _, err = s.ReportWorkspace(ctx, co, first.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/pin", NodeID: "n1", Unpushed: true}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err = end(t, s, first.ID, c.Lease, protocol.Event{Status: "ENDED", Outcome: "failed", SessionID: "sess-" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake.Advance(time.Hour) // past the retry backoff
+	held, pin := dispatch("held", "r-held-2"), dispatch("pin", "r-pin-2")
+	ids := func(node string) []string {
+		t.Helper()
+		offers, err := s.Offers(ctx, co, node, 1, map[string]int{"codex": 4}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, o := range offers {
+			out = append(out, o.RunID)
+		}
+		return out
+	}
+	if got, want := ids("n1"), []string{pin.ID, held.ID, old.ID}; !slices.Equal(got, want) {
+		t.Fatalf("n1 offers %v, want pinned, held, then older untied %v", got, want)
+	}
+	if got := ids("n2"); !slices.Equal(got, []string{old.ID}) {
+		t.Fatalf("n2 offers %v, want only the untied run %s", got, old.ID)
+	}
+	// The Nodes page lists what is tied to n1 (sticky-work-first 2.2); nothing is tied to n2.
+	tied, err := s.NodesTied(ctx, co)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1 := tied["n1"]
+	if !slices.Equal(n1.Pinned, []string{"pin"}) || len(n1.Waiting) != 2 ||
+		n1.Waiting[0] != (TiedRun{RunID: held.ID, TaskID: "held", Agent: "dev", Tie: "session"}) ||
+		n1.Waiting[1] != (TiedRun{RunID: pin.ID, TaskID: "pin", Agent: "dev", Tie: "pinned"}) {
+		t.Fatalf("tied to n1: %+v", n1)
+	}
+	if _, ok := tied["n2"]; ok {
+		t.Fatalf("tied to n2: %+v", tied["n2"])
 	}
 }

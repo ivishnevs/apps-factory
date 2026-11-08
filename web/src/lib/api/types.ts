@@ -62,9 +62,12 @@ export interface PendingCounts { inbox: number; approvals: number; alerts: numbe
 export interface Health { status: string; database?: string; company: string; explicit_exits?: string; default_report?: string }
 
 export interface NodeUse { runs: number; resources: Record<string, number> }
+// NodeTied (sticky-work-first): open tasks whose unsaved work is on the node, and queued runs only it may take now.
+export interface TiedRun { run_id: string; task_id: string; agent: string; tie: "pinned" | "session" }
+export interface NodeTied { pinned: string[]; waiting: TiedRun[] }
 export interface FactoryNode {
   node_id: string; name: string; labels?: string[]; slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
-  health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse;
+  health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse; tied?: NodeTied;
   [k: string]: unknown;
 }
 

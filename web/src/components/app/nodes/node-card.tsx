@@ -5,11 +5,12 @@ import { toast } from "sonner";
 import { core } from "@/lib/api/client";
 import { useState } from "react";
 
-import { CircleAlert, HardDrive, Pause, Play, Cpu } from "lucide-react";
+import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin } from "lucide-react";
+import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
 import { nodeHealth, nodeId, type NodeDriver, type NodeFull } from "@/lib/api/types-ops";
-import { ago } from "@/lib/format";
+import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const gib = (b?: number) => `${((b ?? 0) / 2 ** 30).toFixed(1)} GiB`;
@@ -44,6 +45,38 @@ function Driver({ d, nodeId }: { d: NodeDriver; nodeId?: string }) {
         {!d.ok && d.check?.endsWith(".account") && nodeId && <AcceptAccount nodeId={nodeId} runtime={d.name} />}
       </div>
     </li>
+  );
+}
+
+// Tied: what only this node may run now (sticky-work-first): tasks whose unsaved work is here, and the queued runs
+// waiting for it (that work, or an agent session it holds). The node takes these first when a slot frees.
+function Tied({ node }: { node: FactoryNode }) {
+  const pinned = node.tied?.pinned ?? [], waiting = node.tied?.waiting ?? [];
+  if (pinned.length === 0 && waiting.length === 0) return null;
+  const task = (id: string) => (
+    <Link href={`/tasks/${encodeURIComponent(id)}`} className="font-mono underline-offset-4 hover:underline" title={id}>{displayId(id)}</Link>
+  );
+  return (
+    <div>
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Pin className="size-3.5" />Tied to this node</p>
+      {pinned.length > 0 && (
+        <p className="mt-1 text-sm">
+          Unsaved work of {pinned.length} task{pinned.length === 1 ? "" : "s"}:{" "}
+          {pinned.map((id, i) => <span key={id}>{i > 0 && ", "}{task(id)}</span>)}
+        </p>
+      )}
+      {waiting.length > 0 && (
+        <ul className="mt-1 space-y-0.5 text-sm">
+          {waiting.map((w) => (
+            <li key={w.run_id} className="flex flex-wrap items-baseline gap-x-1.5">
+              <span className="text-amber-700 dark:text-amber-300">Waiting:</span>{task(w.task_id)}
+              <span className="text-muted-foreground">{w.agent} · {w.tie === "pinned" ? "its unsaved work is here" : "its agent session is here"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {waiting.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">This node takes them first when a slot frees.</p>}
+    </div>
   );
 }
 
@@ -110,6 +143,8 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
             </div>
           )}
         </div>
+
+        <Tied node={n} />
 
         <div>
           <p className="text-xs font-medium text-muted-foreground">Runtimes</p>

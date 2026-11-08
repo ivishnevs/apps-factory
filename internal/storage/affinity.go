@@ -48,15 +48,15 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 	if spec.SessionID == "" {
 		return nil, nil
 	}
-	var holder string
-	err := q.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE company_id=? AND session_id=? AND node_id!='' AND id!=? ORDER BY created_at DESC, seq DESC LIMIT 1", company, spec.SessionID, id).Scan(&holder)
-	if errors.Is(err, sql.ErrNoRows) || err == nil && (holder == "" || holder == node) {
-		if err == nil && holder == node {
-			_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
-		}
-		return nil, ignoreNoRows(err)
-	}
+	holder, err := sessionHolder(ctx, q, company, spec.SessionID, id)
 	if err != nil {
+		return nil, err
+	}
+	if holder == "" {
+		return nil, nil
+	}
+	if holder == node {
+		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
 		return nil, err
 	}
 	inactive, since, err := holderInactive(ctx, q, company, holder, spec)
@@ -89,6 +89,16 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 		return nil, err
 	}
 	return &Affinity{Holder: holder, Inactive: inactive, Release: release}, nil
+}
+
+// sessionHolder is the node of the session's latest run other than run ("" when no run of it has a node yet).
+func sessionHolder(ctx context.Context, q affinityQuerier, company, session, run string) (string, error) {
+	var holder string
+	err := q.QueryRowContext(ctx, "SELECT node_id FROM runs WHERE company_id=? AND session_id=? AND node_id!='' AND id!=? ORDER BY created_at DESC, seq DESC LIMIT 1", company, session, run).Scan(&holder)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return holder, err
 }
 
 // holderInactive says why the holder cannot continue the session ("" when it is active) and, when known, since
@@ -131,13 +141,6 @@ func companyAffinity(ctx context.Context, q affinityQuerier, company string) (ti
 		return DefaultSessionAffinity, nil
 	}
 	return time.Duration(minutes) * time.Minute, err
-}
-
-func ignoreNoRows(err error) error {
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	return err
 }
 
 // SessionAffinity is the company's release timeout.
