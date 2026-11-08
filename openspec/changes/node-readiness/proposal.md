@@ -15,6 +15,7 @@ them as "Escalated to you", although nothing was wrong with the tasks:
 | Linux node would stop when the owner logs out | install.sh enabled a user unit for root without `loginctl enable-linger`. |
 | `git.user` failed on the Linux node (and on the owner's Mac service) | No git identity for the node's user; commits need one. |
 | Agents could not run `godot` or `openspec` on Linux | Nothing tells Core which tools a project needs; the node took the work anyway. |
+| 2026-11-08, `hetzner-hel1` (reinstalled under `--os-user factory`): game-qa, gameplay-dev and ui-dev runs failed "Sandbox required but unavailable: bubblewrap (bwrap) not installed, socat not installed"; three tasks ran out of retries and escalated to the owner | Claude Code's sandbox (`sandbox: worktree`) needs bwrap and socat on Linux, and on Ubuntu 23.10+ an AppArmor rule letting bwrap create user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`). Neither the installer nor the driver probe checks it, so the node reported claude OK and took work. |
 
 Two defects in how Core treats this:
 
@@ -40,6 +41,10 @@ Two defects in how Core treats this:
   Code does not run agents as root; agents should not have root on the host anyway); the doctor fails the Claude
   driver on a root node with that hint. For a user unit, install.sh enables linger (or tells how); it checks the git identity and
   asks for it; it reports the Node.js version when a project requirement needs a newer one.
+- **Sandbox dependencies on Linux.** The Claude driver probe runs the sandbox once (bwrap with a user namespace,
+  socat) when the node's sandbox is on; on failure the driver is not OK, with the cause and the fix (install
+  `bubblewrap socat`; on Ubuntu with restricted user namespaces, the AppArmor profile for `/usr/bin/bwrap`). The
+  installer checks the same and prints the commands (it does not change the host's security settings itself).
 - **Pausing a node that holds sessions asks what to do with them.** Pausing a node shows the session leases it holds
   (session-affinity) and the runs waiting for them, and asks: release them now (the runs go to another node and start
   a fresh session from Core's context), or keep them until the release timeout (default 90 min, for a short pause).

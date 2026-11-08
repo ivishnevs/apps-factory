@@ -14,6 +14,9 @@
 
 - [ ] 3.1 install.sh on Linux: refuse root without `--os-user` (offer `--os-user factory`), doctor fails Claude on
       a root node; enable linger for user units; git identity check and prompt; Node.js version hint.
+- [ ] 3.2 Linux sandbox: Claude driver probe runs the sandbox (bwrap with a user namespace, socat) when the node's
+      sandbox is on; failure disables the driver with cause and fix (packages; AppArmor profile for bwrap on Ubuntu
+      23.10+); install.sh checks and prints the commands; tests.
 
 ## 4. Pause and session leases
 
