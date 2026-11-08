@@ -7,7 +7,7 @@
 - [ ] 1.3 Node `conversation_slots` (default 1): heartbeat reports them, the claim counts conversation runs against
       them first, then against work slots; work runs never use them; tests.
 - [ ] 1.4 Conversation affinity: a queued conversation run waits at most `session_affinity.conversation_wait`
-      (default 5 min) for the node holding its session, then starts a fresh session on any node; the brief carries the
+      (default 10 min) for the node holding its session, then starts a fresh session on any node; the brief carries the
       recent conversation history; tests.
 
 ## 2. Context window per kind

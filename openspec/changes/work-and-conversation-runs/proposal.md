@@ -60,10 +60,12 @@ batched into the next run); per-sender conversation threads; cost budgets.
    `slots`; conversation runs take a conversation slot first and a work slot only when none is free. Work runs never
    use conversation slots. Conversation runs are light (no worktree, no writer slot, mostly model time), so a full node
    still answers.
-2. **Conversations do not wait long for their node.** A conversation run waits for the node holding its session for
-   at most 5 minutes (`session_affinity.conversation_wait`, company setting), then starts a fresh session on any node
-   with a free slot; the brief carries the last compaction summary or the recent conversation history from Factory.
-   Work runs keep the existing affinity rules.
+2. **Conversations do not wait long for their node.** The sticky rule stays: a conversation run goes to the node
+   holding its session. It waits for that node at most 10 minutes (`session_affinity.conversation_wait`, company
+   setting, owner 2026-11-08), whether the node is inactive (paused, offline) or active without a free slot; then it
+   starts a fresh session on any node with a free slot, and the brief carries the last compaction summary or the
+   recent conversation history from Factory. Work runs keep the existing rules (wait while the holder is active,
+   release 90 minutes after it goes inactive).
 3. **Cross-project conversation limit: none by default.** Each project has one conversation task per agent and its
    runs are sequential; node conversation slots bound the total. `execution.conversation.max_concurrent_runs` stays
    available for an owner who wants a cap.

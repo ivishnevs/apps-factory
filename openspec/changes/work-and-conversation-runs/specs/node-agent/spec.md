@@ -11,9 +11,9 @@ conversation slot.
 
 ### Requirement: Short session wait for conversations
 A queued conversation run SHALL wait for the node holding its session for at most the company's
-`session_affinity.conversation_wait` (default 5 minutes), then SHALL be claimable by any node with a free slot as a
+`session_affinity.conversation_wait` (default 10 minutes), then SHALL be claimable by any node with a free slot as a
 fresh session whose brief carries the recent conversation history.
 
 #### Scenario: Session on a paused node
 - **WHEN** the producer's conversation session is on a paused node and the owner writes in the chat
-- **THEN** after at most 5 minutes another node SHALL start a fresh producer conversation run with the recent history
+- **THEN** after at most 10 minutes another node SHALL start a fresh producer conversation run with the recent history
