@@ -219,6 +219,8 @@ func Run(ctx context.Context, n Node) error {
 		if c.StateDir != "" {
 			w.BlobCache = filepath.Join(c.StateDir, "blobs") // project data by digest, shared by the slots
 		}
+		// node-readiness: a run checks the project's required tools as the readiness probe does.
+		w.ToolRun = n.Host.Run
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
 		w.RuntimeActivity = func() { n.health.activity(string(d.Name())) }

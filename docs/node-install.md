@@ -72,6 +72,17 @@ Running it again upgrades: `bin/`, `workers/` and Codex are replaced, `node.yaml
   sudo apparmor_parser -r /etc/apparmor.d/bwrap
   ```
 
+### Project readiness (node-readiness)
+
+A connected node checks every project Core lists for it: `git ls-remote` of the project's repository as the node's
+user (no prompt) and each tool the project `requires`. A node that cannot read a repository, lacks a tool, or fails
+a run of the project before its agent starts (the cases above) is **not ready** for that project: the Nodes page
+shows the fault and the fix on its card, Core gives it none of the project's runs, and the tasks go to other nodes
+without spending their retries. Typical fixes: `gh auth login && gh auth setup-git` (Linux nodes have no
+credential helper by default), sharing a private repository with the node's GitHub account, installing the tool for
+the node's user. The node checks again by itself every 10 minutes; **Check again** on its card asks at once. When no
+node is ready for a project, its tasks wait with `no_ready_node` and the inbox names the nodes and their fixes.
+
 ## Connecting by signing in
 
 `factory-node login [-config node.yaml] [-name NAME] [-no-browser]` (with `FACTORY_URL`) creates the node's keys,
