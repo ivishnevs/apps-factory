@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { displayId } from "./format";
-import type { Wait } from "./api/types";
+import type { Tie, Wait } from "./api/types";
 
 // Core explains why a task does not run as a CLI-shaped verdict (internal/tasks/state.go Evaluate and park):
 // a reason, a detail with raw IDs and statuses, and a clearer {who, action} whose action is often a
@@ -41,6 +41,21 @@ export interface Verdictish {
   clearer?: { who: string; action: string };
   status?: string;
   wait?: Wait;
+  tie?: Tie;
+}
+
+// tieNode is the tie's node as people know it (its name, else a short ID).
+export const tieNode = (t: Tie) => t.node_name || t.node.slice(0, 8);
+
+// tieWords is the one wording of a tie (node-ties): "Tied to NODE: its unsaved work is there" or "…: its agent
+// session is there", with how it ends.
+export function tieWords(t: Tie): { headline: string; detail: string } {
+  const node = tieNode(t);
+  if (t.reason === "session") {
+    return { headline: `Tied to ${node}: its agent session is there`, detail: `The tie ends ${t.release || "after the node has been inactive a while"}; another node then starts a fresh session.` };
+  }
+  const unsaved = t.unsaved ? ` Its unsaved work could not be saved remotely (${t.unsaved}).` : "";
+  return { headline: `Tied to ${node}: its unsaved work is there`, detail: `${unsaved} The tie ends ${t.release || "when the work is saved remotely or after you reset the workspace"}.`.trim() };
 }
 
 const HEX = /\b[0-9a-f]{20,}\b/g;
@@ -250,8 +265,11 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       who: { label: "You", you: true, href: "/secrets" }, you: true, next: "Set the secret on the Secrets page; it starts after that." });
   }
   if (reason === "pinned_node_unavailable") {
-    return out({ headline: "Its node is offline", brief: "Answer in the inbox", detail: "The node with its unsaved work is unavailable.",
-      next: "Bring the node back, or answer the escalation in your inbox to continue on another node." });
+    // A work tie whose node cannot continue (pinned_node_unavailable is its old name, kept for one release).
+    const t = v.tie ? tieWords(v.tie) : undefined;
+    return out({ headline: t ? `${t.headline}, and it is unavailable` : "Tied to its node: its unsaved work is there, and it is unavailable", label: "Its node is unavailable", brief: "Answer in the inbox",
+      detail: t?.detail ?? "The node with its unsaved work is unavailable.",
+      next: "Bring the node back, or answer the escalation in your inbox (reset the workspace) to continue on another node." });
   }
   if (reason === "no_capable_node") {
     return out({ headline: "No node can run it", brief: "Start a capable node", detail: note ? `${capital(note)}.` : "No online node has what its agent needs.",
@@ -275,9 +293,12 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
         return out({ headline: "Project busy", brief: w.lost ? "A lost run holds the project" : "Another run uses the project", who: blocker,
           detail: `${w.task_id ? taskName(w.task_id, look, true) : "Another task"} is using the project's workspace${w.lost ? "; its node has not confirmed the run ended" : ""}.`,
           next: w.lost ? "It starts when the node reports the lost run gone, or you resolve the run." : "It starts when that run ends.", you: false, queued: true });
-      case "pinned_node":
-        return out({ headline: `Waiting for node ${w.node ?? ""}`.trim(), brief: "Its unsaved work is there", who: { label: w.node ? `Node ${w.node}` : "Its node", href: "/nodes" },
-          detail: "Its unsaved work is on a node that is busy, paused or offline.", next: "It continues on that node when it is back.", you: false, queued: true });
+      case "pinned_node": {
+        const t = v.tie ? tieWords(v.tie) : undefined;
+        const node = v.tie ? tieNode(v.tie) : w.node ?? "its node";
+        return out({ headline: t?.headline ?? `Tied to ${node}: its unsaved work is there`, label: "Tied to its node", brief: "Its unsaved work is there", who: { label: v.tie ? tieNode(v.tie) : w.node ? `Node ${w.node}` : "Its node", href: "/nodes" },
+          detail: `${capital(node)} is busy, paused or offline. ${t?.detail ?? ""}`.trim(), next: "It continues on that node when it has room.", you: false, queued: true });
+      }
       case "nodes":
         return out({ headline: "All nodes busy", brief: "Starts when a node frees up", detail: "Every node that can run it is full.", who: undefined,
           next: "It starts when a run on a capable node ends.", you: false, queued: true });
@@ -290,15 +311,16 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     const blocker: Party | undefined = other ? { label: taskName(other, look), href: `/tasks/${encodeURIComponent(other)}` } : runId ? { label: "Another run", href: `/runs/${encodeURIComponent(runId)}` } : p;
     if (agent) return out({ headline: "Agent busy", brief: `${agent} is on another task`, detail: `${agent} is working on ${other ? taskName(other, look, true) : "another task"}.`, who: blocker, next: "It starts when the agent is free." });
     if (/writer slot/.test(detail)) return out({ headline: "Project busy", brief: "Another run uses the project", detail: `${other ? taskName(other, look, true) : "Another task"} is using the project's workspace.`, who: blocker, next: "It starts when that run ends." });
-    // "the task's unpushed work is on node NAME (ID), which is full (...)" or "..., paused|offline since ..." (tasks/nodes.go).
-    const pin = /unpushed work is on node (.+?)(?: \([0-9a-f]+\))?(?:, which is (full)|, (paused|offline))/.exec(detail);
+    // "tied to NAME (ID): its unsaved work is there; the node is full (...)" or "...; the node is paused|offline since ..." (tasks/nodes.go).
+    const pin = /tied to (.+?)(?: \([0-9a-f]+\))?: its unsaved work is there.*?; the node is (?:(full)|(paused|offline))/.exec(detail);
     if (pin) {
-      const [, node, full] = pin;
-      return out({ headline: `Waiting for ${node}`, label: "Waiting for its node", brief: full ? "That node is full" : "Its unsaved work is there",
-        detail: full ? `Its unsaved work is on ${node}, which has no free slot; that node takes it first when a run there ends.` : `Its unsaved work is on ${node}, which is ${pin[3]}.`,
+      const node = v.tie ? tieNode(v.tie) : pin[1], full = pin[2];
+      const t = v.tie ? tieWords(v.tie) : undefined;
+      return out({ headline: `Tied to ${node}: its unsaved work is there`, label: "Tied to its node", brief: full ? "That node is full" : "Its unsaved work is there",
+        detail: (full ? `${node} has no free slot; it takes this task first when a run there ends.` : `${node} is ${pin[3]}.`) + (t ? ` ${t.detail}` : ""),
         who: { label: node, href: "/nodes" }, next: full ? "It starts on that node as soon as a slot frees." : "It continues on that node when it is back.", you: false, queued: true });
     }
-    if (/unpushed work is on node/.test(detail)) return out({ headline: "Waiting for its node", detail: "Its unsaved work is on a node that is busy or offline.", who: { label: "Its node", href: "/nodes" }, next: "It continues on that node when it is back." });
+    if (/its unsaved work is there/.test(detail)) return out({ headline: "Tied to its node: its unsaved work is there", detail: "Its node is busy or offline.", who: { label: "Its node", href: "/nodes" }, next: "It continues on that node when it is back." });
     return out({ headline: "All nodes busy", brief: "Starts when a node frees up", detail: "Every node that can run it is full.", who: undefined, next: "It starts when a run on a capable node ends." });
   }
   if (reason === "project_setup") {
@@ -316,14 +338,17 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       detail: by ? `${taskName(by, look, true)} sets up the project's repository first.` : "The project's first task sets up its repository first.",
       next: "It starts on its own once the repository is ready.", you: false });
   }
-  if (reason === "affinity") {
-    // session-affinity: the node holding the agent's session takes the run (a queued run's reason).
-    const node = /^(.+?) holds this agent's session/.exec(detail)?.[1];
-    const inactive = /and is (offline|paused|removed|unable to run the agent)/.exec(detail)?.[1];
-    return out({ headline: node ? `Waiting for ${node}` : "Waiting for its node", label: "Waiting for the node with its session", brief: "It holds this agent's session",
-      detail: inactive ? `${node ?? "The node"} holds this agent's session and is ${inactive}; another node takes the run after the release and starts a fresh session.`
-        : `${node ?? "The node"} holds this agent's session and takes the run when it has a free slot, so the agent keeps its memory.`,
-      who: { label: node ?? "Its node", href: "/nodes" }, next: inactive ? "It moves to another node on its own after the release." : "It starts when that node has a free slot.", you: false, queued: true });
+  if (reason === "affinity" || reason === "pinned" || (v.tie && (reason === "unclaimed" || reason === "no_slot" || reason === "resource_busy" || reason === "node_paused" || reason === "node_offline"))) {
+    // A queued run tied to a node (node-ties): its agent's session (affinity, the old name) or its task's unsaved
+    // work (pinned) is there.
+    const t = v.tie;
+    const node = t ? tieNode(t) : /^tied to (.+?)(?: \([0-9a-f]+\))?:/.exec(detail)?.[1];
+    const inactive = /the node is (offline|paused|removed|unable to run the agent)/.exec(detail)?.[1];
+    const session = t ? t.reason === "session" : reason === "affinity";
+    const words = t ? tieWords(t) : { headline: `Tied to ${node ?? "its node"}: ${session ? "its agent session" : "its unsaved work"} is there`, detail: "" };
+    return out({ headline: words.headline, label: "Tied to its node", brief: session ? "Its agent session is there" : "Its unsaved work is there",
+      detail: ((inactive ? `${node ?? "The node"} is ${inactive}. ` : session ? `${node ?? "The node"} takes the run when it has a free slot, so the agent keeps its memory. ` : "") + words.detail).trim(),
+      who: { label: node ?? "Its node", href: "/nodes" }, next: session ? (inactive ? "It moves to another node on its own when the tie ends." : "It starts when that node has a free slot.") : "It continues on that node when it has room.", you: false, queued: true });
   }
   if (reason === "runnable") return out({ headline: "Starting soon", detail: "It is next in line to run.", who: undefined, you: false });
   return out({ headline: capital(reason.replace(/[:_]/g, " ")), detail: note, next: cleanText(action, look) || undefined });

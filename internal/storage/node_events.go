@@ -339,18 +339,22 @@ func alertLongOffline(ctx context.Context, tx *Tx, cutoff int64) error {
 	return nil
 }
 
-// NodeTied is what is tied to a node (sticky-work-first 2.2): open tasks whose unpushed work is in its worktrees, and
-// the queued runs only it may take now (pinned there, or continuing an agent session it holds).
+// NodeTied is what is tied to a node (sticky-work-first 2.2, node-ties): open tasks whose unsaved work is only in
+// its worktrees (tie work), and the queued runs only it may take now (tie work, or session: an agent session it
+// holds). Pinned is the old name of Work, kept for one release.
 type NodeTied struct {
+	Work    []string  `json:"work"`
 	Pinned  []string  `json:"pinned"`
 	Waiting []TiedRun `json:"waiting"`
 }
 
-// TiedRun is a queued run waiting for its node; Tie is "pinned" or "session".
+// TiedRun is a queued run waiting for its node; Reason is the tie, "work" or "session" (node-ties). Tie is the old
+// value ("pinned" or "session"), kept for one release.
 type TiedRun struct {
 	RunID  string `json:"run_id"`
 	TaskID string `json:"task_id"`
 	Agent  string `json:"agent"`
+	Reason string `json:"reason"`
 	Tie    string `json:"tie"`
 }
 
@@ -360,7 +364,7 @@ func (s *Store) NodesTied(ctx context.Context, company string) (map[string]NodeT
 	add := func(node string, f func(*NodeTied)) {
 		t := out[node]
 		if t.Pinned == nil {
-			t.Pinned, t.Waiting = []string{}, []TiedRun{}
+			t.Work, t.Pinned, t.Waiting = []string{}, []string{}, []TiedRun{}
 		}
 		f(&t)
 		out[node] = t
@@ -378,7 +382,7 @@ func (s *Store) NodesTied(ctx context.Context, company string) (map[string]NodeT
 			return nil, err
 		}
 		pinnedTo[task] = node
-		add(node, func(t *NodeTied) { t.Pinned = append(t.Pinned, task) })
+		add(node, func(t *NodeTied) { t.Work, t.Pinned = append(t.Work, task), append(t.Pinned, task) })
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
@@ -407,7 +411,7 @@ func (s *Store) NodesTied(ctx context.Context, company string) (map[string]NodeT
 	}
 	for _, r := range queued {
 		if node := pinnedTo[r.TaskID]; node != "" {
-			r.Tie = "pinned"
+			r.Reason, r.Tie = "work", "pinned"
 			add(node, func(t *NodeTied) { t.Waiting = append(t.Waiting, r) })
 			continue
 		}
@@ -419,7 +423,7 @@ func (s *Store) NodesTied(ctx context.Context, company string) (map[string]NodeT
 			return nil, err
 		}
 		if holder != "" {
-			r.Tie = "session"
+			r.Reason, r.Tie = "session", "session"
 			add(holder, func(t *NodeTied) { t.Waiting = append(t.Waiting, r) })
 		}
 	}

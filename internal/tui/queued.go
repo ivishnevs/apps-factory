@@ -44,7 +44,8 @@ func (m *Model) runStatusOf(id string) (core.RunStatus, bool) {
 var queuedLabels = map[string]string{
 	storage.QueuedPaused:         "paused",
 	storage.QueuedAgentBusy:      "agent busy",
-	storage.QueuedPinned:         "pinned node",
+	storage.QueuedPinned:         "tied: unsaved work",
+	storage.QueuedAffinity:       "tied: agent session",
 	storage.QueuedNoSlot:         "no free slot",
 	storage.QueuedResourceBusy:   "resource busy",
 	storage.QueuedNodePaused:     "node paused",
@@ -71,6 +72,10 @@ func (m *Model) queuedText(q *storage.QueuedReason) string {
 	label := queuedLabels[q.Reason]
 	if label == "" {
 		label = q.Reason
+	}
+	// node-ties: a run tied to a node says so whatever the node lacks (the detail names the node and the reason).
+	if q.Tie != nil && q.Reason != storage.QueuedPinned && q.Reason != storage.QueuedAffinity {
+		label = "tied · " + label
 	}
 	out := label + " · " + d
 	if q.Until > m.now().Unix() {

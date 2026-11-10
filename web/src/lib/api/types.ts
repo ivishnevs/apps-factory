@@ -10,8 +10,13 @@ export interface Wait {
   kind: "agent" | "agent_project" | "writer" | "pinned_node" | "nodes"; agent?: string; live?: number; limit?: number;
   task_id?: string; run_id?: string; node?: string; lost?: boolean;
 }
+// Tie (node-ties): why a task or a queued run waits for one node — its unsaved work (work) or its agent's
+// session (session) is there — since when and how it ends (release; release_at for a timed session tie).
+export interface Tie {
+  node: string; node_name?: string; reason: "work" | "session"; since?: number; release: string; release_at?: number; unsaved?: string;
+}
 export interface Verdict {
-  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait;
+  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait; tie?: Tie;
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
@@ -27,8 +32,8 @@ export interface Task {
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
   progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
-  // Added by the overview: the why reason and who clears it.
-  reason: string; clearer: Clearer; wait?: Wait;
+  // Added by the overview: the why reason, who clears it and the task's tie to a node.
+  reason: string; clearer: Clearer; wait?: Wait; tie?: Tie;
 }
 
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
@@ -50,7 +55,7 @@ export interface ProjectSetup {
   audit?: boolean; audit_task_id?: string; updated_at?: number;
 }
 
-export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[] }
+export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[]; tie?: Tie }
 export interface RunStatus { id: string; agent: string; task_id?: string; status: string; started_at?: number; queued?: QueuedReason }
 export interface ProjectStatus {
   project: Project; runs: RunStatus[]; tasks: Record<string, number>; waiting: Verdict[]; runnable: number; inbox: number;
@@ -62,9 +67,10 @@ export interface PendingCounts { inbox: number; approvals: number; alerts: numbe
 export interface Health { status: string; database?: string; company: string; explicit_exits?: string; default_report?: string }
 
 export interface NodeUse { runs: number; resources: Record<string, number> }
-// NodeTied (sticky-work-first): open tasks whose unsaved work is on the node, and queued runs only it may take now.
-export interface TiedRun { run_id: string; task_id: string; agent: string; tie: "pinned" | "session" }
-export interface NodeTied { pinned: string[]; waiting: TiedRun[] }
+// NodeTied (sticky-work-first, node-ties): open tasks whose unsaved work is only on the node (work), and queued runs
+// only it may take now. pinned and TiedRun.tie are the old names, kept for one release.
+export interface TiedRun { run_id: string; task_id: string; agent: string; reason?: "work" | "session"; tie: "pinned" | "session" }
+export interface NodeTied { work?: string[]; pinned: string[]; waiting: TiedRun[] }
 export interface FactoryNode {
   node_id: string; name: string; labels?: string[]; slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
   health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse; tied?: NodeTied;

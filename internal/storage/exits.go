@@ -250,8 +250,9 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET handled_seq=GREATEST(handled_seq,?) WHERE company_id=? AND id=?", req.AckSeq, company, t.ID); err != nil {
 		return out, err
 	}
+	// node-ties: a review copy's head (a reviewer's local merge) is not the task's handed-over work.
 	if exitSHA != "" {
-		if _, err = tx.ExecContext(ctx, "UPDATE workspaces SET exit_sha=?,updated_at=? WHERE company_id=? AND task_id=?", exitSHA, tx.now().Unix(), company, t.ID); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE workspaces SET exit_sha=?,updated_at=? WHERE company_id=? AND task_id=? AND NOT EXISTS (SELECT 1 FROM runs WHERE company_id=? AND id=? AND spec->>'review_copy'='true')", exitSHA, tx.now().Unix(), company, t.ID, company, runID); err != nil {
 			return out, err
 		}
 	}

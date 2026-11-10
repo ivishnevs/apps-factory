@@ -23,8 +23,8 @@ import (
 const (
 	QueuedPaused         = "paused"          // a company, project, agent or quota key pause
 	QueuedAgentBusy      = "agent_busy"      // the agent's concurrency cap (per agent or per project)
-	QueuedPinned         = "pinned"          // only the node holding the task's unpushed work may take it
-	QueuedAffinity       = "affinity"        // only the node holding the agent's session may take it (session-affinity)
+	QueuedPinned         = "pinned"          // tie work: only the node holding the task's unsaved work may take it (node-ties alias)
+	QueuedAffinity       = "affinity"        // tie session: only the node holding the agent's session may take it (node-ties alias)
 	QueuedNoSlot         = "no_slot"         // every slot of the node is held
 	QueuedResourceBusy   = "resource_busy"   // a resource class of the node is held
 	QueuedNodePaused     = "node_paused"     // the owner paused the node, or its disk is below critical
@@ -45,6 +45,9 @@ type QueuedReason struct {
 	Detail string       `json:"detail"`
 	Until  int64        `json:"until,omitempty"`
 	Nodes  []QueuedNode `json:"nodes,omitempty"`
+	// Tie is the node the run is tied to (node-ties): its task's unsaved work or its agent's session is there.
+	// Reasons pinned and affinity are its aliases for one release.
+	Tie *tasks.Tie `json:"tie,omitempty"`
 }
 
 // QueuedNode is what one node lacks for the run ("" Reason: it can take it).
@@ -146,10 +149,14 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 	case busyProject >= perProject:
 		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d at a time in project %s", spec.Agent, busyProject, perProject, spec.Project)}, nil
 	}
+	// node-ties: the work tie (the task's unsaved work is only on one node) outranks the session tie.
 	pinned := ""
+	var tie *tasks.Tie
 	if taskID != "" {
-		if err = tx.QueryRowContext(ctx, "SELECT node_id FROM workspaces WHERE company_id=? AND task_id=? AND unpushed=1 AND node_id!=''", tx.company, taskID).Scan(&pinned); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if tie, err = workTie(ctx, tx, tx.company, taskID); err != nil {
 			return nil, err
+		} else if tie != nil {
+			pinned = tie.Node
 		}
 	}
 	nodes, err := queuedNodes(ctx, tx, spec, now)
@@ -162,26 +169,30 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 	if pinned != "" {
 		i := slices.IndexFunc(nodes, func(n QueuedNode) bool { return n.Node == pinned })
 		if i < 0 {
-			return &QueuedReason{Reason: QueuedPinned, Detail: "the task's unpushed work is on node " + pinned + ", which is no longer registered", Nodes: nodes}, nil
+			return &QueuedReason{Reason: QueuedPinned, Detail: tie.Say() + "; the node is no longer registered", Nodes: nodes, Tie: tie}, nil
 		}
+		tie.NodeName = nodes[i].Name
 		if n := nodes[i]; n.Reason != "" {
-			return &QueuedReason{Reason: n.Reason, Detail: "the task's unpushed work is on " + nodeLabel(n.Name, n.Node) + ": " + n.Detail, Until: n.Until, Nodes: nodes}, nil
+			return &QueuedReason{Reason: n.Reason, Detail: tie.Say() + "; the node: " + n.Detail, Until: n.Until, Nodes: nodes, Tie: tie}, nil
 		}
-		return &QueuedReason{Reason: QueuedUnclaimed, Detail: nodeLabel(nodes[i].Name, nodes[i].Node) + " has room; waiting for its claim", Nodes: nodes}, nil
+		return &QueuedReason{Reason: QueuedUnclaimed, Detail: tie.Say() + "; it has room, waiting for its claim", Nodes: nodes, Tie: tie}, nil
 	}
 	// Session affinity: the holder of the session takes it while active; Until is the release when it is not.
 	if a, err := sessionAffinity(ctx, tx, tx.company, id, spec, "", now); err != nil {
 		return nil, err
 	} else if a != nil {
-		label := a.Holder
+		tie, err := sessionTie(ctx, tx, tx.company, id, spec.SessionID, a)
+		if err != nil {
+			return nil, err
+		}
 		if i := slices.IndexFunc(nodes, func(n QueuedNode) bool { return n.Node == a.Holder }); i >= 0 {
-			label = nodeLabel(nodes[i].Name, nodes[i].Node)
+			tie.NodeName = nodes[i].Name
 		}
-		detail := label + " holds this agent's session; it takes the run when it has a free slot"
+		detail := tie.Say() + "; it takes the run when it has a free slot"
 		if a.Inactive != "" {
-			detail = label + " holds this agent's session and is " + a.Inactive + "; another node may take it after the release"
+			detail = tie.Say() + ", and the node is " + a.Inactive + "; another node may take the run " + tie.Release
 		}
-		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes}, nil
+		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes, Tie: tie}, nil
 	}
 	best := -1
 	for i, n := range nodes {

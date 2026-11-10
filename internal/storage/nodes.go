@@ -552,6 +552,12 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 	}
 	out.RunSpec.Company = company
 	out.StartBy = time.Unix(startBy, 0).UTC()
+	// node-ties: the task's work saved remotely, which the node restores when its worktree does not hold it.
+	if out.RunSpec.TaskID != "" && !out.RunSpec.ReviewCopy {
+		if err := tx.QueryRowContext(ctx, "SELECT wip_sha,node_id FROM workspaces WHERE company_id=? AND task_id=?", company, out.RunSpec.TaskID).Scan(&out.RunSpec.RestoreWIP, &out.RunSpec.WorkspaceNode); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return out, err
+		}
+	}
 	m, err := runManifest(ctx, tx, out.RunSpec)
 	out.RunSpec.Materialize = m
 	if err != nil {
@@ -1069,7 +1075,7 @@ func (s *Store) PinnedUnavailable(ctx context.Context, company string, fill func
 			fill(&snap)
 		}
 		if why := tasks.PinnedUnavailable(snap); why != "" {
-			out = append(out, EscalationWant{TaskID: snap.Task.ID, RefID: snap.PinnedNode, Summary: why + "; reset_workspace continues from the remote branch on any node (the unpushed work stays on that node's WIP ref)"})
+			out = append(out, EscalationWant{TaskID: snap.Task.ID, RefID: snap.PinnedNode, Summary: why + "; the tie ends " + tasks.WorkRelease + ": reset_workspace continues from the remote branch on any node (the unsaved work stays on that node's local WIP ref)"})
 		}
 	}
 	return out, nil

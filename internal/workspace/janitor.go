@@ -41,7 +41,8 @@ func (w *Worktrees) SealLeftovers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var errs []error
+	// Review copies of a previous process are disposable (node-ties): removed, never sealed.
+	errs := []error{w.RemoveReviewCopies(ctx)}
 	for _, r := range reqs {
 		path := w.path(r)
 		if _, err := os.Stat(pidPath(path)); err != nil {
@@ -75,6 +76,9 @@ func (w *Worktrees) RemoveTask(ctx context.Context, task string) error {
 			}
 			defer unlock()
 			path := w.path(r)
+			if st, err := readState(path); err == nil && st.SavedWIP != "" {
+				deleteRemoteWIP(ctx, path, r.Task) // node-ties 2.4
+			}
 			if _, err = git(ctx, filepath.Join(dir, "repo"), nil, "worktree", "remove", "--force", "--force", path); err != nil {
 				slog.Warn("git worktree remove failed; deleting the directory", "path", path, "error", err)
 				if err = os.RemoveAll(path); err != nil {

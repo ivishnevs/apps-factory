@@ -12,8 +12,24 @@ Runs hold writer slots, not the project (task-worktrees D1). A run in the projec
 `worktree` (its own branch `af/<task>…`) or `fresh_from_default` (reset to the freshly fetched default branch
 at every run, no task branch) on a node with worktrees holds its own slot `<workspace>#task/<task>` and runs in
 that task's worktree on the node, so tasks of one project run in parallel; the node serializes runs of one task
-on its worktree (flock, process group, seal onto `refs/factory/wip/<task>`). Unpushed work of a `worktree` task
-pins it to its node; a `fresh_from_default` worktree never pins.
+on its worktree (flock, process group, seal onto the local `refs/factory/wip/<task>`). After the seal the node
+saves the task's local work (uncommitted files, honouring `.gitignore`, and commits on no origin branch) to the
+service ref `refs/factory/wip/<task>` of the repository, through the same secret scan as every push and a 50 MB
+per-file cap; the next run on any node restores those files (files, not commits) over the remote branch. Only work
+that could not be saved (a secret finding, a file over the cap, no network or no repository access) ties the task
+to its node (see [Node ties](#node-ties)); a `fresh_from_default` worktree never ties. The service ref is deleted
+once the work is on the remote branch or the task closes.
+
+A run of an agent that is not the task's implementer (a reviewer, QA, an accepting manager) works in a disposable
+review copy checked out from the pushed head of the task branch, in its own directory, removed after the run. It
+may do anything there (merge `origin/main`, run the tests), but it cannot push (no push URL, and a pre-push hook
+that says "this is a review copy; your result is the verdict"), the node does not seal it, and Core ignores its
+workspace report: a review never changes the task's workspace record, never ties the task and never touches the
+implementer's worktree. A branch without a pushed head is not reviewable: the review run ends `setup_failed`
+saying so. A project may list ignored directories (build or import caches) to copy into the review copy from the
+task's worktree on that node: `review_carry` (the project's `workspace.review_carry`, `PATCH /projects/{id}
+{"review_carry": [".cache"]}`), relative paths without `..`, empty by default; nothing else ignored by git (`.env`,
+keys, local config) is ever carried.
 
 ## Lifecycle
 
@@ -470,18 +486,35 @@ cancellation.
   `attention`); a client reconnecting with `Last-Event-ID` or `?after=` receives every later row once. The
   stream is exempt from the server's write timeout.
 
+## Node ties
+
+A task or a queued run may be tied to one node, for one of two reasons, and every view says it the same way:
+
+| Tie | Shown as | Ends |
+|---|---|---|
+| `work` | "tied to NODE: its unsaved work is there" (with why it could not be saved) | when the work is saved remotely, or after the owner resets the workspace (`reset_workspace`) |
+| `session` | "tied to NODE: its agent session is there" | automatically, the session-affinity timeout (default 90 min) after the node goes inactive |
+
+Task views (`GET /tasks`, `GET /tasks/{id}/why`), queued-run reasons and the Nodes page carry `tie: {node,
+node_name, reason, since, release, release_at, unsaved}`. A work tie outranks a session tie: the node holding the
+work takes the run and starts a fresh session when the session is elsewhere. The old names stay for one release as
+aliases of the tie: the verdict and escalation `pinned_node_unavailable` (a work tie whose node is removed, offline
+past 30 min or unable to run the assignee), the queued reasons `pinned` (work) and `affinity` (session), the claim
+refusals `pinned` and `affinity`, and the Nodes page's `tied.pinned` (now `tied.work`, with `waiting[].reason`).
+
 ## Session affinity
 
 A run that continues a session (the (task, agent) session of a rework or re-review, or a conversation's next
 message) is taken only by the node that holds the session — the node of the session's latest run — while that
 node is active, however busy it is: other nodes are not offered the run and their claims are refused with retry
-`affinity`; the queued reason says "Waiting for NODE, it holds this agent's session". When the holder becomes
+`affinity`; the queued reason says "tied to NODE: its agent session is there". When the holder becomes
 inactive (offline, paused, removed, or unable to run the agent), a release timer starts (`session_locks`); a holder
 active again clears it. When the company's timeout passes (default 90 minutes, `PUT
 /settings/company/session_affinity {"release_minutes": N}`, 10 minutes to 7 days), any capable node takes the run,
-starts a fresh session with the usual note, and the lock moves to it. Runs without a session go anywhere. The pin of
-unpushed work (above) is stronger: it is released only by `reset_workspace`. When a task is pinned to one node and another node
-holds its session, the pinned node takes the run and starts a fresh session.
+starts a fresh session with the usual note, and the lock moves to it. Runs without a session go anywhere. This is
+the session tie; the work tie (above) is stronger: it is released only by saving the work remotely or by
+`reset_workspace`. When a task is tied to one node by its work and another node holds its session, the node with
+the work takes the run and starts a fresh session.
 
 A node resumes a session only under the runtime account it ran under (session-continuity): after the node's login
 changes and the owner accepts the new account, every older session starts fresh with the note. When the node ran

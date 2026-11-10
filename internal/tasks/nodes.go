@@ -107,24 +107,49 @@ func (s Snapshot) node(id string) *Node {
 	return nil
 }
 
-// PinnedUnavailable says why the node holding the task's unpushed work cannot continue it ("" when it can
-// or the task is not pinned): the node was removed, is offline beyond the pin timeout, or cannot run the
-// current assignee. Without needs (Provider empty) only removal and the offline timeout count.
+// tie is the task's tie with its node's name (node-ties): the loaded one, or a work tie from PinnedNode.
+func (s Snapshot) tie() *Tie {
+	var t Tie
+	switch {
+	case s.Tie != nil:
+		t = *s.Tie
+	case s.PinnedNode != "":
+		t = Tie{Node: s.PinnedNode, Reason: TieWork, Release: WorkRelease}
+	default:
+		return nil
+	}
+	if n := s.node(t.Node); n != nil {
+		t.NodeName = n.Name
+	}
+	return &t
+}
+
+// workSay is "tied to <node>: its unsaved work is there" (with why it could not be saved).
+func (s Snapshot) workSay() string {
+	if t := s.tie(); t != nil && t.Reason == TieWork {
+		return t.Say()
+	}
+	return (&Tie{Node: s.PinnedNode, Reason: TieWork}).Say()
+}
+
+// PinnedUnavailable says why the node the task is tied to by its work cannot continue it ("" when it can or the
+// task has no work tie): the node was removed, is offline beyond the pin timeout, or cannot run the current
+// assignee. Without needs (Provider empty) only removal and the offline timeout count.
 func PinnedUnavailable(s Snapshot) string {
 	if s.PinnedNode == "" {
 		return ""
 	}
 	n := s.node(s.PinnedNode)
 	if n == nil {
-		return "the task's unpushed work is on node " + s.PinnedNode + ", which is no longer registered"
+		return s.workSay() + "; node " + s.PinnedNode + " is no longer registered"
 	}
 	if s.Needs.Provider != "" {
 		if why := n.Incapable(s.Needs); why != "" {
-			return fmt.Sprintf("the task's unpushed work is on node %s, which cannot run %s: %s", n.label(), s.Task.Assignee, why)
+			return fmt.Sprintf("%s; the node cannot run %s: %s", s.workSay(), s.Task.Assignee, why)
 		}
 	}
 	if !n.Online && s.PinTimeout > 0 && !s.Now.IsZero() && s.Now.Sub(time.Unix(n.LastSeen, 0)) > s.PinTimeout {
-		return fmt.Sprintf("the task's unpushed work is on node %s, offline since %s (more than %s)", n.label(), time.Unix(n.LastSeen, 0).UTC().Format(time.RFC3339), s.PinTimeout)
+		return fmt.Sprintf("%s; the node is offline since %s (more than %s)", s.workSay(), time.Unix(n.LastSeen, 0).UTC().Format(time.RFC3339), s.PinTimeout)
 	}
 	return ""
 }
@@ -179,7 +204,7 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 		if !n.Online {
 			state = "offline since " + time.Unix(n.LastSeen, 0).UTC().Format(time.RFC3339)
 		}
-		return wait(hold(ReasonCapacity, fmt.Sprintf("the task's unpushed work is on node %s, %s", n.label(), state), "node:"+n.ID, fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout)),
+		return wait(hold(ReasonCapacity, fmt.Sprintf("%s; the node is %s", s.workSay(), state), "node:"+n.ID, fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout)),
 			Wait{Kind: WaitPinnedNode, Node: n.label()})
 	}
 	if why := s.nodesFull(); why != "" && s.PinnedNode != "" {
@@ -189,7 +214,7 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 		if n := s.node(s.PinnedNode); n != nil {
 			label = n.label()
 		}
-		return wait(hold(ReasonCapacity, "the task's unpushed work is on node "+label+", which is full ("+why+")", "node:"+s.PinnedNode,
+		return wait(hold(ReasonCapacity, s.workSay()+"; the node is full ("+why+")", "node:"+s.PinnedNode,
 			"wait for a free slot on that node; it takes this task first"), Wait{Kind: WaitPinnedNode, Node: label})
 	} else if why != "" {
 		return wait(hold(ReasonCapacity, "capable nodes are full: "+why, "scheduler", "wait for a run on a capable node to end and be sealed"), Wait{Kind: WaitNodes})

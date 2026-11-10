@@ -295,11 +295,11 @@ func (m *Model) nodeCard(n Node, w int, selected bool) []string {
 		}
 		row("held", strings.Join(parts, stFaint.Render(" · ")))
 	}
-	// Tied work (sticky-work-first): tasks whose unsaved work is here and the runs waiting for this node.
+	// Tied work (sticky-work-first, node-ties): tasks tied here by their unsaved work and the runs tied to this node.
 	if len(n.Tied.Pinned) > 0 || len(n.Tied.Waiting) > 0 {
-		v := fmt.Sprintf("%d task(s) with unsaved work here", len(n.Tied.Pinned))
+		v := fmt.Sprintf("%d task(s) tied here: their unsaved work is here", len(n.Tied.Pinned))
 		if len(n.Tied.Waiting) > 0 {
-			v += stYellow.Render(fmt.Sprintf(" · %d run(s) waiting for this node", len(n.Tied.Waiting)))
+			v += stYellow.Render(fmt.Sprintf(" · %d run(s) waiting for this node (unsaved work or agent session)", len(n.Tied.Waiting)))
 		}
 		row("tied", v)
 	}

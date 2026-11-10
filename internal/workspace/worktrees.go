@@ -64,6 +64,11 @@ type Request struct {
 	// Fresh is the fresh_from_default mode (task-worktrees D4): the worktree has no task branch, and every
 	// Acquire seals it and checks out the freshly fetched origin/<default> (detached, clean).
 	Fresh bool
+	// WIP is the task's saved WIP Core recorded (node-ties): Acquire restores its files when this worktree
+	// does not hold them. Moved: the task ran on another node since this worktree's last run, so leftovers this
+	// worktree saved remotely earlier and Core no longer names are not continued.
+	WIP   string
+	Moved bool
 }
 
 type Worktree struct {
@@ -88,12 +93,20 @@ type SealResult struct {
 	// Unpushed: HEAD has commits that are on no origin branch. With WIPSHA it is the work only this node
 	// holds (node pinning, task-worktrees D8).
 	Unpushed bool `json:"unpushed,omitempty"`
+	// node-ties (set by SaveWIP, not stored): LocalWork is work only this worktree holds (unpushed commits or
+	// uncommitted changes); SavedWIP the commit saved to refs/factory/wip/<task> on origin; Unsaved why the
+	// local work could not be saved (it then ties the task to this node).
+	LocalWork bool   `json:"-"`
+	SavedWIP  string `json:"-"`
+	Unsaved   string `json:"-"`
 }
 
 type worktreeState struct {
 	Task   string `json:"task"`
 	Branch string `json:"branch"`
 	SealResult
+	// SavedWIP is the saved WIP this worktree's files match (it pushed or restored it, node-ties).
+	SavedWIP string `json:"saved_wip,omitempty"`
 	// ResetFrom is set while a reset to SealedHead (the exit) is in progress; a seal or start check that
 	// finds it finishes the reset first, so a crash never leaves the worktree between the two heads.
 	ResetFrom string `json:"reset_from,omitempty"`
@@ -171,8 +184,10 @@ func (w *Worktrees) Acquire(ctx context.Context, r Request) (Worktree, error) {
 		}
 		if r.Fresh {
 			err = w.freshStart(ctx, r, wt)
-		} else {
-			err = w.startCheck(ctx, r, wt)
+		} else if err = w.supersede(ctx, r, wt); err == nil {
+			if err = w.startCheck(ctx, r, wt); err == nil {
+				err = w.restoreWIP(ctx, r, wt)
+			}
 		}
 		if err != nil {
 			unlock()

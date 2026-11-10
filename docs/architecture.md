@@ -65,10 +65,12 @@ per task, managed by the node (`internal/workspace.Worktrees`): a shared clone p
 branch `af/<task>` and a scratch directory (`FACTORY_SCRATCH`) outside it. Each worktree has its own lock and run
 pidfile, so a second run of the same task waits, and later runs of the task continue in the same worktree.
 - Seal: at run end the runtime's process group is stopped, then uncommitted work is committed onto the local ref
-  `refs/factory/wip/<task>` without touching HEAD, index or files, and `sealed_head` is recorded. Nothing is pushed
-  by the seal. After an accepted handoff, submit or done the seal then resets the worktree to the exit's commit
+  `refs/factory/wip/<task>` without touching HEAD, index or files, and `sealed_head` is recorded. The node then
+  saves local work (uncommitted files and unpushed commits) to the service ref `refs/factory/wip/<task>` on origin
+  after the secret scan and a 50 MB per-file cap (node-ties); work that cannot be saved ties the task to the node,
+  saved work is restored as files on whichever node runs the task next (`restore_wip` in the claim answer). After an accepted handoff, submit or done the seal then resets the worktree to the exit's commit
   (`exit_sha`), so the next run starts exactly from what was handed over; after other exits it continues as is. The
-  node reports `{mode, branch, node_id, exit_sha, sealed_head, sealed_at, unpushed}` to `POST /runs/{id}/workspace`
+  node reports `{mode, branch, node_id, exit_sha, sealed_head, sealed_at, unpushed, wip_sha, wip_unsaved}` to `POST /runs/{id}/workspace`
   (one `workspaces` row per task, `GET /tasks/{id}/workspace`). A worktree left locked by a crashed process is
   sealed as that run's work before the next run, or at node start.
 - Start check (under the lock, before the runtime starts): HEAD at `sealed_head` starts the run, after a
@@ -84,8 +86,10 @@ pidfile, so a second run of the same task waits, and later runs of the task cont
   the clone stay. `on_run_stop` hooks run after every run, `prune` entries periodically and at low disk.
 - Pushing the task branch and opening its pull request happen only through explicit exits (`factory_exit_*`, behind
   `FACTORY_EXPLICIT_EXITS`); see [explicit exits](explicit-exits-contract.md). The implementing agent merges the
-  approved pull request itself (`gh pr merge`, skill `task-pull-request`). Tasks with unpushed work are pinned to
-  their node at claim.
+  approved pull request itself (`gh pr merge`, skill `task-pull-request`). Tasks whose unsaved work could not be
+  saved remotely are tied to their node at claim (node-ties). Runs of an agent that is not the task's implementer
+  (`review_copy` in the RunSpec) work in a disposable review copy of the pushed task branch that cannot push, is
+  not sealed, and whose workspace report Core ignores.
 
 Nodes (node-agent; details in [development](development.md#node-process)): runs execute on `factory-node run`, one
 process per machine under launchd or systemd (`KeepAlive`/`Restart=always`), configured by `node.yaml`. It holds N

@@ -48,10 +48,10 @@ function Driver({ d, nodeId }: { d: NodeDriver; nodeId?: string }) {
   );
 }
 
-// Tied: what only this node may run now (sticky-work-first): tasks whose unsaved work is here, and the queued runs
-// waiting for it (that work, or an agent session it holds). The node takes these first when a slot frees.
+// Tied: what only this node may run now (sticky-work-first, node-ties): tasks whose unsaved work is only here, and
+// the queued runs tied to it (that work, or an agent session it holds). The node takes these first when a slot frees.
 function Tied({ node }: { node: FactoryNode }) {
-  const pinned = node.tied?.pinned ?? [], waiting = node.tied?.waiting ?? [];
+  const pinned = node.tied?.work ?? node.tied?.pinned ?? [], waiting = node.tied?.waiting ?? [];
   if (pinned.length === 0 && waiting.length === 0) return null;
   const task = (id: string) => (
     <Link href={`/tasks/${encodeURIComponent(id)}`} className="font-mono underline-offset-4 hover:underline" title={id}>{displayId(id)}</Link>
@@ -65,12 +65,15 @@ function Tied({ node }: { node: FactoryNode }) {
           {pinned.map((id, i) => <span key={id}>{i > 0 && ", "}{task(id)}</span>)}
         </p>
       )}
+      {pinned.length > 0 && (
+        <p className="mt-0.5 text-[11px] text-muted-foreground">Tied until the work is saved remotely or you reset the workspace.</p>
+      )}
       {waiting.length > 0 && (
         <ul className="mt-1 space-y-0.5 text-sm">
           {waiting.map((w) => (
             <li key={w.run_id} className="flex flex-wrap items-baseline gap-x-1.5">
               <span className="text-amber-700 dark:text-amber-300">Waiting:</span>{task(w.task_id)}
-              <span className="text-muted-foreground">{w.agent} · {w.tie === "pinned" ? "its unsaved work is here" : "its agent session is here"}</span>
+              <span className="text-muted-foreground">{w.agent} · {(w.reason ?? (w.tie === "pinned" ? "work" : "session")) === "work" ? "tied: its unsaved work is here" : "tied: its agent session is here"}</span>
             </li>
           ))}
         </ul>

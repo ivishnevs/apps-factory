@@ -254,7 +254,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 		if e.Reason == "workspace_diverged" {
 			// The node resets the worktree from the remote branch (heartbeat reset); the task runs again on
 			// its reset_done.
-			if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET reset_pending=1,unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET reset_pending=1,unpushed=0,wip_sha='',wip_unsaved='',tied_since=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
 				return err
 			}
 			tx.wakeNodes()
@@ -263,9 +263,9 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			}
 			return comment(ctx, tx, t.ID, actor, "reset_workspace: the node resets the worktree from the remote branch; local changes stay on refs/factory/reset")
 		}
-		// pinned_node_unavailable: unpin; another node starts from the remote branch in a new session. A queued
-		// run loses its session now; otherwise the next dispatch starts without one.
-		if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET unpushed=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
+		// pinned_node_unavailable: the owner releases the work tie (node-ties); another node starts from the remote
+		// branch in a new session. A queued run loses its session now; otherwise the next dispatch starts without one.
+		if _, err := tx.ExecContext(ctx, "UPDATE workspaces SET unpushed=0,wip_sha='',wip_unsaved='',tied_since=0,updated_at=? WHERE company_id=? AND task_id=?", tx.now().Unix(), tx.company, t.ID); err != nil {
 			return err
 		}
 		res, err := tx.ExecContext(ctx, "UPDATE runs SET session_id='',spec=(spec::jsonb-'session_id')::json WHERE company_id=? AND id=? AND status='QUEUED'", tx.company, t.CurrentRunID)
@@ -278,7 +278,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 				return err
 			}
 		}
-		return comment(ctx, tx, t.ID, actor, "reset_workspace: continue from the remote branch; unpushed work stays on node "+e.RefID)
+		return comment(ctx, tx, t.ID, actor, "reset_workspace: no longer tied to node "+e.RefID+"; continue from the remote branch, its unsaved work stays on that node")
 	case "keep_waiting": // stalled: the wait is planned; the sweep snoozes it (KeptWaiting)
 		return comment(ctx, tx, t.ID, actor, "escalation stalled: keeps waiting on "+e.RefID)
 	case "drop_dependency", "unblock": // stalled: stop waiting on the stuck dependency

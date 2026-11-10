@@ -745,6 +745,13 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 	}
 	add(stFaint.Render("why     ") + stYellow.Render(reason))
 	add(stFaint.Render("clears  ") + who + stFaint.Render(" — ") + why.Clearer.Action)
+	// node-ties: one wording for a task tied to a node, and how the tie ends.
+	if tie := why.Tie; tie == nil && t.Tie != nil {
+		why.Tie = t.Tie
+	}
+	if tie := why.Tie; tie != nil && t.Status != "DONE" && t.Status != "CANCELLED" {
+		add(stFaint.Render("tied    ") + stYellow.Render(tie.Say()) + stFaint.Render(" — ends "+tie.Release))
+	}
 	if p, ok := m.projectOf(t.ProjectID); ok {
 		if text, hint, bad := m.setupText(p); text != "" {
 			st := stYellow
