@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -89,6 +90,15 @@ func (d Driver) nodeFound(h node.Host) bool {
 // version pair and its login. The probe asks accountInfo without a prompt, so it never makes a model call.
 func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 	h := d.host()
+	// node-readiness 3.1: Claude Code refuses to run agents as root, so a root node's probe passing would only make
+	// every run fail ("--dangerously-skip-permissions cannot be used with root/sudo privileges").
+	euid := os.Geteuid
+	if d.Euid != nil {
+		euid = d.Euid
+	}
+	if r := node.RootCheck("claude.root", h.GOOS, euid()); r != nil {
+		return []node.CheckResult{*r}
+	}
 	shim := filepath.Clean(d.shimPath())
 	// The single executable carries its own Node.js: no Node.js check (node-packaging-updates 2.1).
 	nodeCheck := node.CheckResult{Check: "claude.node", Status: node.Pass, Detail: "built into " + SingleExecutable}
@@ -126,6 +136,13 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 		// node-runtime-accounts: a different account than the one recorded disables Claude on this node.
 		a := p.Account
 		r = append(r, node.CheckAccount(d.AccountsDir, node.Account{Runtime: "claude", Plan: a.SubscriptionType, Org: a.Organization, Hash: node.AccountHash(a.Email, a.Organization)}))
+	}
+	if d.Sandbox == "worktree" {
+		// node-readiness 3.2: runs need the Linux sandbox (bwrap with a user namespace, socat); without it every
+		// confined run fails "Sandbox required but unavailable" while the probe passed.
+		if sb := node.SandboxCheck(ctx, h, "claude.sandbox"); sb != nil {
+			r = append(r, *sb)
+		}
 	}
 	if d.ConfigDir == "" && d.AccountsDir != "" && auth.Status == node.Pass {
 		r = append(r, node.CheckResult{Check: "claude.login", Status: node.Warn, Detail: "runs use this user's own Claude login: logging in to another account in the terminal changes the agents' account too",
