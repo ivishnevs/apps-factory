@@ -57,19 +57,47 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 	})
 	// Session affinity's release timeout (session-affinity): how long a node holding an agent's session may be
 	// inactive before another node takes its runs and starts fresh.
+	// conversation_wait_minutes (work-and-conversation-runs): how long a queued conversation run waits for the node
+	// holding its session, active or not, before another node starts it with a fresh session.
 	m.HandleFunc("GET /settings/company/session_affinity", func(w http.ResponseWriter, r *http.Request) {
 		d, err := c.Store.SessionAffinity(r.Context(), c.companyFrom(r))
-		reply(w, map[string]any{"release_minutes": int64(d / time.Minute)}, err)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		cw, err := c.Store.ConversationWait(r.Context(), c.companyFrom(r))
+		reply(w, map[string]any{"release_minutes": int64(d / time.Minute), "conversation_wait_minutes": int64(cw / time.Minute)}, err)
 	})
 	m.HandleFunc("PUT /settings/company/session_affinity", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
-			ReleaseMinutes int64 `json:"release_minutes"`
+			ReleaseMinutes          int64 `json:"release_minutes"`
+			ConversationWaitMinutes int64 `json:"conversation_wait_minutes"`
 		}
 		if !decode(w, r, &p) {
 			return
 		}
-		err := c.Store.SetSessionAffinity(r.Context(), c.companyFrom(r), time.Duration(p.ReleaseMinutes)*time.Minute)
-		reply(w, map[string]any{"release_minutes": p.ReleaseMinutes}, err)
+		company := c.companyFrom(r)
+		var err error
+		if p.ReleaseMinutes == 0 && p.ConversationWaitMinutes == 0 {
+			err = fmt.Errorf("%w: release_minutes or conversation_wait_minutes required", storage.ErrInput)
+		}
+		if err == nil && p.ReleaseMinutes != 0 {
+			err = c.Store.SetSessionAffinity(r.Context(), company, time.Duration(p.ReleaseMinutes)*time.Minute)
+		}
+		if err == nil && p.ConversationWaitMinutes != 0 {
+			err = c.Store.SetConversationWait(r.Context(), company, time.Duration(p.ConversationWaitMinutes)*time.Minute)
+		}
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		d, err := c.Store.SessionAffinity(r.Context(), company)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		cw, err := c.Store.ConversationWait(r.Context(), company)
+		reply(w, map[string]any{"release_minutes": int64(d / time.Minute), "conversation_wait_minutes": int64(cw / time.Minute)}, err)
 	})
 	// How long a planned BACKLOG dependency may stay unchanged before its waiting task escalates as stalled
 	// (dependency-wait-escalations 1.1).
@@ -430,7 +458,8 @@ func (c *Core) evaluateIn(company string, snap tasks.Snapshot) tasks.Verdict {
 	c.needs(company, &snap)
 	if snap.AgentConfigured {
 		b, _ := json.Marshal(a)
-		snap.AgentCap, snap.AgentProjectCap = storage.AgentCaps(b)
+		caps := storage.AgentRunCaps(b)
+		snap.AgentCap, snap.AgentProjectCap, snap.AgentConversationCap, snap.AgentSharedLimit = caps.Work, caps.WorkProject, caps.Conversation, caps.Shared
 	}
 	if snap.AgentConfigured && c.Store != nil {
 		snap.MissingSecret = c.missingSecret(company, snap.Task.Assignee, a)
@@ -579,7 +608,7 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 			ignoredModel = t.Model
 		}
 	}
-	options := a.RuntimeOptions()
+	options := a.RunOptions(t.Kind == tasks.KindConversation) // the window of the run kind (work-and-conversation-runs)
 	options["model"] = model
 	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: options, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
 	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err == nil && ignoredModel != "" {

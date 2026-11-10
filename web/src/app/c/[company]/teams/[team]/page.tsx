@@ -12,7 +12,7 @@ import { RenameTeam } from "@/components/app/team/rename";
 import { ApprovalModesView } from "@/components/app/project/approvals";
 import { AddAgentSheet, AgentFormSheet, SetupBanner } from "@/components/app/team/builder";
 import { Button } from "@/components/ui/button";
-import { useCatalog, useCompanyInfo, useSetup, useTeams } from "@/lib/api/client";
+import { useAgentRuns, useCatalog, useCompanyInfo, useSetup, useTeams } from "@/lib/api/client";
 import { canManage } from "@/lib/api/types-account";
 
 // A team (company-teams 7.1): its lead (the owner's unaddressed messages in its projects), its audit assignee,
@@ -26,6 +26,7 @@ export default function Page() {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const setup = useSetup();
+  const agentRuns = useAgentRuns().data;
   const role = useCompanyInfo().data?.role;
   const manage = canManage(role);
   const team = teams.data?.teams.find((t) => t.name === name);
@@ -66,7 +67,7 @@ export default function Page() {
       <div className="mb-6"><ApprovalModesView modes={team.approvals} lead={team.lead} /></div>
       <h2 className="mb-2 text-sm font-medium text-muted-foreground">Agents</h2>
       {team.agents.length === 0 ? <EmptyState title="No agents" icon={Layers} /> : (
-        <ul className="mb-6 grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} onOpen={setOpen} onSkills={manage ? () => setPicking(m.name) : undefined} onEdit={manage ? () => setEditing(m.name) : undefined} />)}</ul>
+        <ul className="mb-6 grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} runs={agentRuns?.[m.name]} onOpen={setOpen} onSkills={manage ? () => setPicking(m.name) : undefined} onEdit={manage ? () => setEditing(m.name) : undefined} />)}</ul>
       )}
       <h2 className="mb-2 text-sm font-medium text-muted-foreground">Projects</h2>
       {team.projects.length === 0 ? <EmptyState title="No projects yet" hint="Create one from the board; it belongs to the team you pick." icon={FolderGit2} /> : (

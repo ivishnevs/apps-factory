@@ -53,6 +53,9 @@ type Spec struct {
 		// DefaultQuotaKey is the provider's key the catalog resolved for an agent without quota_key
 		// (runtime-drivers D5); it travels in run config snapshots, where Core reads it (storage.QuotaKey).
 		DefaultQuotaKey string `yaml:"-" json:"default_quota_key,omitempty"`
+		// ContextWindow is the size at which the runtime compacts the session, one value or one per run kind
+		// (work-and-conversation-runs); unset keeps the runtime's default.
+		ContextWindow ContextWindow `yaml:"context_window" json:"context_window,omitzero"`
 	} `yaml:"runtime" json:"runtime"`
 	Prompt struct {
 		File string `yaml:"file" json:"file"`
@@ -91,6 +94,9 @@ type Spec struct {
 		// MaxConcurrentRunsPerProject caps the agent's live runs in one project (default max_concurrent_runs).
 		MaxConcurrentRunsPerProject int `yaml:"max_concurrent_runs_per_project,omitempty" json:"max_concurrent_runs_per_project,omitempty"`
 		MaxRetries                  int `yaml:"max_retries" json:"max_retries"`
+		// Conversation limits the agent's conversation runs (work-and-conversation-runs): they do not count against
+		// max_concurrent_runs, which limits work runs only.
+		Conversation ConversationLimits `yaml:"conversation" json:"conversation,omitzero"`
 	} `yaml:"execution" json:"execution"`
 	Policies []string `yaml:"policies" json:"policies"`
 	// Authority.Company lets a team lead propose catalog changes beyond its own team (agent-company-authority): other
@@ -115,6 +121,15 @@ type Spec struct {
 	// Secrets are company secrets the agent's runs get (core-secret-store D3): a string in the env variable Env, or
 	// with File a file whose path is in Env. Merged from profiles by name.
 	Secrets []SecretUse `yaml:"secrets" json:"secrets,omitempty"`
+}
+
+// ConversationLimits is spec.execution.conversation (work-and-conversation-runs). MaxConcurrentRuns caps the agent's
+// live conversation runs across projects (0: no cap; each project has one conversation task, whose runs are
+// sequential, and node conversation slots bound the total). ShareWorkLimit counts conversation runs against
+// max_concurrent_runs as before, so a conversation waits for the agent's work runs.
+type ConversationLimits struct {
+	MaxConcurrentRuns int  `yaml:"max_concurrent_runs" json:"max_concurrent_runs,omitempty"`
+	ShareWorkLimit    bool `yaml:"share_work_limit" json:"share_work_limit,omitempty"`
 }
 
 // SecretUse is one entry of spec.secrets.
@@ -449,8 +464,14 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 		if err = validLabels(a.Spec.Labels); err != nil {
 			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
-		if a.Spec.Execution.MaxRetries < 0 || a.Spec.Execution.MaxConcurrentRuns < 0 || a.Spec.Execution.MaxConcurrentRuns > MaxConcurrentRuns || a.Spec.Execution.MaxConcurrentRunsPerProject < 0 {
+		if e := a.Spec.Execution; e.MaxRetries < 0 || e.MaxConcurrentRuns < 0 || e.MaxConcurrentRuns > MaxConcurrentRuns || e.MaxConcurrentRunsPerProject < 0 ||
+			e.Conversation.MaxConcurrentRuns < 0 || e.Conversation.MaxConcurrentRuns > MaxConcurrentRuns {
 			return nil, fmt.Errorf("profile %s: unsupported execution limits", name)
+		}
+		if p := a.Spec.Runtime.Provider; p != "" {
+			if err = a.Spec.Runtime.ContextWindow.Validate(protocol.RuntimeProvider(p)); err != nil {
+				return nil, fmt.Errorf("profile %s: %w", name, err)
+			}
 		}
 		for _, skill := range a.Spec.Skills.Include {
 			if _, ok := c.Skills.Skills[skill]; !ok {
@@ -667,6 +688,12 @@ func (c *Catalog) finish(src source, a *Agent) error {
 	if e := a.Spec.Execution; e.MaxConcurrentRuns < 1 || e.MaxConcurrentRuns > MaxConcurrentRuns || e.MaxConcurrentRunsPerProject < 0 || e.MaxConcurrentRunsPerProject > e.MaxConcurrentRuns {
 		return fmt.Errorf("max_concurrent_runs must be 1..%d and max_concurrent_runs_per_project at most max_concurrent_runs", MaxConcurrentRuns)
 	}
+	if c := a.Spec.Execution.Conversation.MaxConcurrentRuns; c < 0 || c > MaxConcurrentRuns {
+		return fmt.Errorf("execution.conversation.max_concurrent_runs must be 0..%d (0: no cap)", MaxConcurrentRuns)
+	}
+	if err := a.Spec.Runtime.ContextWindow.Validate(protocol.RuntimeProvider(a.Spec.Runtime.Provider)); err != nil {
+		return err
+	}
 	if a.Spec.Execution.MaxRetries < 0 {
 		return fmt.Errorf("negative max_retries")
 	}
@@ -826,8 +853,8 @@ func CapabilityWarnings(c *Catalog) []string {
 // RuntimeOptions are the runtime_options keys each driver reads (runtime-drivers D1). Drivers declare
 // their own list (e.g. codex.Options) and test it against this registry; config stays free of driver imports.
 var RuntimeOptions = map[protocol.RuntimeProvider][]string{
-	protocol.RuntimeCodex:  {"model", "effort"},
-	protocol.RuntimeClaude: {"model", "effort", "max_turns"},
+	protocol.RuntimeCodex:  {"model", "effort", "context_window"},
+	protocol.RuntimeClaude: {"model", "effort", "max_turns", "context_window"},
 }
 
 // Efforts are the reasoning efforts an agent may set (spec.runtime.effort), common to both runtimes.
@@ -864,7 +891,20 @@ func ValidateRuntimeOptions(p protocol.RuntimeProvider, opts map[string]any) err
 	if n, ok := opts["max_turns"].(int); ok && n < 1 {
 		return fmt.Errorf("runtime max_turns %d: expected at least 1 (omit it for no cap)", n)
 	}
+	if n, ok := opts["context_window"].(int); ok && (n < MinContextWindow || n > MaxContextWindow) {
+		return fmt.Errorf("runtime context_window %d: expected %d..%d tokens", n, MinContextWindow, MaxContextWindow)
+	}
 	return nil
+}
+
+// RunOptions are RuntimeOptions for one run of the given kind, with the kind's context window when the agent sets
+// one (work-and-conversation-runs).
+func (a Agent) RunOptions(conversation bool) map[string]any {
+	o := a.RuntimeOptions()
+	if n := a.Spec.Runtime.ContextWindow.Tokens(conversation); n > 0 {
+		o["context_window"] = n
+	}
+	return o
 }
 
 func (a Agent) Authorize(op string) policies.Decision {

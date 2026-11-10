@@ -17,24 +17,29 @@ import (
 // stops, resets and cleanups are handled as from the heartbeat answer, a hooks change asks for a heartbeat now.
 
 type pollRequest struct {
-	Epoch       int64          `json:"epoch"`
-	Free        map[string]int `json:"free"`
-	WaitSeconds int            `json:"wait_seconds"`
-	Skip        []string       `json:"skip,omitempty"`
-	Hooks       string         `json:"hooks,omitempty"`
-	HooksHash   string         `json:"hooks_hash,omitempty"`
+	Epoch int64          `json:"epoch"`
+	Free  map[string]int `json:"free"`
+	// FreeConversation: idle conversation slots per provider (work-and-conversation-runs).
+	FreeConversation map[string]int `json:"free_conversation,omitempty"`
+	WaitSeconds      int            `json:"wait_seconds"`
+	Skip             []string       `json:"skip,omitempty"`
+	Hooks            string         `json:"hooks,omitempty"`
+	HooksHash        string         `json:"hooks_hash,omitempty"`
+}
+
+type pollOffer struct {
+	RunID        string `json:"run_id"`
+	Provider     string `json:"provider"`
+	Conversation bool   `json:"conversation"`
 }
 
 type pollAnswer struct {
-	Offers []struct {
-		RunID    string `json:"run_id"`
-		Provider string `json:"provider"`
-	} `json:"offers"`
-	Stop         []stop    `json:"stop"`
-	Reset        []string  `json:"reset"`
-	Cleanup      []string  `json:"cleanup"`
-	HooksChanged bool      `json:"hooks_changed"`
-	SyncJobs     []syncJob `json:"sync_jobs"`
+	Offers       []pollOffer `json:"offers"`
+	Stop         []stop      `json:"stop"`
+	Reset        []string    `json:"reset"`
+	Cleanup      []string    `json:"cleanup"`
+	HooksChanged bool        `json:"hooks_changed"`
+	SyncJobs     []syncJob   `json:"sync_jobs"`
 	// AcceptAccounts: a person continued with these runtimes' changed accounts (node-runtime-accounts 3.3).
 	AcceptAccounts []string `json:"accept_accounts"`
 }
@@ -106,9 +111,9 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 			}
 			continue
 		}
-		free := map[string]int{}
+		free, freeConv := map[string]int{}, map[string]int{}
 		if s.claimable() {
-			free = pool.Free()
+			free, freeConv = pool.Free(), pool.FreeConversation()
 		}
 		wait := s.cfg.Poll.WaitSeconds
 		if wait <= 0 {
@@ -122,11 +127,11 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 				skip = append(skip, sl.Run)
 			}
 		}
-		if left := skipped.soonest(); left > 0 && len(free) > 0 {
+		if left := skipped.soonest(); left > 0 && len(free)+len(freeConv) > 0 {
 			// A skipped run is offered again once its skip ends: do not wait past that.
 			wait = max(1, min(wait, int((left+time.Second-1)/time.Second)))
 		}
-		req := pollRequest{Epoch: s.inv.Epoch(), Free: free, WaitSeconds: wait, Skip: skip, Hooks: s.cfg.Hooks, HooksHash: s.hooksHash()}
+		req := pollRequest{Epoch: s.inv.Epoch(), Free: free, FreeConversation: freeConv, WaitSeconds: wait, Skip: skip, Hooks: s.cfg.Hooks, HooksHash: s.hooksHash()}
 		reqCtx, cancel := context.WithTimeout(ctx, time.Duration(req.WaitSeconds)*time.Second+15*time.Second)
 		// A slot freed while this poll waits makes it stale (it told Core fewer free slots): poll again at once.
 		var redo atomic.Bool
@@ -179,7 +184,7 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 		}
 		taken := 0
 		for _, o := range a.Offers {
-			if pool.Offer(Offer{RunID: o.RunID, Provider: o.Provider}) {
+			if pool.Offer(Offer{RunID: o.RunID, Provider: o.Provider, Conversation: o.Conversation}) {
 				taken++
 			}
 		}

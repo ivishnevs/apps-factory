@@ -25,14 +25,18 @@ type Source struct {
 type Offer struct {
 	RunID    string
 	Provider string
+	// Conversation: a conversation run, which takes an idle conversation slot first (work-and-conversation-runs).
+	Conversation bool
 }
 
-// Pool runs Slots slot loops. An idle slot takes one offer at a time from Offer.
+// Pool runs Slots slot loops and ConversationSlots more that take only conversation runs (work-and-conversation-runs:
+// a full node still answers). An idle slot takes one offer at a time from Offer.
 type Pool struct {
-	Slots     int
-	Sources   []*Source
-	Claimable func() bool // nil always claims
-	Now       func() time.Time
+	Slots             int
+	ConversationSlots int
+	Sources           []*Source
+	Claimable         func() bool // nil always claims
+	Now               func() time.Time
 	// Refused is called for an offer whose claim Core refused for now (the poller skips it a while).
 	Refused func(run string)
 	// StateDir keeps the local activity log (connector-trust): what ran on this machine, readable without Core.
@@ -43,7 +47,9 @@ type Pool struct {
 	wg     sync.WaitGroup
 	slots  []*slot
 	offers chan Offer
-	freed  chan struct{}
+	// convOffers feed the conversation slots (index Slots and up).
+	convOffers chan Offer
+	freed      chan struct{}
 }
 
 // Freed is signalled when a slot becomes idle, so a poll sent while every slot was busy is redone at once.
@@ -92,16 +98,21 @@ func (p *Pool) source(provider string) *Source {
 	return nil
 }
 
-// Free is how many offers the pool takes now per provider: its idle slots for each driver it may claim with, none
-// while the node may not claim.
-func (p *Pool) Free() map[string]int {
+// Free is how many offers the pool takes now per provider: its idle work slots for each driver it may claim with,
+// none while the node may not claim.
+func (p *Pool) Free() map[string]int { return p.free(false) }
+
+// FreeConversation is how many conversation runs the pool's idle conversation slots take now per provider.
+func (p *Pool) FreeConversation() map[string]int { return p.free(true) }
+
+func (p *Pool) free(conversation bool) map[string]int {
 	free := map[string]int{}
 	if p.Claimable != nil && !p.Claimable() {
 		return free
 	}
 	idle := 0
 	for _, s := range p.Status() {
-		if !s.Busy {
+		if !s.Busy && (s.Index >= p.Slots) == conversation {
 			idle++
 		}
 	}
@@ -116,13 +127,21 @@ func (p *Pool) Free() map[string]int {
 	return free
 }
 
-// Offer hands o to an idle slot; false when none takes it now (the run stays queued and is offered again).
+// Offer hands o to an idle slot, a conversation run to a conversation slot first; false when none takes it now (the
+// run stays queued and is offered again).
 func (p *Pool) Offer(o Offer) bool {
 	p.mu.Lock()
-	ch := p.offers
+	ch, conv := p.offers, p.convOffers
 	p.mu.Unlock()
 	if ch == nil {
 		return false
+	}
+	if o.Conversation {
+		select {
+		case conv <- o:
+			return true
+		default:
+		}
 	}
 	select {
 	case ch <- o:
@@ -134,15 +153,15 @@ func (p *Pool) Offer(o Offer) bool {
 
 // Run starts the slots and returns when ctx ends, after running runs were interrupted.
 func (p *Pool) Run(ctx context.Context) error {
-	if p.Slots < 1 || len(p.Sources) == 0 {
+	if p.Slots < 1 || p.ConversationSlots < 0 || len(p.Sources) == 0 {
 		return errors.New("pool needs slots and sources")
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p.mu.Lock()
 	p.ctx = ctx
-	p.offers = make(chan Offer)
-	p.slots = make([]*slot, p.Slots)
+	p.offers, p.convOffers = make(chan Offer), make(chan Offer)
+	p.slots = make([]*slot, p.Slots+p.ConversationSlots)
 	for i := range p.slots {
 		p.slots[i] = &slot{}
 		p.start(i)
@@ -163,11 +182,15 @@ func (p *Pool) start(i int) {
 	s.beat = p.now()
 	ctx, stop := context.WithCancel(p.ctx)
 	s.stop = stop
+	offers := p.offers
+	if i >= p.Slots {
+		offers = p.convOffers // a conversation slot takes conversation runs only
+	}
 	p.wg.Add(1)
 	go func(gen int) {
 		defer p.wg.Done()
 		defer stop()
-		p.loop(node.WithSlot(ctx, i), i, gen, p.offers)
+		p.loop(node.WithSlot(ctx, i), i, gen, offers)
 	}(s.gen)
 }
 

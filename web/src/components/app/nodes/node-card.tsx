@@ -143,7 +143,11 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
   const h = nodeHealth(node);
   const id = nodeId(node);
   const slots = n.slots ?? 0;
-  const used = n.in_use?.runs ?? 0;
+  // work-and-conversation-runs: conversation slots (node.yaml conversation_slots) take conversation runs only.
+  const convSlots = n.conversation_slots ?? 0;
+  const convUsed = n.in_use?.conversation_slots ?? 0;
+  const used = (n.in_use?.runs ?? 0) - convUsed;
+  const convRuns = n.in_use?.conversation_runs ?? 0;
   const care = nodeCare(node);
   const paused = !!pause || h.disk === "critical";
   const state = !n.online ? "offline" : paused ? "paused" : "online";
@@ -178,14 +182,29 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         {/* Slots: one cell per slot, filled when a run holds it. */}
         <div>
           <div className="mb-1.5 flex items-baseline justify-between text-xs">
-            <span className="font-medium text-muted-foreground">Agents at once</span>
-            <span className="tabular-nums"><span className="font-semibold">{used}</span><span className="text-muted-foreground"> of {slots} busy</span></span>
+            <span className="font-medium text-muted-foreground">Work slots</span>
+            <span className="tabular-nums"><span className="font-semibold">{used}</span><span className="text-muted-foreground"> of {slots} busy{convRuns - convUsed > 0 ? ` (${convRuns - convUsed} by conversations)` : ""}</span></span>
           </div>
           <div className="flex gap-1" aria-hidden>
             {Array.from({ length: Math.max(slots, 1) }, (_, i) => (
               <span key={i} className={cn("h-2 flex-1 rounded-full", i < used ? "bg-blue-500" : "bg-muted")} />
             ))}
           </div>
+          <div className="mb-1.5 mt-2.5 flex items-baseline justify-between text-xs">
+            <span className="font-medium text-muted-foreground">Conversation slots</span>
+            <span className="tabular-nums"><span className="font-semibold">{convUsed}</span><span className="text-muted-foreground"> of {convSlots} busy</span></span>
+          </div>
+          {convSlots > 0 ? (
+            <div className="flex gap-1" aria-hidden>
+              {Array.from({ length: convSlots }, (_, i) => (
+                <span key={i} className={cn("h-2 flex-1 rounded-full", i < convUsed ? "bg-violet-500" : "bg-muted")} />
+              ))}
+            </div>
+          ) : null}
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {convSlots > 0 ? "Conversations answer here even when the work slots are full. " : "No conversation slots: conversations share the work slots. "}
+            Set slots and conversation_slots in the machine&apos;s node.yaml and restart factory-node.
+          </p>
           {resources.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {resources.map(([k, cap]) => {

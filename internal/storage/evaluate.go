@@ -30,6 +30,9 @@ func (s *Store) TaskSnapshot(ctx context.Context, company, id string) (tasks.Sna
 	snap, err := snapshotTx(ctx, tx, t)
 	snap.Nodes = nodes
 	if err == nil {
+		err = conversationRunState(ctx, tx, &snap)
+	}
+	if err == nil {
 		err = presentTask(ctx, tx, company, &snap.Task)
 	}
 	return snap, err
@@ -56,6 +59,9 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 		if err != nil {
 			return nil, err
 		}
+		if err = conversationRunState(ctx, tx, &snap); err != nil {
+			return nil, err
+		}
 		if err = presentTask(ctx, tx, company, &snap.Task); err != nil {
 			return nil, err
 		}
@@ -67,7 +73,7 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 
 // nodesTx loads the company's registered nodes with what their runs hold (node-agent D3).
 func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
+	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,conversation_slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +83,7 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		var n tasks.Node
 		var epoch int64
 		var drivers, labels, resources, health []byte
-		if err = rows.Scan(&n.ID, &n.Name, &epoch, &n.Online, &n.LastSeen, &n.Slots, &drivers, &labels, &resources, &health); err != nil {
+		if err = rows.Scan(&n.ID, &n.Name, &epoch, &n.Online, &n.LastSeen, &n.Slots, &n.ConversationSlots, &drivers, &labels, &resources, &health); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -106,11 +112,11 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		return nil, err
 	}
 	for i := range out {
-		l, err := nodeLoad(ctx, tx, out[i].ID, epochs[i])
+		l, err := nodeLoad(ctx, tx, out[i].ID, epochs[i], out[i].Slots)
 		if err != nil {
 			return nil, err
 		}
-		out[i].Held, out[i].Used, out[i].NotReady = l.Held, l.Used, faults[out[i].ID]
+		out[i].Held, out[i].ConversationHeld, out[i].Used, out[i].NotReady = l.Held, l.Conversation, l.Used, faults[out[i].ID]
 	}
 	return out, nil
 }
@@ -207,11 +213,23 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 		}
 	}
 	if t.Assignee != "" {
-		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=? ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
+		// Live runs per kind (work-and-conversation-runs); Evaluate applies the caps of the task's kind.
+		if snap.AgentRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=?"+kindWork.filter()+" ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
 			return snap, err
 		}
-		if snap.AgentLive, snap.AgentProjectLive, err = agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID); err != nil {
+		if snap.AgentLive, snap.AgentProjectLive, err = agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID, kindWork); err != nil {
 			return snap, err
+		}
+		if snap.AgentConversationRun, err = run("SELECT id,status,coalesce(task_id,''),unreleased FROM runs WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=?"+kindConversation.filter()+" ORDER BY created_at LIMIT 1", tx.company, t.Assignee, t.ID); err != nil {
+			return snap, err
+		}
+		if snap.AgentConversationRun != nil {
+			if snap.AgentConversationLive, snap.AgentConversationProjectLive, err = agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID, kindConversation); err != nil {
+				return snap, err
+			}
+			if snap.AgentConversationProjects, err = liveConversationProjects(ctx, tx, t.Assignee, t.ID); err != nil {
+				return snap, err
+			}
 		}
 	}
 	// Quota keys come from the agent catalog, which Core owns: storage passes the paused keys along.
@@ -241,11 +259,87 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	return snap, err
 }
 
-// agentLive counts the agent's live runs other than task's, in all projects and in project.
-func agentLive(ctx context.Context, tx *Tx, agent, project, task string) (all, inProject int, err error) {
+// agentLive counts the agent's live runs of kind other than task's, in all projects and in project.
+func agentLive(ctx context.Context, tx *Tx, agent, project, task string, kind runKind) (all, inProject int, err error) {
 	err = tx.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs
- WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=?`, project, tx.company, agent, task).Scan(&all, &inProject)
+ WHERE company_id=? AND agent=? AND status!='ENDED' AND coalesce(task_id,'')!=?`+kind.filter(), project, tx.company, agent, task).Scan(&all, &inProject)
 	return
+}
+
+// agentStarted counts the agent's started runs (claimed, running, cancelling) of kind other than run, in all
+// projects and in project: what the claim and the queued reason check against the caps.
+func agentStarted(ctx context.Context, tx *Tx, agent, project, run string, kind runKind) (all, inProject int, err error) {
+	err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')"+kind.filter(), project, tx.company, agent, run).Scan(&all, &inProject)
+	return
+}
+
+// Run kinds (work-and-conversation-runs): a run of an agent's conversation task (its spec's conversation flag) is a
+// conversation run, every other run a work run. The caps count each kind on its own unless the agent shares the
+// work limit.
+type runKind int
+
+const (
+	kindAll runKind = iota // both kinds: the shared work limit
+	kindWork
+	kindConversation
+)
+
+// conversationRunSQL is true for a conversation run (the flag is omitted when false).
+const conversationRunSQL = "coalesce(spec->>'conversation','')='true'"
+
+func (k runKind) filter() string {
+	switch k {
+	case kindWork:
+		return " AND NOT " + conversationRunSQL
+	case kindConversation:
+		return " AND " + conversationRunSQL
+	}
+	return ""
+}
+
+// RunCaps are an agent's concurrency caps per run kind (work-and-conversation-runs): Work and WorkProject
+// (max_concurrent_runs, _per_project) limit work runs; Conversation (execution.conversation.max_concurrent_runs, 0
+// none) limits conversation runs across projects; Shared (execution.conversation.share_work_limit) counts both
+// kinds against the work limits, as before the change.
+type RunCaps struct {
+	Work, WorkProject int
+	Conversation      int
+	Shared            bool
+}
+
+// AgentRunCaps reads RunCaps from a captured agent config.
+func AgentRunCaps(agentJSON []byte) RunCaps {
+	var a struct {
+		Spec struct {
+			Execution struct {
+				Conversation struct {
+					MaxConcurrentRuns int  `json:"max_concurrent_runs"`
+					ShareWorkLimit    bool `json:"share_work_limit"`
+				} `json:"conversation"`
+			} `json:"execution"`
+		} `json:"spec"`
+	}
+	_ = json.Unmarshal(agentJSON, &a)
+	c := RunCaps{Conversation: max(a.Spec.Execution.Conversation.MaxConcurrentRuns, 0), Shared: a.Spec.Execution.Conversation.ShareWorkLimit}
+	c.Work, c.WorkProject = AgentCaps(agentJSON)
+	return c
+}
+
+// For are the caps on a run of the kind and the kind of live runs they count; 0 means no cap.
+func (c RunCaps) For(conversation bool) (perAgent, perProject int, kind runKind) {
+	switch {
+	case c.Shared:
+		return c.Work, c.WorkProject, kindAll
+	case conversation:
+		// One conversation task per project, its runs one at a time: no per-project cap.
+		return c.Conversation, 0, kindConversation
+	}
+	return c.Work, c.WorkProject, kindWork
+}
+
+// overCaps reports whether all and inProject live runs reach the caps (0: no cap).
+func overCaps(perAgent, perProject, all, inProject int) bool {
+	return perAgent > 0 && all >= perAgent || perProject > 0 && inProject >= perProject
 }
 
 // AgentCaps reads the concurrency caps from a captured agent config: live runs of the agent, and per

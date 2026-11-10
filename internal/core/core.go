@@ -333,7 +333,7 @@ func (c *Core) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Workspace is a host path: Core in Docker must not attempt to resolve it.
-	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: a.RuntimeOptions(), ConfigSnapshot: snapshot, ConfigHash: hash, Skills: append([]string{}, a.AvailableSkills...)}
+	spec := protocol.RunSpec{ID: protocol.ID(), Project: p.Project, Agent: p.Agent, Provider: protocol.RuntimeProvider(a.Spec.Runtime.Provider), Workspace: filepath.Clean(p.Workspace), Prompt: p.Prompt, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), SessionID: p.SessionID, RuntimeOptions: a.RunOptions(false), ConfigSnapshot: snapshot, ConfigHash: hash, Skills: append([]string{}, a.AvailableSkills...)}
 	if err := c.Store.Create(r.Context(), c.companyFrom(r), spec); err != nil {
 		http.Error(w, err.Error(), 409)
 		return

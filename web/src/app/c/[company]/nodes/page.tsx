@@ -12,7 +12,7 @@ import { PauseDialog, type PauseRequest } from "@/components/app/nodes/pause-dia
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { core, useCompanyInfo, useOverview } from "@/lib/api/client";
+import { core, useAgentRuns, useCompanyInfo, useOverview } from "@/lib/api/client";
 import { canManage } from "@/lib/api/types-account";
 import type { Pause as PauseT } from "@/lib/api/types";
 import { companyPause, nodeId, scopeName } from "@/lib/api/types-ops";
@@ -43,6 +43,9 @@ function PauseRow({ p, label, onResume, busy }: { p: PauseT; label: string; onRe
 
 export default function Page() {
   const { data: ov, isLoading, error } = useOverview();
+  // work-and-conversation-runs: live and queued runs per kind, over every agent.
+  const agentRuns = useAgentRuns().data;
+  const kinds = Object.values(agentRuns ?? {}).reduce((s, a) => ({ work_live: s.work_live + a.work_live, work_queued: s.work_queued + a.work_queued, conversation_live: s.conversation_live + a.conversation_live, conversation_queued: s.conversation_queued + a.conversation_queued }), { work_live: 0, work_queued: 0, conversation_live: 0, conversation_queued: 0 });
   const { run, pending } = useOwnerAction();
   const manage = canManage(useCompanyInfo().data?.role);
   const confirm = useConfirm();
@@ -127,7 +130,10 @@ export default function Page() {
             <div className="mb-3">
               <h2 id="nodes-title" className="text-base font-semibold">Nodes <span className="ml-1 text-sm font-normal tabular-nums text-muted-foreground">{nodes.length}</span></h2>
               <p className="text-sm text-muted-foreground">
-                {nodes.filter((n) => n.online).length} online · {nodes.reduce((s, n) => s + (n.in_use?.runs ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.slots ?? 0), 0)} agent slots busy
+                {nodes.filter((n) => n.online).length} online · {nodes.reduce((s, n) => s + (n.in_use?.runs ?? 0) - (n.in_use?.conversation_slots ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.slots ?? 0), 0)} work slots and {nodes.reduce((s, n) => s + (n.in_use?.conversation_slots ?? 0), 0)} of {nodes.reduce((s, n) => s + (n.conversation_slots ?? 0), 0)} conversation slots busy
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Runs: {kinds.work_live} work and {kinds.conversation_live} conversation running · {kinds.work_queued} work and {kinds.conversation_queued} conversation queued
               </p>
             </div>
             {ov.errors?.nodes && <div className="mb-3"><ErrorState error={ov.errors.nodes} /></div>}

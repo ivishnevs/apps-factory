@@ -92,7 +92,7 @@ func TestQueuedWhy(t *testing.T) {
 	}
 	want("r1", QueuedNoSlot, "all 2 slots held")
 	queue(t, s, "r2", "p4", "web", "")
-	want("r2", QueuedAgentBusy, "agent web runs 1 of 1 at a time")
+	want("r2", QueuedAgentBusy, "agent web runs 1 of 1 work runs at a time")
 
 	// A second node offline: the closest node (n1, full) gives the reason; both are listed.
 	register(t, s, "n2", 1)

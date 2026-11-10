@@ -150,6 +150,24 @@ func (m *Model) replying(agent, project string) bool {
 	return false
 }
 
+// conversationPending says why agent has not answered in project yet (work-and-conversation-runs): its
+// conversation task's clearer in plain words, "" when it has nothing to handle.
+func (m *Model) conversationPending(agent, project string) string {
+	for _, t := range m.ov.Tasks {
+		if t.Kind != "conversation" || t.Assignee != agent || t.ProjectID != project {
+			continue
+		}
+		switch t.Reason {
+		case "idle", "terminal", "":
+			return ""
+		case "runnable":
+			return "starting: a run is being scheduled"
+		}
+		return t.Clearer.Action
+	}
+	return ""
+}
+
 func (s *chatState) init(m *Model) {
 	if s.ready {
 		return
@@ -309,6 +327,12 @@ func (m *Model) chatLines(w, h int) []string {
 	}
 	for _, x := range msgs {
 		content = append(content, m.chatBubble(x, inner)...)
+	}
+	// Under the owner's unanswered message: why the report has not answered yet.
+	if n := len(msgs); n > 0 && msgs[n-1].Sender == "owner" && agent != "" {
+		if why := m.conversationPending(agent, project); why != "" {
+			content = append(content, stFaint.Render(cut("  "+agent+": "+why, inner)))
+		}
 	}
 	inputH := 3
 	status := ""

@@ -90,7 +90,7 @@ func startPool(t *testing.T, p *Pool) (context.CancelFunc, <-chan error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- p.Run(ctx) }()
-	eventually(t, "slots started", func() bool { return len(p.Status()) == p.Slots })
+	eventually(t, "slots started", func() bool { return len(p.Status()) == p.Slots+p.ConversationSlots })
 	t.Cleanup(cancel)
 	return cancel, done
 }

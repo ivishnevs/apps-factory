@@ -1,6 +1,8 @@
-Status: proposed 2026-11-08 by the owner ("run limits and the context window set separately for work and for
+Status: implemented 2026-11-10 except 2.3; proposed 2026-11-08 by the owner ("run limits and the context window set separately for work and for
 communication: work runs stay at their maximum, a conversation can always run next to them, conversations get a
-smaller context; the chat says why an agent cannot answer"). Open questions decided the same day (see Decisions). Nothing implemented.
+smaller context; the chat says why an agent cannot answer"). Open questions decided the same day (see Decisions).
+Implemented 2026-11-10 (see "Implementation"), except 2.3 (the owner's company settings, applied by the owner after
+deploy).
 
 ## Why
 
@@ -82,3 +84,50 @@ company setting `session_affinity.conversation_wait`, run counting in storage (e
 reasons), node drivers (window per run kind), conversation task clearer text, chat and
 team page (web, TUI). Specs: `task-engine`, `agent-config`, `node-agent`. Related: `agent-context-window` (window shape),
 `throughput-signals` (role defaults, idle-capacity signal), `session-affinity`, `node-readiness`.
+
+## Implementation (2026-11-10)
+
+Decisions taken while implementing, beyond the proposal:
+
+- **Shared limit as a switch.** "Conversations share the work limit" is `execution.conversation.share_work_limit:
+  true`: both kinds then count against `max_concurrent_runs` (and the per-project cap) as before the change. Without
+  it a conversation run has no per-project cap (one conversation task per project, its runs sequential) and
+  `execution.conversation.max_concurrent_runs` 0 means no cap (Decision 3).
+- **Counting.** Storage counts each kind with the run spec's `conversation` flag (`AgentRunCaps(...).For(kind)`,
+  `agentLive`/`agentStarted` with a kind filter). `AgentCaps` keeps its signature (work caps) for other callers;
+  `tasks.Snapshot` gained the conversation counts and caps, and `Evaluate` applies the caps of the task's kind.
+- **Conversation slots are declared at registration**, like `slots` (node.yaml `conversation_slots`, default 1, 0..64),
+  not in the heartbeat. A node that does not send them (older than the change) has **0** conversation slots: its
+  conversation runs keep taking work slots, exactly as before (an old node's runner has no extra slot to run them in).
+  The claim tells the slots apart by the slot index the node claims with: index >= `slots` is a conversation slot and
+  only a conversation run may hold it. A run in a conversation slot uses no resource classes. The poll carries
+  `free_conversation` per provider and offers flag conversation runs, so the pool gives them a conversation slot
+  first (`OffersFor`; `Offers` stays for callers without conversation slots).
+- **Conversation wait.** Counted from when the run was queued (`runs.created_at`), for an active holder too; for an
+  inactive holder the earlier of that and the 90-minute release applies. Company setting
+  `conversation_wait_minutes` (1 minute to 24 hours, migration 0028), on the existing
+  `GET/PUT /settings/company/session_affinity` route (both fields optional on PUT) and on the Settings page.
+- **History for a fresh session on another node.** Core has no compaction summary, so the brief opens with the
+  conversation's last 20 inputs (triggers) and the last 10 run summaries (results), oldest first, when the claiming
+  node is not the node holding the session.
+- **Window values.** `context_window` keeps the text as written (`200k`, `1M`, `max`, a token count), validated
+  100k–1M for both providers (Claude Code's bounds); `max` or unset sends nothing. The run's window travels as runtime
+  option `context_window` (tokens) set by Core at dispatch from the task's kind. Claude: the env variable replaces one
+  a secret set. Codex: `model_auto_compact_token_limit` in the thread config; Codex 0.162 does not compact with it
+  (openai/codex#16033), documented, not refused.
+- **Clearer texts.** A conversation task's clearer (and detail) is plain words: "answering now: messages from A and B
+  (started N min ago); newer messages are next", "waiting for a node: its session is on the paused node X; another node
+  starts it fresh at HH:MM UTC", "waiting for a node: X and Y are full", "waiting for a free conversation run: busy in
+  P1 and P2", "waiting for AGENT's work run (conversations share its limit)", "starting: ...". Queued runs reuse
+  `QueuedWhy` (which now carries `holder` and `inactive` for affinity). New wait kind `agent_conversation`.
+- **Web (owner 2026-11-10: everything configurable in the web).** Agent editor and Add agent: work and conversation
+  runs at a time and the context window (one value or separate work/conversation), validated as Core does, errors
+  next to the fields (Core maps its errors to fields `context_window`, `conversation_max_runs`,
+  `max_concurrent_runs`); preset overrides carry the same fields, and a provider override keeps the preset's window.
+  Settings: a Sessions section with the release timeout and the conversation wait. Nodes: work and conversation
+  slots per node and runs per kind (`GET /agents/runs`); slots stay read-only with the node.yaml hint, since Core
+  cannot push node settings. Team page: limits, live and queued runs per kind and both windows. Chat (web, TUI): the
+  clearer under the owner's unanswered message.
+- **Migrations.** 0028_work_conversation_runs.sql; 0027 is node-readiness's (developed in parallel). A placeholder 0027
+  is committed separately so this branch's tests run; drop it when merging node-readiness.
+- 4.1 is a Go integration test (`internal/core` TestReplayConversationBehindWork), no live sandbox.

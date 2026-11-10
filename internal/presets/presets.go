@@ -350,6 +350,12 @@ type AgentOverrides struct {
 	Model       string   `json:"model,omitempty"`
 	QuotaKey    string   `json:"quota_key,omitempty"`
 	Prompt      string   `json:"prompt,omitempty"`
+	// ContextWindow, MaxConcurrentRuns and ConversationMaxRuns (work-and-conversation-runs): runtime.context_window
+	// per run kind, execution.max_concurrent_runs (work runs) and execution.conversation.max_concurrent_runs; 0 keeps
+	// the preset's.
+	ContextWindow       config.ContextWindow `json:"context_window,omitzero"`
+	MaxConcurrentRuns   int                  `json:"max_concurrent_runs,omitempty"`
+	ConversationMaxRuns int                  `json:"conversation_max_runs,omitempty"`
 }
 
 // CopyAgent adds one agent from a preset to team (D3): name defaults to <team>-<preset>, reports_to to the team's
@@ -418,6 +424,10 @@ func (l *Library) putAgent(docs map[string]string, dir, team, profile, preset, a
 	}
 	if ov.Provider != "" || ov.Model != "" || ov.QuotaKey != "" {
 		rt := map[string]any{}
+		// The preset's other runtime fields (its context window) stay (work-and-conversation-runs).
+		if prev, _ := spec["runtime"].(map[string]any); prev["context_window"] != nil {
+			rt["context_window"] = prev["context_window"]
+		}
 		if ov.Provider != "" {
 			rt["provider"] = ov.Provider
 		}
@@ -426,6 +436,39 @@ func (l *Library) putAgent(docs map[string]string, dir, team, profile, preset, a
 			rt["quota_key"] = ov.QuotaKey
 		}
 		spec["runtime"] = rt
+	}
+	if w := ov.ContextWindow; w != (config.ContextWindow{}) {
+		rt, _ := spec["runtime"].(map[string]any)
+		if rt == nil {
+			rt = map[string]any{}
+		}
+		cw := map[string]any{}
+		if w.Work != "" {
+			cw["work"] = w.Work
+		}
+		if w.Conversation != "" {
+			cw["conversation"] = w.Conversation
+		}
+		rt["context_window"] = cw
+		spec["runtime"] = rt
+	}
+	if ov.MaxConcurrentRuns > 0 || ov.ConversationMaxRuns > 0 {
+		ex, _ := spec["execution"].(map[string]any)
+		if ex == nil {
+			ex = map[string]any{}
+		}
+		if ov.MaxConcurrentRuns > 0 {
+			ex["max_concurrent_runs"] = ov.MaxConcurrentRuns
+		}
+		if ov.ConversationMaxRuns > 0 {
+			conv, _ := ex["conversation"].(map[string]any)
+			if conv == nil {
+				conv = map[string]any{}
+			}
+			conv["max_concurrent_runs"] = ov.ConversationMaxRuns
+			ex["conversation"] = conv
+		}
+		spec["execution"] = ex
 	}
 	desc := cmpOr(ov.Description, a.Metadata.Description)
 	if err := put(docs, path.Join(dir, "agents", agentName+".yaml"), "Agent", map[string]any{"name": agentName, "description": desc, "preset": preset + "@" + a.Version}, spec); err != nil {

@@ -70,7 +70,8 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	a := agents[name]
 	required, reviewer := a.Review()
 	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
-		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer)}
+		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
+		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
 	}
@@ -94,6 +95,12 @@ type TeamMember struct {
 	ReviewRequired bool     `json:"review_required,omitempty"`
 	Reviewer       string   `json:"reviewer,omitempty"`
 	ReviewPaths    []string `json:"review_paths,omitempty"`
+	// Run kinds (work-and-conversation-runs), resolved: the work limit, the conversation cap (0: none), whether
+	// conversations share the work limit, and the context window per kind ("" keeps the runtime default).
+	MaxRuns             int                  `json:"max_concurrent_runs"`
+	ConversationMaxRuns int                  `json:"conversation_max_runs,omitempty"`
+	ShareWorkLimit      bool                 `json:"share_work_limit,omitempty"`
+	ContextWindow       config.ContextWindow `json:"context_window,omitzero"`
 }
 
 // CatalogDocument is a document's path and size (and content when read).

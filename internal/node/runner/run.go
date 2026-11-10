@@ -211,7 +211,7 @@ func Run(ctx context.Context, n Node) error {
 		events.Dir = filepath.Join(c.StateDir, "runs")
 	}
 	go events.Run(ctx, time.Second)
-	pool := &Pool{Slots: c.Slots, StateDir: c.StateDir}
+	pool := &Pool{Slots: c.Slots, ConversationSlots: c.ConversationSlots, StateDir: c.StateDir}
 	names := []string{}
 	for _, d := range n.Drivers {
 		w := &worker.Worker{Events: events, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
@@ -269,7 +269,7 @@ func Run(ctx context.Context, n Node) error {
 	if s != nil {
 		go s.poll(ctx, pool)
 	}
-	slog.Info("node started", "node", c.Name, "slots", c.Slots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root, "poll_wait_seconds", c.Poll.WaitSeconds)
+	slog.Info("node started", "node", c.Name, "slots", c.Slots, "conversation_slots", c.ConversationSlots, "drivers", names, "state_dir", c.StateDir, "worktrees", c.Worktrees.Root, "poll_wait_seconds", c.Poll.WaitSeconds)
 	err = pool.Run(ctx)
 	stop()
 	<-done

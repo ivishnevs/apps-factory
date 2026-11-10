@@ -103,6 +103,11 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 		}
 		reply(w, out, err)
 	})
+	// Each agent's live and queued runs per kind (work-and-conversation-runs), for the team and nodes pages.
+	m.HandleFunc("GET /agents/runs", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.AgentRunCounts(r.Context(), c.companyFrom(r))
+		reply(w, v, err)
+	})
 	m.HandleFunc("POST /runs/{id}/start", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			Lease string `json:"lease"`

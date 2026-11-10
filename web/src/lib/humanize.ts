@@ -277,6 +277,9 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
         return out({ headline: `${w.agent} runs ${w.live} of ${w.limit} here`, label: "Agent at its project limit", brief: "Starts when one ends", who: blocker,
           detail: `${w.agent} already runs ${runs(w.live)} in this project, its limit per project.`,
           next: "It starts when one of the agent's runs in this project ends.", you: false, queued: true });
+      case "agent_conversation": // work-and-conversation-runs: the agent's conversation cap
+        return out({ headline: `${w.agent} answers ${w.live} of ${w.limit} conversations`, label: "Conversations at their limit", brief: "Answers when one ends", who: blocker,
+          detail: `${capital(v.clearer?.action ?? "")}.`, next: "It answers when one of the agent's conversations ends.", you: false, queued: true });
       case "writer":
         return out({ headline: "Project busy", brief: w.lost ? "A lost run holds the project" : "Another run uses the project", who: blocker,
           detail: `${w.task_id ? taskName(w.task_id, look, true) : "Another task"} is using the project's workspace${w.lost ? "; its node has not confirmed the run ended" : ""}.`,

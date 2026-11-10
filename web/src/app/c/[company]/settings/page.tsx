@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ChevronRight, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, ChevronRight, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, Timer, Trash2, UserRound, Users } from "lucide-react";
 import Link from "@/components/app/link";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
+import { SessionSettings } from "@/components/app/settings/sessions";
 import { TelegramSettings } from "@/components/app/settings/telegram";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,9 @@ function General({ role }: { role: Role }) {
           {manage && <Button type="submit" className="h-10" disabled={busy || !tz.data || zone === tz.data.time_zone}>Save</Button>}
         </form>
         {tz.error ? <div className="mt-3"><ErrorState error={tz.error} /></div> : null}
+      </Section>
+      <Section title="Sessions" icon={Timer} description="How long runs wait for the machine that holds their agent's session.">
+        <SessionSettings manage={manage} />
       </Section>
     </div>
   );

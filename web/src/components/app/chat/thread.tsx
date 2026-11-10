@@ -192,6 +192,9 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
             </Fragment>
           );
         })}
+        {chat.pending && mine.length === 0 && (
+          <p className="mt-1 px-1 text-right text-[11px] text-muted-foreground" aria-live="polite">{chat.agent}: {chat.pending}</p>
+        )}
         {chat.replyingRun && <Typing agent={chat.agent} />}
       </div>
 

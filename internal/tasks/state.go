@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -126,6 +127,19 @@ type Snapshot struct {
 	AgentRun                    *Run
 	AgentLive, AgentProjectLive int
 	AgentCap, AgentProjectCap   int
+	// Run kinds (work-and-conversation-runs): AgentRun, AgentLive and AgentProjectLive count the assignee's work
+	// runs. AgentConversationRun is its oldest live conversation run on another task, AgentConversationProjects
+	// the projects of those runs (AgentConversationLive their number). AgentConversationCap (0: none) and
+	// AgentSharedLimit (conversations count against the work limit) come from the catalog.
+	AgentConversationRun      *Run
+	AgentConversationLive     int
+	AgentConversationProjects []string
+	// AgentConversationProjectLive counts those in the task's project (only the shared limit counts them for work).
+	AgentConversationProjectLive int
+	AgentConversationCap         int
+	AgentSharedLimit             bool
+	// Conversation is what a conversation task's live run does or waits for (storage fills it).
+	Conversation *ConversationState
 	// WriterRun is a run of another task holding the project workspace writer slot, including a lost run
 	// whose runtime may still run (not released).
 	WriterRun *Run
@@ -143,6 +157,16 @@ type Snapshot struct {
 	// MissingSecret names the first secret the assignee's runs need that is not set with its kind, as
 	// "NAME (agent)" (Core fills it from the catalog and the company's secrets); "" when none.
 	MissingSecret string
+}
+
+// ConversationState is a conversation task's live run (work-and-conversation-runs): a started run handles the
+// messages of Senders since Started (Unix seconds), up to trigger BriefTo; a queued run says in Waiting why it is not
+// claimed, in plain words.
+type ConversationState struct {
+	Senders []string
+	Started int64
+	BriefTo int64
+	Waiting string
 }
 
 // TaskPause is an authority's pause of one task (hierarchy D2).
@@ -177,7 +201,61 @@ const (
 	WaitWriter       = "writer"        // another run holds the project workspace
 	WaitPinnedNode   = "pinned_node"   // the task's unpushed work is on a busy, offline or paused node
 	WaitNodes        = "nodes"         // every capable node is full
+	// WaitAgentConversation: the assignee's conversation cap (work-and-conversation-runs).
+	WaitAgentConversation = "agent_conversation"
 )
+
+// sharedConversationRun is the assignee's oldest live conversation run when conversations share the work limit.
+func (s Snapshot) sharedConversationRun() *Run {
+	if s.AgentSharedLimit {
+		return s.AgentConversationRun
+	}
+	return nil
+}
+
+// answering says what a started conversation run handles, in plain words: "answering now: messages from producer
+// and gameplay-dev (started 2 min ago)", and that newer messages wait for the next run.
+func (c ConversationState) answering(now time.Time, wakeSeq int64) string {
+	s := "answering now"
+	if len(c.Senders) > 0 {
+		s += ": messages from " + joinAnd(c.Senders)
+	}
+	if c.Started > 0 && !now.IsZero() {
+		s += " (started " + ago(now.Sub(time.Unix(c.Started, 0))) + ")"
+	}
+	if wakeSeq > c.BriefTo {
+		s += "; newer messages are next"
+	}
+	return s
+}
+
+func ago(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", int(d/time.Minute))
+	}
+	return fmt.Sprintf("%dh%02d ago", int(d/time.Hour), int(d%time.Hour/time.Minute))
+}
+
+// joinAnd joins names as "a, b and c".
+func joinAnd(xs []string) string {
+	if len(xs) <= 1 {
+		return strings.Join(xs, "")
+	}
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
+}
+
+func uniq(xs []string) []string {
+	var out []string
+	for _, x := range xs {
+		if !slices.Contains(out, x) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
 
 // Wait says what a queued task waits for: the agent's limit, the project workspace, its node or full nodes.
 type Wait struct {
@@ -210,6 +288,20 @@ func Evaluate(s Snapshot) Verdict {
 		return v(ReasonUnassigned, "assignee "+t.Assignee+" is not a configured agent", "owner", "assign a configured agent or add its config")
 	}
 	if r := s.CurrentRun; r != nil && r.Live() {
+		// A conversation's clearer says in plain words what its run does or waits for (work-and-conversation-runs).
+		if c := s.Conversation; c != nil && t.Kind == KindConversation && !r.Lost {
+			reason := ReasonLiveRun
+			if n := s.nodeReason(true); r.Status == "QUEUED" && n.Reason != "" {
+				reason = n.Reason
+			}
+			text := c.Waiting
+			if r.Status != "QUEUED" {
+				text = c.answering(s.Now, s.WakeSeq)
+			}
+			if text != "" {
+				return v(reason, text, "run:"+r.ID, text)
+			}
+		}
 		// A queued run nobody can claim: the node reason says why it waits (trigger-log-scheduling D4).
 		if n := s.nodeReason(true); r.Status == "QUEUED" && n.Reason != "" {
 			return v(n.Reason, n.Detail+" (run "+r.ID+" is QUEUED)", n.Clearer.Who, n.Clearer.Action)
@@ -282,19 +374,36 @@ func Evaluate(s Snapshot) Verdict {
 	if n := s.nodeReason(false); n.Reason != "" {
 		return v(n.Reason, n.Detail, n.Clearer.Who, n.Clearer.Action)
 	}
-	if r := s.AgentRun; r != nil {
-		live, limit := max(s.AgentLive, 1), max(s.AgentCap, 1)
+	conversation := t.Kind == KindConversation
+	if conversation && !s.AgentSharedLimit {
+		// A conversation does not wait behind work (work-and-conversation-runs); only its own cap, when set.
+		if r := s.AgentConversationRun; r != nil && s.AgentConversationCap > 0 && s.AgentConversationLive >= s.AgentConversationCap {
+			text := "waiting for a free conversation run: busy in " + joinAnd(uniq(s.AgentConversationProjects))
+			return wait(v(ReasonCapacity, fmt.Sprintf("%s (%d of %d conversation runs)", text, s.AgentConversationLive, s.AgentConversationCap), "run:"+r.ID, text),
+				Wait{Kind: WaitAgentConversation, Agent: t.Assignee, Live: s.AgentConversationLive, Limit: s.AgentConversationCap, TaskID: r.TaskID, RunID: r.ID})
+		}
+	} else if r := cmp.Or(s.AgentRun, s.sharedConversationRun()); r != nil {
+		live, limit, projectLive := max(s.AgentLive, 1), max(s.AgentCap, 1), s.AgentProjectLive
+		if s.AgentSharedLimit {
+			// Conversations count against the work limit, as before the change (share_work_limit).
+			live, projectLive = max(s.AgentLive+s.AgentConversationLive, 1), s.AgentProjectLive+s.AgentConversationProjectLive
+		}
 		projectLimit := s.AgentProjectCap
 		if projectLimit == 0 {
 			projectLimit = limit
+		}
+		if conversation && (live >= limit || projectLive >= projectLimit) {
+			text := "waiting for " + t.Assignee + "'s work run (conversations share its limit)"
+			return wait(v(ReasonCapacity, fmt.Sprintf("%s: busy with %d of %d runs, oldest %s (task %s)", text, live, limit, r.ID, r.TaskID), "run:"+r.ID, text),
+				Wait{Kind: WaitAgent, Agent: t.Assignee, Live: live, Limit: limit, TaskID: r.TaskID, RunID: r.ID})
 		}
 		if live >= limit {
 			return wait(v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs, oldest %s (task %s)", t.Assignee, live, limit, r.ID, r.TaskID), "run:"+r.ID, "wait for the agent's current run"),
 				Wait{Kind: WaitAgent, Agent: t.Assignee, Live: live, Limit: limit, TaskID: r.TaskID, RunID: r.ID})
 		}
-		if s.AgentProjectLive >= projectLimit {
-			return wait(v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs in this project", t.Assignee, s.AgentProjectLive, projectLimit), "run:"+r.ID, "wait for the agent's current run in this project"),
-				Wait{Kind: WaitAgentProject, Agent: t.Assignee, Live: s.AgentProjectLive, Limit: projectLimit, TaskID: r.TaskID, RunID: r.ID})
+		if projectLive >= projectLimit {
+			return wait(v(ReasonCapacity, fmt.Sprintf("agent %s is busy with %d of %d runs in this project", t.Assignee, projectLive, projectLimit), "run:"+r.ID, "wait for the agent's current run in this project"),
+				Wait{Kind: WaitAgentProject, Agent: t.Assignee, Live: projectLive, Limit: projectLimit, TaskID: r.TaskID, RunID: r.ID})
 		}
 	}
 	if r := s.WriterRun; r != nil {

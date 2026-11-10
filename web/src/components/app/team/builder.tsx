@@ -15,7 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, core, useAgentDoc, useAgentPresets, useCatalog, useSetup, useTeamPresets } from "@/lib/api/client";
 import type { TeamView } from "@/lib/api/types-catalog";
-import type { AgentDoc, AgentOverrides, AgentPreset, Setup } from "@/lib/api/types-presets";
+import type { AgentDoc, AgentOverrides, AgentPreset, AgentSpec, Setup } from "@/lib/api/types-presets";
+import { runsError, windowError } from "@/lib/run-kinds";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -166,18 +167,25 @@ export function AddAgentSheet({ team, open, onClose, initialPreset }: { team: Te
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState("preset");
+  const [runs, setRuns] = useState<RunKindInputs>(runKindInputs());
   const submit = async () => {
     setError(null);
+    if (Object.values(runKindErrors(runs)).some(Boolean)) return; // shown next to the fields
     setBusy(true);
     const base = catalog.data?.version ?? 0;
+    // work-and-conversation-runs: the limits and windows the form sets, written the same way for both paths.
+    const kinds: AgentSpec = {};
+    applyRunKinds(kinds, runs);
     try {
       if (mode === "preset") {
-        await core("/catalog/agents", { method: "POST", body: JSON.stringify({ base, team: team.name, from_preset: preset?.metadata.name, name: name.trim(), overrides: ov }) });
+        const overrides: AgentOverrides = { ...ov, context_window: kinds.runtime?.context_window, max_concurrent_runs: kinds.execution?.max_concurrent_runs, conversation_max_runs: kinds.execution?.conversation?.max_concurrent_runs };
+        await core("/catalog/agents", { method: "POST", body: JSON.stringify({ base, team: team.name, from_preset: preset?.metadata.name, name: name.trim(), overrides }) });
       } else {
         const agent = {
           metadata: { name: name.trim(), description: ov.description ?? "" },
           spec: { team: team.name, role, reports_to: ov.reports_to || team.lead, communication: { can_message: ov.can_message?.length ? ov.can_message : [ov.reports_to || team.lead] },
-            ...(ov.provider ? { runtime: { provider: ov.provider, model: ov.model || "default", ...(ov.quota_key ? { quota_key: ov.quota_key } : {}) } } : {}),
+            ...(ov.provider || kinds.runtime?.context_window ? { runtime: { ...(ov.provider ? { provider: ov.provider, model: ov.model || "default" } : {}), ...(ov.quota_key ? { quota_key: ov.quota_key } : {}), ...kinds.runtime } } : {}),
+            ...(Object.keys(kinds.execution ?? {}).length ? { execution: kinds.execution } : {}),
             ...(team.profile ? { extends: team.profile } : {}) },
         };
         await core("/catalog/agents", { method: "POST", body: JSON.stringify({ base, team: team.name, name: name.trim(), agent, prompt: ov.prompt || `You are ${name.trim()}.` }) });
@@ -221,11 +229,77 @@ export function AddAgentSheet({ team, open, onClose, initialPreset }: { team: Te
           </Tabs>
           <Field label="Name" error={fieldError(error, "name")} hint="Unique in the company"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <OverridesFields value={ov} onChange={setOv} team={team} error={error} presetPrompt={preset?.prompt} />
+          <RunKindFields value={runs} onChange={setRuns} error={error} />
           {formError(error) && <ErrorState error={formError(error)} />}
           <Button className="h-10 self-start" disabled={busy || !name.trim() || mode === "preset" && !preset} onClick={submit}><Plus className="size-4" />Add agent</Button>
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// RunKindFields (work-and-conversation-runs): the work and conversation limits and the context window per run kind.
+// Empty inherits the profile (work limit), means no cap (conversation limit) or the runtime's default (window).
+export interface RunKindInputs { work: string; conversation: string; windowWork: string; windowConversation: string; split: boolean }
+
+export function runKindInputs(spec?: AgentSpec): RunKindInputs {
+  const w = spec?.runtime?.context_window ?? {};
+  const work = spec?.execution?.max_concurrent_runs, conv = spec?.execution?.conversation?.max_concurrent_runs;
+  return { work: work ? String(work) : "", conversation: conv ? String(conv) : "", windowWork: w.work ?? "", windowConversation: w.conversation ?? "", split: (w.work ?? "") !== (w.conversation ?? "") };
+}
+
+export function runKindErrors(v: RunKindInputs): Record<string, string | null> {
+  return {
+    max_concurrent_runs: runsError(v.work, 1),
+    conversation_max_runs: runsError(v.conversation, 1),
+    window_work: windowError(v.windowWork),
+    window_conversation: v.split ? windowError(v.windowConversation) : null,
+  };
+}
+
+// applyRunKinds writes valid inputs into the agent spec (dropping what is empty).
+export function applyRunKinds(spec: AgentSpec, v: RunKindInputs) {
+  const execution = { ...(spec.execution ?? {}) };
+  if (v.work.trim()) execution.max_concurrent_runs = Number(v.work); else delete execution.max_concurrent_runs;
+  const conversation = { ...(execution.conversation ?? {}) };
+  if (v.conversation.trim()) conversation.max_concurrent_runs = Number(v.conversation); else delete conversation.max_concurrent_runs;
+  if (Object.keys(conversation).length) execution.conversation = conversation; else delete execution.conversation;
+  spec.execution = execution;
+  const work = v.windowWork.trim(), conv = (v.split ? v.windowConversation : v.windowWork).trim();
+  const runtime = { ...(spec.runtime ?? {}) };
+  if (work || conv) runtime.context_window = { ...(work ? { work } : {}), ...(conv ? { conversation: conv } : {}) }; else delete runtime.context_window;
+  spec.runtime = runtime;
+}
+
+export function RunKindFields({ value, onChange, error }: { value: RunKindInputs; onChange: (v: RunKindInputs) => void; error: unknown }) {
+  const errs = runKindErrors(value);
+  const err = (k: string, server?: string) => errs[k] ?? fieldError(error, server ?? k);
+  return (
+    <section className="space-y-3 rounded-xl border p-3">
+      <p className="text-sm font-medium">Runs</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Work runs at a time" error={err("max_concurrent_runs")} hint="Tasks it works on in parallel; empty keeps its profile's">
+          <Input inputMode="numeric" value={value.work} placeholder="profile" onChange={(e) => onChange({ ...value, work: e.target.value })} />
+        </Field>
+        <Field label="Conversation runs at a time" error={err("conversation_max_runs")} hint="Across projects; empty: no cap (one per project). Conversations never wait for work.">
+          <Input inputMode="numeric" value={value.conversation} placeholder="no cap" onChange={(e) => onChange({ ...value, conversation: e.target.value })} />
+        </Field>
+      </div>
+      <div className={cn("grid gap-3", value.split && "sm:grid-cols-2")}>
+        <Field label={value.split ? "Context window: work" : "Context window"} error={err("window_work", "context_window")} hint="Where the session compacts: 200k, 1M or max; empty keeps the runtime default">
+          <Input value={value.windowWork} placeholder="runtime default" onChange={(e) => onChange({ ...value, windowWork: e.target.value })} />
+        </Field>
+        {value.split && (
+          <Field label="Context window: conversation" error={err("window_conversation", "context_window")} hint="Conversations are long-lived: 200k keeps them fast">
+            <Input value={value.windowConversation} placeholder="runtime default" onChange={(e) => onChange({ ...value, windowConversation: e.target.value })} />
+          </Field>
+        )}
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" className="size-4" checked={value.split} onChange={(e) => onChange({ ...value, split: e.target.checked, windowConversation: e.target.checked ? value.windowConversation || value.windowWork : value.windowConversation })} />
+        Separate windows for work and conversations
+      </label>
+    </section>
   );
 }
 
@@ -237,7 +311,8 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
   const [draft, setDraft] = useState<AgentDoc | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setDraft(doc.data ?? null); setError(null); }, [doc.data]);
+  const [runs, setRuns] = useState<RunKindInputs>(runKindInputs());
+  useEffect(() => { setDraft(doc.data ?? null); setRuns(runKindInputs(doc.data?.agent.spec)); setError(null); }, [doc.data]);
   if (!name) return null;
   const set = (f: (d: AgentDoc) => void) => setDraft((d) => { if (!d) return d; const c = structuredClone(d); f(c); return c; });
   const save = async () => {
@@ -248,9 +323,11 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
       setError(new Error("Capabilities are required: what it does, what it needs, what it produces and who reviews it"));
       return;
     }
+    if (Object.values(runKindErrors(runs)).some(Boolean)) return; // shown next to the fields
     setBusy(true);
     try {
       const agent = { ...draft.agent, spec: { ...draft.agent.spec, capabilities: (draft.agent.spec.capabilities ?? []).map((c) => c.trim()).filter(Boolean) } };
+      applyRunKinds(agent.spec, runs);
       await core(`/catalog/agents/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ base: draft.base, agent, prompt: draft.prompt }) });
       toast.success(`${name} saved`);
       await refresh();
@@ -314,6 +391,7 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                 <Field label="Model" error={fieldError(error, "model")}><Input value={spec.runtime?.model ?? ""} placeholder="default" onChange={(e) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, model: e.target.value }; })} /></Field>
                 <Field label="Quota key" error={fieldError(error, "quota_key")}><Input value={spec.runtime?.quota_key ?? ""} onChange={(e) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, quota_key: e.target.value }; })} /></Field>
               </div>
+              <RunKindFields value={runs} onChange={setRuns} error={error} />
               <Field label="Prompt" error={fieldError(error, "prompt")}>
                 <Textarea value={draft.prompt} onChange={(e) => set((d) => { d.prompt = e.target.value; })} className="min-h-56 font-mono text-xs" spellCheck={false} />
               </Field>

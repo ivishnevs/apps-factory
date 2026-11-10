@@ -257,11 +257,15 @@ func firstLine(s string) string {
 type NodeUse struct {
 	Runs      int            `json:"runs"`
 	Resources map[string]int `json:"resources"`
+	// ConversationSlots counts the runs in the node's conversation slots, ConversationRuns its live conversation
+	// runs in any slot (work-and-conversation-runs); Runs minus ConversationSlots hold work slots.
+	ConversationSlots int `json:"conversation_slots"`
+	ConversationRuns  int `json:"conversation_runs"`
 }
 
 // NodesInUse sums, per node, the runs and resources its current epoch's unended runs hold (claim capacity).
 func (s *Store) NodesInUse(ctx context.Context, company string) (map[string]NodeUse, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT r.node_id,r.spec FROM runs r JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id AND n.epoch=r.epoch
+	rows, err := s.DB.QueryContext(ctx, `SELECT r.node_id,r.spec,r.slot,n.slots FROM runs r JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id AND n.epoch=r.epoch
  WHERE r.company_id=? AND r.status IN ('CLAIMED','RUNNING','CANCELLING') ORDER BY r.seq`, company)
 	if err != nil {
 		return nil, err
@@ -271,7 +275,8 @@ func (s *Store) NodesInUse(ctx context.Context, company string) (map[string]Node
 	for rows.Next() {
 		var id string
 		var b []byte
-		if err = rows.Scan(&id, &b); err != nil {
+		var slot, slots int
+		if err = rows.Scan(&id, &b, &slot, &slots); err != nil {
 			return nil, err
 		}
 		var spec protocol.RunSpec
@@ -283,6 +288,14 @@ func (s *Store) NodesInUse(ctx context.Context, company string) (map[string]Node
 			u.Resources = map[string]int{}
 		}
 		u.Runs++
+		if spec.Conversation {
+			u.ConversationRuns++
+			if slot >= slots {
+				u.ConversationSlots++
+				out[id] = u
+				continue // a conversation slot holds no resource classes
+			}
+		}
 		for k, v := range AgentResources(spec.ConfigSnapshot) {
 			u.Resources[k] += v
 		}
@@ -424,4 +437,45 @@ func (s *Store) NodesTied(ctx context.Context, company string) (map[string]NodeT
 		}
 	}
 	return out, nil
+}
+
+// AgentRuns counts one agent's runs per kind (work-and-conversation-runs): live (claimed, running, cancelling) and
+// queued.
+type AgentRuns struct {
+	WorkLive           int `json:"work_live"`
+	WorkQueued         int `json:"work_queued"`
+	ConversationLive   int `json:"conversation_live"`
+	ConversationQueued int `json:"conversation_queued"`
+}
+
+// AgentRunCounts is AgentRuns of every agent with an unended run.
+func (s *Store) AgentRunCounts(ctx context.Context, company string) (map[string]AgentRuns, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT agent,`+conversationRunSQL+`,status='QUEUED',count(*) FROM runs
+ WHERE company_id=? AND status IN ('QUEUED','CLAIMED','RUNNING','CANCELLING') AND revoked=0 GROUP BY 1,2,3`, company)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]AgentRuns{}
+	for rows.Next() {
+		var agent string
+		var conv, queued bool
+		var n int
+		if err = rows.Scan(&agent, &conv, &queued, &n); err != nil {
+			return nil, err
+		}
+		a := out[agent]
+		switch {
+		case conv && queued:
+			a.ConversationQueued += n
+		case conv:
+			a.ConversationLive += n
+		case queued:
+			a.WorkQueued += n
+		default:
+			a.WorkLive += n
+		}
+		out[agent] = a
+	}
+	return out, rows.Err()
 }

@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import type { Action, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
+import type { Action, AgentRuns, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
 import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Teams } from "./types-catalog";
 import type { CompanyInfo, Me } from "./types-account";
@@ -108,6 +108,8 @@ export function useStream<T>(path: string | null, kind: "feed" | "run", onItem: 
 }
 
 // The company's catalog (company-self-service): the team, documents and history; writes refresh them.
+// work-and-conversation-runs: each agent's live and queued runs per kind.
+export const useAgentRuns = () => useQuery({ queryKey: ["agent-runs"], queryFn: () => api<Record<string, AgentRuns> | null>("/agents/runs"), refetchInterval: 5000 });
 export const useTeams = () => useQuery({ queryKey: ["catalog", "teams"], queryFn: () => api<Teams>("/catalog/teams"), staleTime: 30_000 });
 export const useCatalog = () => useQuery({ queryKey: ["catalog", "listing"], queryFn: () => api<CatalogListing>("/catalog") });
 export const useCatalogHistory = () => useQuery({ queryKey: ["catalog", "history"], queryFn: () => api<CatalogVersion[]>("/catalog/history") });

@@ -104,7 +104,8 @@ func TestPresets(t *testing.T) {
 	}
 
 	// One agent from a preset, with overrides; a taken name is refused.
-	withIOS, n, err := lib.CopyAgent("acme", "product", "ios-developer", "", AgentOverrides{Provider: "claude", QuotaKey: "claude-subscription", Prompt: "Custom iOS prompt."}, both)
+	withIOS, n, err := lib.CopyAgent("acme", "product", "ios-developer", "", AgentOverrides{Provider: "claude", QuotaKey: "claude-subscription", Prompt: "Custom iOS prompt.",
+		ContextWindow: config.ContextWindow{Work: "max", Conversation: "200k"}, MaxConcurrentRuns: 2, ConversationMaxRuns: 2}, both)
 	if err != nil || n != "product-ios-developer" {
 		t.Fatal(n, err)
 	}
@@ -115,6 +116,10 @@ func TestPresets(t *testing.T) {
 	ios := c.Agents["product-ios-developer"]
 	if ios.Spec.Runtime.Provider != "claude" || ios.Spec.ReportsTo != "product-owner" || !strings.HasPrefix(ios.Instructions, "Custom iOS prompt.") || ios.Timeout.Minutes() != 90 || len(ios.Spec.Labels) != 1 {
 		t.Fatalf("%+v", ios.Spec)
+	}
+	// work-and-conversation-runs: the overrides write the window per kind and the conversation cap.
+	if ios.Spec.Runtime.ContextWindow.Tokens(true) != 200_000 || ios.Spec.Runtime.ContextWindow.Work != "max" || ios.Spec.Execution.Conversation.MaxConcurrentRuns != 2 || ios.Spec.Execution.MaxConcurrentRuns != 2 {
+		t.Fatalf("run kinds %+v %+v", ios.Spec.Runtime.ContextWindow, ios.Spec.Execution.Conversation)
 	}
 	if _, _, err = lib.CopyAgent("acme", "product", "developer", "developer", AgentOverrides{}, withIOS); !errors.Is(err, ErrInput) {
 		t.Fatal("taken name", err)

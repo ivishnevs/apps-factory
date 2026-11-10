@@ -7,7 +7,7 @@ export interface Trigger { seq: number; kind: string; actor: string; authority: 
 // Wait is a capacity verdict in structured form (internal/tasks Wait): the agent's limit, the project workspace,
 // the task's node or full nodes.
 export interface Wait {
-  kind: "agent" | "agent_project" | "writer" | "pinned_node" | "nodes"; agent?: string; live?: number; limit?: number;
+  kind: "agent" | "agent_project" | "agent_conversation" | "writer" | "pinned_node" | "nodes"; agent?: string; live?: number; limit?: number;
   task_id?: string; run_id?: string; node?: string; lost?: boolean;
 }
 export interface Verdict {
@@ -62,7 +62,10 @@ export interface PendingCounts { inbox: number; approvals: number; alerts: numbe
 
 export interface Health { status: string; database?: string; company: string; explicit_exits?: string; default_report?: string }
 
-export interface NodeUse { runs: number; resources: Record<string, number> }
+// conversation_slots: runs in the node's conversation slots; conversation_runs: its live conversation runs (work-and-conversation-runs).
+export interface NodeUse { runs: number; resources: Record<string, number>; conversation_slots?: number; conversation_runs?: number }
+// AgentRuns: an agent's live and queued runs per kind (GET /agents/runs).
+export interface AgentRuns { work_live: number; work_queued: number; conversation_live: number; conversation_queued: number }
 // NodeTied (sticky-work-first): open tasks whose unsaved work is on the node, and queued runs only it may take now.
 export interface TiedRun { run_id: string; task_id: string; agent: string; tie: "pinned" | "session" }
 export interface NodeTied { pinned: string[]; waiting: TiedRun[] }
@@ -75,7 +78,7 @@ export interface ProjectReadiness {
 export interface HeldSession { session_id: string; agent: string; task_id?: string; title?: string; released?: boolean }
 export interface NodeSessions { held: HeldSession[]; waiting: TiedRun[]; release_seconds: number }
 export interface FactoryNode {
-  node_id: string; name: string; labels?: string[]; slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
+  node_id: string; name: string; labels?: string[]; slots?: number; conversation_slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
   health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse; tied?: NodeTied;
   readiness?: ProjectReadiness[];
   [k: string]: unknown;

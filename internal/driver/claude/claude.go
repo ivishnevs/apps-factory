@@ -176,16 +176,8 @@ func ValidateOptions(o map[string]any) error {
 			case "low", "medium", "high", "xhigh", "max":
 				ok = true
 			}
-		case "max_turns":
-			var n float64
-			switch x := v.(type) {
-			case int:
-				n = float64(x)
-			case int64:
-				n = float64(x)
-			case float64:
-				n = x
-			}
+		case "max_turns", "context_window":
+			n := number(v)
 			ok = n >= 1 && n == math.Trunc(n)
 		default:
 			return fmt.Errorf("unsupported Claude runtime option %q", k)
@@ -195,6 +187,42 @@ func ValidateOptions(o map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// number reads a numeric runtime option (JSON numbers arrive as float64); 0 when it is not one.
+func number(v any) float64 {
+	switch x := v.(type) {
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case float64:
+		return x
+	}
+	return 0
+}
+
+// CompactWindowEnv sets the size at which Claude Code compacts the session; it wins over any other setting.
+const CompactWindowEnv = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+
+// withCompactWindow is env with the run's context window (runtime option context_window, the window of the run's
+// kind: work-and-conversation-runs) as a plain token count, replacing one from the agent's secrets; env unchanged
+// without the option.
+func withCompactWindow(env []string, opts map[string]any) []string {
+	n := number(opts["context_window"])
+	if n < 1 {
+		return env
+	}
+	if env == nil {
+		env = os.Environ() // nil inherits the node's environment
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if !strings.HasPrefix(e, CompactWindowEnv+"=") {
+			out = append(out, e)
+		}
+	}
+	return append(out, fmt.Sprintf("%s=%d", CompactWindowEnv, int64(n)))
 }
 
 // Error is a failure without terminal evidence; Class is the shim's error class, "auth_error",
@@ -309,7 +337,7 @@ func (d Driver) Launch(ctx context.Context, l driver.Launch) (driver.Session, er
 	}
 	// The shim has its own lifetime so cancellation can first send an interrupt.
 	cmd := d.command()
-	cmd.Env = d.withConfigDir(l.Env)
+	cmd.Env = withCompactWindow(d.withConfigDir(l.Env), l.Spec.RuntimeOptions)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
