@@ -101,12 +101,16 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		return nil, err
 	}
 	rows.Close()
+	faults, err := companyFaults(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
 		l, err := nodeLoad(ctx, tx, out[i].ID, epochs[i])
 		if err != nil {
 			return nil, err
 		}
-		out[i].Held, out[i].Used = l.Held, l.Used
+		out[i].Held, out[i].Used, out[i].NotReady = l.Held, l.Used, faults[out[i].ID]
 	}
 	return out, nil
 }

@@ -63,6 +63,9 @@ type RunSpec struct {
 	// Materialize is set in the claim answer, not stored (core-owned-project-data D3): the files the node
 	// places in the worktree before the runtime starts.
 	Materialize *Manifest `json:"materialize,omitempty"`
+	// Requires is set in the claim answer from the project (node-readiness): the node checks the tools before the
+	// runtime starts, and a missing one ends the run setup_failed with a node fault.
+	Requires []tasks.Requirement `json:"requires,omitempty"`
 }
 
 // ProjectSetup is what the node sets up for a project (project-creation D2): Mode local or github creates a
@@ -163,6 +166,43 @@ type Event struct {
 	// ExitState, on a terminal event, is the MCP adapter's exit state (docs/explicit-exits-contract.md §5):
 	// accepted, pending (an exit was queued but not delivered), refused or none.
 	ExitState string `json:"exit_state,omitempty"`
+	// Fault, on a terminal setup_failed event, says the node's environment is the cause (node-readiness): Core
+	// does not count the run against its task and keeps the project's runs off this node until it passes its
+	// check again.
+	Fault *NodeFault `json:"fault,omitempty"`
+}
+
+// Node fault kinds (node-readiness): what in the node's environment kept a run from starting.
+const (
+	FaultRepoAccess = "repo_access" // the node cannot clone or fetch the project's repository
+	FaultWorktree   = "worktree"    // the node cannot create the task's worktree or workspace
+	FaultRuntime    = "runtime"     // the runtime binary is missing or refuses to start (root, packaging)
+	FaultSandbox    = "sandbox"     // the runtime's sandbox cannot start (bwrap, socat, user namespaces)
+	FaultTool       = "tool"        // a tool the project requires is missing or too old
+)
+
+// NodeFault is a node-side cause of a failed run or readiness check: Detail says what failed, Fix how to fix it.
+type NodeFault struct {
+	Kind   string `json:"kind"`
+	Detail string `json:"detail"`
+	Fix    string `json:"fix,omitempty"`
+}
+
+// ProjectCheck is a project's readiness check Core asks a node to run (node-readiness): clone access to Repo
+// (forge.repo) and the Requires tools. The node runs it again when Generation or the check's contents change.
+type ProjectCheck struct {
+	Project    string              `json:"project"`
+	Repo       string              `json:"repo,omitempty"`
+	Requires   []tasks.Requirement `json:"requires,omitempty"`
+	Generation int64               `json:"generation"`
+}
+
+// ProjectReadiness is a node's result of a ProjectCheck: Faults lists what failed (none: ready).
+type ProjectReadiness struct {
+	Project    string      `json:"project"`
+	Generation int64       `json:"generation"`
+	Faults     []NodeFault `json:"faults,omitempty"`
+	CheckedAt  int64       `json:"checked_at"`
 }
 
 // Usage is cumulative token use of one model in a run (runtime-drivers 2.5).

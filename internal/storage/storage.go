@@ -349,8 +349,24 @@ func (s *Store) apply(ctx context.Context, company string, e protocol.Envelope, 
 			case s.ExplicitExits && outcome == "succeeded":
 				outcome = "no_exit"
 			}
+			// node-readiness: an end caused by the node's environment (no repository access, no runtime binary, no
+			// sandbox, a missing tool) is setup_failed charged to the node: its task keeps its retries.
+			nodeFault := ""
+			if !hasExit {
+				var runNode, project string
+				var used bool
+				if err = tx.QueryRowContext(ctx, "SELECT node_id,coalesce(spec->>'project',''),jsonb_array_length(usage_list(usage))>0 FROM runs WHERE id=?", p.RunID).Scan(&runNode, &project, &used); err != nil {
+					return err
+				}
+				if f := runFault(p, outcome, result, used || len(p.Usage) > 0); f != nil && runNode != "" {
+					outcome, nodeFault = "setup_failed", f.Kind
+					if err = recordRunFault(ctx, tx, runNode, project, p.RunID, *f); err != nil {
+						return err
+					}
+				}
+			}
 			// Late evidence on a lost run replaces its outcome: its runtime has ended now.
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status='ENDED',result=?,finished_at=?,unreleased=0 WHERE id=?", outcome, result, tx.now().Unix(), p.RunID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status='ENDED',result=?,finished_at=?,unreleased=0,node_fault=? WHERE id=?", outcome, result, tx.now().Unix(), nodeFault, p.RunID); err != nil {
 				return err
 			}
 		} else if !lost {

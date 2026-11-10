@@ -22,6 +22,9 @@ type Pause struct {
 	CreatedAt int64  `json:"created_at"`
 	// Until ends the pause automatically (quota pauses); 0 means until resumed.
 	Until int64 `json:"until,omitempty"`
+	// Sessions, for a node pause, is what happens to the agent sessions the node holds (node-readiness 4.1): release
+	// (their runs go to another node now, with a fresh session) or keep (default: until the release timeout).
+	Sessions string `json:"sessions,omitempty"`
 }
 
 func validPause(scope, target string) error {
@@ -52,6 +55,9 @@ func (s *Store) SetPause(ctx context.Context, company string, p Pause) error {
 	if err := validPause(p.Scope, p.Target); err != nil {
 		return err
 	}
+	if p.Sessions != "" && (p.Scope != "node" || p.Sessions != PauseSessionsKeep && p.Sessions != PauseSessionsRelease) {
+		return inputError("sessions: keep or release, for a node pause only")
+	}
 	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return err
@@ -67,8 +73,15 @@ func (s *Store) SetPause(ctx context.Context, company string, p Pause) error {
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n > 0 {
+	n, _ := res.RowsAffected()
+	if n > 0 {
 		if err = pauseFeed(ctx, tx, "owner.paused", p); err != nil {
+			return err
+		}
+	}
+	// node-readiness 4.1: one notice per node pause naming the tasks waiting for its sessions, or their release.
+	if p.Scope == "node" && (n > 0 || p.Sessions == PauseSessionsRelease) {
+		if err = pauseSessionsNotice(ctx, tx, p.Target, p.Sessions, p.Actor); err != nil {
 			return err
 		}
 	}

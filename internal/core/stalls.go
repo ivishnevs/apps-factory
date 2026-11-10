@@ -100,7 +100,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		at, ok := kept[task+"\x00"+ref]
 		return ok && !moved(ref).After(at) && now.Sub(at) < backlogAfter
 	}
-	stalled, idle := []storage.EscalationWant{}, []storage.Alert{}
+	stalled, idle, noReady := []storage.EscalationWant{}, []storage.Alert{}, []storage.Alert{}
 	for _, s := range snaps {
 		t := s.Task
 		if t.Status == "BACKLOG" || t.Kind == tasks.KindConversation { // a conversation waits for input by design
@@ -134,8 +134,13 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 				stalled = append(stalled, storage.EscalationWant{TaskID: t.ID, RefID: ch.ID, Summary: fmt.Sprintf("waits on its child %s%s, which %s", ch.ID, titled(open[ch.ID].Title), why)})
 			}
 		}
-		if v := c.evaluateIn(company, s); v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
+		v := c.evaluateIn(company, s)
+		if v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
+		}
+		if v.Reason == tasks.ReasonNoReadyNode {
+			// node-readiness: the owner learns which nodes to fix; the task is not escalated and keeps its retries.
+			noReady = append(noReady, storage.Alert{TaskID: t.ID, Summary: v.Detail + "; " + v.Clearer.Action})
 		}
 	}
 	for i := range stalled {
@@ -170,6 +175,9 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return err
 	}
 	if err = c.Store.SyncAlerts(ctx, company, "idle", idle); err != nil {
+		return err
+	}
+	if err = c.Store.SyncAlerts(ctx, company, "no_ready_node", noReady); err != nil {
 		return err
 	}
 	noProgress, err := c.Store.NoProgress(ctx, company, now.Add(-noProgressAlertAfter))

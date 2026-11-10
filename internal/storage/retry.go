@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -118,11 +119,11 @@ func (s *Store) NoProgress(ctx context.Context, company string, since time.Time)
 // parked, so a later call for the same run (late evidence, the release of a lost run) changes nothing.
 func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	var taskID sql.NullString
-	var outcome, result string
+	var outcome, result, nodeFault, runNode string
 	var unreleased bool
 	var briefTo int64
 	var specJSON []byte
-	if err := tx.QueryRowContext(ctx, "SELECT task_id,outcome,result,unreleased,brief_to,spec FROM runs WHERE id=?", runID).Scan(&taskID, &outcome, &result, &unreleased, &briefTo, &specJSON); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT task_id,outcome,result,unreleased,brief_to,spec,node_fault,node_id FROM runs WHERE id=?", runID).Scan(&taskID, &outcome, &result, &unreleased, &briefTo, &specJSON, &nodeFault, &runNode); err != nil {
 		return err
 	}
 	if !taskID.Valid {
@@ -178,6 +179,12 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	if !ok || t.CancelRequested || outcome == "no_exit" && t.Kind == tasks.KindConversation {
 		return nil // a conversation turn without an exit handled its input (syncTaskStatus)
 	}
+	if nodeFault != "" {
+		// node-readiness: the node's environment failed, not the task: no attempt, no backoff; the task is offered to
+		// another node at once. The daily budget still counts it, the guard against a node that passes its check and
+		// keeps failing runs.
+		rule = OutcomeRule{Budget: true}
+	}
 	// A review run (the reviewer is the assignee of the task in review) keeps the task IN_REVIEW.
 	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
 	switch {
@@ -186,7 +193,11 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	default:
 		return nil // already applied, CANCELLED, or READY after a kill switch
 	}
-	if inspect, err := inspectsRun(ctx, tx, t, specJSON, outcome); err != nil || inspect {
+	inspect, err := false, error(nil)
+	if nodeFault == "" { // a node fault started nothing: no external effect to inspect
+		inspect, err = inspectsRun(ctx, tx, t, specJSON, outcome)
+	}
+	if err != nil || inspect {
 		if err != nil {
 			return err
 		}
@@ -265,6 +276,14 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		reason, summary = "retries_exhausted", fmt.Sprintf("%d attempts in a row without progress; last run %s: %s", t.AttemptsNoProgress, outcome, excerpt512(result))
 	case used >= DailyBudget:
 		reason, summary = "budget_exhausted", fmt.Sprintf("%d runs today (budget %d); last run %s: %s", used, DailyBudget, outcome, excerpt512(result))
+		if nodeFault != "" {
+			// node-readiness: the question names the node and the fix, not only the task's last result.
+			why, err := nodeNotReady(ctx, tx, tx.company, runNode, t.ProjectID)
+			if err != nil {
+				return err
+			}
+			summary += fmt.Sprintf(" — node %s failed it before the agent started (%s); fix the node, then retry", runNode, cmp.Or(why, nodeFault))
+		}
 	}
 	t.Result = result
 	if !review && !(reason == "no_exit" && t.Status == "IN_PROGRESS") {
@@ -283,6 +302,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	}
 	// One feed event names the task, the outcome and the retry time (waits-events-cost-cli D2).
 	note := fmt.Sprintf("%s: run %s ended %s; ", t.ID, runID, outcome)
+	if nodeFault != "" {
+		note = fmt.Sprintf("%s: run %s ended %s on node %s (%s: the node's fault, not counted); offered to another node ", t.ID, runID, outcome, runNode, nodeFault)
+	}
 	if t.NotBefore > now.Unix() {
 		note += fmt.Sprintf("retry in %s", time.Duration(t.NotBefore-now.Unix())*time.Second)
 	} else {

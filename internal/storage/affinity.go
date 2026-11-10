@@ -85,8 +85,9 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 	}
 	release := started + int64(timeout/time.Second)
 	if now.Unix() >= release {
-		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
-		return nil, err
+		// The released lock stays until the holder is active again or another node takes the session: deleting it
+		// would restart the timer at the next look, which undid an owner's "Release now" (node-readiness 4.1).
+		return nil, nil
 	}
 	return &Affinity{Holder: holder, Inactive: inactive, Release: release}, nil
 }
@@ -130,6 +131,17 @@ func holderInactive(ctx context.Context, q affinityQuerier, company, holder stri
 	_ = json.Unmarshal(labels, &ls)
 	if !slices.ContainsFunc(ds, func(d NodeDriver) bool { return d.Name == string(spec.Provider) && d.OK }) || len(tasks.MissingLabels(ls, AgentLabels(spec.ConfigSnapshot))) > 0 {
 		return "unable to run the agent", 0, nil
+	}
+	// node-readiness: a holder not ready for the project cannot continue the session either.
+	if spec.Project != "" {
+		var since int64
+		err = q.QueryRowContext(ctx, "SELECT since FROM node_readiness WHERE company_id=? AND node_id=? AND project_id=? AND faults!='[]'::jsonb", company, holder, spec.Project).Scan(&since)
+		if err == nil {
+			return "not ready for project " + spec.Project, since, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", 0, err
+		}
 	}
 	return "", 0, nil
 }

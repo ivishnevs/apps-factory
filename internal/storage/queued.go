@@ -31,12 +31,16 @@ const (
 	QueuedDriverDisabled = "driver_disabled" // the run's driver failed its checks on the node
 	QueuedNodeOffline    = "node_offline"    // the node does not beat
 	QueuedLabels         = "labels"          // the node lacks the agent's labels
-	QueuedNoNode         = "no_node"         // no registered node
-	QueuedUnclaimed      = "unclaimed"       // a node can take it: the claim is on its way
+	QueuedNotReady       = "not_ready"       // the node has a readiness fault for the run's project (node-readiness)
+	// QueuedNoReadyNode: every node that could take the run is not ready for its project (node-readiness); the
+	// detail names the nodes and their fixes.
+	QueuedNoReadyNode = "no_ready_node"
+	QueuedNoNode      = "no_node"   // no registered node
+	QueuedUnclaimed   = "unclaimed" // a node can take it: the claim is on its way
 )
 
 // queuedRank orders node reasons from the closest to running to the farthest.
-var queuedRank = []string{QueuedNoSlot, QueuedResourceBusy, QueuedNodePaused, QueuedDriverDisabled, QueuedNodeOffline, QueuedLabels}
+var queuedRank = []string{QueuedNoSlot, QueuedResourceBusy, QueuedNodePaused, QueuedDriverDisabled, QueuedNodeOffline, QueuedNotReady, QueuedLabels}
 
 // QueuedReason says why a QUEUED run waits. Until is when it clears by itself (a quota pause, a driver's
 // auth hold-off), 0 when unknown. Nodes are each node's answer.
@@ -45,6 +49,10 @@ type QueuedReason struct {
 	Detail string       `json:"detail"`
 	Until  int64        `json:"until,omitempty"`
 	Nodes  []QueuedNode `json:"nodes,omitempty"`
+	// Holder and Inactive, for affinity: the node holding the session and why it is inactive ("" when active); an
+	// inactive holder's session can be released now (node-readiness 4.1).
+	Holder   string `json:"holder,omitempty"`
+	Inactive string `json:"inactive,omitempty"`
 }
 
 // QueuedNode is what one node lacks for the run ("" Reason: it can take it).
@@ -165,7 +173,11 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 			return &QueuedReason{Reason: QueuedPinned, Detail: "the task's unpushed work is on node " + pinned + ", which is no longer registered", Nodes: nodes}, nil
 		}
 		if n := nodes[i]; n.Reason != "" {
-			return &QueuedReason{Reason: n.Reason, Detail: "the task's unpushed work is on " + nodeLabel(n.Name, n.Node) + ": " + n.Detail, Until: n.Until, Nodes: nodes}, nil
+			reason := n.Reason
+			if reason == QueuedNotReady {
+				reason = QueuedNoReadyNode
+			}
+			return &QueuedReason{Reason: reason, Detail: "the task's unpushed work is on " + nodeLabel(n.Name, n.Node) + ": " + n.Detail, Until: n.Until, Nodes: nodes}, nil
 		}
 		return &QueuedReason{Reason: QueuedUnclaimed, Detail: nodeLabel(nodes[i].Name, nodes[i].Node) + " has room; waiting for its claim", Nodes: nodes}, nil
 	}
@@ -181,7 +193,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 		if a.Inactive != "" {
 			detail = label + " holds this agent's session and is " + a.Inactive + "; another node may take it after the release"
 		}
-		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes}, nil
+		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes, Holder: a.Holder, Inactive: a.Inactive}, nil
 	}
 	best := -1
 	for i, n := range nodes {
@@ -193,6 +205,16 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 		}
 	}
 	n := nodes[best]
+	if n.Reason == QueuedNotReady {
+		// node-readiness: the run waits for a node to be fixed, not for a retry: name every such node and its fix.
+		var parts []string
+		for _, x := range nodes {
+			if x.Reason == QueuedNotReady {
+				parts = append(parts, nodeLabel(x.Name, x.Node)+": "+x.Detail)
+			}
+		}
+		return &QueuedReason{Reason: QueuedNoReadyNode, Detail: "no node is ready for project " + spec.Project + " — " + strings.Join(parts, "; "), Nodes: nodes}, nil
+	}
 	detail := nodeLabel(n.Name, n.Node) + ": " + n.Detail
 	if len(nodes) > 1 {
 		detail += fmt.Sprintf(" (and %d other nodes cannot take it)", len(nodes)-1)
@@ -201,7 +223,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 }
 
 // queuedNodes judges every registered node for the run in ClaimV2's order: online, owner pause, disk,
-// driver, labels, slots, resource classes.
+// driver, labels, project readiness (node-readiness), slots, resource classes.
 func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Time) ([]QueuedNode, error) {
 	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
 	if err != nil {
@@ -285,6 +307,12 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 		default:
 			if missing := tasks.MissingLabels(labels, AgentLabels(spec.ConfigSnapshot)); len(missing) > 0 {
 				set(QueuedLabels, "lacks labels "+strings.Join(missing, ", "), 0)
+				break
+			}
+			if why, err := nodeNotReady(ctx, tx, tx.company, q.Node, spec.Project); err != nil {
+				return nil, err
+			} else if why != "" {
+				set(QueuedNotReady, "not ready for project "+spec.Project+": "+why, 0)
 				break
 			}
 			l, err := nodeLoad(ctx, tx, q.Node, r.epoch)

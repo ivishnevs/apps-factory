@@ -81,6 +81,13 @@ func (l *runLog) clean(p *protocol.Event) {
 			p.Result = string(b)
 		}
 	}
+	if p.Fault != nil { // node-readiness: the fault quotes the result
+		f := *p.Fault
+		if b, changed := red.Bytes([]byte(f.Detail)); changed {
+			f.Detail = string(b)
+		}
+		p.Fault = &f
+	}
 }
 
 // add appends one (already redacted) event line and uploads a full chunk.

@@ -71,12 +71,19 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 			return
 		}
 		tied, err := c.Store.NodesTied(r.Context(), c.companyFrom(r))
-		// Each node with in_use: the runs and resources its current epoch's unended runs hold (factory status), and
-		// tied: its pinned tasks and the queued runs waiting for it (sticky-work-first).
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		ready, err := c.Store.NodesReadiness(r.Context(), c.companyFrom(r))
+		// Each node with in_use: the runs and resources its current epoch's unended runs hold (factory status),
+		// tied: its pinned tasks and the queued runs waiting for it (sticky-work-first), and readiness: per project,
+		// ready or its faults with fixes (node-readiness).
 		type nodeView struct {
 			storage.Node
-			InUse storage.NodeUse  `json:"in_use"`
-			Tied  storage.NodeTied `json:"tied"`
+			InUse     storage.NodeUse            `json:"in_use"`
+			Tied      storage.NodeTied           `json:"tied"`
+			Readiness []storage.ProjectReadiness `json:"readiness"`
 		}
 		out := make([]nodeView, 0, len(nodes))
 		for _, n := range nodes {
@@ -88,7 +95,11 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 			if t.Pinned == nil {
 				t.Pinned, t.Waiting = []string{}, []storage.TiedRun{}
 			}
-			out = append(out, nodeView{n, u, t})
+			rs := ready[n.NodeID]
+			if rs == nil {
+				rs = []storage.ProjectReadiness{}
+			}
+			out = append(out, nodeView{n, u, t, rs})
 		}
 		reply(w, out, err)
 	})

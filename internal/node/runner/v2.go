@@ -78,6 +78,9 @@ type Heartbeat struct {
 	// when the document changed.
 	Hooks     string `json:"hooks,omitempty"`
 	HooksHash string `json:"hooks_hash,omitempty"`
+	// Readiness are the results of Core's project checks (node-readiness); [] when none ran yet, never omitted, so
+	// Core knows this node reports them.
+	Readiness []protocol.ProjectReadiness `json:"readiness"`
 }
 
 type Health struct {
@@ -117,6 +120,8 @@ type HeartbeatAnswer struct {
 	Reset []string `json:"reset"`
 	// Hooks: the NodeHooks document changed since the hash the node sent.
 	Hooks *protocol.NodeHooksDelivery `json:"hooks,omitempty"`
+	// Checks: the project readiness checks Core wants run (node-readiness).
+	Checks []protocol.ProjectCheck `json:"checks,omitempty"`
 }
 
 // ErrStaleEpoch: Core knows a newer epoch of this node_id, so another process uses this state_dir's identity.
@@ -165,6 +170,8 @@ type session struct {
 	checks func() []node.CheckResult
 	// lastBeat is the last delivered heartbeat (or register); a longer gap than StallReport is reported once.
 	lastBeat time.Time
+	// ready runs the project readiness checks Core asks for (node-readiness); nil when the host cannot run commands.
+	ready *projectChecks
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -190,10 +197,21 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 	}
 	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
 		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{}}
+	if n.Host.Run != nil {
+		s.ready = newProjectChecks(n.Host.Run, s.driversChanged) // a finished check pass is reported at once
+	}
 	if err = s.register(ctx, "start"); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// readiness is the heartbeat's project check results; nil (omitted) without checks support.
+func (s *session) readiness() []protocol.ProjectReadiness {
+	if s.ready == nil {
+		return nil
+	}
+	return s.ready.reports()
 }
 
 // register registers the current epoch with the drivers as last checked, retrying while Core is
@@ -253,6 +271,9 @@ func (s *session) claimable() bool {
 func (s *session) run(ctx context.Context) error {
 	go s.janitor(ctx)
 	go s.resetter(ctx)
+	if s.ready != nil {
+		go s.ready.loop(ctx)
+	}
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
 	for {
@@ -330,7 +351,7 @@ func (s *session) beat(ctx context.Context) error {
 		slog.Warn("heartbeat stalled; reporting it", "seconds", health.StalledSeconds)
 	}
 	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: health, ResetDone: done,
-		Drivers: s.drivers.infos(), Hooks: s.cfg.Hooks, HooksHash: s.hooksHash()}, &a)
+		Drivers: s.drivers.infos(), Hooks: s.cfg.Hooks, HooksHash: s.hooksHash(), Readiness: s.readiness()}, &a)
 	if err == nil {
 		s.lastBeat = time.Now()
 	}
@@ -357,6 +378,9 @@ func (s *session) beat(ctx context.Context) error {
 		s.resetMu.Unlock()
 	}
 	s.queueResets(a.Reset)
+	if s.ready != nil && a.Checks != nil {
+		s.ready.set(a.Checks)
+	}
 	if a.Hooks != nil {
 		s.deliverHooks(*a.Hooks)
 	}
