@@ -1,5 +1,5 @@
 Status: proposed 2026-11-08 by the owner ("pins and session affinity are two mechanisms; make them one notion so it
-is not confusing"). Nothing implemented.
+is not confusing"); accepted 2026-11-10 with the decisions below. Implementation in progress.
 
 ## Why
 
@@ -54,7 +54,21 @@ while the Mac sat idle.
 
 Not in scope: changing session-affinity timeouts; placement scoring; moving a session between nodes.
 
-## Open questions (with recommendations)
+## Decisions (owner 2026-11-10)
+
+1. Secret finding in WIP: refuse the push, keep the work tie with the reason (as recommended).
+2. Large or binary files: follow `.gitignore`, cap 50 MB per file; a larger file keeps the work tie with that reason.
+3. Old reason and escalation names stay as aliases for one release.
+4. The disposable review copy starts from the pushed head of the task branch.
+5. **A reviewer does not push.** The owner (2026-11-10): QA may merge main and do anything else in its copy before
+   testing, but none of it counts as the task's work or affects where the task runs. The copy has no push URL and a
+   pre-push hook that refuses with "this is a review copy; your result is the verdict"; the node does not seal it,
+   Core ignores its workspace report, and it is deleted after the run. A reviewer's findings go in its verdict.
+6. **Nothing project-specific.** The copy is a clean checkout. A project may list ignored directories to carry into
+   it from the nearest worktree of the same task on that node (`workspace.review_carry`, e.g. build or import caches);
+   empty by default. Nothing else ignored by git is ever carried (no `.env`, keys or local config).
+
+## Open questions (as proposed; answered above)
 
 1. **Secret finding in WIP.** Refuse the WIP push and keep the work tie (recommended; same rule as other pushes), or
    push a redacted snapshot? Recommended: refuse, and the task's tie says "unsaved work could not be saved: secret
