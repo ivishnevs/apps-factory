@@ -95,6 +95,12 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 			return spec, err
 		}
 	}
+	// node-ties: an agent that is not the task's implementer (reviewer, QA, accepting manager) reviews in a
+	// disposable copy of the pushed task branch; before a submit the assignee is the implementer.
+	spec.ReviewCopy, spec.ReviewCarry = false, nil
+	if spec.WorkspaceMode == "worktree" && t.Implementer != "" && spec.Agent != t.Implementer {
+		spec.ReviewCopy, spec.ReviewCarry = true, p.ReviewCarry
+	}
 	if t.CurrentRunID != "" {
 		var status string
 		var unreleased bool

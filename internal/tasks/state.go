@@ -154,6 +154,9 @@ type Snapshot struct {
 	// offline before the task reports pinned_node_unavailable.
 	PinnedNode string
 	PinTimeout time.Duration
+	// Tie is the task's tie as storage loaded it (node-ties): its work tie (PinnedNode, since, why the work
+	// could not be saved) or the session tie of its queued run; nil when none.
+	Tie *Tie
 	// MissingSecret names the first secret the assignee's runs need that is not set with its kind, as
 	// "NAME (agent)" (Core fills it from the catalog and the company's secrets); "" when none.
 	MissingSecret string
@@ -192,6 +195,8 @@ type Verdict struct {
 	Pending []Trigger `json:"pending_triggers,omitempty"`
 	// Wait is the capacity case in structured form (task-board-ux 3.1), set when Reason is capacity.
 	Wait *Wait `json:"wait,omitempty"`
+	// Tie is the task's tie to a node (node-ties), whatever the reason.
+	Tie *Tie `json:"tie,omitempty"`
 }
 
 // Wait kinds of a capacity verdict.
@@ -269,8 +274,17 @@ type Wait struct {
 	Lost   bool   `json:"lost,omitempty"`
 }
 
-// Evaluate returns the first reason in D3 order why the task does not run now, or runnable.
+// Evaluate returns the first reason in D3 order why the task does not run now, or runnable, with the task's tie
+// to a node when it has one (node-ties).
 func Evaluate(s Snapshot) Verdict {
+	v := evaluate(s)
+	if v.Reason != ReasonTerminal {
+		v.Tie = s.tie()
+	}
+	return v
+}
+
+func evaluate(s Snapshot) Verdict {
 	t := s.Task
 	v := func(reason, detail, who, action string) Verdict {
 		return Verdict{TaskID: t.ID, Status: t.Status, Reason: reason, Detail: detail, Clearer: Clearer{Who: who, Action: action}, Pending: s.Pending}

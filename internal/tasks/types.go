@@ -42,6 +42,10 @@ type Project struct {
 	// Requires are the tools the project's runs need on a node (node-readiness); nodes probe them with the
 	// repository access and Core offers the project's runs only to nodes that have them.
 	Requires []Requirement `json:"requires,omitempty"`
+	// ReviewCarry is the project's workspace.review_carry (node-ties): directories ignored by git (build or
+	// import caches) the node copies into a review copy from the task's worktree on that node. Empty by default;
+	// nothing else ignored by git is ever carried.
+	ReviewCarry []string `json:"review_carry,omitempty"`
 }
 
 // Ready: the project's repository needs no setup or it finished.
@@ -208,6 +212,8 @@ type ProjectUpdate struct {
 	Team *string `json:"team,omitempty"`
 	// Requires replaces the project's requirements (node-readiness); nil keeps them, [] clears them.
 	Requires *[]Requirement `json:"requires,omitempty"`
+	// ReviewCarry replaces the project's workspace.review_carry (node-ties); [] clears it.
+	ReviewCarry *[]string `json:"review_carry,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.
@@ -221,9 +227,14 @@ type Workspace struct {
 	SealedAt   int64  `json:"sealed_at,omitempty"`
 	RunID      string `json:"run_id,omitempty"`
 	UpdatedAt  int64  `json:"updated_at"`
-	// Unpushed: the node holds work of the task that is not on the remote (unpushed commits, or a WIP ref
-	// newer than the remote branch); the task is pinned to NodeID (task-worktrees D8).
+	// Unpushed: the node holds work of the task that is not on the remote and could not be saved remotely
+	// either; the task is tied to NodeID by its work (task-worktrees D8, node-ties).
 	Unpushed bool `json:"unpushed,omitempty"`
+	// WIPSHA is the task's work saved to refs/factory/wip/<task> (node-ties): the next run restores its files
+	// on any node. WIPUnsaved says why local work could not be saved; TiedSince when the work tie began.
+	WIPSHA     string `json:"wip_sha,omitempty"`
+	WIPUnsaved string `json:"wip_unsaved,omitempty"`
+	TiedSince  int64  `json:"tied_since,omitempty"`
 }
 type Create struct {
 	RequiredArtifacts []Artifact `json:"required_artifacts,omitempty"`

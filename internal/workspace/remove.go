@@ -61,6 +61,10 @@ func (w *Worktrees) Remove(ctx context.Context, r Request, wait time.Duration, h
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return SealResult{}, err
 	}
+	// A closed task's saved WIP is not continued anywhere: its service ref goes (node-ties 2.4).
+	if st, err := readState(path); err == nil && st.SavedWIP != "" {
+		deleteRemoteWIP(ctx, path, r.Task)
+	}
 	// A directory without state is a half-created worktree: nothing of a run to seal.
 	if hook != nil {
 		hook(path)

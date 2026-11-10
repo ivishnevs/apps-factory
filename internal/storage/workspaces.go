@@ -81,32 +81,59 @@ func (s *Store) ReportWorkspace(ctx context.Context, company, runID, lease strin
 	default:
 		return w, inputError("mode must be shared, worktree or scratch")
 	}
-	for _, sha := range []string{w.ExitSHA, w.SealedHead} {
+	for _, sha := range []string{w.ExitSHA, w.SealedHead, w.WIPSHA} {
 		if sha != "" && !gitSHA.MatchString(sha) {
-			return w, inputError("exit_sha and sealed_head must be full git object IDs")
+			return w, inputError("exit_sha, sealed_head and wip_sha must be full git object IDs")
 		}
 	}
 	if (w.Branch != "" && !branchName.MatchString(w.Branch)) || len(w.NodeID) > 128 {
 		return w, inputError("invalid branch or node_id")
 	}
+	if len(w.WIPUnsaved) > 1024 {
+		w.WIPUnsaved = w.WIPUnsaved[:1024]
+	}
 	w.TaskID, w.RunID, w.UpdatedAt = taskID.String, runID, tx.now().Unix()
+	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", company, runID)
+	if err != nil {
+		return w, err
+	}
+	// node-ties: a review copy is disposable; its report never changes the task's workspace record or ties it.
+	if spec.ReviewCopy {
+		w.Unpushed, w.WIPSHA, w.WIPUnsaved = false, "", ""
+		return w, nil
+	}
 	// A fresh_from_default worktree starts every run from the default branch: nothing on it is continued
 	// elsewhere, so it never pins the task to its node (task-worktrees D4, D8).
+	if spec.WorkspaceMode == "fresh_from_default" {
+		w.Unpushed, w.WIPSHA, w.WIPUnsaved = false, "", ""
+	}
+	// Work saved remotely does not tie the task (node-ties); only unsaved work does, with the reason.
+	if w.WIPSHA != "" {
+		w.Unpushed = false
+	}
+	if !w.Unpushed {
+		w.WIPUnsaved = ""
+	}
+	// tied_since keeps the start of a work tie that goes on; a new one starts now.
 	if w.Unpushed {
-		spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", company, runID)
-		if err != nil {
+		w.TiedSince = w.UpdatedAt
+		var since int64
+		var was bool
+		if err = tx.QueryRowContext(ctx, "SELECT unpushed=1,tied_since FROM workspaces WHERE company_id=? AND task_id=? AND node_id=?", company, w.TaskID, w.NodeID).Scan(&was, &since); err == nil && was && since > 0 {
+			w.TiedSince = since
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return w, err
 		}
-		if spec.WorkspaceMode == "fresh_from_default" {
-			w.Unpushed = false
-		}
+	} else {
+		w.TiedSince = 0
 	}
 	// exit_sha is set by the accepted exit (Core) or the node's report; an empty report keeps it.
-	if _, err = tx.ExecContext(ctx, `INSERT INTO workspaces(company_id,task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at,unpushed) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+	if _, err = tx.ExecContext(ctx, `INSERT INTO workspaces(company_id,task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at,unpushed,wip_sha,wip_unsaved,tied_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
  ON CONFLICT(company_id,task_id) DO UPDATE SET mode=excluded.mode,branch=excluded.branch,node_id=excluded.node_id,
  exit_sha=CASE WHEN excluded.exit_sha!='' THEN excluded.exit_sha ELSE workspaces.exit_sha END,sealed_head=excluded.sealed_head,
- sealed_at=excluded.sealed_at,run_id=excluded.run_id,updated_at=excluded.updated_at,unpushed=excluded.unpushed`,
-		company, w.TaskID, w.Mode, w.Branch, w.NodeID, w.ExitSHA, w.SealedHead, w.SealedAt, w.RunID, w.UpdatedAt, w.Unpushed); err != nil {
+ sealed_at=excluded.sealed_at,run_id=excluded.run_id,updated_at=excluded.updated_at,unpushed=excluded.unpushed,
+ wip_sha=excluded.wip_sha,wip_unsaved=excluded.wip_unsaved,tied_since=excluded.tied_since`,
+		company, w.TaskID, w.Mode, w.Branch, w.NodeID, w.ExitSHA, w.SealedHead, w.SealedAt, w.RunID, w.UpdatedAt, w.Unpushed, w.WIPSHA, w.WIPUnsaved, w.TiedSince); err != nil {
 		return w, err
 	}
 	return w, tx.Commit()
@@ -114,8 +141,8 @@ func (s *Store) ReportWorkspace(ctx context.Context, company, runID, lease strin
 
 func (s *Store) TaskWorkspace(ctx context.Context, company, task string) (tasks.Workspace, error) {
 	var w tasks.Workspace
-	err := s.DB.QueryRowContext(ctx, "SELECT task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at,unpushed FROM workspaces WHERE company_id=? AND task_id=?", company, task).
-		Scan(&w.TaskID, &w.Mode, &w.Branch, &w.NodeID, &w.ExitSHA, &w.SealedHead, &w.SealedAt, &w.RunID, &w.UpdatedAt, &w.Unpushed)
+	err := s.DB.QueryRowContext(ctx, "SELECT task_id,mode,branch,node_id,exit_sha,sealed_head,sealed_at,run_id,updated_at,unpushed,wip_sha,wip_unsaved,tied_since FROM workspaces WHERE company_id=? AND task_id=?", company, task).
+		Scan(&w.TaskID, &w.Mode, &w.Branch, &w.NodeID, &w.ExitSHA, &w.SealedHead, &w.SealedAt, &w.RunID, &w.UpdatedAt, &w.Unpushed, &w.WIPSHA, &w.WIPUnsaved, &w.TiedSince)
 	if errors.Is(err, sql.ErrNoRows) {
 		return w, ErrNotFound
 	}

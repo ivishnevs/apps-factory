@@ -161,7 +161,8 @@ refusals, `T` opens the task.
 
 **Why a run is QUEUED.** Core says why no node claims a QUEUED run (`queued` on the run in `GET /status`, on
 `GET /runs/{id}` and in the task's why): a company, project, agent or quota key pause with its reason, the
-agent's concurrency cap, the node holding the task's unpushed work, else what each registered node lacks —
+agent's concurrency cap, a tie ("tied to NODE: its unsaved work is there" / "…: its agent session is there", with
+`tie` in the reason), else what each registered node lacks —
 offline, paused by you or below its critical disk watermark, the driver disabled (`auth check failed: 401 …
 until 14:40`), the labels, every slot held, a resource class held; the node closest to taking the run gives
 the reason (`no free slot` before `node paused` before `driver disabled` before `node offline` before the
@@ -506,7 +507,8 @@ head_sha, url}}}`; the task detail's pull request), and `default_report` in `GET
 `GET /projects/{p}/artifacts/{a}/{v}/content`.
 
 Added for the owner backlog (6.1–6.5): `queued` — `{reason, detail, until, nodes: [{node, name, reason,
-detail, until}]}`, reasons `paused`, `agent_busy`, `pinned`, `no_slot`, `resource_busy`, `node_paused`,
+detail, until}], tie}`, reasons `paused`, `agent_busy`, `pinned` and `affinity` (aliases of the tie for one
+release, node-ties), `no_slot`, `resource_busy`, `node_paused`,
 `driver_disabled`, `node_offline`, `labels`, `no_node`, `unclaimed` — on a QUEUED run in `GET /status`,
 `GET /runs/{id}` and `GET /tasks/{id}/why` (`storage.QueuedWhy`: the claim's checks judged without a claim);
 `GET /tasks/{id}/parks` (`?all=1` with the cleared ones: `{id, kind, ref_id, reason, who, status, run_id,

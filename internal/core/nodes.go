@@ -93,7 +93,7 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 			}
 			t := tied[n.NodeID]
 			if t.Pinned == nil {
-				t.Pinned, t.Waiting = []string{}, []storage.TiedRun{}
+				t.Work, t.Pinned, t.Waiting = []string{}, []string{}, []storage.TiedRun{}
 			}
 			rs := ready[n.NodeID]
 			if rs == nil {

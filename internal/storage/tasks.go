@@ -265,6 +265,17 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 		if in.DefaultBranch != nil {
 			p.DefaultBranch = *in.DefaultBranch
 		}
+		if in.ReviewCarry != nil {
+			if len(*in.ReviewCarry) > tasks.MaxReviewCarry {
+				return p, inputError(fmt.Sprintf("review_carry: at most %d directories", tasks.MaxReviewCarry))
+			}
+			for _, c := range *in.ReviewCarry {
+				if err := tasks.ValidReviewCarry(c); err != nil {
+					return p, inputError(err.Error())
+				}
+			}
+			p.ReviewCarry = append([]string(nil), *in.ReviewCarry...)
+		}
 		if in.Rules != nil {
 			if len(*in.Rules) > MaxRules {
 				return p, inputError("rules up to 8 KiB")

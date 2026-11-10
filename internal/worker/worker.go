@@ -307,6 +307,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	defer stopRun(nil)
 	var wt *workspace.Worktree
 	var req workspace.Request
+	// review: wt is a disposable review copy (node-ties), never sealed or reported.
+	var review bool
 	// exitFile is where the MCP adapter records the run's exit (docs/explicit-exits-contract.md §5).
 	var exitFile string
 	// exitHead is the worktree's HEAD when the worker first saw the exit accepted: the exit's commit
@@ -378,7 +380,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 			exit = workspace.Exit{Kind: exitEnd.Kind, SHA: exitEnd.ExitSHA}
 		}
-		w.sealWorktree(spec.ID, lease, *wt, req, exit)
+		if !review {
+			w.sealWorktree(spec.ID, lease, *wt, req, exit)
+		}
 		return exitEnd
 	}
 	// noEvidence: the run ends without a runtime result or a known outcome (the deferred end below).
@@ -497,8 +501,34 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return setupFailed(err)
 		}
 		cwd = dir
-	} else if r, ok := w.worktreeRequest(spec); ok {
+	} else if r, ok := w.worktreeRequest(spec); ok && spec.ReviewCopy && !r.Fresh {
+		// node-ties: a run of an agent that is not the task's implementer works in a disposable copy of the
+		// pushed task branch; it is not sealed, not reported and removed after the run.
+		t, err := w.Worktrees.ReviewCopy(ctx, r, spec.ReviewCarry)
+		var nr *workspace.NotReviewableError
+		if errors.As(err, &nr) {
+			return emit("failed", protocol.Event{Status: ended, Result: nr.Error(), Outcome: outcomeSetupFailed})
+		}
+		if workspace.IsLockError(err) {
+			return notStarted(driver.OutcomeFailed, fmt.Errorf("review copy: %w", err))
+		}
+		if err != nil {
+			return setupFailed(fmt.Errorf("review copy: %w", err))
+		}
+		wt, req, cwd, review = &t, r, t.Path, true
+		defer func() {
+			finish()
+			if err := t.Release(); err != nil {
+				slog.Error("review copy release", "run", spec.ID, "error", err)
+			}
+		}()
+	} else if ok {
 		t, err := w.Worktrees.Acquire(ctx, r)
+		var restore *workspace.RestoreError
+		if errors.As(err, &restore) {
+			// The saved work Core named is gone from the remote: the run does not start without it.
+			return setupFailed(err)
+		}
 		var diverged *workspace.DivergedError
 		if errors.As(err, &diverged) {
 			// Core escalates workspace_diverged; the worktree is left as it is (task-worktrees D4).
@@ -672,6 +702,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if spec.Conversation && spec.Workspace != "" {
 		launch.Env = setEnv(launch.Env, "FACTORY_PROJECT_WORKSPACE", spec.Workspace)
 		launch.Instructions += conversationNote(spec.Workspace)
+	}
+	if review {
+		launch.Instructions += ReviewCopyNote
 	}
 	for _, kv := range secretEnv { // spec.secrets: the runtime's environment only
 		k, v, _ := strings.Cut(kv, "=")
@@ -999,7 +1032,8 @@ func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool
 		slog.Warn("worktree run in the project workspace", "run", spec.ID, "worktrees", w.Worktrees != nil, "task", spec.TaskID, "repo_url", spec.RepoURL != "")
 		return workspace.Request{}, false
 	}
-	r := workspace.Request{Company: w.company(), Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch}
+	r := workspace.Request{Company: w.company(), Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch, WIP: spec.RestoreWIP,
+		Moved: spec.WorkspaceNode != "" && w.NodeID != "" && spec.WorkspaceNode != w.NodeID}
 	if spec.WorkspaceMode == WorkspaceFreshFromDefault {
 		r.Fresh = true
 	} else {
@@ -1033,16 +1067,20 @@ func (w *Worker) conversationDir(spec protocol.RunSpec) (string, error) {
 	return filepath.EvalSymlinks(dir)
 }
 
+// ReviewCopyNote tells a review run about its disposable copy (node-ties): anything goes there, nothing is kept.
+const ReviewCopyNote = "\n\nThis is a review copy: your working directory is a disposable checkout of the task branch as pushed. You may merge the default branch, build and run tests here, but nothing you do here is kept or pushed (pushing is refused): your result is the verdict, so put what the implementer must change in it.\n"
+
 // conversationNote tells a conversation run where the project workspace is: it reads it, never writes it.
 func conversationNote(workspace string) string {
 	return "\n\nThis is a conversation run: your working directory is your own conversation directory, not the project workspace. The project workspace is at " + workspace + " (also $FACTORY_PROJECT_WORKSPACE); read it when you need the code, but do not modify it: changes belong to tasks you delegate or create.\n"
 }
 
 // sealWorktree seals a run's worktree with its accepted exit (reset to the exit's commit after handoff,
-// submit or done) and reports it to Core: mode, branch, node, the last exit's commit, sealed_head. The
-// WIP ref stays local (task-worktrees D3). Failures are logged only.
+// submit or done), saves its local work to refs/factory/wip/<task> on origin (node-ties) and reports it to
+// Core: mode, branch, node, the last exit's commit, sealed_head, the saved WIP or why it was not saved.
+// Failures are logged only.
 func (w *Worker) sealWorktree(run, lease string, wt workspace.Worktree, req workspace.Request, exit workspace.Exit) {
-	ctx, stop := context.WithTimeout(context.Background(), time.Minute)
+	ctx, stop := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer stop()
 	res, err := w.Worktrees.SealExit(ctx, req, exit)
 	if err != nil {
@@ -1051,11 +1089,16 @@ func (w *Worker) sealWorktree(run, lease string, wt workspace.Worktree, req work
 			return
 		}
 	}
-	// unpushed pins the task to this node (task-worktrees D8) and is reported to Core; wip_sha is logged.
+	res = w.Worktrees.SaveWIP(ctx, req, res)
+	// Local work that could not be saved ties the task to this node by its work (node-ties); saved work does not.
 	slog.Info("worktree sealed", "run", run, "task", req.Task, "path", wt.Path, "branch", wt.Branch, "exit", exit.Kind,
-		"exit_sha", res.ExitSHA, "reset", res.Reset, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA, "unpushed", res.Unpushed)
+		"exit_sha", res.ExitSHA, "reset", res.Reset, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA, "unpushed", res.Unpushed,
+		"local_work", res.LocalWork, "saved_wip", res.SavedWIP, "unsaved", res.Unsaved)
 	report := workspaceReport{Lease: lease, Mode: "worktree", Branch: wt.Branch, NodeID: w.NodeID, ExitSHA: res.ExitSHA,
-		SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix(), Unpushed: res.Unpushed}
+		SealedHead: res.SealedHead, SealedAt: res.SealedAt.Unix(), Unpushed: res.LocalWork && res.SavedWIP == "", WIPSHA: res.SavedWIP}
+	if report.Unpushed {
+		report.WIPUnsaved = res.Unsaved
+	}
 	if err := w.reportWorkspace(ctx, run, report); err != nil {
 		slog.Error("workspace report", "run", run, "task", req.Task, "error", err)
 	}
@@ -1070,8 +1113,11 @@ type workspaceReport struct {
 	ExitSHA    string `json:"exit_sha,omitempty"`
 	SealedHead string `json:"sealed_head,omitempty"`
 	SealedAt   int64  `json:"sealed_at,omitempty"`
-	// Unpushed: work of the task that is not on the remote stays on this node (pinning, task-worktrees D8).
+	// Unpushed: work of the task that is only on this node (not saved remotely) ties the task here (node-ties).
 	Unpushed bool `json:"unpushed,omitempty"`
+	// WIPSHA is the work saved to refs/factory/wip/<task>; WIPUnsaved why local work could not be saved.
+	WIPSHA     string `json:"wip_sha,omitempty"`
+	WIPUnsaved string `json:"wip_unsaved,omitempty"`
 }
 
 // reportWorkspace posts a run's workspace to Core, retrying transient failures (network errors, 5xx)

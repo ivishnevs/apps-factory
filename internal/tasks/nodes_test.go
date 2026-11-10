@@ -55,16 +55,16 @@ func TestEvaluateNodeReasons(t *testing.T) {
 		}, ReasonLiveRun, "RUNNING"},
 		{"paused before nodes", func(s *Snapshot) { s.Needs.Labels = []string{"windows"}; s.Paused = []string{"company"} }, ReasonPaused + "company", ""},
 		{"pinned node free", func(s *Snapshot) { s.PinnedNode = "n1" }, ReasonRunnable, ""},
-		{"pinned node full", func(s *Snapshot) { s.PinnedNode = "n1"; s.Nodes[0].Held = 2 }, ReasonCapacity, "unpushed work is on node mini-1 (n1), which is full (mini-1 (n1): all 2 slots held)"},
+		{"pinned node full", func(s *Snapshot) { s.PinnedNode = "n1"; s.Nodes[0].Held = 2 }, ReasonCapacity, "tied to mini-1 (n1): its unsaved work is there; the node is full (mini-1 (n1): all 2 slots held)"},
 		{"pinned, another node full does not matter", func(s *Snapshot) { s.PinnedNode = "n1"; s.Nodes[1].Held = 4 }, ReasonRunnable, ""},
 		{"pinned node offline briefly", func(s *Snapshot) {
 			s.PinnedNode, s.Nodes[0].Online, s.Nodes[0].LastSeen = "n1", false, now.Add(-10*time.Minute).Unix()
-		}, ReasonCapacity, "unpushed work is on node mini-1 (n1), offline since"},
+		}, ReasonCapacity, "tied to mini-1 (n1): its unsaved work is there; the node is offline since"},
 		{"pinned node offline past the timeout", func(s *Snapshot) {
 			s.PinnedNode, s.Nodes[0].Online, s.Nodes[0].LastSeen = "n1", false, now.Add(-31*time.Minute).Unix()
 		}, ReasonPinnedNode, "offline since"},
-		{"pinned node removed", func(s *Snapshot) { s.PinnedNode = "gone" }, ReasonPinnedNode, "node gone, which is no longer registered"},
-		{"pinned node cannot run the assignee", func(s *Snapshot) { s.PinnedNode = "n2" }, ReasonPinnedNode, "box (n2), which cannot run dev: lacks labels macos"},
+		{"pinned node removed", func(s *Snapshot) { s.PinnedNode = "gone" }, ReasonPinnedNode, "tied to gone: its unsaved work is there; node gone is no longer registered"},
+		{"pinned node cannot run the assignee", func(s *Snapshot) { s.PinnedNode = "n2" }, ReasonPinnedNode, "tied to box (n2): its unsaved work is there; the node cannot run dev: lacks labels macos"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -93,5 +93,32 @@ func TestEvaluateNodeReasons(t *testing.T) {
 	s.PinnedNode, s.Needs, s.Parks = "gone", NodeNeeds{}, []Park{{Kind: ParkEscalation, RefID: "m1", Reason: "pinned"}}
 	if why := PinnedUnavailable(s); why == "" || Evaluate(s).Reason != ReasonParked+ParkEscalation {
 		t.Fatal(why, Evaluate(s))
+	}
+}
+
+// TestEvaluateTie (node-ties 1.1): a task tied to a node carries the tie in its verdict whatever the reason, with
+// the node's name, the reason, how it ends and why its work could not be saved; terminal tasks carry none.
+func TestEvaluateTie(t *testing.T) {
+	now := time.Date(2027, 1, 15, 8, 0, 0, 0, time.UTC)
+	s := Snapshot{Task: Task{ID: "t1", Status: "READY", Assignee: "dev"}, Now: now, AgentConfigured: true, WakeSeq: 1,
+		Nodes: []Node{{ID: "n1", Name: "hetzner-hel1", Online: true, Slots: 1, Held: 1}}, Needs: NodeNeeds{Provider: "codex"}}
+	s.Nodes[0].Drivers = []NodeDriver{{Name: "codex", OK: true}}
+	s.PinnedNode = "n1"
+	s.Tie = &Tie{Node: "n1", Reason: TieWork, Since: now.Unix(), Release: WorkRelease, Unsaved: "secret finding: aws key in config.env"}
+	v := Evaluate(s)
+	if v.Tie == nil || v.Tie.NodeName != "hetzner-hel1" || v.Tie.Reason != TieWork || v.Tie.Release != WorkRelease || v.Tie.Since != now.Unix() {
+		t.Fatalf("%+v", v.Tie)
+	}
+	if want := "tied to hetzner-hel1 (n1): its unsaved work is there (it could not be saved: secret finding: aws key in config.env)"; !strings.HasPrefix(v.Detail, want) {
+		t.Fatalf("detail %q", v.Detail)
+	}
+	s.Tie = &Tie{Node: "n1", Reason: TieSession, Release: SessionRelease(90 * time.Minute)}
+	s.PinnedNode = ""
+	if v = Evaluate(s); v.Tie == nil || v.Tie.Say() != "tied to hetzner-hel1 (n1): its agent session is there" || v.Tie.Release != "90 min after the node goes inactive" {
+		t.Fatalf("%+v", v.Tie)
+	}
+	s.Task.Status = "DONE"
+	if v = Evaluate(s); v.Tie != nil {
+		t.Fatal("terminal task tied", v.Tie)
 	}
 }

@@ -51,6 +51,17 @@ type RunSpec struct {
 	RepoURL       string `json:"repo_url,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
 	WorkspaceMode string `json:"workspace_mode,omitempty"`
+	// ReviewCopy (node-ties): the run's agent is not the task's implementer (reviewer, QA, accepting manager); a
+	// worktree run works in a disposable copy of the pushed task branch, never sealed, reported or pushed.
+	// ReviewCarry are the project's workspace.review_carry directories the node copies into it.
+	ReviewCopy  bool     `json:"review_copy,omitempty"`
+	ReviewCarry []string `json:"review_carry,omitempty"`
+	// RestoreWIP is set in the claim answer, not stored (node-ties): the task's work saved to
+	// refs/factory/wip/<task>, whose files the node restores when its worktree does not hold them.
+	RestoreWIP string `json:"restore_wip,omitempty"`
+	// WorkspaceNode, also in the claim answer only, is the node of the task's last workspace report: when it is
+	// another node, this node's leftovers it saved remotely are not continued (node-ties).
+	WorkspaceNode string `json:"workspace_node,omitempty"`
 	// Conversation marks a run of an agent's conversation task (hierarchy D5): it reads the project workspace
 	// but does not hold its writer slot.
 	Conversation bool `json:"conversation,omitempty"`

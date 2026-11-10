@@ -76,7 +76,7 @@ something for the node, else empty when the wait ends:
 ```
 
 - `offers` are hints: `QUEUED` runs of the node's company, oldest first, at most `free` per provider, whose driver is
-  usable on the node and whose agent's labels it has, not pinned to another node's unpushed worktree, none while
+  usable on the node and whose agent's labels it has, not tied to another node by its task's unsaved work, none while
   the node or the company is paused. Several nodes may get the same offer; only the claim (§5) takes a run, and the
   loser gets `409 drop/duplicate`. The node hands each offer to an idle slot; one it cannot take stays queued.
 - `stop`, `reset`, `cleanup` are what the heartbeat answer (§7) lists for the node: stops of its live runs Core
@@ -107,8 +107,13 @@ and of the current epoch; node has the agent's driver and labels; resource capac
   CLAIMED. The RunSpec (with the brief built now) replaces `GET /runs/{id}`. Retrying the same
   `(node_id, epoch, claim_id)` returns the same answer; Core does not order claim ids. The RunSpec's
   `materialize` (not stored) lists the project data the node places in the worktree before the runtime starts:
-  `{"files": [{"path", "sha256", "size"}]}`, the pinned approved artifact inputs under `.factory/inputs/`
-  (core-owned-project-data; OpenSpec is in the checkout, see [OpenSpec](openspec.md)). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and
+  `{"files": [{"path", "sha256", "size"}]}`, the pinned approved artifact inputs under `.factory/inputs/`. Also not
+  stored (node-ties): `restore_wip`, the task's work saved to `refs/factory/wip/<task>` that the node restores as
+  files when its worktree does not hold it, and `workspace_node`, the node of the task's last workspace report (a
+  different node means this node's earlier saved leftovers are not continued). Stored: `review_copy` (the run's
+  agent is not the task's implementer: a disposable review copy of the pushed branch) and `review_carry` (the
+  project's ignored directories copied into it). Project data follows core-owned-project-data; OpenSpec is in the
+  checkout, see [OpenSpec](openspec.md). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and
   `X-Factory-Lease: <lease>`; a blob it cannot fetch ends the run `setup_failed` before the runtime starts. It
   uploads the run's log, redacted, with `PUT /runs/{id}/logs?seq=N[&final=1]&redacted=1` and the same header,
   during the run and after its terminal event. Both routes are open to a signed node for its own runs.
@@ -323,14 +328,14 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   register with a failing driver reports it; a new epoch declaring the same failure does not.
 - **Offline and continuity**: node silence and leases are judged only over 60 s of continuous Core ticking: after a Core host sleep, a node and its runs get a full 60 s from the wake.
 - **Evaluate** (`GET /tasks/{id}/why`, `factory tasks why`) with registered nodes: `pinned_node_unavailable` (the
-  node holding the task's unpushed work was removed, is offline past 30 min, or cannot run the assignee; the
-  stalled sweep opens one escalation answered by `reset_workspace`, which unpins and makes the next run start a new
-  session), `no_capable_node` (no online node without disk pause has the assignee's driver, labels and resources),
+  node the task is tied to by its unsaved work was removed, is offline past 30 min, or cannot run the assignee; the
+  stalled sweep opens one escalation answered by `reset_workspace`, which releases the tie and makes the next run
+  start a new session; the name stays for one release, the verdict's `tie` is the new notion), `no_capable_node` (no online node without disk pause has the assignee's driver, labels and resources),
   `capacity` (capable nodes are full, or the pinned node is offline for less than the pin timeout). A QUEUED run
   nobody can claim reports these instead of `live_run`.
 - **Why a run is QUEUED** (`queued` on the run in `GET /status`, `GET /runs/{id}` and `GET /tasks/{id}/why`;
   `storage.QueuedWhy`): the claim's own checks judged without a claim — a pause (`paused`, with the owner's reason
-  and a quota pause's `until`), the agent's cap (`agent_busy`), the pinned node, else each node's answer
+  and a quota pause's `until`), the agent's cap (`agent_busy`), the node the run is tied to (`tie`), else each node's answer
   (`node_offline`, `node_paused` by the owner or at critical disk, `driver_disabled` with the hold-off `until`,
   `labels`, `no_slot`, `resource_busy`) in `nodes`, the node closest to taking the run giving `reason` and
   `detail`; `unclaimed` when a node has room, `no_node` without registered nodes.

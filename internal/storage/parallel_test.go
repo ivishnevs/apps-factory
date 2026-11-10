@@ -252,9 +252,9 @@ func TestOffersTiedWorkFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	n1 := tied["n1"]
-	if !slices.Equal(n1.Pinned, []string{"pin"}) || len(n1.Waiting) != 2 ||
-		n1.Waiting[0] != (TiedRun{RunID: held.ID, TaskID: "held", Agent: "dev", Tie: "session"}) ||
-		n1.Waiting[1] != (TiedRun{RunID: pin.ID, TaskID: "pin", Agent: "dev", Tie: "pinned"}) {
+	if !slices.Equal(n1.Work, []string{"pin"}) || !slices.Equal(n1.Pinned, n1.Work) || len(n1.Waiting) != 2 ||
+		n1.Waiting[0] != (TiedRun{RunID: held.ID, TaskID: "held", Agent: "dev", Reason: "session", Tie: "session"}) ||
+		n1.Waiting[1] != (TiedRun{RunID: pin.ID, TaskID: "pin", Agent: "dev", Reason: "work", Tie: "pinned"}) {
 		t.Fatalf("tied to n1: %+v", n1)
 	}
 	if _, ok := tied["n2"]; ok {

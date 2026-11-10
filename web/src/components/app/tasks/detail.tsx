@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Send } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Pin, Send } from "lucide-react";
 import Link from "@/components/app/link";
 import { useState } from "react";
 import { StatusBadge, toneClass } from "@/components/app/status";
@@ -16,7 +16,7 @@ import { useConfirm } from "@/components/app/confirm";
 import { core } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { cleanText, humanize, party as partyOf, taskName, triggerWords, type Lookup, type Party } from "@/lib/humanize";
+import { cleanText, humanize, party as partyOf, taskName, tieWords, triggerWords, type Lookup, type Party } from "@/lib/humanize";
 import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
 import { reviewerName } from "./reviewer";
@@ -91,7 +91,10 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
   const done = isTerminal(task.status);
   const h = humanize({ ...why, status: task.status }, look, now);
   // A queued run explains itself with its node reason.
-  const q = queued ? humanize({ reason: queued.reason, detail: queued.detail, status: task.status }, look, now) : undefined;
+  const q = queued ? humanize({ reason: queued.reason, detail: queued.detail, status: task.status, tie: queued.tie }, look, now) : undefined;
+  // node-ties: one wording for a task tied to a node, whatever else it waits for.
+  const tie = done ? undefined : queued?.tie ?? why.tie;
+  const tied = tie ? tieWords(tie) : undefined;
   const you = h.you && !done;
   const live = h.live && !queued;
   const Icon = done ? CheckCircle2 : you ? Hand : live ? Loader2 : queued || h.queued ? Clock : CircleDot;
@@ -112,6 +115,11 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
           <p className="mt-0.5 text-base font-semibold leading-snug text-balance wrap-anywhere">{headline}</p>
           {done && task.result && <ResultText text={cleanText(task.result, look)} />}
           {detail && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{detail}</p>}
+          {tied && !detail?.includes(tied.detail) && (
+            <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground wrap-anywhere">
+              <Pin aria-hidden className="mt-0.5 size-3.5 shrink-0" /><span>{tied.headline}. {tied.detail}</span>
+            </p>
+          )}
           {!done && (h.who && !h.who.you || h.next) && (
             <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-4">
               {h.who && !h.who.you && (

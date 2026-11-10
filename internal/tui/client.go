@@ -32,6 +32,8 @@ type Task struct {
 	Reason  string        `json:"reason"`
 	Clearer tasks.Clearer `json:"clearer"`
 	Wait    *tasks.Wait   `json:"wait,omitempty"`
+	// Tie is the task's tie to a node (node-ties).
+	Tie *tasks.Tie `json:"tie,omitempty"`
 }
 
 // Agent is one catalog agent as the UI shows it.

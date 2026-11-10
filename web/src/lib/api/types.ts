@@ -10,8 +10,13 @@ export interface Wait {
   kind: "agent" | "agent_project" | "agent_conversation" | "writer" | "pinned_node" | "nodes"; agent?: string; live?: number; limit?: number;
   task_id?: string; run_id?: string; node?: string; lost?: boolean;
 }
+// Tie (node-ties): why a task or a queued run waits for one node — its unsaved work (work) or its agent's
+// session (session) is there — since when and how it ends (release; release_at for a timed session tie).
+export interface Tie {
+  node: string; node_name?: string; reason: "work" | "session"; since?: number; release: string; release_at?: number; unsaved?: string;
+}
 export interface Verdict {
-  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait;
+  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait; tie?: Tie;
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
@@ -27,8 +32,8 @@ export interface Task {
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
   progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
-  // Added by the overview: the why reason and who clears it.
-  reason: string; clearer: Clearer; wait?: Wait;
+  // Added by the overview: the why reason, who clears it and the task's tie to a node.
+  reason: string; clearer: Clearer; wait?: Wait; tie?: Tie;
 }
 
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
@@ -50,8 +55,8 @@ export interface ProjectSetup {
   audit?: boolean; audit_task_id?: string; updated_at?: number;
 }
 
-// holder and inactive (affinity): the node holding the session and why it is inactive; such a session can be released (node-readiness).
-export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[]; holder?: string; inactive?: string }
+// holder and inactive (affinity): the node holding the session and why it is inactive; such a session can be released (node-readiness). tie: node-ties.
+export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[]; holder?: string; inactive?: string; tie?: Tie }
 export interface RunStatus { id: string; agent: string; task_id?: string; status: string; started_at?: number; queued?: QueuedReason }
 export interface ProjectStatus {
   project: Project; runs: RunStatus[]; tasks: Record<string, number>; waiting: Verdict[]; runnable: number; inbox: number;
@@ -66,9 +71,10 @@ export interface Health { status: string; database?: string; company: string; ex
 export interface NodeUse { runs: number; resources: Record<string, number>; conversation_slots?: number; conversation_runs?: number }
 // AgentRuns: an agent's live and queued runs per kind (GET /agents/runs).
 export interface AgentRuns { work_live: number; work_queued: number; conversation_live: number; conversation_queued: number }
-// NodeTied (sticky-work-first): open tasks whose unsaved work is on the node, and queued runs only it may take now.
-export interface TiedRun { run_id: string; task_id: string; agent: string; tie: "pinned" | "session" }
-export interface NodeTied { pinned: string[]; waiting: TiedRun[] }
+// NodeTied (sticky-work-first, node-ties): open tasks whose unsaved work is only on the node (work), and queued runs
+// only it may take now. pinned and TiedRun.tie are the old names, kept for one release.
+export interface TiedRun { run_id: string; task_id: string; agent: string; reason?: "work" | "session"; tie: "pinned" | "session" }
+export interface NodeTied { work?: string[]; pinned: string[]; waiting: TiedRun[] }
 // node-readiness (storage.ProjectReadiness): a node's readiness for one project; faults say what failed and the fix.
 export interface NodeFault { kind: string; detail: string; fix?: string }
 export interface ProjectReadiness {
