@@ -39,6 +39,8 @@ type Register struct {
 	// Reason: start (process start, counted for node.restart_loop) or reregister (Core lost the node or its
 	// incarnation changed). Driver changes ride the heartbeat's drivers and never re-register.
 	Reason string `json:"reason,omitempty"`
+	// Features: newer runtime options this node's drivers apply (storage.FeatureContextWindow).
+	Features []string `json:"features,omitempty"`
 }
 
 // DriverInfo is a driver as last checked: Version from CheckVersion, OK when no check failed; Check names the
@@ -219,7 +221,7 @@ func (s *session) readiness() []protocol.ProjectReadiness {
 // register registers the current epoch with the drivers as last checked, retrying while Core is
 // unreachable; a refusal is final.
 func (s *session) register(ctx context.Context, reason string) error {
-	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots, ConversationSlots: s.cfg.ConversationSlots,
+	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots, ConversationSlots: s.cfg.ConversationSlots, Features: []string{"context_window"},
 		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}

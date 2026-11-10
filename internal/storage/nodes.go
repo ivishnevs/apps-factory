@@ -81,7 +81,14 @@ type NodeRegistration struct {
 	Worktrees bool `json:"worktrees,omitempty"`
 	// Reason is why the node registers: start (default; counts towards node.restart_loop) or reregister.
 	Reason string `json:"reason,omitempty"`
+	// Features are the newer runtime options the node's drivers apply (FeatureContextWindow); a run's spec loses
+	// the ones its node does not list when the node claims it.
+	Features []string `json:"features,omitempty"`
 }
+
+// FeatureContextWindow: the node's drivers apply runtime option context_window (work-and-conversation-runs); older
+// drivers refuse runs with an option they do not know.
+const FeatureContextWindow = "context_window"
 
 type NodeRegistered struct {
 	Incarnation string `json:"incarnation"`
@@ -191,12 +198,13 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	drivers, _ := json.Marshal(nonNil(r.Drivers))
 	resources, _ := json.Marshal(nonNilMap(r.Resources))
 	labels, _ := json.Marshal(nonNil(r.Labels))
+	features, _ := json.Marshal(nonNil(r.Features))
 	now := tx.now().Unix()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees,conversation_slots)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
+	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees,conversation_slots,features)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
  protocol_version=excluded.protocol_version,slots=excluded.slots,drivers=excluded.drivers,resources=excluded.resources,
- labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1,worktrees=excluded.worktrees,conversation_slots=excluded.conversation_slots`,
-		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees, r.ConversationSlots); err != nil {
+ labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1,worktrees=excluded.worktrees,conversation_slots=excluded.conversation_slots,features=excluded.features`,
+		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees, r.ConversationSlots, features); err != nil {
 		return out, err
 	}
 	if err = nodeRegistered(ctx, tx, r, prior); err != nil {
@@ -576,6 +584,17 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 	}
 	out.RunSpec.Company = company
 	out.StartBy = time.Unix(startBy, 0).UTC()
+	// A node that does not list context_window gets the run without it (its driver would refuse the run). Nodes that
+	// report conversation slots apply it too: both shipped in work-and-conversation-runs, before the features list.
+	if _, ok := out.RunSpec.RuntimeOptions[FeatureContextWindow]; ok {
+		var has bool
+		if err := tx.QueryRowContext(ctx, "SELECT coalesce(n.features @> jsonb_build_array(?::text) OR n.conversation_slots>0, false) FROM runs r LEFT JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id WHERE r.company_id=? AND r.id=?", FeatureContextWindow, company, id).Scan(&has); err != nil {
+			return out, err
+		}
+		if !has {
+			delete(out.RunSpec.RuntimeOptions, FeatureContextWindow)
+		}
+	}
 	if out.RunSpec.Project != "" {
 		// The project's required tools, checked by the node before the runtime starts (node-readiness).
 		if p, err := projectTx(ctx, tx, out.RunSpec.Project); err == nil {

@@ -428,3 +428,32 @@ func TestCleanupListsClosedWorktrees(t *testing.T) {
 		t.Fatal("listed forever", got)
 	}
 }
+
+// TestContextWindowFeature: a node that does not list the context_window feature (older than
+// work-and-conversation-runs, whose driver refuses unknown options) gets the run without the option; a node that
+// lists it gets it.
+func TestContextWindowFeature(t *testing.T) {
+	for _, newer := range []bool{false, true} {
+		s := engineStore(t)
+		ctx := context.Background()
+		register(t, s, "n1", 1, func(r *NodeRegistration) {
+			if newer {
+				r.Features = []string{FeatureContextWindow}
+			}
+		})
+		register(t, s, "n2", 1, func(r *NodeRegistration) { r.ConversationSlots = 1 }) // between the two: applies it
+		v := readyEngineTask(t, s, createEngineTask(t, s, "t1"))
+		spec, err := s.Dispatch(ctx, DefaultCompany, v.ID, v.Version, protocol.RunSpec{ID: "r1", Project: v.ProjectID, Agent: v.Assignee, Provider: protocol.RuntimeCodex,
+			RuntimeOptions: map[string]any{"model": "m", FeatureContextWindow: 200000}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := claimV2(s, spec.ID, "n1", 1, "c1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, has := c.RunSpec.RuntimeOptions[FeatureContextWindow]; has != newer || c.RunSpec.RuntimeOptions["model"] != "m" {
+			t.Fatalf("newer=%v: %+v", newer, c.RunSpec.RuntimeOptions)
+		}
+	}
+}
