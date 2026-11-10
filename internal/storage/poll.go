@@ -153,8 +153,9 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 		if left[c.provider] == 0 {
 			continue
 		}
-		// Runs whose session another active node holds are not offered (the claim refuses them too).
-		if c.session != "" {
+		// Runs whose session another active node holds are not offered (the claim refuses them too), unless the
+		// task's unpushed work is here: the pin outranks the session.
+		if c.session != "" && c.rank != 0 {
 			spec := protocol.RunSpec{SessionID: c.session, Provider: protocol.RuntimeProvider(c.provider), ConfigSnapshot: c.snapshot}
 			if a, err := sessionAffinity(ctx, s.DB, company, c.id, spec, node, s.Now()); err != nil {
 				return out, err

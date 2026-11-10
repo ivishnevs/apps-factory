@@ -152,3 +152,52 @@ func TestAcceptNodeAccount(t *testing.T) {
 		t.Fatal("delivered twice")
 	}
 }
+
+// TestPinOutranksAffinity: a task whose unpushed work is on one node while another active node holds the agent's
+// session is offered to and claimed by the pinned node (seen on 85622aeb: neither node could take it).
+func TestPinOutranksAffinity(t *testing.T) {
+	s, fake := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "app", Name: "app", Workspace: "/tmp/pin-affinity-app"}); err != nil {
+		t.Fatal(err)
+	}
+	register(t, s, "n1", 1)
+	register(t, s, "n2", 1)
+	v, _ := s.CreateTask(ctx, co, tasks.Create{ID: "t", ProjectID: "app", Title: "t", Assignee: "dev", Ready: true, RequestID: "c"})
+	first, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: "r1", Project: "app", Agent: "dev", Provider: protocol.RuntimeCodex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := claimV2(s, first.ID, "n1", 1, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.StartRun(ctx, co, first.ID, c.Lease); err != nil {
+		t.Fatal(err)
+	}
+	// The session ran on n1, but the task's unpushed work ended up on n2 (a reviewer's run there).
+	if _, err = s.ReportWorkspace(ctx, co, first.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n2", Unpushed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err = end(t, s, first.ID, c.Lease, protocol.Event{Status: "ENDED", Outcome: "failed", SessionID: "sess-1"}); err != nil {
+		t.Fatal(err)
+	}
+	fake.Advance(time.Hour)
+	register(t, s, "n1", 2) // the session's holder stays active
+	v, _ = s.Task(ctx, co, "t")
+	second, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: "r2", Project: "app", Agent: "dev", Provider: protocol.RuntimeCodex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SessionID != "sess-1" {
+		t.Fatalf("second run does not continue the session: %q", second.SessionID)
+	}
+	offers, err := s.Offers(ctx, co, "n2", 1, map[string]int{"codex": 4}, nil)
+	if err != nil || len(offers) != 1 || offers[0].RunID != second.ID {
+		t.Fatalf("pinned node not offered the run: %+v %v", offers, err)
+	}
+	if _, err = claimV2(s, second.ID, "n2", 1, "c2"); err != nil {
+		t.Fatal("pinned node refused:", err)
+	}
+}

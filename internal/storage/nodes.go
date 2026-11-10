@@ -424,9 +424,16 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 			return out, retry("pinned")
 		}
 		// Session affinity (session-affinity): a continued session stays with its node while that node is active.
-		if a, err := sessionAffinity(ctx, tx, company, id, spec, req.NodeID, tx.now()); err != nil {
-			return out, err
-		} else if a != nil {
+		// The task's unpushed work outranks it: only the pinned node can continue the task, and it starts a fresh
+		// session when it does not have this one (seen on 85622aeb: pinned to one node, session held by another,
+		// neither could claim).
+		var a *Affinity
+		if pinned != req.NodeID {
+			if a, err = sessionAffinity(ctx, tx, company, id, spec, req.NodeID, tx.now()); err != nil {
+				return out, err
+			}
+		}
+		if a != nil {
 			if err = tx.Commit(); err != nil { // the inactivity timer
 				return out, err
 			}
