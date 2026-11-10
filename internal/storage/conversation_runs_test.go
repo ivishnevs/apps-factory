@@ -206,6 +206,15 @@ func TestConversationSlots(t *testing.T) {
 	if q, _ := s.QueuedWhy(f.ctx, DefaultCompany, "c2"); q == nil || q.Reason != QueuedNoSlot {
 		t.Fatalf("every slot held: %+v", q)
 	}
+	// What the nodes and team pages read: slots per kind and runs per kind.
+	use, err := s.NodesInUse(f.ctx, DefaultCompany)
+	if u := use["n1"]; err != nil || u.Runs != 2 || u.ConversationSlots != 1 || u.ConversationRuns != 1 {
+		t.Fatalf("in use %+v %v", u, err)
+	}
+	counts, err := s.AgentRunCounts(f.ctx, DefaultCompany)
+	if err != nil || counts["a-c1"] != (AgentRuns{ConversationLive: 1}) || counts["a-c2"] != (AgentRuns{ConversationQueued: 1}) || counts["a-w2"] != (AgentRuns{WorkQueued: 1}) || counts["a-w1"] != (AgentRuns{WorkLive: 1}) {
+		t.Fatalf("agent runs %+v %v", counts, err)
+	}
 	nodes, err := s.Nodes(f.ctx, DefaultCompany)
 	if err != nil || len(nodes) != 2 || nodes[0].ConversationSlots != 1 || nodes[1].ConversationSlots != 0 {
 		t.Fatalf("nodes %+v %v", nodes, err)

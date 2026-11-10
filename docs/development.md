@@ -284,6 +284,7 @@ checkout for `state_dir: data/...`. A bare `binary: codex` stays a PATH lookup.
 ```yaml
 name: mini-1                 # default: host name; a label only (Core identifies the node by node_id)
 slots: 2                     # 1..64
+conversation_slots: 1        # 0..64, on top of slots: conversation runs only (work-and-conversation-runs)
 resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
 labels: [macos, xcode]       # sent in register; Core claims an agent's run only where all its spec.labels are
 runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)

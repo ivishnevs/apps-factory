@@ -12,14 +12,36 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { useCatalogDocument, useCatalogHistory, usePost } from "@/lib/api/client";
 import { documentGroup, lineDiff, type CatalogChange, type CatalogVersion, type TeamMember } from "@/lib/api/types-catalog";
+import type { AgentRuns } from "@/lib/api/types";
 import { ago } from "@/lib/format";
+import { windowLabel } from "@/lib/run-kinds";
 import { cn } from "@/lib/utils";
 
 // The catalog's building blocks shared by the Teams pages (company-self-service 6.1, company-teams 7.1): an agent
 // card, the document editor (a diff before saving, the loader's error at the document) and the version history
 // with rollback. Saves go on top of the version the page read; a newer version refuses the save.
 
-export function MemberCard({ m, onOpen, onSkills, onEdit }: { m: TeamMember; onOpen: (path: string) => void; onSkills?: () => void; onEdit?: () => void }) {
+// RunKinds (work-and-conversation-runs): the agent's limits, live and queued runs and window per run kind.
+function RunKinds({ m, runs }: { m: TeamMember; runs?: AgentRuns }) {
+  const w = m.context_window ?? {};
+  const conversationLimit = m.share_work_limit ? "shares the work limit" : m.conversation_max_runs ? `at most ${m.conversation_max_runs}` : "no cap";
+  return (
+    <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+      <div className="rounded-lg bg-muted/40 px-2.5 py-1.5">
+        <dt className="text-muted-foreground">Work</dt>
+        <dd className="tabular-nums">{runs?.work_live ?? 0} of {m.max_concurrent_runs || 1} running{runs?.work_queued ? ` · ${runs.work_queued} queued` : ""}</dd>
+        <dd className="text-muted-foreground">window {windowLabel(w.work)}</dd>
+      </div>
+      <div className="rounded-lg bg-muted/40 px-2.5 py-1.5">
+        <dt className="text-muted-foreground">Conversations</dt>
+        <dd className="tabular-nums">{runs?.conversation_live ?? 0} running ({conversationLimit}){runs?.conversation_queued ? ` · ${runs.conversation_queued} queued` : ""}</dd>
+        <dd className="text-muted-foreground">window {windowLabel(w.conversation)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+export function MemberCard({ m, onOpen, onSkills, onEdit, runs }: { m: TeamMember; onOpen: (path: string) => void; onSkills?: () => void; onEdit?: () => void; runs?: AgentRuns }) {
   return (
     <li className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -42,6 +64,7 @@ export function MemberCard({ m, onOpen, onSkills, onEdit }: { m: TeamMember; onO
               {(m.review_paths?.length ?? 0) > 0 && <span className="text-muted-foreground" title={m.review_paths?.join("\n")}>· {m.review_paths!.length} special review rule{m.review_paths!.length === 1 ? "" : "s"}</span>}
             </div>
           )}
+          <RunKinds m={m} runs={runs} />
         </div>
       </div>
       {m.prompt && (

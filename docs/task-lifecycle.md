@@ -470,6 +470,18 @@ cancellation.
   `attention`); a client reconnecting with `Last-Event-ID` or `?after=` receives every later row once. The
   stream is exempt from the server's write timeout.
 
+## Work and conversation runs
+
+An agent's work runs and conversation runs are limited separately (work-and-conversation-runs): `max_concurrent_runs`
+counts work runs only, so a conversation never waits behind the agent's work unless the agent sets
+`execution.conversation.share_work_limit`; `execution.conversation.max_concurrent_runs` optionally caps conversations
+across projects. Nodes offer `conversation_slots` (node.yaml, default 1; a node that does not report them has none) on
+top of `slots`: a conversation run takes a free conversation slot first, then a work slot; a work run never takes a
+conversation slot and a run in a conversation slot holds no resource classes. A conversation task's clearer says in
+plain words what its run does or waits for ("answering now: messages from producer and gameplay-dev (started 2 min
+ago); newer messages are next", "waiting for a node: its session is on the paused node mini", "waiting for a free
+conversation run: busy in Tools"); the chat shows it under the owner's unanswered message.
+
 ## Session affinity
 
 A run that continues a session (the (task, agent) session of a rework or re-review, or a conversation's next
@@ -479,7 +491,12 @@ node is active, however busy it is: other nodes are not offered the run and thei
 inactive (offline, paused, removed, or unable to run the agent), a release timer starts (`session_locks`); a holder
 active again clears it. When the company's timeout passes (default 90 minutes, `PUT
 /settings/company/session_affinity {"release_minutes": N}`, 10 minutes to 7 days), any capable node takes the run,
-starts a fresh session with the usual note, and the lock moves to it. Runs without a session go anywhere. The pin of
+starts a fresh session with the usual note, and the lock moves to it. A conversation run waits less
+(work-and-conversation-runs): at most the company's conversation wait (default 10 minutes, `PUT
+/settings/company/session_affinity {"conversation_wait_minutes": N}`, 1 minute to 24 hours, also on the Settings page)
+from when it was queued, whether the holder is inactive or active without a free slot; then any node with a free slot
+starts it fresh, and its brief opens with the conversation's recent history (its last inputs and run summaries) from
+Factory. Runs without a session go anywhere. The pin of
 unpushed work (above) is stronger: it is released only by `reset_workspace`. When a task is pinned to one node and another node
 holds its session, the pinned node takes the run and starts a fresh session.
 

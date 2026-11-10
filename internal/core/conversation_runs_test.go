@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -110,5 +111,42 @@ func TestReplayConversationBehindWork(t *testing.T) {
 	}
 	if w := window(storage.ConversationID("notes", "producer")); w != float64(200000) {
 		t.Fatalf("the producer's conversation run has window %v, want 200000", w)
+	}
+
+	// The team and nodes pages: runs per kind.
+	var counts map[string]storage.AgentRuns
+	if w := h.do(h.c.Token, "GET", "/agents/runs", nil, nil); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &counts) != nil ||
+		counts["network-dev"] != (storage.AgentRuns{WorkLive: 1, ConversationLive: 1}) || counts["producer"] != (storage.AgentRuns{WorkQueued: 1, ConversationQueued: 1}) {
+		t.Fatalf("agent runs %d %s", w.Code, w.Body.String())
+	}
+}
+
+// TestConversationWaitSetting (work-and-conversation-runs 1.4): the company setting next to the release timeout.
+func TestConversationWaitSetting(t *testing.T) {
+	h := newExitHarness(t)
+	var got map[string]int64
+	read := func(w *httptest.ResponseRecorder) {
+		t.Helper()
+		got = nil
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	read(h.do(h.c.Token, "GET", "/settings/company/session_affinity", nil, nil))
+	if got["release_minutes"] != 90 || got["conversation_wait_minutes"] != 10 {
+		t.Fatal(got)
+	}
+	read(h.do(h.c.Token, "PUT", "/settings/company/session_affinity", map[string]int64{"conversation_wait_minutes": 3}, nil))
+	if got["release_minutes"] != 90 || got["conversation_wait_minutes"] != 3 {
+		t.Fatal(got)
+	}
+	read(h.do(h.c.Token, "PUT", "/settings/company/session_affinity", map[string]int64{"release_minutes": 120}, nil))
+	if got["release_minutes"] != 120 || got["conversation_wait_minutes"] != 3 {
+		t.Fatal(got)
+	}
+	for _, bad := range []map[string]int64{{}, {"conversation_wait_minutes": 2000}, {"release_minutes": 5}} {
+		if w := h.do(h.c.Token, "PUT", "/settings/company/session_affinity", bad, nil); w.Code != 400 {
+			t.Fatal(bad, w.Code, w.Body.String())
+		}
 	}
 }

@@ -10,7 +10,18 @@ import { defaultReportOf, directReports, ownerConversation, type TaskWithKind } 
 export interface Chat {
   id: string; agent: string; role?: string; project: string; projectName: string; team?: string; isDefault: boolean;
   messages: Message[]; last?: Message; unread: number; waiting: number; replyingRun?: string;
+  // pending (work-and-conversation-runs): why the report's conversation has not answered yet, in plain words (its
+  // conversation task's clearer), while the newest message is the owner's.
+  pending?: string;
   loading: boolean; error?: unknown;
+}
+
+// conversationPending is the clearer of the report's conversation task in the project while it has input to handle.
+function conversationPending(ov: Overview, agent: string, project: string): string | undefined {
+  const t = (ov.tasks as TaskWithKind[]).find((x) => x.kind === "conversation" && x.assignee === agent && x.project_id === project);
+  if (!t || ["idle", "terminal"].includes(t.reason)) return undefined;
+  if (t.reason === "runnable") return "starting: a run is being scheduled";
+  return t.clearer?.action || undefined;
 }
 
 const SEEN_KEY = "factory.chat.seen";
@@ -79,6 +90,7 @@ export function useChats() {
       unread: messages.filter((m) => m.sender !== "owner" && m.created_at > floor).length,
       waiting: messages.filter((m) => m.sender !== "owner" && m.message_type === "question" && m.status === "PENDING").length,
       replyingRun: data ? replyingRun(data, p.agent, p.project) : undefined,
+      pending: data && messages.at(-1)?.sender === "owner" ? conversationPending(data, p.agent, p.project) : undefined,
       loading: !!r?.isLoading, error: r?.error ?? undefined,
     };
   });

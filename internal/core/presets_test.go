@@ -68,6 +68,13 @@ func TestTeamBuilderAPI(t *testing.T) {
 	if code, out = do("POST", "/catalog/agents", AgentCreate{Base: base, Team: "product", FromPreset: "developer", Name: "dev2", Overrides: presets.AgentOverrides{ReportsTo: "nobody"}}); code != 400 || !strings.Contains(out, `"field":"reports_to"`) {
 		t.Fatal(code, out)
 	}
+	// work-and-conversation-runs: a refused window or conversation cap names its field for the editor.
+	if code, out = do("POST", "/catalog/agents", AgentCreate{Base: base, Team: "product", FromPreset: "developer", Name: "dev2", Overrides: presets.AgentOverrides{ContextWindow: config.ContextWindow{Conversation: "50k"}}}); code != 400 || !strings.Contains(out, `"field":"context_window"`) {
+		t.Fatal(code, out)
+	}
+	if code, out = do("POST", "/catalog/agents", AgentCreate{Base: base, Team: "product", FromPreset: "developer", Name: "dev2", Overrides: presets.AgentOverrides{ConversationMaxRuns: 9}}); code != 400 || !strings.Contains(out, `"field":"conversation_max_runs"`) {
+		t.Fatal(code, out)
+	}
 
 	// Read and save an agent as fields.
 	var doc AgentDoc
