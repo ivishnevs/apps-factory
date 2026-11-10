@@ -163,3 +163,70 @@ func TestSkillsPinned(t *testing.T) {
 		t.Fatal(n, err)
 	}
 }
+
+// locator is a fake driver that knows whether its runtime has the session and which account it is logged in to.
+type locator struct {
+	*fake.Driver
+	has     bool
+	account string
+}
+
+func (l locator) HasSession(string) (bool, bool) { return l.has, true }
+func (l locator) AccountHash() string            { return l.account }
+
+// TestSessionContinuity (session-continuity 1.1, 2.2): a session recorded under another account starts fresh as on
+// a new node; a session this node should resume but the runtime no longer has is session_lost for a task and starts
+// fresh for a conversation.
+func TestSessionContinuity(t *testing.T) {
+	cases := map[string]struct {
+		account, recorded string
+		has, conversation bool
+		want              string // resume, fresh, lost
+	}{
+		"same account, session there": {"acc-a", "acc-a", true, false, "resume"},
+		"account changed":             {"acc-b", "acc-a", true, false, "fresh"},
+		"account changed, gone":       {"acc-b", "acc-a", false, false, "fresh"},
+		"old record without account":  {"acc-b", "", true, false, "resume"},
+		"session gone":                {"acc-a", "acc-a", false, false, "lost"},
+		"conversation session gone":   {"acc-a", "acc-a", false, true, "fresh"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := sessions.Open(t.TempDir())
+			if err := store.Put(sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Cwd: "/w", Started: true, Outcome: "succeeded", Account: c.recorded}); err != nil {
+				t.Fatal(err)
+			}
+			d := locator{Driver: &fake.Driver{}, has: c.has, account: c.account}
+			spec := protocol.RunSpec{ID: "r1", TaskID: "t1", Agent: "demo", SessionID: "s-prev", Prompt: "work", Conversation: c.conversation}
+			got, _, err := (&Worker{Sessions: store}).resumeSpec(d, spec, "/w")
+			switch c.want {
+			case "lost":
+				if _, ok := err.(errSessionLost); !ok {
+					t.Fatalf("not lost: %+v %v", got, err)
+				}
+			case "resume":
+				if err != nil || got.SessionID != "s-prev" || got.Prompt != "work" {
+					t.Fatalf("not resumed: %+v %v", got, err)
+				}
+			case "fresh":
+				if err != nil || got.SessionID != "" || got.Prompt != FreshSessionNote+"work" {
+					t.Fatalf("not fresh: %+v %v", got, err)
+				}
+			}
+		})
+	}
+
+	// A lost session ends the run session_lost before the runtime starts; a launched run records the account.
+	store := sessions.Open(t.TempDir())
+	_ = store.Put(sessions.Record{SessionID: "s-prev", Task: "t1", Agent: "demo", Run: "r0", Started: true, Account: "acc-a"})
+	d := locator{Driver: &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "ok"}}, account: "acc-a"}
+	r, _ := runDriver(t, Worker{Driver: d, Sessions: store}, false, func(s *protocol.RunSpec) { s.TaskID, s.SessionID = "t1", "s-prev" })
+	if r.Outcome != "session_lost" || len(d.Launches()) != 0 {
+		t.Fatalf("%+v", r)
+	}
+	d.has = true
+	r, _ = runDriver(t, Worker{Driver: d, Sessions: store}, false, func(s *protocol.RunSpec) { s.TaskID, s.SessionID = "t1", "s-prev" })
+	if rec, ok, _ := store.Get(r.SessionID); r.Outcome != "succeeded" || !ok || rec.Account != "acc-a" {
+		t.Fatalf("%+v %+v", r, rec)
+	}
+}

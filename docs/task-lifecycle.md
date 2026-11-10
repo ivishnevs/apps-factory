@@ -480,4 +480,13 @@ inactive (offline, paused, removed, or unable to run the agent), a release timer
 active again clears it. When the company's timeout passes (default 90 minutes, `PUT
 /settings/company/session_affinity {"release_minutes": N}`, 10 minutes to 7 days), any capable node takes the run,
 starts a fresh session with the usual note, and the lock moves to it. Runs without a session go anywhere. The pin of
-unpushed work (above) is stronger: it is released only by `reset_workspace`.
+unpushed work (above) is stronger: it is released only by `reset_workspace`. When a task is pinned to one node and another node
+holds its session, the pinned node takes the run and starts a fresh session.
+
+A node resumes a session only under the runtime account it ran under (session-continuity): after the node's login
+changes and the owner accepts the new account, every older session starts fresh with the note. When the node ran
+the session under the same account but the runtime no longer has it (its configuration directory was cleaned or
+replaced), a task run ends `session_lost` before the runtime starts (no attempt, backoff or budget) and the owner
+gets the `session_lost` escalation, which holds the task: `new_session` runs it in a new session with the context
+from Factory, `retry` resumes the same session again (after restoring the directory or login), `cancel` cancels the
+task. A conversation whose session is gone starts a new one without asking: its history is in Factory.

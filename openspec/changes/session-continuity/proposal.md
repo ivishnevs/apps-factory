@@ -1,5 +1,6 @@
 Status: proposed 2026-11-10 by the owner ("if the account changed, a new session should start as if on a new node;
-if the subscription did not change but the session is gone, ask me whether to continue"). Nothing implemented.
+if the subscription did not change but the session is gone, ask me whether to continue"); the owner asked to implement
+it the same day. Implemented 2026-11-10 with the recommended answers to the open questions; see "Implementation".
 
 ## Why
 
@@ -63,3 +64,23 @@ session's transcript or rollout; a rejected resume becomes `session_lost`. Core:
 Continue / Wait, requeue with a fresh session, labels in web, TUI and Telegram. Specs: `runtime-drivers`,
 `node-agent`. Related: node-runtime-accounts (account fingerprint), node-ties / session-affinity (session ties),
 dependency-wait-escalations (escalation mechanics reused).
+
+## Implementation (2026-11-10)
+
+- Seen on prod the same day: after the Mac node moved to its own `CLAUDE_CONFIG_DIR`, the old transcripts stayed in
+  `~/.claude`, and every resume failed with "No conversation found with session ID" (game-qa's conversation retried
+  every minute). Task 0.1 is answered by that: Claude Code fails the run.
+- Node: session records carry `account` (the recorded account hash of the runtime); `resumeSpec` starts fresh when it
+  differs; drivers implement `driver.SessionLocator` (Claude: `projects/*/<id>.jsonl` under the node's config dir;
+  Codex: `rollout-*-<id>.jsonl` under `sessions/` or `archived_sessions/`). A missing session ends a task run
+  `session_lost` before the runtime starts; a conversation starts fresh. A runtime that still refuses the resume
+  ("No conversation found…", "no rollout found") ends a task run `session_lost` and makes a conversation's next run
+  fresh.
+- Core: outcome `session_lost` (migration 0026), no attempt, backoff or budget; escalation `session_lost` to the
+  owner holds the task (BLOCKED "escalation: session_lost") with answers `new_session` (run now without the old
+  session), `retry` (resume the same session again, e.g. after restoring the directory or login) and `cancel`.
+- Decided during implementation: "Wait" is not a separate answer: an unanswered escalation already holds the task,
+  and `retry` covers "I restored it, try again". Accepting a changed account needs no extra reset: the account
+  comparison makes every older session start fresh.
+- Placement fix found while diagnosing (commit 40af2e8): a task's unpushed work outranks another node's session
+  affinity, which had deadlocked 85622aeb.

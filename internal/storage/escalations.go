@@ -240,6 +240,12 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 	switch answer {
 	case "retry": // retries_exhausted, budget_exhausted, no_exit: counters and today's budget reset, run now
 		return retryAnswer(ctx, tx, t)
+	case "new_session": // session_lost: run now in a new session, its context from Factory
+		t.FreshSession = true
+		if err = retryAnswer(ctx, tx, t); err != nil {
+			return err
+		}
+		return comment(ctx, tx, t.ID, actor, "session_lost: continue in a new session")
 	case "accept": // no_exit: take the work as it is
 		return acceptAnswer(ctx, tx, t)
 	case "reassign": // no_exit: to the answering manager (the owner chooses later)

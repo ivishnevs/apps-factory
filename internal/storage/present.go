@@ -64,7 +64,7 @@ func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) 
 	var held string
 	err = q.QueryRowContext(ctx, `SELECT p.reason FROM task_parks p JOIN escalations e ON e.company_id=p.company_id AND e.message_id=p.ref_id
  WHERE p.company_id=? AND p.task_id=? AND p.kind='escalation' AND p.status='active' AND e.status='open'
- AND e.reason IN ('retries_exhausted','budget_exhausted','no_exit','inspect','workspace_diverged') ORDER BY p.created_at,p.id LIMIT 1`, company, t.ID).Scan(&held)
+ AND e.reason IN ('retries_exhausted','budget_exhausted','no_exit','inspect','workspace_diverged','session_lost') ORDER BY p.created_at,p.id LIMIT 1`, company, t.ID).Scan(&held)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}

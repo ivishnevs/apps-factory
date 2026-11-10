@@ -336,6 +336,8 @@ func optionLabel(o string) string {
 		return "Keep waiting"
 	case "drop_dependency":
 		return "Stop waiting for this task"
+	case "new_session":
+		return "Continue in a new session"
 	}
 	return o
 }

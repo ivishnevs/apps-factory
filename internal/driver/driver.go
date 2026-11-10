@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"appfactory/internal/node"
 	"appfactory/internal/policies"
@@ -201,4 +204,55 @@ type Session interface {
 	// ProcessGroup is the runtime's process group, 0 when it has none; Close kills it.
 	ProcessGroup() int
 	Close()
+}
+
+// SessionLocator is implemented by drivers that can tell whether their runtime still has a session on this machine
+// and which account the node's login is (session-continuity). known is false when the driver cannot tell.
+type SessionLocator interface {
+	HasSession(id string) (found, known bool)
+	// AccountHash is the recorded account of the node's login ("" when none is recorded).
+	AccountHash() string
+}
+
+// HasSessionFile reports whether a file named name exists under any of roots (walked recursively, at most depth
+// levels below a root); known is false when no root exists.
+func HasSessionFile(roots []string, depth int, match func(name string) bool) (found, known bool) {
+	for _, root := range roots {
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		known = true
+		base := strings.Count(filepath.Clean(root), string(filepath.Separator))
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if strings.Count(filepath.Clean(p), string(filepath.Separator))-base > depth {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if match(d.Name()) {
+				found = true
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if found {
+			return true, true
+		}
+	}
+	return false, known
+}
+
+// SessionNotFound reports whether err is a runtime refusing to resume a session it does not have (Claude Code: "No
+// conversation found with session ID"; Codex: "no rollout found").
+func SessionNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "no conversation found with session id") || strings.Contains(m, "no rollout found")
 }

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,7 +60,8 @@ func TestOutcomeTable(t *testing.T) {
 		{"idle_timeout", "", 1, 1, time.Minute, 1, "READY"},
 		{"max_turns", "", 1, 1, time.Minute, 1, "READY"},
 		{"setup_failed", "worktree: clone failed", 1, 1, time.Minute, 1, "READY"},
-		{"change_missing", "OpenSpec change x is not on the task's checkout", 0, 0, 0, 0, "READY"}, // escalated
+		{"change_missing", "OpenSpec change x is not on the task's checkout", 0, 0, 0, 0, "READY"},    // escalated
+		{"session_lost", "session_lost: this node ran session s for the task", 0, 0, 0, 0, "BLOCKED"}, // escalated, held
 		{"lost", "lost: worker lease expired", 0, 1, time.Minute, 1, "READY"},
 		{"lost", "lost: node n1 restarted (epoch 2)", 0, 1, time.Minute, 0, "READY"}, // new epoch: no budget
 		{"revoked", "", 0, 0, 0, 0, "CANCELLED"},
@@ -241,5 +243,57 @@ func TestNewEpochLossSkipsBudget(t *testing.T) {
 	}
 	if got := taskOf(t, s, "silent"); got.Status != "READY" || got.FailStreak != 1 || budgetUsed(t, s, "silent") != 1 {
 		t.Fatalf("%+v budget %d", got, budgetUsed(t, s, "silent"))
+	}
+}
+
+// TestSessionLost (session-continuity 2.3): a run that ends session_lost escalates to the owner without an attempt;
+// new_session runs the task again without the old session, retry with it.
+func TestSessionLost(t *testing.T) {
+	s := engineStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	readyEngineTask(t, s, createEngineTask(t, s, "t1"))
+	run := func(id, outcome string) protocol.RunSpec {
+		t.Helper()
+		spec := dispatchEngineTask(t, s, taskOf(t, s, "t1"), id)
+		lease, err := claimLease(t, s, co, spec.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev := protocol.Event{Status: "ENDED", Outcome: outcome}
+		if outcome == "failed" {
+			ev.SessionID = "sess-1"
+		}
+		if err = end(t, s, spec.ID, lease, ev); err != nil {
+			t.Fatal(err)
+		}
+		return spec
+	}
+	answer := func(a string) {
+		t.Helper()
+		open, _ := s.Escalations(ctx, co, true)
+		if len(open) != 1 || open[0].Reason != "session_lost" || open[0].Target != "owner" || strings.Join(open[0].Answers, ",") != "new_session,retry,cancel" {
+			t.Fatalf("%+v", open)
+		}
+		q, _ := s.Message(ctx, co, open[0].MessageID)
+		if _, err := s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", Body: a, Answers: map[string]any{"answer": a}, RequestID: a}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("r1", "failed") // a session exists
+	if _, err := s.DB.Exec("UPDATE tasks SET body=jsonb_set(body::jsonb,'{not_before}','0')::json WHERE id='t1'"); err != nil {
+		t.Fatal(err)
+	}
+	run("r2", "session_lost")
+	if got := taskOf(t, s, "t1"); got.AttemptsNoProgress != 1 {
+		t.Fatalf("session_lost counted as an attempt: %+v", got)
+	}
+	answer("retry")
+	if spec := run("r3", "session_lost"); spec.SessionID != "sess-1" {
+		t.Fatalf("retry dropped the session: %q", spec.SessionID)
+	}
+	answer("new_session")
+	if spec := dispatchEngineTask(t, s, taskOf(t, s, "t1"), "r4"); spec.SessionID != "" {
+		t.Fatalf("new_session kept the session: %q", spec.SessionID)
 	}
 }

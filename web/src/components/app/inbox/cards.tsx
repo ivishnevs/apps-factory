@@ -133,6 +133,8 @@ const answerLabels: Record<string, string> = {
   keep_waiting: "Keep waiting",
   drop_dependency: "Stop waiting for this task",
   reset_workspace: "Reset the workspace",
+  new_session: "Continue in a new session",
+  retry: "Try again",
 };
 
 export function optionLabel(o: string): string {

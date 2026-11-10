@@ -287,6 +287,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	var session driver.Session
 	// record is this node's record of the run's session, kept from launch to the terminal event.
 	var record sessions.Record
+	// resumed is the session the run resumes ("" for a fresh one).
+	var resumed string
 	saveRecord := func() {
 		if w.Sessions == nil || record.SessionID == "" {
 			return
@@ -441,6 +443,16 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				outcome = stopOutcome(ctx)
 			}
 		}
+		// The runtime refused to resume a session this node had (session-continuity): a task asks the owner; a
+		// conversation's record stops being resumable, so its next run starts fresh.
+		if resumed != "" && driver.SessionNotFound(runErr) {
+			if spec.Conversation {
+				record.Started = false
+				saveRecord()
+			} else {
+				outcome = outcomeSessionLost
+			}
+		}
 		if err := emit("failed", protocol.Event{Status: ended, Result: runErr.Error(), Outcome: outcome}); err != nil {
 			slog.Error("terminal event publication failed; lease recovery required", "error", err)
 		}
@@ -556,7 +568,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
 	}
 
-	runSpec, prev := w.resumeSpec(drv, spec, cwd)
+	runSpec, prev, err := w.resumeSpec(drv, spec, cwd)
+	if err != nil {
+		return emit("failed", protocol.Event{Status: ended, Result: err.Error(), Outcome: outcomeSessionLost})
+	}
+	resumed = runSpec.SessionID
 	launch := driver.Launch{Spec: runSpec, Cwd: cwd, Instructions: spec.Instructions, Skills: skillList, SkillsRoot: skillsRoot, Env: nodeEnvironment(os.Environ(), w.EnvAllow)}
 	shimDir, err := w.shims(spec)
 	if err != nil {
@@ -657,6 +673,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		return notStarted(cmp.Or(driver.OutcomeOf(err), driver.OutcomeFailed), err)
 	}
 	record = sessions.Record{SessionID: session.ID(), Task: spec.TaskID, Agent: spec.Agent, Project: spec.Project, Provider: string(spec.Provider), Run: spec.ID, Cwd: cwd}
+	if loc, ok := drv.(driver.SessionLocator); ok {
+		record.Account = loc.AccountHash()
+	}
 	if record.SessionID == prev.SessionID {
 		record.Started = prev.Started // a resumed session stays resumable
 	}
@@ -779,6 +798,9 @@ const (
 	// outcomeChangeMissing: the task's linked OpenSpec change is not on its checkout (openspec-in-git D3).
 	outcomeChangeMissing = "change_missing"
 	outcomeRevoked       = "revoked"
+	// outcomeSessionLost: the session to resume is gone from the runtime on the node that ran it
+	// (session-continuity); Core asks the owner.
+	outcomeSessionLost = "session_lost"
 	// outcomeLost: the run ended without terminal evidence; Core records it lost (no attempt).
 	outcomeLost = "lost"
 )

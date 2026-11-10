@@ -26,11 +26,14 @@ var Outcomes = map[string]OutcomeRule{
 	// change_missing: the linked OpenSpec change is not on the task's checkout (openspec-in-git D3); retrying
 	// cannot help until its proposal is merged, so it escalates without an attempt, backoff or budget.
 	"change_missing": {},
-	"lost":           {Backoff: true, Budget: true},
-	"revoked":        {},
-	"paused_out":     {},
-	"stale":          {},
-	"unclaimed":      {},
+	// session_lost: the node that ran the task's session no longer has it (session-continuity); retrying resumes
+	// nothing, so the owner chooses a new session, a retry (after restoring it) or cancel.
+	"session_lost": {},
+	"lost":         {Backoff: true, Budget: true},
+	"revoked":      {},
+	"paused_out":   {},
+	"stale":        {},
+	"unclaimed":    {},
 }
 
 // IdleTimeout is how long a started run may go without any applied event before Core stops it as

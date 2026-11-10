@@ -190,15 +190,25 @@ func GCSkillStore(store string, maxAge time.Duration, keep map[string]bool) (int
 }
 
 // FreshSessionNote starts the prompt of a run that does not resume its session.
-const FreshSessionNote = "[App Factory] This run starts a new runtime session: the previous session of this task is not available here (it ran on another node, or the workspace was reset). Take the task's context, history and decisions from Core: this prompt and the Factory tools.\n\n"
+const FreshSessionNote = "[App Factory] This run starts a new runtime session: the previous session of this task is not available here (it ran on another node, under another account, or the workspace was reset). Take the task's context, history and decisions from Core: this prompt and the Factory tools.\n\n"
+
+// errSessionLost: the node ran the task's session under the same account, but the runtime no longer has it
+// (session-continuity). The run does not start; Core asks the owner whether to continue in a new session.
+type errSessionLost struct{ id string }
+
+func (e errSessionLost) Error() string {
+	return "session_lost: this node ran session " + e.id + " for the task under the same account, but the runtime no longer has it (its configuration directory was cleaned or replaced)"
+}
 
 // resumeSpec applies the driver's ResumePolicy to spec.SessionID: the session is resumed only when
-// this node recorded it for the same (task, agent) key in the same directory; otherwise the run starts a
-// fresh session with FreshSessionNote before its prompt. Without a session store the spec is unchanged.
-func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec, cwd string) (protocol.RunSpec, sessions.Record) {
+// this node recorded it for the same (task, agent) key in the same directory and the same runtime account;
+// otherwise the run starts a fresh session with FreshSessionNote before its prompt. A session this node should
+// resume but the runtime no longer has is errSessionLost for a task run; a conversation starts fresh (its history
+// is in Core). Without a session store the spec is unchanged.
+func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec, cwd string) (protocol.RunSpec, sessions.Record, error) {
 	var prev sessions.Record
 	if spec.SessionID == "" || w.Sessions == nil {
-		return spec, prev
+		return spec, prev, nil
 	}
 	rec, ok, err := w.Sessions.Get(spec.SessionID)
 	if err != nil {
@@ -208,14 +218,30 @@ func (w *Worker) resumeSpec(drv driver.Driver, spec protocol.RunSpec, cwd string
 	// one predate it; a conversation's ran in the project workspace before conversation directories.
 	sameDir := rec.Cwd == cwd || rec.Cwd == "" && !spec.Conversation
 	sameNode := ok && rec.Task == spec.TaskID && rec.Agent == spec.Agent && sameDir
-	if sameNode {
+	loc, _ := drv.(driver.SessionLocator)
+	sameAccount := true
+	if sameNode && loc != nil && rec.Account != "" {
+		if now := loc.AccountHash(); now != "" && now != rec.Account {
+			sameAccount = false // the node's login changed (and was accepted): as on a new node
+		}
+	}
+	if sameNode && sameAccount {
 		prev = rec
 	}
-	if drv.ResumePolicy(driver.Outcome{End: prev.Outcome, Started: prev.Started}, sameNode) {
-		return spec, prev
+	if drv.ResumePolicy(driver.Outcome{End: prev.Outcome, Started: prev.Started}, sameNode && sameAccount) {
+		if loc == nil {
+			return spec, prev, nil
+		}
+		if found, known := loc.HasSession(spec.SessionID); found || !known {
+			return spec, prev, nil
+		}
+		if !spec.Conversation {
+			return spec, prev, errSessionLost{spec.SessionID}
+		}
+		slog.Warn("conversation session lost on this node; starting a new one", "run", spec.ID, "agent", spec.Agent, "session", spec.SessionID)
 	}
-	slog.Info("fresh session instead of resume", "run", spec.ID, "task", spec.TaskID, "agent", spec.Agent, "session", spec.SessionID, "same_node", sameNode, "started", prev.Started)
+	slog.Info("fresh session instead of resume", "run", spec.ID, "task", spec.TaskID, "agent", spec.Agent, "session", spec.SessionID, "same_node", sameNode, "same_account", sameAccount, "started", prev.Started)
 	spec.SessionID = ""
 	spec.Prompt = FreshSessionNote + spec.Prompt
-	return spec, sessions.Record{}
+	return spec, sessions.Record{}, nil
 }

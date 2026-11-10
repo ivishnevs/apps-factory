@@ -26,6 +26,9 @@ type Record struct {
 	Run       string `json:"run"`
 	// Cwd is the directory the session ran in; a session resumes only there.
 	Cwd string `json:"cwd,omitempty"`
+	// Account is the hash of the runtime account the session ran under (session-continuity); "" in records made
+	// before it, which resume as before.
+	Account string `json:"account,omitempty"`
 	// Started: the prompt reached the runtime.
 	Started bool `json:"started"`
 	// Outcome is the run's outcome as the node reported it; "" while running or when the node stopped first.

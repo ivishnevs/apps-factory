@@ -44,6 +44,7 @@ func init() {
 	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["no_exit"] = []string{"retry", "reassign", "accept", "cancel"}
 	escalationAnswers["change_missing"] = []string{"retry", "cancel"}
+	escalationAnswers["session_lost"] = []string{"new_session", "retry", "cancel"}
 	escalationAnswers["inspect"] = []string{"retry", "continue", "cancel"}
 }
 
@@ -254,6 +255,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	case outcome == "change_missing":
 		// Retrying cannot help until the change reaches the default branch (openspec-in-git D3).
 		reason, summary = "change_missing", excerpt512(result)+" — retry once the change's proposal is merged, or cancel"
+	case outcome == "session_lost":
+		// The agent's working context is gone mid-task (session-continuity): the owner decides.
+		reason, summary = "session_lost", excerpt512(result)+" — new_session continues in a new session with the context from Factory; retry tries the same session again (after restoring the runtime's directory or login); or cancel"
 	case fresh:
 	case outcome == "no_exit" && t.AttemptsNoProgress < RetryAttempts:
 		reason, summary = "no_exit", "the agent's run ended without a factory_exit_* call (for review: the agent did not finish): "+excerpt512(result)
@@ -271,7 +275,11 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return err
 		}
-		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: retryTarget(tx, t.Assignee)})
+		target := retryTarget(tx, t.Assignee)
+		if reason == "session_lost" {
+			target = "owner" // session-continuity: losing an agent's context is the owner's call
+		}
+		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: target})
 	}
 	// One feed event names the task, the outcome and the retry time (waits-events-cost-cli D2).
 	note := fmt.Sprintf("%s: run %s ended %s; ", t.ID, runID, outcome)
