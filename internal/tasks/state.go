@@ -26,7 +26,10 @@ const (
 	ReasonPinnedNode = "pinned_node_unavailable"
 	// ReasonNoCapableNode: no online, unpaused node has the assignee's driver, labels and resources.
 	ReasonNoCapableNode = "no_capable_node"
-	ReasonCapacity      = "capacity"
+	// ReasonNoReadyNode: capable nodes exist but none is ready for the task's project (node-readiness): the task
+	// waits for a node's fix with its retries untouched; it does not escalate.
+	ReasonNoReadyNode = "no_ready_node"
+	ReasonCapacity    = "capacity"
 	// ReasonProjectSetup: another task's run sets the project's repository up first (project-creation D2).
 	ReasonProjectSetup = "project_setup"
 	ReasonRunnable     = "runnable"

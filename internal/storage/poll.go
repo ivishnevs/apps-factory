@@ -73,8 +73,8 @@ func (s *Store) pollNode(ctx context.Context, company, node string, epoch int64)
 // task's unpushed work is here) first, then the runs whose agent session this node holds, then the others, each
 // group oldest first; at most free[provider] runs of each provider
 // whose driver is usable on the node, none for a paused node, without the runs in skip (claims the node had refused
-// lately) and without runs whose task's unpushed work is pinned to another node or whose agent needs labels the node
-// lacks. The claim re-checks all of it, plus caps, resource classes and project setup.
+// lately) and without runs whose task's unpushed work is pinned to another node, whose agent needs labels the node
+// lacks or whose project the node is not ready for (node-readiness). The claim re-checks all of it, plus caps, resource classes and project setup.
 func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, free map[string]int, skip []string) ([]Offer, error) {
 	out := []Offer{}
 	n, err := s.pollNode(ctx, company, node, epoch)
@@ -102,7 +102,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	sort.Strings(providers)
 	providerJSON, _ := json.Marshal(providers)
 	skipJSON, _ := json.Marshal(append([]string{}, skip...))
-	rows, err := s.DB.QueryContext(ctx, `SELECT r.id,r.spec->>'provider',coalesce(r.spec->'config_snapshot','null'),coalesce(w.node_id,''),coalesce(r.spec->>'session_id','') FROM runs r
+	rows, err := s.DB.QueryContext(ctx, `SELECT r.id,r.spec->>'provider',coalesce(r.spec->'config_snapshot','null'),coalesce(w.node_id,''),coalesce(r.spec->>'session_id',''),coalesce(r.spec->>'project','') FROM runs r
  LEFT JOIN workspaces w ON w.company_id=r.company_id AND w.task_id=r.task_id AND w.unpushed=1 AND w.node_id!=''
  WHERE r.company_id=? AND r.status='QUEUED' AND r.spec->>'provider' IN (SELECT jsonb_array_elements_text(?::jsonb))
  AND r.id NOT IN (SELECT jsonb_array_elements_text(?::jsonb))
@@ -111,8 +111,8 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 		return out, err
 	}
 	type candidate struct {
-		id, provider, session string
-		snapshot              []byte
+		id, provider, session, project string
+		snapshot                       []byte
 		// rank orders the offers: 0 pinned here, 1 session held here, 2 the rest.
 		rank int
 	}
@@ -120,7 +120,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	for rows.Next() {
 		var c candidate
 		var pinned string
-		if err = rows.Scan(&c.id, &c.provider, &c.snapshot, &pinned, &c.session); err != nil {
+		if err = rows.Scan(&c.id, &c.provider, &c.snapshot, &pinned, &c.session, &c.project); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -149,9 +149,23 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 		}
 	}
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].rank < cands[j].rank })
+	notReady := map[string]bool{}
 	for _, c := range cands {
 		if left[c.provider] == 0 {
 			continue
+		}
+		// node-readiness: no runs of a project this node is not ready for.
+		if c.project != "" {
+			if _, seen := notReady[c.project]; !seen {
+				why, err := nodeNotReady(ctx, s.DB, company, node, c.project)
+				if err != nil {
+					return out, err
+				}
+				notReady[c.project] = why != ""
+			}
+			if notReady[c.project] {
+				continue
+			}
 		}
 		// Runs whose session another active node holds are not offered (the claim refuses them too), unless the
 		// task's unpushed work is here: the pin outranks the session.

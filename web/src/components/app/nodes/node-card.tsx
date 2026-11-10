@@ -22,8 +22,62 @@ export function nodeCare(n: FactoryNode) {
   if (h.disk === "critical") return "disk critical";
   const bad = ((n as NodeFull).drivers ?? []).find((d) => !d.ok);
   if (bad) return `${bad.name} disabled`;
+  const unready = (n.readiness ?? []).filter((r) => !r.ready).length;
+  if (unready) return `not ready for ${unready} project${unready === 1 ? "" : "s"}`;
   if (h.disk === "low") return "disk low";
   return "";
+}
+
+// Readiness (node-readiness): per project, ready or what keeps the node from its runs (no repository access, a
+// missing tool, a run that failed here before its agent started) with the fix; Check again asks the node now.
+function Readiness({ node, nodeId }: { node: FactoryNode; nodeId: string }) {
+  const rs = node.readiness ?? [];
+  const [asked, setAsked] = useState(false);
+  if (rs.length === 0) return null;
+  const bad = rs.filter((r) => !r.ready), ready = rs.filter((r) => r.ready);
+  const again = async () => {
+    try {
+      await core(`/nodes/${encodeURIComponent(nodeId)}/check`, { method: "POST", body: "{}" });
+      setAsked(true);
+      toast.success("The node checks its projects again now");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-muted-foreground">Projects</p>
+        {bad.length > 0 && <Button variant="outline" size="sm" className="h-8" onClick={again} disabled={asked}>{asked ? "Checking…" : "Check again"}</Button>}
+      </div>
+      {ready.length > 0 && <p className="mt-1 text-sm"><span className="text-emerald-700 dark:text-emerald-400">Ready</span> for {ready.map((r) => r.project).join(", ")}</p>}
+      {bad.map((r) => (
+        <div key={r.project} className="mt-1.5 rounded-lg bg-red-500/5 px-3 py-2 text-xs">
+          <p className="font-medium text-red-700 dark:text-red-300">Not ready for {r.project}{r.pending ? " · checking" : ""}{r.source === "run" ? " · a run failed here" : ""}</p>
+          {r.faults.map((f, i) => (
+            <div key={i} className="mt-1">
+              <p className="break-words text-red-700 dark:text-red-300">{f.detail}</p>
+              {f.fix && <p className="mt-0.5 break-words text-muted-foreground">Fix: {f.fix}</p>}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ReleaseSessions (node-readiness 4.1): a paused or offline node's held sessions keep their runs waiting until the
+// release timeout; release them now so another node takes the runs with a fresh session.
+function ReleaseSessions({ nodeId, count }: { nodeId: string; count: number }) {
+  const confirm = useConfirm();
+  const [done, setDone] = useState(false);
+  const release = async () => {
+    if (!(await confirm({ title: `Release ${count} waiting run${count === 1 ? "" : "s"}?`, description: "Another node takes them and starts a fresh session from Factory's context; the agents lose what only those sessions remembered.", confirm: "Release now" }))) return;
+    try {
+      await core(`/nodes/${encodeURIComponent(nodeId)}/sessions/release`, { method: "POST", body: "{}" });
+      setDone(true);
+      toast.success("Released: other nodes take the runs");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+  return <Button variant="outline" size="sm" className="mt-1.5 h-8" onClick={release} disabled={done}>{done ? "Released" : "Release now"}</Button>;
 }
 
 function Driver({ d, nodeId }: { d: NodeDriver; nodeId?: string }) {
@@ -50,8 +104,9 @@ function Driver({ d, nodeId }: { d: NodeDriver; nodeId?: string }) {
 
 // Tied: what only this node may run now (sticky-work-first): tasks whose unsaved work is here, and the queued runs
 // waiting for it (that work, or an agent session it holds). The node takes these first when a slot frees.
-function Tied({ node }: { node: FactoryNode }) {
+function Tied({ node, inactive }: { node: FactoryNode; inactive?: boolean }) {
   const pinned = node.tied?.pinned ?? [], waiting = node.tied?.waiting ?? [];
+  const sessionWaits = waiting.filter((w) => w.tie === "session").length;
   if (pinned.length === 0 && waiting.length === 0) return null;
   const task = (id: string) => (
     <Link href={`/tasks/${encodeURIComponent(id)}`} className="font-mono underline-offset-4 hover:underline" title={id}>{displayId(id)}</Link>
@@ -75,7 +130,8 @@ function Tied({ node }: { node: FactoryNode }) {
           ))}
         </ul>
       )}
-      {waiting.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">This node takes them first when a slot frees.</p>}
+      {waiting.length > 0 && !inactive && <p className="mt-1 text-[11px] text-muted-foreground">This node takes them first when a slot frees.</p>}
+      {inactive && sessionWaits > 0 && <ReleaseSessions nodeId={nodeId(node)} count={sessionWaits} />}
     </div>
   );
 }
@@ -144,7 +200,9 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
           )}
         </div>
 
-        <Tied node={n} />
+        <Tied node={n} inactive={!!pause || !n.online} />
+
+        <Readiness node={n} nodeId={id} />
 
         <div>
           <p className="text-xs font-medium text-muted-foreground">Runtimes</p>

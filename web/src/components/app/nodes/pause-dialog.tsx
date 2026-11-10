@@ -7,9 +7,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { scopeName } from "@/lib/api/types-ops";
+import { useQuery } from "@tanstack/react-query";
+import { core } from "@/lib/api/client";
+import type { NodeSessions } from "@/lib/api/types";
 
 export type Scope = "project" | "agent" | "node" | "quota_key";
-export interface PauseRequest { scope: Scope; target: string; reason: string }
+// sessions (node pause): what happens to the agent sessions the node holds (node-readiness 4.1).
+export interface PauseRequest { scope: Scope; target: string; reason: string; sessions?: "keep" | "release" }
 
 const scopes: { value: Scope; label: string }[] = [
   { value: "project", label: "Project" }, { value: "agent", label: "Agent" }, { value: "node", label: "Node" }, { value: "quota_key", label: "Subscription" },
@@ -29,16 +33,23 @@ export function PauseDialog({ open, onOpenChange, initial, options, onSubmit }: 
   const [scope, setScope] = useState<Scope>("project");
   const [target, setTarget] = useState("");
   const [reason, setReason] = useState("");
+  const [sessions, setSessions] = useState<"keep" | "release">("keep");
   useEffect(() => {
-    if (open) { setScope(initial?.scope ?? "project"); setTarget(initial?.target ?? ""); setReason(""); }
+    if (open) { setScope(initial?.scope ?? "project"); setTarget(initial?.target ?? ""); setReason(""); setSessions("keep"); }
   }, [open, initial?.scope, initial?.target]);
   const list = scope === "quota_key" ? [] : options[scope];
   const fixed = !!initial?.target;
+  // A node's held sessions and the runs waiting for them: pausing asks whether to keep or release them.
+  const held = useQuery({ queryKey: ["node-sessions", target], queryFn: () => core<NodeSessions>(`/nodes/${encodeURIComponent(target)}/sessions`),
+    enabled: open && scope === "node" && !!target, retry: false });
+  const waiting = held.data?.waiting ?? [];
+  const keepUntil = held.data ? new Date(Date.now() + held.data.release_seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  const asks = scope === "node" && ((held.data?.held.length ?? 0) > 0 || waiting.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <form onSubmit={(e) => { e.preventDefault(); if (target.trim()) onSubmit({ scope, target: target.trim(), reason: reason.trim() }); }}>
+        <form onSubmit={(e) => { e.preventDefault(); if (target.trim()) onSubmit({ scope, target: target.trim(), reason: reason.trim(), sessions: asks ? sessions : undefined }); }}>
           <DialogHeader>
             <DialogTitle>{fixed ? `Pause ${scopeName(scope)} ${list.find((o) => o.value === target)?.label ?? target}` : "Pause"}</DialogTitle>
             <DialogDescription>{hints[scope]} Work in progress continues; new work waits until you resume.</DialogDescription>
@@ -67,6 +78,22 @@ export function PauseDialog({ open, onOpenChange, initial, options, onSubmit }: 
               <label className="text-sm font-medium" htmlFor="pause-reason">Reason <span className="font-normal text-muted-foreground">(shown on the dashboard)</span></label>
               <Input id="pause-reason" className="h-10" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. waiting for the style guide" autoComplete="off" />
             </div>
+            {asks && held.data && (
+              <div className="space-y-2 rounded-lg border p-3 text-sm">
+                <p className="font-medium">This node holds {held.data.held.length} agent session{held.data.held.length === 1 ? "" : "s"}</p>
+                {waiting.length > 0 ? (
+                  <ul className="space-y-0.5 text-muted-foreground">
+                    {waiting.map((w) => <li key={w.run_id}><span className="font-mono">{w.task_id || w.run_id}</span> · {w.agent} waits for it</li>)}
+                  </ul>
+                ) : <p className="text-muted-foreground">No run waits for them now.</p>}
+                <Segmented label="Sessions" value={sessions} onChange={setSessions} className="w-full [&>button]:flex-1"
+                  options={[{ value: "keep", label: `Keep until ${keepUntil}` }, { value: "release", label: "Release now" }]} />
+                <p className="text-xs text-muted-foreground">
+                  {sessions === "keep" ? "For a short pause: waiting runs stay with this node until then, then go to another node with a fresh session."
+                    : "Waiting runs go to another node now and start a fresh session from Factory's context."}
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter className="mt-6 gap-2">
             <Button type="button" variant="outline" className="h-10" onClick={() => onOpenChange(false)}>Cancel</Button>

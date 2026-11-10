@@ -42,6 +42,14 @@ case "$(uname -m)" in
   *) die "unsupported processor $(uname -m)" ;;
 esac
 
+if [ "$OS" = linux ] && [ -z "$OS_USER" ] && [ "$(id -u)" = 0 ]; then
+  # node-readiness 3.1: Claude Code refuses to run agents as root, and agents should not have root on the host.
+  say "This installs the node as root. Claude Code does not run agents as root, and agents should not have root here."
+  say "Install it for a separate user instead (created if missing):"
+  say "  curl -fsSL $CORE_URL/install.sh | sh -s -- --os-user factory$ARGS"
+  exit 1
+fi
+
 if [ -n "$OS_USER" ]; then
   # A separate user (connector-trust 1.4): agents then cannot read this user's files at all.
   [ "$OS" = linux ] || die "--os-user is for Linux; on macOS create a standard user in System Settings and install there"
@@ -59,6 +67,32 @@ step "Checking this machine ($OS-$ARCH)"
 for t in curl tar git; do
   command -v "$t" >/dev/null 2>&1 || die "$t is required"
 done
+# node-readiness 3.1: agents commit, so the node's user needs a git identity.
+if [ -z "$(git config --global user.name 2>/dev/null)" ] || [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+  if [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
+    say "  git has no identity for $(id -un); agents' commits need one"
+    printf '  git user.name: '; read -r gname </dev/tty || gname=""
+    printf '  git user.email: '; read -r gmail </dev/tty || gmail=""
+    [ -z "$gname" ] || git config --global user.name "$gname"
+    [ -z "$gmail" ] || git config --global user.email "$gmail"
+  fi
+  if [ -z "$(git config --global user.name 2>/dev/null)" ] || [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+    say "  warning: git has no identity for $(id -un); agents cannot commit until you run:"
+    say "    git config --global user.name \"NAME\" && git config --global user.email EMAIL"
+  fi
+else
+  say "  git identity: $(git config --global user.name) <$(git config --global user.email)>"
+fi
+# Projects may require Node.js tools (a project's requires); the node checks them per project, this is a hint.
+if command -v node >/dev/null 2>&1; then
+  nv=$(node --version 2>/dev/null || echo unknown)
+  case "$nv" in
+    v1[0-7].*|v[0-9].*) say "  Node.js $nv: older than 18; projects whose tools need a newer Node.js will show as not ready on this node" ;;
+    *) say "  Node.js $nv" ;;
+  esac
+else
+  say "  Node.js: not installed (Claude agents do not need it; projects whose tools do will show as not ready)"
+fi
 if command -v sha256sum >/dev/null 2>&1; then SUM="sha256sum"; elif command -v shasum >/dev/null 2>&1; then SUM="shasum -a 256"; else die "sha256sum or shasum is required"; fi
 # Claude agents need nothing installed: the package carries the shim as one executable and the pinned Claude Code
 # is downloaded below (node-packaging-updates 2.1).
@@ -142,9 +176,36 @@ if [ ! -f "$CONFIG" ]; then
     if [ "$CLAUDE" = 1 ]; then echo "  claude: {enabled: true}"; else echo "  claude: {enabled: false}"; fi
     echo "# Each task in its own git worktree, so a team's agents work in one project at once."
     echo "worktrees: {enabled: true}"
-    echo "# Codex agents write only in their task's worktree (connector-trust); full lets them act as you everywhere."
+    echo "# Agents write only in their task's worktree (connector-trust); full lets them act as you everywhere."
     echo "sandbox: worktree"
   } > "$CONFIG"
+fi
+if [ "$OS" = linux ] && grep -q '^sandbox: *worktree' "$CONFIG" 2>/dev/null; then
+  # node-readiness 3.2: Claude Code's sandbox needs bubblewrap with a user namespace and socat. Only the commands
+  # are printed: this script never changes the host's packages or security settings.
+  step "Checking the agent sandbox (sandbox: worktree)"
+  if ! command -v bwrap >/dev/null 2>&1 || ! command -v socat >/dev/null 2>&1; then
+    say "  bubblewrap or socat is missing: sandboxed agents cannot run. Install them (as an admin):"
+    say "    sudo apt-get install -y bubblewrap socat     # Fedora: sudo dnf install bubblewrap socat"
+  elif ! bwrap --unshare-user --ro-bind / / true >/dev/null 2>&1; then
+    say "  bwrap cannot create a user namespace: sandboxed agents cannot run."
+    if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+      say "  AppArmor restricts user namespaces (Ubuntu 23.10+). Allow them for bwrap (as an admin):"
+      say "    sudo tee /etc/apparmor.d/bwrap <<'PROFILE'"
+      say "abi <abi/4.0>,"
+      say "include <tunables/global>"
+      say "profile bwrap /usr/bin/bwrap flags=(unconfined) {"
+      say "  userns,"
+      say "  include if exists <local/bwrap>"
+      say "}"
+      say "PROFILE"
+      say "    sudo apparmor_parser -r /etc/apparmor.d/bwrap"
+    else
+      say "  Allow unprivileged user namespaces (as an admin), e.g. sudo sysctl kernel.unprivileged_userns_clone=1"
+    fi
+  else
+    say "  bwrap and socat work"
+  fi
 fi
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "Note: gitleaks is not installed. Task branches are scanned for secrets before they are pushed;"
@@ -192,7 +253,14 @@ if [ "$SERVICE" = 1 ]; then
     systemctl --user enable --now factory-node >/dev/null
     systemctl --user restart factory-node
     say "  systemd user service factory-node; log: journalctl --user -u factory-node -f"
-    say "  to keep it running after you log out: sudo loginctl enable-linger $(id -un)"
+    # node-readiness 3.1: without linger the user's systemd (and the node) stops when the user logs out.
+    if [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ]; then
+      say "  linger on: the node keeps running after you log out"
+    elif loginctl enable-linger "$(id -un)" >/dev/null 2>&1; then
+      say "  linger enabled: the node keeps running after you log out"
+    else
+      say "  warning: the node stops when you log out; keep it running with: sudo loginctl enable-linger $(id -un)"
+    fi
   fi
 else
   say ""

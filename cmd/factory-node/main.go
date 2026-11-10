@@ -363,7 +363,7 @@ func doctor(args []string) (int, error) {
 	}
 	accounts := node.AccountsDir(c.StateDir)
 	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: accounts}},
-		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: accounts}}}
+		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: accounts, Sandbox: c.Sandbox}}}
 	known := []string{}
 	for _, rt := range d.Runtimes {
 		known = append(known, rt.Name)

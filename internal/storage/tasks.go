@@ -144,6 +144,10 @@ func (s *Store) CreateProject(ctx context.Context, company string, in tasks.Proj
 		if err := validReviewPolicy(p.ReviewAfterConflicts); err != nil {
 			return p, err
 		}
+		if err := tasks.ValidateRequirements(in.Requires); err != nil {
+			return p, inputError(err.Error())
+		}
+		p.Requires = in.Requires
 		if len(p.Rules) > MaxRules {
 			return p, inputError("rules up to 8 KiB")
 		}
@@ -296,6 +300,12 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 				return p, err
 			}
 			p.ReviewAfterConflicts = *in.ReviewAfterConflicts
+		}
+		if in.Requires != nil {
+			if err = tasks.ValidateRequirements(*in.Requires); err != nil {
+				return p, inputError(err.Error())
+			}
+			p.Requires = *in.Requires
 		}
 		if in.Team != nil && *in.Team != p.Team {
 			var live int

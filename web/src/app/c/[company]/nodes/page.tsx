@@ -17,6 +17,7 @@ import { canManage } from "@/lib/api/types-account";
 import type { Pause as PauseT } from "@/lib/api/types";
 import { companyPause, nodeId, scopeName } from "@/lib/api/types-ops";
 import { ago } from "@/lib/format";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Nodes & control: the kill switch, the active pauses with resume, pausing a project, agent, node or quota
 // key (hold/release), and each registered node with its slots, drivers and disk (internal/tui/nodes.go).
@@ -45,6 +46,7 @@ export default function Page() {
   const { run, pending } = useOwnerAction();
   const manage = canManage(useCompanyInfo().data?.role);
   const confirm = useConfirm();
+  const qc = useQueryClient();
   // Revoking (node-identity 4.1): the node's keys stop working at once and its live runs end.
   const revoke = async (id: string, name: string) => {
     if (!(await confirm({ title: `Revoke ${name}?`, description: "Its keys stop working at once and its live runs end. To use the machine again, enroll it with a new code.", confirm: "Revoke", destructive: true }))) return;
@@ -65,9 +67,20 @@ export default function Page() {
     node: (ov?.nodes ?? []).map((n) => ({ value: nodeId(n), label: n.name || nodeId(n) })),
   }), [ov]);
 
-  const hold = (r: PauseRequest) => {
+  const hold = async (r: PauseRequest) => {
     setDialog({ open: false });
     const what = `${scopeName(r.scope)} ${r.scope === "node" ? nodeName(r.target) : r.target}`;
+    if (r.scope === "node") {
+      // node-readiness 4.1: a node pause carries the answer for the sessions it holds.
+      const released = r.sessions === "release";
+      if (!(await confirm({ title: `Pause ${what}?`, description: `It takes no new work; live runs continue.${released ? " Its agent sessions are released: their runs go to another node." : ""}${r.reason ? `\n\nReason: ${r.reason}` : ""}`, confirm: "Pause" }))) return;
+      try {
+        await core(`/nodes/${encodeURIComponent(r.target)}/pause`, { method: "POST", body: JSON.stringify({ reason: r.reason, sessions: r.sessions }) });
+        toast.success(`Paused ${what}`);
+        await qc.invalidateQueries();
+      } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+      return;
+    }
     run({ Kind: "hold", Scope: r.scope, Target: r.target, Text: r.reason },
       { title: `Pause ${what}?`, description: `New runs stop; live runs continue.${r.reason ? `\n\nReason: ${r.reason}` : ""}`, confirm: "Pause" }, `Paused ${what}`);
   };

@@ -39,6 +39,9 @@ type Project struct {
 	ApprovalID string `json:"approval_id,omitempty"`
 	// Setup is the repository provisioning / onboarding state (project-creation D2); nil when none is needed.
 	Setup *ProjectSetup `json:"setup,omitempty"`
+	// Requires are the tools the project's runs need on a node (node-readiness); nodes probe them with the
+	// repository access and Core offers the project's runs only to nodes that have them.
+	Requires []Requirement `json:"requires,omitempty"`
 }
 
 // Ready: the project's repository needs no setup or it finished.
@@ -182,6 +185,8 @@ type ProjectCreate struct {
 	RepoMode string `json:"repo_mode,omitempty"`
 	// Audit (an existing repository) makes Core create an onboarding audit task for the configured agent.
 	Audit bool `json:"audit,omitempty"`
+	// Requires: Project.Requires.
+	Requires []Requirement `json:"requires,omitempty"`
 	// CreatedBy and ApprovalID are set by Core (an agent's approved factory_project_create), never decoded.
 	CreatedBy  string `json:"-"`
 	ApprovalID string `json:"-"`
@@ -201,6 +206,8 @@ type ProjectUpdate struct {
 	Approvals            *ApprovalModes `json:"approvals,omitempty"`
 	// Team moves the project to another team, only while it has no live tasks (company-teams D4).
 	Team *string `json:"team,omitempty"`
+	// Requires replaces the project's requirements (node-readiness); nil keeps them, [] clears them.
+	Requires *[]Requirement `json:"requires,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

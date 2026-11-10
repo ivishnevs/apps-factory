@@ -163,7 +163,8 @@ runtime may still run (no inspection) releases it: `retry` keeps it `lost` and t
 A run's status is its phase: QUEUED → CLAIMED (until `/start`) →
 RUNNING → (CANCELLING while a stop is in flight) → ENDED. How it ended is only its outcome (`outcome` in run reads
 and task attempts, `STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded`, `failed`,
-`setup_failed` (skills or `workspace_diverged` before the runtime started), `change_missing` (the linked
+`setup_failed` (skills or `workspace_diverged` before the runtime started; with `node_fault` the node's environment,
+see Node readiness), `change_missing` (the linked
 OpenSpec change is not on the checkout: no attempt, escalated to the manager),
 `timed_out`, `idle_timeout`, `max_turns`, `paused_out` (reported by the worker), `lost` (lease, start
 window or node lost, or a worker's end without terminal evidence: no attempt), `revoked` (cancel, kill switch,
@@ -286,6 +287,37 @@ task, or another task's run — including a lost one whose runtime may still run
 writer slot; runs in
 other tasks' worktrees never do), else `runnable`. The verdict also
 lists the pending triggers the next run will be briefed on.
+
+With registered nodes, node reasons come in too: `pinned_node_unavailable`, `no_capable_node` (no node has the
+agent's driver, labels and resources) and `no_ready_node` (node-readiness: capable nodes exist, but each has a
+readiness fault for the task's project — it cannot read the repository, lacks a tool the project `requires`, or a
+run of the project failed there before its agent started). `no_ready_node` names every such node with its fault
+and fix; it is not an escalation and spends no retries: the task waits, the owner's inbox gets a `no_ready_node`
+alert while it lasts, and the first node to pass its check takes the task. A queued run says the same in its
+`queued` reason (`no_ready_node`; per node `not_ready`).
+
+### Node readiness
+
+A run that ends before its agent started because of the node's environment — repository access (`Repository not
+found`, credentials), the worktree, the runtime binary or a runtime refusing to start (`Native CLI binary … not
+found`, Claude Code as root), the runtime's sandbox (bwrap, socat) or a missing required tool — is `setup_failed`
+with `runs.node_fault` set (the node reports `fault` on the terminal event; Core also recognizes the texts older
+nodes send, a `failed` run only when the runtime used no tokens). Such a run counts no attempt and no backoff, only
+the daily budget (the guard against a node that passes its check and keeps failing); the task is offered to
+another node at once, and a side-effect task is not inspected (nothing ran). The node gets a readiness fault for
+the project (`node_readiness`, feed `node.not_ready`): offers, claims, queued reasons and the evaluator keep the
+project's runs off it until its check passes (`node.ready`).
+
+A project may declare `requires` (`["godot 4.7.2", "openspec", {"command": "node", "version": "20",
+"version_args": ["-v"]}]`: a command on PATH and an optional minimum version read from `--version`). Core lists
+every live project with a repository or requirements in the heartbeat answer (`checks`, each with a generation);
+the node runs `git ls-remote` on the repository and each tool's version check, again when a check's generation or
+contents change, and reports the results in its heartbeat (`readiness`). A repository or tool fault from a run is
+re-checked at once; a runtime, sandbox or worktree fault (which the project check cannot see) after 10 minutes, and
+every faulted check again every 10 minutes; "Check again" on the Nodes page (`POST /nodes/{id}/check`) asks at once.
+A result older than a run's fault never clears it. A node that does not report readiness (an older version) has its
+faults cleared by Check again, and its next run tests it. Runs also check the project's tools on the node before the
+runtime starts (the claim answer carries `requires`).
 
 ## Trigger log and parks
 
@@ -476,8 +508,17 @@ A run that continues a session (the (task, agent) session of a rework or re-revi
 message) is taken only by the node that holds the session — the node of the session's latest run — while that
 node is active, however busy it is: other nodes are not offered the run and their claims are refused with retry
 `affinity`; the queued reason says "Waiting for NODE, it holds this agent's session". When the holder becomes
-inactive (offline, paused, removed, or unable to run the agent), a release timer starts (`session_locks`); a holder
-active again clears it. When the company's timeout passes (default 90 minutes, `PUT
+inactive (offline, paused, removed, unable to run the agent, or not ready for the run's project), a release timer
+starts (`session_locks`); a holder active again clears it.
+
+Pausing a node that holds sessions asks what to do with them (node-readiness 4.1): `GET /nodes/{id}/sessions` lists
+the sessions it holds for open tasks and the queued runs waiting for them; `POST /nodes/{id}/pause {"reason",
+"sessions": "keep"|"release"}` keeps them until the release timeout (a short pause; the owner gets one
+`node.paused_sessions` notice naming the waiting tasks and the release time) or releases them now. A queued
+`affinity` run behind an inactive holder carries `holder` and `inactive` in its queued reason; the board and the
+task show "Waits for NODE (paused) until HH:MM" (the board files it under Blocked, not To do), and "Release now"
+(`POST /nodes/{id}/sessions/release`, with `{"run_id"}` for one run) lets another node take it with a fresh
+session. A released lock stays released until the holder is active again or another node takes the session. When the company's timeout passes (default 90 minutes, `PUT
 /settings/company/session_affinity {"release_minutes": N}`, 10 minutes to 7 days), any capable node takes the run,
 starts a fresh session with the usual note, and the lock moves to it. Runs without a session go anywhere. The pin of
 unpushed work (above) is stronger: it is released only by `reset_workspace`. When a task is pinned to one node and another node

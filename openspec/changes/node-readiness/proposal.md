@@ -1,5 +1,5 @@
-Status: proposed 2026-11-07 by the owner after connecting two new nodes (a Hetzner Linux server and a second
-MacBook). One defect fixed already (see "Done"); the rest not implemented.
+Status: implemented 2026-11-10 (approved by the owner 2026-11-10; proposed 2026-11-07 after connecting two new nodes, a Hetzner Linux server and a second
+MacBook). See "Implementation (2026-11-10)" for what was decided beyond the proposal.
 
 ## Why
 
@@ -62,6 +62,43 @@ Not in scope: installing project tools automatically on nodes, per-node labels f
 
 - 2026-11-07, `2d8c15c`: the packaged Claude shim gives runs the Claude Code binary next to the package (regression
   test in workers/claude). On the owner's Linux node the path was also set in `node.yaml` by hand.
+
+## Implementation (2026-11-10)
+
+Decided while implementing, beyond the text above:
+
+- **No escalation for `no_ready_node`.** The task waits (task reason and queued reason `no_ready_node`, per node
+  `not_ready`), never parks; the owner learns it through a `no_ready_node` inbox alert (task_alerts, synced by the
+  sweep, cleared when a node is ready) and the `node.not_ready` attention event, both naming the nodes and fixes.
+  Nothing needs a `retry` answer: the queued run goes to the first node that passes its check. "Escalations name the
+  node" applies to `budget_exhausted`, the only retry escalation a node fault can still reach.
+- **Node faults count against the daily budget** (not attempts, not backoff): the guard against a node whose check
+  passes while its runs keep failing (e.g. a runtime fault the project check cannot see).
+- **Classification.** The node classifies its own ends (`readiness.Classify`, `Event.fault`) and sends `setup_failed`;
+  Core classifies the texts older nodes send. A `failed` run is a node fault only for runtime start refusals (root,
+  native binary, sandbox) and only when the runtime used no tokens; repository and worktree texts only for
+  `setup_failed`. `workspace_diverged` stays the task's. A node-fault run of a side-effect task is not inspected.
+- **Check protocol.** Core lists every live project with a repository or `requires` in the heartbeat answer
+  (`checks`, with a generation per node and project); the node checks again when the generation or contents change
+  and reports `readiness` in every heartbeat. A run's fault sets a minimum generation, so a result from before the
+  fault never clears it. Repository and tool faults are re-checked at once; runtime, sandbox and worktree faults
+  after 10 minutes (`ReadinessRecheck`); every fault again every 10 minutes; Check again at once. A node that never
+  reports readiness (an older version) is unknown, so ready; Check again clears its faults. Runs also check the
+  project's tools before the runtime starts (the claim answer carries `requires`), as the node's own fault.
+- **`requires` format:** `"godot 4.7.2"` or `{"command", "version", "version_args"}`; a command is a bare name on
+  PATH, versions dotted numbers, at most 32; set on create and update (`requires`, `[]` clears).
+- **Session holders not ready for the run's project** count as inactive (release timer). A released lock now stays
+  in `session_locks` until the holder is active again or another node takes the session (deleting it on release
+  restarted the timer at the next look, which would have undone "Release now").
+- **Pause API** for the web: `GET /nodes/{id}/sessions`, `POST /nodes/{id}/pause {reason, sessions}`,
+  `POST /nodes/{id}/sessions/release` (`{run_id}` for one run), `POST /nodes/{id}/check` (all under `/nodes` so the
+  web's core proxy reaches them). The notice is one `node.paused_sessions` feed event per pause. On the board a
+  queued run held back by an inactive holder or `no_ready_node` files the task under Blocked with "Waits for NODE
+  (paused) until HH:MM"; "Release now" is on the task page and the node card (a card is a link).
+- Tasks 3.1 and 3.2 (installer, `claude.root`, `claude.sandbox`) as described in docs/node-install.md; the root
+  refusal has no override flag.
+- 5.1 is covered by `TestNodeReadinessEndToEnd` (real Core and nodes over signed HTTP) and the storage tests in
+  `internal/storage/readiness_test.go`; not run on a live node.
 
 ## Impact
 

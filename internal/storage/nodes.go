@@ -456,6 +456,13 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if missing := tasks.MissingLabels(n.Labels, AgentLabels(spec.ConfigSnapshot)); len(missing) > 0 {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: "node lacks labels " + strings.Join(missing, ", ")}
 	}
+	// node-readiness: a node with a readiness fault for the project (no repository access, a missing tool, a run of
+	// the project failed there before its agent started) takes none of its runs until it passes its check again.
+	if why, err := nodeNotReady(ctx, tx, company, req.NodeID, spec.Project); err != nil {
+		return out, err
+	} else if why != "" {
+		return out, &Refusal{Retry: true, Reason: "not_ready", Detail: "node not ready for project " + spec.Project + ": " + why}
+	}
 	// Concurrency caps over started runs; the run stays QUEUED and the node retries.
 	var busy, busyProject int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
@@ -552,6 +559,14 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 	}
 	out.RunSpec.Company = company
 	out.StartBy = time.Unix(startBy, 0).UTC()
+	if out.RunSpec.Project != "" {
+		// The project's required tools, checked by the node before the runtime starts (node-readiness).
+		if p, err := projectTx(ctx, tx, out.RunSpec.Project); err == nil {
+			out.RunSpec.Requires = p.Requires
+		} else if !errors.Is(err, ErrNotFound) {
+			return out, err
+		}
+	}
 	m, err := runManifest(ctx, tx, out.RunSpec)
 	out.RunSpec.Materialize = m
 	if err != nil {
@@ -693,6 +708,9 @@ type NodeHeartbeat struct {
 	// Drivers, when present, replaces the node's driver list (runtime-drivers D4): a driver that failed or
 	// passed its checks again is declared without a new epoch.
 	Drivers []NodeDriver `json:"drivers,omitempty"`
+	// Readiness are the node's results of the project checks Core asked for (node-readiness); absent from older
+	// nodes, which never report it.
+	Readiness []protocol.ProjectReadiness `json:"readiness,omitempty"`
 }
 
 type Stop struct {
@@ -709,13 +727,16 @@ type HeartbeatAnswer struct {
 	// Reset lists tasks whose worktree on this node must be reset from the remote branch (workspace_diverged
 	// answered reset_workspace); the node confirms with reset_done.
 	Reset []string `json:"reset"`
+	// Checks are the project readiness checks Core wants (node-readiness): the node runs each again when its
+	// generation or contents change and reports the results in readiness.
+	Checks []protocol.ProjectCheck `json:"checks"`
 }
 
 // NodeHeartbeat renews the leases of every listed run, judges the node's runs against its inventory and
 // answers what the node must stop, forget and clean up. An older epoch is ErrStaleEpoch; a node or epoch
 // Core does not know is ErrUnknownNode (the node registers again).
 func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb NodeHeartbeat) (HeartbeatAnswer, error) {
-	out := HeartbeatAnswer{Stop: []Stop{}, Acked: []string{}, Cleanup: []string{}, Reset: []string{}}
+	out := HeartbeatAnswer{Stop: []Stop{}, Acked: []string{}, Cleanup: []string{}, Reset: []string{}, Checks: []protocol.ProjectCheck{}}
 	inc, err := s.Incarnation(ctx)
 	if err != nil {
 		return out, err
@@ -767,6 +788,12 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		if err = driverTransitions(ctx, tx, node, name, known, hb.Drivers); err != nil {
 			return out, err
 		}
+	}
+	if err = applyReadiness(ctx, tx, node, hb.Readiness); err != nil {
+		return out, err
+	}
+	if out.Checks, err = projectChecks(ctx, tx, node); err != nil {
+		return out, err
 	}
 	// What the node lists unended holds its capacity (node_held); everything else of the node is released.
 	if _, err = tx.ExecContext(ctx, "UPDATE runs SET node_held=0 WHERE company_id=? AND node_id=? AND node_held=1", company, node); err != nil {

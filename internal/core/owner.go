@@ -43,6 +43,40 @@ func (c *Core) ownerRoutes(m *http.ServeMux) {
 		}
 		reply(w, map[string]bool{"ok": true}, c.Store.ClearPause(r.Context(), c.companyFrom(r), p.Scope, p.Target, "owner"))
 	})
+	// node-readiness: a node's project checks now ("Check again"), and the sessions a node pause holds back.
+	m.HandleFunc("POST /nodes/{id}/check", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]bool{"ok": true}, c.Store.CheckNodeAgain(r.Context(), c.companyFrom(r), r.PathValue("id")))
+	})
+	m.HandleFunc("GET /nodes/{id}/sessions", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.NodeSessions(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		reply(w, v, err)
+	})
+	// Release now: one queued run's session (run_id), else every session the paused node holds.
+	m.HandleFunc("POST /nodes/{id}/sessions/release", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			RunID string `json:"run_id,omitempty"`
+		}
+		if r.ContentLength != 0 && !decode(w, r, &p) {
+			return
+		}
+		if p.RunID != "" {
+			reply(w, map[string]bool{"ok": true}, c.Store.ReleaseRunSession(r.Context(), c.companyFrom(r), p.RunID, "owner"))
+			return
+		}
+		v, err := c.Store.ReleaseNodeSessions(r.Context(), c.companyFrom(r), r.PathValue("id"), "owner")
+		reply(w, map[string]any{"released": v}, err)
+	})
+	// A node pause with the answer for its sessions (keep or release); the web's /api/core reaches /nodes only.
+	m.HandleFunc("POST /nodes/{id}/pause", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Reason   string `json:"reason,omitempty"`
+			Sessions string `json:"sessions,omitempty"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		reply(w, map[string]bool{"ok": true}, c.Store.SetPause(r.Context(), c.companyFrom(r), storage.Pause{Scope: "node", Target: r.PathValue("id"), Reason: p.Reason, Sessions: p.Sessions, Actor: "owner"}))
+	})
 	// Kill switch: pause the company, then revoke every live run; tasks return to READY.
 	m.HandleFunc("POST /stop", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {

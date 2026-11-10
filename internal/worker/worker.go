@@ -29,6 +29,7 @@ import (
 	"appfactory/internal/policies"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
+	"appfactory/internal/readiness"
 	"appfactory/internal/storage"
 	"appfactory/internal/workspace"
 
@@ -179,7 +180,9 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Core HTTP %d: %s", e.St
 type Worker struct {
 	// LocalPolicy refuses a run this node's person does not allow (connector-trust, node.yaml policy); "" runs it.
 	LocalPolicy func(protocol.RunSpec) string
-	Allocator   workspace.Allocator
+	// ToolRun runs the project's required tools' version checks (node-readiness); nil runs them on this machine.
+	ToolRun   readiness.Run
+	Allocator workspace.Allocator
 	// Company is the company of the node this executor belongs to; empty means storage.DefaultCompany.
 	Company string
 	API     API
@@ -393,6 +396,14 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				slog.Info("run ended after its accepted exit", "run", spec.ID, "exit", x.Kind, "outcome", p.Outcome)
 				kind, p.Outcome = "completed", outcomeSucceeded
 			}
+			// node-readiness: an end the node's environment caused (no repository access, no runtime binary, a
+			// runtime refusing root, no sandbox) is reported as the node's fault, so Core spares the task's retries.
+			if p.Fault == nil && p.Outcome != outcomeSucceeded {
+				p.Fault = readiness.Classify(p.Outcome, p.Result, len(meter.models) > 0)
+			}
+			if p.Fault != nil {
+				p.Outcome = outcomeSetupFailed
+			}
 			record.Outcome = p.Outcome
 			saveRecord()
 			if p.Outcome == outcomeSucceeded && w.RunSucceeded != nil {
@@ -525,6 +536,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	// Project data from Core (pinned artifact inputs) before anything reads the worktree.
 	if err := w.Materialize(ctx, spec, lease, cwd); err != nil {
 		return emit("failed", protocol.Event{Status: ended, Result: "materializing project data failed before runtime startup: " + err.Error(), Outcome: outcomeSetupFailed})
+	}
+	// The project's required tools (node-readiness): a node without them ends the run as its own fault.
+	if len(spec.Requires) > 0 {
+		if fs := readiness.Requirements(ctx, w.toolRunner(cwd), spec.Requires); len(fs) > 0 {
+			return emit("failed", protocol.Event{Status: ended, Result: "required tools missing before runtime startup: " + readiness.Summary(fs), Outcome: outcomeSetupFailed,
+				Fault: &protocol.NodeFault{Kind: protocol.FaultTool, Detail: readiness.Summary(fs), Fix: fs[0].Fix}})
+		}
 	}
 	if spec.OpenSpecChange != "" {
 		if e := preflightChange(cwd, spec); e != nil {
@@ -898,6 +916,23 @@ type endError struct {
 
 func (e *endError) Error() string { return e.err.Error() }
 func (e *endError) Unwrap() error { return e.err }
+
+// toolRunner runs a required tool's version command in the run's directory with the environment its runtime gets
+// (node-readiness); ToolRun replaces it in tests.
+func (w *Worker) toolRunner(dir string) readiness.Run {
+	if w.ToolRun != nil {
+		return w.ToolRun
+	}
+	return func(ctx context.Context, name string, args ...string) (string, string, error) {
+		ctx, cancel := context.WithTimeout(ctx, node.CommandTimeout)
+		defer cancel()
+		var out, errb bytes.Buffer
+		c := exec.CommandContext(ctx, name, args...)
+		c.Dir, c.Env, c.Stdout, c.Stderr = dir, nodeEnvironment(os.Environ(), w.EnvAllow), &out, &errb
+		err := c.Run()
+		return out.String(), errb.String(), err
+	}
+}
 
 // setupFailed ends a run that failed before its runtime started: workspace, start check, OpenSpec
 // preflight, skills, shims, Factory binaries or the run credential.

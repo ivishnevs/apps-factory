@@ -36,10 +36,52 @@ What it does:
 5. Connects, unless `state/company` exists: `factory-node login` or `factory-node enroll CODE`.
 6. Starts the node: macOS `~/Library/LaunchAgents/com.appfactory.node.plist` (log `~/Library/Logs/factory-node.log`);
    Linux the user unit `factory-node` with `FACTORY_URL` in `~/.config/factory-node/env` (log `journalctl --user -u
-   factory-node`; `loginctl enable-linger` keeps it running after logout).
+   factory-node`). It enables linger for the user (`loginctl enable-linger`) so the node keeps running after
+   logout, or says `sudo loginctl enable-linger USER` when it may not.
 7. Runs `factory-node doctor` and says what is missing (for example `codex login`, `claude` sign-in).
 
 Running it again upgrades: `bin/`, `workers/` and Codex are replaced, `node.yaml` and the keys stay, no new connection.
+
+### Linux readiness (node-readiness)
+
+- **Not as root.** Run as root without `--os-user`, the script stops and offers
+  `curl -fsSL https://<core>/install.sh | sh -s -- --os-user factory` (the user is created if missing). Claude Code
+  refuses to run agents as root (`--dangerously-skip-permissions cannot be used with root/sudo privileges`), and
+  agents should not have root on the host. `factory-node doctor` fails the Claude driver on a root node
+  (`claude.root`) with the same fix, so a root node takes no Claude runs.
+- **Git identity.** Agents commit: when `git config --global user.name`/`user.email` is unset, the script asks for
+  them (when it has a terminal) or prints the commands.
+- **Node.js.** The script reports the Node.js version (a hint below 18); Claude agents do not need it, a project
+  whose required tools do shows as not ready on the node.
+- **Sandbox.** With `sandbox: worktree` (the default node.yaml), Claude Code confines runs with bubblewrap and
+  socat. The script and the Claude driver probe (`claude.sandbox`) run `bwrap --unshare-user --ro-bind / / true`
+  once and look for `socat`; when that fails the driver is not usable, with the cause and the fix. The script only
+  prints the commands, it never changes the host's packages or security settings:
+
+  ```sh
+  sudo apt-get install -y bubblewrap socat            # Fedora: sudo dnf install bubblewrap socat
+  # Ubuntu 23.10+ (kernel.apparmor_restrict_unprivileged_userns=1): let bwrap create user namespaces
+  sudo tee /etc/apparmor.d/bwrap <<'PROFILE'
+  abi <abi/4.0>,
+  include <tunables/global>
+  profile bwrap /usr/bin/bwrap flags=(unconfined) {
+    userns,
+    include if exists <local/bwrap>
+  }
+  PROFILE
+  sudo apparmor_parser -r /etc/apparmor.d/bwrap
+  ```
+
+### Project readiness (node-readiness)
+
+A connected node checks every project Core lists for it: `git ls-remote` of the project's repository as the node's
+user (no prompt) and each tool the project `requires`. A node that cannot read a repository, lacks a tool, or fails
+a run of the project before its agent starts (the cases above) is **not ready** for that project: the Nodes page
+shows the fault and the fix on its card, Core gives it none of the project's runs, and the tasks go to other nodes
+without spending their retries. Typical fixes: `gh auth login && gh auth setup-git` (Linux nodes have no
+credential helper by default), sharing a private repository with the node's GitHub account, installing the tool for
+the node's user. The node checks again by itself every 10 minutes; **Check again** on its card asks at once. When no
+node is ready for a project, its tasks wait with `no_ready_node` and the inbox names the nodes and their fixes.
 
 ## Connecting by signing in
 

@@ -26,6 +26,9 @@ type Node struct {
 	// Held counts the runs holding a slot (from claim until ended and sealed); Used their resource classes.
 	Held int
 	Used map[string]int
+	// NotReady maps a project to why the node is not ready for it (node-readiness: repository access, a missing
+	// tool, a run that failed there before its agent started, with the fix); the node takes none of its runs.
+	NotReady map[string]string
 }
 
 type NodeDriver struct {
@@ -129,13 +132,17 @@ func PinnedUnavailable(s Snapshot) string {
 	return ""
 }
 
-// noCapableNode says why no online, unpaused node can take the task's runs ("" when one can).
-func (s Snapshot) noCapableNode() string {
-	var why []string
-	var down []string
+// noCapableNode says why no online, unpaused node can take the task's runs (reason "" when one can):
+// no_capable_node, or no_ready_node when capable nodes exist but none is ready for the task's project.
+func (s Snapshot) noCapableNode() (reason, why string) {
+	var incapable, down, unready []string
 	for _, n := range s.Nodes {
 		if w := n.Incapable(s.Needs); w != "" {
-			why = append(why, n.label()+": "+w)
+			incapable = append(incapable, n.label()+": "+w)
+			continue
+		}
+		if w := n.NotReady[s.Task.ProjectID]; w != "" {
+			unready = append(unready, n.label()+": "+w)
 			continue
 		}
 		switch {
@@ -144,14 +151,20 @@ func (s Snapshot) noCapableNode() string {
 		case n.Paused:
 			down = append(down, n.label()+" paused")
 		default:
-			return ""
+			return "", ""
 		}
 	}
 	if len(down) > 0 {
-		return "capable nodes are unavailable: " + strings.Join(down, "; ")
+		return ReasonNoCapableNode, "capable nodes are unavailable: " + strings.Join(down, "; ")
 	}
-	return "no registered node can run " + s.Task.Assignee + " (" + s.Needs.describe() + "): " + strings.Join(why, "; ")
+	if len(unready) > 0 {
+		return ReasonNoReadyNode, "no node is ready for project " + s.Task.ProjectID + " — " + strings.Join(unready, "; ")
+	}
+	return ReasonNoCapableNode, "no registered node can run " + s.Task.Assignee + " (" + s.Needs.describe() + "): " + strings.Join(incapable, "; ")
 }
+
+// NoReadyClearer is how the owner clears no_ready_node: the node's fix, then its check passes.
+const NoReadyClearer = "fix the node as its fault says (Nodes page), then Check again; the task runs on the first ready node, its retries untouched"
 
 // nodeReason is the node reason of a task with registered nodes (empty Reason when none applies):
 // pinned_node_unavailable, then no_capable_node, then, with capacity, node capacity (the pinned node offline or
@@ -167,9 +180,14 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 		return hold(ReasonPinnedNode, why, "owner", "answer the pinned_node_unavailable escalation with reset_workspace (continues from the remote branch on any node), or bring the node back")
 	}
 	if s.PinnedNode == "" {
-		if why := s.noCapableNode(); why != "" {
-			return hold(ReasonNoCapableNode, why, "owner", "start or fix a node with "+s.Needs.describe()+" (node.yaml, factory-node doctor)")
+		if reason, why := s.noCapableNode(); reason == ReasonNoReadyNode {
+			return hold(reason, why, "owner", NoReadyClearer)
+		} else if reason != "" {
+			return hold(reason, why, "owner", "start or fix a node with "+s.Needs.describe()+" (node.yaml, factory-node doctor)")
 		}
+	} else if n := s.node(s.PinnedNode); n != nil && n.NotReady[s.Task.ProjectID] != "" {
+		// Only the pinned node can continue the task (task-worktrees D8): it waits for that node's fix.
+		return hold(ReasonNoReadyNode, fmt.Sprintf("the task's unpushed work is on node %s, which is not ready for project %s: %s", n.label(), s.Task.ProjectID, n.NotReady[s.Task.ProjectID]), "owner", NoReadyClearer)
 	}
 	if !capacity {
 		return Verdict{}
@@ -201,7 +219,7 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 func (s Snapshot) nodesFull() string {
 	var full []string
 	for _, n := range s.Nodes {
-		if s.PinnedNode != "" && n.ID != s.PinnedNode || n.Incapable(s.Needs) != "" || !n.Online || n.Paused {
+		if s.PinnedNode != "" && n.ID != s.PinnedNode || n.Incapable(s.Needs) != "" || n.NotReady[s.Task.ProjectID] != "" || !n.Online || n.Paused {
 			continue
 		}
 		short := n.Short(s.Needs.Resources)

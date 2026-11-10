@@ -50,7 +50,8 @@ export interface ProjectSetup {
   audit?: boolean; audit_task_id?: string; updated_at?: number;
 }
 
-export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[] }
+// holder and inactive (affinity): the node holding the session and why it is inactive; such a session can be released (node-readiness).
+export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[]; holder?: string; inactive?: string }
 export interface RunStatus { id: string; agent: string; task_id?: string; status: string; started_at?: number; queued?: QueuedReason }
 export interface ProjectStatus {
   project: Project; runs: RunStatus[]; tasks: Record<string, number>; waiting: Verdict[]; runnable: number; inbox: number;
@@ -65,9 +66,18 @@ export interface NodeUse { runs: number; resources: Record<string, number> }
 // NodeTied (sticky-work-first): open tasks whose unsaved work is on the node, and queued runs only it may take now.
 export interface TiedRun { run_id: string; task_id: string; agent: string; tie: "pinned" | "session" }
 export interface NodeTied { pinned: string[]; waiting: TiedRun[] }
+// node-readiness (storage.ProjectReadiness): a node's readiness for one project; faults say what failed and the fix.
+export interface NodeFault { kind: string; detail: string; fix?: string }
+export interface ProjectReadiness {
+  project: string; ready: boolean; faults: NodeFault[]; source: "probe" | "run"; run_id?: string; since?: number; checked_at?: number; pending?: boolean;
+}
+// storage.NodeSessions: what a node pause holds back (session-affinity leases and the runs waiting for them).
+export interface HeldSession { session_id: string; agent: string; task_id?: string; title?: string; released?: boolean }
+export interface NodeSessions { held: HeldSession[]; waiting: TiedRun[]; release_seconds: number }
 export interface FactoryNode {
   node_id: string; name: string; labels?: string[]; slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
   health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse; tied?: NodeTied;
+  readiness?: ProjectReadiness[];
   [k: string]: unknown;
 }
 

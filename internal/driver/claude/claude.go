@@ -63,6 +63,8 @@ type Driver struct {
 	StateDir string
 	// FullAccess are projects whose runs are not confined (node.yaml policy.full_access).
 	FullAccess []string
+	// Euid is the node's effective user ID for the root check (node-readiness 3.1); nil is os.Geteuid.
+	Euid func() int
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }
