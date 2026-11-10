@@ -11,7 +11,11 @@ import type { Comment, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, 
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { columns, type ColumnKey, isTerminal, runCost, since } from "./model";
+import { columns, type ColumnKey, heldBack, isTerminal, queuedLine, runCost, since } from "./model";
+import { useConfirm } from "@/components/app/confirm";
+import { core } from "@/lib/api/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { cleanText, humanize, party as partyOf, taskName, triggerWords, type Lookup, type Party } from "@/lib/humanize";
 import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
@@ -132,9 +136,35 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
           {you && msg && (
             <Button asChild size="sm" className="mt-3 h-10 sm:h-8"><Link href={`/inbox?m=${encodeURIComponent(msg)}`}>Open in inbox<ChevronRight /></Link></Button>
           )}
+          {!done && queued && heldBack(queued) && queued.holder && task.current_run_id && (
+            <ReleaseSession queued={queued} runId={task.current_run_id} />
+          )}
         </div>
       </div>
     </section>
+  );
+}
+
+// ReleaseSession (node-readiness 4.1): the run waits for a paused or offline node that holds its agent's session;
+// Release now lets another node take it with a fresh session from Factory's context.
+function ReleaseSession({ queued, runId }: { queued: QueuedReason; runId: string }) {
+  const confirm = useConfirm();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const release = async () => {
+    if (!(await confirm({ title: "Release the session now?", description: `${queuedLine(queued)}. Another node takes the run and starts a fresh session from Factory's context; the agent loses what only that session remembered.`, confirm: "Release now" }))) return;
+    setBusy(true);
+    try {
+      await core(`/nodes/${encodeURIComponent(queued.holder ?? "")}/sessions/release`, { method: "POST", body: JSON.stringify({ run_id: runId }) });
+      toast.success("Released: another node takes the run");
+      await qc.invalidateQueries();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <span className="text-sm text-amber-700 dark:text-amber-300">{queuedLine(queued)}</span>
+      <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={release} disabled={busy}>Release now</Button>
+    </div>
   );
 }
 

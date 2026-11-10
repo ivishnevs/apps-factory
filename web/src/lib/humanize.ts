@@ -257,6 +257,12 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     return out({ headline: "No node can run it", brief: "Start a capable node", detail: note ? `${capital(note)}.` : "No online node has what its agent needs.",
       next: "Start or fix a node with what this agent needs." });
   }
+  if (reason === "no_ready_node") {
+    // node-readiness: nodes could run it but none is ready for the project (no repository access, a missing tool);
+    // the task keeps its retries and runs on the first node that passes its check.
+    return out({ headline: "No node is ready", brief: "Fix a node, then Check again", detail: note ? `${capital(note)}.` : "No node is ready for this project.",
+      who: { label: "Nodes", href: "/nodes" }, you: true, next: "Fix the node as its card on the Nodes page says, then press Check again; the task starts there with its retries untouched." });
+  }
   if (reason === "capacity" && v.wait) {
     const w = v.wait;
     const blocker: Party | undefined = w.task_id ? { label: taskName(w.task_id, look), href: `/tasks/${encodeURIComponent(w.task_id)}` }
@@ -319,11 +325,11 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
   if (reason === "affinity") {
     // session-affinity: the node holding the agent's session takes the run (a queued run's reason).
     const node = /^(.+?) holds this agent's session/.exec(detail)?.[1];
-    const inactive = /and is (offline|paused|removed|unable to run the agent)/.exec(detail)?.[1];
+    const inactive = /and is (offline|paused|removed|unable to run the agent|not ready for project \S+)/.exec(detail)?.[1];
     return out({ headline: node ? `Waiting for ${node}` : "Waiting for its node", label: "Waiting for the node with its session", brief: "It holds this agent's session",
       detail: inactive ? `${node ?? "The node"} holds this agent's session and is ${inactive}; another node takes the run after the release and starts a fresh session.`
         : `${node ?? "The node"} holds this agent's session and takes the run when it has a free slot, so the agent keeps its memory.`,
-      who: { label: node ?? "Its node", href: "/nodes" }, next: inactive ? "It moves to another node on its own after the release." : "It starts when that node has a free slot.", you: false, queued: true });
+      who: { label: node ?? "Its node", href: "/nodes" }, next: inactive ? "It moves to another node on its own after the release, or now with Release now." : "It starts when that node has a free slot.", you: false, queued: true });
   }
   if (reason === "runnable") return out({ headline: "Starting soon", detail: "It is next in line to run.", who: undefined, you: false });
   return out({ headline: capital(reason.replace(/[:_]/g, " ")), detail: note, next: cleanText(action, look) || undefined });

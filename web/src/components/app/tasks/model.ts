@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useOverview } from "@/lib/api/client";
-import type { Overview, Run, Task } from "@/lib/api/types";
+import type { Overview, QueuedReason, Run, Task } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 
 // useHydrated is false on the server and while hydrating, then true. Screens render cached data only once
@@ -53,15 +53,28 @@ export const isTerminal = (s: string) => s === "DONE" || s === "CANCELLED";
 export const isConversation = (t: BoardTask) => t.kind === "conversation";
 export const runCost = (r?: Run) => (r?.usage ?? []).reduce((n, u) => n + (u.cost_usd ?? 0), 0);
 
-// The live (non-queued) and queued runs of tasks, by task id.
+// The live (non-queued) and queued runs of tasks, by task id, and why each queued run waits (why).
 export function runsByTask(ov?: Overview) {
-  const live = new Map<string, Run>(), queued = new Map<string, Run>();
+  const live = new Map<string, Run>(), queued = new Map<string, Run>(), why = new Map<string, QueuedReason>();
   for (const r of Object.values(ov?.live_runs ?? {})) {
     const t = r.spec.task_id;
     if (!t || r.status === "ENDED") continue;
     (r.status === "QUEUED" ? queued : live).set(t, r);
   }
-  return { live, queued };
+  for (const s of ov?.status ?? []) for (const r of s.runs ?? []) if (r.task_id && r.queued) why.set(r.task_id, r.queued);
+  return { live, queued, why };
+}
+
+// heldBack (node-readiness): a queued run that waits for something the owner can act on — a paused or offline node
+// holding its agent's session, or no node ready for its project — not merely for a free slot.
+export const heldBack = (q?: QueuedReason) => !!q && (q.reason === "no_ready_node" || q.reason === "affinity" && !!q.inactive);
+
+// queuedLine: a held-back queued run in a few words, e.g. "Waits for MacBook-Air (paused) until 14:30".
+export function queuedLine(q: QueuedReason, nodeName?: (id: string) => string): string {
+  if (q.reason === "no_ready_node") return "No node is ready for its project";
+  const node = q.holder ? nodeName?.(q.holder) || q.holder : "its node";
+  const until = q.until ? ` until ${new Date(q.until * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+  return `Waits for ${node} (${q.inactive})${until}`;
 }
 
 // Board columns, in order (as the terminal board groups them: a run waiting for a node is still To do). The keys
@@ -82,10 +95,10 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
   if (isTerminal(t.status)) return "done";
   if (t.status === "BACKLOG") return "backlog";
   if (t.status === "IN_REVIEW") return "review";
-  if (runs.queued.has(t.id)) return "ready";
+  if (runs.queued.has(t.id)) return heldBack(runs.why?.get(t.id)) ? "waiting" : "ready";
   if (runs.live.has(t.id) || t.status === "IN_PROGRESS") return "running";
   if (t.status === "BLOCKED" || t.status === "REWORK" || t.reason.startsWith("parked:") || t.reason.startsWith("paused:") ||
-    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node", "secret_missing"].includes(t.reason)) return "waiting";
+    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node", "no_ready_node", "secret_missing"].includes(t.reason)) return "waiting";
   return "ready";
 }
 
@@ -97,7 +110,7 @@ export function needsAction(t: { reason?: string; status?: string; clearer?: { w
   if (isTerminal(t.status ?? "") || r === "backlog" || r === "terminal") return false;
   if (needsOwner(t)) return true;
   if (t.status === "BLOCKED" || t.status === "REWORK") return true;
-  if (["unassigned", "pinned_node_unavailable", "no_capable_node", "secret_missing", "artifacts"].includes(r)) return true;
+  if (["unassigned", "pinned_node_unavailable", "no_capable_node", "no_ready_node", "secret_missing", "artifacts"].includes(r)) return true;
   if (r.startsWith("paused:")) return who !== "time";
   if (r === "parked:escalation" || r === "parked:inspect" || r === "parked:block") return true;
   if (r === "parked:ask") return who === "owner" || who.startsWith("member:") || who.startsWith("person:");
@@ -108,7 +121,7 @@ export function needsAction(t: { reason?: string; status?: string; clearer?: { w
 const reasonLabels: Record<string, string> = {
   live_run: "Running", dependencies: "Blocked by dependencies", artifacts: "Waiting for artifacts", unassigned: "No assignee",
   backoff: "Backing off", capacity: "Queued", idle: "Idle", runnable: "Runnable", backlog: "In backlog", terminal: "Closed",
-  pinned_node_unavailable: "Its node is offline", no_capable_node: "No node can run it",
+  pinned_node_unavailable: "Its node is offline", no_capable_node: "No node can run it", no_ready_node: "No node is ready",
   "parked:escalation": "Escalated", "parked:inspect": "Needs inspection", "parked:wait": "Waiting", "parked:ask": "Question asked",
   "parked:block": "Blocked", "parked:children": "Waiting for subtasks",
 };

@@ -3,9 +3,9 @@
 import { CircleUserRound, Clock, Hand, Loader2, Pin } from "lucide-react";
 import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
-import type { FactoryNode, Run, Task } from "@/lib/api/types";
+import type { FactoryNode, QueuedReason, Run, Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { agentHue, columns, type ColumnKey, elapsed, initials, needsAction, needsOwner, showWhy, since } from "./model";
+import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAction, needsOwner, queuedLine, showWhy, since } from "./model";
 import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
 
@@ -61,9 +61,12 @@ export function WhyLine({ task, look, now, compact, className }: {
 
 // TaskCard: a task on the board. In progress cards show the run time and node; cards that need someone to act
 // are marked (yours amber, others red) so they stand out from tasks that wait their turn.
-export function TaskCard({ task, project, now, column, look, run, nodes, className }: {
-  task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; run?: Run; nodes?: FactoryNode[]; className?: string;
+export function TaskCard({ task, project, now, column, look, run, nodes, queued, className }: {
+  task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; run?: Run; nodes?: FactoryNode[]; queued?: QueuedReason; className?: string;
 }) {
+  // node-readiness 4.1: a queued run held back by a paused node's session (or no ready node) says so on the card;
+  // Release now is on the task and on the node's card.
+  const held = heldBack(queued) && queued ? queuedLine(queued, (id) => nodes?.find((n) => n.node_id === id)?.name ?? id) : "";
   const col = column && columns.find((c) => c.key === column);
   const badge = !col && ["CANCELLED", "BLOCKED", "REWORK"].includes(task.status);
   const yours = needsOwner(task), action = !yours && needsAction(task);
@@ -88,7 +91,11 @@ export function TaskCard({ task, project, now, column, look, run, nodes, classNa
       </div>
       <p className="line-clamp-2 text-[15px] font-medium leading-snug text-foreground wrap-anywhere sm:text-sm">{task.title}</p>
       {action && <p className="mt-1.5 text-[11px] font-semibold tracking-wide text-red-700 uppercase dark:text-red-300">Needs action</p>}
-      {showWhy(task) && <WhyLine task={task} look={look} now={now} compact className={action ? "mt-0.5" : "mt-1.5"} />}
+      {held ? (
+        <p className="mt-1.5 flex min-w-0 items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
+          <Clock aria-hidden className="mt-[3px] size-3.5 shrink-0" /><span className="min-w-0 wrap-anywhere font-medium">{held}</span>
+        </p>
+      ) : showWhy(task) && <WhyLine task={task} look={look} now={now} compact className={action ? "mt-0.5" : "mt-1.5"} />}
       {live && (
         <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin [animation-duration:2.5s]" />

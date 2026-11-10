@@ -160,7 +160,7 @@ function Tasks() {
             </div>
             {list.length === 0 ? <Empty view={view} filtered={filteredOut} emptyProject={!!current && !projectHasTasks} /> : (
               <ul className="grid gap-2.5 sm:grid-cols-2">
-                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} run={runs.live.get(f.task.id)} nodes={ov.nodes} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
+                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} run={runs.live.get(f.task.id)} queued={runs.why.get(f.task.id)} nodes={ov.nodes} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
               </ul>
             )}
           </div>
@@ -201,7 +201,7 @@ function Tasks() {
                       )}
                     </header>
                     <div className="flex flex-col gap-2">
-                      {items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} nodes={ov.nodes} />)}
+                      {items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} queued={runs.why.get(t.id)} nodes={ov.nodes} />)}
                     </div>
                   </section>
                 );
