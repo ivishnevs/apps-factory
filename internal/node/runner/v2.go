@@ -21,14 +21,16 @@ import (
 
 // Register is the body of POST /nodes/register.
 type Register struct {
-	NodeID          string         `json:"node_id"`
-	Name            string         `json:"name"`
-	Epoch           int64          `json:"epoch"`
-	ProtocolVersion int            `json:"protocol_version"`
-	Slots           int            `json:"slots"`
-	Drivers         []DriverInfo   `json:"drivers"`
-	Resources       map[string]int `json:"resources"`
-	Labels          []string       `json:"labels"`
+	NodeID          string `json:"node_id"`
+	Name            string `json:"name"`
+	Epoch           int64  `json:"epoch"`
+	ProtocolVersion int    `json:"protocol_version"`
+	Slots           int    `json:"slots"`
+	// ConversationSlots take only conversation runs, on top of Slots (work-and-conversation-runs).
+	ConversationSlots int            `json:"conversation_slots,omitempty"`
+	Drivers           []DriverInfo   `json:"drivers"`
+	Resources         map[string]int `json:"resources"`
+	Labels            []string       `json:"labels"`
 	// Worktrees: worktree tasks run in their own worktree here, so Core lets tasks of one project run in
 	// parallel on this node (runtime-protocol-v2 §11).
 	Worktrees bool `json:"worktrees,omitempty"`
@@ -199,7 +201,7 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 // register registers the current epoch with the drivers as last checked, retrying while Core is
 // unreachable; a refusal is final.
 func (s *session) register(ctx context.Context, reason string) error {
-	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots,
+	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots, ConversationSlots: s.cfg.ConversationSlots,
 		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}

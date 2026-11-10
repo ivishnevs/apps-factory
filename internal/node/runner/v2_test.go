@@ -184,10 +184,7 @@ func (f *fakeCore) poll(w http.ResponseWriter, r *http.Request) {
 	if req.Epoch == f.epoch {
 		for _, run := range f.queue {
 			if len(a.Offers) < req.Free["codex"] && !slices.Contains(req.Skip, run) {
-				a.Offers = append(a.Offers, struct {
-					RunID    string `json:"run_id"`
-					Provider string `json:"provider"`
-				}{run, "codex"})
+				a.Offers = append(a.Offers, pollOffer{RunID: run, Provider: "codex"})
 			}
 		}
 	}

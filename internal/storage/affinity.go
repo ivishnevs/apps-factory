@@ -30,6 +30,9 @@ type Affinity struct {
 }
 
 func (a Affinity) detail() string {
+	if a.Inactive == "" && a.Release > 0 {
+		return fmt.Sprintf("node %s holds this conversation's session and has no free slot; another node starts it fresh at %s", a.Holder, time.Unix(a.Release, 0).UTC().Format(time.RFC3339))
+	}
 	if a.Inactive == "" {
 		return fmt.Sprintf("node %s holds this agent's session and is active; the run waits for it", a.Holder)
 	}
@@ -59,13 +62,24 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
 		return nil, err
 	}
+	// A conversation waits for its session's node at most the company's conversation wait from when it was
+	// queued, whether the holder is inactive or busy (work-and-conversation-runs); then any node starts it fresh.
+	var deadline int64
+	if spec.Conversation {
+		if deadline, err = conversationDeadline(ctx, q, company, id); err != nil {
+			return nil, err
+		}
+		if deadline > 0 && now.Unix() >= deadline {
+			return nil, nil
+		}
+	}
 	inactive, since, err := holderInactive(ctx, q, company, holder, spec)
 	if err != nil {
 		return nil, err
 	}
 	if inactive == "" {
 		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
-		return &Affinity{Holder: holder}, err
+		return &Affinity{Holder: holder, Release: deadline}, err
 	}
 	var started int64
 	err = q.QueryRowContext(ctx, "SELECT inactive_since FROM session_locks WHERE company_id=? AND session_id=? AND node_id=?", company, spec.SessionID, holder).Scan(&started)
@@ -84,6 +98,9 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 		return nil, err
 	}
 	release := started + int64(timeout/time.Second)
+	if deadline > 0 && deadline < release {
+		release = deadline
+	}
 	if now.Unix() >= release {
 		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
 		return nil, err
@@ -141,6 +158,54 @@ func companyAffinity(ctx context.Context, q affinityQuerier, company string) (ti
 		return DefaultSessionAffinity, nil
 	}
 	return time.Duration(minutes) * time.Minute, err
+}
+
+// DefaultConversationWait is how long a queued conversation run waits for the node holding its session in a company
+// that set none (owner 2026-11-08: 10 minutes).
+const DefaultConversationWait = 10 * time.Minute
+
+func companyConversationWait(ctx context.Context, q affinityQuerier, company string) (time.Duration, error) {
+	var minutes int64
+	err := q.QueryRowContext(ctx, "SELECT conversation_wait_minutes FROM companies WHERE id=?", company).Scan(&minutes)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && minutes <= 0 {
+		return DefaultConversationWait, nil
+	}
+	return time.Duration(minutes) * time.Minute, err
+}
+
+// conversationDeadline is when queued conversation run id stops waiting for its session's node (0 when the run is
+// not found).
+func conversationDeadline(ctx context.Context, q affinityQuerier, company, id string) (int64, error) {
+	var created int64
+	err := q.QueryRowContext(ctx, "SELECT created_at FROM runs WHERE company_id=? AND id=?", company, id).Scan(&created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	wait, err := companyConversationWait(ctx, q, company)
+	return created + int64(wait/time.Second), err
+}
+
+// ConversationWait is the company's conversation wait (session_affinity.conversation_wait).
+func (s *Store) ConversationWait(ctx context.Context, company string) (time.Duration, error) {
+	return companyConversationWait(ctx, s.DB, company)
+}
+
+// SetConversationWait sets the company's conversation wait (1 minute to 24 hours).
+func (s *Store) SetConversationWait(ctx context.Context, company string, d time.Duration) error {
+	if d < time.Minute || d > 24*time.Hour {
+		return inputError("conversation wait must be between 1m and 24h")
+	}
+	res, err := s.DB.ExecContext(ctx, "UPDATE companies SET conversation_wait_minutes=? WHERE id=?", int64(d/time.Minute), company)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SessionAffinity is the company's release timeout.

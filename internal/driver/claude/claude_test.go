@@ -524,7 +524,7 @@ for (const c of ["cliclick c:1", "git status", "git push origin main", "git push
 }
 
 func TestOptionsMatchConfigRegistry(t *testing.T) {
-	sample := map[string]any{"model": "claude-opus-5-5", "effort": "low", "max_turns": float64(3)}
+	sample := map[string]any{"model": "claude-opus-5-5", "effort": "low", "max_turns": float64(3), "context_window": float64(200000)}
 	keys := config.RuntimeOptions[protocol.RuntimeClaude]
 	for _, k := range keys {
 		if err := ValidateOptions(map[string]any{k: sample[k]}); err != nil {

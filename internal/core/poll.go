@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -21,11 +22,22 @@ const MaxPollWait = 25 * time.Second
 // pollRecheck is how often a waiting poll re-reads Postgres, for a missed wake-up or another Core process (D6).
 var pollRecheck = 2 * time.Second
 
+// merged is a and b in one map (b's entries under the same key win), for validating both free maps.
+func merged(a, b map[string]int) map[string]int {
+	out := make(map[string]int, len(a)+len(b))
+	maps.Copy(out, a)
+	maps.Copy(out, b)
+	return out
+}
+
 // PollRequest is the body of POST /nodes/{node_id}/poll.
 type PollRequest struct {
 	Epoch int64 `json:"epoch"`
 	// Free is the node's free slots per provider; offers never exceed them.
 	Free map[string]int `json:"free"`
+	// FreeConversation is the node's free conversation slots per provider (work-and-conversation-runs); absent
+	// from older nodes.
+	FreeConversation map[string]int `json:"free_conversation,omitempty"`
 	// WaitSeconds is how long Core may wait for work (at most 25; 0 answers at once).
 	WaitSeconds int `json:"wait_seconds"`
 	// Skip lists runs the node refused to offer again for now (claims refused with retry lately).
@@ -137,7 +149,7 @@ func (c *Core) poll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "epoch and a wait of 0 to 25 seconds required", http.StatusBadRequest)
 		return
 	}
-	for provider, n := range p.Free {
+	for provider, n := range merged(p.Free, p.FreeConversation) {
 		if n < 0 || n > 1024 || provider == "" {
 			http.Error(w, "free slots per provider of 0 to 1024 required", http.StatusBadRequest)
 			return
@@ -194,7 +206,7 @@ func (c *Core) poll(w http.ResponseWriter, r *http.Request) {
 // stays offered while it is queued and the node does not skip it).
 func (c *Core) pollAnswer(ctx context.Context, company, node string, p PollRequest) (PollAnswer, string, error) {
 	var a PollAnswer
-	offers, err := c.Store.Offers(ctx, company, node, p.Epoch, p.Free, p.Skip)
+	offers, err := c.Store.OffersFor(ctx, company, node, p.Epoch, p.Free, p.FreeConversation, p.Skip)
 	if err != nil {
 		return a, "", err
 	}

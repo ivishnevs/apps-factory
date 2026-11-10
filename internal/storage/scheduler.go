@@ -66,12 +66,14 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if waiting > 0 {
 		return spec, ErrConflict
 	}
-	// Concurrency caps (trigger-log-scheduling 2.5): the agent's live runs, in all projects and in this one.
-	all, inProject, err := agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID)
+	// Concurrency caps (trigger-log-scheduling 2.5): the agent's live runs, in all projects and in this one, of the
+	// run's kind (work-and-conversation-runs: a conversation does not wait behind work).
+	perAgent, perProject, kind := AgentRunCaps(spec.ConfigSnapshot).For(t.Kind == tasks.KindConversation)
+	all, inProject, err := agentLive(ctx, tx, t.Assignee, t.ProjectID, t.ID, kind)
 	if err != nil {
 		return spec, err
 	}
-	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); all >= perAgent || inProject >= perProject {
+	if overCaps(perAgent, perProject, all, inProject) {
 		return spec, ErrConflict
 	}
 	spec.Workspace = p.Workspace

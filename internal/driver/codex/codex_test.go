@@ -246,6 +246,7 @@ func TestModelAndEffort(t *testing.T) {
 		options := map[string]any{"model": "gpt-6-luna"}
 		if effort != "" {
 			options["effort"] = effort
+			options["context_window"] = float64(200000) // work-and-conversation-runs 2.2
 		}
 		s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeAppServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work", RuntimeOptions: options}, Cwd: t.TempDir()})
 		if err != nil {
@@ -276,6 +277,10 @@ func TestModelAndEffort(t *testing.T) {
 		}
 		if got["thread/start"]["model"] != "gpt-6-luna" {
 			t.Fatal("thread/start", got["thread/start"])
+		}
+		cfg, _ := got["thread/start"]["config"].(map[string]any)
+		if limit, ok := cfg["model_auto_compact_token_limit"]; effort != "" && limit != float64(200000) || effort == "" && ok {
+			t.Fatalf("context window: thread config %v", cfg)
 		}
 		if e, ok := got["turn/start"]["effort"]; effort == "" && ok || effort != "" && e != effort {
 			t.Fatalf("effort %q: turn/start %v", effort, got["turn/start"])

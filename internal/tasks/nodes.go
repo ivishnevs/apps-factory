@@ -23,9 +23,12 @@ type Node struct {
 	Labels    []string
 	Resources map[string]int
 	Slots     int
-	// Held counts the runs holding a slot (from claim until ended and sealed); Used their resource classes.
+	// Held counts the runs holding a work slot (from claim until ended and sealed); Used their resource classes.
 	Held int
 	Used map[string]int
+	// ConversationSlots take only conversation runs, on top of Slots; ConversationHeld counts the runs in them
+	// (work-and-conversation-runs).
+	ConversationSlots, ConversationHeld int
 }
 
 type NodeDriver struct {
@@ -65,9 +68,17 @@ func (n Node) Incapable(need NodeNeeds) string {
 	return ""
 }
 
-// Short says what the node lacks right now for one more run ("" when it fits).
-func (n Node) Short(need map[string]int) string {
-	return NodeShort(n.Held, n.Slots, n.Used, n.Resources, need)
+// Short says what the node lacks right now for one more run of the kind ("" when it fits): a conversation run fits
+// a free conversation slot, then a free work slot (work-and-conversation-runs).
+func (n Node) Short(conversation bool, need map[string]int) string {
+	if conversation && n.ConversationHeld < n.ConversationSlots {
+		return ""
+	}
+	short := NodeShort(n.Held, n.Slots, n.Used, n.Resources, need)
+	if short != "" && conversation && n.ConversationSlots > 0 {
+		short = fmt.Sprintf("all %d conversation slots held; %s", n.ConversationSlots, short)
+	}
+	return short
 }
 
 // NodeShort says what a node with slots and capacity, whose held runs use used, lacks for one more run
@@ -204,7 +215,7 @@ func (s Snapshot) nodesFull() string {
 		if s.PinnedNode != "" && n.ID != s.PinnedNode || n.Incapable(s.Needs) != "" || !n.Online || n.Paused {
 			continue
 		}
-		short := n.Short(s.Needs.Resources)
+		short := n.Short(s.Task.Kind == KindConversation, s.Needs.Resources)
 		if short == "" {
 			return ""
 		}

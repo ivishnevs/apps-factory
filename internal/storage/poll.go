@@ -21,6 +21,8 @@ import (
 type Offer struct {
 	RunID    string `json:"run_id"`
 	Provider string `json:"provider"`
+	// Conversation: a conversation run, which the node gives a conversation slot first (work-and-conversation-runs).
+	Conversation bool `json:"conversation,omitempty"`
 }
 
 // PollWork is what a node's poll answers, offers aside: urgent stops of its runs, worktree resets and cleanups.
@@ -76,6 +78,13 @@ func (s *Store) pollNode(ctx context.Context, company, node string, epoch int64)
 // lately) and without runs whose task's unpushed work is pinned to another node or whose agent needs labels the node
 // lacks. The claim re-checks all of it, plus caps, resource classes and project setup.
 func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, free map[string]int, skip []string) ([]Offer, error) {
+	return s.OffersFor(ctx, company, node, epoch, free, nil, skip)
+}
+
+// OffersFor is Offers with the node's free conversation slots per provider (work-and-conversation-runs): a
+// conversation run is offered into a free conversation slot first, then into a free work slot; a work run only into
+// a work slot. A node older than the change sends none.
+func (s *Store) OffersFor(ctx context.Context, company, node string, epoch int64, free, freeConversation map[string]int, skip []string) ([]Offer, error) {
 	out := []Offer{}
 	n, err := s.pollNode(ctx, company, node, epoch)
 	if err != nil {
@@ -88,12 +97,23 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	if paused > 0 {
 		return out, nil
 	}
-	left := map[string]int{}
+	left, leftConv := map[string]int{}, map[string]int{}
 	var providers []string
+	usable := func(p string) bool {
+		return slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == p && d.OK })
+	}
 	for p, k := range free {
-		if k > 0 && slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == p && d.OK }) {
+		if k > 0 && usable(p) {
 			left[p] = k
 			providers = append(providers, p)
+		}
+	}
+	for p, k := range freeConversation {
+		if k > 0 && usable(p) {
+			leftConv[p] = k
+			if left[p] == 0 {
+				providers = append(providers, p)
+			}
 		}
 	}
 	if len(providers) == 0 {
@@ -102,7 +122,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	sort.Strings(providers)
 	providerJSON, _ := json.Marshal(providers)
 	skipJSON, _ := json.Marshal(append([]string{}, skip...))
-	rows, err := s.DB.QueryContext(ctx, `SELECT r.id,r.spec->>'provider',coalesce(r.spec->'config_snapshot','null'),coalesce(w.node_id,''),coalesce(r.spec->>'session_id','') FROM runs r
+	rows, err := s.DB.QueryContext(ctx, `SELECT r.id,r.spec->>'provider',coalesce(r.spec->'config_snapshot','null'),coalesce(w.node_id,''),coalesce(r.spec->>'session_id',''),coalesce(r.spec->>'conversation','')='true' FROM runs r
  LEFT JOIN workspaces w ON w.company_id=r.company_id AND w.task_id=r.task_id AND w.unpushed=1 AND w.node_id!=''
  WHERE r.company_id=? AND r.status='QUEUED' AND r.spec->>'provider' IN (SELECT jsonb_array_elements_text(?::jsonb))
  AND r.id NOT IN (SELECT jsonb_array_elements_text(?::jsonb))
@@ -113,6 +133,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	type candidate struct {
 		id, provider, session string
 		snapshot              []byte
+		conversation          bool
 		// rank orders the offers: 0 pinned here, 1 session held here, 2 the rest.
 		rank int
 	}
@@ -120,7 +141,7 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	for rows.Next() {
 		var c candidate
 		var pinned string
-		if err = rows.Scan(&c.id, &c.provider, &c.snapshot, &pinned, &c.session); err != nil {
+		if err = rows.Scan(&c.id, &c.provider, &c.snapshot, &pinned, &c.session, &c.conversation); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -150,21 +171,25 @@ func (s *Store) Offers(ctx context.Context, company, node string, epoch int64, f
 	}
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].rank < cands[j].rank })
 	for _, c := range cands {
-		if left[c.provider] == 0 {
+		if left[c.provider] == 0 && (!c.conversation || leftConv[c.provider] == 0) {
 			continue
 		}
 		// Runs whose session another active node holds are not offered (the claim refuses them too), unless the
 		// task's unpushed work is here: the pin outranks the session.
 		if c.session != "" && c.rank != 0 {
-			spec := protocol.RunSpec{SessionID: c.session, Provider: protocol.RuntimeProvider(c.provider), ConfigSnapshot: c.snapshot}
+			spec := protocol.RunSpec{SessionID: c.session, Provider: protocol.RuntimeProvider(c.provider), ConfigSnapshot: c.snapshot, Conversation: c.conversation}
 			if a, err := sessionAffinity(ctx, s.DB, company, c.id, spec, node, s.Now()); err != nil {
 				return out, err
 			} else if a != nil {
 				continue
 			}
 		}
-		left[c.provider]--
-		out = append(out, Offer{RunID: c.id, Provider: c.provider})
+		if c.conversation && leftConv[c.provider] > 0 {
+			leftConv[c.provider]--
+		} else {
+			left[c.provider]--
+		}
+		out = append(out, Offer{RunID: c.id, Provider: c.provider, Conversation: c.conversation})
 	}
 	return out, nil
 }

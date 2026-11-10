@@ -236,8 +236,9 @@ func briefExcerpt(s string, limit int) string {
 }
 
 // briefClaim builds and stores the brief of a task run being claimed, with its brief window. A run without
-// a task (a message delivery or a direct run) keeps the prompt it was created with.
-func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec) error {
+// a task (a message delivery or a direct run) keeps the prompt it was created with. With history the brief
+// starts with the conversation's recent history (a conversation starting a fresh session on another node).
+func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, history bool) error {
 	if spec.TaskID == "" {
 		return nil
 	}
@@ -251,6 +252,13 @@ func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec) 
 	}
 	if spec.Prompt, err = briefTx(ctx, tx, t, *spec, from, to); err != nil {
 		return err
+	}
+	if history {
+		h, err := conversationHistory(ctx, tx, t.ID, id, from)
+		if err != nil {
+			return err
+		}
+		spec.Prompt = h + spec.Prompt
 	}
 	b, err := json.Marshal(spec)
 	if err != nil {

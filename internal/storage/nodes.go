@@ -65,14 +65,17 @@ type NodeDriver struct {
 }
 
 type NodeRegistration struct {
-	NodeID          string         `json:"node_id"`
-	Name            string         `json:"name"`
-	Epoch           int64          `json:"epoch"`
-	ProtocolVersion int            `json:"protocol_version"`
-	Slots           int            `json:"slots"`
-	Drivers         []NodeDriver   `json:"drivers"`
-	Resources       map[string]int `json:"resources"`
-	Labels          []string       `json:"labels"`
+	NodeID          string `json:"node_id"`
+	Name            string `json:"name"`
+	Epoch           int64  `json:"epoch"`
+	ProtocolVersion int    `json:"protocol_version"`
+	Slots           int    `json:"slots"`
+	// ConversationSlots run only conversation runs, on top of Slots (work-and-conversation-runs); a node that does
+	// not send it (older than the change) has none, so its conversation runs take work slots as before.
+	ConversationSlots int            `json:"conversation_slots,omitempty"`
+	Drivers           []NodeDriver   `json:"drivers"`
+	Resources         map[string]int `json:"resources"`
+	Labels            []string       `json:"labels"`
 	// Worktrees: the node runs worktree tasks in their own worktree (node.yaml worktrees.enabled), so
 	// tasks of one project run in parallel on it.
 	Worktrees bool `json:"worktrees,omitempty"`
@@ -151,6 +154,8 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 		return out, inputError("protocol_version 2 required")
 	case r.Epoch < 1 || r.Slots < 1 || r.Slots > 64:
 		return out, inputError("epoch >= 1 and slots 1..64 required")
+	case r.ConversationSlots < 0 || r.ConversationSlots > 64:
+		return out, inputError("conversation_slots 0..64 required")
 	case !slices.Contains([]string{"", RegisterStart, RegisterReregister}, r.Reason):
 		return out, inputError("reason start or reregister required")
 	}
@@ -187,11 +192,11 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	resources, _ := json.Marshal(nonNilMap(r.Resources))
 	labels, _ := json.Marshal(nonNil(r.Labels))
 	now := tx.now().Unix()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
+	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees,conversation_slots)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
  protocol_version=excluded.protocol_version,slots=excluded.slots,drivers=excluded.drivers,resources=excluded.resources,
- labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1,worktrees=excluded.worktrees`,
-		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees); err != nil {
+ labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1,worktrees=excluded.worktrees,conversation_slots=excluded.conversation_slots`,
+		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees, r.ConversationSlots); err != nil {
 		return out, err
 	}
 	if err = nodeRegistered(ctx, tx, r, prior); err != nil {
@@ -370,7 +375,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	defer tx.Rollback()
 	var n Node
 	var drivers, resources, labels []byte
-	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,drivers,resources,labels,worktrees FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &drivers, &resources, &labels, &n.Worktrees)
+	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,conversation_slots,drivers,resources,labels,worktrees FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &n.ConversationSlots, &drivers, &resources, &labels, &n.Worktrees)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && req.Epoch != n.Epoch {
 		return out, drop("old_epoch")
 	}
@@ -456,15 +461,17 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if missing := tasks.MissingLabels(n.Labels, AgentLabels(spec.ConfigSnapshot)); len(missing) > 0 {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: "node lacks labels " + strings.Join(missing, ", ")}
 	}
-	// Concurrency caps over started runs; the run stays QUEUED and the node retries.
-	var busy, busyProject int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", spec.Project, company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
+	// Concurrency caps over started runs of the run's kind (work-and-conversation-runs); the run stays QUEUED and
+	// the node retries.
+	perAgent, perProject, kind := AgentRunCaps(spec.ConfigSnapshot).For(spec.Conversation)
+	busy, busyProject, err := agentStarted(ctx, tx, spec.Agent, spec.Project, id, kind)
+	if err != nil {
 		return out, err
 	}
-	if perAgent, perProject := AgentCaps(spec.ConfigSnapshot); busy >= perAgent || busyProject >= perProject {
+	if overCaps(perAgent, perProject, busy, busyProject) {
 		return out, retry("agent_busy")
 	}
-	if short, err := nodeShort(ctx, tx, n, req.NodeID, AgentResources(spec.ConfigSnapshot)); err != nil {
+	if short, err := nodeShort(ctx, tx, n, req.NodeID, spec.Conversation, req.Slot, AgentResources(spec.ConfigSnapshot)); err != nil {
 		return out, err
 	} else if short != "" {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: short}
@@ -501,7 +508,17 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 			return out, drop("secret_missing")
 		}
 	}
-	if err = briefClaim(ctx, tx, id, &spec); err != nil {
+	// A conversation whose session another node holds starts fresh here: its brief carries the recent history
+	// (work-and-conversation-runs).
+	history := false
+	if spec.Conversation && spec.SessionID != "" {
+		holder, err := sessionHolder(ctx, tx, company, spec.SessionID, id)
+		if err != nil {
+			return out, err
+		}
+		history = holder != "" && holder != req.NodeID
+	}
+	if err = briefClaim(ctx, tx, id, &spec, history); err != nil {
 		return out, err
 	}
 	now := tx.now()
@@ -585,26 +602,36 @@ func runManifest(ctx context.Context, tx *Tx, spec protocol.RunSpec) (*protocol.
 // from its claim until it has ended in Core and the node no longer lists it unended (node_held: the node
 // lists a run as ended_unacked only after its seal and run-stop hooks), so an ended but unsealed run
 // still holds its slot and classes (node-agent D3).
+//
+// Conversation is the conversation runs held in the node's conversation slots (work-and-conversation-runs: a
+// conversation run claimed with a slot index at or past the node's work slots); they use no resource classes, and
+// Held counts the runs in work slots only.
 type NodeLoad struct {
-	Held int            `json:"held"`
-	Used map[string]int `json:"used,omitempty"`
+	Held         int            `json:"held"`
+	Conversation int            `json:"conversation,omitempty"`
+	Used         map[string]int `json:"used,omitempty"`
 }
 
-func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64) (NodeLoad, error) {
+func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64, slots int) (NodeLoad, error) {
 	l := NodeLoad{Used: map[string]int{}}
-	rows, err := tx.QueryContext(ctx, "SELECT spec FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('CLAIMED','RUNNING','CANCELLING') OR node_held=1) ORDER BY seq", tx.company, node, epoch)
+	rows, err := tx.QueryContext(ctx, "SELECT spec,slot FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('CLAIMED','RUNNING','CANCELLING') OR node_held=1) ORDER BY seq", tx.company, node, epoch)
 	if err != nil {
 		return l, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var b []byte
-		if err = rows.Scan(&b); err != nil {
+		var slot int
+		if err = rows.Scan(&b, &slot); err != nil {
 			return l, err
 		}
 		var spec protocol.RunSpec
 		if err = json.Unmarshal(b, &spec); err != nil {
 			return l, err
+		}
+		if spec.Conversation && slot >= slots {
+			l.Conversation++
+			continue
 		}
 		l.Held++
 		for k, v := range AgentResources(spec.ConfigSnapshot) {
@@ -614,11 +641,19 @@ func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64) (NodeLoad, 
 	return l, rows.Err()
 }
 
-// nodeShort says what the node lacks for a run needing need ("" when it has room).
-func nodeShort(ctx context.Context, tx *Tx, n Node, node string, need map[string]int) (string, error) {
-	l, err := nodeLoad(ctx, tx, node, n.Epoch)
+// nodeShort says what the node lacks for a run needing need claimed in slot ("" when it has room): a conversation
+// run claimed in a conversation slot needs a free one (work-and-conversation-runs), every other run a free work
+// slot and its resource classes.
+func nodeShort(ctx context.Context, tx *Tx, n Node, node string, conversation bool, slot int, need map[string]int) (string, error) {
+	l, err := nodeLoad(ctx, tx, node, n.Epoch, n.Slots)
 	if err != nil {
 		return "", err
+	}
+	if conversation && slot >= n.Slots && n.ConversationSlots > 0 {
+		if l.Conversation >= n.ConversationSlots {
+			return fmt.Sprintf("all %d conversation slots held", n.ConversationSlots), nil
+		}
+		return "", nil
 	}
 	return tasks.NodeShort(l.Held, n.Slots, l.Used, n.Resources, need), nil
 }
@@ -1016,7 +1051,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 
 // Nodes lists the registered nodes.
 func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,epoch,protocol_version,slots,drivers,resources,labels,health,registered_at,last_seen,online,worktrees FROM nodes WHERE company_id=? ORDER BY name,id", company)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,epoch,protocol_version,slots,conversation_slots,drivers,resources,labels,health,registered_at,last_seen,online,worktrees FROM nodes WHERE company_id=? ORDER BY name,id", company)
 	if err != nil {
 		return nil, err
 	}
@@ -1025,7 +1060,7 @@ func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 	for rows.Next() {
 		var n Node
 		var drivers, resources, labels, health []byte
-		if err = rows.Scan(&n.NodeID, &n.Name, &n.Epoch, &n.ProtocolVersion, &n.Slots, &drivers, &resources, &labels, &health, &n.RegisteredAt, &n.LastSeen, &n.Online, &n.Worktrees); err != nil {
+		if err = rows.Scan(&n.NodeID, &n.Name, &n.Epoch, &n.ProtocolVersion, &n.Slots, &n.ConversationSlots, &drivers, &resources, &labels, &health, &n.RegisteredAt, &n.LastSeen, &n.Online, &n.Worktrees); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(drivers, &n.Drivers)

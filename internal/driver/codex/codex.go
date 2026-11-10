@@ -28,7 +28,7 @@ import (
 const SupportedVersion = "codex-cli 0.162.1"
 
 // Options are the runtime_options keys the driver reads; config.RuntimeOptions must match.
-var Options = []string{"model", "effort"}
+var Options = []string{"model", "effort", "context_window"}
 
 type Driver struct {
 	Binary string
@@ -45,6 +45,19 @@ type Driver struct {
 	Sandbox string
 	// FullAccess are projects whose runs are not confined (node.yaml policy.full_access).
 	FullAccess []string
+}
+
+// compactLimit is the runtime option context_window in tokens (JSON numbers arrive as float64); 0 when unset.
+func compactLimit(opts map[string]any) int64 {
+	switch x := opts["context_window"].(type) {
+	case int:
+		return int64(x)
+	case int64:
+		return x
+	case float64:
+		return int64(x)
+	}
+	return 0
 }
 
 // withHome is env with the node's CODEX_HOME, when it has one.
@@ -200,6 +213,16 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 	}
 	if effort, ok := l.Spec.RuntimeOptions["effort"].(string); ok && effort != "" {
 		s.effort = effort
+	}
+	// The window of the run's kind (work-and-conversation-runs) as the thread's auto-compact limit. Codex <= 0.162
+	// does not compact with it set (openai/codex#16033): leave context_window unset on Codex agents until fixed.
+	if n := compactLimit(l.Spec.RuntimeOptions); n > 0 {
+		cfg, _ := params["config"].(map[string]any)
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		cfg["model_auto_compact_token_limit"] = n
+		params["config"] = cfg
 	}
 	method := "thread/start"
 	if l.Spec.SessionID != "" {

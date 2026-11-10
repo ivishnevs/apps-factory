@@ -20,6 +20,9 @@ const ConfigEnv = "FACTORY_NODE_CONFIG"
 type Config struct {
 	Name  string `yaml:"name"`
 	Slots int    `yaml:"slots"`
+	// ConversationSlots run only conversation runs, on top of Slots (work-and-conversation-runs, default 1): they are
+	// light (no worktree, no writer slot), so a node whose work slots are full still answers.
+	ConversationSlots int `yaml:"conversation_slots"`
 	// Company is the company Core named at enrollment (state_dir/company), never a setting: it decides the node's
 	// subjects factory.<company>... and its skills.
 	Company string `yaml:"-"`
@@ -133,7 +136,7 @@ func Defaults() Config {
 	if !nodeName.MatchString(name) {
 		name = "node"
 	}
-	return Config{Name: name, Slots: 2, StateDir: "data/factory-node",
+	return Config{Name: name, Slots: 2, ConversationSlots: 1, StateDir: "data/factory-node",
 		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour, Attempts: 3, RetryBackoff: 5 * time.Second, TransientFailures: 3}, Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
 }
 
@@ -236,6 +239,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Slots < 1 || c.Slots > maxSlots {
 		errs = append(errs, fmt.Errorf("slots %d: must be between 1 and %d", c.Slots, maxSlots))
+	}
+	if c.ConversationSlots < 0 || c.ConversationSlots > maxSlots {
+		errs = append(errs, fmt.Errorf("conversation_slots %d: must be between 0 and %d", c.ConversationSlots, maxSlots))
 	}
 	if c.Company == "" {
 		c.Company = DefaultCompany

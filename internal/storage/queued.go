@@ -45,6 +45,9 @@ type QueuedReason struct {
 	Detail string       `json:"detail"`
 	Until  int64        `json:"until,omitempty"`
 	Nodes  []QueuedNode `json:"nodes,omitempty"`
+	// Holder and Inactive: the node holding the run's session and why it is inactive, for an affinity reason.
+	Holder   string `json:"holder,omitempty"`
+	Inactive string `json:"inactive,omitempty"`
 }
 
 // QueuedNode is what one node lacks for the run ("" Reason: it can take it).
@@ -134,17 +137,24 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 		}
 		return &QueuedReason{Reason: QueuedPaused, Detail: detail, Until: p.Until}, nil
 	}
-	// The agent's concurrency cap over started runs.
-	var busy, busyProject int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*), coalesce(sum(CASE WHEN spec->>'project'=? THEN 1 ELSE 0 END),0) FROM runs WHERE company_id=? AND agent=? AND id!=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", spec.Project, tx.company, spec.Agent, id).Scan(&busy, &busyProject); err != nil {
+	// The agent's concurrency cap over started runs of the run's kind (work-and-conversation-runs).
+	perAgent, perProject, kind := AgentRunCaps(spec.ConfigSnapshot).For(spec.Conversation)
+	busy, busyProject, err := agentStarted(ctx, tx, spec.Agent, spec.Project, id, kind)
+	if err != nil {
 		return nil, err
 	}
-	perAgent, perProject := AgentCaps(spec.ConfigSnapshot)
+	runs := "runs"
+	switch kind {
+	case kindConversation:
+		runs = "conversation runs"
+	case kindWork:
+		runs = "work runs"
+	}
 	switch {
-	case busy >= perAgent:
-		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d at a time", spec.Agent, busy, perAgent)}, nil
-	case busyProject >= perProject:
-		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d at a time in project %s", spec.Agent, busyProject, perProject, spec.Project)}, nil
+	case perAgent > 0 && busy >= perAgent:
+		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d %s at a time", spec.Agent, busy, perAgent, runs)}, nil
+	case perProject > 0 && busyProject >= perProject:
+		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d %s at a time in project %s", spec.Agent, busyProject, perProject, runs, spec.Project)}, nil
 	}
 	pinned := ""
 	if taskID != "" {
@@ -178,10 +188,13 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 			label = nodeLabel(nodes[i].Name, nodes[i].Node)
 		}
 		detail := label + " holds this agent's session; it takes the run when it has a free slot"
+		if a.Inactive == "" && a.Release > 0 {
+			detail += "; another node may start it fresh after the conversation wait"
+		}
 		if a.Inactive != "" {
 			detail = label + " holds this agent's session and is " + a.Inactive + "; another node may take it after the release"
 		}
-		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes}, nil
+		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes, Holder: label, Inactive: a.Inactive}, nil
 	}
 	best := -1
 	for i, n := range nodes {
@@ -203,7 +216,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 // queuedNodes judges every registered node for the run in ClaimV2's order: online, owner pause, disk,
 // driver, labels, slots, resource classes.
 func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Time) ([]QueuedNode, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
+	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,conversation_slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
 	if err != nil {
 		return nil, err
 	}
@@ -211,13 +224,13 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 		q                                QueuedNode
 		epoch, lastSeen                  int64
 		online                           bool
-		slots                            int
+		slots, convSlots                 int
 		drivers, labels, resources, hlth []byte
 	}
 	var all []row
 	for rows.Next() {
 		var r row
-		if err = rows.Scan(&r.q.Node, &r.q.Name, &r.epoch, &r.online, &r.lastSeen, &r.slots, &r.drivers, &r.labels, &r.resources, &r.hlth); err != nil {
+		if err = rows.Scan(&r.q.Node, &r.q.Name, &r.epoch, &r.online, &r.lastSeen, &r.slots, &r.convSlots, &r.drivers, &r.labels, &r.resources, &r.hlth); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -287,11 +300,12 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 				set(QueuedLabels, "lacks labels "+strings.Join(missing, ", "), 0)
 				break
 			}
-			l, err := nodeLoad(ctx, tx, q.Node, r.epoch)
+			l, err := nodeLoad(ctx, tx, q.Node, r.epoch, r.slots)
 			if err != nil {
 				return nil, err
 			}
-			if short := tasks.NodeShort(l.Held, r.slots, l.Used, resources, AgentResources(spec.ConfigSnapshot)); short != "" {
+			n := tasks.Node{Slots: r.slots, Held: l.Held, Used: l.Used, Resources: resources, ConversationSlots: r.convSlots, ConversationHeld: l.Conversation}
+			if short := n.Short(spec.Conversation, AgentResources(spec.ConfigSnapshot)); short != "" {
 				reason := QueuedResourceBusy
 				if l.Held >= r.slots {
 					reason = QueuedNoSlot
