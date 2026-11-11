@@ -22,6 +22,8 @@
 
 ## 3. Verify
 
-- [ ] 3.1 On a node: run a task, log the runtime into another account, accept → the next run is fresh with the note.
+- [x] 3.1 On a node: run a task, log the runtime into another account, accept → the next run is fresh with the note.
+      2026-11-12 local Core + node, claude-haiku-5-5: account hash changed → node paused claude, `accounts accept`
+      → run 1f070e77 "fresh session instead of resume" (same_account=false), new session 242c7228 opens with the note.
 - [ ] 3.2 On a node: run a task, delete its transcript → an Inbox question; new_session → fresh run; unanswered →
       nothing runs.
