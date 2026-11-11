@@ -9,4 +9,4 @@
 
 - [x] 2.1 Library: one card per artifact with versions; images from archives in Images with their archive.
 - [x] 2.2 Inbox: superseded requests disappear.
-- [ ] 2.3 Clean up the game project's existing duplicates (list to the owner first).
+- [x] 2.3 Clean up the game project's existing duplicates (list to the owner first). (Closed 2026-11-11 by the owner: replaced by artifact-retention; no manual cleanup)

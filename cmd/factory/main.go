@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -255,6 +256,12 @@ func run() error {
 	}
 	if err = s.CheckMasterKey(ctx); err != nil {
 		return err
+	}
+	// Artifact retention ceiling (artifact-retention): the hosted cloud sets 30; unset or 0 sets none.
+	if v := os.Getenv("FACTORY_ARTIFACT_RETENTION_MAX_DAYS"); v != "" {
+		if s.ArtifactRetentionMaxDays, err = strconv.Atoi(v); err != nil || s.ArtifactRetentionMaxDays < 0 {
+			return fmt.Errorf("FACTORY_ARTIFACT_RETENTION_MAX_DAYS must be a number of days (0: no ceiling)")
+		}
 	}
 	if keys == nil {
 		slog.Warn("no " + secrets.MasterKeyEnv + ": company secrets can be neither set nor delivered")

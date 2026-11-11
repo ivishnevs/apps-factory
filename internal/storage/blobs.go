@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"appfactory/internal/artifacts"
 	"appfactory/internal/blobstore"
 )
 
@@ -50,6 +51,15 @@ func (s *Store) PutBlob(ctx context.Context, company string, r io.Reader, max in
 		return Blob{}, err
 	}
 	if _, err = s.DB.ExecContext(ctx, "INSERT INTO blobs(company_id,sha256,size,created_at) VALUES(?,?,?,?) ON CONFLICT (company_id,sha256) DO NOTHING", company, sha, n, s.Now().Unix()); err != nil {
+		return Blob{}, err
+	}
+	// Retention may have deleted the same content between the put (a no-op for content already there) and the
+	// record (artifact-retention): the insert waited for its delete, so the content is checked once more.
+	if ok, err := s.Blobs.Exists(ctx, company, sha); err != nil || !ok {
+		if err == nil {
+			_, _ = s.DB.ExecContext(ctx, "DELETE FROM blobs WHERE company_id=? AND sha256=?", company, sha)
+			err = fmt.Errorf("%w: the same content was just removed by artifact retention; upload it again", ErrConflict)
+		}
 		return Blob{}, err
 	}
 	return Blob{SHA256: sha, Size: n}, nil
@@ -120,12 +130,20 @@ func (s *Store) RunBlob(ctx context.Context, company, run, lease, sha string) (i
 
 // ProjectBlob opens a blob that belongs to project (an artifact version).
 func (s *Store) ProjectBlob(ctx context.Context, company, project, sha string) (io.ReadCloser, Blob, error) {
-	var refs int
-	if err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM artifact_versions WHERE company_id=? AND project_id=? AND sha256=?", company, project, sha).Scan(&refs); err != nil {
+	var refs, live int
+	if err := s.DB.QueryRowContext(ctx, "SELECT count(*), count(*) FILTER (WHERE archived_at=0) FROM artifact_versions WHERE company_id=? AND project_id=? AND sha256=?", company, project, sha).Scan(&refs, &live); err != nil {
 		return nil, Blob{}, err
 	}
 	if refs == 0 {
 		return nil, Blob{}, fmt.Errorf("%w: blob of another project or unknown", ErrNotFound)
+	}
+	if live == 0 {
+		// Only archived versions use it (artifact-retention): the answer names the archive and the latest version.
+		rec, err := getDoc[artifacts.Record](ctx, s.DB, "SELECT body FROM artifact_versions WHERE company_id=? AND project_id=? AND sha256=? ORDER BY seq DESC LIMIT 1", company, project, sha)
+		if err != nil {
+			return nil, Blob{}, err
+		}
+		return nil, Blob{}, s.archivedError(ctx, company, project, rec)
 	}
 	return s.OpenBlob(ctx, company, sha)
 }

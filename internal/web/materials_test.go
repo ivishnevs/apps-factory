@@ -6,7 +6,37 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"appfactory/internal/artifacts"
+	"appfactory/internal/tasks"
+	"appfactory/internal/tui"
 )
+
+// TestArchivedMaterials (artifact-retention 2.1): an archived version and the images of an archived archive carry
+// the archive date and no content link, also when a submission names the version; the Library card of its
+// artifact lists it archived.
+func TestArchivedMaterials(t *testing.T) {
+	v1 := artifacts.Record{Artifact: tasks.Artifact{ID: "pack", Version: "v1", URI: "factory://artifacts/pack/v1", SHA256: strings.Repeat("a", 64), Name: "pack.zip"},
+		TaskID: "t", CreatedAt: 10, ArchiveImages: []artifacts.ArchiveEntry{{Path: "a.png", Size: 3}}, ArchivedAt: 99, ArchivedReason: "retention: 7 days"}
+	v2 := artifacts.Record{Artifact: tasks.Artifact{ID: "pack", Version: "v2", URI: "factory://artifacts/pack/v2", SHA256: strings.Repeat("b", 64), Name: "pack.zip"}, TaskID: "t", CreatedAt: 20}
+	sub := tui.Task{Task: tasks.Task{ID: "other", Submission: &tasks.Submission{Artifacts: []tasks.Artifact{v1.Artifact}}}}
+	ms := collect("p", nil, []artifacts.Record{v2}, []tui.Task{sub}, nil, archivedOf([]artifacts.Record{v1, v2}))
+	if len(ms) != 2 || ms[1].ArchivedAt != 99 || ms[1].ContentURL != "" || ms[0].ArchivedAt != 0 || ms[0].ContentURL == "" {
+		t.Fatalf("%+v", ms)
+	}
+	ms = collect("p", nil, []artifacts.Record{v1, v2}, nil, nil, archivedOf([]artifacts.Record{v1, v2}))
+	for _, m := range ms {
+		if (m.Version == "v1") != (m.ArchivedAt == 99) || m.Version == "v1" && m.ContentURL != "" {
+			t.Fatalf("%+v", m)
+		}
+	}
+	newestFirst(ms)
+	for _, c := range oneCardPerArtifact(ms) {
+		if c.Source == "artifact" && (c.Version != "v2" || len(c.Versions) != 1 || c.Versions[0].ArchivedAt != 99) {
+			t.Fatalf("%+v", c)
+		}
+	}
+}
 
 func names(ms []Material) string {
 	out := []string{}

@@ -50,7 +50,7 @@ func (c *Core) blobRoutes(m *http.ServeMux) {
 	})
 	m.HandleFunc("GET /projects/{project}/artifacts/{artifact}/{version}/entry", c.archiveEntry)
 	m.HandleFunc("GET /projects/{project}/artifacts/{artifact}/{version}/content", func(w http.ResponseWriter, r *http.Request) {
-		a, err := c.Store.Artifact(r.Context(), c.companyFrom(r), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"))
+		a, err := c.Store.ArtifactContent(r.Context(), c.companyFrom(r), r.PathValue("project"), r.PathValue("artifact"), r.PathValue("version"))
 		if err != nil {
 			reply(w, nil, err)
 			return

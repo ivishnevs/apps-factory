@@ -48,6 +48,10 @@ type Project struct {
 	// import caches) the node copies into a review copy from the task's worktree on that node. Empty by default;
 	// nothing else ignored by git is ever carried.
 	ReviewCarry []string `json:"review_carry,omitempty"`
+	// ArtifactRetentionDays archives superseded artifact versions older than this many days (artifact-retention):
+	// neither the latest version nor the latest approved one of an artifact. 0 keeps them forever (the default);
+	// a Core with FACTORY_ARTIFACT_RETENTION_MAX_DAYS caps it.
+	ArtifactRetentionDays int `json:"artifact_retention_days,omitempty"`
 }
 
 // Ready: the project's repository needs no setup or it finished.
@@ -235,6 +239,8 @@ type ProjectUpdate struct {
 	Requires *[]Requirement `json:"requires,omitempty"`
 	// ReviewCarry replaces the project's workspace.review_carry (node-ties); [] clears it.
 	ReviewCarry *[]string `json:"review_carry,omitempty"`
+	// ArtifactRetentionDays sets the project's artifact retention (artifact-retention); 0 keeps versions forever.
+	ArtifactRetentionDays *int `json:"artifact_retention_days,omitempty"`
 }
 
 // Workspace is a task's workspace as its worker last reported it (task-worktrees D1); files stay on the node.

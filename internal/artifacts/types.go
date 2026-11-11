@@ -12,6 +12,10 @@ type Record struct {
 	CreatedAt int64  `json:"created_at"`
 	// ArchiveImages are the images inside a zip or tar version (artifact-duplicates).
 	ArchiveImages []ArchiveEntry `json:"archive_images,omitempty"`
+	// ArchivedAt (Unix seconds) and ArchivedReason are set when retention archived this version
+	// (artifact-retention): its metadata stays, its content may be gone (reads answer 410 Gone).
+	ArchivedAt     int64  `json:"archived_at,omitempty"`
+	ArchivedReason string `json:"archived_reason,omitempty"`
 	// Unchanged: a register of the same content as the latest version answered with that version, nothing new.
 	Unchanged bool `json:"unchanged,omitempty"`
 }

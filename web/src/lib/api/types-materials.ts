@@ -10,7 +10,11 @@ export interface Material {
   source: "report" | "artifact" | "submission" | "exit" | "archive";
   // archive: the archive version an image comes from; versions: an artifact's older versions (one card per artifact).
   archive?: string;
-  versions?: { version: string; created_at: number; content_url?: string; url?: string; size?: number }[];
+  versions?: { version: string; created_at: number; content_url?: string; url?: string; size?: number; archived_at?: number }[];
+  // archived_at (Unix seconds) and archived_reason: retention archived this artifact version (artifact-retention); its
+  // metadata stays, its content is gone, so it has no content_url.
+  archived_at?: number;
+  archived_reason?: string;
   name: string;
   path?: string;
   version?: string;

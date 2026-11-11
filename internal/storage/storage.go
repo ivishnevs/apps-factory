@@ -59,6 +59,9 @@ type Store struct {
 	// Keys wraps the company keys of the secret store (core-secret-store D1); nil: no master key, secrets can be
 	// neither set nor delivered.
 	Keys secrets.KeyProvider
+	// ArtifactRetentionMaxDays caps every project's artifact retention (artifact-retention,
+	// FACTORY_ARTIFACT_RETENTION_MAX_DAYS; the hosted cloud sets 30); 0 sets no ceiling.
+	ArtifactRetentionMaxDays int
 }
 
 func (s *Store) Now() time.Time {

@@ -13,7 +13,7 @@ import type { Material } from "@/lib/api/types-materials";
 import { fileSize } from "@/lib/format";
 import { cleanText } from "@/lib/humanize";
 import { cn } from "@/lib/utils";
-import { ApprovalBadge, KindIcon, authorName, kinds, materialTitle } from "./kinds";
+import { ApprovalBadge, ArchivedBadge, KindIcon, archivedDate, authorName, kinds, materialTitle } from "./kinds";
 
 const ext = (name = "") => (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? "").toLowerCase();
 const withParam = (url: string, k: string, v: string) => `${url}${url.includes("?") ? "&" : "?"}${k}=${v}`;
@@ -76,7 +76,9 @@ function ViewerBody({ m, onClose, now, showTask }: { m: Material; onClose: () =>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <About m={m} showTask={showTask} />
         <div className="px-4 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-8">
-          {url ? <Content m={m} url={url} /> : <p className="py-10 text-center text-sm text-muted-foreground">This item has no content stored in App Factory.</p>}
+          {url ? <Content m={m} url={url} />
+            : m.archived_at ? <p className="py-10 text-center text-sm text-muted-foreground">This version was archived on {archivedDate(m.archived_at)}{m.archived_reason ? ` (${m.archived_reason})` : ""}. Its record stays; its content is no longer stored. Newer versions of it are in the Library.</p>
+            : <p className="py-10 text-center text-sm text-muted-foreground">This item has no content stored in App Factory.</p>}
         </div>
       </div>
     </>
@@ -87,7 +89,7 @@ function ViewerBody({ m, onClose, now, showTask }: { m: Material; onClose: () =>
 function About({ m, showTask }: { m: Material; showTask: boolean }) {
   const summary = m.report?.summary && cleanText(m.report.summary);
   const path = m.path && m.path !== m.name ? m.path : "";
-  if (!summary && !m.approval && !(showTask && m.task_id) && !path && !m.redacted) return <div className="h-4" />;
+  if (!summary && !m.approval && !(showTask && m.task_id) && !path && !m.redacted && !m.archived_at) return <div className="h-4" />;
   return (
     <div className="space-y-3 px-4 pt-4 pb-5 sm:px-8 sm:pt-6">
       {summary && (
@@ -103,6 +105,7 @@ function About({ m, showTask }: { m: Material; showTask: boolean }) {
           </Link>
         )}
         {m.approval && <ApprovalBadge status={m.approval.status} />}
+        {!!m.archived_at && <ArchivedBadge at={m.archived_at} reason={m.archived_reason} />}
         {m.approval?.status === "PENDING" && <Link href="/inbox" className="text-sm font-medium underline-offset-4 hover:underline">Review in the inbox</Link>}
         {m.redacted && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="size-3.5" />Secrets were removed from this file</span>}
         {path && <span className="min-w-0 max-w-full truncate font-mono text-xs text-muted-foreground" title={path}>{path}</span>}

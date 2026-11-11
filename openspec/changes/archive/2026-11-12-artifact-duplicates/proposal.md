@@ -1,4 +1,4 @@
-Status: accepted 2026-11-06 by the owner; implemented 2026-11-07 except the cleanup of the game project's existing duplicates (2.3), which is listed to the owner first.
+Status: accepted 2026-11-06 by the owner; implemented 2026-11-07. The cleanup of the game project's existing duplicates (2.3) was closed 2026-11-11 by the owner: replaced by artifact-retention.
 
 ## Why
 

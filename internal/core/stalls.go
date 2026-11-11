@@ -190,8 +190,9 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 // unmergedCheckEvery is the period of the unmerged-branch check (task-worktrees D9).
 const unmergedCheckEvery = 24 * time.Hour
 
-// checkUnmerged runs the unmerged-branch check once a day (and at the first tick after a start; the check
-// records at most one event per task, so a restart repeats nothing).
+// checkUnmerged runs the unmerged-branch check, the orphan-change check and artifact retention once a day (and at
+// the first tick after a start; the checks record at most one event per task and retention archives a version
+// once, so a restart repeats nothing).
 func (c *Core) checkUnmerged(ctx context.Context) error {
 	now := c.Store.Now()
 	if !c.lastUnmergedCheck.IsZero() && now.Sub(c.lastUnmergedCheck) < unmergedCheckEvery {
@@ -204,6 +205,10 @@ func (c *Core) checkUnmerged(ctx context.Context) error {
 		}
 		// OpenSpec changes nobody works on (openspec-in-git D3), for the owner's default report.
 		if _, err := c.Store.ReportOrphanChanges(ctx, company, c.defaultReport(company)); c.isolate(ctx, company, "orphan changes", err) != nil {
+			return err
+		}
+		// Superseded artifact versions past their project's retention (artifact-retention).
+		if _, err := c.Store.ArchiveExpiredArtifacts(ctx, company); c.isolate(ctx, company, "artifact retention", err) != nil {
 			return err
 		}
 	}

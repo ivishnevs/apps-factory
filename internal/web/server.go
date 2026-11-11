@@ -18,6 +18,7 @@ import (
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/tui"
+	"appfactory/internal/worker"
 )
 
 // Server serves the API under /api/.
@@ -249,8 +250,16 @@ func reply(w http.ResponseWriter, v any, err error) {
 		if errors.Is(err, errInput) {
 			code = http.StatusBadRequest
 		}
-		w.WriteHeader(code)
 		v = map[string]string{"error": err.Error()}
+		// An archived artifact version (artifact-retention): Core's 410 answer passes through as it is.
+		var he *worker.HTTPError
+		if errors.As(err, &he) && he.Status == http.StatusGone {
+			var gone map[string]any
+			if json.Unmarshal([]byte(he.Message), &gone) == nil && gone["error"] != nil {
+				code, v = http.StatusGone, gone
+			}
+		}
+		w.WriteHeader(code)
 	}
 	_ = json.NewEncoder(w).Encode(v)
 }

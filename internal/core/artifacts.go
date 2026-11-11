@@ -78,7 +78,12 @@ func (c *Core) artifactView(w http.ResponseWriter, r *http.Request, project, id,
 	if err == nil {
 		approval = a
 	}
-	write(w, map[string]any{"artifact": record, "approval": approval})
+	out := map[string]any{"artifact": record, "approval": approval}
+	if record.ArchivedAt > 0 {
+		// artifact-retention: the agent learns the content is gone and which version to use instead.
+		out["archived"] = c.Store.ArchivedNote(r.Context(), c.companyFrom(r), project, record)
+	}
+	write(w, out)
 }
 func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run, snapshot, current config.Agent) {
 	switch p.Name {

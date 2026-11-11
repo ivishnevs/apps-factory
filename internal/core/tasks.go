@@ -41,6 +41,10 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		v, err := c.Store.UpdateProject(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
+	// Core's artifact retention ceiling (artifact-retention, FACTORY_ARTIFACT_RETENTION_MAX_DAYS): 0 is none.
+	m.HandleFunc("GET /settings/artifact_retention", func(w http.ResponseWriter, r *http.Request) {
+		write(w, map[string]int{"max_days": c.Store.ArtifactRetentionMaxDays})
+	})
 	m.HandleFunc("GET /settings/company", func(w http.ResponseWriter, r *http.Request) {
 		rules, err := c.Store.CompanyRules(r.Context(), c.companyFrom(r))
 		reply(w, map[string]string{"scope": "company", "rules": rules}, err)
