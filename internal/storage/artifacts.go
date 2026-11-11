@@ -81,6 +81,18 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 		if !sameArtifact(old.Artifact, a.Artifact) {
 			return a, ErrConflict
 		}
+		if old.ArchivedAt > 0 && old.SHA256 != "" {
+			// The same content uploaded again restores an archived version (artifact-retention).
+			if _, e := blobRow(ctx, tx, tx.company, old.SHA256); e == nil {
+				if ok, e := tx.store.Blobs.Exists(ctx, tx.company, old.SHA256); e == nil && ok {
+					old.ArchivedAt, old.ArchivedReason = 0, ""
+					b, _ := json.Marshal(old)
+					if _, err = tx.ExecContext(ctx, "UPDATE artifact_versions SET archived_at=0, archived_reason='', body=? WHERE company_id=? AND project_id=? AND id=? AND version=?", b, tx.company, project, old.ID, old.Version); err != nil {
+						return a, err
+					}
+				}
+			}
+		}
 		return old, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -169,6 +181,9 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 		record, err := artifactVersionTx(ctx, tx, project, in.ArtifactID, in.ArtifactVersion)
 		if err != nil {
 			return a, err
+		}
+		if record.ArchivedAt > 0 {
+			return a, inputError(tx.store.archivedError(ctx, tx.company, project, record).Error())
 		}
 		a.Artifact = &record.Artifact
 		old, err := artifactApprovalTx(ctx, tx, project, in.ArtifactID, in.ArtifactVersion)
@@ -271,6 +286,9 @@ func requiredArtifacts(ctx context.Context, tx *Tx, project string, refs []tasks
 		}
 		if err == nil && !sameArtifact(a.Artifact, ref) {
 			return inputError("required artifact conflicts with the registered version (URI or content digest)")
+		}
+		if err == nil && a.ArchivedAt > 0 {
+			return inputError(tx.store.archivedError(ctx, tx.company, project, a).Error())
 		}
 	}
 	return nil

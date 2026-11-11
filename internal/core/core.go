@@ -287,6 +287,13 @@ func reply(w http.ResponseWriter, v any, err error) {
 		if errors.Is(err, storage.ErrForbidden) {
 			status = 403
 		}
+		var archived *storage.ArchivedError
+		if errors.As(err, &archived) {
+			// An archived artifact version (artifact-retention): its metadata stays, its content is gone.
+			jsonStatus(w, http.StatusGone, map[string]any{"error": archived.Error(), "archived_at": archived.ArchivedAt, "reason": archived.Reason,
+				"artifact_id": archived.ID, "version": archived.Version, "latest_version": archived.Latest})
+			return
+		}
 		var answered *storage.AnsweredError
 		if errors.As(err, &answered) {
 			// First answer wins (hierarchy D3): a later answer gets 409 with the recorded one.

@@ -5,7 +5,7 @@ import type { Material } from "@/lib/api/types-materials";
 import { fileSize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { since } from "@/components/app/tasks/model";
-import { ApprovalBadge, KindIcon, PRBadge, authorName, kinds, materialTitle, opensInViewer } from "./kinds";
+import { ApprovalBadge, ArchivedBadge, KindIcon, PRBadge, authorName, kinds, materialTitle, opensInViewer } from "./kinds";
 
 // MaterialRow is one material in a list: its icon, name and who made it when. A file opens the viewer
 // (onOpen); a link or a pull request opens where it lives, in a new tab.
@@ -15,7 +15,8 @@ export function MaterialRow({ m, now, onOpen, context, className }: {
   context?: React.ReactNode; className?: string;
 }) {
   const ago = since(m.created_at, now);
-  const meta = [kinds[m.kind]?.label, m.archive && `from ${m.archive}`, m.versions?.length && `${m.version} · ${m.versions.length + 1} versions`,
+  const archived = m.versions?.filter((v) => v.archived_at).length ?? 0;
+  const meta = [kinds[m.kind]?.label, m.archive && `from ${m.archive}`, m.versions?.length && `${m.version} · ${m.versions.length + 1} versions${archived ? ` (${archived} archived)` : ""}`,
     m.kind === "pull_request" ? "" : fileSize(m.size), authorName(m.author), ago && (ago === "now" ? "just now" : `${ago} ago`)].filter(Boolean);
   const inner = (
     <>
@@ -25,6 +26,7 @@ export function MaterialRow({ m, now, onOpen, context, className }: {
           <span className="min-w-0 truncate text-[15px] font-medium sm:text-sm" title={m.path || m.name}>{materialTitle(m)}</span>
           {m.pr && <PRBadge state={m.pr.state} className="shrink-0" />}
           {m.approval && <ApprovalBadge status={m.approval.status} className="hidden shrink-0 sm:inline-flex" />}
+          {!!m.archived_at && <ArchivedBadge at={m.archived_at} reason={m.archived_reason} className="shrink-0" />}
           {m.redacted && <EyeOff aria-label="Secrets removed" className="size-3.5 shrink-0 text-muted-foreground" />}
         </span>
         {context && <span className="mt-0.5 block min-w-0 truncate text-[13px] text-foreground/80 sm:text-xs">{context}</span>}

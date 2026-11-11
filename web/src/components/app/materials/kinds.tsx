@@ -36,8 +36,9 @@ export function KindIcon({ kind, className }: { kind: MaterialKind; className?: 
   );
 }
 
-// opensInViewer: files with content open in the viewer; links and pull requests open where they live.
-export const opensInViewer = (m: Material) => !!m.content_url;
+// opensInViewer: files with content open in the viewer; links and pull requests open where they live. An archived
+// version opens it too: it says when and why the content went (artifact-retention).
+export const opensInViewer = (m: Material) => !!m.content_url || !!m.archived_at;
 
 // title is what a material is called: a pull request by its number, a file by its name.
 export const materialTitle = (m: Material) => m.name || kinds[m.kind]?.label || "File";
@@ -54,6 +55,14 @@ const approvalWords: Record<string, { label: string; tone: string }> = {
 export function ApprovalBadge({ status, className }: { status: string; className?: string }) {
   const a = approvalWords[status] ?? { label: status.toLowerCase(), tone: "bg-muted text-muted-foreground" };
   return <span className={cn("inline-flex items-center rounded-full px-2 text-[11px] font-medium leading-5 whitespace-nowrap", a.tone, className)}>{a.label}</span>;
+}
+
+// archivedDate is the day retention archived a version (artifact-retention).
+export const archivedDate = (t: number) => new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+
+// ArchivedBadge marks an artifact version retention archived: its record stays, its content is gone.
+export function ArchivedBadge({ at, reason, className }: { at: number; reason?: string; className?: string }) {
+  return <span title={reason ? `Archived by ${reason}` : undefined} className={cn("inline-flex items-center rounded-full bg-muted px-2 text-[11px] font-medium leading-5 whitespace-nowrap text-muted-foreground", className)}>Archived {archivedDate(at)}</span>;
 }
 
 const prTone: Record<string, string> = {

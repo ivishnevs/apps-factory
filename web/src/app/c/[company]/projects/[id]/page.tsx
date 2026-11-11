@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowLeft, CircleDollarSign, FolderOpen, KanbanSquare, MessageSquare, Undo2 } from "lucide-react";
 import Link from "@/components/app/link";
 import { useParams } from "next/navigation";
@@ -136,9 +136,15 @@ function Direction({ project, manage }: { project: Project; manage: boolean }) {
 function ProjectSettings({ project, manage, teams }: { project: Project; manage: boolean; teams: string[] }) {
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const [f, setF] = useState({ name: project.name, description: project.description ?? "", repo_url: project.repo_url ?? "", default_branch: project.default_branch ?? "", team: project.team ?? "" });
+  const form = (p: Project) => ({ name: p.name, description: p.description ?? "", repo_url: p.repo_url ?? "", default_branch: p.default_branch ?? "", team: p.team ?? "",
+    retention: p.artifact_retention_days ? String(p.artifact_retention_days) : "" });
+  const [f, setF] = useState(() => form(project));
   const [busy, setBusy] = useState(false);
-  useEffect(() => setF({ name: project.name, description: project.description ?? "", repo_url: project.repo_url ?? "", default_branch: project.default_branch ?? "", team: project.team ?? "" }), [project]);
+  useEffect(() => setF(form(project)), [project]);
+  // artifact-retention: Core's ceiling (FACTORY_ARTIFACT_RETENTION_MAX_DAYS); 0 is none.
+  const ceiling = useQuery({ queryKey: ["artifact-retention"], queryFn: () => core<{ max_days: number }>("/settings/artifact_retention"), staleTime: Infinity }).data?.max_days ?? 0;
+  const retention = Number(f.retention || 0);
+  const retentionValid = Number.isInteger(retention) && retention >= 0 && (!ceiling || retention <= ceiling);
   const patch = async (body: Record<string, unknown>, done: string) => {
     setBusy(true);
     try {
@@ -149,7 +155,7 @@ function ProjectSettings({ project, manage, teams }: { project: Project; manage:
   };
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    const body: Record<string, unknown> = { name: f.name.trim(), description: f.description.trim(), repo_url: f.repo_url.trim(), default_branch: f.default_branch.trim() };
+    const body: Record<string, unknown> = { name: f.name.trim(), description: f.description.trim(), repo_url: f.repo_url.trim(), default_branch: f.default_branch.trim(), artifact_retention_days: retention };
     if (f.team && f.team !== (project.team ?? "")) body.team = f.team;
     void patch(body, "Project saved");
   };
@@ -179,7 +185,15 @@ function ProjectSettings({ project, manage, teams }: { project: Project; manage:
           </select>
           <span className="block text-xs text-muted-foreground">Moving a project to another team works only while it has no tasks in progress.</span>
         </label>
-        {manage && <Button type="submit" className="h-10 w-full" disabled={busy || !f.name.trim()}>Save settings</Button>}
+        <label className="block space-y-1.5 text-sm"><span className="font-medium">Keep old artifact versions (days)</span>
+          <Input type="number" inputMode="numeric" min={0} max={ceiling || undefined} step={1} value={f.retention} disabled={!manage} aria-invalid={!retentionValid}
+            placeholder={ceiling ? String(ceiling) : "Forever"} onChange={(e) => setF({ ...f, retention: e.target.value })} className="h-10" />
+          <span className={cn("block text-xs", retentionValid ? "text-muted-foreground" : "text-red-700 dark:text-red-300")}>
+            Older versions that are neither the latest nor the latest approved one are archived: their record stays, their content is deleted.
+            {ceiling ? ` This Factory keeps them at most ${ceiling} days; empty uses ${ceiling}.` : " Empty keeps them forever."}
+          </span>
+        </label>
+        {manage && <Button type="submit" className="h-10 w-full" disabled={busy || !f.name.trim() || !retentionValid}>Save settings</Button>}
       </form>
       {manage && (
         <Button variant="outline" className="mt-4 h-10 w-full" disabled={busy} onClick={archive}>

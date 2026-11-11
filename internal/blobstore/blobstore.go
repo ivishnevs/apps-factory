@@ -27,6 +27,8 @@ type Store interface {
 	Put(ctx context.Context, company string, r io.Reader) (sha string, size int64, err error)
 	Get(ctx context.Context, company, sha string) (io.ReadCloser, error)
 	Exists(ctx context.Context, company, sha string) (bool, error)
+	// Delete removes a blob (artifact-retention: content no live reference uses); a missing blob is no error.
+	Delete(ctx context.Context, company, sha string) error
 }
 
 var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -114,6 +116,16 @@ func (l LocalFS) Exists(ctx context.Context, c, sha string) (bool, error) {
 	return err == nil, err
 }
 
+func (l LocalFS) Delete(ctx context.Context, c, sha string) error {
+	if err := check(c, sha); err != nil {
+		return err
+	}
+	if err := os.Remove(l.path(c, sha)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // Memory is an in-process Store for tests and tools; its contents vanish with the process.
 type Memory struct {
 	mu sync.Mutex
@@ -159,4 +171,14 @@ func (m *Memory) Exists(ctx context.Context, c, sha string) (bool, error) {
 	defer m.mu.Unlock()
 	_, ok := m.m[c+"/"+sha]
 	return ok, nil
+}
+
+func (m *Memory) Delete(ctx context.Context, c, sha string) error {
+	if err := check(c, sha); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.m, c+"/"+sha)
+	return nil
 }

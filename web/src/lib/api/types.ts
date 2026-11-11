@@ -46,6 +46,8 @@ export interface Project {
   // project-creation: how the repository came to be, who created the project (an agent's request carries its
   // approval) and its setup on the node; workspace is "" until the setup is ready. No setup: nothing to set up.
   repo_mode?: RepoMode; created_by?: string; approval_id?: string; setup?: ProjectSetup;
+  // artifact-retention: superseded artifact versions older than this many days are archived; 0 or absent keeps them.
+  artifact_retention_days?: number;
 }
 
 export type SetupState = "pending" | "running" | "ready" | "failed";

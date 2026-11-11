@@ -50,6 +50,16 @@ func TestRoundTripAndCompanyIsolation(t *testing.T) {
 			if _, err = s.Get(ctx, "acme", "../"+sha[3:]); err == nil {
 				t.Fatal("invalid digest accepted")
 			}
+			// artifact-retention: Delete removes the blob; deleting it again is no error.
+			if err = s.Delete(ctx, "acme", sha); err != nil {
+				t.Fatal(err)
+			}
+			if ok, _ := s.Exists(ctx, "acme", sha); ok {
+				t.Fatal("deleted blob still there")
+			}
+			if err = s.Delete(ctx, "acme", sha); err != nil {
+				t.Fatal("second delete", err)
+			}
 		})
 	}
 }

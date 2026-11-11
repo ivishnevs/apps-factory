@@ -155,7 +155,7 @@ func (s *Store) ListArchiveImages(ctx context.Context, company, project string, 
 
 // CopyArchiveEntry writes one file of an archive version to out (the Library's preview of an archived image).
 func (s *Store) CopyArchiveEntry(ctx context.Context, company, project, id, version, entry string, out io.Writer) error {
-	rec, err := s.Artifact(ctx, company, project, id, version)
+	rec, err := s.ArtifactContent(ctx, company, project, id, version)
 	if err != nil {
 		return err
 	}

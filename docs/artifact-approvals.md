@@ -148,6 +148,27 @@ and quarantine. `scripts/artifact-approvals-smoke.py --restart-core` checks with
 v2 reject → waiting, v3 approve → QA. Core and a node must be running. Results:
 [verification](artifact-approvals-verification.md).
 
+## Retention (artifact-retention)
+
+A project keeps superseded artifact versions for `artifact_retention_days` (project page → Settings → Keep old
+artifact versions; `PATCH /projects/ID` with `artifact_retention_days`). 0, the default, keeps them forever. Core's
+`FACTORY_ARTIFACT_RETENTION_MAX_DAYS` sets a ceiling (the hosted cloud sets 30): a project at 0 then uses the ceiling,
+a value above it is refused (400), and `GET /settings/artifact_retention` answers `{"max_days": N}` (0: none).
+
+Once a day Core archives the versions older than that which are none of: the latest version of their artifact, its
+latest approved version, a version with an open approval request, a required input of a task that is not done or
+cancelled. An archived version keeps its row: id, version, digest, size, author, time, task links, approvals and
+the image listing of an archive. It gets `archived_at` and `archived_reason` (`retention: N days`). Its content is
+deleted from the blob store once no live version, run log, report attachment or skill uses the same digest. Each run
+that archives or deletes something records one feed event `artifact.retention` with the counts and the bytes freed.
+
+Reads of an archived version's content (`/content`, `/entry`, a run's blob download) answer `410 Gone` with
+`{"error", "archived_at", "reason", "artifact_id", "version", "latest_version"}`. Listings, task materials and
+submissions still show the version, marked archived; the web shows "Archived DATE" instead of a preview or a
+download. `factory_artifact_get` adds an `archived` note naming the latest version. An archived version cannot be
+required by a new task or submitted for approval (400, naming the latest version). Uploading the same content under
+the same id and version again restores it.
+
 ## Who approves (approval-delegation)
 
 A team (`spec.approvals` of its team document) or a project (`approvals`, edited on the project page, overriding its

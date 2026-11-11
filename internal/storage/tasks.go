@@ -276,6 +276,12 @@ func (s *Store) UpdateProject(ctx context.Context, company, id string, in tasks.
 			}
 			p.ReviewCarry = append([]string(nil), *in.ReviewCarry...)
 		}
+		if in.ArtifactRetentionDays != nil {
+			if err = s.validRetention(*in.ArtifactRetentionDays); err != nil {
+				return p, err
+			}
+			p.ArtifactRetentionDays = *in.ArtifactRetentionDays
+		}
 		if in.Rules != nil {
 			if len(*in.Rules) > MaxRules {
 				return p, inputError("rules up to 8 KiB")

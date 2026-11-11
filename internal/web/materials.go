@@ -51,6 +51,10 @@ type Material struct {
 	Archive string `json:"archive,omitempty"`
 	// Versions are the artifact's older versions in the Library (one card per artifact), newest first.
 	Versions []MaterialVersion `json:"versions,omitempty"`
+	// ArchivedAt and ArchivedReason: retention archived this artifact version (artifact-retention); it has no
+	// ContentURL then, its metadata stays.
+	ArchivedAt     int64  `json:"archived_at,omitempty"`
+	ArchivedReason string `json:"archived_reason,omitempty"`
 
 	artifactID string
 }
@@ -62,6 +66,7 @@ type MaterialVersion struct {
 	ContentURL string `json:"content_url,omitempty"`
 	URL        string `json:"url,omitempty"`
 	Size       int64  `json:"size,omitempty"`
+	ArchivedAt int64  `json:"archived_at,omitempty"`
 }
 
 // MaterialReport is the report a file came with.
@@ -155,21 +160,30 @@ func cmpOr(v ...string) string {
 
 // collect merges a task's (or a project's) materials: report files, artifact versions, the submission's
 // artifacts the versions do not already list, and the pull requests of the exits (the latest state of each).
-func collect(project string, reps []reports.Report, records []artifacts.Record, ts []tui.Task, exits map[string][]storage.TaskExit) []Material {
+//
+// archived are the project's archived versions by "<id>\x00<version>" (artifact-retention): their materials, also
+// those a report or a submission names, carry the archive date and no content link.
+func collect(project string, reps []reports.Report, records []artifacts.Record, ts []tui.Task, exits map[string][]storage.TaskExit, archived map[string]artifacts.Record) []Material {
 	out := []Material{}
 	seen := map[string]bool{}
 	add := func(m Material) {
-		if !seen[m.ID] {
-			seen[m.ID] = true
-			out = append(out, m)
+		if seen[m.ID] {
+			return
 		}
+		seen[m.ID] = true
+		if m.artifactID != "" || m.Source == "archive" {
+			if a, ok := archived[m.artifactID+"\x00"+m.Version]; ok {
+				m.ArchivedAt, m.ArchivedReason, m.ContentURL = a.ArchivedAt, a.ArchivedReason, ""
+			}
+		}
+		out = append(out, m)
 	}
 	for _, r := range records {
 		m := fromArtifact(project, r.Artifact, "artifact", r.TaskID, r.RunID, r.CreatedBy, r.CreatedAt)
 		add(m)
 		for _, e := range r.ArchiveImages {
 			name := path.Base(e.Path)
-			add(Material{ID: m.ID + "#" + e.Path, Kind: "image", Source: "archive", Name: name, Path: e.Path, Version: r.Version, Size: e.Size,
+			add(Material{ID: m.ID + "#" + e.Path, artifactID: r.ID, Kind: "image", Source: "archive", Name: name, Path: e.Path, Version: r.Version, Size: e.Size,
 				ContentURL: "/api/artifacts/" + url.PathEscape(project) + "/" + url.PathEscape(r.ID) + "/" + url.PathEscape(r.Version) + "/entry?" + url.Values{"path": {e.Path}, "name": {name}}.Encode(),
 				ProjectID:  project, TaskID: r.TaskID, RunID: r.RunID, Author: r.CreatedBy, CreatedAt: r.CreatedAt, Archive: m.Name + " " + r.Version})
 		}
@@ -199,6 +213,17 @@ func collect(project string, reps []reports.Report, records []artifacts.Record, 
 		}
 		for _, m := range prs {
 			add(m)
+		}
+	}
+	return out
+}
+
+// archivedOf indexes the archived versions among records (artifact-retention).
+func archivedOf(records []artifacts.Record) map[string]artifacts.Record {
+	out := map[string]artifacts.Record{}
+	for _, r := range records {
+		if r.ArchivedAt > 0 {
+			out[r.ID+"\x00"+r.Version] = r
 		}
 	}
 	return out
@@ -242,7 +267,7 @@ func taskMaterials(ctx context.Context, c tui.Client, d tui.TaskDetail) ([]Mater
 			records = append(records, r)
 		}
 	}
-	ms := collect(t.ProjectID, reps, records, []tui.Task{t}, map[string][]storage.TaskExit{t.ID: d.Exits})
+	ms := collect(t.ProjectID, reps, records, []tui.Task{t}, map[string][]storage.TaskExit{t.ID: d.Exits}, archivedOf(all))
 	for i, m := range ms {
 		if m.artifactID == "" {
 			continue
@@ -293,7 +318,7 @@ func (l *library) read(ctx context.Context, c tui.Client) ([]Material, error) {
 				ts = append(ts, t)
 			}
 		}
-		out = append(out, collect(id, reps, records, ts, taskExits(ctx, c, ts))...)
+		out = append(out, collect(id, reps, records, ts, taskExits(ctx, c, ts), archivedOf(records))...)
 	}
 	titles(out, o.Tasks)
 	newestFirst(out)
@@ -445,7 +470,7 @@ func oneCardPerArtifact(ms []Material) []Material {
 		}
 		key := m.ProjectID + "\x00" + m.artifactID
 		if i, ok := at[key]; ok {
-			out[i].Versions = append(out[i].Versions, MaterialVersion{Version: m.Version, CreatedAt: m.CreatedAt, ContentURL: m.ContentURL, URL: m.URL, Size: m.Size})
+			out[i].Versions = append(out[i].Versions, MaterialVersion{Version: m.Version, CreatedAt: m.CreatedAt, ContentURL: m.ContentURL, URL: m.URL, Size: m.Size, ArchivedAt: m.ArchivedAt})
 			continue
 		}
 		at[key] = len(out)
