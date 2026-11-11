@@ -574,6 +574,10 @@ are shown in plain words; IDs appear only where a person needs them.
   menu switches between the person's companies and, with `FACTORY_MULTI_COMPANY=1`, creates one (it opens on its
   wizard). Every page is `/c/{company}/…`; every API call names the company (`X-Factory-Company`, and the
   `factory_company` cookie) and every change carries `X-Factory-CSRF`. The browser tab names the page.
+- **Tasks** `/c/{company}/tasks`: views, team, project, assignee and search live in the address. The project picked
+  (or opened with `?project=`) is remembered per company in the browser (`localStorage`
+  `factory.tasks.project.<company>`, tasks-project-memory): Tasks opened without `?project=` shows it again; All
+  projects is remembered too; an archived or removed project is forgotten.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies

@@ -1,9 +1,9 @@
 "use client";
 
 import { Hand, PanelLeftClose, Search, X } from "lucide-react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 import { useRouter } from "@/components/app/link";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { toneClass } from "@/components/app/status";
 import { columnOf, columns, isConversation, needsAction, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
@@ -26,6 +26,16 @@ const views: { key: View; name: string }[] = [
   { key: "open", name: "Open" }, { key: "you", name: "Needs you" }, { key: "running", name: "In progress" }, { key: "waiting", name: "Blocked" },
   { key: "ready", name: "To do" }, { key: "review", name: "In review" }, { key: "backlog", name: "Backlog" }, { key: "done", name: "Done" },
 ];
+
+// The project last picked on Tasks, per company in this browser (tasks-project-memory): opening Tasks without
+// ?project= shows it again. "all" records an explicit All projects.
+const projectKey = (company: string) => `factory.tasks.project.${company}`;
+function savedProject(company: string): string | null {
+  try { return localStorage.getItem(projectKey(company)); } catch { return null; }
+}
+function saveProject(company: string, v: string | null) {
+  try { if (v === null) localStorage.removeItem(projectKey(company)); else localStorage.setItem(projectKey(company), v); } catch { /* private mode */ }
+}
 
 // Yours first, then what needs someone else to act, then by priority, then the most recently changed.
 const order = (a: Task, b: Task) => Number(needsOwner(b)) - Number(needsOwner(a)) || Number(needsAction(b)) - Number(needsAction(a))
@@ -63,6 +73,22 @@ function Tasks() {
     router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
   };
   const onNewTask = (v: boolean) => set("new", v ? "task" : "", "");
+  const company = decodeURIComponent(String(useParams<{ company: string }>().company ?? ""));
+  const pickProject = (v: string) => { saveProject(company, v); set("project", v, ALL); };
+  const hasProjectParam = params.has("project");
+  // A project in the address (picked here or from a link) is the one to come back to; without one, restore the last
+  // pick once the projects are known, unless it was All projects or the project is gone or archived.
+  useEffect(() => {
+    if (!company) return;
+    if (hasProjectParam) { if (project !== ALL) saveProject(company, project); return; }
+    if (!ov) return;
+    const saved = savedProject(company);
+    if (!saved || saved === ALL) return;
+    if (ov.status.some((s) => s.project.id === saved && !s.project.archived)) set("project", saved, ALL);
+    else saveProject(company, null);
+    // set reads the current params; rerun only when the address or the projects change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company, hasProjectParam, project, ov]);
 
   const runs = useMemo(() => runsByTask(ov), [ov]);
   const { filtered, byCol } = useMemo(() => {
@@ -122,7 +148,7 @@ function Tasks() {
               </SelectContent>
             </Select>
           )}
-          <Select value={project} onValueChange={(v) => set("project", v, ALL)}>
+          <Select value={project} onValueChange={pickProject}>
             <SelectTrigger aria-label="Project" className="w-full data-[size=default]:h-11 sm:w-40 sm:data-[size=default]:h-9"><SelectValue /></SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value={ALL}>All projects</SelectItem>
