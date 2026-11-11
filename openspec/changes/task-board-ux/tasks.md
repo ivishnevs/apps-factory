@@ -7,12 +7,12 @@
 - [x] 1.4 A Blocked column for tasks that need someone to act; Waiting only for what comes in its turn (owner
       2026-11-06).
 
-## 2. Task over the board (postponed)
+## 2. Task over the board (owner 2026-11-11: as a modal)
 
-- [ ] 2.1 Intercepted route `/tasks/{id}` opens the panel over the board; reload/share opens the full page.
-- [ ] 2.2 Panel renders from the board's data at once, fills details when loaded; prefetch on hover.
-- [ ] 2.3 Board state (open columns, view, filters, scroll) survives opening and closing a task.
-- [ ] 2.4 Previous/next in the panel within the column; Esc closes; keyboard navigation on the board.
+- [x] 2.1 Intercepted route `/tasks/{id}` opens the panel over the board; reload/share opens the full page.
+- [x] 2.2 Panel renders from the board's data at once, fills details when loaded; prefetch on hover.
+- [x] 2.3 Board state (open columns, view, filters, scroll) survives opening and closing a task.
+- [x] 2.4 Previous/next in the panel within the column; Esc closes; keyboard navigation on the board.
 
 ## 3. Words and reasons
 

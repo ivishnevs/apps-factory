@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAction, needsOwner, queuedLine, showWhy, since } from "./model";
 import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
+import { usePrefetchTask } from "@/lib/api/client";
 
 export function AgentAvatar({ name, size = "sm", className }: { name?: string; size?: "xs" | "sm" | "md"; className?: string }) {
   const dims = { xs: "size-5 text-[9px]", sm: "size-6 text-[10px]", md: "size-9 text-xs" }[size];
@@ -61,9 +62,12 @@ export function WhyLine({ task, look, now, compact, className }: {
 
 // TaskCard: a task on the board. In progress cards show the run time and node; cards that need someone to act
 // are marked (yours amber, others red) so they stand out from tasks that wait their turn.
-export function TaskCard({ task, project, now, column, look, run, nodes, queued, className }: {
-  task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; run?: Run; nodes?: FactoryNode[]; queued?: QueuedReason; className?: string;
+// On the board (onBoard) a card opens the task in the panel over it without scrolling the board, and its details
+// are fetched as soon as the pointer or the focus is on it (task-board-ux 2.2).
+export function TaskCard({ task, project, now, column, look, run, nodes, queued, className, onBoard }: {
+  task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; run?: Run; nodes?: FactoryNode[]; queued?: QueuedReason; className?: string; onBoard?: boolean;
 }) {
+  const prefetch = usePrefetchTask();
   // node-readiness 4.1: a queued run held back by a paused node's session (or no ready node) says so on the card;
   // Release now is on the task and on the node's card.
   const held = heldBack(queued) && queued ? queuedLine(queued, (id) => nodes?.find((n) => n.node_id === id)?.name ?? id) : "";
@@ -75,7 +79,8 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
   // node-ties: a task tied to a node by its unsaved work runs only there; the card names that node.
   const pinnedTo = !live && !["DONE", "CANCELLED"].includes(task.status) ? nodes?.find((n) => (n.tied?.work ?? n.tied?.pinned)?.includes(task.id)) : undefined;
   return (
-    <Link href={`/tasks/${encodeURIComponent(task.id)}`}
+    <Link href={`/tasks/${encodeURIComponent(task.id)}`} data-task-card={task.id} scroll={onBoard ? false : undefined}
+      onMouseEnter={() => prefetch(task.id)} onFocus={() => prefetch(task.id)}
       className={cn("group relative block rounded-xl border bg-card p-3.5 shadow-xs transition-[border-color,box-shadow,transform] duration-150 hover:border-foreground/20 hover:shadow-sm focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.99]",
         yours && "border-amber-500/50 bg-amber-50/40 dark:border-amber-400/30 dark:bg-amber-400/[0.04]",
         action && "border-red-500/40 dark:border-red-400/30", className)}>

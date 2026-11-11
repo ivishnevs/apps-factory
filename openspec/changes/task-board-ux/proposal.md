@@ -1,5 +1,5 @@
 Status: proposed 2026-11-06 by the owner (open a task in a modal, review the board's UX); review findings below,
-implemented 2026-11-07 except the task panel (postponed), the priority scale and Waiting grouping (not now). Owner decisions 2026-11-06: the task panel is postponed (the task page stays as it is for now);
+implemented 2026-11-07 except the task panel (postponed; approved as a modal 2026-11-11, implemented 2026-11-12), the priority scale and Waiting grouping (not now). Owner decisions 2026-11-06: the task panel is postponed (the task page stays as it is for now);
 instead of a priority scale and Waiting grouping, the columns are renamed (see "Owner decisions").
 
 ## Why
@@ -97,3 +97,21 @@ Web: tasks board and task view (`web/src/app/c/[company]/tasks`, `components/app
   offline node, a missing secret, an artifact approval, a pause other than a usage limit, an escalation, an
   inspection, a manual block, or a question to a person; questions to agents, dependencies, subtasks and timers
   wait their turn.
+
+## Implementation (2026-11-12)
+
+Owner 2026-11-11: the task opens over the board "as a modal" (a centred modal on desktop, full screen on a phone).
+
+- Routing: `tasks/layout.tsx` with an `@modal` slot; `@modal/(.)[id]` intercepts `/tasks/{id}` from the board, a
+  reload or a shared link opens the full page `tasks/[id]` as before. The dialog (`components/app/tasks/panel.tsx`)
+  lives in the layout and opens only while the board is mounted under it, so following a task link from a task's
+  full page still shows that task's full page. The panel and the page render the same `TaskView`.
+- Instant open: the panel shows the header and description from the overview at once, placeholders for the rest,
+  then the details; cards prefetch the task's details on hover and focus, the panel prefetches previous/next.
+- Board state: the board stays mounted under the panel (folded columns, scroll, search text as they were); while
+  the panel is open the board keeps the filters and view of its own address. Opened Backlog/Done columns are also
+  kept for the browser tab (sessionStorage), so they survive the full page and back.
+- Navigation: previous/next buttons (and j/k) within the task's board column, with "column · n of m"; they replace
+  the address, so Back or Esc returns to the board in one step; closing gives the focus back to the card of the task
+  last shown. On the board, arrow keys (or h/j/k/l) move between cards, Enter opens one. The dialog traps the focus,
+  is labelled by the task's title, and has "Open full page".

@@ -1,7 +1,7 @@
 "use client";
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Action, AgentRuns, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
 import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Teams } from "./types-catalog";
@@ -53,7 +53,14 @@ const qs = (p: Record<string, string | number | boolean | undefined>) => {
 // The overview is everything the shell and the dashboard show; it refreshes every 5 s.
 export const useOverview = () => useQuery({ queryKey: ["overview"], queryFn: () => api<Overview>("/overview"), refetchInterval: 5000 });
 export const useMeta = () => useQuery({ queryKey: ["meta"], queryFn: () => api<Meta>("/meta"), staleTime: Infinity });
-export const useTask = (id: string) => useQuery({ queryKey: ["task", id], queryFn: () => api<TaskDetail>(`/tasks/${id}`), refetchInterval: 5000 });
+// taskQuery is a task's details; the board prefetches them under the same key (task-board-ux 2.2).
+export const taskQuery = (id: string) => ({ queryKey: ["task", id], queryFn: () => api<TaskDetail>(`/tasks/${id}`) });
+export const useTask = (id: string) => useQuery({ ...taskQuery(id), refetchInterval: 5000 });
+// usePrefetchTask fetches a task's details ahead of opening it, unless they were fetched in the last few seconds.
+export function usePrefetchTask() {
+  const qc = useQueryClient();
+  return useCallback((id: string) => { void qc.prefetchQuery({ ...taskQuery(id), staleTime: 5000 }); }, [qc]);
+}
 export const useRun = (id: string) => useQuery({ queryKey: ["run", id], queryFn: () => api<Run>(`/runs/${id}`), refetchInterval: 5000 });
 export const useRunEvents = (id: string) => useQuery({ queryKey: ["run-events", id], queryFn: () => api<RunEvent[]>(`/runs/${id}/events`) });
 export const useToolCalls = (id: string) => useQuery({ queryKey: ["tool-calls", id], queryFn: () => api<ToolCall[]>(`/runs/${id}/toolcalls`) });

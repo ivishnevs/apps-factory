@@ -2,8 +2,9 @@
 
 import { Hand, PanelLeftClose, Search, X } from "lucide-react";
 import { useParams, usePathname, useSearchParams } from "next/navigation";
-import { useRouter } from "@/components/app/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { useAppPath, useRouter } from "@/components/app/link";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { mountBoard, publishBoard, savedOpenColumns, saveOpenColumns } from "@/components/app/tasks/board-store";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { toneClass } from "@/components/app/status";
 import { columnOf, columns, isConversation, needsAction, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
@@ -50,7 +51,15 @@ function Tasks() {
   const now = useClock();
   const router = useRouter();
   const pathname = usePathname();
-  const params = useSearchParams();
+  const company = decodeURIComponent(String(useParams<{ company: string }>().company ?? ""));
+  // With a task open over the board (/tasks/{id}, task-board-ux 2.1) the address is the task's: the board keeps
+  // the filters and view it had, and changes nothing, until the panel closes.
+  const onBoard = useAppPath() === "/tasks";
+  const liveParams = useSearchParams();
+  const boardParams = useRef(liveParams);
+  if (onBoard) boardParams.current = liveParams;
+  const params = onBoard ? liveParams : boardParams.current;
+  useEffect(() => mountBoard(), []);
   const project = params.get("project") ?? ALL;
   const assignee = params.get("assignee") ?? ALL;
   const team = params.get("team") ?? ALL;
@@ -58,8 +67,13 @@ function Tasks() {
   const view = (params.get("view") as View) ?? "open";
   const [q, setQ] = useState(params.get("q") ?? "");
   // Board columns the owner opened (Backlog and Done start folded).
-  const [open, setOpen] = useState<Set<ColumnKey>>(() => new Set());
-  const toggle = (k: ColumnKey) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  // They are kept for the browser tab, so coming back from a task's full page finds them as they were.
+  const [open, setOpen] = useState<Set<ColumnKey>>(() => new Set(typeof window === "undefined" ? [] : savedOpenColumns(company) as ColumnKey[]));
+  const toggle = (k: ColumnKey) => setOpen((o) => {
+    const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k);
+    saveOpenColumns(company, [...n]);
+    return n;
+  });
   const look = useMemo(() => lookupFrom(ov?.tasks), [ov?.tasks]);
   // The filtered project, for its repository setup; ?new=task opens the new-task sheet (after creating a project).
   const current = project === ALL ? undefined : ov?.status.find((s) => s.project.id === project)?.project;
@@ -67,19 +81,19 @@ function Tasks() {
   const newTask = params.get("new") === "task";
 
   const set = (k: string, v: string, def: string) => {
+    if (!onBoard) return;
     const p = new URLSearchParams(params.toString());
     if (v === def) p.delete(k); else p.set(k, v);
     const s = p.toString();
     router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
   };
   const onNewTask = (v: boolean) => set("new", v ? "task" : "", "");
-  const company = decodeURIComponent(String(useParams<{ company: string }>().company ?? ""));
   const pickProject = (v: string) => { saveProject(company, v); set("project", v, ALL); };
   const hasProjectParam = params.has("project");
   // A project in the address (picked here or from a link) is the one to come back to; without one, restore the last
   // pick once the projects are known, unless it was All projects or the project is gone or archived.
   useEffect(() => {
-    if (!company) return;
+    if (!company || !onBoard) return;
     if (hasProjectParam) { if (project !== ALL) saveProject(company, project); return; }
     if (!ov) return;
     const saved = savedProject(company);
@@ -88,7 +102,7 @@ function Tasks() {
     else saveProject(company, null);
     // set reads the current params; rerun only when the address or the projects change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company, hasProjectParam, project, ov]);
+  }, [company, onBoard, hasProjectParam, project, ov]);
 
   const runs = useMemo(() => runsByTask(ov), [ov]);
   const { filtered, byCol } = useMemo(() => {
@@ -106,6 +120,8 @@ function Tasks() {
     for (const f of filtered) byCol.get(f.col)!.push(f.task);
     return { filtered, byCol };
   }, [ov, runs, project, assignee, team, q]);
+  // The columns as shown, for previous/next in the task panel (task-board-ux 2.4).
+  useEffect(() => { publishBoard(columns.map((c) => ({ name: c.name, ids: (byCol.get(c.key) ?? []).map((t) => t.id) }))); }, [byCol]);
 
   const count = (v: View) => v === "open" ? filtered.filter((f) => f.col !== "done").length
     : v === "you" ? filtered.filter((f) => f.col !== "done" && needsOwner(f.task)).length : byCol.get(v)?.length ?? 0;
@@ -185,8 +201,8 @@ function Tasks() {
               })}
             </div>
             {list.length === 0 ? <Empty view={view} filtered={filteredOut} emptyProject={!!current && !projectHasTasks} /> : (
-              <ul className="grid gap-2.5 sm:grid-cols-2">
-                {list.map((f) => <li key={f.task.id}><TaskCard task={f.task} project={name(f.task.project_id)} now={now} look={look} run={runs.live.get(f.task.id)} queued={runs.why.get(f.task.id)} nodes={ov.nodes} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
+              <ul data-card-list="grid" aria-label="Tasks" aria-describedby="board-keys" onKeyDown={boardKeys} className="grid gap-2.5 sm:grid-cols-2">
+                {list.map((f) => <li key={f.task.id}><TaskCard onBoard task={f.task} project={name(f.task.project_id)} now={now} look={look} run={runs.live.get(f.task.id)} queued={runs.why.get(f.task.id)} nodes={ov.nodes} column={view === "open" || view === "you" ? f.col : undefined} /></li>)}
               </ul>
             )}
           </div>
@@ -195,8 +211,9 @@ function Tasks() {
           {total === 0 && <div className="mb-4 hidden lg:block"><Empty view="open" filtered={filteredOut} emptyProject={!!current && !projectHasTasks} /></div>}
           {/* Desktop: the Kanban board. Backlog and Done fold to slim rails unless opened, and empty columns
               stay slim, so the working columns get the width. */}
+          <p id="board-keys" className="sr-only">Arrow keys move between tasks, Enter opens one.</p>
           <div className="relative -mx-8 hidden overflow-x-auto px-8 pb-4 lg:block">
-            <div className="flex min-w-max gap-3 xl:min-w-0">
+            <div className="flex min-w-max gap-3 xl:min-w-0" role="group" aria-label="Task board" aria-describedby="board-keys" onKeyDown={boardKeys}>
               {columns.map((c) => {
                 const items = byCol.get(c.key) ?? [];
                 const foldable = c.key === "backlog" || c.key === "done";
@@ -221,13 +238,13 @@ function Tasks() {
                       <span className="text-xs tabular-nums text-muted-foreground">{items.length}</span>
                       {foldable && (
                         <button type="button" onClick={() => toggle(c.key)} aria-label={`Hide ${c.name}`} title={`Hide ${c.name}`}
-                          className="-mr-1 ml-auto flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground">
+                          className="-mr-1 ml-auto flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
                           <PanelLeftClose className={cn("size-4", c.key === "done" && "rotate-180")} />
                         </button>
                       )}
                     </header>
-                    <div className="flex flex-col gap-2">
-                      {items.map((t) => <TaskCard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} queued={runs.why.get(t.id)} nodes={ov.nodes} />)}
+                    <div data-card-list="column" className="flex flex-col gap-2">
+                      {items.map((t) => <TaskCard onBoard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} queued={runs.why.get(t.id)} nodes={ov.nodes} />)}
                     </div>
                   </section>
                 );
@@ -238,6 +255,39 @@ function Tasks() {
       )}
     </>
   );
+}
+
+// boardKeys moves the focus between cards (task-board-ux 2.4): up/down (or k/j) within a column, left/right (or
+// h/l) to the nearest card of the next column that has cards; in the phone list, by rows and cells of its grid.
+// Enter on a card opens it (it is a link).
+function boardKeys(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const dir = ({ ArrowDown: "down", j: "down", ArrowUp: "up", k: "up", ArrowLeft: "left", h: "left", ArrowRight: "right", l: "right" } as Record<string, string>)[e.key];
+  const card = (e.target as HTMLElement).closest<HTMLElement>("[data-task-card]");
+  if (!dir || !card) return;
+  const lists = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-card-list]")];
+  if (e.currentTarget.matches("[data-card-list]")) lists.unshift(e.currentTarget);
+  const at = lists.findIndex((l) => l.contains(card));
+  if (at < 0) return;
+  const cards = (l: HTMLElement) => [...l.querySelectorAll<HTMLElement>("[data-task-card]")];
+  const own = cards(lists[at]), i = own.indexOf(card);
+  let target: HTMLElement | undefined;
+  if (lists[at].dataset.cardList === "grid") {
+    const perRow = getComputedStyle(lists[at]).gridTemplateColumns.split(" ").filter(Boolean).length || 1;
+    const step = dir === "down" ? perRow : dir === "up" ? -perRow : dir === "right" ? 1 : -1;
+    target = own[i + step];
+  } else if (dir === "down" || dir === "up") {
+    target = own[i + (dir === "down" ? 1 : -1)];
+  } else {
+    const d = dir === "right" ? 1 : -1;
+    for (let j = at + d; j >= 0 && j < lists.length && !target; j += d) {
+      const other = cards(lists[j]);
+      target = other[Math.min(i, other.length - 1)];
+    }
+  }
+  if (!target) return;
+  e.preventDefault();
+  target.focus();
 }
 
 // dot: the solid colour of a status tone (the badge tones are tints).
