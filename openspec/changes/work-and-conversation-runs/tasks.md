@@ -14,7 +14,7 @@
 
 - [x] 2.1 `runtime.context_window` accepts a value or `{work, conversation}`; validated against the provider.
 - [x] 2.2 Node drivers set the compaction window from the run kind (Claude env, Codex thread config); tests.
-- [ ] 2.3 Owner's company: `context_window: {work: max, conversation: 200k}` on every agent; remove the producer's
+- [x] 2.3 Owner's company: `context_window: {work: max, conversation: 200k}` on every agent; remove the producer's
       `producer_compact_window` secret use and the secret. Applied by the owner/after deploy (not production work of
       this change; keep the Codex agent artist-2d at `max` until openai/codex#16033 is fixed).
 

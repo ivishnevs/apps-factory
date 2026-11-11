@@ -1,4 +1,4 @@
-Status: implemented 2026-11-10 except 2.3; proposed 2026-11-08 by the owner ("run limits and the context window set separately for work and for
+Status: implemented 2026-11-10 (2.3 applied in the owner's company 2026-11-10: Claude agents {work: max, conversation: 200k}, artist-2d max, the producer_compact_window secret removed; conversation runs verified with 200000); proposed 2026-11-08 by the owner ("run limits and the context window set separately for work and for
 communication: work runs stay at their maximum, a conversation can always run next to them, conversations get a
 smaller context; the chat says why an agent cannot answer"). Open questions decided the same day (see Decisions).
 Implemented 2026-11-10 (see "Implementation"), except 2.3 (the owner's company settings, applied by the owner after
