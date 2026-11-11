@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -293,7 +294,20 @@ func TestSessionLost(t *testing.T) {
 		t.Fatalf("retry dropped the session: %q", spec.SessionID)
 	}
 	answer("new_session")
-	if spec := dispatchEngineTask(t, s, taskOf(t, s, "t1"), "r4"); spec.SessionID != "" {
-		t.Fatalf("new_session kept the session: %q", spec.SessionID)
+	spec := dispatchEngineTask(t, s, taskOf(t, s, "t1"), "r4")
+	if spec.SessionID != "" || !spec.FreshSession {
+		t.Fatalf("new_session kept the session or lost the fresh mark: %q %v", spec.SessionID, spec.FreshSession)
+	}
+	if _, err := claimLease(t, s, co, "r4"); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := s.DB.QueryRow("SELECT spec FROM runs WHERE id='r4'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	var claimed protocol.RunSpec
+	_ = json.Unmarshal([]byte(stored), &claimed)
+	if !strings.HasPrefix(claimed.Prompt, protocol.FreshSessionNote) {
+		t.Fatalf("the new_session run's brief lacks the fresh-session note: %.120q", claimed.Prompt)
 	}
 }

@@ -122,7 +122,8 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		}
 		spec.SessionID = session
 	}
-	if t.FreshSession { // reset_workspace: the old session stays with the old node and worktree
+	if t.FreshSession { // reset_workspace, new_session: the old session is not resumed
+		spec.FreshSession = spec.SessionID != ""
 		spec.SessionID, t.FreshSession = "", false
 	}
 	spec.TaskID = t.ID

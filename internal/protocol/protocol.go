@@ -21,7 +21,13 @@ const (
 // Valid reports whether a native Worker exists for the provider's command subject.
 func (p RuntimeProvider) Valid() bool { return p == RuntimeCodex || p == RuntimeClaude }
 
+// FreshSessionNote starts the prompt of a run that does not resume its task's earlier session.
+const FreshSessionNote = "[App Factory] This run starts a new runtime session: the previous session of this task is not available here (it ran on another node, under another account, or the workspace was reset). Take the task's context, history and decisions from Core: this prompt and the Factory tools.\n\n"
+
 type RunSpec struct {
+	// FreshSession: Core started this run without the task's earlier session on purpose (new_session,
+	// reset_workspace); the brief starts with FreshSessionNote.
+	FreshSession      bool                     `json:"fresh_session,omitempty"`
 	OpenSpecChange    string                   `json:"openspec_change,omitempty"`
 	DecisionContext   []decisions.ContextEntry `json:"decision_context,omitempty"`
 	MoreDecisions     bool                     `json:"more_decisions,omitempty"`

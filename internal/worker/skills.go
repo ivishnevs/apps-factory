@@ -190,7 +190,7 @@ func GCSkillStore(store string, maxAge time.Duration, keep map[string]bool) (int
 }
 
 // FreshSessionNote starts the prompt of a run that does not resume its session.
-const FreshSessionNote = "[App Factory] This run starts a new runtime session: the previous session of this task is not available here (it ran on another node, under another account, or the workspace was reset). Take the task's context, history and decisions from Core: this prompt and the Factory tools.\n\n"
+const FreshSessionNote = protocol.FreshSessionNote
 
 // errSessionLost: the node ran the task's session under the same account, but the runtime no longer has it
 // (session-continuity). The run does not start; Core asks the owner whether to continue in a new session.

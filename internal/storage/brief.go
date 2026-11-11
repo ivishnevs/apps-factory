@@ -255,6 +255,11 @@ func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, 
 	if spec.Prompt, err = briefTx(ctx, tx, t, *spec, from, to); err != nil {
 		return err
 	}
+	if spec.FreshSession {
+		// session-continuity: the agent is told its earlier session is gone (the node adds the note only when
+		// it drops a session itself).
+		spec.Prompt = protocol.FreshSessionNote + spec.Prompt
+	}
 	if history {
 		h, err := conversationHistory(ctx, tx, t.ID, id, from)
 		if err != nil {
