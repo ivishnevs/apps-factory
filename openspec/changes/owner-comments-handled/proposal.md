@@ -15,14 +15,21 @@ Seen on 2026-11-11 in tvorog, task `a8ad9e45` (Tracely: a sheet scroll moves the
 
 ## What Changes
 
-- **Each owner comment shows what became of it.** The run that gets an owner comment records, in its exit, one outcome
-  per comment: done, forwarded (to whom, with the message), or declined (with a reason the owner sees). The task page
-  and the TUI show the outcome under the comment, and "not handled yet" while none is recorded. A run that ends without
-  an outcome for a comment it was shown keeps the comment as an open trigger and raises an alert after the next run
-  that skips it.
-- **Out-of-role comments are forwarded, not dropped.** `factory_comment_forward {comment_id, to, note}` sends the
-  comment verbatim, with the task link, to the agent's manager or the project lead, and records the outcome
-  "forwarded". The agent instructions name it. (The tvorog catalog got the matching prompt rule on 2026-11-12.)
+The board's comment is the top authority on a task, so Factory enforces its handling instead of relying on prompts.
+
+- **No exit without an outcome for every board comment.** A run that was shown an owner comment cannot exit
+  (`factory_exit_done`, `submit`, `handoff`, `ask`, `wait`, `blocked`) until each such comment has an outcome: done,
+  forwarded (to whom, with the message), or declined (with a reason the owner sees). The exit tool refuses with the
+  list of unhandled comments and how to record each, so the agent handles them in the same run whatever its prompt
+  says. A run that ends without an exit (crash, timeout) leaves the comments open for the next run, and a second such
+  run raises an alert to the owner.
+- **The project lead always gets a copy.** Core delivers every owner comment on a task of the project to the lead's
+  conversation brief, with the task and the outcome recorded by the assignee. When the outcome is forwarded or
+  declined, the lead's brief asks it to act. The lead cannot miss the board's word given on another agent's task.
+- **Forwarding is one tool call.** `factory_comment_forward {comment_id, to, note}` sends the comment verbatim, with the
+  task link, to the agent's manager or the project lead, and records the outcome "forwarded".
+- **Outcomes are visible.** The task page and the TUI show each comment's outcome ("done", "forwarded to ceo",
+  "declined: …") or "not handled yet".
 - **No comment box on a closed task.** A DONE or CANCELLED task's page offers instead:
   - "Reopen with comment": the task goes back to its assignee with the comment;
   - "Ask the lead about it": a message to the project lead with the task linked.
@@ -34,5 +41,5 @@ Seen on 2026-11-11 in tvorog, task `a8ad9e45` (Tracely: a sheet scroll moves the
 - Core: comment outcomes on exits, the `factory_comment_forward` tool, the unhandled-comment alert, refusing comments
   on closed tasks, reopen with comment.
 - Web, TUI: comment outcomes on the task page, closed-task actions.
-- Agent instructions (Factory's default library) for handling comments.
+- Agent instructions only describe the tools; the guarantees come from Core (exit refusal, lead copy).
 - Docs: `docs/task-lifecycle.md`, `docs/messaging.md`, `docs/owner-ui.md`. Related: `agent-questions-in-chat`.
