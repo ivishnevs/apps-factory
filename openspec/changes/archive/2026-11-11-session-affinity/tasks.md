@@ -17,4 +17,5 @@
 ## 3. Visibility
 
 - [x] 3.1 Task: "waiting for NODE, it holds this agent's session"; runs: resumed or fresh, and why.
-- [ ] 3.2 Count fresh starts per company over a week before and after.
+- [x] 3.2 Count fresh starts per company over a week before and after.
+ (Closed 2026-11-11 by the owner: no measurement needed.)

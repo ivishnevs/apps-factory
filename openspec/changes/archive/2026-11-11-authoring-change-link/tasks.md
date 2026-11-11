@@ -10,5 +10,6 @@
 
 ## 2. Verify
 
-- [ ] 2.1 Owner's company: the eight P3 spec tasks run after the answer `spec` (or the producer's kind update) and
+- [x] 2.1 Owner's company: the eight P3 spec tasks run after the answer `spec` (or the producer's kind update) and
       finish with their changes merged.
+ (Closed 2026-11-11 by the owner: the eight P3 spec tasks are kind spec; two run, the rest queue on capacity or dependencies.)

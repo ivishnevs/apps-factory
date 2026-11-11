@@ -1,8 +1,8 @@
 ## 1. Verify
 
-- [ ] 1.1 Claude Code with its own CLAUDE_CONFIG_DIR on macOS: login lands in a separate Keychain entry, the
-      person's terminal login is untouched, accountInfo reports the node's account.
-- [ ] 1.2 Codex with its own CODEX_HOME: login, account/read, skills and sessions under it.
+- [x] 1.1 Claude Code with its own CLAUDE_CONFIG_DIR on macOS: login lands in a separate Keychain entry, the
+      person's terminal login is untouched, accountInfo reports the node's account. (Checked by the owner on the Mac node 2026-11-11; `factory-node login` writes config_dir/home itself.)
+- [x] 1.2 Codex with its own CODEX_HOME: login, account/read, skills and sessions under it. (Checked by the owner 2026-11-11.)
 
 ## 2. Own runtime logins (option 1)
 
