@@ -18,12 +18,19 @@ A run that ends without an exit SHALL leave its owner comments open for the next
 - **WHEN** two runs in a row end without an exit after being shown the same owner comment
 - **THEN** the comment SHALL still be open and the owner SHALL get an alert
 
-### Requirement: The lead gets every board comment
-Core SHALL copy every owner comment on a task of a project, with the assignee's outcome, into the project lead's conversation brief, and SHALL ask the lead to act when the outcome is forwarded or declined.
+### Requirement: The lead sees every board comment
+Core SHALL put every owner comment on a task of a project, with the assignee's outcome, into the project lead's conversation brief without waking the lead.
 
 #### Scenario: Board's word on another agent's task
 - **WHEN** the owner comments "upload to TestFlight" on developer-lite's task in tracely
-- **THEN** the CEO's tracely brief SHALL carry that comment and its outcome
+- **THEN** the CEO's next tracely brief SHALL carry that comment and its outcome, and the CEO SHALL NOT be woken for it
+
+### Requirement: The lead is woken only when needed
+Core SHALL wake the project lead for an owner comment when its outcome is declined, when no outcome is "done" while the task stays active past the team's limit, or at once when the comment is in a locked category. A forward to a manager who is the lead SHALL be one message, and the lead's outcome SHALL be a linked task or a refusal with a reason.
+
+#### Scenario: Declined comment
+- **WHEN** the assignee declines an owner comment
+- **THEN** the lead SHALL be woken to confirm or override it
 
 ### Requirement: No comments on closed tasks
 Core SHALL refuse an owner comment on a DONE or CANCELLED task and SHALL name the options to reopen the task with the comment or to ask the project lead.

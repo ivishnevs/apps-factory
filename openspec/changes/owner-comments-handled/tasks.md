@@ -4,9 +4,11 @@
       exit tool refuses while a shown owner comment has no outcome, listing them; a run ending without an exit leaves
       them open and a second such run raises an alert; tests.
 - [ ] 1.4 Core copies every owner comment on a project's task, with the assignee's outcome, into the project lead's
-      conversation brief; forwarded or declined outcomes ask the lead to act; tests.
-- [ ] 1.2 `factory_comment_forward {comment_id, to, note}`: verbatim forward to the manager or project lead with the
-      task link, outcome "forwarded"; tests.
+      conversation brief without waking it; it wakes the lead on a declined outcome, on no "done" past the team's limit
+      (default one hour) and at once for locked categories; a forward to a manager who is the lead is one message; the
+      lead's outcome is a linked task or a refusal; tests.
+- [ ] 1.2 `factory_comment_forward {comment_id, note}`: verbatim forward up the chain to the assignee's manager with
+      the task link, outcome "forwarded"; tests.
 - [ ] 1.3 Task page and TUI show each comment's outcome or "not handled yet".
 
 ## 2. Closed tasks
