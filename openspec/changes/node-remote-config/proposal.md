@@ -1,4 +1,5 @@
-Status: idea (raised 2026-11-10 by the owner: "the node's config could be set from the web / API and the node pulls
+Status: adopted 2026-11-11 by the owner into node-packaging-updates (see its design.md, part B; tasks 3.2 there).
+Originally an idea (raised 2026-11-10 by the owner: "the node's config could be set from the web / API and the node pulls
 it; not sure whether that is good or bad — record it and defer"). Not scheduled. Nothing implemented.
 
 ## Why
