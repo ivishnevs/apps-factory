@@ -10,6 +10,7 @@ import { useConfirm } from "@/components/app/confirm";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { summarize } from "@/components/app/project/summary";
 import { ProjectApprovals } from "@/components/app/project/approvals";
+import { ProjectPause, projectPause } from "@/components/app/project/pause";
 import { toneClass } from "@/components/app/status";
 import { TaskCard } from "@/components/app/tasks/parts";
 import { columns, isConversation, needsOwner, useClock, useOverviewData } from "@/components/app/tasks/model";
@@ -47,6 +48,7 @@ export default function Page() {
   const p = summary.project;
   const lead = p.team ? teams.find((t) => t.name === p.team)?.lead : undefined;
   const setup = setupView(p, ov.nodes);
+  const paused = projectPause(ov, p.id);
   const tasks = (ov.tasks as BoardTask[]).filter((t) => t.project_id === p.id && !isConversation(t));
   const yours = tasks.filter(needsOwner);
   const done = tasks.filter((t) => t.status === "DONE").sort((a, b) => b.updated_at - a.updated_at).slice(0, 5);
@@ -64,7 +66,9 @@ export default function Page() {
         {links.map((l) => (
           <Button key={l.href} variant="outline" className="h-10" asChild><Link href={l.href}><l.icon />{l.label}</Link></Button>
         ))}
+        {!paused && !p.archived && <ProjectPause project={p.id} name={p.name} manage={manage} />}
       </nav>
+      {paused && <ProjectPause project={p.id} name={p.name} pause={paused} manage={manage} />}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="grid min-w-0 gap-6">
           <section aria-label="Overview" className="rounded-2xl border bg-card p-4 sm:p-5">

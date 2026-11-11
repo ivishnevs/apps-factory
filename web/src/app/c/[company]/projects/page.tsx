@@ -5,6 +5,7 @@ import Link from "@/components/app/link";
 import { useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { NewProject } from "@/components/app/project/new-project";
+import { PausedBadge, projectPause } from "@/components/app/project/pause";
 import { summarize } from "@/components/app/project/summary";
 import { columns, since, useClock, useOverviewData } from "@/components/app/tasks/model";
 import { toneClass } from "@/components/app/status";
@@ -31,6 +32,7 @@ export default function Page() {
           <ul className="grid gap-3 md:grid-cols-2">
             {active.map((s) => {
               const setup = setupView(s.project, ov.nodes);
+              const paused = projectPause(ov, s.project.id);
               return (
                 <li key={s.project.id}>
                   <Link href={`/projects/${encodeURIComponent(s.project.id)}`}
@@ -40,6 +42,7 @@ export default function Page() {
                         <p className="truncate text-[15px] font-medium">{s.project.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{s.project.team ? `Team ${s.project.team}` : "No team"} · {s.project.repo_url || "no repository yet"}</p>
                       </div>
+                      {paused && <PausedBadge pause={paused} />}
                       {s.needsYou > 0 && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300"><Hand className="size-3" />{s.needsYou} need{s.needsYou === 1 ? "s" : ""} you</span>}
                     </div>
                     {setup && <p className={cn("mt-2 text-xs", setup.state === "failed" ? "text-red-700 dark:text-red-300" : "text-muted-foreground")}>{setup.title}</p>}

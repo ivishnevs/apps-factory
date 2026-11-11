@@ -578,6 +578,9 @@ are shown in plain words; IDs appear only where a person needs them.
   (or opened with `?project=`) is remembered per company in the browser (`localStorage`
   `factory.tasks.project.<company>`, tasks-project-memory): Tasks opened without `?project=` shows it again; All
   projects is remembered too; an archived or removed project is forgotten.
+- **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
+  page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
+  button while it runs (project-pause-visible). Nodes & control still lists every pause.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies
