@@ -423,6 +423,15 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			}
 			return t, err
 		}
+		kind, ok := tasks.WorkKind(in.Kind)
+		if !ok {
+			return t, inputError("kind must be work or spec")
+		}
+		t.Kind = kind
+		if t.OpenSpecChange != "" && in.OriginRun != "" && strings.TrimSpace(in.Kind) == "" {
+			// task-kinds: an agent linking a change says what the task does with it.
+			return t, inputError(fmt.Sprintf("openspec_change %s needs kind: spec when this task writes or amends the change (its proposal need not exist yet), work when it implements a change already merged to the default branch (checked before every run)", t.OpenSpecChange))
+		}
 		if err := checkTaskChange(t); err != nil {
 			return t, err
 		}
@@ -634,6 +643,13 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 			if err = clearRetryEscalations(ctx, tx, t, "reassigned to "+t.Assignee); err != nil {
 				return t, err
 			}
+		}
+		if in.Kind != nil {
+			kind, ok := tasks.WorkKind(*in.Kind)
+			if !ok || t.Kind == tasks.KindConversation {
+				return t, inputError("kind must be work or spec, and a conversation keeps its kind")
+			}
+			t.Kind = kind
 		}
 		if in.OpenSpecChange != nil {
 			t.OpenSpecChange = *in.OpenSpecChange

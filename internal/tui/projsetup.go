@@ -93,7 +93,7 @@ func (m *Model) projectSetupLines(w int) []string {
 	}
 	empty := true
 	for _, t := range m.ov.Tasks {
-		if t.ProjectID == p.ID && t.Kind == "" {
+		if t.ProjectID == p.ID && t.Kind != tasks.KindConversation {
 			empty = false
 			break
 		}

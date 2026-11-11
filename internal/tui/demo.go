@@ -150,7 +150,7 @@ func DemoFixture() Fixture {
 			st.Runs = []core.RunStatus{}
 		}
 		for _, t := range ts {
-			if t.ProjectID != p || t.Kind != "" {
+			if t.ProjectID != p || t.Kind == tasks.KindConversation {
 				continue
 			}
 			st.Tasks[t.Status]++

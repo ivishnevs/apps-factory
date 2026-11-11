@@ -1,4 +1,20 @@
-Status: proposed 2026-11-09 by the owner ("I answered retry but the question keeps reopening"). Nothing implemented.
+Status: proposed 2026-11-09 by the owner ("I answered retry but the question keeps reopening"). **Decided 2026-11-11 by
+the owner** (see "Decision"), replacing the link kinds and the role-based defaults below; implemented 2026-11-11.
+
+## Decision (2026-11-11)
+
+Seen again on 2026-11-11: the producer linked all eight P3 spec tasks to the changes they write (29 earlier spec
+tasks worked only because they had no link). The owner chose explicit task kinds, simple and deterministic:
+
+- A task is `work` (default; runs as before: the linked change is checked before every run) or `spec` (writes or
+  amends its linked change; the link is not checked before a run). No role or name heuristics.
+- An agent that sets `openspec_change` when creating a task must set `kind`, or Core refuses with the choice
+  explained; the tool schema describes both. People's tasks default to `work`. `factory_task_update` changes it.
+- The `change_missing` escalation gets the answer `spec` (make it a spec task and run again), so a wrongly typed
+  task is fixed with one answer.
+- Not now: spec-only file checks on submit, automatic waits of work tasks on a spec task, `unlink`.
+
+Earlier (2026-11-09):
 The prod instance was fixed by hand the same day (task `f31bb427`: `openspec_change` cleared, then retry).
 
 ## Why

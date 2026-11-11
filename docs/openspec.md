@@ -49,7 +49,14 @@ on the task's checkout: `openspec/changes/<name>/proposal.md`, or the latest arc
 `openspec/changes/archive/YYYY-MM-DD-<name>/proposal.md` (a run of the task archived it; review and rework go
 on), regular, non-empty UTF-8, at most 1 MiB. A missing change ends the run with outcome `change_missing`
 before the runtime starts: it costs no attempt, backoff or budget, and opens a `change_missing` escalation to
-the assignee's manager (answers `retry` once the proposal is merged, or `cancel`).
+the assignee's manager (answers `spec` when the task writes the change, `retry` once the proposal is merged, or
+`cancel`).
+
+**Task kinds (task-kinds).** A linked task is `work` (the default: it implements the change, checked as above) or
+`spec` (it writes or amends the change: the run carries no change for the node to check, and the brief says to
+write it in `openspec/changes/<name>`). An agent that sets `openspec_change` in `factory_task_create` must set
+`kind`; a person's task defaults to `work`. `factory_task_update` changes `kind` (work ⇄ spec); the `spec` answer of
+a `change_missing` escalation does it and runs the task again. The web shows a spec task's link as "Writes spec".
 
 The brief names the change and where it is in the checkout; documents are not copied into RunSpecs, reports or
 decision records. Changing Markdown checkboxes never changes Factory task status.

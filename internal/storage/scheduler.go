@@ -50,7 +50,10 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 		return spec, err
 	}
 	// The linked OpenSpec change is checked by the node's preflight on the task's checkout.
-	spec.OpenSpecChange = t.OpenSpecChange
+	if t.Kind != tasks.KindSpec {
+		// task-kinds: a spec task writes its change, so the node does not check it before the run.
+		spec.OpenSpecChange = t.OpenSpecChange
+	}
 	inputs, reason, err := approvedArtifactInputs(ctx, tx, t)
 	if err != nil {
 		return spec, err

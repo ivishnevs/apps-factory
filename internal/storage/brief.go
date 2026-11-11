@@ -27,7 +27,9 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
 	var b strings.Builder
 	fmt.Fprintf(&b, "Project: %s (%s)\nTask: %s — %s\n\n%s\n", p.Name, p.ID, t.ID, t.Title, t.Description)
-	if t.OpenSpecChange != "" {
+	if t.OpenSpecChange != "" && t.Kind == tasks.KindSpec {
+		fmt.Fprintf(&b, "OpenSpec change: %s. This is a spec task: you write or amend this change in openspec/changes/%s (proposal, design when needed, delta specs, tasks.md); it need not exist before you start. Implementation tasks of the change come after its pull request is merged.\n", t.OpenSpecChange, t.OpenSpecChange)
+	} else if t.OpenSpecChange != "" {
 		fmt.Fprintf(&b, "OpenSpec change: %s (openspec/changes/%s, or changes/archive/ once archived). The specs are files of the repository: read the proposal and relevant specs in your checkout before implementing. Spec edits are committed on your branch and reviewed with your code in the pull request; do not change requirements (proposal, specs deltas) without the product owner. If this task is marked as the last one of the change, archive it (openspec archive %s) in your pull request.\n", t.OpenSpecChange, t.OpenSpecChange, t.OpenSpecChange)
 	}
 	// The previous run of the task (the latest that started), whatever its outcome.

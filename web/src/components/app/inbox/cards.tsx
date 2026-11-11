@@ -134,6 +134,7 @@ const answerLabels: Record<string, string> = {
   drop_dependency: "Stop waiting for this task",
   reset_workspace: "Reset the workspace",
   new_session: "Continue in a new session",
+  spec: "It writes the spec: run without the check",
   retry: "Try again",
 };
 

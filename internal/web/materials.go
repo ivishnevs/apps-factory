@@ -289,7 +289,7 @@ func (l *library) read(ctx context.Context, c tui.Client) ([]Material, error) {
 		}
 		ts := []tui.Task{}
 		for _, t := range o.Tasks {
-			if t.ProjectID == id && t.Kind == "" {
+			if t.ProjectID == id && t.Kind != tasks.KindConversation {
 				ts = append(ts, t)
 			}
 		}

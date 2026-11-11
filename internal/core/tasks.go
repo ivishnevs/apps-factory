@@ -308,7 +308,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		operation := "factory.task.update"
-		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil {
+		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Kind == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil {
 			operation = "factory.task.assign"
 		}
 		if !c.taskPermit(w, r, p.Actor, operation, false, false) {

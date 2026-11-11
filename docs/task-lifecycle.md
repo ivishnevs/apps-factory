@@ -181,7 +181,8 @@ RUNNING → (CANCELLING while a stop is in flight) → ENDED. How it ended is on
 and task attempts, `STATUS/outcome` in `factory show`), from the reliable-recovery table: `succeeded`, `failed`,
 `setup_failed` (skills or `workspace_diverged` before the runtime started; with `node_fault` the node's environment,
 see Node readiness), `change_missing` (the linked
-OpenSpec change is not on the checkout: no attempt, escalated to the manager),
+OpenSpec change is not on the checkout: no attempt, escalated to the manager; never for a `spec` task, which
+writes its change),
 `timed_out`, `idle_timeout`, `max_turns`, `paused_out` (reported by the worker), `lost` (lease, start
 window or node lost, or a worker's end without terminal evidence: no attempt), `revoked` (cancel, kill switch,
 with the runtime's evidence) and `stale`/`unclaimed` (a queued run ended by a claim-time check or never claimed).

@@ -77,7 +77,7 @@ export function Header({ task, project, pr, now, actions, column }: { task: Boar
           )}
           {task.openspec_change && (
             <span className="inline-flex h-9 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-3 text-sm" title={task.openspec_change}><FileText className="size-4 shrink-0 text-muted-foreground" />
-              <span className="shrink-0 text-muted-foreground">OpenSpec</span><span className="min-w-0 truncate font-mono text-xs">{task.openspec_change}</span></span>
+              <span className="shrink-0 text-muted-foreground">{task.kind === "spec" ? "Writes spec" : "OpenSpec"}</span><span className="min-w-0 truncate font-mono text-xs">{task.openspec_change}</span></span>
           )}
         </div>
       )}

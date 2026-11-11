@@ -111,7 +111,7 @@ func TestChangeTrackedThroughTasks(t *testing.T) {
 }
 
 // TestChangeMissingEscalates (openspec-in-git D3): a run ended change_missing by the node's preflight costs no
-// attempt, backoff or budget and holds its task with a change_missing escalation (retry or cancel).
+// attempt, backoff or budget and holds its task with a change_missing escalation (spec, retry or cancel).
 func TestChangeMissingEscalates(t *testing.T) {
 	h := newExitHarness(t)
 	h.createLinked("m", "not-merged-yet")
@@ -127,7 +127,7 @@ func TestChangeMissingEscalates(t *testing.T) {
 	}
 	var found bool
 	for _, e := range open {
-		if e.TaskID == "m" && e.Reason == "change_missing" && strings.Join(e.Answers, ",") == "retry,cancel" {
+		if e.TaskID == "m" && e.Reason == "change_missing" && strings.Join(e.Answers, ",") == "spec,retry,cancel" {
 			found = true
 		}
 	}

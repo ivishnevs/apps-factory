@@ -246,6 +246,12 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			return err
 		}
 		return comment(ctx, tx, t.ID, actor, "session_lost: continue in a new session")
+	case "spec": // change_missing: the task writes its change (task-kinds); run now without the check
+		t.Kind = tasks.KindSpec
+		if err = retryAnswer(ctx, tx, t); err != nil {
+			return err
+		}
+		return comment(ctx, tx, t.ID, actor, "change_missing: this task writes OpenSpec change "+t.OpenSpecChange+" (kind spec)")
 	case "accept": // no_exit: take the work as it is
 		return acceptAnswer(ctx, tx, t)
 	case "reassign": // no_exit: to the answering manager (the owner chooses later)

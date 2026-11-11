@@ -515,7 +515,7 @@ func (m *Model) statsLines(w int) (string, []string) {
 		}
 		open := 0
 		for _, t := range m.ov.Tasks {
-			if !terminal(t.Status) && t.Kind == "" {
+			if !terminal(t.Status) && t.Kind != tasks.KindConversation {
 				open++
 			}
 		}

@@ -72,7 +72,7 @@ func (m *Model) replyTo(msg messaging.Message) tea.Cmd {
 		m.markSeen(ownerConversation(r, m.chatProject()))
 		return m.chat.ti.Focus()
 	}
-	if t, ok := m.taskByID(msg.TaskID); ok && t.Kind == "" {
+	if t, ok := m.taskByID(msg.TaskID); ok && t.Kind != "conversation" {
 		return m.taskAction(t, "d")
 	}
 	m.setToast(msg.Sender+" is not your direct report and the message has no task to direct: answer in its conversation", true)
@@ -338,6 +338,8 @@ func optionLabel(o string) string {
 		return "Stop waiting for this task"
 	case "new_session":
 		return "Continue in a new session"
+	case "spec":
+		return "It writes the spec: run without the check"
 	}
 	return o
 }

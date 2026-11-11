@@ -44,7 +44,7 @@ func init() {
 	escalationAnswers["retries_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
 	escalationAnswers["no_exit"] = []string{"retry", "reassign", "accept", "cancel"}
-	escalationAnswers["change_missing"] = []string{"retry", "cancel"}
+	escalationAnswers["change_missing"] = []string{"spec", "retry", "cancel"}
 	escalationAnswers["session_lost"] = []string{"new_session", "retry", "cancel"}
 	escalationAnswers["inspect"] = []string{"retry", "continue", "cancel"}
 }
@@ -265,7 +265,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		reason, summary = "workspace_diverged", excerpt512(result)
 	case outcome == "change_missing":
 		// Retrying cannot help until the change reaches the default branch (openspec-in-git D3).
-		reason, summary = "change_missing", excerpt512(result)+" — retry once the change's proposal is merged, or cancel"
+		reason, summary = "change_missing", excerpt512(result)+" — spec when this task writes the change (it runs without the check), retry once the change's proposal is merged, or cancel"
 	case outcome == "session_lost":
 		// The agent's working context is gone mid-task (session-continuity): the owner decides.
 		reason, summary = "session_lost", excerpt512(result)+" — new_session continues in a new session with the context from Factory; retry tries the same session again (after restoring the runtime's directory or login); or cancel"

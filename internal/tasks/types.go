@@ -1,6 +1,8 @@
 // Package tasks defines the runtime-independent task lifecycle and API contracts.
 package tasks
 
+import "strings"
+
 type Project struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -171,6 +173,25 @@ type Task struct {
 // KindConversation is the kind of an agent's conversation task.
 const KindConversation = "conversation"
 
+// Work kinds of an ordinary task (task-kinds): work ("" or "work") implements; its linked OpenSpec change must be
+// on the checkout before every run. spec writes or amends its linked change: the link is not checked before a run.
+const (
+	KindWork = "work"
+	KindSpec = "spec"
+)
+
+// WorkKind normalizes a task kind a caller sets: "" or "work" is stored as "", "spec" as is; anything else
+// (conversation included) is not settable.
+func WorkKind(k string) (string, bool) {
+	switch strings.TrimSpace(k) {
+	case "", KindWork:
+		return "", true
+	case KindSpec:
+		return KindSpec, true
+	}
+	return "", false
+}
+
 type ProjectCreate struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -247,9 +268,11 @@ type Create struct {
 	CreatedBy         string     `json:"created_by,omitempty"`
 	ParentTaskID      string     `json:"parent_task_id,omitempty"`
 	OpenSpecChange    string     `json:"openspec_change,omitempty"`
-	Dependencies      []string   `json:"dependencies"`
-	RequestID         string     `json:"request_id,omitempty"`
-	Actor             string     `json:"actor,omitempty"`
+	// Kind is work (default) or spec (task-kinds); an agent linking an OpenSpec change must choose it.
+	Kind         string   `json:"kind,omitempty"`
+	Dependencies []string `json:"dependencies"`
+	RequestID    string   `json:"request_id,omitempty"`
+	Actor        string   `json:"actor,omitempty"`
 	// Ready creates the task released for scheduling (READY, or waiting for its artifacts).
 	Ready bool `json:"ready,omitempty"`
 	// ReviewBy is the task's reviewer (Task.ReviewBy); Core requires it with Ready.
@@ -269,8 +292,10 @@ type Update struct {
 	Priority          *int        `json:"priority,omitempty"`
 	Assignee          *string     `json:"assignee,omitempty"`
 	OpenSpecChange    *string     `json:"openspec_change,omitempty"`
-	Dependencies      *[]string   `json:"dependencies,omitempty"`
-	SideEffects       *bool       `json:"side_effects,omitempty"`
+	// Kind changes work ⇄ spec (task-kinds); a conversation task keeps its kind.
+	Kind         *string   `json:"kind,omitempty"`
+	Dependencies *[]string `json:"dependencies,omitempty"`
+	SideEffects  *bool     `json:"side_effects,omitempty"`
 	// ReviewBy sets the task's reviewer; Core refuses clearing it outside the backlog.
 	ReviewBy *string `json:"review_by,omitempty"`
 	// Model sets the task's model override ("" clears it); only an authority over the task may set it.

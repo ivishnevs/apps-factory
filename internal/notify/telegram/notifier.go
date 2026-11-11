@@ -645,6 +645,8 @@ func optionLabel(o string) string {
 		return "Stop waiting for this task"
 	case "new_session":
 		return "Continue in a new session"
+	case "spec":
+		return "It writes the spec: run without the check"
 	}
 	return o
 }
