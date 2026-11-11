@@ -64,6 +64,45 @@ func TestRequiredReview(t *testing.T) {
 	}
 }
 
+// TestReviewCopyApproval (node-ties): a reviewer works in a detached review copy whose facts name no branch or
+// pull request; its approved verdict approves the pull request of the task's submission at the head it saw, so
+// the implementer's done is accepted.
+func TestReviewCopyApproval(t *testing.T) {
+	h := newExitHarness(t)
+	demo := h.c.Agents["demo"]
+	demo.Rules = append(append([]policies.Rule{}, demo.Rules...), policies.Rule{Name: "review-code", Type: "review", Required: true, Reviewer: "reviewer"})
+	h.c.Agents["demo"] = demo
+	h.create("t", "code", "demo")
+	brief := func(r exitRun) (int64, string) {
+		var b struct {
+			AckSeq int64  `json:"ack_seq"`
+			Brief  string `json:"brief"`
+		}
+		w := h.do(r.token, "GET", "/agent/brief", nil, nil)
+		_ = json.Unmarshal(w.Body.Bytes(), &b)
+		return b.AckSeq, w.Body.String()
+	}
+	exit := func(r exitRun, kind string, args map[string]any, facts *storage.ExitFacts) *httptest.ResponseRecorder {
+		seq, _ := brief(r)
+		return h.do(r.token, "POST", "/agent/exit", map[string]any{"kind": kind, "arguments": args, "ack_seq": seq, "facts": facts}, nil)
+	}
+	r := h.start("t")
+	if w := exit(r, "submit", map[string]any{"summary": "login"}, clean("h1", &storage.PRFacts{Number: 9, State: "open", HeadSHA: "h1"})); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.end(r, "succeeded", "accepted")
+	rv := h.start("t")
+	copyFacts := &storage.ExitFacts{Head: "h1", DefaultBranch: "main", AheadOfDefault: 2, Scan: &storage.ScanFacts{OK: true}}
+	if w := exit(rv, "handoff", map[string]any{"to": "demo", "note": "good", "verdict": "approved"}, copyFacts); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.end(rv, "succeeded", "accepted")
+	r = h.start("t")
+	if w := exit(r, "done", map[string]any{"summary": "merged"}, clean("h1", &storage.PRFacts{Number: 9, State: "merged", HeadSHA: "h1"})); w.Code != 200 || h.task("t").Status != "DONE" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
 // TestReviewPaths (company-self-service 5.3): a pull request changing files a path rule covers needs the
 // approval of that path's reviewer, even after another reviewer approved it.
 func TestReviewPaths(t *testing.T) {

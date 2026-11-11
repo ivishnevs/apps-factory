@@ -161,9 +161,9 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			fmt.Fprintf(&b, "- %s [%s] %s (assignee %s)\n", ct.ID, ct.Status, ct.Title, ct.Assignee)
 		}
 	}
-	// The branch log, from the git facts of the task's last exit (when a run exited from a repository).
+	// The branch log, from the git facts of the task's last exit from its branch (not a review copy).
 	var facts string
-	if err = tx.QueryRowContext(ctx, "SELECT facts FROM run_exits WHERE company_id=? AND task_id=? AND facts!='' ORDER BY created_at DESC,seq DESC LIMIT 1", tx.company, t.ID).Scan(&facts); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err = tx.QueryRowContext(ctx, "SELECT e.facts FROM run_exits e WHERE e.company_id=? AND e.task_id=? AND "+branchFacts+" ORDER BY e.created_at DESC,e.seq DESC LIMIT 1", tx.company, t.ID).Scan(&facts); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
 	var f ExitFacts

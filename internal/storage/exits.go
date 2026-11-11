@@ -418,8 +418,12 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 	case "handoff":
 		switch str(a, "verdict") {
 		case "approved":
-			if f := req.Facts; f != nil && f.PR != nil {
-				if _, err := tx.ExecContext(ctx, "INSERT INTO pr_approvals(company_id,task_id,pr_number,approved_head,approver,run_id,created_at) VALUES(?,?,?,?,?,?,?)", tx.company, t.ID, f.PR.Number, f.PR.HeadSHA, agent, runID, now.Unix()); err != nil {
+			pr, head, err := reviewedPR(ctx, tx, t.ID, req.Facts)
+			if err != nil {
+				return out, err
+			}
+			if pr != 0 {
+				if _, err := tx.ExecContext(ctx, "INSERT INTO pr_approvals(company_id,task_id,pr_number,approved_head,approver,run_id,created_at) VALUES(?,?,?,?,?,?,?)", tx.company, t.ID, pr, head, agent, runID, now.Unix()); err != nil {
 					return out, err
 				}
 			}
@@ -834,4 +838,34 @@ func matchSegments(p, n []string) bool {
 		p, n = p[1:], n[1:]
 	}
 	return len(n) == 0
+}
+
+// branchFacts selects the exits (alias e) whose facts name a branch: a review run works in a detached disposable
+// copy (node-ties) whose facts carry no branch or pull request and say nothing about the task's branch.
+const branchFacts = "(CASE WHEN e.facts<>'' THEN coalesce(e.facts::jsonb->>'branch','') ELSE '' END)<>''"
+
+// reviewedPR is the pull request an approved verdict approves and the head it approves: the verdict's own facts
+// when they name the pull request, else (a review copy, node-ties) the pull request of the task's last exit from
+// its branch, approved at the head the reviewer saw (that pull request's head when the facts have none).
+func reviewedPR(ctx context.Context, tx *Tx, task string, f *ExitFacts) (int, string, error) {
+	if f != nil && f.PR != nil {
+		return f.PR.Number, f.PR.HeadSHA, nil
+	}
+	var facts string
+	err := tx.QueryRowContext(ctx, "SELECT e.facts FROM run_exits e WHERE e.company_id=? AND e.task_id=? AND "+branchFacts+" ORDER BY e.created_at DESC, e.seq DESC LIMIT 1", tx.company, task).Scan(&facts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", nil
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	var last ExitFacts
+	if json.Unmarshal([]byte(facts), &last) != nil || last.PR == nil {
+		return 0, "", nil
+	}
+	head := last.PR.HeadSHA
+	if f != nil && f.Head != "" {
+		head = f.Head
+	}
+	return last.PR.Number, head, nil
 }
