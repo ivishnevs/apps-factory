@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, core, useCatalog, useCompanyInfo, useTeams } from "@/lib/api/client";
 import { canManage } from "@/lib/api/types-account";
-import { scopeLabel, type InstalledSkill, type LibrarySkill, type SkillFile, type SkillSource } from "@/lib/api/types-skills";
+import { scopeLabel, skillUsers, type InstalledSkill, type LibrarySkill, type SkillFile, type SkillSource } from "@/lib/api/types-skills";
 import { currentCompany, csrf } from "@/lib/company";
 import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -218,6 +218,7 @@ function AddSource({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 function Installed({ manage, base }: { manage: boolean; base: number }) {
   const { installed } = useSkillsQueries();
+  const users = skillUsers(useTeams().data?.teams ?? []);
   const qc = useQueryClient();
   const confirm = useConfirm();
   if (installed.isLoading) return <LoadingRows />;
@@ -239,6 +240,9 @@ function Installed({ manage, base }: { manage: boolean; base: number }) {
               <Badge variant="outline" className="font-normal">{scopeLabel(s.scope)}</Badge>
             </p>
             {s.description && <p className="text-sm text-muted-foreground">{s.description}</p>}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {users.get(s.name)?.length ? <>Used by <span className="text-foreground">{users.get(s.name)!.join(", ")}</span></> : "Not given to any agent yet"}
+            </p>
             {s.update && (
               <p className="mt-1 flex items-center gap-1.5 text-xs text-sky-700 dark:text-sky-400">
                 <ArrowUpCircle className="size-3.5" />Update available{s.update.files?.length ? `: ${s.update.files.map((f) => `${f.change} ${f.path}`).join(", ")}` : ""}

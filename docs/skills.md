@@ -34,6 +34,9 @@ skills:
 A skill names its source and, except for `factory`, its hash; description and categories come from the index unless
 set here. A name is unique per company. `scope: team:NAME` (only that team's agents) or `scope: agent:NAME` limits who
 may include or discover it; including a skill outside its scope fails loading. `path:` entries are gone.
+Installing is availability, not use: an agent has a skill only when its `spec.skills.include` names it. The web Skills
+page says so: the scope badge reads "Any agent may use" (or "Team NAME only", "Agent NAME only"), and each installed
+skill lists the agents that include it ("Used by …", or "Not given to any agent yet") (skill-use-visible).
 
 Updates: syncing a `pinned` source (`update: pinned`) shows an available update of each installed skill with its file
 changes (`GET /skills/installed`); installing it saves a catalog version. A `track` source installs new versions on

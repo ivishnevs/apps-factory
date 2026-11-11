@@ -21,9 +21,17 @@ export interface InstalledSkill {
   categories?: string[]; update?: SkillUpdate;
 }
 
-// scopeLabel: who may use an installed skill (design D9).
+// scopeLabel: who may be given an installed skill (design D9). It is availability, not use: an agent has a skill
+// only when its spec.skills.include names it (skill-use-visible).
 export function scopeLabel(scope?: string): string {
-  if (!scope) return "Every agent";
+  if (!scope) return "Any agent may use";
   const [kind, name] = scope.split(":");
-  return kind === "team" ? `Team ${name}` : kind === "agent" ? `Agent ${name}` : scope;
+  return kind === "team" ? `Team ${name} only` : kind === "agent" ? `Agent ${name} only` : scope;
+}
+
+// skillUsers maps each skill to the agents that include it.
+export function skillUsers(teams: { agents: { name: string; skills?: string[] }[] }[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const t of teams) for (const a of t.agents) for (const s of a.skills ?? []) out.set(s, [...(out.get(s) ?? []), a.name]);
+  return out;
 }
