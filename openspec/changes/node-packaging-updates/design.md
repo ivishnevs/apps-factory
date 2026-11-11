@@ -87,8 +87,7 @@ What the person sees: `curl -fsSL https://<core>/install.sh | sh` on a machine w
   - `auto`: when due, update at the next drain.
   - `approve`: the Nodes page shows "Update to vN", and Telegram asks.
 
-  Recommended default: **approve**, while there are few nodes and their owners are around. `auto` once customers run
-  many nodes.
+  Default **auto** (owner 2026-11-12); `approve` per company.
 - **Channels.** **(owner)** Recommended: not now. One stable channel is enough until the SaaS release, and our own
   nodes can be updated first by hand.
 
@@ -103,12 +102,12 @@ What the person sees: `curl -fsSL https://<core>/install.sh | sh` on a machine w
 
 Steps 1–3 take one more manual node update, the last one. From step 4 on, nodes update from the web.
 
-## Questions for the owner
+## Owner decisions (2026-11-12)
 
-1. Default update policy: **approve** (recommended) or auto.
-2. Drain: wait for live runs without a limit and let "update now" interrupt (recommended), or a fixed limit such as
-   2 hours.
-3. Channels: not now (recommended).
-4. Claude without the JS shim: after the update flow (recommended), or now.
-5. Settings from the web: slots, conversation slots, labels, driver enabled, disk watermarks (recommended), or
-   slots only for a start.
+1. **Update policy:** automatic by default; a company can switch it off and update with approval (`approve`).
+2. **Drain:** wait for live runs without a limit; "update now" interrupts.
+3. **Channels:** not now.
+4. **Claude without the JS shim:** after the update flow, on one condition: the Claude integration must not break.
+   Before switching, the Go driver must pass the same driver tests and live smokes as the shim (hooks, MCP tools,
+   permissions, sessions, context window, usage), and the shim stays available as a fallback (`drivers.claude.mode`).
+5. **Settings from the web:** slots, conversation slots, labels, driver enabled, disk watermarks.
