@@ -1,5 +1,5 @@
 Status: proposed 2026-11-09 by the owner ("the inbox shows 1, but it is empty when I open it; this did not happen
-before"). Nothing implemented.
+before"). Open questions decided by the owner 2026-11-12 (below); ready to implement. Nothing implemented.
 
 ## Why
 
@@ -31,14 +31,17 @@ Seen on 2026-11-08 in ilya-75ba24: the Inbox badge showed 1 and the Inbox page s
 
 Not in scope: new alert kinds; Telegram changes beyond listing the same open item.
 
-## Open questions (with recommendations)
+## Owner decisions (2026-11-12)
 
-1. **Where alerts live.** A section in the Inbox (recommended; one place for what waits on the owner), or a separate
-   page with its own badge.
-2. **Alerts meant for leads.** Alerts the producer can act on are shown to the owner too but marked "with <lead>"
-   (recommended), or only the owner's own.
-3. **Deferred answer detection.** An explicit "I'll send details" answer option in question forms (recommended), or
-   detecting "Other" with an empty text.
+1. **Where alerts live: a section in the Inbox.** One place for what waits on the owner; no separate page or second
+   badge. Rejected: a separate Alerts page; dropping alerts from the badge.
+2. **Alerts meant for leads: shown to the owner too, marked "with <lead>".** The owner sees everything the badge
+   counts; the mark says who is expected to act. Rejected: only the owner's own alerts.
+3. **Deferred answer: an explicit "I'll send details" option in question forms.** Rejected: detecting "Other" with
+   an empty text (the 2026-11-08 answer had text, "I'll write details", and would not have been caught).
+4. **The waiting task wakes on the details, not on a timer.** A task waiting for promised details does not rerun to
+   check; it resumes when the owner sends the details or withdraws. If decision-waits lands first, this uses its
+   wake-on-record mechanism.
 
 ## Impact
 

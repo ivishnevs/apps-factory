@@ -2,7 +2,8 @@
 
 - [ ] 1.1 `GET /alerts`: active task alerts and inspect parks with task, project, summary, since, clearing action;
       web BFF and TUI client; tests.
-- [ ] 1.2 Inbox "Alerts" section; badge and page total from the same items; a test that they match.
+- [ ] 1.2 Inbox "Alerts" section; alerts a lead can act on are listed too, marked "with <lead>"; badge and page total
+      from the same items; a test that they match.
 
 ## 2. No false "no progress"
 
@@ -14,6 +15,8 @@
 - [ ] 3.1 Question forms: an "I'll send details" answer; such an answer keeps the question open as "details promised"
       and the asking task's reason says it waits for the owner's details; tests.
 - [ ] 3.2 Inbox and Telegram show the open item; sending the details or withdrawing closes it.
+- [ ] 3.3 The waiting task does not rerun on a timer while details are promised; it resumes when the details arrive
+      or the promise is withdrawn (decision-waits mechanism if it has landed); tests.
 
 ## 4. Verify
 
