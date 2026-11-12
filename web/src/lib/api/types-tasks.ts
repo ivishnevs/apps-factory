@@ -20,6 +20,9 @@ export function describe(a: Action): string {
     case "run": return `Run ${a.TaskID}: release it to the board now`;
     case "accept": return `Accept ${a.TaskID}: the task is done`;
     case "rework": return `Send ${a.TaskID} back for rework: ${a.Text}`;
+    case "work_start": return `Start ${a.TaskID}`;
+    case "work_submit": return `Submit ${a.TaskID} for review with pull request ${a.PullRequest ?? ""}`.trim();
+    case "work_done": return `Mark ${a.TaskID} done: its pull request is merged`;
   }
   return `${a.Kind} ${a.TaskID ?? ""}`.trim();
 }

@@ -90,6 +90,45 @@ Task events in the database preserve earlier submissions/review states even afte
 notifications carry bounded identity/status/version pointers; fetch snapshots/history through Core. Comments record review and
 action reasons; artifact rows retain references per run/version.
 
+## People's tasks
+
+A task's assignee is an agent of the catalog or a person of the company, `member:<user>` (people-assignees), set in
+the same field (create, `PATCH /tasks/{id}` `assignee`, `POST /tasks/{id}/reassign`; Core refuses a user who is not a
+member). No new status and no new wait reason: Core dispatches no run for a person's task, and `why` says `idle`,
+"assigned to NAME", with the person as clearer and their next step. Reassigning a task with a live run stops the run
+first, as for any reassignment; reassigning a person's started task to an agent ("give it back") makes it READY for
+the agent.
+
+The person (or an owner of the company; the owner's CLI token and the operator act as the owner) moves it through
+the statuses an agent's run would, with `POST /tasks/{id}/actions`:
+
+- `start`: READY (or REWORK) → IN_PROGRESS, once its dependencies are DONE.
+- `submit` with `summary` and `pull_request` (`#200` or its URL; required when the project has a repository) →
+  IN_REVIEW, implementer the person. An agent `review_by` gets a review run (explicit exits) and returns the task with
+  its verdict; a person or the owner reviews it with `POST /tasks/{id}/review`. Changes requested return it READY to
+  the person with the feedback.
+- `done` with `merged: true` after the approval: DONE, which releases the dependents (`dependency_done`). Core cannot
+  see the forge, so the person confirms that the approved pull request is merged; done is refused without an approval.
+
+Other members and agents get 403. Agents may read a person's task, message about it and depend on it; they may not
+change its assignee, title or description, `ready`/`block`/`cancel` it or reassign it (403 with the hint to message
+instead). An agent assigns a task to a person only with `assign_reason` (or the reassign `reason`) citing the id of a
+message that person wrote ("I'll do it myself"); the manager's chat brief tells it so and shows the writer as
+`member:<user>`.
+
+Dependents wait in the normal dependency wait ("waits for P, with NAME"), never as a `stalled` escalation. When a
+person's task has not changed for the company's `people.remind_after` (default 72h; `GET|PUT
+/settings/company/people`, `remind_after_minutes`, 1h–720h) while released tasks wait on it, the person gets one
+reminder per episode (the task's `updated_at`; `person_reminders`, migration 0033) naming the waiting tasks; when the
+last dependency of a person's READY task is done, they get "Your task is ready". Both are notifications to the
+people's inbox (`owner`) that name the person.
+
+`factory tasks list --assignee me` lists the signed-in person's tasks (for the owner's token: the company's
+owners'); `factory tasks start ID VERSION`, `tasks submit-pr ID VERSION PR SUMMARY`, `tasks done ID VERSION
+--merged`. The web board lists people in the assignee pickers, has "Mine" in the assignee filter, shows a person's
+avatar on cards and the person's moves on the task; the TUI shows `@user` and filters with `a:people` or
+`a:member:USER`.
+
 ## Explicit exits
 
 With `FACTORY_EXPLICIT_EXITS=1` a turn no longer submits implicitly: each run ends with one exit tool
@@ -447,6 +486,8 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
   `unblock`, still accepted) or `cancel`. It clears itself when the dependency moves, is assigned and released, or
   closes. A task parked on its children (`parked:children`) stalls the same way on an open child: one escalation per
   (task, child), and `drop_dependency` releases the parent from its children park.
+- A dependency on a person's task (`member:USER`, see [People's tasks](#peoples-tasks)) is never `stalled`, and a
+  person's task raises no `idle` alert: the person gets a reminder instead.
 - A task that waits on open dependencies is not blocked by hand: an agent's `block` of a READY task with open
   dependencies is refused (409) with the hint to keep the wait; the owner's block stays allowed. To hold a task
   for other work, add that work as a dependency.

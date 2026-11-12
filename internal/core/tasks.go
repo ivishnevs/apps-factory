@@ -19,6 +19,7 @@ import (
 
 func (c *Core) taskRoutes(m *http.ServeMux) {
 	c.projectRoutes(m)
+	c.peopleSettingsRoutes(m)
 	m.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.Projects(r.Context(), c.companyFrom(r))
 		reply(w, v, err)
@@ -146,10 +147,13 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, p.Actor, "factory.task.create", true, false) {
 			return
 		}
-		if p.Assignee != "" && !c.agentExists(w, c.companyFrom(r), p.Assignee) {
+		if p.Assignee != "" && !c.assigneeExists(w, r, p.Assignee) {
 			return
 		}
 		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
+			return
+		}
+		if !c.agentAssignsPerson(w, r, p.Actor, p.Assignee, p.AssignReason) {
 			return
 		}
 		if p.Ready && !c.taskPermit(w, r, p.Actor, "factory.task.ready", false, false) {
@@ -198,7 +202,14 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			verdicts[snap.Task.ID] = c.evaluateIn(company, snap)
 		}
 		out := make([]taskView, 0, len(list))
+		var assignees []string
+		if a := r.URL.Query().Get("assignee"); a != "" {
+			assignees = c.assigneeFilter(r, a) // people-assignees: --assignee me
+		}
 		for _, t := range list {
+			if assignees != nil && !slices.Contains(assignees, t.Assignee) {
+				continue
+			}
 			v, ok := verdicts[t.ID]
 			if !ok { // terminal
 				v = tasks.Evaluate(tasks.Snapshot{Task: t})
@@ -318,11 +329,17 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, p.Actor, operation, false, false) {
 			return
 		}
+		if (p.Assignee != nil || p.Description != nil || p.Title != nil) && c.agentHandsOff(w, r, p.Actor, r.PathValue("id"), "reassign or rewrite") {
+			return
+		}
 		if p.Assignee != nil {
-			if *p.Assignee != "" && !c.agentExists(w, c.companyFrom(r), *p.Assignee) {
+			if *p.Assignee != "" && !c.assigneeExists(w, r, *p.Assignee) {
 				return
 			}
 			if !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
+				return
+			}
+			if !c.agentAssignsPerson(w, r, p.Actor, *p.Assignee, p.AssignReason) {
 				return
 			}
 		}
@@ -354,7 +371,14 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
+		if p.Action == "start" || p.Action == "submit" || p.Action == "done" {
+			c.personAction(w, r, p) // people-assignees
+			return
+		}
 		if !c.taskPermit(w, r, p.Actor, "factory.task."+p.Action, false, false) {
+			return
+		}
+		if c.agentHandsOff(w, r, p.Actor, r.PathValue("id"), p.Action) {
 			return
 		}
 		if p.Action == "cancel" && p.Actor != "" {
@@ -378,7 +402,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				reply(w, nil, err)
 				return
 			}
-			if !c.agentExists(w, c.companyFrom(r), t.Assignee) {
+			if !c.assigneeExists(w, r, t.Assignee) {
 				return
 			}
 			if !c.reviewGateReady(w, r, t) {

@@ -50,15 +50,20 @@ func (c *Core) authorityRoutes(m *http.ServeMux) {
 			if !decode(w, r, &p) {
 				return
 			}
+			// people-assignees: agents leave a person's task with the person.
+			if name == "reassign" && c.agentHandsOff(w, r, p.Actor, r.PathValue("id"), "reassign") {
+				return
+			}
 			if _, ok := c.authorityOver(w, r, r.PathValue("id"), p.Actor, "factory.task."+name); !ok {
 				return
 			}
 			if name == "reassign" {
-				if !c.agentExists(w, c.companyFrom(r), p.Assignee) {
+				// A person gets a task on their word.
+				if !c.assigneeExists(w, r, p.Assignee) || !c.agentAssignsPerson(w, r, p.Actor, p.Assignee, p.Reason) {
 					return
 				}
-				// An agent reassigns within its subtree (or to itself); the owner to anyone.
-				if p.Actor != "" && p.Actor != config.Owner && p.Assignee != p.Actor && !slices.Contains(config.Subtree(c.cat(c.companyFrom(r)).Agents, p.Actor), p.Assignee) {
+				// An agent reassigns within its subtree (or to itself, or to a person on their word); the owner to anyone.
+				if p.Actor != "" && p.Actor != config.Owner && p.Assignee != p.Actor && !tasks.IsPerson(p.Assignee) && !slices.Contains(config.Subtree(c.cat(c.companyFrom(r)).Agents, p.Actor), p.Assignee) {
 					http.Error(w, "the new assignee must be in your subtree", 403)
 					return
 				}

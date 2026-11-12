@@ -51,8 +51,8 @@ func (m *Model) needsOwner(t Task) bool {
 	return false
 }
 
-// taskFilter is the parsed filter: p:PROJECT s:STATUS a:ASSIGNEE ! (attention) open conv, words match id,
-// title and reason.
+// taskFilter is the parsed filter: p:PROJECT s:STATUS a:ASSIGNEE (a:people: every person's task, a:member:USER one
+// person's) ! (attention) open conv, words match id, title and reason.
 type taskFilter struct {
 	project, status, assignee string
 	attention, open, conv     bool
@@ -89,7 +89,7 @@ func (m *Model) boardTasks() []Task {
 	out := []Task{}
 	for _, t := range m.ov.Tasks {
 		if t.Kind == "conversation" && !f.conv || m.project != "" && t.ProjectID != m.project || f.project != "" && t.ProjectID != f.project ||
-			f.assignee != "" && t.Assignee != f.assignee || f.status != "" && !strings.Contains(t.Status, f.status) || f.open && terminal(t.Status) ||
+			f.assignee != "" && t.Assignee != f.assignee && !(f.assignee == "people" && strings.HasPrefix(t.Assignee, "member:")) || f.status != "" && !strings.Contains(t.Status, f.status) || f.open && terminal(t.Status) ||
 			f.attention && !m.needsOwner(t) {
 			continue
 		}
@@ -419,8 +419,9 @@ func (m *Model) taskAction(t Task, key string) tea.Cmd {
 			names = append(names, a.Name)
 		}
 		return m.openInput("Reassign "+t.ID+" (now "+t.Assignee+") to", "", base, func(a *Action, text string) error {
-			if !slices.Contains(names, text) {
-				return fmt.Errorf("unknown agent %q; agents: %s", text, strings.Join(names, ", "))
+			// A person takes it as member:USER (people-assignees); Core checks the member.
+			if !slices.Contains(names, text) && !strings.HasPrefix(text, "member:") {
+				return fmt.Errorf("unknown agent %q; agents: %s, or a person as member:USER", text, strings.Join(names, ", "))
 			}
 			a.Assignee = text
 			return nil

@@ -111,6 +111,8 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 			switch {
 			case d.Status == "CANCELLED":
 				why = "was cancelled; this task can never run until the dependency is replaced"
+			case tasks.IsPerson(open[d.ID].Assignee):
+				// A person's task is waited for, never a stall; its person gets reminders (people-assignees).
 			case d.Status != "DONE" && open[d.ID].Assignee == "":
 				why = "has no assignee"
 			case d.Status == "BACKLOG" && stale(d.ID):
@@ -125,6 +127,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		for _, ch := range s.Children {
 			why := ""
 			switch {
+			case tasks.IsPerson(ch.Assignee):
 			case ch.Assignee == "":
 				why = "has no assignee"
 			case ch.Status == "BACKLOG" && stale(ch.ID):
@@ -135,7 +138,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 			}
 		}
 		v := c.evaluateIn(company, s)
-		if v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
+		if v.Reason == tasks.ReasonIdle && t.Assignee != "" && !tasks.IsPerson(t.Assignee) && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
 		}
 		if v.Reason == tasks.ReasonNoReadyNode {
@@ -155,6 +158,9 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return err
 	}
 	if err = c.Store.SyncAlerts(ctx, company, "stalled", nil); err != nil {
+		return err
+	}
+	if err = c.remindPeople(ctx, company, now, snaps); err != nil {
 		return err
 	}
 	pinned, err := c.Store.PinnedUnavailable(ctx, company, func(s *tasks.Snapshot) { c.needs(company, s) })

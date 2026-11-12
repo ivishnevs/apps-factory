@@ -857,7 +857,16 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 				return t, err
 			}
 			if !in.Accept || p.RepoURL != "" {
+				if in.Accept {
+					// A person's submission (people-assignees): done needs this approval.
+					if err = personApproval(ctx, tx, t, in.Actor); err != nil {
+						return t, err
+					}
+				}
 				t.Status, t.Assignee, t.Reviewer, t.ReviewFeedback = "READY", t.Implementer, "", in.Feedback
+				if in.Accept && tasks.IsPerson(t.Implementer) {
+					t.ReviewFeedback = "" // feedback marks changes requested on a person's task (the comment keeps it)
+				}
 				text := "approved: merge your pull request, then end with factory_exit_done"
 				if !in.Accept {
 					text = "changes requested: " + in.Feedback

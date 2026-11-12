@@ -20,7 +20,7 @@ export interface Verdict {
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
-export interface Submission { summary: string; commit?: string; checks?: string[]; artifacts?: Artifact[] }
+export interface Submission { summary: string; commit?: string; checks?: string[]; artifacts?: Artifact[]; pull_request?: { number?: number; url?: string } }
 
 export type TaskStatus = "BACKLOG" | "READY" | "IN_PROGRESS" | "IN_REVIEW" | "REWORK" | "BLOCKED" | "DONE" | "CANCELLED";
 
@@ -177,7 +177,7 @@ export interface TaskDetail {
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
   Text?: string; Assignee?: string; ReviewBy?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
-  Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string;
+  Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string; PullRequest?: string; Merged?: boolean;
   NewProject?: ProjectCreate; DecisionID?: string; Status?: string; Value?: string;
 }
 

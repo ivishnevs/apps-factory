@@ -106,6 +106,8 @@ type Submission struct {
 	Commit    string     `json:"commit,omitempty"`
 	Checks    []string   `json:"checks,omitempty"`
 	Artifacts []Artifact `json:"artifacts,omitempty"`
+	// PullRequest is the pull request a person submitted their task with (people-assignees).
+	PullRequest *PullRequest `json:"pull_request,omitempty"`
 }
 type Task struct {
 	RequiredArtifacts []Artifact  `json:"required_artifacts,omitempty"`
@@ -285,6 +287,8 @@ type Create struct {
 	ReviewBy string `json:"review_by,omitempty"`
 	// SideEffects: the task's runs act outside the workspace; failures are inspected, not retried.
 	SideEffects bool `json:"side_effects,omitempty"`
+	// AssignReason is why an agent gives the task to a person (people-assignees): it cites that person's message.
+	AssignReason string `json:"assign_reason,omitempty"`
 	// Trusted metadata set by Core, never decoded from a request body.
 	OriginTask string            `json:"-"`
 	OriginRun  string            `json:"-"`
@@ -308,6 +312,8 @@ type Update struct {
 	Model     *string `json:"model,omitempty"`
 	RequestID string  `json:"request_id,omitempty"`
 	Actor     string  `json:"actor,omitempty"`
+	// AssignReason: Create.AssignReason.
+	AssignReason string `json:"assign_reason,omitempty"`
 }
 type Action struct {
 	Version   int    `json:"version"`
@@ -317,6 +323,12 @@ type Action struct {
 	Actor     string `json:"actor,omitempty"`
 	// Cascade cancels the task's open children with it; cancelling a task with open children needs it.
 	Cascade bool `json:"cascade,omitempty"`
+	// A person's task (people-assignees) moves with the actions start, submit (Summary and PullRequest: "#200" or
+	// its URL; required when the project has a repository) and done (Merged: the person confirms that the approved
+	// pull request is merged).
+	Summary     string `json:"summary,omitempty"`
+	PullRequest string `json:"pull_request,omitempty"`
+	Merged      bool   `json:"merged,omitempty"`
 }
 
 // Authority is an authority action on a task (hierarchy D2): pause, resume, reassign or reprioritize. Actor is

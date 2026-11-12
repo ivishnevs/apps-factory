@@ -9,6 +9,7 @@ import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAc
 import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
 import { usePrefetchTask } from "@/lib/api/client";
+import { assigneeName, isPerson, personUser, useMembers } from "./people";
 
 export function AgentAvatar({ name, size = "sm", className }: { name?: string; size?: "xs" | "sm" | "md"; className?: string }) {
   const dims = { xs: "size-5 text-[9px]", sm: "size-6 text-[10px]", md: "size-9 text-xs" }[size];
@@ -17,6 +18,14 @@ export function AgentAvatar({ name, size = "sm", className }: { name?: string; s
   }
   if (name === "owner") {
     return <span aria-hidden className={cn("flex shrink-0 items-center justify-center rounded-full bg-foreground font-semibold text-background", dims, className)}>You</span>;
+  }
+  if (isPerson(name)) {
+    // A person's task (people-assignees): their initials on a ring, so people stand apart from agents.
+    return (
+      <span aria-hidden className={cn("flex shrink-0 items-center justify-center rounded-full bg-background font-semibold text-foreground ring-1 ring-foreground/40", dims, className)}>
+        {initials(personUser(name))}
+      </span>
+    );
   }
   return (
     <span aria-hidden className={cn("flex shrink-0 items-center justify-center rounded-full font-semibold tracking-tight", agentHue(name), dims, className)}>
@@ -68,6 +77,7 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
   task: Task; project: string; now: number; column?: ColumnKey; look?: Lookup; run?: Run; nodes?: FactoryNode[]; queued?: QueuedReason; className?: string; onBoard?: boolean;
 }) {
   const prefetch = usePrefetchTask();
+  const people = useMembers().data;
   // node-readiness 4.1: a queued run held back by a paused node's session (or no ready node) says so on the card;
   // Release now is on the task and on the node's card.
   const held = heldBack(queued) && queued ? queuedLine(queued, (id) => nodes?.find((n) => n.node_id === id)?.name ?? id) : "";
@@ -110,7 +120,7 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
       )}
       <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <AgentAvatar name={task.assignee} size="xs" />
-        <span className="min-w-0 truncate">{task.assignee || "Unassigned"}</span>
+        <span className="min-w-0 truncate">{assigneeName(task.assignee, people) || "Unassigned"}</span>
         {pinnedTo && (
           <span className="flex min-w-0 shrink items-center gap-1" title={`Tied to ${pinnedTo.name || pinnedTo.node_id}: its unsaved work is there; it runs only there until the work is saved remotely or you reset the workspace`}>
             <Pin aria-hidden className="size-3 shrink-0" /><span className="truncate">{pinnedTo.name || pinnedTo.node_id.slice(0, 8)}</span>
