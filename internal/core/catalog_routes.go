@@ -39,6 +39,8 @@ type TeamView struct {
 	Projects      []string     `json:"projects"`
 	// Approvals are the team's approval modes (approval-delegation); empty modes use the defaults.
 	Approvals tasks.ApprovalModes `json:"approvals,omitzero"`
+	// Settings are the team profile in readable form (team-page-clarity).
+	Settings TeamSettings `json:"settings"`
 }
 
 // teamViews are company's teams with their agents and projects.
@@ -47,7 +49,7 @@ func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
 	out := []TeamView{}
 	for _, name := range cat.TeamNames() {
 		t := cat.Teams[name]
-		v := TeamView{Name: name, Title: t.Metadata.Title, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals}
+		v := TeamView{Name: name, Title: t.Metadata.Title, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals, Settings: teamSettings(cat, name)}
 		for _, agent := range cat.TeamAgents(name) {
 			m := teamMember(cat.Agents, agent)
 			if dir, err := config.CompanyDir(company); err == nil {
@@ -70,7 +72,7 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	a := agents[name]
 	required, reviewer := a.Review()
 	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
-		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
+		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), AssignScope: config.AssignScopeOf(agents, name).Mode, CanMessage: append([]string{}, a.Spec.Communication.CanMessage...), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
 		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, MaxRunsFromRole: a.LimitFromRole, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
@@ -93,7 +95,11 @@ type TeamMember struct {
 	Model        string   `json:"model,omitempty"`
 	CreatesTasks bool     `json:"creates_tasks,omitempty"`
 	// AssignsTo are the agents it may give tasks to (assign-by-hierarchy).
-	AssignsTo      []string `json:"assigns_to,omitempty"`
+	AssignsTo []string `json:"assigns_to,omitempty"`
+	// AssignScope is its effective assignment scope (none, direct_reports, subtree or list); CanMessage whom it may
+	// message as Core enforces it (its own list plus its team, managers, reports and the owner).
+	AssignScope    string   `json:"assign_scope"`
+	CanMessage     []string `json:"can_message"`
 	ReviewRequired bool     `json:"review_required,omitempty"`
 	Reviewer       string   `json:"reviewer,omitempty"`
 	ReviewPaths    []string `json:"review_paths,omitempty"`
@@ -177,6 +183,7 @@ func (c *Core) ApplyCatalogChange(ctx context.Context, company, author string, c
 
 func (c *Core) catalogRoutes(m *http.ServeMux) {
 	c.catalogEntityRoutes(m)
+	c.teamEditRoutes(m)
 	m.HandleFunc("GET /catalog", func(w http.ResponseWriter, r *http.Request) {
 		company := c.companyFrom(r)
 		version, _ := strconv.ParseInt(r.URL.Query().Get("version"), 10, 64)

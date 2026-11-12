@@ -70,5 +70,8 @@ could not be finished and what it waits on. Each item is also noted in its chang
 - `make check` runs `workers/claude` `npm test` without building `dist/`, so it reports 0 tests; build first.
 - Timing-sensitive tests flaked under parallel load (`TestParallelScheduleClaimExpire`, `TestTurnCompletedBeforeExitIsTerminal`,
   `TestRunStoppedAndPrune`, `TestEventsSpool`); all passed when re-run.
+- `internal/worker` `TestStopAfterAcceptedExit` has a data race in the test itself (`exit_test.go:54`), reproduced on
+  main before the team-page merge; `TestSkillsPinned` fails instead of skipping when `FACTORY_TEST_DATABASE_URL` is unset
+  (its final GC check runs after skipped subtests).
 - Presets no longer pin `max_concurrent_runs: 1` (throughput-signals); companies created from a preset keep their
   explicit 1 until it is removed from their profile.

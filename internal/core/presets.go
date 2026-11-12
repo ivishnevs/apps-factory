@@ -296,7 +296,7 @@ func (c *Core) catalogEdit(w http.ResponseWriter, r *http.Request, base int64, n
 
 // guessField maps a loader or copy error to the agent form's field (D4).
 func guessField(msg string) string {
-	for _, f := range []struct{ needle, field string }{{"secrets: ", "secrets"}, {"context_window", "context_window"}, {"conversation.max_concurrent_runs", "conversation_max_runs"}, {"max_concurrent_runs", "max_concurrent_runs"}, {"reports_to", "reports_to"}, {"reports to", "reports_to"}, {"can_message", "can_message"},
+	for _, f := range []struct{ needle, field string }{{"can_assign_tasks", "can_assign_tasks"}, {"secrets: ", "secrets"}, {"context_window", "context_window"}, {"conversation.max_concurrent_runs", "conversation_max_runs"}, {"max_concurrent_runs", "max_concurrent_runs"}, {"reports_to", "reports_to"}, {"reports to", "reports_to"}, {"can_message", "can_message"},
 		{"quota_key", "quota_key"}, {"provider", "provider"}, {"model", "model"}, {"skill", "skills"}, {"polic", "policies"}, {"prompt", "prompt"},
 		{"team", "team"}, {"agent name", "name"}, {"exists", "name"}, {"role", "role"}} {
 		if strings.Contains(strings.ToLower(msg), f.needle) {
@@ -368,7 +368,17 @@ func agentYAML(a config.Agent) ([]byte, error) {
 	for _, k := range []string{"instructions", "rules", "available_skills", "skill_hashes", "mcp_servers"} {
 		delete(m, k)
 	}
-	return yaml.Marshal(prune(m))
+	prune(m)
+	// The assignment scope is written as its word or list: none would be JSON false, which prune drops, and an
+	// agent with reports would then assign to them again (team-page-clarity 2.4).
+	if s := a.Spec.Communication.CanAssignTasks; s.Set() {
+		v, err := s.MarshalYAML()
+		if err != nil {
+			return nil, err
+		}
+		sub(sub(m, "spec"), "communication")["can_assign_tasks"] = v
+	}
+	return yaml.Marshal(m)
 }
 
 // prune drops null, empty and zero values (an unset field inherits from the agent's profile).

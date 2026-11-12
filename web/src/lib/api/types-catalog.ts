@@ -7,14 +7,22 @@ export interface CatalogDocument { version: number; path: string; size: number; 
 
 export interface TeamMember {
   name: string; team?: string; document?: string; skills?: string[]; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
-  creates_tasks?: boolean; assigns_to?: string[]; review_required?: boolean; reviewer?: string; review_paths?: string[];
+  creates_tasks?: boolean; assigns_to?: string[];
+  // team-page-clarity: the effective assignment scope and whom it may message as Core enforces it.
+  assign_scope?: "none" | "direct_reports" | "subtree" | "list"; can_message?: string[]; review_required?: boolean; reviewer?: string; review_paths?: string[];
   // work-and-conversation-runs: resolved limits per run kind and the context window per kind.
   max_concurrent_runs?: number; max_runs_from_role?: boolean; conversation_max_runs?: number; share_work_limit?: boolean; context_window?: { work?: string; conversation?: string };
 }
 // A team of the company (company-teams): its lead gets the owner's unaddressed messages in its projects.
 export interface ApprovalMode { mode: "" | "owner" | "agent" | "lead"; agent?: string }
 export interface ApprovalModes { internal_artifacts?: ApprovalMode; external_artifacts?: ApprovalMode; decisions?: ApprovalMode }
-export interface TeamView { name: string; title?: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes }
+// TeamSettings (team-page-clarity): the team profile in readable form; overrides are agents that set their own.
+export interface QuotaKeyView { name: string; provider: string; description?: string }
+export interface TeamSettings {
+  profile?: string; provider?: string; model?: string; quota_key?: string; max_concurrent_runs?: number; role_limits: Record<string, number>; timeout?: string;
+  quota_keys: QuotaKeyView[]; overrides: string[];
+}
+export interface TeamView { name: string; title?: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes; settings?: TeamSettings }
 export interface Teams { company: string; version: number; teams: TeamView[] }
 
 export interface CatalogChange { base: number; put?: Record<string, string>; delete?: string[]; note?: string; dry_run?: boolean }

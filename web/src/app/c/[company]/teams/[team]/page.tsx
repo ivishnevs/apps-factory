@@ -1,13 +1,13 @@
 "use client";
 
-import { ArrowLeft, ClipboardCheck, Crown, FolderGit2, Layers, MessageSquare, Plus } from "lucide-react";
+import { ArrowLeft, FolderGit2, Layers, MessageSquare, Plus } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import Link from "@/components/app/link";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { Editor, MemberCard } from "@/components/app/team/catalog";
 import { SkillPicker } from "@/components/app/team/skill-picker";
-import { LeadAuthority } from "@/components/app/team/authority";
+import { HowTeamRuns, WhoDoesWhat } from "@/components/app/team/team-runs";
 import { RenameTeam } from "@/components/app/team/rename";
 import { ApprovalModesView } from "@/components/app/project/approvals";
 import { AddAgentSheet, AgentFormSheet, SetupBanner } from "@/components/app/team/builder";
@@ -15,8 +15,8 @@ import { Button } from "@/components/ui/button";
 import { useAgentRuns, useCatalog, useCompanyInfo, useSetup, useTeams } from "@/lib/api/client";
 import { canManage } from "@/lib/api/types-account";
 
-// A team (company-teams 7.1): its lead (the owner's unaddressed messages in its projects), its audit assignee,
-// its profile, its agents with their prompts and review rules, and its projects.
+// A team (company-teams 7.1, team-page-clarity): how it runs (its lead, the agent that onboards an added repository
+// and the team settings, each explained and changeable), who does what, who approves, its agents and its projects.
 export default function Page() {
   const name = decodeURIComponent(String(useParams<{ team: string }>().team ?? ""));
   const teams = useTeams();
@@ -37,7 +37,8 @@ export default function Page() {
   return (
     <>
       {back}
-      <PageHeader title={team.title || team.name} description={team.description}
+      <PageHeader title={team.title || team.name}
+        description={`${team.description ? `${team.description.replace(/\.?$/, ".")} ` : ""}${team.agents.length} agent${team.agents.length === 1 ? "" : "s"}, ${team.projects.length} project${team.projects.length === 1 ? "" : "s"}. ${team.lead} leads the team and answers to you.`}
         actions={<>
           {manage && <RenameTeam team={team.name} title={team.title} />}
           <Button asChild variant="outline" className="h-10"><Link href={`/tasks?team=${encodeURIComponent(team.name)}`}>Tasks</Link></Button>
@@ -45,31 +46,20 @@ export default function Page() {
           {manage && <Button className="h-10" onClick={() => setAdding(true)}><Plus className="size-4" />Add agent</Button>}
         </>} />
       <SetupBanner setup={setup.data} compact />
-      <dl className="mb-6 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border bg-card p-4">
-          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><Crown className="size-3.5" />Lead</dt>
-          <dd className="mt-1 font-medium">{team.lead}</dd>
-          <dd className="text-xs text-muted-foreground">Plans the work and answers your messages</dd>
-          <dd><LeadAuthority lead={team.lead} team={team.name} owner={role === "owner"} /></dd>
-        </div>
-        <div className="rounded-xl border bg-card p-4">
-          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><ClipboardCheck className="size-3.5" />Onboarding</dt>
-          <dd className="mt-1 font-medium">{team.audit_assignee}</dd>
-          <dd className="text-xs text-muted-foreground">Reviews a repository you add, so the team knows it</dd>
-        </div>
-        <div className="rounded-xl border bg-card p-4">
-          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground"><Layers className="size-3.5" />Shared settings</dt>
-          <dd className="mt-1 font-medium">{team.profile || "None"}</dd>
-          <dd className="text-xs text-muted-foreground">Defaults every agent of the team starts from</dd>
-        </div>
-      </dl>
-      <h2 className="mb-2 text-sm font-medium text-muted-foreground">Who approves</h2>
-      <div className="mb-6"><ApprovalModesView modes={team.approvals} lead={team.lead} /></div>
-      <h2 className="mb-2 text-sm font-medium text-muted-foreground">Agents</h2>
-      {team.agents.length === 0 ? <EmptyState title="No agents" icon={Layers} /> : (
-        <ul className="mb-6 grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} runs={agentRuns?.[m.name]} onOpen={setOpen} onSkills={manage ? () => setPicking(m.name) : undefined} onEdit={manage ? () => setEditing(m.name) : undefined} />)}</ul>
-      )}
-      <h2 className="mb-2 text-sm font-medium text-muted-foreground">Projects</h2>
+      <HowTeamRuns team={team} base={teams.data?.version ?? 0} manage={manage} owner={role === "owner"} />
+      <WhoDoesWhat team={team} runs={agentRuns} onEdit={manage ? setEditing : undefined} />
+      <section className="mb-8">
+        <h2 className="mb-3 text-base font-semibold">Who approves</h2>
+        <ApprovalModesView modes={team.approvals} lead={team.lead} />
+      </section>
+      <section className="mb-8">
+        <h2 className="text-base font-semibold">Agents</h2>
+        <p className="mb-3 text-sm text-muted-foreground">Each agent&apos;s own settings, instructions and skills; what an agent sets here overrides the team settings.</p>
+        {team.agents.length === 0 ? <EmptyState title="No agents" icon={Layers} /> : (
+          <ul className="grid gap-3 md:grid-cols-2">{team.agents.map((m) => <MemberCard key={m.name} m={m} runs={agentRuns?.[m.name]} onOpen={setOpen} onSkills={manage ? () => setPicking(m.name) : undefined} onEdit={manage ? () => setEditing(m.name) : undefined} />)}</ul>
+        )}
+      </section>
+      <h2 className="mb-3 text-base font-semibold">Projects</h2>
       {team.projects.length === 0 ? <EmptyState title="No projects yet" hint="Create one from the board; it belongs to the team you pick." icon={FolderGit2} /> : (
         <ul className="divide-y rounded-xl border bg-card">
           {team.projects.map((p) => (
