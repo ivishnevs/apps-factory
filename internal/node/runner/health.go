@@ -32,6 +32,8 @@ type driverHealth struct {
 
 	mu    sync.Mutex
 	state map[string]*driverState
+	// kick asks run for a probe now (recheck): a run ended on a network error to its API host (setup-assistant 4.2).
+	kick chan struct{}
 }
 
 type driverState struct {
@@ -72,7 +74,7 @@ func newDriverHealth(drivers []driver.Driver, p node.Probes) *driverHealth {
 	if p.TransientFailures <= 0 {
 		p.TransientFailures = def.TransientFailures
 	}
-	h := &driverHealth{drivers: drivers, probes: p, state: map[string]*driverState{}}
+	h := &driverHealth{drivers: drivers, probes: p, state: map[string]*driverState{}, kick: make(chan struct{}, 1)}
 	for _, d := range drivers {
 		h.state[string(d.Name())] = &driverState{}
 	}
@@ -249,6 +251,16 @@ func (h *driverHealth) authFailed(name string, err error) {
 	}
 }
 
+// recheck asks for a probe of the drivers now instead of at the next interval: a run ended on a network error to
+// its runtime's API host (setup-assistant 4.2), so the network checks (net.dns, net.api) disable the driver before
+// the next run fails the same way.
+func (h *driverHealth) recheck() {
+	select {
+	case h.kick <- struct{}{}:
+	default:
+	}
+}
+
 // runSucceeded resets the named driver's auth hold-off escalation after one of its runs completed, unless a
 // run's auth failure currently disables it.
 func (h *driverHealth) runSucceeded(name string) {
@@ -324,6 +336,8 @@ func (h *driverHealth) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-probe.C:
+			flipped = h.check(ctx, false)
+		case <-h.kick:
 			flipped = h.check(ctx, false)
 		case <-version.C:
 			flipped = h.check(ctx, true)

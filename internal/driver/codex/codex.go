@@ -45,6 +45,9 @@ type Driver struct {
 	Sandbox string
 	// FullAccess are projects whose runs are not confined (node.yaml policy.full_access).
 	FullAccess []string
+	// Net runs the network checks of Probe (net.dns, net.api to the Codex endpoint, setup-assistant 4.1); nil
+	// skips them.
+	Net *node.Network
 }
 
 // compactLimit is the runtime option context_window in tokens (JSON numbers arrive as float64); 0 when unset.

@@ -220,6 +220,9 @@ type Worker struct {
 	// AuthFailed, when set, is called when a run ends on the runtime's authentication failure
 	// (driver.AuthFailure, driver.Result.Auth); the node disables the driver until its next probe passes.
 	AuthFailed func(err error)
+	// NetworkFailed, when set, is called when a run ends on a network error to its runtime's API host
+	// (protocol.FaultNetwork, setup-assistant 4.2); the node probes its drivers at once.
+	NetworkFailed func()
 	// RunSucceeded, when set, is called when a run ends succeeded; the node resets the driver's auth hold-off.
 	RunSucceeded func()
 	// RuntimeActivity, when set, is called for each runtime event of a run; the node takes it as evidence
@@ -407,6 +410,9 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			}
 			if p.Fault != nil {
 				p.Outcome = outcomeSetupFailed
+				if p.Fault.Kind == protocol.FaultNetwork && w.NetworkFailed != nil {
+					w.NetworkFailed()
+				}
 			}
 			record.Outcome = p.Outcome
 			saveRecord()
