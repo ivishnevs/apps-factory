@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Pin, Send } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, Copy, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Pin, Send } from "lucide-react";
 import Link from "@/components/app/link";
 import { useState } from "react";
 import { StatusBadge, toneClass } from "@/components/app/status";
@@ -229,6 +229,45 @@ export function Submission({ sub, look }: { sub: Sub; look?: Lookup }) {
         )}
       </div>
     </Block>
+  );
+}
+
+const duplicateReasons: Record<string, string> = {
+  same_work_item: "covers the same work", same_title: "same title and assignee", original_open: "the original is still open",
+};
+
+// PossibleDuplicates: open tasks that may cover the same work (task-duplicate-warnings). Whoever created the task
+// answers in its run; the owner can keep both here, which ends the warning for good.
+export function PossibleDuplicates({ task, look }: { task: Task; look?: Lookup }) {
+  const qc = useQueryClient();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState("");
+  const list = task.possible_duplicates ?? [];
+  if (list.length === 0) return null;
+  const keep = async (other: string) => {
+    if (!(await confirm({ title: "Keep both tasks?", description: `${displayId(task.id)} and ${displayId(other)} are not duplicates: the warning ends and does not come back for them.`, confirm: "Keep both" }))) return;
+    setBusy(other);
+    try {
+      await core(`/tasks/${encodeURIComponent(task.id)}`, { method: "PATCH", body: JSON.stringify({ version: task.version, not_duplicate_of: [other] }) });
+      toast.success("Kept both tasks");
+      await qc.invalidateQueries();
+    } catch (e) { toast.error(cleanText(e instanceof Error ? e.message : String(e)) || "Something went wrong"); } finally { setBusy(""); }
+  };
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-4">
+      <p className="mb-1.5 flex items-center gap-2 text-sm font-semibold"><Copy className="size-4 text-amber-600 dark:text-amber-400" />Possible duplicate</p>
+      <ul className="grid gap-2">
+        {list.map((d) => (
+          <li key={d.task_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <Link href={`/tasks/${encodeURIComponent(d.task_id)}`} className="min-w-0 font-medium underline-offset-4 hover:underline wrap-anywhere">
+              <span className="font-mono text-xs text-muted-foreground">{displayId(d.task_id)}</span> {cleanText(d.title, look)}
+            </Link>
+            <span className="text-muted-foreground">{d.status.replace(/_/g, " ").toLowerCase()} · {d.assignee || "unassigned"} · {d.reasons.map((r) => duplicateReasons[r] ?? r).join(", ")}{d.keys?.length ? ` (${d.keys.join(", ")})` : ""}</span>
+            <Button size="sm" variant="outline" className="ml-auto h-10 sm:h-8" disabled={busy !== ""} onClick={() => keep(d.task_id)}>Keep both</Button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

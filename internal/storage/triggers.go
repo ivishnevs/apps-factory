@@ -189,6 +189,9 @@ func closedTask(ctx context.Context, tx *Tx, t tasks.Task) error {
 	if err := endEpisode(ctx, tx, t.ID); err != nil {
 		return err
 	}
+	if err := closedDuplicates(ctx, tx, t.ID); err != nil {
+		return err
+	}
 	escalations, err := listEscalations(ctx, tx, "WHERE company_id=? AND task_id=? AND status='open'", tx.company, t.ID)
 	if err != nil {
 		return err

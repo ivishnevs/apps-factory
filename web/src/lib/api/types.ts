@@ -32,9 +32,16 @@ export interface Task {
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
   progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
+  // task-duplicate-warnings: the work it covers (inferred from its text when it named none), the tasks it replaces
+  // or was replaced by, and the unanswered duplicate warnings with another open task.
+  covers?: string[]; covers_inferred?: boolean; replaces?: string[]; replaced_by?: string[];
+  not_duplicate_of?: string[]; possible_duplicates?: DuplicateWarning[];
   // Added by the overview: the why reason, who clears it and the task's tie to a node.
   reason: string; clearer: Clearer; wait?: Wait; tie?: Tie;
 }
+
+// DuplicateWarning is tasks.DuplicateWarning: another open task that may cover the same work, and why.
+export interface DuplicateWarning { task_id: string; title: string; status: string; assignee?: string; reasons: string[]; keys?: string[] }
 
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
 

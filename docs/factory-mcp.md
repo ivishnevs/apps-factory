@@ -16,10 +16,10 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 | factory_agent_list | factory.agent.list | Agent name/role/capabilities |
 | factory_settings_get | factory.settings.get | Company or project rules (`scope: company|project`), read-only, the run's own company and project |
 | factory_question_forward | factory.question.forward | Forward a question you received and cannot decide to your manager (`message_id`, `version`, `note`) |
-| factory_task_get / factory_task_list | factory.task.get / factory.task.list | Current project's tasks |
-| factory_task_create | factory.task.create | BACKLOG; requires can_create_tasks; `project_id` is the run's project (default) or a project the agent created |
+| factory_task_get / factory_task_list | factory.task.get / factory.task.list | Current project's tasks; the list is compact (no descriptions) unless `full: true`, filters `status`, `open`, `assignee`, `openspec_change`, `covers`, `query` ([duplicate warnings](task-lifecycle.md#duplicate-warnings)) |
+| factory_task_create | factory.task.create | BACKLOG; requires can_create_tasks; `project_id` is the run's project (default) or a project the agent created; `covers`, `replaces`; the answer carries duplicate `warnings` |
 | factory_project_create | factory.project.create | New project (`project_id`, `name`, `description`, `repo_mode` local\|github\|existing, `workspace`, `repo_url`, `default_branch`, `openspec`, `audit`, `request_id`); always needs the owner's approval of the exact call; requires `communication.can_create_projects` (default: the owner's direct reports). See [projects](projects.md) |
-| factory_task_update | factory.task.update | Metadata/dependencies with version |
+| factory_task_update | factory.task.update | Metadata/dependencies with version; `covers`, `replaces`, `not_duplicate_of` (answers a duplicate warning) |
 | factory_task_assign | factory.task.assign | Assignee with version; requires can_assign_tasks |
 | factory_task_ready / block / cancel | factory.task.ready / block / cancel | Existing state machine; cancel needs authority over the task (or its creator), `cascade` for open children |
 | factory_task_pause / resume / reassign / reprioritize | factory.task.pause / resume / reassign / reprioritize | Authority actions over the assignee's subtree (agent-configuration.md#hierarchy); pause/resume with `agent` for an agent of the subtree |

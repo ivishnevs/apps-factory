@@ -38,8 +38,16 @@ func runAsked(ctx context.Context, tx *Tx, run string) (bool, error) {
 	return n > 0, err
 }
 
-// presentTask derives the compatibility view of a stored task in place.
+// presentTask derives the compatibility view of a stored task in place, with its duplicate warnings.
 func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) error {
+	if err := presentState(ctx, q, company, t); err != nil {
+		return err
+	}
+	return presentDuplicates(ctx, q, company, []*tasks.Task{t})
+}
+
+// presentState derives the presented status, block reason, open question and pause of a stored task.
+func presentState(ctx context.Context, q querier, company string, t *tasks.Task) error {
 	if t.Status == "DONE" || t.Status == "CANCELLED" {
 		return nil
 	}
@@ -86,10 +94,12 @@ func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) 
 }
 
 func presentTasks(ctx context.Context, q querier, company string, ts []tasks.Task) error {
+	ptrs := make([]*tasks.Task, len(ts))
 	for i := range ts {
-		if err := presentTask(ctx, q, company, &ts[i]); err != nil {
+		if err := presentState(ctx, q, company, &ts[i]); err != nil {
 			return err
 		}
+		ptrs[i] = &ts[i]
 	}
-	return nil
+	return presentDuplicates(ctx, q, company, ptrs)
 }
