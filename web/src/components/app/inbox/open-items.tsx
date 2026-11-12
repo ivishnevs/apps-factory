@@ -42,6 +42,13 @@ export function useOpenItemHandlers(): InboxHandlers {
       void run({ Kind: "answer", MessageID: msg.id, Version: msg.version, Text: text, Answers: answers },
         { title: `Answer ${msg.sender}?`, description: `${msg.questions?.length === 1 ? msg.questions[0].question : msg.body.slice(0, 160)}\n\nYour answer: ${text}`, confirm: "Send answer" },
         `Answer sent to ${msg.sender}`),
+    // inbox-badge-parity: "I'll send details" keeps the question open; withdrawing lets the task go on.
+    details: (msg, kind, note) =>
+      void run({ Kind: "answer", MessageID: msg.id, Version: msg.version, Text: note, Details: kind },
+        kind === "promised"
+          ? { title: "Send the details later?", description: `The question stays open as “details promised”, and ${msg.sender}'s task waits for them without running again.`, confirm: "I'll send details" }
+          : { title: "Withdraw your promise?", description: `${msg.sender} stops waiting for your details and continues without them.`, confirm: "Withdraw" },
+        kind === "promised" ? `${msg.sender} waits for your details` : `${msg.sender} continues without the details`),
     read: (msg) => void run({ Kind: "read", MessageID: msg.id, Version: msg.version }, { title: "Mark as read?", description: msg.body.slice(0, 200), confirm: "Mark read" }, "Marked as read"),
     decide: (kind, ap, _msg, reason) =>
       void run({ Kind: kind, ApprovalID: ap.id, Version: Math.max(ap.version, 1), Text: reason },

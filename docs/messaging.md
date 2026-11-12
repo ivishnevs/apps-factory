@@ -60,6 +60,16 @@ the asking task's wake_seq and assignee; when the task has new triggers or anoth
 get, inbox, the conversation brief) show `may_be_outdated: true`. Closing a task (DONE or CANCELLED) cancels its
 open questions (`status: CANCELLED`, event `message.cancelled`); approval requests keep their own lifecycle.
 
+Promised details (inbox-badge-parity): the owner may answer "I'll send details" (`details: "promised"`, the body an
+optional note; web "I'll send details", TUI `p`). The question stays open in the Inbox as details promised
+(`details`, `details_note`, `details_at`; event `message.details_promised`): its deadline does not escalate it and
+it is not forwarded. A blocking question's task leaves its `ask` park for a park on the owner's next message
+(`message`, decision-waits): no timer runs it, and its reason says it waits for the details of the question. The
+details close it: an answer to the question (any text, whatever its form; also a Telegram reply), or any owner
+message that wakes the waiting task (`details: "sent"`). `details: "withdrawn"` (web "Withdraw promise", TUI `w`)
+answers it with "continue without them"; authority input that overrides the wait withdraws it too. An approval
+cannot be promised.
+
 ## Blocking questions
 
 `blocking: true` requires the current agent's current task/run. After asking, finish the turn;
@@ -116,7 +126,8 @@ is fixed server-side. All mutations require request_id; answers/reads also requi
 | GET /conversations/{id}/messages | Ordered persisted history |
 | GET /messages/{id} | Message state and delivery run |
 | GET /inbox?project=ID | Pending owner questions, escalations and unread notifications |
-| POST /inbox/{id}/answer | {version, body, optional answers, request_id}; owner may also answer any pending project question |
+| POST /inbox/{id}/answer | {version, body, optional answers, optional details (promised, withdrawn), request_id}; owner may also answer any pending project question |
+| GET /alerts | The Inbox's Alerts section: active task alerts of every kind and runs to inspect, with task, project, summary, since, clearing action and `with` (the lead expected to act) |
 | POST /inbox/{id}/read | {version, request_id}; acknowledge a non-question owner notification |
 
 ```sh

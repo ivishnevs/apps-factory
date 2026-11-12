@@ -78,7 +78,14 @@ export interface ProjectStatus {
 }
 
 export interface Pause { scope: string; target?: string; reason?: string; actor: string; created_at: number; until?: number }
-export interface PendingCounts { inbox: number; approvals: number; alerts: number; inspect: number; in_review: number; total: number }
+export interface PendingCounts { inbox: number; approvals: number; alerts: number; inspect: number; in_review: number; owner_reviews?: number; total: number }
+
+// ActiveAlert is one item of the Inbox's Alerts section (storage.ActiveAlert, GET /alerts; inbox-badge-parity): an
+// active task alert of any kind, or a run to inspect (kind inspect). with: the lead expected to act ("" the owner).
+export interface ActiveAlert {
+  id: string; kind: string; task_id: string; task_title: string; project_id: string; assignee?: string; ref_id?: string;
+  summary: string; since: number; action?: string; with?: string;
+}
 
 export interface Health { status: string; database?: string; company: string; explicit_exits?: string; default_report?: string }
 
@@ -158,6 +165,8 @@ export interface Message {
   blocking: boolean; status: string; version: number; created_at: number; deadline?: number; delivery_status: string;
   escalation_reason?: string; category?: string; approval_id?: string; report_id?: string; decision_id?: string;
   may_be_outdated?: boolean;
+  // inbox-badge-parity: "promised" (the owner will send details; still open), "sent" or "withdrawn".
+  details?: string; details_note?: string; details_at?: number;
   // Files the sender attached and references to existing materials (inbox-visual-previews), in the order to show.
   attachments?: MessageAttachment[]; materials?: MaterialRef[];
 }
@@ -189,7 +198,7 @@ export interface TaskPark { id: string; kind: string; ref_id?: string; reason: s
 export interface Overview {
   health: Health; status: ProjectStatus[]; agents: Agent[]; tasks: Task[]; pauses: Pause[]; pending: PendingCounts;
   nodes: FactoryNode[]; costs_today: CostReport; task_costs: CostReport; recent_costs: CostReport;
-  live_runs?: Record<string, Run>; inbox: Message[]; approvals: Approval[]; at: string; errors?: Record<string, string>;
+  live_runs?: Record<string, Run>; inbox: Message[]; approvals: Approval[]; alerts?: ActiveAlert[]; at: string; errors?: Record<string, string>;
 }
 
 export interface TaskDetail {
@@ -205,6 +214,7 @@ export interface Action {
   Text?: string; Assignee?: string; ReviewBy?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
   Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string; PullRequest?: string; Merged?: boolean;
   NewProject?: ProjectCreate; DecisionID?: string; Status?: string; Value?: string;
+  Details?: "promised" | "withdrawn"; // answer: promise the details, or withdraw that promise (inbox-badge-parity)
 }
 
 // How Core provisions a new project's repository (project-creation).

@@ -423,6 +423,25 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if (m.Status == "ESCALATED" || m.Deadline <= tx.now().Unix()) && in.Sender != "owner" {
 		return m, ErrConflict
 	}
+	switch in.Details {
+	case "":
+		if m.Details == messaging.DetailsPromised {
+			m.Details = messaging.DetailsSent
+		}
+	case messaging.DetailsPromised:
+		return promiseDetailsTx(ctx, tx, m, in)
+	case messaging.DetailsWithdrawn:
+		if in.Sender != "owner" || m.Details != messaging.DetailsPromised {
+			return m, inputError("only the owner withdraws details the owner promised")
+		}
+		if strings.TrimSpace(in.Body) == "" {
+			in.Body = "I will not send the details I promised; continue without them."
+		}
+		in.Answers = nil
+		m.Details = messaging.DetailsWithdrawn
+	default:
+		return m, inputError("details must be promised or withdrawn")
+	}
 	if in.RequestID == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id and answer body up to 16 KiB required")
 	}
@@ -549,7 +568,7 @@ func (s *Store) ExpireMessages(ctx context.Context, company string) error {
 			rows.Close()
 			return err
 		}
-		if m.Deadline <= tx.now().Unix() {
+		if m.Deadline <= tx.now().Unix() && m.Details != messaging.DetailsPromised { // promised details wait for the owner
 			pending = append(pending, m)
 		}
 	}
@@ -717,7 +736,7 @@ func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	pending, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND recipient!='owner' AND status IN ('PENDING','UNREAD') AND delivery_status!='RUNNING' AND (body->>'up_chain')='true' ORDER BY seq", company)
+	pending, err := listDocs[messaging.Message](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='question' AND recipient!='owner' AND status IN ('PENDING','UNREAD') AND delivery_status!='RUNNING' AND (body->>'up_chain')='true' AND coalesce(body->>'details','')<>'promised' ORDER BY seq", company)
 	if err != nil {
 		return 0, err
 	}

@@ -88,11 +88,13 @@ func (c *Core) messageRoutes(m *http.ServeMux) {
 			Body      string         `json:"body"`
 			Answers   map[string]any `json:"answers,omitempty"`
 			RequestID string         `json:"request_id"`
+			// Details: promised ("I'll send details") or withdrawn (inbox-badge-parity).
+			Details string `json:"details,omitempty"`
 		}
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.Store.ReplyMessage(r.Context(), c.companyFrom(r), r.PathValue("id"), messaging.Reply{Version: p.Version, Sender: "owner", Body: p.Body, Answers: p.Answers, RequestID: p.RequestID})
+		v, err := c.Store.ReplyMessage(r.Context(), c.companyFrom(r), r.PathValue("id"), messaging.Reply{Version: p.Version, Sender: "owner", Body: p.Body, Answers: p.Answers, RequestID: p.RequestID, Details: p.Details})
 		reply(w, v, err)
 	})
 }

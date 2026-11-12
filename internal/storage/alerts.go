@@ -71,3 +71,43 @@ func (s *Store) SyncAlerts(ctx context.Context, company, kind string, want []Ale
 	}
 	return tx.Commit()
 }
+
+// ActiveAlert is one item of the Inbox's Alerts section (inbox-badge-parity): an active task alert of any kind, or a
+// run parked for inspection (kind inspect). Core adds Action (how it clears, in words) and With (the lead expected to
+// act, "" for the owner).
+type ActiveAlert struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	TaskID    string `json:"task_id"`
+	TaskTitle string `json:"task_title"`
+	ProjectID string `json:"project_id"`
+	Assignee  string `json:"assignee,omitempty"`
+	RefID     string `json:"ref_id,omitempty"`
+	Summary   string `json:"summary"`
+	Since     int64  `json:"since"`
+	Action    string `json:"action,omitempty"`
+	With      string `json:"with,omitempty"`
+}
+
+// ActiveAlerts lists every active task alert, whatever its kind, and every active inspect park, newest first: what the
+// owner's pending count counts besides the Inbox's messages and reviews.
+func (s *Store) ActiveAlerts(ctx context.Context, company string) ([]ActiveAlert, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT a.id,a.kind,a.task_id,coalesce(t.body->>'title',''),t.project_id,t.assignee,a.ref_id,a.summary,a.raised_at
+ FROM task_alerts a JOIN tasks t ON t.company_id=a.company_id AND t.id=a.task_id WHERE a.company_id=? AND a.status='active'
+ UNION ALL SELECT p.id,'inspect',p.task_id,coalesce(t.body->>'title',''),t.project_id,t.assignee,p.ref_id,p.reason,p.created_at
+ FROM task_parks p JOIN tasks t ON t.company_id=p.company_id AND t.id=p.task_id WHERE p.company_id=? AND p.status='active' AND p.kind='inspect'
+ ORDER BY 9 DESC,1`, company, company)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ActiveAlert{}
+	for rows.Next() {
+		var a ActiveAlert
+		if err = rows.Scan(&a.ID, &a.Kind, &a.TaskID, &a.TaskTitle, &a.ProjectID, &a.Assignee, &a.RefID, &a.Summary, &a.Since); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

@@ -10,6 +10,7 @@ import (
 
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
+	"appfactory/internal/tasks"
 )
 
 // Pause is an owner hold on new dispatch for the whole company, a project, an agent or a quota key; a node
@@ -264,7 +265,11 @@ type PendingCounts struct {
 	Alerts    int `json:"alerts"`
 	Inspect   int `json:"inspect"`
 	Reviews   int `json:"in_review"`
-	// Total counts inbox items, active alerts and runs to inspect; approvals are already in the inbox.
+	// OwnerReviews are the tasks in review that wait for the owner's review (no agent reviewer, no member): the
+	// Inbox's "Reviews for you".
+	OwnerReviews int `json:"owner_reviews"`
+	// Total counts what the Inbox lists (inbox-badge-parity): its open messages (approvals are among them), the
+	// reviews for the owner, and the Alerts section (active task alerts of every kind and runs to inspect).
 	Total int `json:"total"`
 }
 
@@ -275,17 +280,27 @@ func (s *Store) PendingCounts(ctx context.Context, company string) (PendingCount
 		return p, err
 	}
 	p.Inbox = len(inbox)
+	alerts, err := s.ActiveAlerts(ctx, company)
+	if err != nil {
+		return p, err
+	}
+	for _, a := range alerts {
+		if a.Kind == tasks.ParkInspect {
+			p.Inspect++
+		} else {
+			p.Alerts++
+		}
+	}
 	for q, dst := range map[string]*int{
-		"SELECT count(*) FROM approvals WHERE company_id=? AND status='PENDING'":                    &p.Approvals,
-		"SELECT count(*) FROM task_alerts WHERE company_id=? AND status='active'":                   &p.Alerts,
-		"SELECT count(*) FROM task_parks WHERE company_id=? AND status='active' AND kind='inspect'": &p.Inspect,
-		"SELECT count(*) FROM tasks WHERE company_id=? AND status='IN_REVIEW'":                      &p.Reviews,
+		"SELECT count(*) FROM approvals WHERE company_id=? AND status='PENDING'": &p.Approvals,
+		"SELECT count(*) FROM tasks WHERE company_id=? AND status='IN_REVIEW'":   &p.Reviews,
+		ownerReviewsQuery: &p.OwnerReviews,
 	} {
 		if err = s.DB.QueryRowContext(ctx, q, company).Scan(dst); err != nil {
 			return p, err
 		}
 	}
-	p.Total = p.Inbox + p.Alerts + p.Inspect
+	p.Total = p.Inbox + len(alerts) + p.OwnerReviews
 	return p, nil
 }
 
@@ -511,3 +526,8 @@ func activeQuotaKeys(ctx context.Context, tx *Tx) ([]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// ownerReviewsQuery counts the tasks in review whose review waits for the owner, as the verdict says (idle, clearer
+// owner): no agent reviewer, not a member's review, and no park holding the task first.
+const ownerReviewsQuery = `SELECT count(*) FROM tasks t WHERE t.company_id=? AND t.status='IN_REVIEW' AND coalesce(t.body->>'reviewer','')=''
+ AND coalesce(t.body->>'review_by','') NOT LIKE 'member:%' AND NOT EXISTS (SELECT 1 FROM task_parks p WHERE p.company_id=t.company_id AND p.task_id=t.id AND p.status='active')`
