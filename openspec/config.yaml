@@ -9,6 +9,11 @@ schema: spec-driven
 #     Designs and tasks must cover Windows, macOS, and Linux
 #     Write all artifacts in Spanish
 
+context: |
+  Changes are systemic: proposals, designs and tasks solve the class of the problem for every user and every
+  supported configuration of a company, project, team and agent, never the setup of one particular (test) company.
+  A case seen in one company is the evidence, not the scope. See AGENTS.md.
+
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
 # Example:
