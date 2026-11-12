@@ -65,6 +65,8 @@ type Driver struct {
 	FullAccess []string
 	// Euid is the node's effective user ID for the root check (node-readiness 3.1); nil is os.Geteuid.
 	Euid func() int
+	// Net runs the network checks of Probe (net.dns, net.api to the API host, setup-assistant 4.1); nil skips them.
+	Net *node.Network
 }
 
 func (d Driver) Name() protocol.RuntimeProvider { return protocol.RuntimeClaude }

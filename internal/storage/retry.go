@@ -205,7 +205,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return nil // already applied, CANCELLED, or READY after a kill switch
 	}
 	inspect, err := false, error(nil)
-	if nodeFault == "" { // a node fault started nothing: no external effect to inspect
+	// A node fault started nothing: no external effect to inspect; a network fault (setup-assistant 4.2) may have
+	// ended an agent that already worked, so its side effects are inspected as before.
+	if nodeFault == "" || nodeFault == protocol.FaultNetwork {
 		inspect, err = inspectsRun(ctx, tx, t, specJSON, outcome)
 	}
 	if err != nil || inspect {

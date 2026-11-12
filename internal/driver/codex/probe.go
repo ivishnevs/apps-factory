@@ -65,5 +65,6 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 		r = append(r, node.CheckResult{Check: "codex.login", Status: node.Warn, Detail: "runs use this user's own Codex login: logging in to another account in the terminal changes the agents' account too",
 			Hint: "give the node its own login: factory-node login codex"})
 	}
-	return r
+	// setup-assistant 4.1: Codex reaches its endpoint through the system resolver, like this check.
+	return append(r, d.Net.NetChecks(ctx, node.CodexAPIHost, "net.api")...)
 }

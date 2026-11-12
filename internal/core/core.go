@@ -131,6 +131,7 @@ func (c *Core) Handler() http.Handler {
 	c.skillRoutes(m)
 	c.presetRoutes(m)
 	c.billingRoutes(m)
+	c.supportRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil {

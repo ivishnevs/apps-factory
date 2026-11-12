@@ -38,14 +38,14 @@ func main() {
 func run() error {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		return fmt.Errorf("usage: factory " + uiUsage + " | " + webUsage + " | projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] (scopes; one task: tasks pause|resume ID VERSION) | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate [--company C] | agents list | catalog [history|get|put|rm|validate|rollback|pull DIR|push DIR] | companies list|create ID TEMPLATE [NAME]|plan ID free|pro|unlimited | templates | owner-tokens list|create NAME|revoke ID | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
+		return fmt.Errorf("usage: factory " + uiUsage + " | " + webUsage + " | projects/tasks (see README) | status [PROJECT] | watch [PROJECT] [--attention] | log TASK | show TASK (--json) | pause|resume --all|--project P|--agent A|--quota-key K|--node N [REASON] (scopes; one task: tasks pause|resume ID VERSION) | pauses | stop [REASON] | start | pending | comment TASK TEXT [--urgent] | run|retry TASK | costs [--task T|--agent A|--day|--model] [--since 24h] | telegram bind | escalations [--all] | direct TASK TEXT [--urgent] | abandon-branch TASK | rules company|PROJECT [TEXT|-] | time-zone [ZONE] | answer MSG TEXT|OPTION | approve|reject ID REASON | serve | config validate [--company C] | mcp (owner MCP server on stdio) | doctor --company [--since 24h] [--json] | agents list | catalog [history|get|put|rm|validate|rollback|pull DIR|push DIR] | companies list|create ID TEMPLATE [NAME]|plan ID free|pro|unlimited | templates | owner-tokens list|create NAME|revoke ID | doctor | runs list | runs get ID | runs events ID | runs cancel ID | runs create PROJECT AGENT ABS_WORKSPACE PROMPT [SESSION_ID] | runs resolve ID continue|retry|cancel EVIDENCE | " + nodesUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	root := env("FACTORY_ROOT", ".")
 	// FACTORY_COMPANY is the company this Core (and the catalog commands) serve; --company overrides it.
 	company := env("FACTORY_COMPANY", storage.DefaultCompany)
-	if i := slices.Index(args, "--company"); i >= 0 && i+1 < len(args) && len(args) > 2 {
+	if i := slices.Index(args, "--company"); i >= 0 && i+1 < len(args) && len(args) > 2 && !strings.HasPrefix(args[i+1], "--") {
 		company = args[i+1]
 		args = slices.Delete(args, i, i+2)
 	}
@@ -170,6 +170,12 @@ func run() error {
 		return printJSON(v)
 	}
 
+	if args[0] == "mcp" {
+		return mcpCommand(ctx, api, os.Getenv("FACTORY_COMPANY"))
+	}
+	if args[0] == "doctor" && len(args) > 1 {
+		return companyDoctor(ctx, api, args[1:])
+	}
 	if args[0] == "doctor" {
 		var v any
 		if err := api.Do(ctx, "GET", "/health", nil, &v); err != nil {

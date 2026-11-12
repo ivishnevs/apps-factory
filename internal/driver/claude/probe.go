@@ -148,7 +148,26 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 		r = append(r, node.CheckResult{Check: "claude.login", Status: node.Warn, Detail: "runs use this user's own Claude login: logging in to another account in the terminal changes the agents' account too",
 			Hint: "give the node its own login: factory-node login claude"})
 	}
+	// setup-assistant 4.1: runs reach the API host through the system resolver; a broken resolver or route
+	// disables the driver here instead of failing every run with ENOTFOUND.
+	if host := d.apiHost(h, p); host != "" {
+		r = append(r, d.Net.NetChecks(ctx, host, "net.api")...)
+	}
 	return r
+}
+
+// apiHost is the host Claude Code's requests go to: ANTHROPIC_BASE_URL's, else api.anthropic.com; "" for an
+// external provider (Bedrock, Vertex), whose endpoint the probe does not know.
+func (d Driver) apiHost(h node.Host, p probeLine) string {
+	if a := p.Account.APIProvider; a != "" && a != "firstParty" {
+		return ""
+	}
+	if h.Getenv != nil {
+		if host := node.APIHostFromURL(h.Getenv("ANTHROPIC_BASE_URL")); host != "" {
+			return host
+		}
+	}
+	return node.ClaudeAPIHost
 }
 
 // probe runs `node shim.js --probe` on the host, pinning Executable like CheckVersion does.

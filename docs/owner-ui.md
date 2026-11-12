@@ -639,3 +639,12 @@ are shown in plain words; IDs appear only where a person needs them.
   asks to reload. The YAML editor (Advanced) stays for everything else.
 - A banner on Teams and on a team's page lists what keeps work from running (missing secrets, no connector, a team without a
   project).
+
+## Owner MCP server (setup-assistant)
+
+`factory mcp` serves the same owner API to the owner's own coding agent over stdio: status, the company doctor, why
+a task or chat waits (with its fix and runbook), recent runs with causes and usage explained, catalog validation,
+an agent's effective instructions and skills, runbooks, and the local node's doctor and log. Its change tools preview
+the exact effect and run only with a confirmation code after the owner agreed; no tool outputs a secret. Core API
+added for it: `GET /doctor`, `GET /runs/recent`, `GET /agents/{agent}/effective`. Details:
+[setup-assistant](setup-assistant.md).
