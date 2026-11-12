@@ -1,4 +1,5 @@
-Status: proposed 2026-11-12 by the owner; owner decisions recorded below (discussion of 2026-11-12). Not implemented.
+Status: proposed 2026-11-12 by the owner; owner decisions recorded below (discussion of 2026-11-12). Implemented on branch
+`people-topics` (Core, Telegram, TUI, docs); web surfaces in progress.
 
 ## Why
 
