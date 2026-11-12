@@ -60,12 +60,21 @@ func (s *Store) CreateInvitation(ctx context.Context, company, role, by string) 
 	token := hex.EncodeToString(raw)
 	now := s.Now()
 	inv := Invitation{ID: "inv" + protocol.ID()[:16], Role: role, CreatedBy: by, CreatedAt: now.Unix(), ExpiresAt: now.Add(InvitationTTL).Unix()}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO invitations(id,company_id,token_hash,role,created_by,created_at,expires_at) VALUES(?,?,?,?,?,?,?)`,
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return Invitation{}, "", err
+	}
+	defer tx.Rollback()
+	// saas-billing: inviting people starts with Pro.
+	if err = checkInvitations(ctx, tx, company); err != nil {
+		return Invitation{}, "", err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO invitations(id,company_id,token_hash,role,created_by,created_at,expires_at) VALUES(?,?,?,?,?,?,?)`,
 		inv.ID, company, tokenHash(token), role, by, inv.CreatedAt, inv.ExpiresAt)
 	if err != nil {
 		return Invitation{}, "", constraint(err)
 	}
-	return inv, token, nil
+	return inv, token, tx.Commit()
 }
 
 // Invitations lists company's open invitations, newest first.
@@ -162,6 +171,10 @@ func (s *Store) AcceptInvitation(ctx context.Context, token, user string) (Membe
 	now := s.Now().Unix()
 	if accepted != 0 || revoked != 0 || expires <= now {
 		return m, ErrInvitationClosed
+	}
+	// saas-billing: a link made on Pro is not used once the account is on a plan without invitations.
+	if err = checkInvitations(ctx, t, m.Company); err != nil {
+		return m, err
 	}
 	if _, err = t.ExecContext(ctx, "INSERT INTO memberships(account_id,company_id,user_id,role,created_at) VALUES(?,?,?,?,?)", account, m.Company, user, m.Role, now); err != nil {
 		return m, constraint(err)

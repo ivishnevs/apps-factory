@@ -336,6 +336,10 @@ func (s *Store) ApproveNodeKey(ctx context.Context, company, node, fingerprint s
 	if strings.TrimSpace(fingerprint) != k.Fingerprint {
 		return NodeKey{}, ErrFingerprint
 	}
+	// saas-billing: one more own node only within the account's plan (a rotation above is the same node).
+	if err = checkNodeLimit(ctx, tx, company); err != nil {
+		return NodeKey{}, err
+	}
 	k.Status, k.ApprovedAt = NodeKeyActive, tx.now().Unix()
 	if _, err = tx.ExecContext(ctx, "UPDATE node_keys SET status=?,approved_at=? WHERE node_id=?", k.Status, k.ApprovedAt, node); err != nil {
 		return NodeKey{}, err

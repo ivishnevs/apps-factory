@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users, FolderGit2 } from "lucide-react";
+import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, CreditCard, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users, FolderGit2 } from "lucide-react";
 import Link, { useAppPath } from "@/components/app/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
@@ -12,6 +12,7 @@ import { core, signOut, useCompanyInfo, useMe, useOverview } from "@/lib/api/cli
 import { canManage, type Membership } from "@/lib/api/types-account";
 import { useCompany } from "@/lib/company";
 import { cn } from "@/lib/utils";
+import { TrialBanner, useBilling } from "./billing";
 import { ConfirmProvider } from "./confirm";
 
 // Navigation: a sidebar on wide screens, a bottom tab bar on phones (the first five; the rest under More).
@@ -51,6 +52,7 @@ function CompanyMenu({ compact }: { compact?: boolean }) {
   const others = (me.data?.companies ?? []).filter((c) => c.company !== company);
   const session = me.data?.kind === "session";
   const [creating, setCreating] = useState(false);
+  const billing = useBilling(); // saas-billing: the account's owners see Billing
   return (
     <>
     <DropdownMenu>
@@ -78,6 +80,7 @@ function CompanyMenu({ compact }: { compact?: boolean }) {
           <DropdownMenuItem onSelect={() => setCreating(true)}><Plus className="size-4" />New company</DropdownMenuItem>
         )}
         <DropdownMenuItem asChild><Link href="/settings"><Settings className="size-4" />Settings</Link></DropdownMenuItem>
+        {billing.data?.enabled && <DropdownMenuItem asChild><Link href="/billing"><CreditCard className="size-4" />Billing</Link></DropdownMenuItem>}
         {session && <DropdownMenuItem onSelect={signOut}><LogOut className="size-4" />Sign out</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -150,6 +153,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="sticky top-0 z-30 border-b bg-background/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur md:hidden"><div className="py-2"><CompanyMenu compact /></div></div>
           {stopped && <div className="bg-red-500 px-4 py-1.5 text-center text-sm font-medium text-white">Company stopped: no new runs start</div>}
+          <TrialBanner />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-5 md:px-8 md:pb-10 md:pt-8">{children}</main>
         </div>
         <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">

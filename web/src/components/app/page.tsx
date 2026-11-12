@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Inbox } from "lucide-react";
 import { useEffect } from "react";
+import { isPlanLimit, PlanLimitLink } from "@/components/app/billing";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -30,11 +31,12 @@ export function EmptyState({ title, hint, icon: Icon = Inbox, className }: { tit
   );
 }
 
-export function ErrorState({ error }: { error: unknown }) {
+// A refusal by the account's plan (saas-billing) links to Billing (company: the page's, else the one named).
+export function ErrorState({ error, company }: { error: unknown; company?: string }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm">
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-500" />
-      <span>{error instanceof Error ? error.message : String(error)}</span>
+      <span>{error instanceof Error ? error.message : String(error)}{isPlanLimit(error) && <> <PlanLimitLink company={company} /></>}</span>
     </div>
   );
 }

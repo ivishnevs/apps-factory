@@ -1,5 +1,7 @@
-Status: plans revised 2026-11-06 by the owner: Free, Pro and On-prem (no Team); Paddle, 14-day Pro trial without a
-card, yearly prices later; prices still placeholders. Nothing is implemented.
+Status: implemented 2026-11-12 (1.1-1.5; 1.6 On-prem postponed). Plans Free/Pro, 14-day Pro trial, Paddle; billing is
+off unless `FACTORY_BILLING` is set, and accounts without a subscription (the owner's existing ones) have no limits.
+Blockers: a real Paddle sandbox check (account, price, default payment link, webhook destination) and the Terms
+text are the owner's. See `docs/billing.md`.
 
 ## Why
 
