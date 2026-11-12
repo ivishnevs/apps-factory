@@ -107,3 +107,10 @@ image or video files without attachments SHALL be accepted with a `visual_withou
 #### Scenario: Path without attachment
 - **WHEN** an agent asks the owner about "docs/qa/towers/side_by_side_v2.jpg" without attachments
 - **THEN** the question SHALL be sent and the tool answer SHALL warn `visual_without_attachment`
+
+### Requirement: Choices are sent as options
+An agent's question to a person that offers choices SHALL carry them as options, each shown as a button with free text still allowed. A question whose body lists choices without options SHALL get a hint in the tool's result: Core refuses it (nothing is sent) and the hint says to ask again with the choices as options; `options: []` sends it as free text.
+
+#### Scenario: Profiles listed in the body
+- **WHEN** an agent asks "which profile: ASC Key, Cheflet, Stashy" without options
+- **THEN** the tool's result SHALL hint to resend the choices as options
