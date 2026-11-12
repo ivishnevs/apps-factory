@@ -87,6 +87,12 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 		// nothing else: blocks, escalations and a lost run's retry backoff stay (no progress).
 		return nil
 	}
+	// An event wait (decision-waits) is interruptible like a timed one.
+	for _, kind := range []string{tasks.ParkDecision, tasks.ParkMessage} {
+		if err = clearParks(ctx, tx, *t, kind, anyRef, "overridden"); err != nil {
+			return err
+		}
+	}
 	if err = clearRetryEscalations(ctx, tx, *t, why); err != nil {
 		return err
 	}
@@ -353,6 +359,13 @@ func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Co
 			actor = "owner"
 		}
 		if err = comment(ctx, tx, t.ID, actor, in.Text); err != nil {
+			return t, err
+		}
+		// A comment from the sender a task waits for is the message it waits for (decision-waits).
+		if err = messageArrived(ctx, tx, t.ProjectID, t.ID, "", actor, "", in.Text); err != nil {
+			return t, err
+		}
+		if t, err = taskTx(ctx, tx, t.ID); err != nil {
 			return t, err
 		}
 		authority := in.Authority || isOwner(actor)

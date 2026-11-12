@@ -258,7 +258,12 @@ func canonicalTopic(topic string) string {
 	return strings.ToLower(strings.Join(strings.Fields(topic), " "))
 }
 func (s *Store) Decision(ctx context.Context, company, id string) (decisions.Decision, error) {
-	return getDoc[decisions.Decision](ctx, s.DB, "SELECT body FROM decisions WHERE company_id=? AND id=?", company, id)
+	d, err := getDoc[decisions.Decision](ctx, s.DB, "SELECT body FROM decisions WHERE company_id=? AND id=?", company, id)
+	if err != nil {
+		return d, err
+	}
+	d.Waiting, err = decisionWaiters(ctx, s.DB, company, d.ID)
+	return d, err
 }
 func (s *Store) Decisions(ctx context.Context, company, project, status, topic string, after int64, limit int) (Page[decisions.Decision], error) {
 	switch status {
@@ -266,7 +271,13 @@ func (s *Store) Decisions(ctx context.Context, company, project, status, topic s
 	default:
 		return Page[decisions.Decision]{}, inputError("unsupported decision status")
 	}
-	return pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT seq,body FROM decisions WHERE company_id=? AND project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND seq>? ORDER BY seq LIMIT ?", company, project, status, status, canonicalTopic(topic), canonicalTopic(topic))
+	page, err := pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT seq,body FROM decisions WHERE company_id=? AND project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND seq>? ORDER BY seq LIMIT ?", company, project, status, status, canonicalTopic(topic), canonicalTopic(topic))
+	for i := range page.Items {
+		if d := &page.Items[i]; err == nil && (d.Status == "proposed" || d.Status == "under_discussion") {
+			d.Waiting, err = decisionWaiters(ctx, s.DB, company, d.ID)
+		}
+	}
+	return page, err
 }
 func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
 	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
@@ -312,6 +323,7 @@ func saveDecision(ctx context.Context, tx *Tx, d *decisions.Decision, kind strin
 	old := d.Version
 	d.Version++
 	d.UpdatedAt = tx.now().Unix()
+	d.Waiting = nil // derived on read
 	b, _ := json.Marshal(d)
 	result, err := tx.ExecContext(ctx, "UPDATE decisions SET status=?,version=?,body=? WHERE id=? AND version=?", d.Status, d.Version, b, d.ID, old)
 	if err != nil {
@@ -321,7 +333,11 @@ func saveDecision(ctx context.Context, tx *Tx, d *decisions.Decision, kind strin
 	if n != 1 {
 		return ErrConflict
 	}
-	return entityEvent(ctx, tx, kind, d.ProjectID, d.ID, d)
+	if err = entityEvent(ctx, tx, kind, d.ProjectID, d.ID, d); err != nil {
+		return err
+	}
+	// The tasks parked on the decision wake with its outcome (decision-waits).
+	return decisionRecorded(ctx, tx, *d)
 }
 func (s *Store) RecordDecision(ctx context.Context, company, id string, in decisions.Record) (decisions.Decision, error) {
 	// Include actor and grant in the mutation fingerprint; json:"-" fields are trusted metadata.

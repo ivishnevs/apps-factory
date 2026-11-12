@@ -152,7 +152,13 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 		return out, err
 	}
 	if req.Kind == "wait" {
-		if err = checkWait(ctx, tx, runID, t, req.Arguments); err != nil {
+		if eventWaitKind(req.Arguments) == "" {
+			if err = checkWait(ctx, tx, runID, t, req.Arguments); err != nil {
+				return out, err
+			}
+		}
+		// An event wait (decision-waits), or a timed wait that polls an open decision.
+		if err = checkEventWait(ctx, tx, t, agent, req.Arguments, req.Known); err != nil {
 			return out, err
 		}
 	}
@@ -472,7 +478,11 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		}
 		out.Note = note
 	case "wait":
-		if err := applyWait(ctx, tx, runID, &t, a); err != nil {
+		if eventWaitKind(a) != "" {
+			if err := applyEventWait(ctx, tx, &t, a); err != nil {
+				return out, err
+			}
+		} else if err := applyWait(ctx, tx, runID, &t, a); err != nil {
 			return out, err
 		}
 	}
@@ -502,7 +512,7 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		if err := addTrigger(ctx, tx, &t, "assignment", false, agent, runID, "handoff from "+agent+": "+str(a, "note")); err != nil {
 			return out, err
 		}
-	case req.Kind == "wait":
+	case req.Kind == "wait" && eventWaitKind(a) == "":
 		if err := waitExhausted(ctx, tx, runID, t, a); err != nil {
 			return out, err
 		}

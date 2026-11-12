@@ -1,7 +1,15 @@
-Status: proposed 2026-11-07 by the owner ("write down the idea: a task waiting on a decision should not wake on a
-timer"). Widened 2026-11-12 (throughput-signals, owner): a task waits on an event, a decision being one kind; the
-same shape covers a message from a named agent or the owner and promised owner details (inbox-badge-parity).
-Nothing implemented.
+Status: implemented 2026-11-12. Proposed 2026-11-07 by the owner ("write down the idea: a task waiting on a decision
+should not wake on a timer"). Widened 2026-11-12 (throughput-signals, owner): a task waits on an event, a decision
+being one kind; the same shape covers a message from a named agent or the owner and promised owner details
+(inbox-badge-parity, which calls `Store.ParkOnMessage`; wiring it is that change's task).
+
+Implementation decisions not settled above: the tool is `factory_exit_wait` (there is no `factory_task_park`); a
+withdrawn decision is a superseded one (decisions have no other withdrawal); a timed wait naming an open decision is
+refused (`wait_on_decision`), not only hinted; authority input (directive, authority comment) overrides an event park
+like a timed wait; a message about a task wakes only that task, a message about no task wakes the recipient's tasks
+parked on that sender; the deadline escalation (`event_wait_deadline`: keep_waiting, continue, cancel) goes to the
+owner for a decision or an owner message, else to the assignee's manager; dependents show the root up to three
+levels down.
 
 ## Why
 

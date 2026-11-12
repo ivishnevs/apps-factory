@@ -15,8 +15,14 @@ export interface Wait {
 export interface Tie {
   node: string; node_name?: string; reason: "work" | "session"; since?: number; release: string; release_at?: number; unsaved?: string;
 }
+// Awaits (decision-waits): the decision or message a task — or the dependency it waits for (task_id, the root) — is
+// parked on. who is the decision's addressee or the awaited sender ("owner" or "agent:NAME"); message_id is the
+// decision's Inbox notice.
+export interface Awaits {
+  kind: "decision" | "message"; decision_id?: string; message_id?: string; from?: string; topic?: string; who: string; deadline?: number; task_id?: string;
+}
 export interface Verdict {
-  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait; tie?: Tie;
+  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait; tie?: Tie; awaits?: Awaits;
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
@@ -33,7 +39,7 @@ export interface Task {
   progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
   // Added by the overview: the why reason, who clears it and the task's tie to a node.
-  reason: string; clearer: Clearer; wait?: Wait; tie?: Tie;
+  reason: string; clearer: Clearer; wait?: Wait; tie?: Tie; awaits?: Awaits;
 }
 
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
@@ -197,4 +203,6 @@ export interface Decision {
   id: string; project_id: string; category?: string; topic: string; status: string; value: string; alternatives?: string[];
   rationale: string; created_by: string; approved_by?: string; review_rationale?: string; version: number; task_id?: string;
   message_id?: string; created_at: number; updated_at: number;
+  // The open tasks parked on it (decision-waits).
+  waiting?: { task_id: string; title: string }[];
 }

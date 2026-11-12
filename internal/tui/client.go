@@ -34,6 +34,8 @@ type Task struct {
 	Wait    *tasks.Wait   `json:"wait,omitempty"`
 	// Tie is the task's tie to a node (node-ties).
 	Tie *tasks.Tie `json:"tie,omitempty"`
+	// Awaits is the decision or message it (or the dependency it waits for) is parked on (decision-waits).
+	Awaits *tasks.Awaits `json:"awaits,omitempty"`
 }
 
 // Agent is one catalog agent as the UI shows it.

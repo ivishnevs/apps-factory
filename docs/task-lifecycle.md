@@ -434,6 +434,31 @@ authority comment, an owner `ready`, a reassignment, an owner or manager message
 active wait at once (`task.wait_interrupted`) and the task runs; on a conversation task any new message does.
 Task pause and reprioritize keep the wait (its timer and episode); a closed task ends its episode. Wait wakes are ordinary runs and count against the daily budget.
 
+### Event waits (decision-waits)
+
+A task that waits for something inside Factory parks on it instead of a timer, with the same tool:
+
+- `factory_exit_wait {reason, decision_id}` parks on a decision of the task's project that is still `proposed` or
+  `under_discussion` (`parked:decision`; a unique id prefix of 8+ characters is accepted). Recording it (approved,
+  rejected) or withdrawing it (superseded) clears the park of every task parked on it and adds a `decision_recorded`
+  trigger whose text is the outcome (the approved value and note, or the rejection reason); `under_discussion` wakes
+  nobody. A decision already recorded is refused (`decision_recorded`, with the outcome), an unknown one
+  `unknown_decision`. The park's clearer is the decision's addressee (the owner), so the task counts in the owner's
+  "needs you"; the verdict carries `awaits {kind, decision_id, message_id, topic, who}`, the board says "Waits for
+  your decision: TOPIC" and links to the decision's Inbox notice, and `GET /decisions/{id}` lists the waiting tasks
+  (`waiting`). A dependent's `dependencies` verdict carries the root's `awaits` (with `task_id`, up to three levels).
+- `factory_exit_wait {reason, from, topic?}` parks on the next message from an agent or the owner (`parked:message`,
+  cleared by that sender). A message from that sender about the task (`task_id`), or about no task and addressed to
+  the task's assignee, in the task's project, clears it — so does that sender's comment on the task — with a
+  `message_received` trigger carrying the message into the brief. `Store.ParkOnMessage` parks a task this way from
+  Core (a question answered with "I'll send details", inbox-badge-parity).
+- Neither has a timer, an episode or `max_waits`. An optional `deadline` (at most 14 days ahead) never wakes the
+  task: past it, the tick opens one `event_wait_deadline` escalation — to the owner for a decision or a message from
+  the owner, else to the assignee's manager — with the answers `keep_waiting` (the park stays), `continue` (the park
+  is overridden and the task runs now) and `cancel`. Authority input overrides an event park like a timed wait.
+- A timed wait whose reason names an open decision of the project (an id or 8+ character prefix) is refused
+  (`wait_on_decision`) with the hint to park on it with `decision_id`.
+
 ## Stall detection and escalations
 
 Once a minute Core's tick checks every released, non-terminal task (reliable-recovery D8):

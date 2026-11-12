@@ -19,4 +19,4 @@ Company rules:
 Prices in EUR.
 Project rules:
 Metric units only.
-End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.
+End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (on a pending decision with decision_id, on a message with from, or until a time). Read authority_input in tool results: directives win over the plan.

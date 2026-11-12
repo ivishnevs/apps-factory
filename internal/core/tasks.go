@@ -203,7 +203,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			if !ok { // terminal
 				v = tasks.Evaluate(tasks.Snapshot{Task: t})
 			}
-			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie})
+			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits})
 		}
 		write(w, out)
 	})
@@ -217,7 +217,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		v := c.evaluateIn(c.companyFrom(r), snap)
-		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie})
+		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits})
 	})
 	// Diagnostics only: why a task does not run now and who clears it (trigger-log-scheduling D3).
 	m.HandleFunc("GET /tasks/{id}/why", func(w http.ResponseWriter, r *http.Request) {
@@ -446,6 +446,8 @@ type taskView struct {
 	Wait    *tasks.Wait   `json:"wait,omitempty"`
 	// Tie is the task's tie to a node (node-ties).
 	Tie *tasks.Tie `json:"tie,omitempty"`
+	// Awaits is the decision or message it (or the dependency it waits for) is parked on (decision-waits).
+	Awaits *tasks.Awaits `json:"awaits,omitempty"`
 }
 
 // needs fills what the assignee's runs need from a node (node-agent D3) from the agent catalog.
