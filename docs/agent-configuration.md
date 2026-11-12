@@ -119,6 +119,17 @@ reach only the runtime: environment variables, files under `<state_dir>/runs/<ru
 ends, and they are redacted from the run's log, events, result and attachments (long lines of a multi-line value
 too).
 
+Owners and admins give secrets to agents in the web UI (agent-secrets-ui), each change a catalog version with a note:
+the agent editor's Secrets section lists the agent's own uses, those inherited from its profile and its MCP servers'
+header secrets (read-only), each marked when the secret is missing or set with the other kind, and adds (from the
+company's secrets; the secret's kind decides text variable or file, the variable defaults to its name) or removes own
+uses; the Secrets page gives a secret to several agents at once ("Give to an agent", or when adding it) and names the
+agents before a used secret is deleted. API: `GET /catalog/agents/{name}/secrets` (uses with `profile`, `server`,
+`state`: set, missing, wrong_kind), `PUT /catalog/agents/{name}/secrets` (`{base, secrets}`: the agent's own uses),
+`POST /secrets/{name}/agents` (`{base, agents, env}`). Core refuses a new or changed use whose secret is set with the
+other kind (a file secret as a text variable, or the reverse) with a hint, there and in `PUT /catalog/agents/{name}`;
+a use the agent already had stays and is marked. Agents cannot reach these routes.
+
 ## Runtime context
 
 Context contains the prompt, deduplicated applicable policy instructions, tool/approval settings,

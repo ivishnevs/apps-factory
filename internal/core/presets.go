@@ -196,7 +196,17 @@ func (c *Core) presetRoutes(m *http.ServeMux) {
 			return
 		}
 		p.Agent.Metadata.Name = r.PathValue("name")
+		kinds, err := c.Store.SecretKinds(r.Context(), c.companyFrom(r))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
 		c.catalogEdit(w, r, p.Base, "agent "+p.Agent.Metadata.Name+" edited", func(lib *presets.Library, company string, docs map[string]string) (map[string]string, error) {
+			if old, err := agentDoc(company, docs, p.Agent.Metadata.Name); err == nil { // agent-secrets-ui: no wrong-kind use
+				if err = checkSecretKinds(old.Agent.Spec.Secrets, p.Agent.Spec.Secrets, kinds); err != nil {
+					return nil, err
+				}
+			}
 			return putAgentDoc(company, docs, p.Agent, p.Prompt, false)
 		})
 	})
@@ -286,7 +296,7 @@ func (c *Core) catalogEdit(w http.ResponseWriter, r *http.Request, base int64, n
 
 // guessField maps a loader or copy error to the agent form's field (D4).
 func guessField(msg string) string {
-	for _, f := range []struct{ needle, field string }{{"context_window", "context_window"}, {"conversation.max_concurrent_runs", "conversation_max_runs"}, {"max_concurrent_runs", "max_concurrent_runs"}, {"reports_to", "reports_to"}, {"reports to", "reports_to"}, {"can_message", "can_message"},
+	for _, f := range []struct{ needle, field string }{{"secrets: ", "secrets"}, {"context_window", "context_window"}, {"conversation.max_concurrent_runs", "conversation_max_runs"}, {"max_concurrent_runs", "max_concurrent_runs"}, {"reports_to", "reports_to"}, {"reports to", "reports_to"}, {"can_message", "can_message"},
 		{"quota_key", "quota_key"}, {"provider", "provider"}, {"model", "model"}, {"skill", "skills"}, {"polic", "policies"}, {"prompt", "prompt"},
 		{"team", "team"}, {"agent name", "name"}, {"exists", "name"}, {"role", "role"}} {
 		if strings.Contains(strings.ToLower(msg), f.needle) {
