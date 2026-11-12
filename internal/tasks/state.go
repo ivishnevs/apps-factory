@@ -27,6 +27,9 @@ const (
 	ReasonPinnedNode = "pinned_node_unavailable"
 	// ReasonNoCapableNode: no online, unpaused node has the assignee's driver, labels and resources.
 	ReasonNoCapableNode = "no_capable_node"
+	// ReasonNodeDiskCritical: the capable nodes that could take the task's runs are paused for a critical disk
+	// (disk-pause-conversations): free disk there; the node resumes by itself.
+	ReasonNodeDiskCritical = "node_disk_critical"
 	// ReasonNoReadyNode: capable nodes exist but none is ready for the task's project (node-readiness): the task
 	// waits for a node's fix with its retries untouched; it does not escalate.
 	ReasonNoReadyNode = "no_ready_node"

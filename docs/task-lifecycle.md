@@ -651,8 +651,10 @@ message) is taken only by the node that holds the session — the node of the se
 node is active, however busy it is: other nodes are not offered the run and their claims are refused with retry
 `affinity`; the queued reason says "tied to NODE: its agent session is there". When the holder becomes
 inactive (offline, paused by the owner or by Core for a critical disk, removed, unable to run the agent, or not ready
-for the run's project), a release timer starts (`session_locks`); a holder active again clears it. "Release now" works
-for a disk-paused node as for an owner-paused one.
+for the run's project), a release timer starts (`session_locks`); a holder active again clears it. A critical disk
+makes the holder inactive for work and review runs only: it still takes conversations (disk-pause-conversations), so a
+conversation's session stays there unless its disk is below the conversation floor. "Release now" works for a
+disk-paused node as for an owner-paused one.
 
 Pausing a node that holds sessions asks what to do with them (node-readiness 4.1): `GET /nodes/{id}/sessions` lists
 the sessions it holds for open tasks and the queued runs waiting for them; `POST /nodes/{id}/pause {"reason",

@@ -21,17 +21,20 @@ import (
 
 // Queued reasons.
 const (
-	QueuedPaused         = "paused"          // a company, project, agent or quota key pause
-	QueuedAgentBusy      = "agent_busy"      // the agent's concurrency cap (per agent or per project)
-	QueuedPinned         = "pinned"          // tie work: only the node holding the task's unsaved work may take it (node-ties alias)
-	QueuedAffinity       = "affinity"        // tie session: only the node holding the agent's session may take it (node-ties alias)
-	QueuedNoSlot         = "no_slot"         // every slot of the node is held
-	QueuedResourceBusy   = "resource_busy"   // a resource class of the node is held
-	QueuedNodePaused     = "node_paused"     // the owner paused the node, or its disk is below critical
-	QueuedDriverDisabled = "driver_disabled" // the run's driver failed its checks on the node
-	QueuedNodeOffline    = "node_offline"    // the node does not beat
-	QueuedLabels         = "labels"          // the node lacks the agent's labels
-	QueuedNotReady       = "not_ready"       // the node has a readiness fault for the run's project (node-readiness)
+	QueuedPaused       = "paused"        // a company, project, agent or quota key pause
+	QueuedAgentBusy    = "agent_busy"    // the agent's concurrency cap (per agent or per project)
+	QueuedPinned       = "pinned"        // tie work: only the node holding the task's unsaved work may take it (node-ties alias)
+	QueuedAffinity     = "affinity"      // tie session: only the node holding the agent's session may take it (node-ties alias)
+	QueuedNoSlot       = "no_slot"       // every slot of the node is held
+	QueuedResourceBusy = "resource_busy" // a resource class of the node is held
+	QueuedNodePaused   = "node_paused"   // the owner paused the node
+	// QueuedNodeDiskCritical: Core paused the node for a critical disk (disk-pause-conversations): no work or review
+	// run, no conversation below its conversation floor; it resumes by itself once space is freed.
+	QueuedNodeDiskCritical = "node_disk_critical"
+	QueuedDriverDisabled   = "driver_disabled" // the run's driver failed its checks on the node
+	QueuedNodeOffline      = "node_offline"    // the node does not beat
+	QueuedLabels           = "labels"          // the node lacks the agent's labels
+	QueuedNotReady         = "not_ready"       // the node has a readiness fault for the run's project (node-readiness)
 	// QueuedNoReadyNode: every node that could take the run is not ready for its project (node-readiness); the
 	// detail names the nodes and their fixes.
 	QueuedNoReadyNode = "no_ready_node"
@@ -40,7 +43,7 @@ const (
 )
 
 // queuedRank orders node reasons from the closest to running to the farthest.
-var queuedRank = []string{QueuedNoSlot, QueuedResourceBusy, QueuedNodePaused, QueuedDriverDisabled, QueuedNodeOffline, QueuedNotReady, QueuedLabels}
+var queuedRank = []string{QueuedNoSlot, QueuedResourceBusy, QueuedNodeDiskCritical, QueuedNodePaused, QueuedDriverDisabled, QueuedNodeOffline, QueuedNotReady, QueuedLabels}
 
 // QueuedReason says why a QUEUED run waits. Until is when it clears by itself (a quota pause, a driver's
 // auth hold-off), 0 when unknown. Nodes are each node's answer.
@@ -277,14 +280,9 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 		var drivers []NodeDriver
 		var labels []string
 		var resources map[string]int
-		var h struct {
-			Free          uint64 `json:"free_disk_bytes"`
-			CriticalBytes uint64 `json:"disk_critical_bytes"`
-		}
 		_ = json.Unmarshal(r.drivers, &drivers)
 		_ = json.Unmarshal(r.labels, &labels)
 		_ = json.Unmarshal(r.resources, &resources)
-		_ = json.Unmarshal(r.hlth, &h)
 		var pauseReason string
 		paused := false
 		if err = tx.QueryRowContext(ctx, "SELECT reason FROM pauses WHERE company_id=? AND scope='node' AND target=?", tx.company, q.Node).Scan(&pauseReason); err == nil {
@@ -302,12 +300,9 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 				d += ": " + pauseReason
 			}
 			set(QueuedNodePaused, d, 0)
-		case diskCritical(r.hlth):
-			d := "paused: disk below its critical watermark"
-			if h.CriticalBytes > 0 {
-				d = fmt.Sprintf("paused: disk %.1f GiB free, critical below %.1f GiB", float64(h.Free)/(1<<30), float64(h.CriticalBytes)/(1<<30))
-			}
-			set(QueuedNodePaused, d, 0)
+		case diskPaused(r.hlth, spec.Conversation):
+			// A conversation goes on at a critical disk (disk-pause-conversations); work and review runs wait.
+			set(QueuedNodeDiskCritical, readDisk(r.hlth).what(), 0)
 		case di < 0:
 			set(QueuedDriverDisabled, "has no "+string(spec.Provider)+" driver", 0)
 		case !drivers[di].OK:

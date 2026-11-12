@@ -307,8 +307,20 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       next: "Bring the node back, or answer the escalation in your inbox (reset the workspace) to continue on another node." });
   }
   if (reason === "no_capable_node") {
+    // disk-pause-conversations 2.1: an owner pause says to resume the node (with the owner's reason).
+    if (/^resume node /.test(action)) {
+      return out({ headline: "Its node is paused", brief: "Resume the node", detail: note ? `${capital(note)}.` : "The node that can run it is paused.",
+        who: { label: "Nodes", href: "/nodes" }, you: true, next: `${capital(action)}.` });
+    }
     return out({ headline: "No node can run it", brief: "Start a capable node", detail: note ? `${capital(note)}.` : "No online node has what its agent needs.",
       next: "Start or fix a node with what this agent needs." });
+  }
+  if (reason === "node_disk_critical") {
+    // disk-pause-conversations: the node is paused for a critical disk; it resumes by itself once space is freed.
+    const node = /^free disk on (.+?);/.exec(action)?.[1];
+    return out({ headline: node ? `${node}'s disk is almost full` : "Its node's disk is almost full", label: "Node disk critical", brief: "Free disk on the node",
+      detail: note ? `${capital(note)}.` : "The node that can run it is paused for a critical disk.",
+      who: { label: node ?? "Nodes", href: "/nodes" }, you: true, next: action ? `${capital(action)}.` : "Free disk on the node; it resumes by itself." });
   }
   if (reason === "no_ready_node") {
     // node-readiness: nodes could run it but none is ready for the project (no repository access, a missing tool);
@@ -382,7 +394,7 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       detail: by ? `${taskName(by, look, true)} sets up the project's repository first.` : "The project's first task sets up its repository first.",
       next: "It starts on its own once the repository is ready.", you: false });
   }
-  if (reason === "affinity" || reason === "pinned" || (v.tie && (reason === "unclaimed" || reason === "no_slot" || reason === "resource_busy" || reason === "node_paused" || reason === "node_offline"))) {
+  if (reason === "affinity" || reason === "pinned" || (v.tie && (reason === "unclaimed" || reason === "no_slot" || reason === "resource_busy" || reason === "node_paused" || reason === "node_disk_critical" || reason === "node_offline"))) {
     // A queued run tied to a node (node-ties): its agent's session (affinity, the old name) or its task's unsaved
     // work (pinned) is there.
     const t = v.tie;

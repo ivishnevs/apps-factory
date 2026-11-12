@@ -94,8 +94,9 @@ func TestNodeHealthAgainstCore(t *testing.T) {
 		if err = sess.beat(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if paused := !sess.claimable(); paused != (gib == 3) {
-			t.Fatalf("free %d GiB: paused %v", gib, paused)
+		// disk-pause-conversations: a critical disk pauses work claims (pause_work), not every claim.
+		if paused := !sess.workClaimable(); paused != (gib == 3) || !sess.claimable() {
+			t.Fatalf("free %d GiB: work paused %v, claimable %v", gib, paused, sess.claimable())
 		}
 	}
 	if low, crit := events("node.low_disk"), events("node.disk_critical"); len(low) != 1 || !low[0].Attention || len(crit) != 1 {

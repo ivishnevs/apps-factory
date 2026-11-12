@@ -32,7 +32,9 @@ type nodeHealth struct {
 	Disk              string  `json:"disk"`
 	DiskLowBytes      uint64  `json:"disk_low_bytes"`
 	DiskCriticalBytes uint64  `json:"disk_critical_bytes"`
-	Checks            []struct {
+	// DiskConversationFloorBytes: below it the node takes no conversation either (absent from older nodes).
+	DiskConversationFloorBytes *uint64 `json:"disk_conversation_floor_bytes"`
+	Checks                     []struct {
 		Check  string `json:"check"`
 		Status string `json:"status"`
 		Detail string `json:"detail"`
@@ -256,6 +258,10 @@ func (m *Model) nodeCard(n Node, w int, selected bool) []string {
 	pause, paused := m.nodePause(n.NodeID)
 	if paused || h.Disk == "critical" {
 		dot, state = stYellow.Render("⏸"), stYellow.Render("paused")
+		if !paused && h.DiskConversationFloorBytes != nil && h.FreeDiskBytes >= *h.DiskConversationFloorBytes {
+			// disk-pause-conversations: a critical disk pauses work only; the node still answers conversations.
+			state = stYellow.Render("work paused")
+		}
 	}
 	mark := " "
 	name := stBold.Render(n.Name)

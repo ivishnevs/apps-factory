@@ -79,7 +79,7 @@ Core SHALL say why a QUEUED run is not claimed yet, as `queued` (`reason`, `deta
 - **THEN** it SHALL have no `queued`
 
 ### Requirement: Queued reason order
-A pause (`paused`, with its reason and end), the agent's cap (`agent_busy`) and the pinned node (`pinned`) SHALL come before the nodes. Each node SHALL answer `node_offline`, `node_paused`, `driver_disabled`, `labels`, `no_slot` or `resource_busy`, and the node closest to taking the run SHALL give the reason; a node with room makes it `unclaimed`, no registered node `no_node`.
+A pause (`paused`, with its reason and end), the agent's cap (`agent_busy`) and the pinned node (`pinned`) SHALL come before the nodes. Each node SHALL answer `node_offline`, `node_paused`, `node_disk_critical`, `driver_disabled`, `labels`, `no_slot` or `resource_busy`, and the node closest to taking the run SHALL give the reason; a node with room makes it `unclaimed`, no registered node `no_node`.
 
 #### Scenario: Pause with a reason
 - **WHEN** the owner paused the run's agent with a reason
@@ -95,7 +95,18 @@ A pause (`paused`, with its reason and end), the agent's cap (`agent_busy`) and 
 
 #### Scenario: Critical disk and owner pause
 - **WHEN** the node reports its disk below the critical watermark, or the owner paused it with a reason
-- **THEN** the node's answer SHALL be `node_paused` with the free space and the watermark, or with the owner's reason
+- **THEN** the node's answer SHALL be `node_disk_critical` with the free space and the watermark (for a conversation run only below the node's conversation floor), or `node_paused` with the owner's reason
+
+### Requirement: Node verdict names a disk pause
+A task's queued verdict SHALL tell a node paused for critical disk from a node paused by the owner. A disk pause SHALL give reason `node_disk_critical` with the node, its free space and watermark, and the clearer to free disk on that node, which resumes by itself; an owner pause SHALL name the owner's reason and the clearer to resume the node. "Start or fix a node" SHALL be given only for nodes that are offline or cannot run the assignee.
+
+#### Scenario: Work task during a disk pause
+- **WHEN** the only capable node is paused at 3.6 GiB free with a critical watermark of 5 GiB
+- **THEN** the task's verdict SHALL be `node_disk_critical` saying "free disk on tvorog-mac; it resumes by itself above 5 GiB", not "start or fix a node"
+
+#### Scenario: Conversation brief during a disk pause
+- **WHEN** a conversation run starts on a node paused for critical disk
+- **THEN** its brief SHALL say that the disk is critical and that new work waits until space is freed
 
 ### Requirement: Trigger log as the only wake-up
 Every reason to run a task SHALL be recorded as a trigger row in the same transaction as its cause, and SHALL raise the task's `wake_seq`. A successful run SHALL advance `handled_seq` to the highest trigger it was shown. An agent's own comment SHALL NOT trigger its own task.

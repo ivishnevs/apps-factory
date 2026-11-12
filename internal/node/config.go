@@ -120,11 +120,14 @@ type Probes struct {
 	TransientFailures int           `yaml:"transient_failures"` // default 3
 }
 
-// Disk watermarks in GiB on Path (default state_dir): below low warn, below critical stop claiming.
+// Disk watermarks in GiB on Path (default state_dir): below low warn, below critical stop claiming work and
+// review runs, below the conversation floor (at most critical) stop claiming conversations too
+// (disk-pause-conversations).
 type Disk struct {
-	Path        string  `yaml:"path"`
-	LowGiB      float64 `yaml:"low_watermark_gib"`
-	CriticalGiB float64 `yaml:"critical_watermark_gib"`
+	Path                 string  `yaml:"path"`
+	LowGiB               float64 `yaml:"low_watermark_gib"`
+	CriticalGiB          float64 `yaml:"critical_watermark_gib"`
+	ConversationFloorGiB float64 `yaml:"conversation_floor_gib"`
 }
 
 func (c CodexConfig) On() bool  { return c.Enabled == nil || *c.Enabled }
@@ -137,7 +140,7 @@ func Defaults() Config {
 		name = "node"
 	}
 	return Config{Name: name, Slots: 2, ConversationSlots: 1, StateDir: "data/factory-node",
-		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour, Attempts: 3, RetryBackoff: 5 * time.Second, TransientFailures: 3}, Disk: Disk{LowGiB: 20, CriticalGiB: 5}}
+		Probes: Probes{Interval: 10 * time.Minute, VersionInterval: time.Hour, Attempts: 3, RetryBackoff: 5 * time.Second, TransientFailures: 3}, Disk: Disk{LowGiB: 20, CriticalGiB: 5, ConversationFloorGiB: 1}}
 }
 
 // ConfigPath is the flag value, else $FACTORY_NODE_CONFIG; empty means defaults.
@@ -284,7 +287,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("worktrees.scan_command: empty executable"))
 	}
 	switch {
-	case c.Disk.CriticalGiB < 0 || c.Disk.LowGiB < 0:
+	case c.Disk.CriticalGiB < 0 || c.Disk.LowGiB < 0 || c.Disk.ConversationFloorGiB < 0:
 		errs = append(errs, errors.New("disk watermarks must not be negative"))
 	case c.Disk.CriticalGiB > c.Disk.LowGiB:
 		errs = append(errs, fmt.Errorf("disk.critical_watermark_gib %g must not exceed disk.low_watermark_gib %g", c.Disk.CriticalGiB, c.Disk.LowGiB))

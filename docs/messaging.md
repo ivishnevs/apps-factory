@@ -34,7 +34,12 @@ run limit applies, but it does not take the project writer slot. On the node it 
 directory, `<state_dir>/conversations/<company>/<project>/<agent>` (no writer lock, no task worktree or branch in
 either workspace mode), where its project data and `.factory/manifest.json` are materialized and its session
 resumes; the project workspace reaches it read-only by path (`FACTORY_PROJECT_WORKSPACE` and a note in its
-instructions), so it never contends with the project's writer run. Its brief lists each message with how to handle it; its runs resume one runtime session. The agent
+instructions), so it never contends with the project's writer run. A node paused for a critical disk still takes
+conversation runs, which need no worktree or build, while free space stays above its `disk.conversation_floor_gib`
+(default 1 GiB); an owner pause of the node, company, project or agent stops them (disk-pause-conversations). The
+brief of a conversation on a disk-paused node says so (node, free space, watermark), so the agent tells the owner
+that new work waits until space is freed instead of promising it; when a conversation does wait for disk (below the
+floor), the chat's waiting line names the node and the fix ("free disk on tvorog-mac"). Its brief lists each message with how to handle it; its runs resume one runtime session. The agent
 answers with factory_message_reply (message_id/version/body/request_id, answers optional), forwards with
 factory_question_forward, and ends with `factory_exit_done`, which marks the input handled up to its ack_seq
 and keeps the task open (a turn without an exit does the same; ask and wait are also accepted; any new input on a
@@ -192,7 +197,8 @@ Outbound, and nothing else:
 
 - attention feed rows: a question or escalation that reached the owner goes to **owners** (with its single-choice
   options as buttons), headed by who asks and where (`❓ Thread PO · product team`, project / task); a connector in
-  trouble (`node.restart_loop`, `node.check_failed`, `node.low_disk`, …), a quota pause or a report needing action
+  trouble (`node.restart_loop`, `node.check_failed`, `node.low_disk`, `node.disk_critical` once per episode with the
+  node, free space and fix, …), a quota pause or a report needing action
   goes to **owners and admins**;
 - reminders for a question still waiting for the owner at 4 h and at 24 h, to owners (one reminder covers ages
   already passed);

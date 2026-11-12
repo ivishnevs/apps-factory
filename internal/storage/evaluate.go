@@ -94,7 +94,7 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		}
 		_ = json.Unmarshal(labels, &n.Labels)
 		_ = json.Unmarshal(resources, &n.Resources)
-		n.Paused = diskCritical(health)
+		n.Disk = readDisk(health).tasksDisk()
 		out = append(out, n)
 		epochs = append(epochs, epoch)
 	}
@@ -103,6 +103,27 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		return nil, err
 	}
 	rows.Close()
+	// The owner's node pauses (disk-pause-conversations 2.1: the verdict names them and their reason).
+	pauses := map[string]string{}
+	prows, err := tx.QueryContext(ctx, "SELECT target,reason FROM pauses WHERE company_id=? AND scope='node'", tx.company)
+	if err != nil {
+		return nil, err
+	}
+	for prows.Next() {
+		var target, reason string
+		if err = prows.Scan(&target, &reason); err != nil {
+			prows.Close()
+			return nil, err
+		}
+		pauses[target] = reason
+	}
+	prows.Close()
+	if err = prows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].PauseReason, out[i].OwnerPaused = pauses[out[i].ID]
+	}
 	faults, err := companyFaults(ctx, tx)
 	if err != nil {
 		return nil, err

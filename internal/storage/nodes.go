@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -382,8 +383,9 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	}
 	defer tx.Rollback()
 	var n Node
-	var drivers, resources, labels []byte
-	err = tx.QueryRowContext(ctx, "SELECT epoch,slots,conversation_slots,drivers,resources,labels,worktrees FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &n.Slots, &n.ConversationSlots, &drivers, &resources, &labels, &n.Worktrees)
+	var nodeName string
+	var drivers, resources, labels, health []byte
+	err = tx.QueryRowContext(ctx, "SELECT epoch,name,slots,conversation_slots,drivers,resources,labels,worktrees,health FROM nodes WHERE company_id=? AND id=?", company, req.NodeID).Scan(&n.Epoch, &nodeName, &n.Slots, &n.ConversationSlots, &drivers, &resources, &labels, &n.Worktrees, &health)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && req.Epoch != n.Epoch {
 		return out, drop("old_epoch")
 	}
@@ -463,6 +465,12 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	} else if paused {
 		return out, &Refusal{Retry: true, Reason: "paused", Detail: "node " + req.NodeID + " paused by the owner"}
 	}
+	// disk-pause-conversations: at a critical disk the node takes conversations only, below its conversation floor
+	// nothing; Core enforces it whatever the node's own gate decided.
+	disk := readDisk(health)
+	if diskPaused(health, spec.Conversation) {
+		return out, &Refusal{Retry: true, Reason: "disk_critical", Detail: "node " + nodeLabel(nodeName, req.NodeID) + ": " + disk.what() + "; it takes conversations only"}
+	}
 	if !slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == string(spec.Provider) && d.OK }) {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: "driver " + string(spec.Provider) + " not usable on this node"}
 	}
@@ -533,7 +541,12 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 		}
 		history = holder != "" && holder != req.NodeID
 	}
-	if err = briefClaim(ctx, tx, id, &spec, history); err != nil {
+	// A conversation on a disk-paused node is told so: new work waits until space is freed (disk-pause-conversations 1.3).
+	note := ""
+	if spec.Conversation && disk.critical() {
+		note = diskBriefNote(cmp.Or(nodeName, req.NodeID), disk)
+	}
+	if err = briefClaim(ctx, tx, id, &spec, history, note); err != nil {
 		return out, err
 	}
 	now := tx.now()
@@ -783,7 +796,11 @@ type HeartbeatAnswer struct {
 	Stop        []Stop   `json:"stop"`
 	Acked       []string `json:"acked"`
 	Cleanup     []string `json:"cleanup"`
-	Pause       bool     `json:"pause"`
+	// Pause is the owner's pause of the node (factory pause --node): no claim of any kind. PauseWork is Core's
+	// pause for a critical disk (disk-pause-conversations): conversation runs only, while free space stays above
+	// the node's conversation floor (the node judges that itself).
+	Pause     bool `json:"pause"`
+	PauseWork bool `json:"pause_work"`
 	// Reset lists tasks whose worktree on this node must be reset from the remote branch (workspace_diverged
 	// answered reset_workspace); the node confirms with reset_done.
 	Reset []string `json:"reset"`
@@ -867,14 +884,13 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 			return out, err
 		}
 	}
-	// Health events (node.low_disk, node.check_failed, ...) and the pause answer at critical disk.
-	if out.Pause, err = nodeHealthEvents(ctx, tx, node, health); err != nil {
+	// Health events (node.low_disk, node.check_failed, ...) and the pause_work answer at critical disk.
+	if out.PauseWork, err = nodeHealthEvents(ctx, tx, node, health); err != nil {
 		return out, err
 	}
-	if !out.Pause { // an owner node pause (factory pause --node N) also stops the node claiming
-		if out.Pause, err = nodePaused(ctx, tx, node); err != nil {
-			return out, err
-		}
+	// An owner node pause (factory pause --node N) stops every claim, conversations too.
+	if out.Pause, err = nodePaused(ctx, tx, node); err != nil {
+		return out, err
 	}
 	listed := map[string]bool{}
 	for _, x := range hb.Inventory {

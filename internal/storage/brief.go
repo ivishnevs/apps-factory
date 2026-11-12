@@ -244,10 +244,23 @@ func briefExcerpt(s string, limit int) string {
 	return s[:limit] + "\n[truncated; read the full task/attempt through Factory CLI when needed]"
 }
 
+// diskBriefNote tells a conversation run on a node paused for a critical disk what that means for the owner
+// (disk-pause-conversations 1.3): the agent answers, but new work and review runs wait until space is freed.
+func diskBriefNote(node string, d nodeDisk) string {
+	space := "below its critical watermark"
+	if d.Critical > 0 {
+		space = tasks.GiB(d.Free) + " free, critical watermark " + tasks.GiB(d.Critical)
+	}
+	return fmt.Sprintf("Node status: the disk of node %s is critical (%s). Factory paused new work and review runs on %s until disk space is freed; it resumes by itself %s. Conversations like this one continue. "+
+		"If you start or hand off work, tell the owner that new work waits until disk space is freed on %s (or another node takes it) instead of promising it starts now.\n\n",
+		node, space, node, d.tasksDisk().Resumes(false), node)
+}
+
 // briefClaim builds and stores the brief of a task run being claimed, with its brief window. A run without
 // a task (a message delivery or a direct run) keeps the prompt it was created with. With history the brief
-// starts with the conversation's recent history (a conversation starting a fresh session on another node).
-func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, history bool) error {
+// starts with the conversation's recent history (a conversation starting a fresh session on another node); a note
+// (the node's disk state) comes first.
+func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, history bool, note string) error {
 	if spec.TaskID == "" {
 		return nil
 	}
@@ -274,6 +287,7 @@ func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, 
 		}
 		spec.Prompt = h + spec.Prompt
 	}
+	spec.Prompt = note + spec.Prompt
 	b, err := json.Marshal(spec)
 	if err != nil {
 		return err

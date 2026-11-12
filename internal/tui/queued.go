@@ -42,18 +42,20 @@ func (m *Model) runStatusOf(id string) (core.RunStatus, bool) {
 
 // queuedLabels name the reasons for the owner.
 var queuedLabels = map[string]string{
-	storage.QueuedPaused:         "paused",
-	storage.QueuedAgentBusy:      "agent busy",
-	storage.QueuedPinned:         "tied: unsaved work",
-	storage.QueuedAffinity:       "tied: agent session",
-	storage.QueuedNoSlot:         "no free slot",
-	storage.QueuedResourceBusy:   "resource busy",
-	storage.QueuedNodePaused:     "node paused",
-	storage.QueuedDriverDisabled: "driver disabled",
-	storage.QueuedNodeOffline:    "node offline",
-	storage.QueuedLabels:         "no node with the labels",
-	storage.QueuedNoNode:         "no node",
-	storage.QueuedUnclaimed:      "claim on its way",
+	storage.QueuedPaused:       "paused",
+	storage.QueuedAgentBusy:    "agent busy",
+	storage.QueuedPinned:       "tied: unsaved work",
+	storage.QueuedAffinity:     "tied: agent session",
+	storage.QueuedNoSlot:       "no free slot",
+	storage.QueuedResourceBusy: "resource busy",
+	storage.QueuedNodePaused:   "node paused",
+	// disk-pause-conversations: work waits for disk space on the node; it resumes by itself.
+	storage.QueuedNodeDiskCritical: "node disk critical",
+	storage.QueuedDriverDisabled:   "driver disabled",
+	storage.QueuedNodeOffline:      "node offline",
+	storage.QueuedLabels:           "no node with the labels",
+	storage.QueuedNoNode:           "no node",
+	storage.QueuedUnclaimed:        "claim on its way",
 }
 
 // queuedText is the reason in one line: "driver disabled · mac-studio: driver claude disabled: auth check

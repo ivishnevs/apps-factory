@@ -17,8 +17,12 @@ type Node struct {
 	Name     string
 	Online   bool
 	LastSeen int64
-	// Paused: the node does not claim (health.disk critical).
-	Paused    bool
+	// OwnerPaused: the owner paused the node (PauseReason is the owner's reason); it takes no run.
+	OwnerPaused bool
+	PauseReason string
+	// Disk: Core paused the node for a critical disk (nil when it is not): it takes no work or review run, and no
+	// conversation either below its conversation floor (disk-pause-conversations).
+	Disk      *NodeDisk
 	Drivers   []NodeDriver
 	Labels    []string
 	Resources map[string]int
@@ -37,6 +41,70 @@ type Node struct {
 type NodeDriver struct {
 	Name string
 	OK   bool
+}
+
+// NodeDisk is a node's critical disk: free space and the critical watermark in bytes; Full when it is below the
+// conversation floor too (Floor, 0 when the node does not report one).
+type NodeDisk struct {
+	Free, Critical, Floor uint64
+	Full                  bool
+}
+
+// GiB formats bytes as "3.6 GiB" ("5 GiB" for a whole number).
+func GiB(b uint64) string {
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(b)/(1<<30)), ".0") + " GiB"
+}
+
+// What says the disk pause in words: "disk critical, 3.6 GiB free (critical 5 GiB)".
+func (d *NodeDisk) What() string {
+	if d == nil {
+		return ""
+	}
+	if d.Critical == 0 {
+		return "disk below its critical watermark"
+	}
+	s := "disk critical, " + GiB(d.Free) + " free (critical " + GiB(d.Critical) + ")"
+	if d.Full && d.Floor > 0 {
+		s += ", below the conversation floor " + GiB(d.Floor)
+	}
+	return s
+}
+
+// Resumes says when the node claims again by itself: "above 5 GiB" (its critical watermark), or above its
+// conversation floor for a conversation on a full disk.
+func (d *NodeDisk) Resumes(conversation bool) string {
+	switch {
+	case conversation && d.Full && d.Floor > 0:
+		return "above " + GiB(d.Floor)
+	case d.Critical > 0:
+		return "above " + GiB(d.Critical)
+	}
+	return "above its critical watermark"
+}
+
+// PausedFor tells whether the node takes no run of the kind now: the owner paused it, or its disk is critical (for
+// a conversation only below the conversation floor).
+func (n Node) PausedFor(conversation bool) bool {
+	return n.OwnerPaused || n.Disk != nil && (!conversation || n.Disk.Full)
+}
+
+// pausedWhy is the pause in words: "paused by the owner: REASON" or "paused: disk critical, ...".
+func (n Node) pausedWhy() string {
+	if n.OwnerPaused {
+		if n.PauseReason != "" {
+			return "paused by the owner: " + n.PauseReason
+		}
+		return "paused by the owner"
+	}
+	return "paused: " + n.Disk.What()
+}
+
+// short is the node's name, else its ID.
+func (n Node) short() string {
+	if n.Name != "" {
+		return n.Name
+	}
+	return n.ID
 }
 
 // NodeNeeds is what the assignee's runs need from a node: its runtime provider, spec.labels and
@@ -168,10 +236,15 @@ func PinnedUnavailable(s Snapshot) string {
 	return ""
 }
 
-// noCapableNode says why no online, unpaused node can take the task's runs (reason "" when one can):
-// no_capable_node, or no_ready_node when capable nodes exist but none is ready for the task's project.
-func (s Snapshot) noCapableNode() (reason, why string) {
+// noCapableNode says why no online, unpaused node can take the task's runs, and how the owner clears it (reason ""
+// when one can): node_disk_critical when a capable node is paused for its disk (it resumes by itself once space is
+// freed), no_capable_node naming the owner's pause when one paused a capable node, no_capable_node with "start or
+// fix a node" when capable nodes are offline or no node can run the assignee, no_ready_node when capable nodes exist
+// but none is ready for the task's project (disk-pause-conversations 2.1).
+func (s Snapshot) noCapableNode() (reason, why, clear string) {
+	conversation := s.Task.Kind == KindConversation
 	var incapable, down, unready []string
+	var disk, owner []Node
 	for _, n := range s.Nodes {
 		if w := n.Incapable(s.Needs); w != "" {
 			incapable = append(incapable, n.label()+": "+w)
@@ -184,19 +257,50 @@ func (s Snapshot) noCapableNode() (reason, why string) {
 		switch {
 		case !n.Online:
 			down = append(down, n.label()+" offline")
-		case n.Paused:
-			down = append(down, n.label()+" paused")
+		case n.OwnerPaused:
+			owner = append(owner, n)
+			down = append(down, n.label()+" "+n.pausedWhy())
+		case n.PausedFor(conversation):
+			disk = append(disk, n)
 		default:
-			return "", ""
+			return "", "", ""
 		}
 	}
+	names := func(ns []Node) string {
+		out := make([]string, len(ns))
+		for i, n := range ns {
+			out[i] = n.short()
+		}
+		return strings.Join(out, " or ")
+	}
+	if len(disk) > 0 {
+		parts := make([]string, 0, len(disk)+len(down))
+		for _, n := range disk {
+			parts = append(parts, n.short()+": "+n.Disk.What())
+		}
+		clear = "free disk on " + names(disk) + "; it resumes by itself " + disk[0].Disk.Resumes(conversation)
+		if len(disk) > 1 {
+			clear = "free disk on " + names(disk) + "; each resumes by itself above its critical watermark"
+		}
+		return ReasonNodeDiskCritical, strings.Join(append(parts, down...), "; "), clear
+	}
+	if len(owner) > 0 {
+		clear = "resume node " + names(owner)
+		if len(owner) == 1 {
+			clear += " (" + owner[0].pausedWhy() + ")"
+		} else {
+			clear += " (paused by the owner)"
+		}
+		return ReasonNoCapableNode, "capable nodes are unavailable: " + strings.Join(down, "; "), clear
+	}
+	start := "start or fix a node with " + s.Needs.describe() + " (node.yaml, factory-node doctor)"
 	if len(down) > 0 {
-		return ReasonNoCapableNode, "capable nodes are unavailable: " + strings.Join(down, "; ")
+		return ReasonNoCapableNode, "capable nodes are unavailable: " + strings.Join(down, "; "), start
 	}
 	if len(unready) > 0 {
-		return ReasonNoReadyNode, "no node is ready for project " + s.Task.ProjectID + " — " + strings.Join(unready, "; ")
+		return ReasonNoReadyNode, "no node is ready for project " + s.Task.ProjectID + " — " + strings.Join(unready, "; "), NoReadyClearer
 	}
-	return ReasonNoCapableNode, "no registered node can run " + s.Task.Assignee + " (" + s.Needs.describe() + "): " + strings.Join(incapable, "; ")
+	return ReasonNoCapableNode, "no registered node can run " + s.Task.Assignee + " (" + s.Needs.describe() + "): " + strings.Join(incapable, "; "), start
 }
 
 // NoReadyClearer is how the owner clears no_ready_node: the node's fix, then its check passes.
@@ -216,10 +320,8 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 		return hold(ReasonPinnedNode, why, "owner", "answer the pinned_node_unavailable escalation with reset_workspace (continues from the remote branch on any node), or bring the node back")
 	}
 	if s.PinnedNode == "" {
-		if reason, why := s.noCapableNode(); reason == ReasonNoReadyNode {
-			return hold(reason, why, "owner", NoReadyClearer)
-		} else if reason != "" {
-			return hold(reason, why, "owner", "start or fix a node with "+s.Needs.describe()+" (node.yaml, factory-node doctor)")
+		if reason, why, clear := s.noCapableNode(); reason != "" {
+			return hold(reason, why, "owner", clear)
 		}
 	} else if n := s.node(s.PinnedNode); n != nil && n.NotReady[s.Task.ProjectID] != "" {
 		// Only the pinned node can continue the task (task-worktrees D8): it waits for that node's fix.
@@ -228,12 +330,18 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 	if !capacity {
 		return Verdict{}
 	}
-	if n := s.node(s.PinnedNode); n != nil && (!n.Online || n.Paused) {
-		state := "paused"
+	// The pinned node offline or paused for its disk: the task waits for it (an owner pause of the pinned node leaves
+	// the run queued, its claim refused, as before; the queued reason names the pause).
+	conversation := s.Task.Kind == KindConversation
+	if n := s.node(s.PinnedNode); n != nil && (!n.Online || n.Disk != nil && (!conversation || n.Disk.Full)) {
+		state := "paused: " + n.Disk.What()
+		action := fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout)
 		if !n.Online {
 			state = "offline since " + time.Unix(n.LastSeen, 0).UTC().Format(time.RFC3339)
+		} else {
+			action = "free disk on " + n.short() + "; it resumes by itself " + n.Disk.Resumes(conversation)
 		}
-		return wait(hold(ReasonCapacity, fmt.Sprintf("%s; the node is %s", s.workSay(), state), "node:"+n.ID, fmt.Sprintf("wait for the node (after %s offline reset_workspace is offered)", s.PinTimeout)),
+		return wait(hold(ReasonCapacity, fmt.Sprintf("%s; the node is %s", s.workSay(), state), "node:"+n.ID, action),
 			Wait{Kind: WaitPinnedNode, Node: n.label()})
 	}
 	if why := s.nodesFull(); why != "" && s.PinnedNode != "" {
@@ -255,7 +363,7 @@ func (s Snapshot) nodeReason(capacity bool) Verdict {
 func (s Snapshot) nodesFull() string {
 	var full []string
 	for _, n := range s.Nodes {
-		if s.PinnedNode != "" && n.ID != s.PinnedNode || n.Incapable(s.Needs) != "" || n.NotReady[s.Task.ProjectID] != "" || !n.Online || n.Paused {
+		if s.PinnedNode != "" && n.ID != s.PinnedNode || n.Incapable(s.Needs) != "" || n.NotReady[s.Task.ProjectID] != "" || !n.Online || n.PausedFor(s.Task.Kind == KindConversation) {
 			continue
 		}
 		short := n.Short(s.Task.Kind == KindConversation, s.Needs.Resources)
