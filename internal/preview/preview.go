@@ -14,13 +14,18 @@ import (
 	"strings"
 )
 
+// renders lets one image decode at a time in the process: a decode takes up to maxPixels x 8 bytes (16-bit PNG), and
+// agents of every company attach images (security-review-2026-11 F5).
+var renders = make(chan struct{}, 1)
+
 const (
 	// MaxSide is the longest side of a rendition.
 	MaxSide = 1600
 	// MaxBytes: an image within MaxSide and at most this size needs no rendition.
 	MaxBytes = 1 << 20
-	// maxPixels bounds the images decoded at all (memory: 4 bytes per pixel).
-	maxPixels = 64 << 20
+	// maxPixels bounds the images decoded at all (memory: 4 bytes per pixel, 8 for a 16-bit PNG): 40 Mpx covers
+	// phone and camera photos; a larger image is shown as it is (security-review-2026-11 F5).
+	maxPixels = 40 << 20
 )
 
 // Renderable tells whether name is an image format this package renders.
@@ -52,6 +57,8 @@ func Render(name string, b []byte) (Image, bool) {
 	if cfg.Width <= MaxSide && cfg.Height <= MaxSide && len(b) <= MaxBytes {
 		return Image{}, false
 	}
+	renders <- struct{}{}
+	defer func() { <-renders }()
 	src, _, err := image.Decode(bytes.NewReader(b))
 	if err != nil {
 		return Image{}, false

@@ -80,14 +80,27 @@ func TestNodeConnect(t *testing.T) {
 		t.Fatal("pending connection is a credential", code)
 	}
 
-	// The page shows the request to admins; approving makes the keys active in the company.
-	if code, out := call(t, c, "GET", "/node-connects/"+a.ID, "owner", nil); code != 200 || !strings.Contains(out, a.Code) || !strings.Contains(out, `"mac"`) {
+	// The page shows the request to admins, never its code (security-review-2026-11 F2): approving needs the code
+	// typed from the machine's terminal, and makes the keys active in the company.
+	if code, out := call(t, c, "GET", "/node-connects/"+a.ID, "owner", nil); code != 200 || strings.Contains(out, a.Code) || !strings.Contains(out, `"mac"`) {
 		t.Fatal(code, out)
 	}
-	if code, _ := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "", nil); code != 401 {
+	if code, _ := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "", map[string]string{"code": a.Code}); code != 401 {
 		t.Fatal("approved without a credential", code)
 	}
-	if code, out := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "owner", nil); code != 200 || !strings.Contains(out, `"active"`) {
+	for _, typed := range []string{"", "2222-2222"} {
+		if code, out := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "owner", map[string]string{"code": typed}); code != 409 || !strings.Contains(out, "code_mismatch") {
+			t.Fatal("approved with the link alone", typed, code, out)
+		}
+	}
+	if code, _ := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "owner", nil); code != 400 {
+		t.Fatal("approved without a code", code)
+	}
+	if code, out := n.connectStatus(t, c, a.ID, n.key); code != 200 || !strings.Contains(out, `"pending"`) {
+		t.Fatal("a wrong code decided the request", code, out)
+	}
+	typed := strings.ToLower(strings.ReplaceAll(a.Code, "-", " "))
+	if code, out := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "owner", map[string]string{"code": typed}); code != 200 || !strings.Contains(out, `"active"`) {
 		t.Fatal(code, out)
 	}
 	if code, out := n.connectStatus(t, c, a.ID, n.key); code != 200 || !strings.Contains(out, `"approved"`) || !strings.Contains(out, `"company":"`+storage.DefaultCompany+`"`) {
@@ -96,7 +109,7 @@ func TestNodeConnect(t *testing.T) {
 	if code, out := n.status(t, c, n.key); code != 200 || !strings.Contains(out, `"active"`) {
 		t.Fatal(code, out)
 	}
-	if code, _ := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "owner", nil); code != 404 {
+	if code, _ := call(t, c, "POST", "/node-connects/"+a.ID+"/approve", "owner", map[string]string{"code": a.Code}); code != 404 {
 		t.Fatal("approved twice", code)
 	}
 	if code, _ := connectCall(t, c, n.connectRequest("mac")); code != 409 {
@@ -112,7 +125,7 @@ func TestNodeConnect(t *testing.T) {
 	if code, out := x.connectStatus(t, c, ax.ID, x.key); code != 200 || !strings.Contains(out, `"rejected"`) {
 		t.Fatal(code, out)
 	}
-	if code, _ := call(t, c, "POST", "/node-connects/"+ax.ID+"/approve", "owner", nil); code != 404 {
+	if code, _ := call(t, c, "POST", "/node-connects/"+ax.ID+"/approve", "owner", map[string]string{"code": ax.Code}); code != 404 {
 		t.Fatal("rejected request approved", code)
 	}
 	y := newEnrollingNode(t)
@@ -121,7 +134,7 @@ func TestNodeConnect(t *testing.T) {
 	if code, out := y.connectStatus(t, c, ay.ID, y.key); code != 200 || !strings.Contains(out, `"expired"`) {
 		t.Fatal(code, out)
 	}
-	if code, _ := call(t, c, "POST", "/node-connects/"+ay.ID+"/approve", "owner", nil); code != 404 {
+	if code, _ := call(t, c, "POST", "/node-connects/"+ay.ID+"/approve", "owner", map[string]string{"code": ay.Code}); code != 404 {
 		t.Fatal("expired request approved", code)
 	}
 }

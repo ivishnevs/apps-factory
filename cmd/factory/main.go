@@ -301,6 +301,9 @@ func run() error {
 	if c.Billing, err = billingConfig(os.Getenv); err != nil {
 		return err
 	}
+	if s.BlobQuota, err = blobQuota(os.Getenv, c.Billing.On()); err != nil {
+		return err
+	}
 	if err = c.LoadCatalogs(ctx); err != nil {
 		return err
 	}

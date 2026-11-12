@@ -29,8 +29,18 @@
 
 ## 3. Security
 
-- [ ] 3.1 Security review of the public surface; findings fixed.
-  **Not done:** no review was made in this pass (rate limits added only).
+- [x] 3.1 Security review of the public surface; findings fixed.
+  Done 2026-11-12: `docs/security-review-2026-11.md`. Fixed with regression tests:
+  - High: owner tokens act as admins (F1, an admin could make themselves owner through a token).
+  - High: a delegated `factory_approval_decide` no longer deadlocks every agent call (F3).
+  - Medium: approving a node connection needs the code typed from the terminal (F2, link phishing).
+  - Medium: public skill fetches are cut at 256 MiB and limited to 2 at once (F4).
+  - Medium: previews are bounded to 40 Mpx, one decode at a time (F5).
+  - Medium: a storage quota per company, `FACTORY_COMPANY_STORAGE_GB` (F6).
+  - Low: finished sync jobs refused (F7), `--` before clone URLs (F8), no symlinks in public sources (F9),
+    `nosniff` on blob downloads (F10).
+
+  14 Low or informational items stay open, listed in the review (O1–O14); none is High or Medium.
 - [ ] 3.2 `connector-trust` done (runs confined, local policy, signed releases, Security page, pentest).
   Another change.
 - [ ] 3.3 Dependency update pass (Go, web, Claude worker, Dex image).

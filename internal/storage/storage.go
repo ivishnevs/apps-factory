@@ -33,6 +33,9 @@ type Store struct {
 	// MinNodeVersion is the oldest node version that gets work (node-packaging-updates C, FACTORY_MIN_NODE_VERSION;
 	// empty: any). A node below it registers and shows "update required" but is offered and granted no run.
 	MinNodeVersion string
+	// BlobQuota bounds the bytes of stored content one company keeps (0: none). Uploads past it are refused, so
+	// one tenant's node cannot fill the blob volume every company shares (security-review-2026-11 F6).
+	BlobQuota int64
 	// Blobs holds OpenSpec documents, artifact contents, attachments and run logs by digest (Options.Blobs).
 	Blobs blobstore.Store
 	// Clock is the source of every timestamp Store writes or compares; nil means wall time.

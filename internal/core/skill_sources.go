@@ -389,6 +389,12 @@ func (c *Core) syncJobResult(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, err)
 		return
 	}
+	// A job is answered once: a finished job taking a new tree would change a tracked source's skills without
+	// anyone asking (security-review-2026-11 F7).
+	if job.Status != "pending" {
+		jsonStatus(w, http.StatusConflict, map[string]string{"error": "this sync job is finished (" + job.Status + ")", "reason": "job_finished"})
+		return
+	}
 	src, err := c.Store.SkillSource(r.Context(), company, job.Source)
 	if err != nil {
 		reply(w, nil, err)

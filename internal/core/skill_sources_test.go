@@ -265,6 +265,17 @@ func TestSkillSources(t *testing.T) {
 	if src, err := s.SkillSource(ctx, co, "private"); err != nil || src.Status != "ok" || src.Commit != "abc123" || src.Skills != 1 {
 		t.Fatalf("%+v %v", src, err)
 	}
+	// A finished job takes no other tree (security-review-2026-11 F7).
+	sr = httptest.NewRequest("POST", "/skills/sync-jobs/"+work.SyncJobs[0].ID+"?commit=evil", bytes.NewReader(packed))
+	n.Sign(t, s, sr, packed)
+	w = httptest.NewRecorder()
+	c.Handler().ServeHTTP(w, sr)
+	if w.Code != 409 {
+		t.Fatal("a finished job re-posted", w.Code, w.Body.String())
+	}
+	if src, _ := s.SkillSource(ctx, co, "private"); src.Commit != "abc123" {
+		t.Fatalf("%+v", src)
+	}
 	if work, _ = s.NodeWork(ctx, co, n.ID, 1); len(work.SyncJobs) != 0 {
 		t.Fatal("done job still listed")
 	}

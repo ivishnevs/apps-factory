@@ -115,8 +115,7 @@ func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p fact
 		return
 	}
 	key, _ := p.Arguments["request_id"].(string)
-	c.approvalMu.Lock()
-	defer c.approvalMu.Unlock()
+	// /agent/call already holds approvalMu (a second Lock here deadlocked every agent call: security-review-2026-11 F3).
 	v, err := c.Store.DecideApproval(r.Context(), company, id, approvals.Decision{Version: a.Version, Action: action, Reason: reason, RequestID: run.Spec.Agent + ":" + key, DecidedBy: run.Spec.Agent, Cites: cites})
 	reply(w, v, err)
 }

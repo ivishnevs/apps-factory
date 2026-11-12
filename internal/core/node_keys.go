@@ -69,15 +69,28 @@ func (c *Core) nodeKeyRoutes(m *http.ServeMux) {
 	})
 	m.HandleFunc("GET /node-connects/{id}", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.NodeConnectOf(r.Context(), r.PathValue("id"))
+		// The code is typed from the machine's terminal to approve (security-review-2026-11 F2); the page never
+		// shows it, so following a link alone cannot connect someone else's machine.
+		v.Code = ""
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /node-connects/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Code string `json:"code"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
 		p := principalOf(r)
 		actor := p.Kind
 		if p.User != "" {
 			actor = "user:" + p.User
 		}
-		k, err := c.Store.ApproveNodeConnect(r.Context(), c.companyFrom(r), r.PathValue("id"), actor)
+		k, err := c.Store.ApproveNodeConnect(r.Context(), c.companyFrom(r), r.PathValue("id"), body.Code, actor)
+		if errors.Is(err, storage.ErrConnectCode) {
+			jsonStatus(w, http.StatusConflict, map[string]string{"error": err.Error(), "reason": "code_mismatch"})
+			return
+		}
 		if errors.Is(err, storage.ErrNodeIDTaken) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

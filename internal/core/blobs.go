@@ -72,6 +72,7 @@ func (c *Core) archiveEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
 	_, _ = w.Write(buf.Bytes())
 }
@@ -84,6 +85,7 @@ func sendBlob(w http.ResponseWriter, rc io.ReadCloser, b storage.Blob, err error
 	defer rc.Close()
 	blobTransfer(w)
 	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.FormatInt(b.Size, 10))
 	w.Header().Set("X-Factory-SHA256", b.SHA256)
 	_, _ = io.Copy(w, rc)
