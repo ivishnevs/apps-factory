@@ -8,7 +8,10 @@ Core changes are only the general node capabilities of section 1.
 - [x] 0.3 Architecture: isolated virtual nodes manager, Core untouched (owner 2026-11-12, `design.md`).
 - [ ] 0.2 Spike: Fly.io Sprites API (create, suspend and resume times, disk persistence, pricing per second, limits,
   networking to Core); a `factory-node` image runs in a Sprite, enrolls through its bootstrap and claims a task;
-  resume time against pin and affinity timeouts (`design.md` risks). Result written into `design.md`.
+  resume time against pin and affinity timeouts (`design.md` risks); headless `factory-node login claude|codex`
+  in a Sprite through provider exec. Result written into `design.md`.
+- [ ] 0.4 Subscription logins on virtual nodes (`design.md` D6): check the providers' terms for a person's
+  subscription on a machine we host; owner chooses web-relayed login, long-lived token secret, or API keys only.
 
 ## 1. General node capabilities in Core (each checked first against what exists; none mentions virtual nodes)
 
@@ -28,6 +31,8 @@ Core changes are only the general node capabilities of section 1.
   label; destroy with revoke; tests against the fake provider and a test Core.
 - [ ] 2.4 Lifecycle loop: wake for claimable or tied work, pause then suspend after idle, no race with claims; tests.
 - [ ] 2.5 Model access: the company's API key secret (first); our keys with per-company metering (second stage).
+- [ ] 2.7 Subscription login relayed through the web (D6, if 0.4 allows): run the login in the Sprite, show the
+  link, pass the code back, never store either; "Log in again" when the node reports no login; browser check.
 - [ ] 2.6 Manager API for the web; deployment next to Core; docs.
 
 ## 3. Credits and cloud budgets (in the manager)

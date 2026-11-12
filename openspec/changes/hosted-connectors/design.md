@@ -77,6 +77,36 @@ Each one is a separate task, checked first against what Core already has; each o
 team works" call the manager's API. Existing pages keep working without the manager (the cloud parts are hidden when
 it is not deployed).
 
+### D6. Subscription logins on virtual nodes (proposed 2026-11-13, open)
+
+A virtual node with the company's own token may run on a person's Claude or Codex subscription. On an own node this
+is `factory-node login claude|codex`: the runtime's own login flow in a terminal, writing the node's own config
+directory, with the account recorded and changes paused (`node-runtime-accounts`). A virtual node has no terminal
+the person sits at, so:
+
+1. **Login relayed through the web (proposed default).** On the virtual node's page, "Log in to Claude / Codex":
+   the manager runs the same `factory-node login RUNTIME` in the Sprite (provider exec, in a PTY), shows the login
+   link it prints and passes back what the person enters (Claude: the code pasted after authorizing; Codex: its
+   device-code flow). The credentials stay on the Sprite's persistent disk, the runtime refreshes them itself, the
+   account is recorded as on any node. Core is not involved (D1). The manager never stores or logs the link or the
+   code.
+2. **Long-lived token as a company secret (alternative):** e.g. a Claude token made by `claude setup-token` on the
+   person's machine, stored as a company secret and handed to the runtime by the node. Works on own servers too, so
+   it would be a general node capability (D4), not a virtual-node one.
+3. **API key as a company secret** — already in the plan (2.5); no subscription involved.
+
+Copying a login file from the person's machine (as `-copy-current` does for Codex) is not offered: refresh tokens
+rotate, and two machines with one copy log each other out.
+
+Rules: only an owner or admin starts a login; one account per runtime per virtual node (a second person's
+subscription is a second virtual node); a lost or expired login shows on the node like on any node ("no Claude
+login") and the web offers "Log in again"; the subscription's quota is shared with the person's own use and handled
+by the existing quota pauses.
+
+To check before building (spike 0.2 and 0.4): the headless login flows of both runtimes in a Sprite, and whether the
+providers' terms allow a person's subscription on a machine we host for their company. If they do not, virtual nodes
+run on API keys only (option 3) and the setup wizard says so.
+
 ## Risks / Trade-offs
 
 - **Sleeping looks like offline.** A pinned task waits for its node past the pin timeout and escalates
