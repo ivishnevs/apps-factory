@@ -66,6 +66,10 @@ type Propose struct {
 	Materials   []messaging.MaterialRef `json:"materials,omitempty"`
 	RequestID   string                  `json:"request_id"`
 	Actor       string                  `json:"-"`
+	// What people read with it (people-topics D3): brief.after is required; topic, value and rationale give the rest.
+	Brief       *messaging.Brief `json:"brief,omitempty"`
+	PeopleTopic string           `json:"people_topic,omitempty"`
+	Strict      bool             `json:"-"`
 }
 type Record struct {
 	// Value is the person's choice when approving (an alternative or their own words); empty keeps the proposal's.

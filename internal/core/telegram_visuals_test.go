@@ -108,7 +108,7 @@ func TestTelegramQuestionAlbum(t *testing.T) {
 			map[string]any{"path": "shots/v1.png", "caption": "v1"},
 			map[string]any{"path": "shots/v2.png", "caption": "v2"},
 		},
-		"request_id": "verdict"}}); err != nil {
+		"request_id": "verdict", "brief": testBrief()}}); err != nil {
 		t.Fatal(err)
 	}
 	th.tick()

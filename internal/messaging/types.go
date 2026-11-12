@@ -78,6 +78,12 @@ type Message struct {
 	// ones (inbox-visual-previews); a forward keeps both.
 	Attachments []Attachment  `json:"attachments,omitempty"`
 	Materials   []MaterialRef `json:"materials,omitempty"`
+	// People topics (people-topics): the topic the message belongs to, the brief its bringer wrote and its note in
+	// the topic; Text is the body without technical lines, filled on reads for people.
+	TopicID string    `json:"topic_id,omitempty"`
+	Brief   *Brief    `json:"brief,omitempty"`
+	Note    *ItemNote `json:"note,omitempty"`
+	Text    string    `json:"text,omitempty"`
 }
 
 // MaxVisuals bounds the attachments, and separately the material references, of one message (as report
@@ -146,6 +152,13 @@ type Send struct {
 	// Attachments and Materials travel with the message (inbox-visual-previews).
 	Attachments []Attachment  `json:"attachments,omitempty"`
 	Materials   []MaterialRef `json:"materials,omitempty"`
+	// People topics: the bringer's brief and note, an explicit topic, and what the item is (people-topics D1).
+	Brief  *Brief    `json:"brief,omitempty"`
+	Note   *ItemNote `json:"note,omitempty"`
+	Topic  string    `json:"topic,omitempty"`
+	People PeopleRef `json:"-"`
+	// Strict: an agent's tool call brings it, so the gate checks the brief it owes (people-topics D3).
+	Strict bool `json:"-"`
 }
 type Reply struct {
 	// Details: "promised" defers the answer (the question stays open, the asking task waits for the owner's

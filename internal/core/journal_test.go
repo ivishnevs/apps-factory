@@ -56,7 +56,7 @@ func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 	call := func(name string, args map[string]any) *httptest.ResponseRecorder {
 		return httpCall(token, "POST", "/agent/call", factorytools.Call{Name: name, Arguments: args})
 	}
-	props := map[string]any{"topic": "database", "value": "SQLite", "rationale": "Single Core state owner", "request_id": "proposal"}
+	props := map[string]any{"topic": "database", "value": "SQLite", "rationale": "Single Core state owner", "request_id": "proposal", "brief": map[string]any{"after": "the team builds on it"}}
 	w := call("factory_decision_propose", props)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
@@ -85,7 +85,7 @@ func TestJournalRunScopeAndExactOwnerDecision(t *testing.T) {
 		t.Fatal("run token used owner route", w.Code)
 	}
 	intent := factorytools.Call{Name: "factory_decision_record", Arguments: args}
-	w = call("factory_owner_request_approval", map[string]any{"call": intent, "reason": "Approve exact decision", "blocking": false, "request_id": "ask"})
+	w = call("factory_owner_request_approval", map[string]any{"call": intent, "reason": "Approve exact decision", "blocking": false, "request_id": "ask", "brief": testBrief()})
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

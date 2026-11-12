@@ -124,18 +124,6 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		v, err := c.Store.RegisterArtifact(r.Context(), c.companyFrom(r), run.Spec.Project, artifacts.Register{Artifact: a, TaskID: run.Spec.TaskID, RunID: run.Spec.ID, Actor: run.Spec.Agent, RequestID: stringArg(p.Arguments, "request_id")})
 		reply(w, v, err)
 	case "factory_artifact_request_approval":
-		for _, a := range []config.Agent{snapshot, current} {
-			owner := false
-			for _, name := range a.Spec.Communication.CanMessage {
-				if name == "owner" {
-					owner = true
-				}
-			}
-			if !owner {
-				http.Error(w, "owner communication permission required", 403)
-				return
-			}
-		}
 		var in artifacts.ApprovalRequest
 		b, _ := json.Marshal(p.Arguments)
 		if err := json.Unmarshal(b, &in); err != nil {
@@ -152,6 +140,17 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		rd := requestDelegation{audience: in.Audience, requester: run.Spec.Agent}
 		c.artifactDelegate(r.Context(), c.companyFrom(r), run.Spec.Project, &rd)
 		in.Delegate, in.Setting = rd.delegate, rd.setting
+		if in.Delegate == "" && !ownerAllowed(snapshot, current) {
+			// Strict delegation (people-topics D17): it would reach people; an agent that may not bring items to people
+			// has its manager decide it instead.
+			m := c.escalationTargetIn(c.companyFrom(r), run.Spec.Agent)
+			if m == "" || m == "owner" {
+				http.Error(w, "owner communication permission required", 403)
+				return
+			}
+			in.Delegate, in.Setting = m, "strict delegation: "+run.Spec.Agent+" may not bring items to people, its manager "+m+" decides"
+		}
+		in.Strict = true
 		v, err := c.Store.RequestArtifactApproval(r.Context(), c.companyFrom(r), run.Spec.Project, in)
 		reply(w, v, err)
 	default:

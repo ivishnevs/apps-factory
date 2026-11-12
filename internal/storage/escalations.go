@@ -128,7 +128,10 @@ func openEscalation(ctx context.Context, tx *Tx, reason string, answers []string
 	body := fmt.Sprintf("Escalation %s on task %s (%s): %s\nAnswer with one of: %s.", reason, t.ID, t.Title, w.Summary, strings.Join(answers, ", "))
 	m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: "factory", Recipient: w.Target, MessageType: "question", Body: body,
 		Questions:      []messaging.Question{{ID: EscalationAnswerID, Type: "single_choice", Question: "How should task " + t.ID + " continue?", Options: answers}},
-		TimeoutSeconds: escalationTimeout, RequestID: "escalation-" + id, UpChain: true})
+		TimeoutSeconds: escalationTimeout, RequestID: "escalation-" + id, UpChain: true,
+		// Core's own escalation: briefed from its template, one topic per agent and reason (people-topics D8, D4).
+		Brief:  escalationBrief(peopleLanguageTx(ctx, tx), reason, t.Assignee, t.Title, w.Summary, answers),
+		People: messaging.PeopleRef{Path: messaging.PathCore, Kind: "escalation", Key: "agent:" + t.Assignee + ":" + reason}})
 	if err != nil {
 		return err
 	}

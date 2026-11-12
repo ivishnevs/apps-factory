@@ -168,7 +168,8 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 			http.Error(w, "invalid attachments or materials", 400)
 			return
 		}
-		v, err := c.Store.ForwardQuestion(ctx, c.companyFrom(r), messageID, run.Spec.Agent, int(version), note, key, atts, mats)
+		brief, _, topic := messaging.PeopleArgs(map[string]any{"brief": args["brief"], "topic": args["topic"]})
+		v, err := c.Store.ForwardQuestion(ctx, c.companyFrom(r), messageID, run.Spec.Agent, int(version), note, key, atts, mats, storage.ForwardPeople{Brief: brief, Topic: topic, Strict: true})
 		reply(w, v, err)
 		return
 	case "factory_message_reply":
@@ -195,13 +196,20 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 	if pName == "factory_owner_ask" {
 		recipient = "owner"
 	}
-	if recipient != "owner" {
+	routedUp := ""
+	if recipient == "owner" && !ownerAllowed(snapshot, current) && pName != "factory_message_send" {
+		// Strict delegation (people-topics D17): an agent that may not bring items to people asks its manager instead.
+		if m := c.escalationTargetIn(c.companyFrom(r), run.Spec.Agent); m != "" && m != "owner" {
+			recipient, routedUp = m, m
+		}
+	}
+	if recipient != "owner" && routedUp == "" {
 		if !c.agentExists(w, c.companyFrom(r), recipient) {
 			return
 		}
 	}
 	for _, a := range []config.Agent{snapshot, current} {
-		found := false
+		found := routedUp != ""
 		for _, v := range a.Spec.Communication.CanMessage {
 			if v == recipient {
 				found = true
@@ -285,7 +293,9 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		http.Error(w, "invalid attachments or materials", 400)
 		return
 	}
-	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: body, Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID, Attachments: atts, Materials: mats})
+	brief, note, topic := messaging.PeopleArgs(args)
+	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: body, Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID, Attachments: atts, Materials: mats,
+		Brief: brief, Note: note, Topic: topic, Strict: true})
 	if err != nil {
 		reply(w, nil, err)
 		return

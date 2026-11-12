@@ -23,7 +23,7 @@ func TestValidateReportsAllProblemsAtOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("guessed arguments accepted")
 	}
-	want := "missing required arguments: reason, request_id; unknown arguments: summary (accepted arguments: artifact_id, artifact_version, audience, blocking, reason, request_id, timeout_seconds)"
+	want := "missing required arguments: reason, request_id; unknown arguments: summary (accepted arguments: artifact_id, artifact_version, audience, blocking, brief, note, reason, request_id, timeout_seconds, topic)"
 	if err.Error() != want {
 		t.Fatalf("got  %q\nwant %q", err, want)
 	}

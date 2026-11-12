@@ -329,7 +329,7 @@ func TestAgentProjectCreateNeedsApproval(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	ask := func(c factorytools.Call, key string) approvals.Approval {
-		w := call(factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": c, "reason": "Start the idea the owner picked", "blocking": false, "request_id": key}})
+		w := call(factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": c, "reason": "Start the idea the owner picked", "blocking": false, "request_id": key, "brief": testBrief()}})
 		var a approvals.Approval
 		if json.Unmarshal(w.Body.Bytes(), &a); w.Code != 200 || a.Status != "PENDING" {
 			t.Fatal(w.Code, w.Body.String())

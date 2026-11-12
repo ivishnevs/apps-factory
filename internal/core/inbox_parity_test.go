@@ -44,7 +44,7 @@ func (h *exitHarness) ownerView() ownerView {
 func (h *exitHarness) askOwner(task, question string) (exitRun, messaging.Message) {
 	h.t.Helper()
 	r := h.start(task)
-	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: map[string]any{"question": question, "options": []any{"Personal team", "Company team"}}}, nil); w.Code != 200 {
+	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: map[string]any{"question": question, "options": []any{"Personal team", "Company team"}, "brief": testBrief()}}, nil); w.Code != 200 {
 		h.t.Fatal(w.Code, w.Body.String())
 	}
 	h.end(r, "succeeded", "accepted")

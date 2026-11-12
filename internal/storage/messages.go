@@ -312,12 +312,24 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 			return m, err
 		}
 	}
+	// Everything that reaches people passes the people gate (people-topics D1): its topic, and the brief its bringer owes.
+	// The brief stays with the message: a question to an agent that later moves to people keeps it (Core's own).
+	m.Brief, m.Note = in.Brief.Trimmed(), in.Note
+	if m.Recipient == "owner" && !in.People.Skip {
+		if m.TopicID, err = toPeople(ctx, tx, gateItem{ref: peopleRef(in, m), project: m.ProjectID, task: m.TaskID, bringer: m.Sender, brief: in.Brief, note: in.Note, topic: in.Topic,
+			strict: in.Strict && !in.People.Composed, messageID: m.ID, options: len(m.Questions) > 0}); err != nil {
+			return m, err
+		}
+		if m.Brief != nil {
+			m.Brief = m.Brief.Trimmed()
+		}
+	}
 	// An agent recipient gets the message as a trigger on its conversation task (hierarchy D5).
 	if err = deliverTx(ctx, tx, &m); err != nil {
 		return m, err
 	}
 	b, _ := json.Marshal(m)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:]), tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO messages(id,project_id,conversation_id,task_id,sender,recipient,message_type,status,delivery_status,version,body,created_at,fingerprint,company_id,topic_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:]), tx.company, m.TopicID); err != nil {
 		return m, err
 	}
 	if err = entityEvent(ctx, tx, "message.created", m.ProjectID, m.ID, m); err != nil {
@@ -650,7 +662,11 @@ func routeUp(tx *Tx, agent, category string) string {
 // ForwardQuestion passes a pending question its recipient cannot decide one level up the chain (hierarchy
 // D3, factory_question_forward); the asking task keeps waiting. The question keeps its attachments and materials;
 // the forwarder may add its own (inbox-visual-previews).
-func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, version int, note, key string, atts []messaging.Attachment, mats []messaging.MaterialRef) (messaging.Message, error) {
+func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, version int, note, key string, atts []messaging.Attachment, mats []messaging.MaterialRef, fwd ...ForwardPeople) (messaging.Message, error) {
+	var fp ForwardPeople
+	if len(fwd) > 0 {
+		fp = fwd[0]
+	}
 	input := struct {
 		From, Note  string
 		Version     int
@@ -662,6 +678,7 @@ func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, v
 		project = m.ProjectID
 	}
 	withA, withM := s.withPreviews(ctx, company, project, atts, mats)
+	people := forwardBrief{brief: fp.Brief, note: fp.Note, topic: fp.Topic, strict: fp.Strict, agent: true}
 	return mutate(ctx, s, company, "message.forward:"+id, key, input, func(tx *Tx) (messaging.Message, error) {
 		m, err := messageTx(ctx, tx, id)
 		if err != nil {
@@ -692,12 +709,30 @@ func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, v
 				return m, inputError(fmt.Sprintf("a question carries at most %d attachments and %d materials", messaging.MaxVisuals, messaging.MaxVisuals))
 			}
 		}
-		return m, forwardTx(ctx, tx, &m, from, "Forwarded by "+from, note)
+		return m, forwardTx(ctx, tx, &m, from, "Forwarded by "+from, note, people)
 	})
 }
 
+// ForwardPeople is the brief of an agent's forward to people (factory_question_forward with brief).
+type ForwardPeople struct {
+	Brief  *messaging.Brief
+	Note   *messaging.ItemNote
+	Topic  string
+	Strict bool
+}
+
+// forwardBrief is what an agent forwarding a question to people writes for them (people-topics D3); strict when an
+// agent forwards it (factory_question_forward), not for Core's timeout forwards.
+type forwardBrief struct {
+	brief  *messaging.Brief
+	note   *messaging.ItemNote
+	topic  string
+	strict bool
+	agent  bool // an agent forwards it (not Core's timeout)
+}
+
 // forwardTx moves a question from its recipient to the recipient's manager.
-func forwardTx(ctx context.Context, tx *Tx, m *messaging.Message, from, label, note string) error {
+func forwardTx(ctx context.Context, tx *Tx, m *messaging.Message, from, label, note string, people forwardBrief) error {
 	to := routeUp(tx, from, m.Category)
 	m.Route = append(m.Route, from)
 	m.Recipient, m.DeliveryRunID, m.DeliveryStatus, m.RoutedAt = to, "", "PENDING", tx.now().Unix()
@@ -706,6 +741,32 @@ func forwardTx(ctx context.Context, tx *Tx, m *messaging.Message, from, label, n
 	}
 	if strings.TrimSpace(note) != "" {
 		m.Body += "\n\n" + label + ": " + note
+	}
+	if to == "owner" {
+		// The question reaches people: the gate (people-topics D1). An agent forwarding it owes the brief; Core's own
+		// question keeps its template; a timeout forward without a brief opens its topic as needing one (D14).
+		ref := messaging.PeopleRef{Path: messaging.PathForward, Kind: "question", HasOptions: len(m.Questions) > 0}
+		bringer, brief, strict := from, people.brief, people.strict
+		switch {
+		case m.Sender == "factory":
+			ref.Path, ref.Kind, bringer, brief, strict = messaging.PathCore, "escalation", "factory", m.Brief, false
+		case !people.agent:
+			ref.Path, bringer, strict = messaging.PathTimeout, "factory", false
+			if brief == nil {
+				brief = m.Brief
+			}
+		}
+		topic, err := toPeople(ctx, tx, gateItem{ref: ref, project: m.ProjectID, task: m.TaskID, bringer: bringer, brief: brief, note: people.note, topic: people.topic, strict: strict, messageID: m.ID})
+		if err != nil {
+			return err
+		}
+		m.TopicID = topic
+		if brief != nil && people.agent {
+			m.Brief = brief.Trimmed()
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE messages SET topic_id=? WHERE company_id=? AND id=?", topic, tx.company, m.ID); err != nil {
+			return err
+		}
 	}
 	if err := deliverTx(ctx, tx, m); err != nil {
 		return err
@@ -752,7 +813,7 @@ func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
 			continue
 		}
 		skipped := m.Recipient
-		if err = forwardTx(ctx, tx, &m, skipped, "Forwarded automatically", skipped+" did not answer within "+after.String()); err != nil {
+		if err = forwardTx(ctx, tx, &m, skipped, "Forwarded automatically", skipped+" did not answer within "+after.String(), forwardBrief{}); err != nil {
 			return n, err
 		}
 		if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "message.auto_forwarded", EntityID: m.ID, ProjectID: m.ProjectID, CreatedAt: tx.now(), TaskID: m.TaskID, Agent: skipped, Summary: "question " + m.ID + " moved from " + skipped + " to " + m.Recipient + " after " + after.String() + " without an answer", Ref: m.ID}); err != nil {
@@ -777,4 +838,23 @@ func inChain(tx *Tx, agent, principal string) bool {
 		}
 	}
 	return false
+}
+
+// peopleRef is what a message to people stands for: the sender's statement, else derived from the message
+// (people-topics D3): Core's questions are briefed from templates, agents' questions are questions, the rest updates.
+func peopleRef(in messaging.Send, m messaging.Message) messaging.PeopleRef {
+	ref := in.People
+	if ref.Path == "" {
+		switch {
+		case (m.Sender == "factory" || m.Sender == "system") && m.MessageType == "question":
+			ref.Path = messaging.PathCore
+		case m.MessageType == "question":
+			ref.Path = messaging.PathQuestion
+		case m.DecisionID != "":
+			ref.Path, ref.Kind, ref.Ref = messaging.PathDecision, "decision", m.DecisionID
+		default:
+			ref.Path = messaging.PathUpdate
+		}
+	}
+	return ref
 }

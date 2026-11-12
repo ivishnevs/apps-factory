@@ -406,7 +406,9 @@ func openQuotaEscalation(ctx context.Context, tx *Tx, key, project, reason strin
 	m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, Sender: "factory", Recipient: "owner", MessageType: "question",
 		Body:           "Escalation " + QuotaPausedReason + " on quota key " + key + ": " + summary + ".\nAnswer wait (claims resume at the reset by themselves) or resume (lift the pause now, e.g. after switching the account).",
 		Questions:      []messaging.Question{{ID: EscalationAnswerID, Type: "single_choice", Question: "Quota key " + key + " hit its limit. How should it continue?", Options: answers}},
-		TimeoutSeconds: timeout, RequestID: "escalation-" + id})
+		TimeoutSeconds: timeout, RequestID: "escalation-" + id,
+		Brief:  escalationBrief(peopleLanguageTx(ctx, tx), QuotaPausedReason, "", key, summary, answers),
+		People: messaging.PeopleRef{Path: messaging.PathCore, Kind: "escalation", Key: "quota:" + key}})
 	if err != nil {
 		return err
 	}

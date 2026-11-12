@@ -57,7 +57,8 @@ func (s *Store) RequestApproval(ctx context.Context, company string, in approval
 			timeout = 86400
 		}
 		a.ExpiresAt = a.CreatedAt + int64(timeout)
-		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: in.ProjectID, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Approval " + a.ID + ": " + in.Reason + "\nExact call: " + string(b), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID})
+		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: in.ProjectID, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Approval " + a.ID + ": " + in.Reason + "\nExact call: " + string(b), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID,
+			Brief: in.Brief, Note: in.Note, Topic: in.Topic, Strict: in.Strict, People: messaging.PeopleRef{Path: messaging.PathCall, Kind: "approval", Ref: a.ID}})
 		if err != nil {
 			return a, err
 		}

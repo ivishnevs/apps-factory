@@ -85,6 +85,7 @@ func TestVisualVerdictInInbox(t *testing.T) {
 			map[string]any{"path": "docs/qa/towers/v2.png", "caption": "v2"},
 		},
 		"request_id": "verdict-v2",
+		"brief":      testBrief(),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +137,7 @@ func TestVisualVerdictInInbox(t *testing.T) {
 
 	// A path in the text without attachments: sent, with the warning.
 	out, err = a.Call(ctx, factorytools.Call{Name: "factory_owner_ask", Arguments: map[string]any{
-		"body": "The image is docs/qa/towers/side_by_side_v2.jpg on that branch, with columns classic | v1 | v2. Ship v2?", "request_id": "verdict-path"}})
+		"body": "The image is docs/qa/towers/side_by_side_v2.jpg on that branch, with columns classic | v1 | v2. Ship v2?", "request_id": "verdict-path", "brief": testBrief()}})
 	if err != nil {
 		t.Fatal(err)
 	}

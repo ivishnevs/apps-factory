@@ -222,7 +222,9 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 		}
 		a.ExpiresAt = a.CreatedAt + int64(timeout)
 		ref, _ := json.Marshal(a.Artifact)
-		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Artifact approval " + a.ID + ": " + in.Reason + "\nExact artifact version: " + string(ref), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID, Materials: shown})
+		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Artifact approval " + a.ID + ": " + in.Reason + "\nExact artifact version: " + string(ref), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID, Materials: shown,
+			// A delegated request is not for people until its delegate escalates it (people-topics D1).
+			Brief: in.Brief, Note: in.Note, Topic: in.Topic, Strict: in.Strict, People: messaging.PeopleRef{Path: messaging.PathArtifact, Kind: "approval", Ref: a.ID, Lineage: in.ArtifactID, Version: in.ArtifactVersion, Skip: a.Delegate != ""}})
 		if err != nil {
 			return a, err
 		}
@@ -249,9 +251,67 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 }
 
 // EscalateApproval hands a delegated approval to people (approval-delegation): it appears in their Inbox.
-func (s *Store) EscalateApproval(ctx context.Context, company, id, agent, reason string) (approvals.Approval, error) {
+func (s *Store) EscalateApproval(ctx context.Context, company, id, agent, reason string, people ...EscalatePeople) (approvals.Approval, error) {
+	var ep EscalatePeople
+	if len(people) > 0 {
+		ep = people[0]
+	}
 	return mutate(ctx, s, company, "approval.escalate:"+id, "", nil, func(tx *Tx) (approvals.Approval, error) {
-		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
+		return escalateApprovalTx(ctx, tx, id, agent, reason, ep)
+	})
+}
+
+// EscalatePeople is what the delegate writes for people when it escalates (people-topics D3, D12); Strict when an
+// agent escalates from a run.
+type EscalatePeople struct {
+	Brief  *messaging.Brief
+	Note   *messaging.ItemNote
+	Topic  string
+	Strict bool
+}
+
+// EscalateApprovals escalates several approvals delegated to agent with one brief (people-topics D12): the first
+// opens or finds the topic with the brief, the others join it with their notes.
+func (s *Store) EscalateApprovals(ctx context.Context, company string, ids []string, agent, reason, key string, ep EscalatePeople, notes map[string]*messaging.ItemNote) ([]approvals.Approval, error) {
+	if len(ids) == 0 || len(ids) > 32 {
+		return nil, inputError("approval_ids: 1 to 32 approvals")
+	}
+	return mutate(ctx, s, company, "approval.escalate_batch:"+agent, key, struct {
+		IDs    []string
+		Reason string
+	}{ids, reason}, func(tx *Tx) ([]approvals.Approval, error) {
+		out := []approvals.Approval{}
+		for i, id := range ids {
+			e := ep
+			if i > 0 {
+				// The rest join the topic the first one found or opened; their notes name them.
+				e.Brief, e.Note = nil, notes[id]
+				if e.Note == nil {
+					e.Note = &messaging.ItemNote{What: ""}
+				}
+			} else if n := notes[id]; n != nil && e.Note == nil {
+				e.Note = n
+			}
+			a, err := escalateApprovalTx(ctx, tx, id, agent, reason, e)
+			if err != nil {
+				return out, err
+			}
+			if i == 0 {
+				m, merr := messageTx(ctx, tx, a.MessageID)
+				if merr != nil {
+					return out, merr
+				}
+				ep.Topic = m.TopicID
+			}
+			out = append(out, a)
+		}
+		return out, nil
+	})
+}
+
+func escalateApprovalTx(ctx context.Context, tx *Tx, id, agent, reason string, ep EscalatePeople) (approvals.Approval, error) {
+	{
+		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", tx.company, id)
 		if err != nil {
 			return a, err
 		}
@@ -265,11 +325,31 @@ func (s *Store) EscalateApproval(ctx context.Context, company, id, agent, reason
 		}
 		m.DelegatedTo = ""
 		m.Body += "\n" + agent + " handed it to you: " + reason
+		// The approval reaches people now: the gate (people-topics D1). The delegate owes the brief.
+		ref := messaging.PeopleRef{Path: messaging.PathArtifact, Kind: "approval", Ref: a.ID}
+		if a.Kind != "artifact" {
+			ref.Path = messaging.PathCall
+		}
+		if a.Artifact != nil {
+			ref.Lineage, ref.Version = a.Artifact.ID, a.Artifact.Version
+		}
+		if m.TopicID, err = toPeople(ctx, tx, gateItem{ref: ref, project: a.ProjectID, task: a.TaskID, bringer: agent, brief: ep.Brief, note: ep.Note, topic: ep.Topic, strict: ep.Strict, messageID: m.ID}); err != nil {
+			return a, err
+		}
+		if ep.Brief != nil {
+			m.Brief = ep.Brief.Trimmed()
+		}
+		if ep.Note != nil && !ep.Note.Empty() {
+			m.Note = ep.Note
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE messages SET topic_id=? WHERE company_id=? AND id=?", m.TopicID, tx.company, m.ID); err != nil {
+			return a, err
+		}
 		if err = saveMessage(ctx, tx, &m, "message.escalated_by_delegate"); err != nil {
 			return a, err
 		}
 		return a, saveApproval(ctx, tx, &a, "approval.escalated")
-	})
+	}
 }
 
 func requiredArtifacts(ctx context.Context, tx *Tx, project string, refs []tasks.Artifact) error {
@@ -383,4 +463,37 @@ func approvedRunArtifacts(ctx context.Context, tx *Tx, spec protocol.RunSpec) (b
 		}
 	}
 	return true, nil
+}
+
+// HandUpApproval passes a delegated approval from its delegate to the delegate's manager (people-topics D17: an agent
+// that may not bring items to people escalates one level up instead).
+func (s *Store) HandUpApproval(ctx context.Context, company, id, from, to, reason string) (approvals.Approval, error) {
+	return mutate(ctx, s, company, "approval.hand_up:"+id+":"+to, "", nil, func(tx *Tx) (approvals.Approval, error) {
+		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", tx.company, id)
+		if err != nil {
+			return a, err
+		}
+		if a.Status != "PENDING" || a.Delegate != from || a.Escalated || to == "" || to == "owner" || to == from {
+			return a, ErrConflict
+		}
+		a.Delegate, a.Setting = to, "handed up by "+from+" (strict delegation)"
+		body := fmt.Sprintf("Approval %s for you to decide: %s may not bring it to people and handed it up: %s\nArtifact: %s. Use factory_approval_decide with approval_id %s and action approve, reject or escalate (escalating to people needs a brief).", a.ID, from, reason, artifactName(a), a.ID)
+		if _, err = sendMessageTx(ctx, tx, messaging.Send{ProjectID: a.ProjectID, Sender: "factory", Recipient: to, MessageType: "review_request", Body: body, RequestID: "hand-up-" + a.ID + "-" + to}); err != nil {
+			return a, err
+		}
+		if m, err := messageTx(ctx, tx, a.MessageID); err == nil {
+			m.DelegatedTo = to
+			if err = saveMessage(ctx, tx, &m, "message.handed_up"); err != nil {
+				return a, err
+			}
+		}
+		return a, saveApproval(ctx, tx, &a, "approval.handed_up")
+	})
+}
+
+func artifactName(a approvals.Approval) string {
+	if a.Artifact == nil {
+		return a.Call.Name
+	}
+	return a.Artifact.ID + " " + a.Artifact.Version
 }

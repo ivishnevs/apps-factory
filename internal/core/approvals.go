@@ -221,6 +221,7 @@ func (c *Core) requestApproval(w http.ResponseWriter, r *http.Request, p factory
 	in.TaskID = run.Spec.TaskID
 	in.RunID = run.Spec.ID
 	in.Call = call
+	in.Strict = kind == "" // an agent's own request owes people its brief (people-topics D3)
 	v, err := c.Store.RequestApproval(r.Context(), c.companyFrom(r), in)
 	reply(w, v, err)
 }

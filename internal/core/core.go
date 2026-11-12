@@ -331,6 +331,12 @@ func reply(w http.ResponseWriter, v any, err error) {
 				"artifact_id": archived.ID, "version": archived.Version, "latest_version": archived.Latest})
 			return
 		}
+		var brief *storage.BriefError
+		if errors.As(err, &brief) {
+			// people-topics D3: what reaches people needs the bringer's brief; nothing was sent.
+			jsonStatus(w, http.StatusBadRequest, map[string]any{"reason": "brief_required", "error": brief.Error(), "missing": brief.Missing, "too_long": brief.TooLong, "joining": brief.Joining, "hint": brief.Hint()})
+			return
+		}
 		var closed *storage.ClosedTaskError
 		if errors.As(err, &closed) {
 			// owner-comments-handled: a comment on a closed task is refused with the two ways on.

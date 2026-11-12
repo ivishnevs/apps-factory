@@ -75,7 +75,7 @@ func TestExactApprovalResumePersistenceAndRevocation(t *testing.T) {
 	if w := call(action); w.Code != 423 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	request := factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": action, "reason": "Approve this exact title change", "blocking": true, "request_id": "ask"}}
+	request := factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": action, "reason": "Approve this exact title change", "blocking": true, "request_id": "ask", "brief": testBrief()}}
 	w := call(request)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
@@ -224,7 +224,7 @@ func TestApprovalRejectedExpiredAndAlwaysMode(t *testing.T) {
 				t.Fatal(e)
 			}
 			action.Arguments["id"] = target.ID
-			w := call("factory_owner_request_approval", map[string]any{"call": action, "reason": "test", "timeout_seconds": 60, "request_id": "ask"})
+			w := call("factory_owner_request_approval", map[string]any{"call": action, "reason": "test", "timeout_seconds": 60, "request_id": "ask", "brief": testBrief()})
 			if w.Code != 200 {
 				t.Fatal("always mode blocked approval request", w.Code, w.Body.String())
 			}

@@ -242,6 +242,21 @@ descriptions and the `brief_required` hint name it, and Core's templates (D8) ex
 Owner 2026-11-12: items open when this ships are not grouped or re-briefed; the owner decides them as they are. They
 render as cleaned `text` (D7), without ids, hashes or JSON.
 
+## D17. Who may bring items to people
+
+The setting exists: an agent reaches people only with `owner` in `spec.communication.can_message` (checked today by
+`owner_ask`, `owner_request_approval`, `artifact_request_approval`, `decision_propose`). Owner 2026-11-12: keep what
+agents do now (a prompt that says "escalate to the owner" is fine), but let a company make delegation strict through
+this setting. Changes:
+
+- An agent without `owner` is **routed to its manager instead of refused**: its question goes to the manager as a
+  question routed up the chain (the manager answers or forwards with a brief); its artifact approval that would go to
+  people goes to its manager as the delegate. The answer says where it went.
+- Its approval request with a delegate no longer needs `owner` (it never reached people).
+- The gate checks the bringer: an item an agent brings to people (escalate, forward) needs `owner` in its
+  `can_message`; without it the escalation goes one level up instead.
+- The team page shows and edits it as "May bring questions and approvals to people" per agent.
+
 ## Risks
 
 - **Wrong grouping.** Version lines before tasks; the bringer can move items (D4).

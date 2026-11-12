@@ -203,7 +203,7 @@ func TestAgentCatalogChangeNeedsApproval(t *testing.T) {
 	if w := call(change); w.Code != 423 || h.c.catalogVersion(storage.DefaultCompany) != 1 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	w := call(factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": change, "reason": "the demo prompt is unclear", "blocking": false, "request_id": "ask-tune"}})
+	w := call(factorytools.Call{Name: "factory_owner_request_approval", Arguments: map[string]any{"call": change, "reason": "the demo prompt is unclear", "blocking": false, "request_id": "ask-tune", "brief": testBrief()}})
 	var a approvals.Approval
 	if json.Unmarshal(w.Body.Bytes(), &a); w.Code != 200 || a.Status != "PENDING" {
 		t.Fatal(w.Code, w.Body.String())

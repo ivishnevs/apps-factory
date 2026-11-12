@@ -105,7 +105,7 @@ func TestArtifactApprovalIsVersionedAndSeparateFromTaskAcceptance(t *testing.T) 
 	if w := tool("factory_artifact_register", map[string]any{"artifact": wrong, "request_id": "rewrite"}); w.Code != 409 {
 		t.Fatal("same version rewritten", w.Code, w.Body.String())
 	}
-	w := tool("factory_artifact_request_approval", map[string]any{"artifact_id": ref.ID, "artifact_version": ref.Version, "reason": "Approve exact mockup version", "request_id": "ask-v1"})
+	w := tool("factory_artifact_request_approval", map[string]any{"artifact_id": ref.ID, "artifact_version": ref.Version, "reason": "Approve exact mockup version", "request_id": "ask-v1", "brief": testBrief()})
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

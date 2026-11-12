@@ -3,6 +3,7 @@ package approvals
 
 import "appfactory/internal/factorytools"
 import "appfactory/internal/tasks"
+import "appfactory/internal/messaging"
 
 type Approval struct {
 	Kind           string            `json:"kind,omitempty"`
@@ -56,6 +57,11 @@ type Request struct {
 	RequestID                       string            `json:"request_id"`
 	// Kind "command" makes a single-use grant for one exact shell argv (command guards); set by Core.
 	Kind string `json:"-"`
+	// What people read (people-topics D3): the requester's brief, note and an explicit topic.
+	Brief  *messaging.Brief    `json:"brief,omitempty"`
+	Note   *messaging.ItemNote `json:"note,omitempty"`
+	Topic  string              `json:"topic,omitempty"`
+	Strict bool                `json:"-"`
 }
 type Decision struct {
 	// DecidedBy and Cites: an agent's decision under delegation (set by Core); empty for people.

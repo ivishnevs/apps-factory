@@ -1,6 +1,9 @@
 // Package artifacts defines immutable version references and owner approval requests.
 package artifacts
 
+import (
+	"appfactory/internal/messaging"
+)
 import "appfactory/internal/tasks"
 
 type Record struct {
@@ -49,4 +52,9 @@ type ApprovalRequest struct {
 	// Delegate and Setting are set by Core from the approval modes (approval-delegation).
 	Delegate string `json:"-"`
 	Setting  string `json:"-"`
+	// What people read when it reaches them (people-topics D3).
+	Brief  *messaging.Brief    `json:"brief,omitempty"`
+	Note   *messaging.ItemNote `json:"note,omitempty"`
+	Topic  string              `json:"topic,omitempty"`
+	Strict bool                `json:"-"`
 }

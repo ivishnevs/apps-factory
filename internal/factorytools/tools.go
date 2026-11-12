@@ -106,7 +106,7 @@ func Definitions() []Tool {
 	add("artifact_list", "artifact.list", "List registered artifact versions in this project.", map[string]any{})
 	add("artifact_get", "artifact.get", "Read an exact artifact version and its latest owner approval decision. A version archived by the project's artifact retention keeps its metadata, its content is gone: the answer's archived note names the latest version to use.", map[string]any{"artifact_id": s(), "artifact_version": s()}, "artifact_id", "artifact_version")
 	add("artifact_request_approval", "artifact.request_approval", "Ask for approval of a registered artifact version (audience internal for the team's own material such as concepts, references and textures; external, the default, for what leaves the company). Depending on the project's approval setting a teammate (the designer, the lead) or people decide it. This approves content, not task acceptance or tool permission. Usually leave blocking false and finish the producing task; downstream tasks can use required_artifacts. If blocking true, finish the turn immediately.", map[string]any{"artifact_id": s(), "artifact_version": s(), "reason": s(), "audience": s(), "blocking": map[string]any{"type": "boolean"}, "timeout_seconds": n, "request_id": s()}, "artifact_id", "artifact_version", "reason", "request_id")
-	add("approval_decide", "approval.decide", "Decide an approval that was delegated to you (you got it as a message): approve or reject with a reason, or escalate to hand it to people when unsure, out of your remit or in conflict with a recorded decision. As a team lead deciding from earlier answers, name the owner's earlier answers or recorded decisions you rely on in cites (message or decision ids, or quotes).", map[string]any{"approval_id": s(), "action": s(), "reason": s(), "cites": arr, "request_id": s()}, "approval_id", "action", "reason", "request_id")
+	add("approval_decide", "approval.decide", "Decide an approval that was delegated to you (you got it as a message): approve or reject with a reason, or escalate to hand it to people when unsure, out of your remit or in conflict with a recorded decision. As a team lead deciding from earlier answers, name the owner's earlier answers or recorded decisions you rely on in cites (message or decision ids, or quotes).", map[string]any{"approval_id": s(), "approval_ids": map[string]any{"type": "array", "items": s(), "description": "Several approvals delegated to you, escalated together with one brief (escalate only); use instead of approval_id."}, "action": s(), "reason": s(), "cites": arr, "request_id": s()}, "action", "reason", "request_id")
 
 	attachment := map[string]any{"type": "object", "properties": map[string]any{"path": s(), "sha256": s(), "size": n, "redacted": map[string]any{"type": "boolean"}}, "required": []string{"path"}, "additionalProperties": false}
 	add("report_create", "report.create", "Persist a significant-action report: what, why, changes, result and any owner action. attachments name files of your worktree ({path}); the node uploads them with known credentials redacted. Identity/task/run come from this run; reports do not block execution or grant approval.", map[string]any{"kind": s(), "summary": s(), "purpose": s(), "changes": arr, "result": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "attachments": map[string]any{"type": "array", "items": attachment}, "needs_owner_action": map[string]any{"type": "boolean"}, "owner_action": s(), "request_id": s()}, "kind", "summary", "purpose", "changes", "result", "request_id")
@@ -128,7 +128,9 @@ func Definitions() []Tool {
 			out[i].InputSchema["properties"].(map[string]any)["cascade"] = map[string]any{"type": "boolean"}
 		}
 	}
-	return append(out, authorityDefinitions()...)
+	out = append(out, authorityDefinitions()...)
+	withPeopleFields(out)
+	return out
 }
 
 // Validate checks required fields, unknown keys and nested JSON types before routing. It reports

@@ -218,6 +218,7 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
 		in.Actor = run.Spec.Agent
+		in.Strict = true
 		var err error
 		if in.Attachments, in.Materials, err = visualArgs(args); err != nil {
 			http.Error(w, "invalid attachments or materials", 400)

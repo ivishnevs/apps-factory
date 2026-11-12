@@ -104,11 +104,15 @@ func journalNotice(ctx context.Context, tx *Tx, project, task, run, actor, body,
 }
 
 // journalNoticeWith is the notice with attachments and materials (a decision proposal's, inbox-visual-previews).
-func journalNoticeWith(ctx context.Context, tx *Tx, project, task, run, actor, body, reportID, decisionID string, atts []messaging.Attachment, mats []messaging.MaterialRef) (messaging.Message, error) {
+func journalNoticeWith(ctx context.Context, tx *Tx, project, task, run, actor, body, reportID, decisionID string, atts []messaging.Attachment, mats []messaging.MaterialRef, people ...messaging.Send) (messaging.Message, error) {
 	if actor == "owner" || actor == "" {
 		actor = "system"
 	}
-	return sendMessageTx(ctx, tx, messaging.Send{ReportID: reportID, DecisionID: decisionID, ProjectID: project, TaskID: task, RunID: run, Sender: actor, Recipient: "owner", MessageType: "review_request", Body: body, RequestID: "notice-" + reportID + decisionID, Attachments: atts, Materials: mats})
+	in := messaging.Send{ReportID: reportID, DecisionID: decisionID, ProjectID: project, TaskID: task, RunID: run, Sender: actor, Recipient: "owner", MessageType: "review_request", Body: body, RequestID: "notice-" + reportID + decisionID, Attachments: atts, Materials: mats}
+	if len(people) > 0 {
+		in.Brief, in.Note, in.Topic, in.People, in.Strict = people[0].Brief, people[0].Note, people[0].Topic, people[0].People, people[0].Strict
+	}
+	return sendMessageTx(ctx, tx, in)
 }
 func closeJournalNotice(ctx context.Context, tx *Tx, id string) error {
 	if id == "" {
@@ -311,7 +315,8 @@ func (s *Store) ProposeDecision(ctx context.Context, company, project string, in
 		for i, a := range d.Alternatives {
 			notice += fmt.Sprintf("\nAlternative %d: %s", i+1, shortText(a, 512))
 		}
-		m, err := journalNoticeWith(ctx, tx, project, d.TaskID, d.RunID, d.CreatedBy, notice, "", d.ID, withA, withM)
+		m, err := journalNoticeWith(ctx, tx, project, d.TaskID, d.RunID, d.CreatedBy, notice, "", d.ID, withA, withM,
+			messaging.Send{Brief: decisionBrief(d, in.Brief), Topic: in.PeopleTopic, Strict: in.Strict, People: messaging.PeopleRef{Path: messaging.PathDecision, Kind: "decision", Ref: d.ID}})
 		if err != nil {
 			return d, err
 		}
@@ -626,4 +631,28 @@ func (s *Store) DecideDecision(ctx context.Context, company, project string, in 
 		}
 		return d, entityEvent(ctx, tx, "decision.decided", project, d.ID, d)
 	})
+}
+
+// decisionBrief is a proposal's brief: its topic, value and rationale, with the proposer's after (people-topics D3).
+func decisionBrief(d decisions.Decision, b *messaging.Brief) *messaging.Brief {
+	out := messaging.Brief{Title: d.Topic, Ask: d.Topic, Recommendation: strings.TrimSpace(d.Value + "\n\n" + d.Rationale)}
+	if b != nil {
+		out.After, out.Scope, out.Context, out.Changes = b.After, b.Scope, b.Context, b.Changes
+		if b.Title != "" {
+			out.Title = b.Title
+		}
+		if b.Ask != "" {
+			out.Ask = b.Ask
+		}
+		if b.Recommendation != "" {
+			out.Recommendation = b.Recommendation
+		}
+	}
+	if r := []rune(out.Title); len(r) > messaging.MaxTitle {
+		out.Title = string(r[:messaging.MaxTitle-1]) + "…"
+	}
+	if r := []rune(out.Ask); len(r) > messaging.MaxAsk {
+		out.Ask = string(r[:messaging.MaxAsk-1]) + "…"
+	}
+	return &out
 }

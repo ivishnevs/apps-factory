@@ -44,7 +44,7 @@ func TestAgentQuestionsInChat(t *testing.T) {
 	if code, out := call(r, "factory_owner_ask", map[string]any{"body": body, "options": profiles, "questions": []any{map[string]any{"id": "x", "type": "text", "question": "x"}}, "request_id": "both"}); code != 400 {
 		t.Fatal(code, out)
 	}
-	code, out := call(r, "factory_owner_ask", map[string]any{"body": body, "options": profiles, "blocking": true, "request_id": "asc-options"})
+	code, out := call(r, "factory_owner_ask", map[string]any{"body": body, "options": profiles, "blocking": true, "request_id": "asc-options", "brief": testBrief()})
 	if code != 200 {
 		t.Fatal(code, out)
 	}
@@ -108,7 +108,7 @@ func TestAgentQuestionsInChat(t *testing.T) {
 
 	// options: [] sends a question that only looks like a choice as free text; the owner may answer a choice in
 	// their own words ("Something else…": the web sends the text without form answers).
-	code, out = call(next, "factory_owner_ask", map[string]any{"body": "Should the build notes mention Android or not?", "options": []any{}, "request_id": "free"})
+	code, out = call(next, "factory_owner_ask", map[string]any{"body": "Should the build notes mention Android or not?", "options": []any{}, "request_id": "free", "brief": testBrief()})
 	if code != 200 {
 		t.Fatal(code, out)
 	}

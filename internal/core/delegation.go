@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"appfactory/internal/approvals"
+	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
+	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
 )
@@ -70,6 +73,45 @@ func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p fact
 	id, _ := p.Arguments["approval_id"].(string)
 	action, _ := p.Arguments["action"].(string)
 	reason, _ := p.Arguments["reason"].(string)
+	brief, note, topic := messaging.PeopleArgs(p.Arguments)
+	var ids []string
+	if list, ok := p.Arguments["approval_ids"].([]any); ok {
+		for _, x := range list {
+			if s, ok := x.(string); ok && strings.TrimSpace(s) != "" {
+				ids = append(ids, s)
+			}
+		}
+	}
+	if len(ids) > 0 {
+		// Several approvals escalated with one brief (people-topics D12).
+		if action != "escalate" || id != "" {
+			http.Error(w, "approval_ids is for escalate only, instead of approval_id", 400)
+			return
+		}
+		for _, x := range ids {
+			a, err := c.Store.Approval(r.Context(), company, x)
+			if err != nil {
+				reply(w, nil, err)
+				return
+			}
+			if a.Delegate != run.Spec.Agent || a.Escalated {
+				http.Error(w, "approval "+x+" is not yours to decide: it waits for people", 403)
+				return
+			}
+		}
+		if strings.TrimSpace(reason) == "" {
+			http.Error(w, "reason required", 400)
+			return
+		}
+		if ag, ok := c.cat(company).Agents[run.Spec.Agent]; ok && !ownerAllowed(ag) {
+			http.Error(w, "you may not bring items to people (owner is not in your can_message): decide them or escalate them one by one, which hands each to your manager", 403)
+			return
+		}
+		key, _ := p.Arguments["request_id"].(string)
+		v, err := c.Store.EscalateApprovals(r.Context(), company, ids, run.Spec.Agent, reason, key, storage.EscalatePeople{Brief: brief, Note: note, Topic: topic, Strict: true}, nil)
+		reply(w, v, err)
+		return
+	}
 	var cites []string
 	if list, ok := p.Arguments["cites"].([]any); ok {
 		for _, x := range list {
@@ -100,9 +142,22 @@ func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p fact
 		http.Error(w, "reason required", 400)
 		return
 	}
+	if action == "escalate" {
+		// Strict delegation (people-topics D17): an agent that may not bring items to people hands it one level up.
+		if ag, ok := c.cat(company).Agents[run.Spec.Agent]; ok && !ownerAllowed(ag) {
+			m := c.escalationTargetIn(company, run.Spec.Agent)
+			if m == "" || m == "owner" {
+				http.Error(w, "you may not bring items to people (owner is not in your can_message): decide it", 403)
+				return
+			}
+			v, err := c.Store.HandUpApproval(r.Context(), company, id, run.Spec.Agent, m, reason)
+			reply(w, v, err)
+			return
+		}
+	}
 	switch action {
 	case "escalate":
-		v, err := c.Store.EscalateApproval(r.Context(), company, id, run.Spec.Agent, reason)
+		v, err := c.Store.EscalateApproval(r.Context(), company, id, run.Spec.Agent, reason, storage.EscalatePeople{Brief: brief, Note: note, Topic: topic, Strict: true})
 		reply(w, v, err)
 		return
 	case "approve", "reject":
@@ -141,3 +196,14 @@ func (c *Core) decisionDelegation(ctx context.Context, company, project, agent, 
 
 // delegationKey carries the approval setting a decision is recorded under (factory_decision_decide by delegation).
 type delegationKey struct{}
+
+// ownerAllowed: both the captured and the current agent may bring items to people (owner in can_message; people-topics
+// D17).
+func ownerAllowed(agents ...config.Agent) bool {
+	for _, a := range agents {
+		if !slices.Contains(a.Spec.Communication.CanMessage, "owner") {
+			return false
+		}
+	}
+	return true
+}

@@ -513,7 +513,8 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			return out, err
 		}
 	case "ask":
-		if err := exitAsk(ctx, tx, runID, agent, &t, str(a, "question"), strs(a, "options"), str(a, "evidence"), str(a, "category")); err != nil {
+		brief, note, topic := messaging.PeopleArgs(a)
+		if err := exitAsk(ctx, tx, runID, agent, &t, str(a, "question"), strs(a, "options"), str(a, "evidence"), str(a, "category"), messaging.Send{Brief: brief, Note: note, Topic: topic, Strict: true}); err != nil {
 			return out, err
 		}
 	case "block":
@@ -570,12 +571,13 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 // exitAsk asks the owner (the manager chain after hierarchy) a blocking question for the task.
 // exitAsk asks the agent's manager (reports_to; the owner at the top and for locked categories), who
 // answers or forwards it up the chain (hierarchy D3).
-func exitAsk(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, question string, options []string, evidence, category string) error {
+func exitAsk(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, question string, options []string, evidence, category string, people messaging.Send) error {
 	body := question
 	if evidence != "" {
 		body += "\n\nEvidence: " + evidence
 	}
-	in := messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: agent, Recipient: routeUp(tx, agent, category), MessageType: "question", Body: body, Blocking: true, RunID: runID, RequestID: "exit-ask-" + runID, Category: category, UpChain: true}
+	in := messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: agent, Recipient: routeUp(tx, agent, category), MessageType: "question", Body: body, Blocking: true, RunID: runID, RequestID: "exit-ask-" + runID, Category: category, UpChain: true,
+		Brief: people.Brief, Note: people.Note, Topic: people.Topic, People: people.People, Strict: people.Strict}
 	if len(options) > 1 {
 		in.Questions = []messaging.Question{{ID: "answer", Type: "single_choice", Question: question, Options: options}}
 	}
@@ -594,7 +596,7 @@ func exitAsk(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, qu
 // escalation already handle them) or on the task's open children; a block that cannot apply becomes an ask.
 func exitBlock(ctx context.Context, tx *Tx, runID, agent string, t *tasks.Task, on []string, children bool, reason string) (string, error) {
 	fallback := func(why string) (string, error) {
-		if err := exitAsk(ctx, tx, runID, agent, t, "I am blocked and cannot wait on what I named ("+why+"): "+reason, nil, "", ""); err != nil {
+		if err := exitAsk(ctx, tx, runID, agent, t, "I am blocked and cannot wait on what I named ("+why+"): "+reason, nil, "", "", messaging.Send{People: messaging.PeopleRef{Path: messaging.PathQuestion, Composed: true}}); err != nil {
 			return "", err
 		}
 		return "block could not apply (" + why + "); asked your manager instead", nil

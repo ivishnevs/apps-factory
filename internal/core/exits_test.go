@@ -621,6 +621,7 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 		t.Helper()
 		h.create(task, "notes", "calorie-ios")
 		r := h.start(task)
+		args["brief"] = testBrief()
 		if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_exit_ask", Arguments: args}, nil); w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
@@ -650,7 +651,7 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	q, _ = h.s.Message(ctx, co, q.ID)
-	if w := h.do(token, "POST", "/agent/call", factorytools.Call{Name: "factory_question_forward", Arguments: map[string]any{"message_id": q.ID, "version": float64(q.Version), "note": "product call", "request_id": "f1"}}, nil); w.Code != 200 {
+	if w := h.do(token, "POST", "/agent/call", factorytools.Call{Name: "factory_question_forward", Arguments: map[string]any{"message_id": q.ID, "version": float64(q.Version), "note": "product call", "request_id": "f1", "brief": testBrief()}}, nil); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	q, _ = h.s.Message(ctx, co, q.ID)

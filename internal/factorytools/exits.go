@@ -57,5 +57,6 @@ func ExitDefinitions() []Tool {
 		map[string]any{"comment_id": s(), "note": s()}, "comment_id", "note")
 	add("factory_task_direct", "task.direct", "Give a directive to a task of this project (managers). An urgent directive stops its running run; the next run starts with it.",
 		map[string]any{"task_id": s(), "text": s(), "urgent": map[string]any{"type": "boolean"}, "request_id": s()}, "task_id", "text", "request_id")
+	withPeopleFields(out)
 	return out
 }

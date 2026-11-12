@@ -8,6 +8,9 @@
 - [ ] 1.4 Route every people-bound create and move through the gate (design "Where we are" table); architecture test
       that nothing else sets recipient owner.
 
+- [ ] 1.5 Strict delegation (D17): an agent without `owner` in `can_message` is routed to its manager instead of
+      refused; approvals with a delegate need no `owner`; the gate checks the bringer; team page toggle.
+
 ## 2. Topics and items
 
 - [ ] 2.1 Items, states, open/settled, reopen by version line within 30 days; `GET /topics`, `GET /topics/{id}` with
