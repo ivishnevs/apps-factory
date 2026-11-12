@@ -173,6 +173,9 @@ spec:
 
 A catalog needs at least one team; team names follow agent names. Agent names stay unique per company.
 
+On the web the team page calls the profile the team's **settings** and the audit assignee **onboarding a
+repository**; both, and the lead, are changed there by owners and admins ([catalog](catalog.md)).
+
 ## Hierarchy
 
 `spec.reports_to` names the agent's manager: another agent of its team, or `owner` (the default), which only the

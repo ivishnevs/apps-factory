@@ -1,4 +1,4 @@
-Status: recorded 2026-11-05 by the owner. Mockup for task 1.1 made 2026-11-12 (https://claude.ai/artifact/KRePSTaBkscYfF2fK8HnsP); waits for the owner approval before implementation.
+Status: implemented 2026-11-12. Recorded 2026-11-05 by the owner; mockup approved by the owner 2026-11-12 (https://claude.ai/artifact/KRePSTaBkscYfF2fK8HnsP).
 
 ## Why
 

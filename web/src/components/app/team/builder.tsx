@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
 import { AgentSecrets } from "@/components/app/team/agent-secrets";
+import { AssignScopeField, MessageTargets } from "@/components/app/team/communication";
 import Link from "@/components/app/link";
 import { ErrorState, LoadingRows } from "@/components/app/page";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, core, useAgentDoc, useAgentPresets, useCatalog, useSetup, useTeamPresets } from "@/lib/api/client";
+import { ApiError, core, useAgentDoc, useAgentPresets, useCatalog, useSetup, useTeamPresets, useTeams } from "@/lib/api/client";
 import type { TeamView } from "@/lib/api/types-catalog";
 import type { AgentDoc, AgentOverrides, AgentPreset, AgentSpec, Setup } from "@/lib/api/types-presets";
 import { runsError, windowError } from "@/lib/run-kinds";
@@ -24,17 +25,19 @@ import { useQueryClient } from "@tanstack/react-query";
 // The team builder's pieces (team-builder 5.x, saas-web 3.x): every write goes to Core's team builder routes on the
 // catalog version the page read; a newer version (409) asks to reload; a refusal names its field.
 
-const fieldError = (e: unknown, field: string) => (e instanceof ApiError && e.field === field ? e.message : null);
-const formError = (e: unknown) => (e instanceof ApiError && !e.field ? e.message : e && !(e instanceof ApiError) ? String(e) : null);
+export const fieldError = (e: unknown, field: string) => (e instanceof ApiError && e.field === field ? e.message : null);
+export const formError = (e: unknown) => (e instanceof ApiError && !e.field ? e.message : e && !(e instanceof ApiError) ? String(e) : null);
 
-function Field({ label, error, children, hint }: { label: string; error?: string | null; children: React.ReactNode; hint?: string }) {
+// Field labels one input; group (a set of controls) is a div, so a click on its text toggles nothing.
+export function Field({ label, error, children, hint, group }: { label: string; error?: string | null; children: React.ReactNode; hint?: string; group?: boolean }) {
+  const Tag = group ? "div" : "label";
   return (
-    <label className="block space-y-1.5 text-sm">
+    <Tag className="block space-y-1.5 text-sm" {...(group ? { role: "group", "aria-label": label } : {})}>
       <span className="font-medium">{label}</span>
       {children}
       {hint && !error && <span className="block text-xs text-muted-foreground">{hint}</span>}
       {error && <span className="block text-xs text-red-600 dark:text-red-400">{error}</span>}
-    </label>
+    </Tag>
   );
 }
 
@@ -89,7 +92,7 @@ export function NewTeamSheet({ open, onClose, initialPreset }: { open: boolean; 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
-        <SheetHeader><SheetTitle>New team</SheetTitle><SheetDescription>A copy of a preset: its agents, prompts, profile and policies become your team&apos;s documents.</SheetDescription></SheetHeader>
+        <SheetHeader><SheetTitle>New team</SheetTitle><SheetDescription>A copy of a preset: its agents, prompts, team settings and policies become your team&apos;s documents. Its lead gets your messages that name no one.</SheetDescription></SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
           {presets.isLoading ? <LoadingRows /> : presets.error ? <ErrorState error={presets.error} /> : (
             <ul className="grid gap-2 sm:grid-cols-2">
@@ -121,6 +124,7 @@ const providers = [{ v: "", l: "Team default" }, { v: "claude", l: "Claude" }, {
 
 function OverridesFields({ value, onChange, team, error, presetPrompt }: { value: AgentOverrides; onChange: (v: AgentOverrides) => void; team: TeamView; error: unknown; presetPrompt?: string }) {
   const managers = ["owner", ...team.agents.map((a) => a.name)];
+  const teams = useTeams().data?.teams ?? [team];
   return (
     <>
       <Field label="Description" error={fieldError(error, "description")}><Input value={value.description ?? ""} onChange={(e) => onChange({ ...value, description: e.target.value })} /></Field>
@@ -131,10 +135,10 @@ function OverridesFields({ value, onChange, team, error, presetPrompt }: { value
             <SelectContent>{managers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
-        <Field label="May message" error={fieldError(error, "can_message")} hint="Comma separated agents (or owner)">
-          <Input value={(value.can_message ?? []).join(", ")} onChange={(e) => onChange({ ...value, can_message: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
-        </Field>
       </div>
+      <Field group label="May message" error={fieldError(error, "can_message")}>
+        <MessageTargets value={value.can_message ?? []} onChange={(v) => onChange({ ...value, can_message: v })} team={team} teams={teams} />
+      </Field>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Runtime" error={fieldError(error, "provider")}>
           <Select value={value.provider ?? ""} onValueChange={(v) => onChange({ ...value, provider: v === "_" ? "" : v })}>
@@ -279,8 +283,8 @@ export function RunKindFields({ value, onChange, error }: { value: RunKindInputs
     <section className="space-y-3 rounded-xl border p-3">
       <p className="text-sm font-medium">Runs</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Work runs at a time" error={err("max_concurrent_runs")} hint="Tasks it works on in parallel; empty keeps its profile's, else its role's default (company concurrency)">
-          <Input inputMode="numeric" value={value.work} placeholder="profile" onChange={(e) => onChange({ ...value, work: e.target.value })} />
+        <Field label="Work runs at a time" error={err("max_concurrent_runs")} hint="Tasks it works on in parallel; empty keeps the team settings', else its role's default (company concurrency)">
+          <Input inputMode="numeric" value={value.work} placeholder="team settings" onChange={(e) => onChange({ ...value, work: e.target.value })} />
         </Field>
         <Field label="Conversation runs at a time" error={err("conversation_max_runs")} hint="Across projects; empty: no cap (one per project). Conversations never wait for work.">
           <Input inputMode="numeric" value={value.conversation} placeholder="no cap" onChange={(e) => onChange({ ...value, conversation: e.target.value })} />
@@ -307,6 +311,7 @@ export function RunKindFields({ value, onChange, error }: { value: RunKindInputs
 // AgentFormSheet edits an agent as fields (and its prompt), shows its preset's update and deletes it.
 export function AgentFormSheet({ name, team, onClose }: { name: string | null; team: TeamView; onClose: () => void }) {
   const doc = useAgentDoc(name);
+  const teams = useTeams().data?.teams ?? [team];
   const refresh = useRefresh();
   const confirm = useConfirm();
   const [draft, setDraft] = useState<AgentDoc | null>(null);
@@ -378,10 +383,15 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                     <SelectContent>{managers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
                   </Select>
                 </Field>
-                <Field label="May message" error={fieldError(error, "can_message")}>
-                  <Input value={(spec.communication?.can_message ?? []).join(", ")} onChange={(e) => set((d) => { d.agent.spec.communication = { ...d.agent.spec.communication, can_message: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }; })} />
-                </Field>
               </div>
+              <Field group label="May message" error={fieldError(error, "can_message")}>
+                <MessageTargets value={spec.communication?.can_message ?? []} self={name} team={team} teams={teams}
+                  onChange={(v) => set((d) => { d.agent.spec.communication = { ...d.agent.spec.communication, can_message: v }; })} />
+              </Field>
+              <Field group label="Gives tasks to" error={fieldError(error, "can_assign_tasks")}>
+                <AssignScopeField value={spec.communication?.can_assign_tasks} self={name} team={team}
+                  onChange={(v) => set((d) => { d.agent.spec.communication = { ...d.agent.spec.communication, can_assign_tasks: v }; })} />
+              </Field>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Runtime" error={fieldError(error, "provider")}>
                   <Select value={spec.runtime?.provider || "_"} onValueChange={(v) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, provider: v === "_" ? undefined : v }; })}>
@@ -397,7 +407,7 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                 <Textarea value={draft.prompt} onChange={(e) => set((d) => { d.prompt = e.target.value; })} className="min-h-56 font-mono text-xs" spellCheck={false} />
               </Field>
               <AgentSecrets name={name} onSaved={(version, secrets) => set((d) => { d.base = version; d.agent.spec.secrets = secrets.length ? secrets : undefined; })} />
-              <p className="text-xs text-muted-foreground">Skills of this document: {(spec.skills?.include ?? []).join(", ") || "none (its profile may add some)"} — change them with Skills on the agent&apos;s card. Anything else: the document in the YAML editor.</p>
+              <p className="text-xs text-muted-foreground">Skills of this document: {(spec.skills?.include ?? []).join(", ") || "none (the team settings may add some)"} — change them with Skills on the agent&apos;s card. Anything else: the document in the YAML editor.</p>
               {formError(error) && <ErrorState error={formError(error)} />}
               <div className="flex flex-wrap gap-2">
                 <Button className="h-10" disabled={busy} onClick={save}>Save</Button>

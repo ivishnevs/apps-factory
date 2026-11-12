@@ -49,6 +49,20 @@ factory catalog history | rollback VERSION [NOTE]
 The web UI's Team page shows the team, edits any document (a diff before saving, validation, the loader's
 refusal at the document) and lists the history with rollback.
 
+The Team page explains how the team runs (team-page-clarity): the **lead** (required, one: gets the owner's messages
+that name no one, plans and hands out the work), **onboarding a repository** (optional: the agent that reads an
+added existing repository first; the lead unless another agent is picked) and the **team settings** (the team
+profile every agent starts from: subscription, model, tasks at once, run time limit, code review, and how many
+agents override them). Owners and admins change the lead, the onboarding agent and the settings there:
+`PUT /catalog/teams/{name}` `{base, lead, audit_assignee, settings: {provider, model, quota_key,
+max_concurrent_runs, timeout}}` (omitted parts stay; an empty settings field inherits again; a team without a
+profile gets `<team>-agent`). A new lead takes the old lead's place: it reports to the owner, the old lead's
+reports and the old lead report to it. "Who does what" lists each agent's job, manager, reviewer, whom it may
+message and give tasks to, and what it is doing now; the agent's form edits `can_message` (agents of other teams;
+its own team and the owner are always allowed) and `can_assign_tasks` (no one, direct reports, everyone below it or
+chosen agents) as a catalog change. `GET /catalog/teams` carries `settings` per team and `assign_scope` and
+`can_message` per agent.
+
 Agents read the catalog with `factory_catalog_get` and propose changes with `factory_catalog_change`
 `{base, put, delete, note, request_id}`: it always needs the owner's approval of that exact call
 (`factory_owner_request_approval`), and the saved version records the agent as author.

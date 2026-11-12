@@ -341,7 +341,7 @@ function catalogItem(p: string): string {
   if (p.startsWith("prompts/")) return `the prompt of ${name}`;
   if (/(^|\/)agents\//.test(p)) return `agent ${name}`;
   if (/(^|\/)teams\//.test(p)) return `team ${name}`;
-  if (/(^|\/)profiles\//.test(p)) return `shared settings ${name}`;
+  if (/(^|\/)profiles\//.test(p)) return `team settings ${name}`;
   if (/(^|\/)policies\//.test(p)) return `rules ${name}`;
   if (/skills\.ya?ml$/.test(p)) return "the company's skills";
   if (/quota_keys\.ya?ml$/.test(p)) return "the company's subscriptions";

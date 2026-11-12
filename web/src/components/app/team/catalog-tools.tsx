@@ -18,7 +18,7 @@ const entityWord = (p: string) => {
   if (p.startsWith("prompts/")) return `prompt of ${name}`;
   if (p.includes("/agents/")) return `agent ${name}`;
   if (p.includes("/teams/")) return `team ${name}`;
-  if (p.includes("/profiles/")) return `shared settings ${name}`;
+  if (p.includes("/profiles/")) return `team settings ${name}`;
   if (p.includes("/policies/")) return `rules ${name}`;
   return name;
 };
