@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -29,6 +30,8 @@ type Store interface {
 	Exists(ctx context.Context, company, sha string) (bool, error)
 	// Delete removes a blob (artifact-retention: content no live reference uses); a missing blob is no error.
 	Delete(ctx context.Context, company, sha string) error
+	// DeleteCompany removes every blob of company (saas-release-readiness 4.2: a deleted company's data).
+	DeleteCompany(ctx context.Context, company string) error
 }
 
 var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -126,6 +129,13 @@ func (l LocalFS) Delete(ctx context.Context, c, sha string) error {
 	return nil
 }
 
+func (l LocalFS) DeleteCompany(ctx context.Context, c string) error {
+	if err := check(c, ""); err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(l.Root, c))
+}
+
 // Memory is an in-process Store for tests and tools; its contents vanish with the process.
 type Memory struct {
 	mu sync.Mutex
@@ -180,5 +190,19 @@ func (m *Memory) Delete(ctx context.Context, c, sha string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.m, c+"/"+sha)
+	return nil
+}
+
+func (m *Memory) DeleteCompany(ctx context.Context, c string) error {
+	if err := check(c, ""); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k := range m.m {
+		if strings.HasPrefix(k, c+"/") {
+			delete(m.m, k)
+		}
+	}
 	return nil
 }

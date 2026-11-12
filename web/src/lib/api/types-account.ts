@@ -11,6 +11,9 @@ export interface Me {
   companies: Membership[];
   last_company?: string;
   multi_company: boolean;
+  // saas-release-readiness: the support address (FACTORY_SUPPORT_EMAIL) and the operator's status note, when set.
+  support_email?: string;
+  status_note?: string;
 }
 
 export interface CompanyInfo { id: string; name: string; role: Role; multi_company: boolean }

@@ -33,7 +33,7 @@ function SignIn() {
     queryFn: async () => {
       const res = await fetch("/auth/providers", { credentials: "same-origin" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return (await res.json()) as { providers: string[] };
+      return (await res.json()) as { providers: string[]; status_note?: string };
     },
     retry: false,
   });
@@ -47,7 +47,8 @@ function SignIn() {
           <h1 className="text-2xl font-semibold tracking-tight">Sign in to App Factory</h1>
           <p className="text-sm text-muted-foreground">Your AI company at work. New here? Signing in creates your company.</p>
         </div>
-        {params.get("expired") && <Alert className="mb-4"><AlertDescription>Your session ended. Sign in again to continue.</AlertDescription></Alert>}
+        {providers.data?.status_note && <Alert className="mb-4"><AlertDescription>{providers.data.status_note}</AlertDescription></Alert>}
+        {params.get("expired") &&<Alert className="mb-4"><AlertDescription>Your session ended. Sign in again to continue.</AlertDescription></Alert>}
         {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{errors[error] ?? "The sign-in did not work. Please try again."}</AlertDescription></Alert>}
         <div className="flex flex-col gap-3">
           {providers.isLoading && <><Skeleton className="h-11" /><Skeleton className="h-11" /></>}

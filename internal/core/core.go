@@ -39,8 +39,8 @@ type Core struct {
 	// Teams are the catalog's teams (company-teams D2) when Core serves its catalog from files: the owner's
 	// unaddressed messages go to a team's lead, onboarding audits to its audit assignee.
 	Teams map[string]config.Team
-	// enrollLimit limits the tokenless enroll route (node-identity D3).
-	enrollLimit enrollLimiter
+	// limits are the public routes' rate limits (ratelimit.go; node-identity D3, saas-release-readiness 2.3).
+	limits publicLimits
 	// signatures is the node gateway's memory (node-identity D4).
 	signatures signatureState
 	// lastStallSweep is touched only by the tick goroutine.
@@ -77,6 +77,8 @@ type Core struct {
 	SignupTemplate string
 	// Billing is how this Core charges (saas-billing, FACTORY_BILLING); the zero value is off: no plan limits.
 	Billing BillingConfig
+	// SupportEmail is the support address shown on the landing and in the app (FACTORY_SUPPORT_EMAIL); empty: none.
+	SupportEmail string
 }
 
 type companyKey struct{}
@@ -147,6 +149,8 @@ func (c *Core) Handler() http.Handler {
 	c.presetRoutes(m)
 	c.billingRoutes(m)
 	c.supportRoutes(m)
+	c.dataRoutes(m)
+	c.statusNoteRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil {
@@ -217,6 +221,10 @@ func (c *Core) Handler() http.Handler {
 		reply(w, map[string]bool{"ok": true}, c.Store.Resolve(r.Context(), c.companyFrom(r), r.PathValue("id"), p.Answer, p.Result))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The routes served without a credential are rate limited (saas-release-readiness 2.3).
+		if c.rateLimited(w, r) {
+			return
+		}
 		if r.URL.Path == "/agent/tools" || r.URL.Path == "/agent/call" || r.URL.Path == "/agent/command" || exitPath(r.URL.Path) || strings.HasPrefix(r.URL.Path, "/agent/blobs") {
 			c.agentGateway(w, r, m)
 			return

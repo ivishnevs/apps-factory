@@ -10,8 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"appfactory/internal/nodesig"
 	"appfactory/internal/storage"
@@ -21,33 +19,11 @@ import (
 // holds no credential yet when it enrolls, so POST /nodes/enroll and its status route are served before the token
 // gate, with a proof by the node's new key instead.
 
+// The enroll and connect routes' limits per minute (rate class "enroll", ratelimit.go).
 const (
 	enrollPerAddressPerMinute = 10
 	enrollPerMinute           = 120
 )
-
-// enrollLimiter limits the tokenless enroll route per address and overall. Forwarded addresses can be forged, so the
-// overall limit is what holds; a code has 128 random bits, so this protects Core, not the codes.
-type enrollLimiter struct {
-	mu     sync.Mutex
-	minute int64
-	total  int
-	byAddr map[string]int
-}
-
-func (l *enrollLimiter) allow(addr string, now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if m := now.Unix() / 60; m != l.minute || l.byAddr == nil {
-		l.minute, l.total, l.byAddr = m, 0, map[string]int{}
-	}
-	if l.total >= enrollPerMinute || l.byAddr[addr] >= enrollPerAddressPerMinute {
-		return false
-	}
-	l.total++
-	l.byAddr[addr]++
-	return true
-}
 
 func clientAddress(r *http.Request) string {
 	if f, _, ok := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); ok || f != "" {
@@ -190,10 +166,6 @@ func enrollmentAnswer(k storage.NodeKey) NodeEnrollmentAnswer {
 }
 
 func (c *Core) enrollNode(w http.ResponseWriter, r *http.Request) {
-	if !c.enrollLimit.allow(clientAddress(r), c.Store.Now()) {
-		http.Error(w, "too many enrollment requests: try again in a minute", http.StatusTooManyRequests)
-		return
-	}
 	var in storage.EnrollRequest
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
 	d.DisallowUnknownFields()

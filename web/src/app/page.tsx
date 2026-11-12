@@ -18,6 +18,18 @@ function useSignedIn() {
   return me;
 }
 
+// usePublic reads what Core shows before sign-in (saas-release-readiness 2.4, 4.3): the support address, when
+// FACTORY_SUPPORT_EMAIL is set, and the operator's status note.
+function usePublic() {
+  const [info, setInfo] = useState<{ support_email?: string; status_note?: string }>({});
+  useEffect(() => {
+    fetch("/auth/providers", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((v) => setInfo(v ?? {}), () => setInfo({}));
+  }, []);
+  return info;
+}
+
 const steps = [
   { icon: Users, title: "Pick a team", text: "A product owner, developers, QA, a designer — from presets you can tune: prompts, models, skills." },
   { icon: Cpu, title: "Connect your machine", text: "One command installs the node. Agents run there, on your Claude and Codex subscriptions." },
@@ -33,9 +45,11 @@ const pricing = [
 
 export default function Landing() {
   const me = useSignedIn();
+  const info = usePublic();
   const company = me ? (me.last_company && me.companies.some((c) => c.company === me.last_company) ? me.last_company : me.companies[0].company) : "";
   return (
     <div className="min-h-dvh">
+      {info.status_note && <div role="status" className="bg-amber-500 px-4 py-1.5 text-center text-sm font-medium text-black">{info.status_note}</div>}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-8">
         <span className="flex items-center gap-2 font-semibold"><span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Bot className="size-4" /></span>App Factory</span>
         {me ? (
@@ -85,7 +99,9 @@ export default function Landing() {
           </div>
         </section>
       </main>
-      <footer className="border-t py-6 text-center text-xs text-muted-foreground">App Factory · <a href="/security" className="underline-offset-4 hover:underline">Security</a></footer>
+      <footer className="border-t py-6 text-center text-xs text-muted-foreground">App Factory · <a href="/security" className="underline-offset-4 hover:underline">Security</a>
+        {info.support_email && <> · Support: <a href={`mailto:${info.support_email}`} className="underline-offset-4 hover:underline">{info.support_email}</a></>}
+      </footer>
     </div>
   );
 }
