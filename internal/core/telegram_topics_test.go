@@ -12,7 +12,8 @@ import (
 )
 
 // TestTelegramTopicApprovals (people-topics D10): an artifact approval reaches Telegram as a topic item with the
-// brief and an Approve button; a reply rejects it with the reason; a newer version brought to the same topic retires
+// brief and Approve, Changes… and Reject buttons (one version is the same card as a choice: artifact-choice-approvals);
+// a reply asks for changes with its text; a newer version brought to the same topic retires
 // the old message (its buttons go, a note says what replaced it) and arrives itself.
 func TestTelegramTopicApprovals(t *testing.T) {
 	th := newTelegramHarness(t)
@@ -32,15 +33,18 @@ func TestTelegramTopicApprovals(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 	markup, _ := json.Marshal(th.bot.last()["reply_markup"])
-	if !strings.Contains(string(markup), `"text":"Approve"`) {
-		t.Fatal(string(markup))
+	// One version is the same card as a choice (artifact-choice-approvals): Approve, Changes… and Reject.
+	for _, b := range []string{`"text":"Approve"`, `"text":"Changes…"`, `"text":"Reject"`} {
+		if !strings.Contains(string(markup), b) {
+			t.Fatal(string(markup))
+		}
 	}
 	sent := th.bot.last()["message_id"].(int64)
-	// A reply rejects with the reason.
+	// A reply asks for changes with its text.
 	th.bot.push(telegram.Update{UpdateID: 31, Message: &telegram.Message{MessageID: 3031, Chat: telegram.Chat{ID: 4242}, Text: "no tap to play", ReplyTo: &telegram.Message{MessageID: sent}}})
 	th.tick()
 	list, _ := th.s.Approvals(ctx, storage.DefaultCompany, "notes")
-	if len(list) != 1 || list[0].Status != "REJECTED" || list[0].DecisionReason != "no tap to play" {
+	if len(list) != 1 || list[0].Status != "CHANGES_REQUESTED" || list[0].DecisionReason != "no tap to play" {
 		t.Fatalf("%+v", list)
 	}
 	// v4 joins the topic with what changed: the v3 message is retired, v4 arrives.

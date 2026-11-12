@@ -187,9 +187,6 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 			return m.openDetail(msg.TaskID)
 		}
 	case "v":
-		if isApproval && ap.Artifact != nil {
-			return m.previewArtifact(ap)
-		}
 		// artifact-links: the artifacts a message carries, one per press.
 		var arts []messaging.MaterialRef
 		for _, r := range msg.Materials {
@@ -298,23 +295,8 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 	}
 	lines = append(lines, visualLines(msg, w)...)
 	if ap, ok := m.approvalOf(msg); ok && ap.Choice() {
+		// Every artifact approval: one card, one option shown compactly (artifact-choice-approvals).
 		lines = append(lines, m.choiceLines(ap, w)...)
-	} else if ap, ok := m.approvalOf(msg); ok && ap.Artifact != nil {
-		a := ap.Artifact
-		lines = append(lines, "", stFaint.Render("artifact ")+stMagenta.Bold(true).Render(a.ID)+" "+stBold.Render(a.Version)+stFaint.Render(" · "+dash(a.Name)))
-		if a.Size > 0 {
-			lines = append(lines, stFaint.Render("content  ")+fmt.Sprintf("%s · sha256 %s", byteSize(a.Size), clip(a.SHA256, 12)))
-		} else {
-			lines = append(lines, stFaint.Render("uri      ")+a.URI)
-		}
-		if ap.Reason != "" {
-			lines = append(lines, stFaint.Render("reason   ")+ap.Reason)
-		}
-		lines = append(lines, stFaint.Render("expires  ")+"in "+until(now, time.Unix(ap.ExpiresAt, 0)), "")
-		view := lipgloss.NewStyle().Background(theme.magenta).Foreground(theme.onAccent).Bold(true).Render(" v  preview ")
-		yes := lipgloss.NewStyle().Background(theme.green).Foreground(theme.onAccent).Bold(true).Render(" y  approve ")
-		no := lipgloss.NewStyle().Background(theme.red).Foreground(theme.onAccent).Bold(true).Render(" n  reject ")
-		lines = append(lines, view+"  "+yes+"  "+no)
 	} else if ap, ok := m.approvalOf(msg); ok {
 		lines = append(lines, "", stFaint.Render("call     ")+stMagenta.Bold(true).Render(ap.Call.Name))
 		if ap.Call.Name == "factory_project_create" {

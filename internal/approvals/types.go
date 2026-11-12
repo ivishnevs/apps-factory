@@ -44,8 +44,10 @@ type Approval struct {
 	CommentID string `json:"comment_id,omitempty"`
 	// Comment is that comment's handling, filled on read (never stored).
 	Comment *CommentState `json:"comment,omitempty"`
-	// A choice approval (artifact-choice-approvals) is one approval over 2–6 Options, numbered from 1; Artifact is
-	// empty until one is chosen, then it is the chosen option's version (the approved one). Recommended is the
+	// Every artifact approval (artifact-choice-approvals, one approval model) is a choice of 1–6 Options, numbered
+	// from 1: a request for one version is an approval with one option, and approving it is choosing that option.
+	// Artifact is the approval's version: the only option of a one-option approval from the start; with several
+	// options empty until one is chosen, then the chosen option's version (the approved one). Recommended is the
 	// requester's recommendation, Chosen the chosen option (0: none) and ChangesOn the options a request for changes
 	// names (status CHANGES_REQUESTED).
 	Options     []Option `json:"options,omitempty"`
@@ -54,17 +56,18 @@ type Approval struct {
 	ChangesOn   []int    `json:"changes_on,omitempty"`
 }
 
-// Choice approval decisions and statuses (artifact-choice-approvals).
+// Artifact approval decisions and statuses (artifact-choice-approvals): the same for every number of options.
 const (
 	ActionChoose  = "choose"  // choose one option (Decision.Option); the comment is optional
+	ActionApprove = "approve" // approving a one-option approval: choosing its only option
 	ActionChanges = "changes" // ask for changes (Decision.Reason is what to change; Decision.Options which options)
 	ActionReject  = "reject"  // reject all (Decision.Reason)
 	// StatusChanges: people (or the delegate) asked for changes; no option is approved.
 	StatusChanges = "CHANGES_REQUESTED"
 	// NotChosen is the state of an option of an approved choice that was not chosen: not approved, not rejected.
 	NotChosen = "NOT_CHOSEN"
-	// MinOptions and MaxOptions bound a choice approval.
-	MinOptions = 2
+	// MinOptions and MaxOptions bound an artifact approval's options.
+	MinOptions = 1
 	MaxOptions = 6
 )
 
@@ -79,8 +82,12 @@ type Option struct {
 	DroppedBy string `json:"dropped_by,omitempty"`
 }
 
-// Choice tells whether a is a choice approval.
+// Choice tells whether a is an artifact approval: a choice of its options (one or more). Action and command
+// approvals of tool calls have none and are approved or rejected.
 func (a Approval) Choice() bool { return len(a.Options) > 0 }
+
+// Single tells whether a is an artifact approval of one version: people see it as Approve, Ask for changes, Reject.
+func (a Approval) Single() bool { return len(a.Options) == 1 }
 
 // OptionOf is the number (from 1) of the option that is artifact id at version, 0 when none is.
 func (a Approval) OptionOf(id, version string) int {
@@ -100,12 +107,16 @@ func (a Approval) StatusOf(id, version string) string {
 	return a.Status
 }
 
-// OptionName names option n (from 1) for people and agents: its label and version ("V2 (lens@2)").
+// OptionName names option n (from 1) for people and agents: its label and version ("V2 (lens@2)"), or the version
+// alone when it has no label (the only option of a one-version request may have none).
 func (a Approval) OptionName(n int) string {
 	if n < 1 || n > len(a.Options) {
 		return fmt.Sprintf("option %d", n)
 	}
 	o := a.Options[n-1]
+	if o.Label == "" {
+		return o.Artifact.ID + "@" + o.Artifact.Version
+	}
 	return o.Label + " (" + o.Artifact.ID + "@" + o.Artifact.Version + ")"
 }
 
@@ -130,7 +141,7 @@ func (a Approval) ResolveOption(ref any) (int, error) {
 			return a.ResolveOption(i)
 		}
 		for i, o := range a.Options {
-			if strings.EqualFold(o.Label, s) || o.Artifact.ID+"@"+o.Artifact.Version == s {
+			if o.Label != "" && strings.EqualFold(o.Label, s) || o.Artifact.ID+"@"+o.Artifact.Version == s {
 				return i + 1, nil
 			}
 		}

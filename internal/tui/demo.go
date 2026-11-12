@@ -180,6 +180,8 @@ func DemoFixture() Fixture {
 		Body: "Approve the release notes v2 for Project 2?", Status: "PENDING", Version: 1, CreatedAt: unix(8)}
 	artApproval := approvals.Approval{ID: "ap-2", Kind: "artifact", ProjectID: "project-2", Agent: "designer", TaskID: "P2-4", RunID: "r-des-5", MessageID: "m-appr-2", Status: "PENDING", Version: 1, CreatedAt: unix(8), ExpiresAt: at.Add(48 * time.Hour).Unix(),
 		Reason: "the wording the release 1.2 announcement uses", Artifact: &tasks.Artifact{ID: "release-notes", Version: "v2", URI: "factory://artifacts/release-notes/v2", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(notes)), Name: "release-notes.md"}}
+	// One version is an approval with one option (artifact-choice-approvals).
+	artApproval.Options = []approvals.Option{{Artifact: *artApproval.Artifact}}
 	f.Artifacts = map[string]string{"project-2/release-notes/v2": notes}
 	// pm asks to create a project (factory_project_create always needs the owner's approval of the exact call).
 	projMsg := messaging.Message{ID: "m-appr-3", ProjectID: "project-1", TaskID: "P1-1", Sender: "pm", Recipient: "owner", ConversationID: "owner-pm-project-1", MessageType: "question", ApprovalID: "ap-3",

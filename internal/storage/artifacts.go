@@ -201,80 +201,6 @@ func (s *Store) ArtifactApproval(ctx context.Context, company, project, id, vers
 	}
 	return a, err
 }
-func (s *Store) RequestArtifactApproval(ctx context.Context, company, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
-	if len(in.Options) == 1 && in.ArtifactID == "" && in.ArtifactVersion == "" {
-		// One option is the yes/no approval of that version (artifact-choice-approvals).
-		in.ArtifactID, in.ArtifactVersion, in.Options = in.Options[0].ArtifactID, in.Options[0].ArtifactVersion, nil
-	}
-	if len(in.Options) > 0 {
-		return s.requestChoiceApproval(ctx, company, project, in)
-	}
-	// The question shows the version itself (inbox-visual-previews), in the chat and in Telegram too.
-	_, shown := s.withPreviews(ctx, company, project, nil, []messaging.MaterialRef{{ArtifactID: in.ArtifactID, ArtifactVersion: in.ArtifactVersion}})
-	return mutate(ctx, s, company, "artifact.approval:"+project+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
-		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix(),
-			Audience: in.Audience, Delegate: in.Delegate, Setting: in.Setting}
-		if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 || in.Agent == "" || in.Agent == "owner" || in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*86400 {
-			return a, inputError("agent, reason, request_id and bounded timeout required")
-		}
-		record, err := artifactVersionTx(ctx, tx, project, in.ArtifactID, in.ArtifactVersion)
-		if err != nil {
-			return a, err
-		}
-		if record.ArchivedAt > 0 {
-			return a, inputError(tx.store.archivedError(ctx, tx.company, project, record).Error())
-		}
-		a.Artifact = &record.Artifact
-		old, err := artifactApprovalTx(ctx, tx, project, in.ArtifactID, in.ArtifactVersion)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return a, err
-		}
-		if st := old.StatusOf(in.ArtifactID, in.ArtifactVersion); err == nil && (st == "PENDING" || st == "APPROVED") {
-			// Pending (alone or as an option of a choice) or approved; a not chosen option may be asked again.
-			return a, ErrConflict
-		}
-		// Older versions' open requests are superseded by this one (artifact-duplicates 1.3): they leave the Inbox and
-		// the agent is told; the agent waits for the newest only.
-		if err = supersedeOlderVersions(ctx, tx, project, in.ArtifactID, []string{in.ArtifactVersion}, "version "+in.ArtifactVersion); err != nil {
-			return a, err
-		}
-		// A composite showing an older version of this artifact goes (people-topics D11).
-		if err = supersedeComposites(ctx, tx, project, in.ArtifactID, "", in.ArtifactVersion, "its part "+in.ArtifactID+" was replaced by "+in.ArtifactVersion); err != nil {
-			return a, err
-		}
-		timeout := in.TimeoutSeconds
-		if timeout == 0 {
-			timeout = 86400
-		}
-		a.ExpiresAt = a.CreatedAt + int64(timeout)
-		ref, _ := json.Marshal(a.Artifact)
-		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Artifact approval " + a.ID + ": " + in.Reason + "\nExact artifact version: " + string(ref), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID, Materials: shown,
-			// A delegated request is not for people until its delegate escalates it (people-topics D1).
-			Brief: in.Brief, Note: in.Note, Topic: in.Topic, Strict: in.Strict, People: messaging.PeopleRef{Path: messaging.PathArtifact, Kind: "approval", Ref: a.ID, Lineage: in.ArtifactID, Version: in.ArtifactVersion, Skip: a.Delegate != ""}})
-		if err != nil {
-			return a, err
-		}
-		a.MessageID = m.ID
-		m.ApprovalID = a.ID
-		m.DelegatedTo = a.Delegate
-		mb, _ := json.Marshal(m)
-		if _, err = tx.ExecContext(ctx, "UPDATE messages SET body=? WHERE id=?", mb, m.ID); err != nil {
-			return a, err
-		}
-		b, _ := json.Marshal(a)
-		if _, err = tx.ExecContext(ctx, "INSERT INTO approvals(id,project_id,agent,task_id,fingerprint,message_id,status,body,kind,artifact_id,artifact_version,company_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", a.ID, project, a.Agent, a.TaskID, "artifact:"+a.ID, m.ID, a.Status, b, "artifact", in.ArtifactID, in.ArtifactVersion, tx.company); err != nil {
-			return a, err
-		}
-		if a.Delegate != "" {
-			// The delegate decides it (approval-delegation): it gets the request; people see it once it escalates.
-			body := fmt.Sprintf("Approval %s for you to decide: %s asks to approve artifact %s version %s: %s\nYou decide it under %s. Use factory_approval_decide with approval_id %s and action approve or reject (with a reason; cite the owner's earlier answers or recorded decisions you rely on in cites), or escalate when you are unsure, it is out of your remit or it conflicts with a recorded decision: then people decide.", a.ID, in.Agent, in.ArtifactID, in.ArtifactVersion, in.Reason, a.Setting, a.ID)
-			if _, err = sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, Sender: "factory", Recipient: a.Delegate, MessageType: "review_request", Body: body, RequestID: "delegate-" + a.ID}); err != nil {
-				return a, err
-			}
-		}
-		return a, entityEvent(ctx, tx, "approval.requested", project, a.ID, a)
-	})
-}
 
 // EscalateApproval hands a delegated approval to people (approval-delegation): it appears in their Inbox.
 func (s *Store) EscalateApproval(ctx context.Context, company, id, agent, reason string, people ...EscalatePeople) (approvals.Approval, error) {
@@ -521,10 +447,7 @@ func (s *Store) HandUpApproval(ctx context.Context, company, id, from, to, reaso
 			return a, err
 		}
 		a.Delegate, a.Setting = to, "handed up by "+from+" (strict delegation)"
-		body := fmt.Sprintf("Approval %s for you to decide: %s may not bring it to people and handed it up: %s\nArtifact: %s. Use factory_approval_decide with approval_id %s and action approve, reject or escalate (escalating to people needs a brief).", a.ID, from, reason, artifactName(a), a.ID)
-		if a.Choice() {
-			body = fmt.Sprintf("Approval %s for you to decide: %s may not bring it to people and handed it up: %s\nA choice of one of these versions:%s\nUse factory_approval_decide with approval_id %s and action choose (choice, with cites of what people said that covers it), changes or reject (with a reason), or escalate (escalating to people needs a brief; drop may leave out options not good enough).", a.ID, from, reason, optionsText(a), a.ID)
-		}
+		body := fmt.Sprintf("Approval %s for you to decide: %s may not bring it to people and handed it up: %s\n%s asks %s:%s\n%s", a.ID, from, reason, a.Agent, approvalAsk(a), optionsText(a), decideHint(a))
 		if _, err = sendMessageTx(ctx, tx, messaging.Send{ProjectID: a.ProjectID, Sender: "factory", Recipient: to, MessageType: "review_request", Body: body, RequestID: "hand-up-" + a.ID + "-" + to}); err != nil {
 			return a, err
 		}
@@ -539,7 +462,7 @@ func (s *Store) HandUpApproval(ctx context.Context, company, id, from, to, reaso
 }
 
 func artifactName(a approvals.Approval) string {
-	if a.Choice() && a.Chosen == 0 {
+	if len(a.Options) > 1 && a.Chosen == 0 {
 		names := make([]string, len(a.Options))
 		for i := range a.Options {
 			names[i] = a.OptionName(i + 1)

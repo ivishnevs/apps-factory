@@ -29,7 +29,8 @@ export interface TopicView {
 // TopicDecision is one item decided from a topic (POST /topics/{id}/decide; all or none).
 export interface TopicDecision {
   kind: TopicItemKind; ref: string; version: number; action: string; reason?: string; answers?: Record<string, unknown>;
-  // A choice approval (artifact-choice-approvals): choose takes option (from 1), changes may name options.
+  // An artifact approval (artifact-choice-approvals): choose takes option (from 1; 1 approves a single version),
+  // changes may name options.
   option?: number; options?: number[];
 }
 

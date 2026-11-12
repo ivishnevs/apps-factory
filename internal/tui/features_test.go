@@ -560,7 +560,7 @@ func TestExternalLinks(t *testing.T) {
 	}
 	os.RemoveAll(filepath.Dir(got[1][1]))
 	key(m, "y")
-	if m.preview != nil || m.input == nil || !strings.Contains(m.input.label, "Approve ap-2") {
+	if m.preview != nil || m.input == nil || !strings.Contains(m.input.label, "Approve release-notes@v2") {
 		t.Fatal("y from the preview does not approve")
 	}
 	key(m, "esc")

@@ -28,8 +28,8 @@
 
 ## 5. One approval model (owner, 2026-11-12: "a choice approval and a regular approval are the same thing")
 
-- [ ] 5.1 Every artifact approval is options 1–6: a single-version request is stored and served as one option, not converted into a separate yes/no kind; remove the separate yes/no path
-- [ ] 5.2 Decisions are choose / changes / reject for every approval; owner "approve" on one option is choose; "ask for changes" exists for single-version approvals too
-- [ ] 5.3 Delegate rules are the same for every approval: approving (choosing) needs cites checked by `checkCites`; changes and reject need a reason and no cite; no approve without choosing
-- [ ] 5.4 Owner surfaces (TUI, web, Telegram, Library) use the one choice card; one option renders compactly with Approve / Ask for changes / Reject
-- [ ] 5.5 Tests: single-version approval through the choice path (owner approve, changes, reject; delegate approve with and without valid cites)
+- [x] 5.1 Every artifact approval is options 1–6: a single-version request is stored and served as one option, not converted into a separate yes/no kind; remove the separate yes/no path
+- [x] 5.2 Decisions are choose / changes / reject for every approval; owner "approve" on one option is choose; "ask for changes" exists for single-version approvals too
+- [x] 5.3 Delegate rules are the same for every approval: approving (choosing) needs cites checked by `checkCites`; changes and reject need a reason and no cite; no approve without choosing
+- [x] 5.4 Owner surfaces (TUI, web, Telegram, Library) use the one choice card; one option renders compactly with Approve / Ask for changes / Reject
+- [x] 5.5 Tests: single-version approval through the choice path (owner approve, changes, reject; delegate approve with and without valid cites)

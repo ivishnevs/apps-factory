@@ -71,10 +71,11 @@ func approvalComment(ctx context.Context, tx *Tx, a *approvals.Approval, action,
 // approvalWhat names an approval for people and agents.
 func approvalWhat(a approvals.Approval) string {
 	switch {
-	case a.Choice():
+	case a.Kind == "artifact" && a.Single():
+		o := a.Options[0].Artifact
+		return "artifact approval " + a.ID + " of " + o.ID + "@" + o.Version
+	case a.Kind == "artifact":
 		return "artifact choice approval " + a.ID
-	case a.Kind == "artifact" && a.Artifact != nil:
-		return "artifact approval " + a.ID + " of " + a.Artifact.ID + "@" + a.Artifact.Version
 	case a.Kind == "command":
 		return "command approval " + a.ID
 	case a.Call.Name != "":

@@ -14,12 +14,13 @@ import (
 	"appfactory/internal/storage"
 )
 
-// Choice approvals under delegation (artifact-choice-approvals): a delegate decides a choice by choosing (only with
-// cites of what people said that covers it, each checked here), asking for changes or rejecting all (its own
-// judgement, with a reason), or escalating, optionally dropping options not good enough. It never approves a choice
-// without choosing.
+// Artifact approvals under delegation (artifact-choice-approvals, one approval model): the agent holding an approval
+// decides it by choosing (approving a one-option approval is choosing it; only with cites of what people said that
+// covers it, each checked here), asking for changes or rejecting all (its own judgement, with a reason), or
+// escalating, optionally dropping options not good enough. It never approves one of several options without
+// choosing. The rules are the same whatever the number of options and whatever the delegated mode.
 
-// choiceDecideTool is factory_approval_decide on a choice approval delegated to the run's agent.
+// choiceDecideTool is factory_approval_decide on an artifact approval held by the run's agent.
 func (c *Core) choiceDecideTool(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run, a approvals.Approval, action, reason string, cites []string) {
 	company := c.companyFrom(r)
 	agent := run.Spec.Agent
@@ -27,7 +28,15 @@ func (c *Core) choiceDecideTool(w http.ResponseWriter, r *http.Request, p factor
 		http.Error(w, "drop leaves options out when you escalate: use it with action escalate", 400)
 		return
 	}
-	if _, ok := p.Arguments["choice"]; ok && action != approvals.ActionChoose {
+	choice, hasChoice := p.Arguments["choice"]
+	if action == approvals.ActionApprove && a.Single() {
+		// Approving the only option is choosing it: the same cites rule.
+		action = approvals.ActionChoose
+		if !hasChoice {
+			choice, hasChoice = 1, true
+		}
+	}
+	if hasChoice && action != approvals.ActionChoose {
 		http.Error(w, "choice is for action choose", 400)
 		return
 	}
@@ -48,7 +57,7 @@ func (c *Core) choiceDecideTool(w http.ResponseWriter, r *http.Request, p factor
 			// Strict delegation (people-topics D17): an agent that may not bring items to people hands it one level up.
 			m := c.escalationTargetIn(company, agent)
 			if m == "" || m == "owner" {
-				http.Error(w, "you may not bring items to people (owner is not in your can_message): choose it with cites, ask for changes or reject it", 403)
+				http.Error(w, "you may not bring items to people (owner is not in your can_message): "+approveWord(a)+" it with cites, ask for changes or reject it", 403)
 				return
 			}
 			v, err := c.Store.HandUpApproval(r.Context(), company, a.ID, agent, m, reason, drops...)
@@ -59,18 +68,17 @@ func (c *Core) choiceDecideTool(w http.ResponseWriter, r *http.Request, p factor
 		v, err := c.Store.EscalateApproval(r.Context(), company, a.ID, agent, reason, storage.EscalatePeople{Brief: brief, Note: note, Topic: topic, Strict: true, Drops: drops})
 		reply(w, v, err)
 	case approvals.ActionChoose:
-		ref, ok := p.Arguments["choice"]
-		if !ok {
+		if !hasChoice {
 			http.Error(w, "choice: the option you choose (its number, label or artifact_id@version)", 400)
 			return
 		}
-		n, err := a.ResolveOption(ref)
+		n, err := a.ResolveOption(choice)
 		if err != nil {
 			http.Error(w, "choice: "+err.Error(), 400)
 			return
 		}
 		if len(cites) == 0 {
-			http.Error(w, "you choose only what people said covers: cite their earlier answers (message ids), recorded decisions (decision ids) or the company's or project's rules (\"project rules: <quote>\") in cites; otherwise escalate, ask for changes or reject", 400)
+			http.Error(w, "you "+approveWord(a)+" only what people said covers: cite their earlier answers (message ids), recorded decisions (decision ids) or the company's or project's rules (\"project rules: <quote>\") in cites; otherwise escalate, ask for changes or reject", 400)
 			return
 		}
 		if err = c.checkCites(r.Context(), company, a.ProjectID, cites); err != nil {
@@ -93,11 +101,23 @@ func (c *Core) choiceDecideTool(w http.ResponseWriter, r *http.Request, p factor
 		decide(approvals.Decision{Action: approvals.ActionChanges, Options: on})
 	case approvals.ActionReject:
 		decide(approvals.Decision{Action: approvals.ActionReject})
-	case "approve":
+	case approvals.ActionApprove:
 		http.Error(w, fmt.Sprintf("this approval is a choice among %d options and is never approved without choosing: choose one (choice, citing what people said that covers it), ask for changes or reject all with a reason, or escalate it to people", len(a.Options)), 400)
 	default:
-		http.Error(w, "action must be choose, changes, reject or escalate for a choice approval", 400)
+		if a.Single() {
+			http.Error(w, "action must be approve, changes, reject or escalate", 400)
+			return
+		}
+		http.Error(w, "action must be choose, changes, reject or escalate", 400)
 	}
+}
+
+// approveWord is what deciding for an approval's version is called: approve one option, choose one of several.
+func approveWord(a approvals.Approval) string {
+	if a.Single() {
+		return "approve"
+	}
+	return "choose"
 }
 
 // choiceDrops reads escalate's drop: [{option, reason}].

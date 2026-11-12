@@ -339,7 +339,11 @@ func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent b
 		return err
 	}
 	text := approvalWhat(a) + " " + strings.ToLower(a.Status) + " " + approvalDecidedBy(a) + ": " + a.DecisionReason
-	if a.Choice() {
+	switch {
+	case a.Single():
+		// "artifact approval … of lens@2 changes requested by the owner: …" (artifact-choice-approvals).
+		text = approvalWhat(a) + " " + choiceDecision(a)
+	case a.Kind == "artifact":
 		// The decision, the chosen option or the requested changes, and who decided (artifact-choice-approvals).
 		text = approvalWhat(a) + ": " + choiceDecision(a)
 	}

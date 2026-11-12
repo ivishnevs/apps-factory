@@ -226,6 +226,9 @@ func (a Action) Describe() string {
 	case "rework":
 		return "send " + a.TaskID + " back for rework: " + a.Text
 	case "approve", "reject":
+		if a.Text == "" {
+			return a.Kind + " " + a.ApprovalID
+		}
 		return a.Kind + " " + a.ApprovalID + ": " + a.Text
 	case "choose":
 		d := fmt.Sprintf("choose option %d of %s", a.Option, a.ApprovalID)

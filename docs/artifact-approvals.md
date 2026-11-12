@@ -40,11 +40,16 @@ it. The task that requested the approval (for example parked with `factory_exit_
 decision, approval or rejection, through the authority trigger `approval_decided` (decision and reason in the
 brief); tasks that require the version get `artifact_approved`.
 
-### Choice approvals (artifact-choice-approvals)
+### One approval model: options (artifact-choice-approvals)
 
-When people should choose among several versions (variations, alternatives), the producer asks one choice approval
-instead of an approval plus a question: `options` replaces `artifact_id`/`artifact_version`, and `recommended` names
-the producer's pick (the option's number from 1, its label or `id@version`):
+Every artifact approval is a set of 1–6 options, each a registered version of the project. A request with
+`artifact_id`/`artifact_version` is an approval with one option (its label may be empty); approving it is choosing
+that option. Decisions, delegate rules and owner surfaces are the same whatever the number of options: choose (for
+one option: approve), ask for changes, reject.
+
+When people should choose among several versions (variations, alternatives), the producer asks one approval with
+options instead of an approval plus a question: `options` replaces `artifact_id`/`artifact_version`, and
+`recommended` names the producer's pick (the option's number from 1, its label or `id@version`):
 
 ```json
 {"options":[{"artifact_id":"paywall","artifact_version":"v1","label":"V1 Mascot","note":"friendly, light"},
@@ -54,20 +59,25 @@ the producer's pick (the option's number from 1, its label or `id@version`):
 ```
 
 Core refuses (400, naming the option) an unknown version of the project, an archived one, a repeated version or
-label, a missing label, fewer than 2 or more than 6 options, and both `options` and `artifact_id` at once; a
-version already waiting for (or holding) an approval is a 409. One option is the yes/no approval of that version.
-The decider **chooses** one option (an optional comment), **asks for changes** (required text; it may name the
-options) or **rejects all** (required reason); a choice is never approved without choosing. Choosing approves the
-chosen version (`artifact` and the approval's version columns become it, `chosen` its number); the other options are
-**not chosen** (`NOT_CHOSEN` as their state, not rejected): a task requiring one keeps waiting, and it may be asked
-for again later. Asking for changes ends the approval as `CHANGES_REQUESTED` with nothing approved. The requesting
-task's `approval_decided` input says it: "V2 (paywall@v2) chosen by the owner: darker paywall; not chosen (still
-usable later): V1 (paywall@v1), V3 (paywall-dark@v1)", "changes requested by the owner on V1 (paywall@v1): …", "all
-options rejected by lead (delegated: …): …".
+label, a missing label among several options, no options or more than 6, and both `options` and `artifact_id` at
+once; a version already waiting for (or holding) an approval is a 409. The decider **chooses** one option (an
+optional comment; on a one-option approval `approve` is the same as choosing option 1), **asks for changes**
+(required text; it may name the options) or **rejects all** (required reason); one of several options is never
+approved without choosing. Choosing approves the chosen version (`artifact` and the approval's version columns
+become it, `chosen` its number; a one-option approval has its version there from the request); the other options
+are **not chosen** (`NOT_CHOSEN` as their state, not rejected): a task requiring one keeps waiting, and it may be
+asked for again later. Asking for changes ends the approval as `CHANGES_REQUESTED` with nothing approved; the
+version may be asked for again. The requesting task's `approval_decided` input says it: "V2 (paywall@v2) chosen by
+the owner: darker paywall; not chosen (still usable later): V1 (paywall@v1), V3 (paywall-dark@v1)", "changes
+requested by the owner on V1 (paywall@v1): …", "all options rejected by lead (delegated: …): …"; for one option
+"artifact approval … of paywall@v2 approved by the owner: …" (or "changes requested by …", "rejected by …").
 
-Owner HTTP: `POST /approvals/ID/decision` with `{"action":"choose","option":2,"reason":"","version":N,"request_id":…}`,
-`{"action":"changes","reason":"mix V1's icon with V3's palette","options":[1,3],…}` or `{"action":"reject",…}`;
-a topic decides it with the same `option`/`options` (`POST /topics/ID/decide`).
+Owner HTTP: `POST /approvals/ID/decision` with `{"action":"choose","option":2,"reason":"","version":N,"request_id":…}`
+(`{"action":"approve",…}` on a one-option approval), `{"action":"changes","reason":"mix V1's icon with V3's
+palette","options":[1,3],…}` or `{"action":"reject",…}`; a topic decides it with the same `option`/`options`
+(`POST /topics/ID/decide`; "approve all" chooses each single-version approval's only option). A one-version
+approval is still an artifact version line in people topics; an approval of several options joins its task's topic.
+Tool-call approvals (`factory_owner_request_approval`, command guards) are a different kind: approved or rejected.
 
 `factory_artifact_register` is bound to the current task/run; the caller does not pass another identity.
 References in a structured submission are registered atomically as well. A submission with artifacts requires
@@ -129,6 +139,10 @@ The shared inbox and the [approvals](approvals.md) interface are used:
 ```json
 {"version":1,"action":"approve","reason":"Reviewed this exact version","request_id":"owner-layout-v2"}
 ```
+
+On a one-version approval `approve` chooses its only option (the reason is optional); `changes` with the text asks
+for changes and `reject` with the reason rejects it, as on any artifact approval. `factory approve` / `reject` work
+the same way; an approval of several options is decided with `choose`.
 
 A reason other than the default (`approved by owner`), approving or rejecting, is the owner's comment on the work
 (approval-comments-handled): Core records it as a board comment on the requesting task, the task's next exit is
@@ -221,19 +235,22 @@ and recorded decisions cover, citing them). Defaults: internal material and deci
 
 `factory_artifact_request_approval` takes `audience` (`internal` or `external`, the default). When the mode names an
 agent other than the requester, Core sends that agent the request; it stays out of the people's Inbox until the agent
-escalates. The agent decides with `factory_approval_decide` (`approve`, `reject` or `escalate`, a reason, and `cites`
-— required for the lead's approvals); the approval records `decided_by`, the setting and the citations.
+escalates. The agent decides with `factory_approval_decide`; the approval records `decided_by`, the setting and the
+citations.
 
-A choice approval (artifact-choice-approvals) is decided by its delegate with `choose` (`choice`: the option's
-number, label or `id@version`), `changes` (`options` optional), `reject` or `escalate`; `approve` is refused with a
-hint. `choose` needs `cites`, and Core checks every one names what people said: the id of a message people wrote (or
-of a question people answered), the id of an approved decision, or a quote of the company's or project's rules,
-which only people write (`"project rules: dark theme only"`, `"company rules: …"`; the quote must be in the rules).
-Any other cite is refused: without such a basis the delegate escalates. `changes` and `reject` need a reason and no
-cite (the delegate's own judgement on weak work; no person is asked). `escalate` may `drop` options it judges not
-good enough (`[{"option":"2","reason":"off-brief palette"}]`, at least one option stays; dropping all is `reject`):
-people see the kept options first and the dropped ones collapsed with the delegate's reasons, and may still choose
-one. Under the people-only mode (`owner`) Core refuses every agent decision, on a choice or a yes/no approval; an
+The rules are the same for every artifact approval, one option or several, in `agent` and `lead` mode alike
+(artifact-choice-approvals): the delegate decides with `approve` (one option) or `choose` (`choice`: the option's
+number, label or `id@version`; `choice` 1 on one option is the same as `approve`), `changes` (`options` optional),
+`reject` or `escalate`; `approve` on several options is refused with a hint (no approving without choosing).
+Approving or choosing needs `cites`, and Core checks every one names what people said: the id of a message people
+wrote (or of a question people answered), the id of an approved decision, or a quote of the company's or project's
+rules, which only people write (`"project rules: dark theme only"`, `"company rules: …"`; the quote must be in the
+rules). Any other cite is refused: without such a basis the delegate escalates. `changes` and `reject` need a reason
+and no cite (the delegate's own judgement on weak work; no person is asked). `escalate` on several options may
+`drop` options it judges not good enough (`[{"option":"2","reason":"off-brief palette"}]`, at least one option
+stays; dropping all is `reject`; a one-option approval is escalated whole): people see the kept options first and
+the dropped ones collapsed with the delegate's reasons, and may still choose one. Under the people-only mode
+(`owner`) Core refuses every agent decision; an
 agent it reached by strict delegation can only escalate it. Otherwise the agent an approval is assigned to now decides
 it, also after a strict delegate handed it up or after the setting moved to another agent (people-topics D18).
 `factory_decision_decide` is allowed where the project's decision mode names the agent (the lead with `cites`), as

@@ -89,8 +89,9 @@ type MaterialApproval struct {
 	Reason    string `json:"reason,omitempty"`
 	// Comment is what became of the decision's comment (approval-comments-handled).
 	Comment *approvals.CommentState `json:"comment,omitempty"`
-	// Option is this version's label in a choice approval and Chosen the chosen option's label
-	// (artifact-choice-approvals); Status is NOT_CHOSEN for an option that was not chosen.
+	// Option is this version's label in an approval of several options and Chosen the chosen option's label
+	// (artifact-choice-approvals; empty for a single version's approval); Status is NOT_CHOSEN for an option that was
+	// not chosen.
 	Option string `json:"option,omitempty"`
 	Chosen string `json:"chosen,omitempty"`
 }
@@ -98,6 +99,10 @@ type MaterialApproval struct {
 // materialApproval is a's state for the artifact version id@version.
 func materialApproval(a approvals.Approval, id, version string) *MaterialApproval {
 	out := &MaterialApproval{ID: a.ID, Status: a.StatusOf(id, version), DecidedAt: a.DecidedAt, Reason: a.DecisionReason, Comment: a.Comment}
+	if a.Single() {
+		// A single version's approval is not a choice of several: nothing to say beyond its status.
+		return out
+	}
 	if n := a.OptionOf(id, version); n > 0 {
 		out.Option = a.Options[n-1].Label
 	}

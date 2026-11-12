@@ -175,3 +175,124 @@ func TestChoiceApprovalDelegation(t *testing.T) {
 		t.Fatal(code, body)
 	}
 }
+
+// TestSingleVersionApprovalDelegation (artifact-choice-approvals 5.3, 5.5): a request for one version is an approval
+// with one option and its delegate decides it by the same rules as any choice: approving (choosing the only option)
+// only with cites Core checks, changes and reject with a reason and no cite, escalating whole (drop is for several
+// options); the requester learns what was decided and by whom; people only refuses every agent decision.
+func TestSingleVersionApprovalDelegation(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	co := storage.DefaultCompany
+	p, _ := h.s.Project(ctx, co, "notes")
+	modes := tasks.ApprovalModes{InternalArtifacts: tasks.ApprovalMode{Mode: tasks.ApproveAgent, Agent: "manager"}}
+	rules := "Dark theme only."
+	if _, err := h.s.UpdateProject(ctx, co, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Approvals: &modes, Rules: &rules}); err != nil {
+		t.Fatal(err)
+	}
+	h.create("design", "notes", "demo")
+	h.create("review", "code", "manager")
+	r := h.start("design")
+	ask := func(id string, extra map[string]any) approvals.Approval {
+		t.Helper()
+		v := choiceVersions(t, h, "design", id, 1)[0].(map[string]any)
+		args := map[string]any{"artifact_id": v["artifact_id"], "artifact_version": v["artifact_version"], "reason": "the " + id, "audience": "internal", "request_id": "ask-" + id}
+		for k, x := range extra {
+			args[k] = x
+		}
+		out := h.callOK(r, "factory_artifact_request_approval", args)
+		var a approvals.Approval
+		b, _ := json.Marshal(out)
+		_ = json.Unmarshal(b, &a)
+		if !a.Single() || a.Artifact == nil || a.Artifact.ID != id {
+			t.Fatalf("not one option: %+v", a)
+		}
+		return a
+	}
+	m := h.start("review")
+	n := 0
+	decide := func(a approvals.Approval, args map[string]any) (int, string) {
+		t.Helper()
+		n++
+		args["approval_id"], args["request_id"] = a.ID, "d-"+string(rune('a'+n))
+		if _, ok := args["reason"]; !ok {
+			args["reason"] = "fits the brief"
+		}
+		return h.callCode(m, "factory_approval_decide", args)
+	}
+	a := ask("paywall", nil)
+	if a.Delegate != "manager" {
+		t.Fatalf("%+v", a)
+	}
+	for _, c := range []struct {
+		args map[string]any
+		want string
+	}{
+		{map[string]any{"action": "approve"}, "you approve only what people said covers"},
+		{map[string]any{"action": "approve", "cites": []any{"the owner likes it"}}, "names no answer people wrote"},
+		{map[string]any{"action": "approve", "cites": []any{"project rules: light theme"}}, "the project rules do not say that"},
+		{map[string]any{"action": "choose", "choice": "2", "cites": []any{"project rules: dark theme only"}}, "choice: option"},
+		{map[string]any{"action": "escalate", "brief": choiceBrief, "drop": []any{map[string]any{"option": "1", "reason": "weak"}}}, "this approval has one"},
+	} {
+		if code, body := decide(a, c.args); code != 400 || !strings.Contains(body, c.want) {
+			t.Fatalf("%v: %d %s", c.args, code, body)
+		}
+	}
+	if code, body := decide(a, map[string]any{"action": "approve", "reason": "it is dark", "cites": []any{"project rules: dark theme only"}}); code != 200 {
+		t.Fatal(code, body)
+	}
+	if got := h.approvalOf(a.ID); got.Status != "APPROVED" || got.Chosen != 1 || got.DecidedBy != "manager" || len(got.Cites) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	tr := h.lastTrigger("design")
+	if want := "artifact approval " + a.ID + " of paywall@v1 approved by manager (delegated: project notes: internal artifacts agent manager): it is dark"; tr.kind != "approval_decided" || tr.actor != "manager" || tr.body != want {
+		t.Fatalf("%+v", tr)
+	}
+	// choose with choice 1 is the same decision, with the same cites rule.
+	b := ask("onboarding", nil)
+	if code, body := decide(b, map[string]any{"action": "choose", "choice": "1", "cites": []any{"project rules: Dark theme only."}}); code != 200 {
+		t.Fatal(code, body)
+	}
+	// Weak work sent back: changes and reject need a reason and no cite.
+	c := ask("settings", nil)
+	if code, body := decide(c, map[string]any{"action": "changes", "reason": "the toggles are unreadable"}); code != 200 {
+		t.Fatal(code, body)
+	}
+	if got := h.approvalOf(c.ID); got.Status != approvals.StatusChanges {
+		t.Fatalf("%+v", got)
+	}
+	if tr = h.lastTrigger("design"); !strings.Contains(tr.body, "changes requested by manager") || !strings.Contains(tr.body, "the toggles are unreadable") {
+		t.Fatalf("%+v", tr)
+	}
+	d := ask("profile", nil)
+	if code, body := decide(d, map[string]any{"action": "reject", "reason": "off-brief"}); code != 200 {
+		t.Fatal(code, body)
+	}
+	if got := h.approvalOf(d.ID); got.Status != "REJECTED" {
+		t.Fatalf("%+v", got)
+	}
+
+	// People only is the ceiling: an approval already with the delegate is not decided by it; it escalates.
+	e := ask("search", nil)
+	p, _ = h.s.Project(ctx, co, "notes")
+	modes.InternalArtifacts = tasks.ApprovalMode{Mode: tasks.ApproveOwner}
+	if _, err := h.s.UpdateProject(ctx, co, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Approvals: &modes}); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"approve", "changes", "reject"} {
+		if code, body := decide(e, map[string]any{"action": action, "cites": []any{"project rules: dark theme only"}}); code != 403 || !strings.Contains(body, "people decide") {
+			t.Fatalf("%s: %d %s", action, code, body)
+		}
+	}
+	if code, body := decide(e, map[string]any{"action": "escalate", "reason": "people decide here", "brief": choiceBrief}); code != 200 {
+		t.Fatal(code, body)
+	}
+	// People decide it with the same card: approve, ask for changes, reject.
+	got := h.approvalOf(e.ID)
+	if w := h.do(h.c.Token, "POST", "/approvals/"+e.ID+"/decision", approvals.Decision{Version: got.Version, Action: "changes", Reason: "a lighter header", RequestID: "owner-changes"}, nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if tr = h.lastTrigger("design"); tr.actor != "owner" || !strings.Contains(tr.body, "changes requested by the owner: a lighter header") {
+		t.Fatalf("%+v", tr)
+	}
+}

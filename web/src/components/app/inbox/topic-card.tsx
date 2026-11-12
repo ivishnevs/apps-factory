@@ -17,9 +17,8 @@ import type { ItemView, TopicDecision, TopicView } from "@/lib/api/types-topics"
 import { ago } from "@/lib/format";
 import { peopleText } from "@/lib/people-text";
 import { cn } from "@/lib/utils";
-import { ArtifactPreview } from "./artifact-preview";
 import { CatalogChangeRequest, optionLabel, ProjectRequest } from "./cards";
-import { ChoiceApproval, isChoice } from "./choice-approval";
+import { ChoiceApproval, isChoice, isSingle } from "./choice-approval";
 import { approvalDecision } from "./decide";
 
 // TopicCard (people-topics D5, D6, D9, D10): one open topic as people read it — its brief (what you decide, the
@@ -124,7 +123,9 @@ export function TopicCard({ topic, projectName, compact, onReply }: {
   };
 
   const waiting = rows.map((r) => r.current).filter((i) => i.waits);
-  const approvals = waiting.filter((i) => i.kind === "approval" && i.approval && i.actions?.includes("approve"));
+  // Approved together: tool calls' approvals and single-version artifact approvals (approving one is choosing its
+  // only option); a choice of several is chosen on its own.
+  const approvals = waiting.filter((i) => i.kind === "approval" && i.approval && (i.actions?.includes("approve") || isSingle(i.approval) && i.actions?.includes("choose")));
   const escalations = waiting.filter((i) => i.kind === "escalation" && i.message && i.actions?.length);
   // Answers every waiting escalation offers ("retry all"), when two or more wait.
   const common = escalations.length >= 2
@@ -192,7 +193,9 @@ export function TopicCard({ topic, projectName, compact, onReply }: {
           ))}
           {approvals.length >= 2 && (
             <Button className="h-10 bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-600" disabled={busy}
-              onClick={() => send(approvals.map((i) => ({ kind: "approval", ref: i.ref, version: Math.max(i.approval!.version, 1), action: "approve" })),
+              onClick={() => send(approvals.map((i) => isSingle(i.approval)
+                ? { kind: "approval", ref: i.ref, version: Math.max(i.approval!.version, 1), action: "choose", option: 1 }
+                : { kind: "approval", ref: i.ref, version: Math.max(i.approval!.version, 1), action: "approve" }),
                 { title: `Approve all ${approvals.length}?`, description: `${approvals.map((i) => `• ${itemName(i) || itemText(t, i) || "approval"}${vLabel(versionOf(i)) ? ` ${vLabel(versionOf(i))}` : ""}`).join("\n")}\n\nAll are approved together, or none if one cannot be.`, confirm: "Approve all" },
                 `${approvals.length} approved`)}>
               <CheckCheck />Approve all {approvals.length}
@@ -249,14 +252,15 @@ function ItemRow({ topic, row, busy, send, act, compact }: { topic: TopicView; r
         <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm">{it.message.questions.map((q) => <li key={q.id}>{q.question}</li>)}</ul>
       )}
       {ap && isChoice(ap) ? (
-        // A choice approval (artifact-choice-approvals): its options are its preview and its buttons.
+        // An artifact approval (artifact-choice-approvals): its options are its preview and its buttons; one option
+        // shows Approve, Ask for changes and Reject.
         <div className="mt-3">
           <ChoiceApproval ap={ap} compact={compact || !it.waits} busy={busy} decide={it.waits ? (kind, reason, option) => {
             const d = approvalDecision(kind, ap, reason, option);
             void send([{ kind: "approval", ref: it.ref, version: Math.max(ap.version, 1), action: kind, reason, option }], d.ask, d.done);
           } : undefined} />
         </div>
-      ) : <ItemVisuals it={it} compact={compact} />}
+      ) : <ItemVisuals it={it} />}
       {row.history.length > 0 && <HistoryList items={row.history} current={it} />}
       {replaced && <p className="mt-2 text-xs text-muted-foreground">{ap?.status === "SUPERSEDED" && ap.decision_reason ? `Withdrawn: ${ap.decision_reason}` : "Replaced by a newer version"}</p>}
       {it.waits && !(ap && isChoice(ap)) && <ItemActions topic={topic} it={it} busy={busy} send={send} act={act} />}
@@ -264,13 +268,10 @@ function ItemRow({ topic, row, busy, send, act, compact }: { topic: TopicView; r
   );
 }
 
-// ItemVisuals: the artifact to approve, the project or catalog change a call would make, the files a message carries.
-function ItemVisuals({ it, compact }: { it: ItemView; compact?: boolean }) {
+// ItemVisuals: the project or catalog change a call would make, the files a message carries (an artifact approval
+// shows its options in ChoiceApproval).
+function ItemVisuals({ it }: { it: ItemView }) {
   const ap = it.approval;
-  if (ap?.artifact && (ap.kind === "artifact" || !ap.call?.name)) {
-    // A replaced or decided version stays visible but smaller.
-    return <div className={cn("mt-3", (!it.waits || compact) && "max-h-72 overflow-hidden rounded-xl")}><ArtifactPreview project={ap.project_id} artifact={{ ...ap.artifact, name: ap.artifact.name || "Artifact" }} /></div>;
-  }
   if (ap?.call?.name === "factory_project_create") return <div className="mt-3"><ProjectRequest args={ap.call.arguments ?? {}} /></div>;
   if (ap?.call?.name === "factory_catalog_change") return <div className="mt-3"><CatalogChangeRequest args={ap.call.arguments ?? {}} /></div>;
   const m = it.message;
