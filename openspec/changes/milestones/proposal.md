@@ -45,6 +45,25 @@ milestones; importing `docs/roadmap.md` automatically (the producer creates the 
 3. **Milestone source of truth.** Core (recommended; the roadmap doc links to it), or the repo roadmap parsed by Core.
 4. **ETA.** From the last 3 days' closed tasks of the same agents (recommended, shown as "≈"), or no ETA.
 
+## Owner questions (2026-11-12) and proposed answers
+
+The owner, asked to accept the recommendations, asked three things first:
+
+1. **Can tasks be added to a milestone later (scope grows)?** Yes. A task joins a milestone any time (created in it,
+   or moved into it). The milestone remembers its scope at activation, so its card shows "scope +5 since start" next
+   to progress, and the ETA moves with it. Removing a task from a milestone is allowed too and counted the same way.
+2. **Can a project simply not use milestones (a small support project where improvement tasks just come in)?**
+   Yes: milestones are optional per project. A project with no milestones works exactly as today: no
+   `off_milestone` marker, no warnings, no milestone card on home or the board. The marker and the "outside the
+   active milestone" rules apply only while a project has an active milestone.
+3. **A default milestone?** Not created automatically, so a support project stays free of it. Instead, when the
+   owner turns milestones on for a project, open tasks can be put into the first milestone in one step ("put the 12
+   open tasks in M1"), and a project can keep a standing milestone (e.g. "Support") that never closes, if wanted.
+
+With these, the four recommendations stand: one active milestone per project (owner may raise it), tasks outside it
+allowed with `off_milestone` and a reason (only while one is active), Core as the source of truth, ETA "≈" from the
+last 3 days. Waiting for the owner's yes.
+
 ## Impact
 
 Core: milestones table and API, task and change links, lead tools (`milestone_create`, `milestone_update`,

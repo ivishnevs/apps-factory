@@ -1,5 +1,5 @@
 Status: naming decided 2026-11-06 (virtual nodes; connectors renamed nodes); remaining decisions and a technical
-spike on Fly.io Sprites still needed.
+spike on Fly.io Sprites still needed. 2026-11-12: the owner will provide a Fly.io account for the spike (0.2).
 Updated 2026-11-05: own connectors and cloud work kept apart (budgets, Costs), naming options, credit pricing.
 Nothing is implemented. Raised by the owner on 2026-11-05.
 

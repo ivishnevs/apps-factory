@@ -1,4 +1,4 @@
-Status: idea (not scheduled; the owner wants to think about it). Nothing here is implemented.
+Status: idea (not scheduled; the owner wants to think about it; confirmed 2026-11-12: stays an idea). Nothing here is implemented.
 
 ## Why
 
