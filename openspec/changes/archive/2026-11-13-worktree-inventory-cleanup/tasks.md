@@ -30,5 +30,6 @@
 
 - [x] 4.1 Full checks + NATS `-p 1` on a throwaway broker; storage test of the A→B case (removed from both), node
       tests of inventory, removal guards and the heartbeat exchange.
-- [ ] 4.2 Deploy Core, update the Mac, hetzner-hel1 and MacBook-Air-Juliya nodes; confirm Juliya's backlog is removed
-      by the first inventory heartbeat and the Nodes page shows 0 closed worktrees on all three.
+- [x] 4.2 Deploy Core (release 2026.11.12.2152), reinstall the Mac and hetzner-hel1 nodes into the versioned layout;
+      both report their inventory (Mac 1 worktree, hetzner-hel1 2, nothing removing or stuck). MacBook-Air-Juliya is
+      left on its old build by the owner's decision: it keeps the old cleanup listing until it is reinstalled.
