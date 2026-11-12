@@ -79,7 +79,7 @@ refuses with brief_required and names the fields". `message_send` and `report_cr
 | Question (`owner_ask`, `exit_ask`, `message_ask` to people) | `title`, `after`; `recommendation` when options are given | `ask` = the question |
 | Forward to people (`question_forward`) | `title`, `ask`, `after`, `recommendation` | — |
 | Call approval (`owner_request_approval`) | `title`, `context` (why) | `ask` ("Allow …?") and `after` from the call (D7) |
-| Artifact approval to people, opening a topic | `title`, `ask`, `after`, `recommendation` | — |
+| Artifact approval to people, opening a topic | `title`, `ask` (names exactly what is approved: the whole mockup, element X, state Y), `after`, `recommendation` | — |
 | Artifact approval joining a topic | `note.what` | — |
 | Escalate approvals (`approval_decide escalate`) | as opening, or `note.what` per item when joining | — |
 | Decision proposal | `after` | `title`/`ask` from the topic, `recommendation` from value and rationale |
@@ -190,9 +190,19 @@ topics with open items plus topics with unread updates (inbox-badge-parity: the 
 
 ## D10. Telegram and TUI
 
-Telegram: a new open item sends one message (title, ask, recommendation, the item's buttons, images as an album);
-updates are not pushed but appear in the digest; edits to a topic do not resend. TUI: the inbox lists topics; Enter
-opens items and the thread.
+Telegram: every new open item, approvals included (today an escalated approval is not an attention event and never
+reaches Telegram), sends one message: title, ask, recommendation, the item's images as an album, its buttons. Updates
+appear in the digest.
+
+Chat and Telegram are a log, the topic is live. A new version of an item posts a new short message in the topic's
+thread ("kf2 v4 replaces v3: what changed", image, buttons). The older version's message is not deleted but retired:
+the web shows "replaced by v4 →" without buttons; the bot edits its Telegram message (`editMessageText` and
+`editMessageReplyMarkup`, new in `internal/notify/telegram/api.go`; the notifier keeps the sent message ids per item)
+to drop the buttons and add the same line. A button pressed on a retired message is refused by Core, since the
+approval is bound to the version, and the bot answers "replaced by v4". The topic card in the Inbox always shows the
+current row; earlier versions and the person's comments are the row's history.
+
+TUI: the inbox lists topics; Enter opens items and the thread.
 
 ## D11. Composites
 
@@ -206,8 +216,9 @@ topic is shown as the overview image and not offered as an item.
 `factory_approval_decide` takes `approval_ids` (with `approval_id` still accepted). `escalate` with several ids
 requires each to be pending and delegated to the caller and goes through the gate once (one topic, items in order).
 
-A new version whose line is in a people topic (open or settled within 30 days) goes to people directly; the delegate
-gets a notification "kf2 v4 went to the owner's topic P3-9a" (open question Q2).
+A new version of an artifact follows delegation like any request: it goes to the delegate (the lead). When the lead
+escalates it, the gate finds the version line's people topic (open, or settled within 30 days, which reopens) and the
+item joins it; the lead gives only `note.changes` (owner 2026-11-12: hierarchy and delegation are not bypassed).
 
 ## D13. `factory_people_brief`
 
@@ -221,19 +232,15 @@ topic with `needs_brief` and Core's minimal brief (title from the task, ask from
 without an answer from <manager>"), and sends the skipped manager a message to complete it with
 `factory_people_brief`.
 
-## D15. Migration of open items
+## D15. Language
 
-A Go migration step at startup after 0041, idempotent (`people_topics_migrated` setting per company):
+A company setting `people_language` (default `en`; ilya-75ba24 `ru`). Briefs and notes are written in it: the tool
+descriptions and the `brief_required` hint name it, and Core's templates (D8) exist in `ru` and `en`.
 
-1. Collects the open people items: pending visible approvals, open escalations targeting the owner, pending owner
-   questions, proposed decisions, tasks in review by a person.
-2. Groups them by the keys of D4 (lines first, then tasks, then agent and reason for Core's).
-3. Core's items get template briefs. Agents' items get a minimal brief (title from the task or artifact name,
-   `needs_brief`); their bodies are shown as cleaned `text`.
-4. Each project lead with `needs_brief` topics gets one message listing them, to complete with `factory_people_brief`
-   (and mark composites' `includes`).
+## D16. Open items are not migrated
 
-Closed history is not migrated; it renders as cleaned `text`. The decision journal is untouched.
+Owner 2026-11-12: items open when this ships are not grouped or re-briefed; the owner decides them as they are. They
+render as cleaned `text` (D7), without ids, hashes or JSON.
 
 ## Risks
 

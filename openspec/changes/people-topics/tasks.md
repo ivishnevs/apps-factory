@@ -13,8 +13,8 @@
 - [ ] 2.1 Items, states, open/settled, reopen by version line within 30 days; `GET /topics`, `GET /topics/{id}` with
       Core context (D6) and per-item `actions`; overview carries topics.
 - [ ] 2.2 `POST /topics/{id}/decide`: several items in one transaction (`DecideApprovalTx`, `ReplyMessageTx`).
-- [ ] 2.3 `factory_approval_decide` with `approval_ids` (batch escalate, D12); new versions of a line in a people topic
-      go to people with a notification to the delegate.
+- [ ] 2.3 `factory_approval_decide` with `approval_ids` (batch escalate, D12); an escalated new version joins its
+      line's people topic with a note only.
 - [ ] 2.4 `includes` on artifact registration; a part rejected or replaced supersedes the composite (D11).
 - [ ] 2.5 `factory_people_brief` (D13); `needs_brief` and timeout forwards (D14).
 - [ ] 2.6 `topic` on `message_send`/`message_reply` to people, default by task; replies in a topic wake the lead (D9).
@@ -29,15 +29,17 @@
 - [ ] 4.1 Web Inbox: topics (header: title, ask, recommendation, waits for you; items with notes, previews,
       previous version and your comment; buttons; "approve all"); no ids, hashes or JSON.
 - [ ] 4.2 Web chat: topic card and thread in the lead's chat; replies; read state shared with the Inbox; badge parity.
-- [ ] 4.3 Telegram: one message per new open item with buttons and album; updates in the digest only.
+- [ ] 4.3 Telegram: one message per new open item (approvals included) with buttons and album; a replaced version's
+      message is edited (buttons removed, "replaced by vN"); updates in the digest only.
 - [ ] 4.4 TUI inbox lists topics.
 
 ## 5. Migration and verify
 
-- [ ] 5.1 Startup migration of open items (D15), idempotent; one message per lead with `needs_brief` topics.
+- [ ] 5.1 Company setting `people_language` (D15); Core templates in ru and en.
 - [ ] 5.2 Replay the 2026-11-12 cases with fakes: P3-9a key frames (escalate batch, reject three, rework v4 lands in
       the row, contact sheet withdrawn), 877fcce0 v2 next to v1, four `retries_exhausted` of one agent as one topic
-      with "retry all", Nakama approval plus Q2–Q4 questions in one topic, an escalation on the second review round.
+      with "retry all", Nakama approval plus Q2–Q4 questions in one topic, an escalation on the second review round, a Telegram message
+      retired when its version is replaced.
 - [ ] 5.3 Docs: `docs/approvals.md`, `docs/artifact-approvals.md`, `docs/factory-mcp.md`, `docs/task-lifecycle.md`,
       a new `docs/people-topics.md`.
 - [ ] 5.4 Full Go tests, vet, web tsc and lint; live check on the demo stack (web Inbox and chat in the browser).

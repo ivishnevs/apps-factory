@@ -43,8 +43,8 @@ older versions of the same artifact superseded, decisions superseded by topic.
   escalations by agent and reason. A topic opens with a full brief; an item joining it needs only its note.
 - **Decide per item or all at once.** Buttons come only from Core, from the mechanics of each item (approve this
   version, option B, retry). "Approve all" runs the separate decisions. Free text in the thread never acts.
-- **Rework lands where you rejected.** A new version of an artifact whose earlier version is in a people topic goes to
-  that topic's row, with the `changes` note required.
+- **Rework lands where you rejected.** A new version follows delegation as usual; when the lead escalates it, it joins
+  the row of its earlier version in the people topic, with only a `changes` note.
 - **Composites follow their parts.** An artifact version may declare `includes`; rejecting or replacing any part
   withdraws it. In a topic it is shown as the overview, not as an item.
 - **Batch escalation.** `factory_approval_decide escalate` takes several approvals and one brief.
@@ -52,7 +52,10 @@ older versions of the same artifact superseded, decisions superseded by topic.
   thread; the person replies there, in the Inbox or in Telegram; read and decided state is the same everywhere.
 - **One new tool**, `factory_people_brief`: the bringer or its lead completes the brief of an open topic (timeout
   forwards, migrated items, a clarification asked in the thread).
-- **Migration** puts the open items into topics; topics without a brief are marked and the lead is asked once.
+- **Telegram carries topics too**, approvals with their images included; a replaced version's message is retired
+  (buttons removed, "replaced by vN") instead of deleted.
+- **Language for people**: a company setting; briefs and Core's templates use it.
+- **No migration**: items open when this ships stay as they are, shown without ids, hashes or JSON.
 
 Not changed: the internal types (approvals, decisions, escalations, questions) and their mechanics, agent-to-agent
 flows, and the decision journal: a topic is not a decision and writes nothing to the journal.
@@ -68,6 +71,12 @@ flows, and the decision journal: a topic is not a decision and writes nothing to
 5. No JSON, ids or hashes in the UI.
 6. The manager's updates and clarifications come in the chat thread of the topic; answering there or in the Inbox is
    the same.
+7. A new version follows delegation (the lead), it does not go to people directly; escalated, it joins its row.
+8. The topic lives in the chat of the lead of the team that opened it.
+9. No separate required scope field: `ask` must name exactly what is approved.
+10. Briefs in the company's language for people (ru for ilya-75ba24).
+11. Open items are not migrated; the owner answers them as they are.
+12. Telegram sends topics with their images, approvals included; replaced versions' messages are retired.
 
 ## Impact
 

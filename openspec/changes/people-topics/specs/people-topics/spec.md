@@ -25,12 +25,12 @@ with `brief_required` naming the fields, and nothing SHALL be sent.
 ### Requirement: Topics group what people decide
 Core SHALL put each item into a topic by its artifact version line, then its task, then an explicit topic, and
 Core's escalations by agent and reason. A topic SHALL open with a full brief; items joining it SHALL need only their
-note. A new version of an artifact whose earlier version is in a people topic SHALL join that topic's row, with what
-changed.
+note. A new version of an artifact SHALL follow delegation; when it is brought to people, it SHALL join the row of its
+earlier version in that version's people topic, with what changed.
 
 #### Scenario: Rework lands in the rejected row
-- **WHEN** the owner rejected kf2 v3 in topic "P3-9a key frames" and artist-2d requests approval of kf2 v4 from another task
-- **THEN** kf2 v4 SHALL appear in the same topic next to v3 with the owner's comment and the author's `changes`
+- **WHEN** the owner rejected kf2 v3 in topic "P3-9a key frames", artist-2d requests approval of kf2 v4 from another task and the producer escalates it
+- **THEN** kf2 v4 SHALL appear in the same topic next to v3 with the owner's comment and the producer's `changes` note
 
 #### Scenario: One broken agent, one topic
 - **WHEN** four tasks of the producer escalate `retries_exhausted`
@@ -70,10 +70,10 @@ states SHALL be the same on every surface.
 - **WHEN** the owner asks "why a tap-to-play screen?" in the topic's thread
 - **THEN** the producer SHALL get it in that topic, and its answer SHALL appear there and in the Inbox topic as unread
 
-### Requirement: Open items are migrated
-Open people items SHALL be grouped into topics when this ships; items without a brief SHALL be marked and their
-lead asked once to complete the briefs. The decision journal SHALL NOT change.
+### Requirement: Replaced versions are retired everywhere
+When a newer version of an item is brought to people, the older version's chat and Telegram messages SHALL lose their
+buttons and say what replaced them, and a decision on the older version SHALL be refused.
 
-#### Scenario: Pending approvals of 2026-11-12
-- **WHEN** the change ships with 14 pending artifact approvals in Gnome Arena
-- **THEN** they SHALL appear as topics by version line and task, and the producer SHALL get one message listing the topics to complete
+#### Scenario: Old Telegram button
+- **WHEN** kf2 v4 joins the topic and the owner presses Approve on the kf2 v3 Telegram message
+- **THEN** Core SHALL refuse it and the bot SHALL answer that v3 was replaced by v4
