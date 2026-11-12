@@ -201,3 +201,65 @@ func TestPinOutranksAffinity(t *testing.T) {
 		t.Fatal("pinned node refused:", err)
 	}
 }
+
+// TestDiskPausedHolderReleases: a session's node paused by Core for a critical disk is an inactive holder, like an
+// owner pause: the release timer runs and another node takes the run after it, and Release now works at once
+// (2026-11-12: seven runs waited on hetzner-hel1 at 4.9 GiB free with 11 free slots on other nodes).
+func TestDiskPausedHolderReleases(t *testing.T) {
+	s, fake := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	register(t, s, "n1", 1)
+	register(t, s, "n2", 1)
+	session := func(task string) protocol.RunSpec {
+		t.Helper()
+		if _, err := s.CreateProject(ctx, co, tasks.ProjectCreate{ID: task, Name: task, Workspace: "/tmp/affinity-disk-" + task}); err != nil {
+			t.Fatal(err)
+		}
+		v, _ := s.CreateTask(ctx, co, tasks.Create{ID: task, ProjectID: task, Title: task, Assignee: "dev-" + task, Ready: true, RequestID: task})
+		first, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: task + "-1", Project: task, Agent: "dev-" + task, Provider: protocol.RuntimeCodex})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := claimV2(s, first.ID, "n1", 1, task+"-c1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.StartRun(ctx, co, first.ID, c.Lease); err != nil {
+			t.Fatal(err)
+		}
+		if err = end(t, s, first.ID, c.Lease, protocol.Event{Status: "ENDED", Outcome: "failed", SessionID: "sess-" + task}); err != nil {
+			t.Fatal(err)
+		}
+		fake.Advance(time.Hour)
+		v, _ = s.Task(ctx, co, task)
+		second, err := s.Dispatch(ctx, co, v.ID, v.Version, protocol.RunSpec{ID: task + "-2", Project: task, Agent: "dev-" + task, Provider: protocol.RuntimeCodex})
+		if err != nil || second.SessionID != "sess-"+task {
+			t.Fatalf("second run %+v %v", second, err)
+		}
+		return second
+	}
+	a, b := session("a"), session("b")
+
+	// The holder's disk goes critical: Core pauses it, and the lock starts its release timer.
+	beat(t, s, "n1", 1, `{"disk":"critical"}`)
+	refused(t, func() error { _, err := claimV2(s, a.ID, "n2", 1, "a-c2"); return err }(), true, "affinity")
+	if q, _ := s.QueuedWhy(ctx, co, a.ID); q == nil || q.Reason != QueuedAffinity || q.Until == 0 {
+		t.Fatalf("queued why while the holder's disk is critical %+v", q)
+	}
+	fake.Advance(DefaultSessionAffinity)
+	if _, err := claimV2(s, a.ID, "n2", 1, "a-c3"); err != nil {
+		t.Fatal("lock of a disk-paused holder not released after the timeout", err)
+	}
+
+	// Release now is allowed for a disk-paused node, as for an owner-paused one: the other session's run goes to a
+	// third node at once.
+	register(t, s, "n3", 1)
+	refused(t, func() error { _, err := claimV2(s, b.ID, "n3", 1, "b-c2"); return err }(), true, "affinity")
+	if _, err := s.ReleaseNodeSessions(ctx, co, "n1", "owner"); err != nil {
+		t.Fatal("Release now refused for a disk-paused node", err)
+	}
+	if _, err := claimV2(s, b.ID, "n3", 1, "b-c3"); err != nil {
+		t.Fatal("run not released by Release now", err)
+	}
+}

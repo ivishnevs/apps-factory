@@ -94,11 +94,7 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		}
 		_ = json.Unmarshal(labels, &n.Labels)
 		_ = json.Unmarshal(resources, &n.Resources)
-		var h struct {
-			Disk string `json:"disk"`
-		}
-		_ = json.Unmarshal(health, &h)
-		n.Paused = h.Disk == "critical"
+		n.Paused = diskCritical(health)
 		out = append(out, n)
 		epochs = append(epochs, epoch)
 	}

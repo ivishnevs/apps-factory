@@ -278,7 +278,6 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 		var labels []string
 		var resources map[string]int
 		var h struct {
-			Disk          string `json:"disk"`
 			Free          uint64 `json:"free_disk_bytes"`
 			CriticalBytes uint64 `json:"disk_critical_bytes"`
 		}
@@ -303,7 +302,7 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 				d += ": " + pauseReason
 			}
 			set(QueuedNodePaused, d, 0)
-		case h.Disk == "critical":
+		case diskCritical(r.hlth):
 			d := "paused: disk below its critical watermark"
 			if h.CriticalBytes > 0 {
 				d = fmt.Sprintf("paused: disk %.1f GiB free, critical below %.1f GiB", float64(h.Free)/(1<<30), float64(h.CriticalBytes)/(1<<30))

@@ -151,10 +151,11 @@ func (s *Store) ReleaseNodeSessions(ctx context.Context, company, node, actor st
 
 func releaseNodeSessions(ctx context.Context, tx *Tx, node, actor string) ([]TiedRun, error) {
 	var paused, online bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pauses WHERE company_id=? AND scope='node' AND target=?),coalesce((SELECT online FROM nodes WHERE company_id=? AND id=?),0)", tx.company, node, tx.company, node).Scan(&paused, &online); err != nil {
+	var health []byte
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pauses WHERE company_id=? AND scope='node' AND target=?),coalesce((SELECT online FROM nodes WHERE company_id=? AND id=?),0),coalesce((SELECT health FROM nodes WHERE company_id=? AND id=?),'{}')", tx.company, node, tx.company, node, tx.company, node).Scan(&paused, &online, &health); err != nil {
 		return nil, err
 	}
-	if !paused && online {
+	if !paused && online && !diskCritical(health) {
 		return nil, fmt.Errorf("%w: node %s is active; pause it first, its sessions stay with it while it runs", ErrConflict, node)
 	}
 	held, err := heldSessions(ctx, tx, tx.company, node)

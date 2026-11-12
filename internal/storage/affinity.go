@@ -124,8 +124,8 @@ func sessionHolder(ctx context.Context, q affinityQuerier, company, session, run
 func holderInactive(ctx context.Context, q affinityQuerier, company, holder string, spec protocol.RunSpec) (string, int64, error) {
 	var online bool
 	var lastSeen int64
-	var drivers, labels []byte
-	err := q.QueryRowContext(ctx, "SELECT online,last_seen,drivers,labels FROM nodes WHERE company_id=? AND id=?", company, holder).Scan(&online, &lastSeen, &drivers, &labels)
+	var drivers, labels, health []byte
+	err := q.QueryRowContext(ctx, "SELECT online,last_seen,drivers,labels,health FROM nodes WHERE company_id=? AND id=?", company, holder).Scan(&online, &lastSeen, &drivers, &labels, &health)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "removed", 0, nil
 	}
@@ -141,6 +141,12 @@ func holderInactive(ctx context.Context, q affinityQuerier, company, holder stri
 	}
 	if pausedAt.Valid {
 		return "paused", pausedAt.Int64, nil
+	}
+	// Core's own pause (critical disk) stops the holder as surely as the owner's: it took no run, so its sessions
+	// must time out like a paused node's (2026-11-12: seven runs waited on hetzner-hel1 at 4.9 GiB free while
+	// 11 slots elsewhere were free).
+	if diskCritical(health) {
+		return "paused (critical disk)", 0, nil
 	}
 	var ds []NodeDriver
 	var ls []string
@@ -251,4 +257,14 @@ func (s *Store) RunAffinity(ctx context.Context, company, id string) (*Affinity,
 		return nil, err
 	}
 	return sessionAffinity(ctx, s.DB, company, id, spec, "", s.Now())
+}
+
+// diskCritical is Core's pause of a node for a critical disk, read from the node's reported health. Every check of
+// whether a node can take runs (claims, queued reasons, session affinity, Release now) uses it.
+func diskCritical(health []byte) bool {
+	var h struct {
+		Disk string `json:"disk"`
+	}
+	_ = json.Unmarshal(health, &h)
+	return h.Disk == "critical"
 }

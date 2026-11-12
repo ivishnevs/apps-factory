@@ -67,7 +67,7 @@ A node SHALL write every run event to a spool in its state directory before send
 ### Requirement: Session affinity
 The first node that claims an agent's run on a task (or a conversation) SHALL hold that (agent, task) pair: later runs
 of the pair SHALL be offered to and claimable by only that node while it is active, however long it is busy. When the
-node becomes inactive (offline, paused, removed, or unable to run the agent) a release timer SHALL start; it SHALL be
+node becomes inactive (offline, paused by the owner or by Core for a critical disk, removed, or unable to run the agent) a release timer SHALL start; it SHALL be
 cleared if the node is active again before it ends. When it ends with the node still inactive, the lock SHALL be
 released: any capable node MAY take the run, start a fresh session and become the holder. A run without a session to
 continue SHALL have no affinity. The pin of unpushed work SHALL keep its own rules.

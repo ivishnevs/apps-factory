@@ -553,8 +553,9 @@ A run that continues a session (the (task, agent) session of a rework or re-revi
 message) is taken only by the node that holds the session — the node of the session's latest run — while that
 node is active, however busy it is: other nodes are not offered the run and their claims are refused with retry
 `affinity`; the queued reason says "tied to NODE: its agent session is there". When the holder becomes
-inactive (offline, paused, removed, unable to run the agent, or not ready for the run's project), a release timer
-starts (`session_locks`); a holder active again clears it.
+inactive (offline, paused by the owner or by Core for a critical disk, removed, unable to run the agent, or not ready
+for the run's project), a release timer starts (`session_locks`); a holder active again clears it. "Release now" works
+for a disk-paused node as for an owner-paused one.
 
 Pausing a node that holds sessions asks what to do with them (node-readiness 4.1): `GET /nodes/{id}/sessions` lists
 the sessions it holds for open tasks and the queued runs waiting for them; `POST /nodes/{id}/pause {"reason",
