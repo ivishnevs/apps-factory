@@ -28,6 +28,7 @@ FACTORY_OIDC_ISSUER=https://<dex domain>/dex
 FACTORY_OIDC_CLIENT_SECRET=<random, same as Dex's>
 FACTORY_OIDC_PROVIDERS=github
 FACTORY_MULTI_COMPANY=1                  # people add companies from the company menu
+# FACTORY_BILLING=paddle + FACTORY_PADDLE_*: plans and payments, see billing.md (unset: no plan limits)
 ```
 
 Telegram needs nothing here: each company adds its own bot in Settings → Integrations, and with the https

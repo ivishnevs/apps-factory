@@ -28,6 +28,7 @@ const (
 	QueuedNoSlot       = "no_slot"       // every slot of the node is held
 	QueuedResourceBusy = "resource_busy" // a resource class of the node is held
 	QueuedNodePaused   = "node_paused"   // the owner paused the node
+	QueuedPlanLimit    = "plan_limit"    // an own node over the account's plan (saas-billing): it takes no work
 	// QueuedNodeDiskCritical: Core paused the node for a critical disk (disk-pause-conversations): no work or review
 	// run, no conversation below its conversation floor; it resumes by itself once space is freed.
 	QueuedNodeDiskCritical = "node_disk_critical"
@@ -43,7 +44,7 @@ const (
 )
 
 // queuedRank orders node reasons from the closest to running to the farthest.
-var queuedRank = []string{QueuedNoSlot, QueuedResourceBusy, QueuedNodeDiskCritical, QueuedNodePaused, QueuedDriverDisabled, QueuedNodeOffline, QueuedNotReady, QueuedLabels}
+var queuedRank = []string{QueuedNoSlot, QueuedResourceBusy, QueuedNodeDiskCritical, QueuedNodePaused, QueuedPlanLimit, QueuedDriverDisabled, QueuedNodeOffline, QueuedNotReady, QueuedLabels}
 
 // QueuedReason says why a QUEUED run waits. Until is when it clears by itself (a quota pause, a driver's
 // auth hold-off), 0 when unknown. Nodes are each node's answer.
@@ -291,6 +292,10 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 			return nil, err
 		}
 		di := slices.IndexFunc(drivers, func(d NodeDriver) bool { return d.Name == string(spec.Provider) })
+		overPlan, err := tx.store.nodeOverPlan(ctx, tx, tx.company, q.Node)
+		if err != nil {
+			return nil, err
+		}
 		switch {
 		case !r.online:
 			set(QueuedNodeOffline, "offline since "+time.Unix(r.lastSeen, 0).UTC().Format(time.RFC3339), 0)
@@ -300,6 +305,8 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 				d += ": " + pauseReason
 			}
 			set(QueuedNodePaused, d, 0)
+		case overPlan != "":
+			set(QueuedPlanLimit, overPlan, 0)
 		case diskPaused(r.hlth, spec.Conversation):
 			// A conversation goes on at a critical disk (disk-pause-conversations); work and review runs wait.
 			set(QueuedNodeDiskCritical, readDisk(r.hlth).what(), 0)

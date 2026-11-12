@@ -72,7 +72,7 @@ export default function ConnectPage() {
                   <p className="mt-1 font-mono text-2xl font-semibold tracking-widest">{r.code}</p>
                 </div>
                 <p className="break-all text-xs text-muted-foreground">Fingerprint <span className="font-mono">{r.fingerprint}</span></p>
-                {error ? <ErrorState error={error} /> : null}
+                {error ? <ErrorState error={error} company={company} /> : null}
                 {r.status === "pending" ? (
                   <div className="flex gap-2">
                     <Button variant="outline" className="h-10 flex-1" disabled={busy} onClick={() => decide("reject")}><X className="size-4" />Cancel</Button>
