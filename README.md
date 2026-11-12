@@ -56,7 +56,7 @@ disks: project data (artifacts, logs) moves through the API; code and specs stay
 
 ## Prerequisites
 
-- Go 1.26+ (`go.mod`), Git.
+- Go 1.26.11+ (`go.mod`), Git.
 - Docker with the `docker compose` plugin (Docker Desktop or Colima).
 - Node.js 22+ and npm: `make build` builds the Claude shim in `workers/claude`.
 - **Codex CLI 0.162.1** exactly, logged in with `codex login` (ChatGPT; no API key). Other versions are refused.

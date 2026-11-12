@@ -1,4 +1,4 @@
-FROM golang:1.26.0-bookworm AS build
+FROM golang:1.26.11-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -6,7 +6,7 @@ COPY . .
 RUN mkdir -p /data /blobs && chmod 700 /data /blobs
 RUN CGO_ENABLED=0 go build -trimpath -o /factory ./cmd/factory
 # The node packages this Core hands out (node-install D1): built with Node.js for the Claude shim.
-FROM golang:1.26.0-bookworm AS nodepkg
+FROM golang:1.26.11-bookworm AS nodepkg
 # Empty: scripts/package-node.sh versions the packages by build time (node-packaging-updates C).
 ARG NODE_VERSION=
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node

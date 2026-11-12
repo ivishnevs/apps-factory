@@ -2,7 +2,7 @@
 # service's Dockerfile path to deploy/dex/Dockerfile). Settings come from the environment, see config.yaml.
 # Dex keeps its state (signing keys, sign-ins in progress) in Postgres; ensure-db.sh creates its database on first
 # start. DEX_STORAGE=memory needs no database.
-FROM ghcr.io/dexidp/dex:v2.43.1
+FROM ghcr.io/dexidp/dex:v2.46.1
 USER root
 RUN apk add --no-cache postgresql17-client
 COPY deploy/dex/config.yaml /etc/dex/config.docker.yaml

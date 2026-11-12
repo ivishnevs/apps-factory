@@ -1,6 +1,7 @@
 # Development
 
-Go 1.26 (`crypto/hpke` seals company secrets to nodes, core-secret-store D4; Charm v2 libraries need 1.25); pgx 5.7.5 (`pgx/v5/stdlib` behind
+Go 1.26.11 or newer (`go.mod`; `crypto/hpke` seals company secrets to nodes, core-secret-store D4; the patch level carries
+standard library security fixes, see `docs/dependency-updates-2026-11.md`); pgx 5.13.0 (`pgx/v5/stdlib` behind
 `database/sql`), yaml.v3 3.0.1. pgx is pure Go; no CGO toolchain is needed in the Core container.
 
 Storage is Postgres only (postgres-tenancy). `FACTORY_DATABASE_URL` (`postgres://user:password@host:5432/factory`)
