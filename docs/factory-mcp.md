@@ -61,7 +61,7 @@ a mutation automatically. A 409 is a state/version conflict, not permission to r
 ## Explicit exits
 
 A run ends its turn with exactly one accepted `factory_exit_*` call ([contract](explicit-exits-contract.md)).
-The adapter (`cmd/factory-mcp`) sends exits to `/agent/exit` with the node's git facts and its `ack_seq`, the
+The adapter (`factory-node mcp`) sends exits to `/agent/exit` with the node's git facts and its `ack_seq`, the
 highest trigger seq it has returned to the runtime (the brief end at start, `authority_input` and 409 bodies,
 counted only once the response reached the runtime). Core answers:
 

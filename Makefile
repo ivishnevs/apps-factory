@@ -5,9 +5,10 @@ export FACTORY_TEST_DATABASE_URL
 build:
 	mkdir -p bin
 	go build -o bin/factory ./cmd/factory
-	go build -o bin/factory-mcp ./cmd/factory-mcp
 	go build -o bin/factory-node ./cmd/factory-node
-	go build -o bin/factory-shim ./cmd/factory-shim
+	# One Go binary for the node (node-packaging-updates A1): factory-shim and factory-mcp are links to it.
+	ln -sf factory-node bin/factory-shim
+	ln -sf factory-node bin/factory-mcp
 	cd workers/claude && npm ci --ignore-scripts && npm run build
 test:
 	go test -race ./...

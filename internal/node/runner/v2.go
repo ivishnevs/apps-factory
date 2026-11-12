@@ -44,6 +44,10 @@ type Register struct {
 	// Version is the node package's VERSION; DetectedLabels what the node found it can do (node-packaging-updates).
 	Version        string   `json:"version,omitempty"`
 	DetectedLabels []string `json:"detected_labels,omitempty"`
+	// Platform is the package platform (darwin-arm64, ...) Core offers updates for; Update the node's update report
+	// (node-packaging-updates 3.4).
+	Platform string                     `json:"platform,omitempty"`
+	Update   *protocol.NodeUpdateStatus `json:"update,omitempty"`
 }
 
 // Capacity is the heartbeat's capacity: slots and labels as they are now (settings from the web change them live).
@@ -99,6 +103,8 @@ type Heartbeat struct {
 	// Capacity and Config: the node's slots and labels now and its report of the settings from the web.
 	Capacity *Capacity                  `json:"capacity,omitempty"`
 	Config   *protocol.NodeConfigReport `json:"config,omitempty"`
+	// Update is the node's update report (downloading, testing, draining, switching, failed).
+	Update *protocol.NodeUpdateStatus `json:"update,omitempty"`
 }
 
 type Health struct {
@@ -148,6 +154,8 @@ type HeartbeatAnswer struct {
 	Checks []protocol.ProjectCheck `json:"checks,omitempty"`
 	// ConfigVersion: the version of the node's settings from the web (0: none).
 	ConfigVersion int64 `json:"config_version,omitempty"`
+	// Update is the release Core offers this node (none: no update due, or one in progress is withdrawn).
+	Update *protocol.NodeUpdate `json:"update,omitempty"`
 }
 
 // ErrStaleEpoch: Core knows a newer epoch of this node_id, so another process uses this state_dir's identity.
@@ -204,6 +212,8 @@ type session struct {
 	capMu   sync.Mutex
 	cap     capacity
 	version string
+	// update: version updates (nil: none).
+	update *Updater
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -233,7 +243,7 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 	}
 	s := &session{api: n.API, cfg: c, host: n.Host, gate: gate, trees: trees, inv: node.NewInventory(id, epoch),
 		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{},
-		remote: n.remote, cap: capacity{slots: c.Slots, conversation: c.ConversationSlots, labels: c.Labels, detected: n.Detected}, version: n.Version}
+		remote: n.remote, cap: capacity{slots: c.Slots, conversation: c.ConversationSlots, labels: c.Labels, detected: n.Detected}, version: n.Version, update: n.Update}
 	if n.Host.Run != nil {
 		s.ready = newProjectChecks(n.Host.Run, s.driversChanged) // a finished check pass is reported at once
 	}
@@ -257,7 +267,10 @@ func (s *session) register(ctx context.Context, reason string) error {
 	cp := s.capacity()
 	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: cp.slots, ConversationSlots: cp.conversation, Features: []string{"context_window"},
 		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: cp.labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason,
-		Version: s.version, DetectedLabels: cp.detected}
+		Version: s.version, DetectedLabels: cp.detected, Update: s.update.Status()}
+	if s.update != nil {
+		req.Platform = s.update.Platform
+	}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}
 	}
@@ -401,6 +414,7 @@ func (s *session) beat(ctx context.Context) error {
 	if s.remote != nil {
 		hb.Config = s.remote.reported()
 	}
+	hb.Update = s.update.Status()
 	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", hb, &a)
 	if err == nil {
 		s.lastBeat = time.Now()
@@ -444,6 +458,7 @@ func (s *session) beat(ctx context.Context) error {
 	}
 	s.queueCleanups(a.Cleanup)
 	s.fetchConfig(ctx, a.ConfigVersion)
+	s.update.Offer(ctx, a.Update, true)
 	return nil
 }
 

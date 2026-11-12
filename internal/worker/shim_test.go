@@ -17,9 +17,14 @@ import (
 // buildShim builds factory-shim: runs of catalog agents always carry the mandatory command guards.
 func buildShim(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "factory-shim")
-	if out, err := exec.Command("go", "build", "-o", bin, "appfactory/cmd/factory-shim").CombinedOutput(); err != nil {
+	// The package links factory-shim to factory-node (node-packaging-updates A1).
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "factory-shim")
+	if out, err := exec.Command("go", "build", "-o", filepath.Join(dir, "factory-node"), "appfactory/cmd/factory-node").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	if err := os.Symlink("factory-node", bin); err != nil {
+		t.Fatal(err)
 	}
 	return bin
 }

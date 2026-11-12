@@ -527,6 +527,14 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 		}
 		where := strings.Trim(f.ProjectID+"/"+f.TaskID, "/")
 		it := telegram.Item{Seq: f.Sequence, Text: fmt.Sprintf("⚠ %s %s: %s", where, f.Type, f.Summary)}
+		if node, ok := strings.CutPrefix(f.EntityID, "node:"); ok && f.Type == "node_update_available" {
+			// Approval policy (node-packaging-updates 3.4): Telegram asks, the button approves the update.
+			it.Text = "⬆ " + f.Summary
+			it.Target = telegram.Target{Question: nodeUpdateQuestion + node, Label: "node " + node}
+			it.Options = []string{"Update to " + f.Ref}
+			out = append(out, it)
+			continue
+		}
 		if d, m, ok := b.proposalOf(ctx, f); ok {
 			it.Text = fmt.Sprintf("🗳 %s\n%s\nDecision: %s\n\n%s", b.label(m.Sender), m.ProjectID, d.Topic, m.Body)
 			it.Target = telegram.Target{Question: m.ID, Agent: m.Sender, Project: m.ProjectID, Label: b.label(m.Sender)}
@@ -568,6 +576,9 @@ func (b telegramBackend) PendingQuestions(ctx context.Context) ([]telegram.Quest
 }
 
 func (b telegramBackend) Choose(ctx context.Context, id string, choice int, key string) (string, error) {
+	if node, ok := strings.CutPrefix(id, nodeUpdateQuestion); ok { // node_update_available (node-packaging-updates 3.4)
+		return b.approveNodeUpdate(ctx, node)
+	}
 	if m, err := b.c.Store.Message(ctx, b.company, id); err == nil && m.DecisionID != "" && m.MessageType == "review_request" {
 		return b.decide(ctx, m, choice, key)
 	}
@@ -643,6 +654,9 @@ func (b telegramBackend) answer(ctx context.Context, id string, choice int, text
 }
 
 func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key string) (string, error) {
+	if strings.HasPrefix(t.Question, nodeUpdateQuestion) {
+		return "", fmt.Errorf("approve the node's update with the button, or on the Nodes page")
+	}
 	if t.Question != "" {
 		if m, err := b.c.Store.Message(ctx, b.company, t.Question); err == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
 			return b.answer(ctx, t.Question, -1, text, key)

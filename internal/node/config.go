@@ -91,7 +91,7 @@ type Drivers struct {
 
 type CodexConfig struct {
 	Enabled *bool `yaml:"enabled"` // default true
-	// Binary defaults to CODEX_BIN, else codex.
+	// Binary defaults to CODEX_BIN, else the package's pinned standalone Codex (codex/codex), else codex on PATH.
 	Binary string `yaml:"binary"`
 	// Home is the node's own Codex login (CODEX_HOME, node-runtime-accounts): factory-node login codex sets it.
 	Home string `yaml:"home"`

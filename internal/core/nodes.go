@@ -24,6 +24,7 @@ import (
 // Runtime protocol v2 routes (docs/runtime-protocol-v2.md). Nodes sign every request (node-identity D4) and every
 // request names its node_id. Refusals a node acts on are JSON.
 func (c *Core) nodeRoutes(m *http.ServeMux) {
+	c.nodeUpdateRoutes(m)
 	m.HandleFunc("POST /nodes/register", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			storage.NodeRegistration
@@ -54,10 +55,17 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 		if d := config.DeliverNodeHooks(c.cat(c.companyFrom(r)).NodeHooks, p.Hooks); d.Hash != p.HooksHash {
 			hooks = &d
 		}
+		// The update due (node-packaging-updates 3.4): every answer carries it; one without it withdraws an update the
+		// node has not switched to yet.
+		var update *protocol.NodeUpdate
+		if err == nil {
+			update, err = c.nodeUpdate(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		}
 		nodeReply(w, struct {
 			storage.HeartbeatAnswer
-			Hooks *protocol.NodeHooksDelivery `json:"hooks,omitempty"`
-		}{v, hooks}, err)
+			Hooks  *protocol.NodeHooksDelivery `json:"hooks,omitempty"`
+			Update *protocol.NodeUpdate        `json:"update,omitempty"`
+		}{v, hooks, update}, err)
 	})
 	m.HandleFunc("GET /nodes", func(w http.ResponseWriter, r *http.Request) {
 		nodes, err := c.Store.Nodes(r.Context(), c.companyFrom(r))

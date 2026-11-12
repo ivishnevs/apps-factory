@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -43,11 +42,7 @@ var e2eHeartbeat = 1
 func startE2E(t *testing.T, explicitExits bool, agents map[string]config.Agent, d *fake.Driver) *e2e {
 	t.Helper()
 	bin := t.TempDir()
-	for _, name := range []string{"factory-mcp", "factory-shim"} {
-		if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, name), "appfactory/cmd/"+name).CombinedOutput(); err != nil {
-			t.Fatalf("%v\n%s", err, out)
-		}
-	}
+	buildNodeBin(t, bin)
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = e2eHeartbeat
 	t.Cleanup(func() { storage.HeartbeatSeconds = beat })

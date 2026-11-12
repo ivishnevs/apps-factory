@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"sync"
 	"time"
 
 	"appfactory/internal/config"
+	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
 
@@ -59,10 +61,12 @@ type PollAnswer struct {
 	// fetches GET /nodes/{id}/config. A change answers a waiting poll at once.
 	ConfigVersion int64 `json:"config_version,omitempty"`
 	configChanged bool
+	// Update is the release Core offers the node (node-packaging-updates 3.4); every answer carries it while it is due.
+	Update *protocol.NodeUpdate `json:"update,omitempty"`
 }
 
 func (a PollAnswer) empty() bool {
-	return len(a.Offers) == 0 && a.PollWork.Empty() && !a.HooksChanged && !a.configChanged
+	return len(a.Offers) == 0 && a.PollWork.Empty() && !a.HooksChanged && !a.configChanged && a.Update == nil
 }
 
 // notifier wakes waiting polls: a commit that queued a run or changed what a node must do signals its company (D6).
@@ -187,7 +191,7 @@ func (c *Core) poll(w http.ResponseWriter, r *http.Request) {
 			nodeReply(w, nil, err)
 			return
 		}
-		empty.ConfigVersion = a.ConfigVersion // every answer names the settings' version
+		empty.ConfigVersion, empty.Update = a.ConfigVersion, a.Update // every answer names the settings' version and the update
 		if len(a.Offers) > 0 || !a.empty() && !c.pollers.seen(node, key) {
 			c.pollers.deliver(node, key)
 			write(w, a)
@@ -230,12 +234,20 @@ func (c *Core) pollAnswer(ctx context.Context, company, node string, p PollReque
 		return a, "", err
 	}
 	a.configChanged = a.ConfigVersion > 0 && a.ConfigVersion != p.ConfigVersion
+	if a.Update, err = c.nodeUpdate(ctx, company, node); err != nil {
+		return a, "", err
+	}
+	var update string
+	if a.Update != nil {
+		update = fmt.Sprintf("%s|%d|%t", a.Update.Version, a.Update.Attempt, a.Update.Now)
+	}
 	key, _ := json.Marshal(struct {
 		Epoch  int64
 		Work   string
 		Hooks  string
 		Config int64
-	}{p.Epoch, work.Key(), map[bool]string{true: hooks.Hash}[a.HooksChanged], map[bool]int64{true: a.ConfigVersion}[a.configChanged]})
+		Update string
+	}{p.Epoch, work.Key(), map[bool]string{true: hooks.Hash}[a.HooksChanged], map[bool]int64{true: a.ConfigVersion}[a.configChanged], update})
 	return a, string(key), nil
 }
 

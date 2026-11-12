@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"appfactory/internal/node/runtimes"
 )
 
 // Version is the node package's VERSION (node-packaging-updates C), set at build time by scripts/package-node.sh
@@ -22,6 +24,9 @@ func PackageVersion(binDir string) string {
 		if exe, err := os.Executable(); err == nil {
 			binDir = filepath.Dir(exe)
 		}
+	}
+	if real, err := filepath.EvalSymlinks(binDir); err == nil && binDir != "" {
+		binDir = real // <home>/bin -> current/bin -> versions/<v>/bin
 	}
 	if binDir != "" {
 		if b, err := os.ReadFile(filepath.Join(filepath.Dir(binDir), "VERSION")); err == nil {
@@ -101,4 +106,37 @@ func DetectLabels(ctx context.Context, h Host, goarch string) []string {
 		}
 	}
 	return out
+}
+
+// PackageDir is the package directory of a node with bin directory binDir (empty: the executable's): its parent,
+// which holds the runtimes the package pins (claude-code/, codex/).
+func PackageDir(binDir string) string {
+	if binDir == "" {
+		if exe, err := os.Executable(); err == nil {
+			binDir = filepath.Dir(exe)
+		}
+	}
+	if binDir == "" {
+		return ""
+	}
+	return filepath.Dir(binDir)
+}
+
+// CodexBinary is the Codex a node runs (node-packaging-updates A2): drivers.codex.binary, else CODEX_BIN, else the
+// standalone Codex the package pins (codex/codex), else codex on PATH.
+func CodexBinary(c Config, getenv func(string) string) string {
+	if c.Drivers.Codex.Binary != "" {
+		return ExpandHome(c.Drivers.Codex.Binary)
+	}
+	if getenv != nil {
+		if v := getenv("CODEX_BIN"); v != "" {
+			return v
+		}
+	}
+	if dir := PackageDir(c.BinDir); dir != "" {
+		if p := runtimes.Binary(dir, runtimes.CodexBin); p != "" {
+			return p
+		}
+	}
+	return "codex"
 }

@@ -1,0 +1,7 @@
+# The standalone Codex the node supports (codex.SupportedVersion), per platform: platform url sha256 archive-entry.
+# Official release binaries from github.com/openai/codex (rust-v0.162.1); the Linux builds are static (musl) and run on
+# glibc too. scripts/package-node.sh copies this file into each package as codex/codex.lock (node-packaging-updates A2).
+darwin-arm64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-aarch64-apple-darwin.tar.gz b293a0fcdd871900a44c0a4f40a1aa401b31e02854f790ebdb8bd5d1177fd1fe codex-aarch64-apple-darwin
+darwin-amd64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-apple-darwin.tar.gz d68e39d8f62639f33f7d00656554cb9c3ef7809e664a3827e62ab3ace3c21b21 codex-x86_64-apple-darwin
+linux-arm64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-aarch64-unknown-linux-musl.tar.gz bf3ca2719f1143b1440fbd85c149379e696c782c50ad7991f8bfcec60b2600c1 codex-aarch64-unknown-linux-musl
+linux-amd64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-unknown-linux-musl.tar.gz 86f268d81b898f3e144c5ecff2ad2fda2c5802e042d6195b72538fe0fa125057 codex-x86_64-unknown-linux-musl

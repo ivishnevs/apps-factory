@@ -20,6 +20,9 @@ var photoExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".web
 // with their captions: the preview of a large image, else the original. more counts the images not sent (beyond
 // one album, too large or unreadable).
 func (b telegramBackend) Images(ctx context.Context, id string) ([]telegram.Photo, int, error) {
+	if strings.HasPrefix(id, nodeUpdateQuestion) { // a node update to approve carries no images
+		return nil, 0, nil
+	}
 	m, err := b.c.Store.Message(ctx, b.company, id)
 	if err != nil {
 		return nil, 0, err

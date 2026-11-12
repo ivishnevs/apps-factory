@@ -65,6 +65,21 @@ func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
 	r = append(r, d.core(ctx))
 	r = append(r, d.Net.NetChecks(ctx, ForgeHost, "net.forge")...)
+	return append(r, d.runtimes(ctx)...)
+}
+
+// SelfTest is what a new version must pass on this machine before the node switches to it (node-packaging-updates
+// C, `factory-node selftest`): it starts (the test runs in it), its factory-mcp and factory-shim links are there,
+// Core answers a request signed with the node's keys, and the probes of the drivers in Drivers (the ones node.yaml
+// enables) pass, without a model call. The machine's own checks (git, disk, Xcode, stacks) are not the version's.
+func (d Doctor) SelfTest(ctx context.Context) []CheckResult {
+	r := []CheckResult{binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host), d.core(ctx)}
+	return append(r, d.runtimes(ctx)...)
+}
+
+// runtimes runs the driver probes: the drivers in Drivers, else every installed one; at least one must pass.
+func (d Doctor) runtimes(ctx context.Context) []CheckResult {
+	var r []CheckResult
 	usable := []string{}
 	for _, rt := range d.Runtimes {
 		explicit := slices.Contains(d.Drivers, rt.Name)

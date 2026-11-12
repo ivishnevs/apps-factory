@@ -101,7 +101,8 @@ Task Engine adds scripts/task-smoke.py (opt-in real model chain; --restart-core 
 migration/DAG/version/idempotency/review/retry tests and a fake-runtime restart test.
 See task-lifecycle.md for the supported API/CLI and retry constraints.
 
-Factory MCP builds a native sibling factory-mcp executable. See factory-mcp.md for scoped auth,
+Factory MCP is `factory-node mcp`; `make build` links `bin/factory-mcp` and `bin/factory-shim` to `bin/factory-node` (one Go
+executable, node-packaging-updates 3.3). See factory-mcp.md for scoped auth,
 stdio tools, audit and the opt-in scripts/mcp-smoke.py planner/executor/reviewer test.
 
 Messaging adds scripts/messaging-smoke.py --restart-core, blocking-answer races, communication scope,

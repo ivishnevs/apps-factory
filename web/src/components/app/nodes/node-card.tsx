@@ -12,6 +12,7 @@ import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
 import { nodeHealth, nodeId, type NodeDriver, type NodeFull, type NodeHealth } from "@/lib/api/types-ops";
 import { ago, displayId } from "@/lib/format";
 import { NodeSettingsPanel } from "@/components/app/nodes/node-settings";
+import { NodeUpdate, behind } from "@/components/app/nodes/node-update";
 import { cn } from "@/lib/utils";
 
 export const gib = (b?: number) => `${((b ?? 0) / 2 ** 30).toFixed(1)} GiB`;
@@ -145,21 +146,9 @@ function Tied({ node, inactive }: { node: FactoryNode; inactive?: boolean }) {
   );
 }
 
-// behind (node-packaging-updates C): the node's version is older than the release this Core hands out. Versions are
-// dotted numbers (2026.11.12.1530+commit); anything else ("dev") is not compared.
-function behind(version?: string, release?: string) {
-  const parts = (v?: string) => (v && /^v?\d+(\.\d+)*([+-].*)?$/.test(v) ? v.replace(/^v/, "").split(/[+-]/)[0].split(".").map(Number) : null);
-  const a = parts(version), b = parts(release);
-  if (!a || !b) return false;
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
-  }
-  return false;
-}
-
-export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manage = false, release }: {
+export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manage = false, release, policy }: {
   node: FactoryNode; pause?: PauseT; onPause: () => void; onResume: () => void; onRevoke?: () => void; busy?: boolean;
-  manage?: boolean; release?: string;
+  manage?: boolean; release?: string; policy?: string;
 }) {
   const n = node as NodeFull;
   const h = nodeHealth(node);
@@ -202,6 +191,8 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manag
       </header>
 
       <div className="space-y-4 px-4 pb-4 md:px-5">
+        <NodeUpdate node={node} release={release} policy={policy} manage={manage} />
+
         {/* Slots: one cell per slot, filled when a run holds it. */}
         <div>
           <div className="mb-1.5 flex items-baseline justify-between text-xs">

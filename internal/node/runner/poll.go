@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"appfactory/internal/node"
+	"appfactory/internal/protocol"
 	"appfactory/internal/worker"
 )
 
@@ -47,6 +48,8 @@ type pollAnswer struct {
 	// ConfigVersion: the version of the node's settings from the web (node-packaging-updates B); another than the
 	// applied one is fetched.
 	ConfigVersion int64 `json:"config_version"`
+	// Update: the release Core offers this node (node-packaging-updates 3.4).
+	Update *protocol.NodeUpdate `json:"update,omitempty"`
 }
 
 // skips are runs whose claim Core refused for now; the poll asks Core not to offer them until their time passed.
@@ -181,6 +184,7 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 			s.driversChanged() // the heartbeat delivers the NodeHooks document
 		}
 		s.fetchConfig(ctx, a.ConfigVersion)
+		s.update.Offer(ctx, a.Update, false)
 		for _, j := range a.SyncJobs {
 			s.startSyncJob(ctx, j)
 		}

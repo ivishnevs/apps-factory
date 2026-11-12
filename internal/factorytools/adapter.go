@@ -536,7 +536,7 @@ type notFound struct{ name string }
 
 func (e *notFound) Error() string { return e.name + ": executable not found" }
 
-// AdapterFromEnv builds the adapter of cmd/factory-mcp from the run environment.
+// AdapterFromEnv builds the adapter of factory-node mcp (factory-mcp) from the run environment.
 func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	a := &Adapter{URL: getenv("FACTORY_URL"), Token: getenv("FACTORY_RUN_TOKEN"), Workdir: getenv("FACTORY_WORKDIR"),
 		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), OpenSpecChange: getenv("FACTORY_OPENSPEC_CHANGE"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
