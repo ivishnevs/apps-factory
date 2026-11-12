@@ -47,8 +47,25 @@ func (c *Core) ownerGateway(w http.ResponseWriter, r *http.Request, m *http.Serv
 		reply(w, nil, err)
 		return
 	}
-	ctx := context.WithValue(context.WithValue(r.Context(), companyKey{}, t.Company), principalKey{}, principal{Kind: "token", Role: storage.RoleAdmin, Token: t.ID})
+	// An owner token acts as an admin (D7): owners and admins issue them, so a token must not reach what only an
+	// owner may do (roles, invitations, billing, renaming), or an admin would become an owner through a token
+	// (security-review-2026-11 F1). Only the company's first token, issued by the operator, is the owner's.
+	role := ownerTokenRole(t)
+	if need := requiredRole(r.Method, r.URL.Path); roleRank(role) < roleRank(need) {
+		jsonStatus(w, 403, map[string]string{"error": "an owner token acts as an admin; this needs the " + need + " role (sign in on the website)", "reason": "forbidden", "role": role})
+		return
+	}
+	ctx := context.WithValue(context.WithValue(r.Context(), companyKey{}, t.Company), principalKey{}, principal{Kind: "token", Role: role, Token: t.ID})
 	m.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ownerTokenRole is the role an owner token acts with: the owner's for a token the operator issued (a company
+// created with POST /companies has no signed-in owner yet), an admin's for every other.
+func ownerTokenRole(t storage.OwnerToken) string {
+	if t.CreatedBy == "operator" {
+		return storage.RoleOwner
+	}
+	return storage.RoleAdmin
 }
 
 // CompanyCreate is POST /companies.

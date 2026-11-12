@@ -23,6 +23,9 @@ type Blob struct {
 
 var errBlobTooLarge = errors.New("blob too large")
 
+// ErrQuota is an upload past the company's storage quota (Store.BlobQuota).
+var ErrQuota = fmt.Errorf("%w: storage quota", ErrConflict)
+
 // limited fails the read past max bytes, so the blob store never keeps an oversized blob.
 type limited struct {
 	r    io.Reader
@@ -43,7 +46,23 @@ func (s *Store) PutBlob(ctx context.Context, company string, r io.Reader, max in
 	if company == "" {
 		return Blob{}, inputError("company required")
 	}
+	quotaCut := false
+	if s.BlobQuota > 0 {
+		var used int64
+		if err := s.DB.QueryRowContext(ctx, "SELECT coalesce(sum(size),0) FROM blobs WHERE company_id=?", company).Scan(&used); err != nil {
+			return Blob{}, err
+		}
+		if used >= s.BlobQuota {
+			return Blob{}, fmt.Errorf("%w: the company's storage is full (%d MiB of %d MiB); remove old artifacts or ask support", ErrQuota, used>>20, s.BlobQuota>>20)
+		}
+		if left := s.BlobQuota - used; left < max {
+			max, quotaCut = left, true
+		}
+	}
 	sha, n, err := s.Blobs.Put(ctx, company, &limited{r: r, left: max})
+	if errors.Is(err, errBlobTooLarge) && quotaCut {
+		return Blob{}, fmt.Errorf("%w: the company's storage is full (quota %d MiB); remove old artifacts or ask support", ErrQuota, s.BlobQuota>>20)
+	}
 	if errors.Is(err, errBlobTooLarge) {
 		return Blob{}, inputError(fmt.Sprintf("content exceeds %d bytes", max))
 	}

@@ -2,12 +2,41 @@ package preview
 
 import (
 	"bytes"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
 	"testing"
 )
+
+// pngHeader is the start of a PNG claiming w x h pixels (enough for DecodeConfig).
+func pngHeader(w, h uint32) []byte {
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:], w)
+	binary.BigEndian.PutUint32(ihdr[4:], h)
+	ihdr[8], ihdr[9] = 16, 6 // 16-bit RGBA: 8 bytes per pixel decoded
+	chunk := append([]byte("IHDR"), ihdr...)
+	out := []byte("\x89PNG\r\n\x1a\n")
+	out = binary.BigEndian.AppendUint32(out, 13)
+	out = append(out, chunk...)
+	return binary.BigEndian.AppendUint32(out, crc32.ChecksumIEEE(chunk))
+}
+
+// TestRenderPixelBound (security-review-2026-11 F5): an image above maxPixels is never decoded (a 48 Mpx 16-bit PNG
+// would take ~400 MB); a 24 Mpx photo is within it.
+func TestRenderPixelBound(t *testing.T) {
+	if cfg, err := png.DecodeConfig(bytes.NewReader(pngHeader(8000, 6000))); err != nil || cfg.Width != 8000 {
+		t.Fatal("test header", cfg, err)
+	}
+	if _, ok := Render("huge.png", pngHeader(8000, 6000)); ok {
+		t.Fatal("a 48 Mpx image was rendered")
+	}
+	if int64(8000)*6000 <= maxPixels || int64(6000)*4000 > maxPixels {
+		t.Fatal("maxPixels", maxPixels)
+	}
+}
 
 func encodePNG(t *testing.T, img image.Image) []byte {
 	t.Helper()

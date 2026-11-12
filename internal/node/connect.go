@@ -115,7 +115,7 @@ func (c Connect) Run(ctx context.Context) (ConnectStatus, error) {
 		return out, fmt.Errorf("connect: Core answered fingerprint %q for keys with fingerprint %s", a.Fingerprint, keys.Fingerprint())
 	}
 	w := e.output()
-	fmt.Fprintf(w, "Approve this machine (%s) in App Factory:\n\n  %s\n\nThe page shows the code %s (or an owner runs: factory nodes connect %s). It expires in %d minutes.\n", name, a.URL, a.Code, a.ID, max(1, (a.ExpiresAt-e.now().Unix())/60))
+	fmt.Fprintf(w, "Approve this machine (%s) in App Factory:\n\n  %s\n\nType the code %s on that page (or an owner runs: factory nodes connect %s %s). It expires in %d minutes.\n", name, a.URL, a.Code, a.ID, a.Code, max(1, (a.ExpiresAt-e.now().Unix())/60))
 	if c.Open != nil {
 		if err := c.Open(a.URL); err != nil {
 			fmt.Fprintln(w, "Open the address above in a browser where you are signed in.")

@@ -1,8 +1,8 @@
 Status: checklist before the public SaaS release (raised 2026-11-05). Items are done one by one; items marked
 "owner" need the owner's accounts, money or legal decisions. Partly implemented 2026-11-12: rate limits (2.3),
 incident runbook and status notes (2.4), deletion and export (4.2), support contact (4.3), draft legal texts (4.1,
-not published). Blockers: 1.1, 1.3, 2.1, 2.2 need the production Railway project and the owner's accounts; 4.1
-needs a lawyer and the owner's approval; 5.1 the owner's mail provider; 3.1 security review not done; 3.2, 6.2
+not published), security review with its High and Medium findings fixed (3.1). Blockers: 1.1, 1.3, 2.1, 2.2 need the production Railway project and the owner's accounts; 4.1
+needs a lawyer and the owner's approval; 5.1 the owner's mail provider; 3.2, 6.2
 are other changes; 3.3 a separate dependency pass.
 
 ## Why

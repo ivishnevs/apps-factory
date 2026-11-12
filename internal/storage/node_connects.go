@@ -3,11 +3,13 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"appfactory/internal/nodesig"
 	"appfactory/internal/protocol"
@@ -151,8 +153,27 @@ func pendingConnect(ctx context.Context, tx *Tx, id string) (NodeConnect, error)
 	return c, nil
 }
 
-// ApproveNodeConnect makes the request's keys active in company, by actor (a person or token, for the feed).
-func (s *Store) ApproveNodeConnect(ctx context.Context, company, id, actor string) (NodeKey, error) {
+// ErrConnectCode is an approval whose code is not the one the machine's terminal shows.
+var ErrConnectCode = fmt.Errorf("%w: the code is not the one the machine's terminal shows", ErrConflict)
+
+// SameConnectCode compares a typed code with the request's, ignoring case, spaces and dashes.
+func SameConnectCode(typed, code string) bool {
+	norm := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if r == '-' || unicode.IsSpace(r) {
+				return -1
+			}
+			return unicode.ToUpper(r)
+		}, s)
+	}
+	a, b := norm(typed), norm(code)
+	return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// ApproveNodeConnect makes the request's keys active in company, by actor (a person or token, for the feed). code
+// is what the approver typed from the machine's terminal: the link alone connects nothing, so a link someone else
+// sends cannot attach their machine to the company with one click (security-review-2026-11 F2).
+func (s *Store) ApproveNodeConnect(ctx context.Context, company, id, code, actor string) (NodeKey, error) {
 	tx, err := s.begin(ctx, company)
 	if err != nil {
 		return NodeKey{}, err
@@ -161,6 +182,9 @@ func (s *Store) ApproveNodeConnect(ctx context.Context, company, id, actor strin
 	c, err := pendingConnect(ctx, tx, id)
 	if err != nil {
 		return NodeKey{}, err
+	}
+	if !SameConnectCode(code, c.Code) {
+		return NodeKey{}, ErrConnectCode
 	}
 	// saas-billing: one more own node only within the account's plan.
 	if err = checkNodeLimit(ctx, tx, company); err != nil {

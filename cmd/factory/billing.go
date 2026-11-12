@@ -4,12 +4,33 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 
 	"appfactory/internal/billing"
 	"appfactory/internal/core"
 	"appfactory/internal/storage"
 )
+
+// DefaultCompanyStorageGB is each company's storage quota on a Core with billing on (the hosted service).
+const DefaultCompanyStorageGB = 20
+
+// blobQuota reads FACTORY_COMPANY_STORAGE_GB, the bytes of content one company may store (security-review-2026-11
+// F6): unset, DefaultCompanyStorageGB with billing on and none otherwise (self-hosted); 0, none.
+func blobQuota(getenv func(string) string, billingOn bool) (int64, error) {
+	v := strings.TrimSpace(getenv("FACTORY_COMPANY_STORAGE_GB"))
+	if v == "" {
+		if billingOn {
+			return DefaultCompanyStorageGB << 30, nil
+		}
+		return 0, nil
+	}
+	gb, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || gb < 0 || gb > 1<<20 {
+		return 0, fmt.Errorf("FACTORY_COMPANY_STORAGE_GB must be a number of GiB (0: no quota), not %q", v)
+	}
+	return gb << 30, nil
+}
 
 // billingConfig reads FACTORY_BILLING (saas-billing): unset or off, no plan limits (self-hosted and dev Cores);
 // on, plan limits with plans set by the operator; paddle, plan limits and payments through Paddle, which needs

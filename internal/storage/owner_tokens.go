@@ -82,8 +82,8 @@ func (s *Store) AuthenticateOwnerToken(ctx context.Context, token string) (Owner
 	if !strings.HasPrefix(token, OwnerTokenPrefix) {
 		return t, ErrNotFound
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT company_id,id,name,created_at,last_used_at FROM owner_tokens WHERE hash=? AND revoked_at=0", hashSecret(token)).
-		Scan(&t.Company, &t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT company_id,id,name,created_by,created_at,last_used_at FROM owner_tokens WHERE hash=? AND revoked_at=0", hashSecret(token)).
+		Scan(&t.Company, &t.ID, &t.Name, &t.CreatedBy, &t.CreatedAt, &t.LastUsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrNotFound
 	}

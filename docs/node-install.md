@@ -90,13 +90,14 @@ sends a connection request with them and a proof, and opens `<FACTORY_PUBLIC_URL
 the address, a code like `828W-A2F8` and the owner command. An owner or admin approves it for their company:
 
 ```sh
-factory nodes connection ID          # name, system, address, code, fingerprint, status
-factory nodes connect ID             # approve: the keys are active in this company at once
+factory nodes connection ID          # name, system, address, fingerprint, status
+factory nodes connect ID CODE        # approve with the terminal's code: the keys are active in this company at once
 factory nodes connect ID --reject    # cancel
 ```
 
-The web page for it comes with the SaaS web. A request lives 15 minutes, can be decided once, and gives nothing
-before approval. Approve only a machine you just ran it on, with the same code. The enrollment code path
+The web page `/connect/<id>` asks for the code the terminal shows; Core never shows it there, so a link someone
+else sends cannot connect their machine with one click. A request lives 15 minutes, can be decided once, and gives
+nothing before approval. Approve only a machine you just ran it on. The enrollment code path
 ([development](development.md#node-identity)) stays for scripts and machines that cannot reach the web.
 
 ## A second machine and its network (setup-assistant)

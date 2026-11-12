@@ -276,7 +276,7 @@ func cloneRepository(ctx context.Context, dir, url, branch string) error {
 	}
 	tmp := dir + ".clone"
 	_ = os.RemoveAll(tmp)
-	if _, err := git(ctx, filepath.Dir(dir), append(args, url, tmp)...); err != nil {
+	if _, err := git(ctx, filepath.Dir(dir), append(args, "--", url, tmp)...); err != nil {
 		return fmt.Errorf("cloning %s: %w", url, err)
 	}
 	return os.Rename(tmp, dir)

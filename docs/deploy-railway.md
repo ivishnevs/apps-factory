@@ -30,6 +30,7 @@ FACTORY_OIDC_PROVIDERS=github
 FACTORY_MULTI_COMPANY=1                  # people add companies from the company menu
 # FACTORY_BILLING=paddle + FACTORY_PADDLE_*: plans and payments, see billing.md (unset: no plan limits)
 # FACTORY_SUPPORT_EMAIL=<address>: the support contact on the landing and in the app (unset: none shown)
+# FACTORY_COMPANY_STORAGE_GB=<GiB>: stored content per company (unset: 20 with billing on, none otherwise; 0: none)
 ```
 
 Incidents, the status note (`PUT /status-note` with the operator token), rate limits on the public routes and

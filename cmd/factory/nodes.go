@@ -8,7 +8,7 @@ import (
 	"appfactory/internal/worker"
 )
 
-const nodesUsage = "nodes list | nodes remove NODE_ID | nodes enroll --name NAME | nodes keys | nodes approve NODE_ID FINGERPRINT | nodes reject NODE_ID | nodes revoke NODE_ID | nodes install | nodes connection ID | nodes connect ID [--reject]"
+const nodesUsage = "nodes list | nodes remove NODE_ID | nodes enroll --name NAME | nodes keys | nodes approve NODE_ID FINGERPRINT | nodes reject NODE_ID | nodes revoke NODE_ID | nodes install | nodes connection ID | nodes connect ID CODE | nodes connect ID --reject"
 
 // nodesCommand: registered nodes and their keys (node-identity).
 func nodesCommand(ctx context.Context, api worker.API, args []string) error {
@@ -34,8 +34,9 @@ func nodesCommand(ctx context.Context, api worker.API, args []string) error {
 		err = api.Do(ctx, "GET", "/node-install", nil, &result)
 	case len(args) == 3 && args[1] == "connection":
 		err = api.Do(ctx, "GET", "/node-connects/"+url.PathEscape(args[2]), nil, &result)
-	case len(args) == 3 && args[1] == "connect":
-		err = api.Do(ctx, "POST", "/node-connects/"+url.PathEscape(args[2])+"/approve", nil, &result)
+	case len(args) == 4 && args[1] == "connect" && args[3] != "--reject":
+		// The code the machine's terminal shows (security-review-2026-11 F2).
+		err = api.Do(ctx, "POST", "/node-connects/"+url.PathEscape(args[2])+"/approve", map[string]string{"code": args[3]}, &result)
 	case len(args) == 4 && args[1] == "connect" && args[3] == "--reject":
 		err = api.Do(ctx, "POST", "/node-connects/"+url.PathEscape(args[2])+"/reject", nil, &result)
 	default:

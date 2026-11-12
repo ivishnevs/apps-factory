@@ -7,15 +7,17 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ErrorState } from "@/components/app/page";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { core, useMe } from "@/lib/api/client";
 import { canManage } from "@/lib/api/types-account";
 import { ago } from "@/lib/format";
 
 // Approving a connector (node-install D5, saas-web-ui D8): `factory-node login` prints this page's address. After
-// sign-in (a 401 sends the person to /signin and back), an owner or admin picks one of their companies, compares the
-// code with the terminal and connects the machine; the terminal continues on its own.
-interface NodeConnect { id: string; node_id: string; name: string; os: string; arch: string; address: string; fingerprint: string; code: string; status: string; company?: string; created_at: number; expires_at: number }
+// sign-in (a 401 sends the person to /signin and back), an owner or admin picks one of their companies, types the
+// code the terminal shows and connects the machine; the terminal continues on its own. Core never sends the code to
+// this page (security-review-2026-11 F2): a link someone else sent cannot connect their machine with one click.
+interface NodeConnect { id: string; node_id: string; name: string; os: string; arch: string; address: string; fingerprint: string; status: string; company?: string; created_at: number; expires_at: number }
 
 const systems: Record<string, string> = { darwin: "macOS", linux: "Linux" };
 
@@ -31,10 +33,11 @@ export default function ConnectPage() {
   const headers = { "X-Factory-Company": company };
   const req = useQuery({ queryKey: ["node-connect", id, company], queryFn: () => core<NodeConnect>(`/node-connects/${encodeURIComponent(id)}`, { headers }), enabled: !!company, refetchInterval: 5000 });
   const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState("");
   const [error, setError] = useState<unknown>(null);
   const decide = async (what: "approve" | "reject") => {
     setBusy(true); setError(null);
-    try { await core(`/node-connects/${encodeURIComponent(id)}/${what}`, { method: "POST", body: "{}", headers }); await req.refetch(); }
+    try { await core(`/node-connects/${encodeURIComponent(id)}/${what}`, { method: "POST", body: JSON.stringify(what === "approve" ? { code } : {}), headers }); await req.refetch(); }
     catch (e) { setError(e); }
     finally { setBusy(false); }
   };
@@ -67,16 +70,19 @@ export default function ConnectPage() {
                     <p className="text-xs text-muted-foreground">{systems[r.os] ?? r.os} · {r.arch} · from {r.address || "unknown address"} · {ago(r.created_at)}</p>
                   </div>
                 </div>
-                <div className="rounded-lg border bg-muted/30 p-3 text-center">
-                  <p className="text-xs text-muted-foreground">The terminal shows the code</p>
-                  <p className="mt-1 font-mono text-2xl font-semibold tracking-widest">{r.code}</p>
-                </div>
+                {r.status === "pending" && (
+                  <label className="block space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
+                    <span className="font-medium">Code from your terminal</span>
+                    <Input className="h-10 text-center font-mono text-lg tracking-widest uppercase" placeholder="XXXX-XXXX" autoComplete="off" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} />
+                    <span className="block text-xs text-muted-foreground">The machine will run this company&apos;s agents and receive its work and secrets. If someone sent you this link and told you the code, do not connect.</span>
+                  </label>
+                )}
                 <p className="break-all text-xs text-muted-foreground">Fingerprint <span className="font-mono">{r.fingerprint}</span></p>
                 {error ? <ErrorState error={error} company={company} /> : null}
                 {r.status === "pending" ? (
                   <div className="flex gap-2">
                     <Button variant="outline" className="h-10 flex-1" disabled={busy} onClick={() => decide("reject")}><X className="size-4" />Cancel</Button>
-                    <Button className="h-10 flex-1" disabled={busy} onClick={() => decide("approve")}><ShieldCheck className="size-4" />Connect</Button>
+                    <Button className="h-10 flex-1" disabled={busy || code.trim().length < 8} onClick={() => decide("approve")}><ShieldCheck className="size-4" />Connect</Button>
                   </div>
                 ) : r.status === "approved" ? (
                   <div className="space-y-3">

@@ -66,9 +66,55 @@ func publicIP(ip net.IP) bool {
 
 var installOnce sync.Once
 
+// MaxFetchBytes bounds what one answer of a public source's server may send (the pack of a shallow clone): the
+// tree size is checked only after the checkout, so without it a huge repository would fill Core's disk and memory
+// first (security-review-2026-11 F4).
+var MaxFetchBytes = int64(256 << 20)
+
+// ErrFetchTooLarge is a source whose server sent more than MaxFetchBytes.
+var ErrFetchTooLarge = errors.New("source download larger than the limit")
+
+// fetchSlots bounds the public fetches Core runs at once, across every company.
+var fetchSlots = make(chan struct{}, 2)
+
+// limitedTransport cuts every answer's body at MaxFetchBytes.
+type limitedTransport struct{ next http.RoundTripper }
+
+func (t limitedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(r)
+	if err != nil {
+		return resp, err
+	}
+	resp.Body = &capReader{rc: resp.Body, left: MaxFetchBytes}
+	return resp, nil
+}
+
+type capReader struct {
+	rc   io.ReadCloser
+	left int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		var one [1]byte
+		if n, err := c.rc.Read(one[:]); n == 0 && err != nil {
+			return 0, err // the answer ended right at the limit
+		}
+		return 0, fmt.Errorf("%w (%d MiB)", ErrFetchTooLarge, MaxFetchBytes>>20)
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.rc.Read(p)
+	c.left -= int64(n)
+	return n, err
+}
+
+func (c *capReader) Close() error { return c.rc.Close() }
+
 // publicClient is the HTTP client of public fetches: the public dialer, no redirects to other schemes.
 func publicClient() *http.Client {
-	tr := &http.Transport{DialContext: publicDialer().DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second, Proxy: nil}
+	tr := limitedTransport{next: &http.Transport{DialContext: publicDialer().DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second, Proxy: nil}}
 	return &http.Client{Transport: tr, Timeout: FetchTimeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if req.URL.Scheme != "https" && !AllowPrivate || len(via) > 5 {
 			return errors.New("redirect refused")
@@ -107,6 +153,12 @@ func FetchPublic(ctx context.Context, raw, ref, dir string) (string, error) {
 	})
 	ctx, cancel := context.WithTimeout(ctx, FetchTimeout)
 	defer cancel()
+	select {
+	case fetchSlots <- struct{}{}:
+		defer func() { <-fetchSlots }()
+	case <-ctx.Done():
+		return "", fmt.Errorf("fetch %s: other sources are being fetched, try again: %w", raw, ctx.Err())
+	}
 	opts := &git.CloneOptions{URL: raw, Depth: 1, SingleBranch: true, NoCheckout: false, RecurseSubmodules: git.NoRecurseSubmodules, Tags: git.NoTags}
 	if ref != "" {
 		opts.ReferenceName = plumbing.NewBranchReferenceName(ref)
@@ -124,12 +176,33 @@ func FetchPublic(ctx context.Context, raw, ref, dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The checkout writes the repository's symlinks; indexing follows them, so none stays (a link to / would show
+	// Core's own files as a skill: security-review-2026-11 F9).
+	if err = removeSymlinks(dir); err != nil {
+		return "", err
+	}
 	if size, err := treeSize(dir); err != nil {
 		return "", err
 	} else if size > MaxSourceSize {
 		return "", fmt.Errorf("source larger than %d MiB", MaxSourceSize>>20)
 	}
 	return head.Hash().String(), nil
+}
+
+// removeSymlinks deletes every symbolic link under dir (outside .git).
+func removeSymlinks(dir string) error {
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Name() == ".git" && d.IsDir() {
+			return filepath.SkipDir
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return os.Remove(p)
+		}
+		return nil
+	})
 }
 
 func treeSize(dir string) (int64, error) {

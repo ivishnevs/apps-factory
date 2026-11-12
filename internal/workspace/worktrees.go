@@ -286,7 +286,7 @@ func (w *Worktrees) ensureClone(ctx context.Context, dir, repo, url string) erro
 	if err := os.RemoveAll(tmp); err != nil {
 		return err
 	}
-	if _, err := git(ctx, dir, nil, "clone", "--bare", "--quiet", url, tmp); err != nil {
+	if _, err := git(ctx, dir, nil, "clone", "--bare", "--quiet", "--", url, tmp); err != nil {
 		return err
 	}
 	if err := configureRepo(ctx, tmp); err != nil {

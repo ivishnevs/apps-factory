@@ -39,3 +39,26 @@ func TestBillingConfig(t *testing.T) {
 		t.Fatal("unknown environment accepted")
 	}
 }
+
+// TestBlobQuotaConfig (security-review-2026-11 F6): the hosted service (billing on) has a storage quota per company
+// unless FACTORY_COMPANY_STORAGE_GB says otherwise; a self-hosted Core has none.
+func TestBlobQuotaConfig(t *testing.T) {
+	env := func(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
+	for _, tc := range []struct {
+		env  map[string]string
+		on   bool
+		want int64
+	}{
+		{nil, false, 0},
+		{nil, true, DefaultCompanyStorageGB << 30},
+		{map[string]string{"FACTORY_COMPANY_STORAGE_GB": "5"}, false, 5 << 30},
+		{map[string]string{"FACTORY_COMPANY_STORAGE_GB": "0"}, true, 0},
+	} {
+		if got, err := blobQuota(env(tc.env), tc.on); err != nil || got != tc.want {
+			t.Fatal(tc, got, err)
+		}
+	}
+	if _, err := blobQuota(env(map[string]string{"FACTORY_COMPANY_STORAGE_GB": "lots"}), true); err == nil {
+		t.Fatal("a non-number accepted")
+	}
+}
