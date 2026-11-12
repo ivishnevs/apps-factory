@@ -240,6 +240,10 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		reply(w, v, err)
 		return
 	}
+	if p.Name == "factory_people_brief" {
+		c.peopleBriefTool(w, r, p, run)
+		return
+	}
 	if approvalMeta(p.Name) {
 		if p.Name == "factory_artifact_request_approval" {
 			c.artifactTool(w, r, p, run, snapshot, current)

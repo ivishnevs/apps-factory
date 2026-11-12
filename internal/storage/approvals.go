@@ -58,7 +58,7 @@ func (s *Store) RequestApproval(ctx context.Context, company string, in approval
 		}
 		a.ExpiresAt = a.CreatedAt + int64(timeout)
 		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: in.ProjectID, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Approval " + a.ID + ": " + in.Reason + "\nExact call: " + string(b), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID,
-			Brief: in.Brief, Note: in.Note, Topic: in.Topic, Strict: in.Strict, People: messaging.PeopleRef{Path: messaging.PathCall, Kind: "approval", Ref: a.ID}})
+			Brief: callBrief(peopleLanguageTx(ctx, tx), in.Brief, in.Call), Note: in.Note, Topic: in.Topic, Strict: in.Strict, People: messaging.PeopleRef{Path: messaging.PathCall, Kind: "approval", Ref: a.ID}})
 		if err != nil {
 			return a, err
 		}
@@ -86,76 +86,85 @@ func saveApproval(ctx context.Context, tx *Tx, a *approvals.Approval, kind strin
 }
 func (s *Store) DecideApproval(ctx context.Context, company, id string, in approvals.Decision) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "approval.decision:"+id, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
-		a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
+		return decideApprovalTx(ctx, tx, id, in)
+	})
+}
+
+// decideApprovalTx decides an approval in tx (a topic's "approve all" decides several in one, people-topics D5).
+func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decision) (approvals.Approval, error) {
+	a, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", tx.company, id)
+	if err != nil {
+		return a, err
+	}
+	if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 {
+		return a, inputError("request_id and decision reason required")
+	}
+	if a.Version != in.Version {
+		return a, ErrConflict
+	}
+	if in.Action == "revoke" {
+		if a.Status != "APPROVED" {
+			return a, ErrConflict
+		}
+		a.Status = "REVOKED"
+	} else {
+		if a.Status != "PENDING" || a.ExpiresAt <= tx.now().Unix() {
+			return a, ErrConflict
+		}
+		switch in.Action {
+		case "approve":
+			a.Status = "APPROVED"
+			if a.Kind == "artifact" {
+				a.ExpiresAt = 0
+			}
+		case "reject":
+			a.Status = "REJECTED"
+		default:
+			return a, inputError("action must be approve, reject or revoke")
+		}
+		m, err := messageTx(ctx, tx, a.MessageID)
 		if err != nil {
 			return a, err
 		}
-		if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 {
-			return a, inputError("request_id and decision reason required")
-		}
-		if a.Version != in.Version {
-			return a, ErrConflict
-		}
-		if in.Action == "revoke" {
-			if a.Status != "APPROVED" {
-				return a, ErrConflict
+		// The request's question may be gone (withdrawn when a newer owner message superseded the ended run's
+		// question): the approval is still decided, and approvalDecided tells the agent.
+		if m.Status == "PENDING" || m.Status == "ESCALATED" {
+			by := ""
+			if in.DecidedBy != "" {
+				by = " by " + in.DecidedBy + " (delegated: " + a.Setting + ")"
 			}
-			a.Status = "REVOKED"
-		} else {
-			if a.Status != "PENDING" || a.ExpiresAt <= tx.now().Unix() {
-				return a, ErrConflict
-			}
-			switch in.Action {
-			case "approve":
-				a.Status = "APPROVED"
-				if a.Kind == "artifact" {
-					a.ExpiresAt = 0
-				}
-			case "reject":
-				a.Status = "REJECTED"
-			default:
-				return a, inputError("action must be approve, reject or revoke")
-			}
-			m, err := messageTx(ctx, tx, a.MessageID)
-			if err != nil {
+			if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
 				return a, err
 			}
-			// The request's question may be gone (withdrawn when a newer owner message superseded the ended run's
-			// question): the approval is still decided, and approvalDecided tells the agent.
-			if m.Status == "PENDING" || m.Status == "ESCALATED" {
-				by := ""
-				if in.DecidedBy != "" {
-					by = " by " + in.DecidedBy + " (delegated: " + a.Setting + ")"
-				}
-				if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
-					return a, err
-				}
+		}
+	}
+	a.DecidedAt = tx.now().Unix()
+	a.DecisionReason = in.Reason
+	a.DecidedBy, a.Cites = in.DecidedBy, in.Cites
+	if in.DecidedBy == "" {
+		a.DecidedByPerson = personName(ctx)
+		if in.Action != "revoke" {
+			// approval-comments-handled: the owner's reason beyond the default is a board comment on the task.
+			if err = approvalComment(ctx, tx, &a, in.Action, in.Reason); err != nil {
+				return a, err
 			}
 		}
-		a.DecidedAt = tx.now().Unix()
-		a.DecisionReason = in.Reason
-		a.DecidedBy, a.Cites = in.DecidedBy, in.Cites
-		if in.DecidedBy == "" {
-			a.DecidedByPerson = personName(ctx)
-			if in.Action != "revoke" {
-				// approval-comments-handled: the owner's reason beyond the default is a board comment on the task.
-				if err = approvalComment(ctx, tx, &a, in.Action, in.Reason); err != nil {
-					return a, err
-				}
-			}
-		}
-		err = saveApproval(ctx, tx, &a, "approval.resolved")
-		if err == nil && a.Kind == "artifact" {
-			err = reconcileArtifactTasks(ctx, tx)
-		}
-		if err == nil && a.Kind == "artifact" && a.Status == "APPROVED" && a.Artifact != nil {
-			err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, a.TaskID, in.Urgent)
-		}
-		if err == nil && (a.Status == "APPROVED" || a.Status == "REJECTED") {
-			err = approvalDecided(ctx, tx, a, in.Urgent)
-		}
-		return a, err
-	})
+	}
+	err = saveApproval(ctx, tx, &a, "approval.resolved")
+	if err == nil && a.Kind == "artifact" && a.Status == "REJECTED" && a.Artifact != nil {
+		// A composite showing the rejected version goes with it (people-topics D11).
+		err = supersedeComposites(ctx, tx, a.ProjectID, a.Artifact.ID, a.Artifact.Version, "", "its part "+a.Artifact.ID+" "+a.Artifact.Version+" was rejected")
+	}
+	if err == nil && a.Kind == "artifact" {
+		err = reconcileArtifactTasks(ctx, tx)
+	}
+	if err == nil && a.Kind == "artifact" && a.Status == "APPROVED" && a.Artifact != nil {
+		err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, a.TaskID, in.Urgent)
+	}
+	if err == nil && (a.Status == "APPROVED" || a.Status == "REJECTED") {
+		err = approvalDecided(ctx, tx, a, in.Urgent)
+	}
+	return a, err
 }
 
 // CallApproval looks up an exact logical intent, including its mutation request ID.

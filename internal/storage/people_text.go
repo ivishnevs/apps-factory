@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
+	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
 )
 
@@ -128,4 +130,59 @@ func PeopleText(body string) string {
 	s = idRe.ReplaceAllStringFunc(s, func(id string) string { return id[:8] })
 	s = regexp.MustCompile(`\n{3,}`).ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
+}
+
+// callBrief completes a call approval's brief with what Core knows of the call (people-topics D7): the question and
+// what the call does, so the requester writes only the title and why.
+func callBrief(lang string, b *messaging.Brief, call factorytools.Call) *messaging.Brief {
+	if b == nil {
+		return nil
+	}
+	out := *b
+	ru := lang == "ru"
+	args := call.Arguments
+	str := func(k string) string { v, _ := args[k].(string); return v }
+	var ask, after string
+	switch call.Name {
+	case "factory_catalog_change":
+		var put, del []string
+		if m, ok := args["put"].(map[string]any); ok {
+			for k := range m {
+				put = append(put, k)
+			}
+		}
+		if l, ok := args["delete"].([]any); ok {
+			for _, x := range l {
+				if s, ok := x.(string); ok {
+					del = append(del, s)
+				}
+			}
+		}
+		slices.Sort(put)
+		ask, after = "Apply this change of the company's setup?", "Core saves the catalog: changes "+strings.Join(put, ", ")
+		if ru {
+			ask, after = "Применить это изменение настройки компании?", "Core сохранит каталог: изменит "+strings.Join(put, ", ")
+		}
+		if len(del) > 0 {
+			after += map[bool]string{false: "; deletes ", true: "; удалит "}[ru] + strings.Join(del, ", ")
+		}
+	case "factory_project_create":
+		ask, after = "Create project "+cmpOr(str("name"), str("project_id"))+"?", "Core creates the project ("+cmpOr(str("repo_mode"), "local")+" repository); its tasks start when it exists"
+		if ru {
+			ask, after = "Создать проект "+cmpOr(str("name"), str("project_id"))+"?", "Core создаст проект (репозиторий "+cmpOr(str("repo_mode"), "local")+"); его задачи начнутся после этого"
+		}
+	default:
+		name := strings.TrimPrefix(call.Name, "factory_")
+		ask, after = "Allow "+name+"?", "the agent runs "+name+" with exactly these arguments, once"
+		if ru {
+			ask, after = "Разрешить "+name+"?", "агент выполнит "+name+" ровно с этими аргументами, один раз"
+		}
+	}
+	if out.Ask == "" {
+		out.Ask = ask
+	}
+	if out.After == "" {
+		out.After = after
+	}
+	return &out
 }

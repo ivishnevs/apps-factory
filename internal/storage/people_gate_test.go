@@ -178,3 +178,83 @@ func TestPeopleGateIsTheOnlyWay(t *testing.T) {
 func approvalsDecision(version int, action, reason string) approvals.Decision {
 	return approvals.Decision{Version: version, Action: action, Reason: reason, RequestID: action + "-" + reason}
 }
+
+// TestTopicDecideAndComposites (people-topics D5, D11, D13): "approve all" decides the topic's approvals together or
+// not at all; a composite goes when a part is rejected; a bringer moves an item into a topic of its own.
+func TestTopicDecideAndComposites(t *testing.T) {
+	s := engineStore(t)
+	if s.Blobs == nil {
+		s.Blobs = &blobstore.Memory{}
+	}
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateTask(ctx, co, tasks.Create{ID: "kf", ProjectID: "p", Title: "key frames", Assignee: "demo", RequestID: "kf"}); err != nil {
+		t.Fatal(err)
+	}
+	reg := func(id string, parts ...artifacts.Part) {
+		t.Helper()
+		blob, err := s.PutBlob(ctx, co, bytes.NewReader([]byte(id)), 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.RegisterArtifact(ctx, co, "p", artifacts.Register{Artifact: tasks.Artifact{ID: id, Version: "v1", URI: UploadURI(id, "v1"), SHA256: blob.SHA256, Name: id + ".png"}, TaskID: "kf", Actor: "owner", RequestID: "r-" + id, Includes: parts}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg("kf1")
+	reg("kf2")
+	if _, err := s.RegisterArtifact(ctx, co, "p", artifacts.Register{Artifact: tasks.Artifact{ID: "sheet", Version: "v1", URI: "https://example.com/sheet.png"}, TaskID: "kf", Actor: "owner", RequestID: "bad", Includes: []artifacts.Part{{ID: "kf9", Version: "v1"}}}); !errors.Is(err, ErrInput) {
+		t.Fatalf("unknown part: %v", err)
+	}
+	reg("sheet", artifacts.Part{ID: "kf1", Version: "v1"}, artifacts.Part{ID: "kf2", Version: "v1"})
+	ids := map[string]string{}
+	for _, id := range []string{"kf1", "kf2", "sheet"} {
+		a, err := s.RequestArtifactApproval(ctx, co, "p", artifacts.ApprovalRequest{ArtifactID: id, ArtifactVersion: "v1", Agent: "demo", TaskID: "kf", Reason: id, RequestID: "a-" + id, Delegate: "manager"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[id] = a.ID
+	}
+	out, err := s.EscalateApprovals(ctx, co, []string{ids["kf1"], ids["kf2"], ids["sheet"]}, "manager", "the plan reserves it", "esc", EscalatePeople{Strict: true, Brief: fullBrief("P3-9a key frames")}, nil)
+	if err != nil || len(out) != 3 {
+		t.Fatalf("batch escalate %v", err)
+	}
+	a1, _ := s.Approval(ctx, co, ids["kf1"])
+	topic := topicOf(t, s, a1.MessageID)
+	v, err := s.PeopleTopic(ctx, co, topic)
+	if err != nil || v.Waiting != 3 || len(v.Items) != 3 || v.Items[0].Actions[0] != "approve" || len(v.Tasks) != 1 {
+		t.Fatalf("view %+v %v", v, err)
+	}
+
+	// All or none: one item that cannot be decided leaves the others pending.
+	a2, _ := s.Approval(ctx, co, ids["kf2"])
+	if _, err = s.DecideTopic(ctx, co, topic, "all-bad", []TopicDecision{{Kind: "approval", Ref: a1.ID, Version: a1.Version, Action: "approve"}, {Kind: "approval", Ref: a2.ID, Version: a2.Version + 7, Action: "approve"}}); err == nil {
+		t.Fatal("a stale version decided")
+	}
+	if a1, _ = s.Approval(ctx, co, ids["kf1"]); a1.Status != "PENDING" {
+		t.Fatalf("partial decision: %s", a1.Status)
+	}
+	if _, err = s.DecideTopic(ctx, co, topic, "rej", []TopicDecision{{Kind: "approval", Ref: a2.ID, Version: a2.Version, Action: "reject"}}); !errors.Is(err, ErrInput) {
+		t.Fatalf("a rejection without its reason: %v", err)
+	}
+	// Rejecting kf2 withdraws the contact sheet; approving kf1 settles the topic.
+	if _, err = s.DecideTopic(ctx, co, topic, "mixed", []TopicDecision{{Kind: "approval", Ref: a1.ID, Version: a1.Version, Action: "approve"}, {Kind: "approval", Ref: a2.ID, Version: a2.Version, Action: "reject", Reason: "redo the lobby"}}); err != nil {
+		t.Fatal(err)
+	}
+	sheet, _ := s.Approval(ctx, co, ids["sheet"])
+	if sheet.Status != "SUPERSEDED" {
+		t.Fatalf("composite %s after its part was rejected", sheet.Status)
+	}
+	if v, _ = s.PeopleTopic(ctx, co, topic); v.Open || v.Waiting != 0 {
+		t.Fatalf("topic still open: %+v", v)
+	}
+
+	// Moving an item opens a topic of its own that needs a brief.
+	moved, err := s.BriefTopic(ctx, co, topic, "manager", "mv", nil, nil, []string{ids["sheet"]})
+	if err != nil || len(moved.Items) != 2 {
+		t.Fatalf("after move %+v %v", moved, err)
+	}
+	if _, err = s.BriefTopic(ctx, co, topic, "manager", "b1", &messaging.Brief{After: "x"}, nil, nil); err != nil {
+		t.Fatalf("a partial brief merged into a full one: %v", err)
+	}
+}

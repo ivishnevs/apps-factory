@@ -19,6 +19,8 @@ type Record struct {
 	// (artifact-retention): its metadata stays, its content may be gone (reads answer 410 Gone).
 	ArchivedAt     int64  `json:"archived_at,omitempty"`
 	ArchivedReason string `json:"archived_reason,omitempty"`
+	// Includes are the versions this composite shows (people-topics D11).
+	Includes []Part `json:"includes,omitempty"`
 	// Unchanged: a register of the same content as the latest version answered with that version, nothing new.
 	Unchanged bool `json:"unchanged,omitempty"`
 }
@@ -36,6 +38,15 @@ type Register struct {
 	RunID     string         `json:"run_id,omitempty"`
 	Actor     string         `json:"-"`
 	RequestID string         `json:"request_id"`
+	// Includes are the versions a composite (a contact sheet, a collage) shows: rejecting or replacing any of them
+	// withdraws the composite's approval request (people-topics D11).
+	Includes []Part `json:"includes,omitempty"`
+}
+
+// Part is one artifact version a composite includes.
+type Part struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
 }
 type ApprovalRequest struct {
 	ArtifactID      string `json:"artifact_id"`

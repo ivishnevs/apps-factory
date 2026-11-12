@@ -126,6 +126,7 @@ func (c *Core) Handler() http.Handler {
 	c.nodeKeyRoutes(m)
 	c.taskRoutes(m)
 	c.messageRoutes(m)
+	c.topicRoutes(m)
 	c.approvalRoutes(m)
 	c.artifactRoutes(m)
 	c.journalRoutes(m)

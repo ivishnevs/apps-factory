@@ -101,8 +101,8 @@ func Definitions() []Tool {
 			out[i].InputSchema["properties"].(map[string]any)["required_artifacts"] = map[string]any{"type": "array", "items": artifact}
 		}
 	}
-	add("artifact_register", "artifact.register", "Register an immutable artifact id/version/URI produced by your current task. Changing URI requires a new version; this does not approve or accept work.", map[string]any{"artifact": artifact, "request_id": s()}, "artifact", "request_id")
-	add("artifact_upload", "artifact.register", "Upload a file of your worktree as an immutable artifact version produced by your current task (URI factory://artifacts/<id>/<version>). The owner's approval binds to its content digest; different content needs a new version. sha256/size are filled in by the node.", map[string]any{"artifact_id": s(), "artifact_version": s(), "path": s(), "sha256": s(), "size": n, "request_id": s()}, "artifact_id", "artifact_version", "path", "request_id")
+	add("artifact_register", "artifact.register", "Register an immutable artifact id/version/URI produced by your current task. Changing URI requires a new version; this does not approve or accept work.", map[string]any{"artifact": artifact, "includes": includesSchema(), "request_id": s()}, "artifact", "request_id")
+	add("artifact_upload", "artifact.register", "Upload a file of your worktree as an immutable artifact version produced by your current task (URI factory://artifacts/<id>/<version>). The owner's approval binds to its content digest; different content needs a new version. sha256/size are filled in by the node.", map[string]any{"artifact_id": s(), "artifact_version": s(), "path": s(), "sha256": s(), "size": n, "includes": includesSchema(), "request_id": s()}, "artifact_id", "artifact_version", "path", "request_id")
 	add("artifact_list", "artifact.list", "List registered artifact versions in this project.", map[string]any{})
 	add("artifact_get", "artifact.get", "Read an exact artifact version and its latest owner approval decision. A version archived by the project's artifact retention keeps its metadata, its content is gone: the answer's archived note names the latest version to use.", map[string]any{"artifact_id": s(), "artifact_version": s()}, "artifact_id", "artifact_version")
 	add("artifact_request_approval", "artifact.request_approval", "Ask for approval of a registered artifact version (audience internal for the team's own material such as concepts, references and textures; external, the default, for what leaves the company). Depending on the project's approval setting a teammate (the designer, the lead) or people decide it. This approves content, not task acceptance or tool permission. Usually leave blocking false and finish the producing task; downstream tasks can use required_artifacts. If blocking true, finish the turn immediately.", map[string]any{"artifact_id": s(), "artifact_version": s(), "reason": s(), "audience": s(), "blocking": map[string]any{"type": "boolean"}, "timeout_seconds": n, "request_id": s()}, "artifact_id", "artifact_version", "reason", "request_id")
@@ -129,6 +129,7 @@ func Definitions() []Tool {
 		}
 	}
 	out = append(out, authorityDefinitions()...)
+	out = append(out, peopleBriefTool())
 	withPeopleFields(out)
 	return out
 }

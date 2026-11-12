@@ -324,6 +324,14 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 			m.Brief = m.Brief.Trimmed()
 		}
 	}
+	if m.Recipient != "owner" && in.Topic != "" {
+		// A person writing in a topic's thread (people-topics D9): the message belongs to that topic.
+		t, err := topicTx(ctx, tx, in.Topic)
+		if err != nil || t.ProjectID != m.ProjectID {
+			return m, inputError("topic " + in.Topic + " is not a people topic of this project")
+		}
+		m.TopicID = t.ID
+	}
 	// An agent recipient gets the message as a trigger on its conversation task (hierarchy D5).
 	if err = deliverTx(ctx, tx, &m); err != nil {
 		return m, err
@@ -471,7 +479,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 			return m, err
 		}
 	}
-	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE"}
+	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE", TopicID: m.TopicID}
 	if in.Sender == "owner" {
 		if p := PersonFrom(ctx); p.ID != "" || p.Name != "" {
 			answer.Person, answer.PersonID, answer.Channel = personName(ctx), p.ID, p.Channel
@@ -521,7 +529,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		return answer, err
 	}
 	b, _ := json.Marshal(answer)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", answer.ID, answer.ProjectID, answer.ConversationID, nullable(answer.TaskID), answer.Sender, answer.Recipient, answer.MessageType, answer.Status, answer.DeliveryStatus, answer.Version, b, answer.CreatedAt, "", tx.company); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO messages(id,project_id,conversation_id,task_id,sender,recipient,message_type,status,delivery_status,version,body,created_at,fingerprint,company_id,topic_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", answer.ID, answer.ProjectID, answer.ConversationID, nullable(answer.TaskID), answer.Sender, answer.Recipient, answer.MessageType, answer.Status, answer.DeliveryStatus, answer.Version, b, answer.CreatedAt, "", tx.company, answer.TopicID); err != nil {
 		return answer, err
 	}
 	m.Status = "ANSWERED"
@@ -821,6 +829,15 @@ func (s *Store) AutoForward(ctx context.Context, company string) (int, error) {
 		}
 		if err = noteSkipped(ctx, tx, m, skipped); err != nil {
 			return n, err
+		}
+		if m.Recipient == "owner" && m.TopicID != "" && isAgent(skipped) {
+			// Nobody wrote what people read (people-topics D14): the skipped manager completes the topic's brief.
+			if t, err := topicTx(ctx, tx, m.TopicID); err == nil && t.NeedsBrief {
+				body := fmt.Sprintf("Question %s went to people after %s without your answer. Its people topic %s has no brief yet: complete it with factory_people_brief (topic_id %s; title, ask, after, recommendation), so people know what they decide.", m.ID, after, t.ID, t.ID)
+				if _, err = sendMessageTx(ctx, tx, messaging.Send{ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: "factory", Recipient: skipped, MessageType: "notification", Body: body, RequestID: "topic-brief-" + t.ID + "-" + skipped}); err != nil {
+					return n, err
+				}
+			}
 		}
 		n++
 	}

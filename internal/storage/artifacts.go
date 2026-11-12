@@ -98,6 +98,19 @@ func registerArtifactTx(ctx context.Context, tx *Tx, project string, in artifact
 	if !errors.Is(err, ErrNotFound) {
 		return a, err
 	}
+	if len(in.Includes) > 32 {
+		return a, inputError("includes: at most 32 parts")
+	}
+	for _, part := range in.Includes {
+		// A composite's parts are registered versions of other artifacts of the project (people-topics D11).
+		if part.ID == a.ID {
+			return a, inputError("includes: a composite does not include itself")
+		}
+		if _, err := artifactVersionTx(ctx, tx, project, part.ID, part.Version); err != nil {
+			return a, inputError("includes: " + part.ID + " " + part.Version + " is not a registered version of this project")
+		}
+	}
+	a.Includes = in.Includes
 	if (a.SHA256 != "") != (a.URI == UploadURI(a.ID, a.Version)) {
 		return a, inputError("factory://artifacts URIs and content digests belong to uploaded versions (factory_artifact_upload)")
 	}
@@ -216,6 +229,10 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 				return a, err
 			}
 		}
+		// A composite showing an older version of this artifact goes (people-topics D11).
+		if err = supersedeComposites(ctx, tx, project, in.ArtifactID, "", in.ArtifactVersion, "its part "+in.ArtifactID+" was replaced by "+in.ArtifactVersion); err != nil {
+			return a, err
+		}
 		timeout := in.TimeoutSeconds
 		if timeout == 0 {
 			timeout = 86400
@@ -287,7 +304,12 @@ func (s *Store) EscalateApprovals(ctx context.Context, company string, ids []str
 				// The rest join the topic the first one found or opened; their notes name them.
 				e.Brief, e.Note = nil, notes[id]
 				if e.Note == nil {
-					e.Note = &messaging.ItemNote{What: ""}
+					// One brief covers the batch: each item is named by its artifact and its author's words.
+					o, err := getDoc[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND id=?", tx.company, id)
+					if err != nil {
+						return out, err
+					}
+					e.Note = &messaging.ItemNote{What: strings.TrimSpace(artifactName(o) + ": " + o.Reason)}
 				}
 			} else if n := notes[id]; n != nil && e.Note == nil {
 				e.Note = n
@@ -496,4 +518,45 @@ func artifactName(a approvals.Approval) string {
 		return a.Call.Name
 	}
 	return a.Artifact.ID + " " + a.Artifact.Version
+}
+
+// supersedeComposites withdraws the pending approvals of composites that include part id at a version: rejected
+// (the part's version itself) or replaced (keep is the new version; composites of any other version go)
+// (people-topics D11).
+func supersedeComposites(ctx context.Context, tx *Tx, project, id, version, keep, why string) error {
+	pending, err := listDocs[approvals.Approval](ctx, tx, "SELECT body FROM approvals WHERE company_id=? AND project_id=? AND kind='artifact' AND status='PENDING'", tx.company, project)
+	if err != nil {
+		return err
+	}
+	for _, o := range pending {
+		if o.Artifact == nil || o.Artifact.ID == id {
+			continue
+		}
+		rec, err := artifactVersionTx(ctx, tx, project, o.Artifact.ID, o.Artifact.Version)
+		if err != nil {
+			continue
+		}
+		hit := false
+		for _, p := range rec.Includes {
+			if p.ID == id && (version != "" && p.Version == version || keep != "" && p.Version != keep) {
+				hit = true
+			}
+		}
+		if !hit {
+			continue
+		}
+		if m, e := messageTx(ctx, tx, o.MessageID); e == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
+			if _, e = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + o.ID + " SUPERSEDED: " + why + ".", RequestID: "superseded-part-" + o.ID}); e != nil {
+				return e
+			}
+		}
+		o.Status, o.DecisionReason, o.DecidedAt = "SUPERSEDED", why, tx.now().Unix()
+		if err = saveApproval(ctx, tx, &o, "approval.superseded"); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE people_topic_items SET state='replaced' WHERE company_id=? AND kind='approval' AND ref_id=?", tx.company, o.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

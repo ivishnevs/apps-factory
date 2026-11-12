@@ -51,3 +51,24 @@ func withPeopleFields(out []Tool) {
 		}
 	}
 }
+
+// peopleBriefTool completes or restates a people topic's brief (people-topics D13).
+func peopleBriefTool() Tool {
+	s := map[string]any{"type": "string"}
+	props := map[string]any{
+		"topic_id":   s,
+		"brief":      briefSchema(),
+		"notes":      map[string]any{"type": "object", "additionalProperties": noteSchema(), "description": "Item notes by item ref (approval, message or decision id)."},
+		"move":       map[string]any{"type": "array", "items": s, "description": "Item refs to move into a new topic of their own (when the grouping put unrelated things together)."},
+		"request_id": s,
+	}
+	return Tool{"factory_people_brief", "Factory: Complete or restate what people read about a topic they have open: its brief (merged into the current one; title and ask must end up set), item notes, or move items into a new topic. For a topic you brought, one of your team brought, or that holds your items; Core asks you when a topic needs a brief (a question forwarded after a timeout). " + messaging.BriefHelp,
+		map[string]any{"type": "object", "properties": props, "required": []string{"topic_id", "request_id"}, "additionalProperties": false}, "factory.people.brief"}
+}
+
+// includesSchema names the versions a composite shows (people-topics D11).
+func includesSchema() map[string]any {
+	s := map[string]any{"type": "string"}
+	return map[string]any{"type": "array", "description": "For a composite (a contact sheet, a collage of other artifacts): the versions it shows, [{id, version}]. Rejecting or replacing any of them withdraws the composite's approval request; people see it as the overview of those versions, not as a separate item.",
+		"items": map[string]any{"type": "object", "properties": map[string]any{"id": s, "version": s}, "required": []string{"id", "version"}, "additionalProperties": false}}
+}

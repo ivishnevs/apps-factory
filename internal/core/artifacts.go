@@ -121,7 +121,7 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		}
 		id, version := stringArg(p.Arguments, "artifact_id"), stringArg(p.Arguments, "artifact_version")
 		a := tasks.Artifact{ID: id, Version: version, URI: storage.UploadURI(id, version), SHA256: sha, Name: path.Base(filepath.ToSlash(stringArg(p.Arguments, "path")))}
-		v, err := c.Store.RegisterArtifact(r.Context(), c.companyFrom(r), run.Spec.Project, artifacts.Register{Artifact: a, TaskID: run.Spec.TaskID, RunID: run.Spec.ID, Actor: run.Spec.Agent, RequestID: stringArg(p.Arguments, "request_id")})
+		v, err := c.Store.RegisterArtifact(r.Context(), c.companyFrom(r), run.Spec.Project, artifacts.Register{Artifact: a, TaskID: run.Spec.TaskID, RunID: run.Spec.ID, Actor: run.Spec.Agent, RequestID: stringArg(p.Arguments, "request_id"), Includes: includesArg(p.Arguments)})
 		reply(w, v, err)
 	case "factory_artifact_request_approval":
 		var in artifacts.ApprovalRequest
@@ -156,4 +156,18 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 	default:
 		http.Error(w, "unknown artifact tool", 400)
 	}
+}
+
+// includesArg reads a composite's parts (people-topics D11).
+func includesArg(args map[string]any) []artifacts.Part {
+	var out []artifacts.Part
+	list, _ := args["includes"].([]any)
+	for _, x := range list {
+		if m, ok := x.(map[string]any); ok {
+			id, _ := m["id"].(string)
+			v, _ := m["version"].(string)
+			out = append(out, artifacts.Part{ID: id, Version: v})
+		}
+	}
+	return out
 }
