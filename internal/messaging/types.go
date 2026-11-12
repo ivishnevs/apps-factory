@@ -74,6 +74,49 @@ type Message struct {
 	Details     string `json:"details,omitempty"`
 	DetailsNote string `json:"details_note,omitempty"`
 	DetailsAt   int64  `json:"details_at,omitempty"`
+	// Attachments are files of the sender's worktree uploaded with the message, Materials references to existing
+	// ones (inbox-visual-previews); a forward keeps both.
+	Attachments []Attachment  `json:"attachments,omitempty"`
+	Materials   []MaterialRef `json:"materials,omitempty"`
+}
+
+// MaxVisuals bounds the attachments, and separately the material references, of one message (as report
+// attachments).
+const MaxVisuals = 16
+
+// Preview is a smaller rendition of a large image (inbox-visual-previews 2.2); the original stays downloadable.
+type Preview struct {
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+// Attachment is a file of the sender's worktree the node uploaded with a message (credentials redacted), shown in
+// the order given with its caption.
+type Attachment struct {
+	Path     string   `json:"path"`
+	Caption  string   `json:"caption,omitempty"`
+	SHA256   string   `json:"sha256"`
+	Size     int64    `json:"size"`
+	Redacted bool     `json:"redacted,omitempty"`
+	Preview  *Preview `json:"preview,omitempty"`
+}
+
+// MaterialRef names an existing material: an artifact version (ArtifactID, ArtifactVersion) or a report attachment
+// (ReportID, Path). Core fills in Name, SHA256, Size, URI and Redacted from what it names.
+type MaterialRef struct {
+	ArtifactID      string   `json:"artifact_id,omitempty"`
+	ArtifactVersion string   `json:"artifact_version,omitempty"`
+	ReportID        string   `json:"report_id,omitempty"`
+	Path            string   `json:"path,omitempty"`
+	Caption         string   `json:"caption,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	SHA256          string   `json:"sha256,omitempty"`
+	Size            int64    `json:"size,omitempty"`
+	URI             string   `json:"uri,omitempty"`
+	Redacted        bool     `json:"redacted,omitempty"`
+	Preview         *Preview `json:"preview,omitempty"`
 }
 
 // Details values of a question and of a reply.
@@ -100,6 +143,9 @@ type Send struct {
 	RunID          string     `json:"run_id,omitempty"`
 	Category       string     `json:"category,omitempty"`
 	UpChain        bool       `json:"up_chain,omitempty"`
+	// Attachments and Materials travel with the message (inbox-visual-previews).
+	Attachments []Attachment  `json:"attachments,omitempty"`
+	Materials   []MaterialRef `json:"materials,omitempty"`
 }
 type Reply struct {
 	// Details: "promised" defers the answer (the question stays open, the asking task waits for the owner's

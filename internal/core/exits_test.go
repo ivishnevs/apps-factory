@@ -678,7 +678,7 @@ func TestQuestionsGoUpTheChain(t *testing.T) {
 	}
 	closeTask("ship")
 
-	q = ask("naming", map[string]any{"question": "Call it Diary or Log?"})
+	q = ask("naming", map[string]any{"question": "Call it Diary or Log?", "options": []any{"Diary", "Log"}})
 	token = deliver(q.ID).token
 	q, _ = h.s.Message(ctx, co, q.ID)
 	if w := h.do(token, "POST", "/agent/call", factorytools.Call{Name: "factory_message_reply", Arguments: map[string]any{"message_id": q.ID, "version": float64(q.Version), "body": "Diary", "request_id": "r2"}}, nil); w.Code != 200 {

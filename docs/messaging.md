@@ -170,7 +170,56 @@ Owner answer body:
 
 Use the actual latest version from inbox. `text` answers are nonempty strings, `confirmation` is a
 JSON boolean, `single_choice` is one exact option, `multiple_choice` is a nonempty array of unique
-listed options. Arbitrary answer keys, invalid options and missing questions are rejected.
+listed options. Arbitrary answer keys, invalid options and missing questions are rejected. A person who answers a
+choice in their own words ("Something else…" in the web) sends the body without form answers, which is always an
+answer.
+
+**Choices are options** (agent-questions-in-chat). `factory_owner_ask` and `factory_message_ask` take `options`, the
+choices of one question: Core makes them a `single_choice` question (id `choice`, the body's first sentence that asks
+as its text), one button each wherever the question shows (chat, task page, Inbox, Telegram), with free text still
+allowed. `factory_exit_ask` takes `options` the same way. A question whose text lists choices without options — a
+bullet or numbered list, "Profiles: ASC Key, Cheflet, Stashy", "A, B or C", "A or B?" after a question mark or
+"which/choose/pick" — is refused (`400`, or `409` for the exit) with reason `choices_without_options` and a hint to
+ask again with the choices in `options`; nothing is sent. `options: []` sends it as a free-text question;
+`questions` (a form) is checked by its author and not refused. `options` and `questions` together are refused.
+
+```json
+{"body":"Which App Store Connect profile should I use for the Tracely TestFlight upload?","options":["ASC Key","Cheflet","Stashy"],"blocking":true,"request_id":"asc-profile"}
+```
+
+**Team questions reach the lead's chat.** An agent that is not the owner's direct report has no owner chat, so its
+question lives in an escalation thread (`chain-…`); the web shows every open question and approval of a project
+that no chat shows in the owner's chat with the project's lead and on the asking task ([owner UI](owner-ui.md)).
+The lead's conversation brief (its conversation task with the owner) lists the project's other agents' open
+questions to people (asker, task, message, options) and those people answered since its last run with the answer,
+so the lead knows what was asked and decided; it does not answer them for the person.
+
+## Visual attachments
+
+What a question is about is shown where people answer it (inbox-visual-previews). `factory_message_send`,
+`factory_message_ask`, `factory_owner_ask`, `factory_question_forward` and `factory_decision_propose` accept
+`attachments` — files of the run's worktree `[{path, caption}]`, which the node's adapter uploads before the call
+like report attachments (credentials redacted, at most `MaxUpload` = 64 MiB each) — and `materials`, references to
+existing ones: `{artifact_id, artifact_version, caption}` (a version of this project) or `{report_id, path, caption}`
+(a report attachment of this project). At most 16 of each per message; captions up to 512 bytes. Core checks every
+blob and resolves every reference (name, digest, size, URI) and stores them in the message in the order given; a
+digest nobody uploaded or a reference outside the project is refused (400). A forward keeps them and appends the
+forwarder's own; a decision proposal stores them on the decision and its message. An artifact approval's question
+carries the version as a material.
+
+Core renders a preview of an image larger than 1600 px on a side or 1 MiB (PNG, JPEG, GIF; standard library, box
+filter; JPEG when opaque, else PNG) and records it with the attachment (`preview {sha256, size, width, height}`); the
+original stays downloadable. Retention never deletes a blob a message attaches or uses as a preview.
+
+The web inbox card, the chat message and the decision card show the images inline (the preview), several side by side
+(a swipe on a phone), each with its caption; a click opens the viewer full size. Other files show as material rows, a
+video as a link. The TUI lists them as links (`/blobs/<sha256>`). Telegram sends a question's or proposal's images as
+an album (one photo alone) right before the question; more than ten, or one over Telegram's 10 MB without a preview,
+stay in the inbox and the message says so.
+
+A message to the owner (or a decision proposal) whose text names image or video files (`.png`, `.jpg`, `.jpeg`,
+`.webp`, `.gif`, `.mp4`) without attachments or materials is sent, and the tool answer carries
+`warnings: [{code: "visual_without_attachment", message}]` so the agent can send it again with them.
 
 ## Reliability and limits
 

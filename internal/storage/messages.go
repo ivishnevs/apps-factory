@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -142,8 +143,10 @@ func validQuestions(questions []messaging.Question) error {
 	return nil
 }
 func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Send) (messaging.Message, error) {
+	with := in
+	with.Attachments, with.Materials = s.withPreviews(ctx, company, in.ProjectID, in.Attachments, in.Materials)
 	return mutate(ctx, s, company, "message.send:"+in.Sender+":"+in.ProjectID+":"+in.RunID, in.RequestID, in, func(tx *Tx) (messaging.Message, error) {
-		return sendMessageTx(ctx, tx, in)
+		return sendMessageTx(ctx, tx, with)
 	})
 }
 func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Message, error) {
@@ -164,6 +167,10 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	}
 	if in.TimeoutSeconds < 0 || in.TimeoutSeconds > 7*24*3600 {
 		return m, inputError("timeout must be 1 second to 7 days (0 defaults to 24h)")
+	}
+	var err error
+	if m.Attachments, m.Materials, err = visualsTx(ctx, tx, in.ProjectID, in.Attachments, in.Materials); err != nil {
+		return m, err
 	}
 	if in.MessageType == "question" {
 		m.Status = "PENDING"
@@ -283,6 +290,14 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	unique := ""
 	if m.Sender == "factory" {
 		unique = "\x00" + in.RequestID
+	}
+	// The same words sent again with images are a new message (inbox-visual-previews: resent after the
+	// visual_without_attachment warning).
+	for _, a := range m.Attachments {
+		unique += "\x00a:" + a.SHA256 + ":" + a.Caption
+	}
+	for _, r := range m.Materials {
+		unique += "\x00m:" + r.ArtifactID + ":" + r.ArtifactVersion + ":" + r.ReportID + ":" + r.Path + ":" + r.Caption
 	}
 	fingerprint := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.ToLower(m.Body)), " ") + "\x00" + m.Sender + "\x00" + m.Recipient + "\x00" + m.TaskID + "\x00" + string(canonical) + unique))
 	if m.Sender == "factory" && m.MessageType == "question" {
@@ -633,12 +648,20 @@ func routeUp(tx *Tx, agent, category string) string {
 }
 
 // ForwardQuestion passes a pending question its recipient cannot decide one level up the chain (hierarchy
-// D3, factory_question_forward); the asking task keeps waiting.
-func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, version int, note, key string) (messaging.Message, error) {
+// D3, factory_question_forward); the asking task keeps waiting. The question keeps its attachments and materials;
+// the forwarder may add its own (inbox-visual-previews).
+func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, version int, note, key string, atts []messaging.Attachment, mats []messaging.MaterialRef) (messaging.Message, error) {
 	input := struct {
-		From, Note string
-		Version    int
-	}{from, note, version}
+		From, Note  string
+		Version     int
+		Attachments []messaging.Attachment  `json:",omitempty"`
+		Materials   []messaging.MaterialRef `json:",omitempty"`
+	}{from, note, version, atts, mats}
+	project := ""
+	if m, err := s.Message(ctx, company, id); err == nil {
+		project = m.ProjectID
+	}
+	withA, withM := s.withPreviews(ctx, company, project, atts, mats)
 	return mutate(ctx, s, company, "message.forward:"+id, key, input, func(tx *Tx) (messaging.Message, error) {
 		m, err := messageTx(ctx, tx, id)
 		if err != nil {
@@ -649,6 +672,25 @@ func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, v
 		}
 		if m.MessageType != "question" || m.Recipient != from || m.Version != version || m.Status != "PENDING" && m.Status != "UNREAD" {
 			return m, ErrConflict
+		}
+		if len(withA) > 0 || len(withM) > 0 {
+			// The forwarder's own files come after the asker's; together they stay within the bounds of one message.
+			if withA, withM, err = visualsTx(ctx, tx, m.ProjectID, withA, withM); err != nil {
+				return m, err
+			}
+			seen := map[string]bool{}
+			for _, a := range m.Attachments {
+				seen[a.Path] = true
+			}
+			for _, a := range withA {
+				if seen[a.Path] {
+					return m, inputError("attachment " + a.Path + " is already attached to the question")
+				}
+			}
+			m.Attachments, m.Materials = append(m.Attachments, withA...), append(m.Materials, withM...)
+			if len(m.Attachments) > messaging.MaxVisuals || len(m.Materials) > messaging.MaxVisuals {
+				return m, inputError(fmt.Sprintf("a question carries at most %d attachments and %d materials", messaging.MaxVisuals, messaging.MaxVisuals))
+			}
 		}
 		return m, forwardTx(ctx, tx, &m, from, "Forwarded by "+from, note)
 	})

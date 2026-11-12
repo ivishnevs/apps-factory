@@ -349,6 +349,10 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 		if str(a, "question") == "" {
 			return refuse("invalid_exit", "question required")
 		}
+		// agent-questions-in-chat: listed choices travel as options (buttons wherever the question shows).
+		if _, given := a["options"]; !given && messaging.ListsChoices(str(a, "question")) {
+			return refuse("choices_without_options", messaging.ChoicesHint)
+		}
 	case "block":
 		if str(a, "reason") == "" {
 			return refuse("invalid_exit", "reason required")
@@ -457,6 +461,13 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			pr, head, err := reviewedPR(ctx, tx, t.ID, req.Facts)
 			if err != nil {
 				return out, err
+			}
+			if tasks.IsPerson(t.Implementer) {
+				// A person's submission (people-assignees): the approval names the pull request they submitted.
+				if err = personApproval(ctx, tx, t, agent); err != nil {
+					return out, err
+				}
+				pr = 0
 			}
 			if pr != 0 {
 				if _, err := tx.ExecContext(ctx, "INSERT INTO pr_approvals(company_id,task_id,pr_number,approved_head,approver,run_id,created_at) VALUES(?,?,?,?,?,?,?)", tx.company, t.ID, pr, head, agent, runID, now.Unix()); err != nil {

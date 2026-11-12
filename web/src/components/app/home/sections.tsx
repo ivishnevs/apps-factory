@@ -175,17 +175,19 @@ const segments: { key: string; label: string; color: string }[] = [
 export function Projects({ ov }: { ov: Overview }) {
   const conv = new Set(ov.tasks.filter((t) => isConversation(t as BoardTask)).map((t) => t.id));
   const look = lookupFrom(ov.tasks);
+  // archived-projects-hidden: archived projects stay on the Projects page (folded), not on Home.
+  const active = ov.status.filter((s) => !s.project.archived);
   return (
-    <Section title="Projects" count={ov.status.length} href="/tasks" linkLabel="Board"
+    <Section title="Projects" count={active.length} href="/tasks" linkLabel="Board"
       action={<NewProject overview={ov} variant="ghost" size="sm" label="New" className="h-10 px-2.5 text-xs text-muted-foreground hover:text-foreground sm:h-8" />}>
-      {ov.status.length === 0 ? (
+      {active.length === 0 ? (
         <div className="flex flex-col items-center gap-3 border-t px-4 py-8 text-center">
           <p className="text-sm text-muted-foreground">No projects yet. Start one and your team takes it from there.</p>
           <NewProject overview={ov} variant="default" />
         </div>
       ) : (
         <ul>
-          {ov.status.map((s) => {
+          {active.map((s) => {
             const total = Object.values(s.tasks).reduce((a, b) => a + b, 0);
             const open = total - (s.tasks.DONE ?? 0) - (s.tasks.CANCELLED ?? 0);
             // Whatever waits on the owner first.

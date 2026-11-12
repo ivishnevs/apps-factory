@@ -26,7 +26,7 @@ export interface Verdict {
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
-export interface Submission { summary: string; commit?: string; checks?: string[]; artifacts?: Artifact[] }
+export interface Submission { summary: string; commit?: string; checks?: string[]; artifacts?: Artifact[]; pull_request?: { number?: number; url?: string } }
 
 export type TaskStatus = "BACKLOG" | "READY" | "IN_PROGRESS" | "IN_REVIEW" | "REWORK" | "BLOCKED" | "DONE" | "CANCELLED";
 
@@ -167,6 +167,17 @@ export interface Message {
   may_be_outdated?: boolean;
   // inbox-badge-parity: "promised" (the owner will send details; still open), "sent" or "withdrawn".
   details?: string; details_note?: string; details_at?: number;
+  // Files the sender attached and references to existing materials (inbox-visual-previews), in the order to show.
+  attachments?: MessageAttachment[]; materials?: MaterialRef[];
+}
+
+// A preview is a display-size rendition of a large image; the original stays downloadable.
+export interface ImagePreview { sha256: string; size: number; width: number; height: number }
+export interface MessageAttachment { path: string; caption?: string; sha256: string; size: number; redacted?: boolean; preview?: ImagePreview }
+// A reference to an artifact version (artifact_id, artifact_version) or a report attachment (report_id, path), resolved by Core.
+export interface MaterialRef {
+  artifact_id?: string; artifact_version?: string; report_id?: string; path?: string; caption?: string;
+  name?: string; sha256?: string; size?: number; uri?: string; redacted?: boolean; preview?: ImagePreview;
 }
 
 export interface Approval {
@@ -201,7 +212,7 @@ export interface TaskDetail {
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
   Text?: string; Assignee?: string; ReviewBy?: string; Priority?: number; Urgent?: boolean; Cascade?: boolean; MessageID?: string;
-  Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string;
+  Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string; PullRequest?: string; Merged?: boolean;
   NewProject?: ProjectCreate; DecisionID?: string; Status?: string; Value?: string;
   Details?: "promised" | "withdrawn"; // answer: promise the details, or withdraw that promise (inbox-badge-parity)
 }
@@ -224,4 +235,5 @@ export interface Decision {
   message_id?: string; created_at: number; updated_at: number;
   // The open tasks parked on it (decision-waits).
   waiting?: { task_id: string; title: string }[];
+  attachments?: MessageAttachment[]; materials?: MaterialRef[];
 }

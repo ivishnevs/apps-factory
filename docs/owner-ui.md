@@ -231,7 +231,7 @@ its count bar, kinds and last time, next to the `reports_to` tree. When the lane
 The **feed** (`GET /feed/stream`, the last 3000 rows) with an icon per event, agents in their colors and
 attention rows highlighted; `!` keeps only them, `/` filters, scrolling up pauses it and `G` returns to
 the newest. The **inbox** lists questions, escalations and approvals (`GET /inbox`, `GET /approvals`) beside
-the selected item: its body, the approval's call and arguments with `y approve` / `n reject`, or the
+the selected item: its body, its attachments as links (inbox-visual-previews), the approval's call and arguments with `y approve` / `n reject`, or the
 question's options as pills (`←`/`→`, `enter`), `a` for free text. A notification or report has no answer:
 `r` (or `enter`) replies — in the Chat tab to a direct report, with a directive on the task to any other
 agent — and `m` marks it read. A refused action says what happened instead of Core's bare `state or version
@@ -605,6 +605,14 @@ are shown in plain words; IDs appear only where a person needs them.
   Without a result the newest material with content leads and only an artifact's older versions fold away. Every row
   names its artifact and version (`artifact_id`, `version`: "01-hero.png · screenshots-sample v2"). The Library keeps
   its full list, one card per artifact.
+- **Team questions in the chat and on the task** (agent-questions-in-chat): an open question or approval of a project
+  that no chat shows (an agent that is not a direct report asks the owner, so it lands in an escalation thread
+  `chain-…`) appears in the owner's chat with the project's lead (the team's lead, else the default report) as a card
+  under the newest message: "App Release asks", the task, the question with one button per option plus "Something
+  else…" for free text, or the approval with Approve and Reject; the chat counts it in "asks you". A task's page shows
+  its open question or approval the same way under Waiting for your answer ("Open in inbox" stays in the status).
+  The cards are the Inbox's (`GET /inbox` through the overview); an answer from the chat, the task, the Inbox or
+  Telegram answers the same message, so the item closes everywhere and the asking agent wakes with the answer.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies

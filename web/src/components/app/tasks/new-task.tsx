@@ -16,6 +16,7 @@ import { Field, touchInput } from "./field";
 import { isConversation, isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
 import { ReviewerSelect, useReviewSuggestion } from "./reviewer";
+import { displayName, PERSON, useMembers } from "./people";
 import { displayId } from "@/lib/format";
 import { setupView } from "@/lib/project-setup";
 
@@ -43,13 +44,14 @@ export function NewTask({ overview, defaultProject, open: openProp, onOpenChange
 
 function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview; defaultProject?: string; onDone: () => void }) {
   const router = useRouter();
-  const projects = overview.status.map((s) => s.project);
+  const projects = overview.status.map((s) => s.project).filter((p) => !p.archived || p.id === defaultProject);
   const [project, setProject] = useState(defaultProject && projects.some((p) => p.id === defaultProject) ? defaultProject : projects[0]?.id ?? "");
   const chosen = projects.find((p) => p.id === project);
   const setup = chosen ? setupView(chosen, overview.nodes) : undefined;
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [assignee, setAssignee] = useState(NONE);
+  const people = useMembers().data ?? []; // people-assignees: a person may take the task themselves
   const [priority, setPriority] = useState("5");
   const [deps, setDeps] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
@@ -117,6 +119,7 @@ function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview;
               <SelectContent position="popper">
                 <SelectItem value={NONE}>Unassigned</SelectItem>
                 {overview.agents.map((a) => <SelectItem key={a.name} value={a.name}>{a.name}{a.role ? <span className="text-muted-foreground"> · {a.role}</span> : null}</SelectItem>)}
+                {people.map((p) => <SelectItem key={p.user} value={PERSON + p.user}>{displayName(p)}<span className="text-muted-foreground"> · person</span></SelectItem>)}
               </SelectContent>
             </Select>
           </Field>

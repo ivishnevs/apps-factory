@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, MessagesSquare, Scale, X } from "lucide-react";
 import Link from "@/components/app/link";
 import { useState } from "react";
+import { MessageVisuals } from "@/components/app/materials/visuals";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
@@ -60,6 +61,8 @@ export function DecisionCard({ id, compact, inChat }: { id: string; compact?: bo
       <p className="flex items-center gap-1.5 text-sm font-medium"><Scale className="size-3.5 opacity-70" />Decision: {d.topic}</p>
       <Waiting d={d} />
       {!compact && d.rationale && <p className="text-sm text-muted-foreground">{d.rationale}</p>}
+      {/* In the chat the proposal's message shows them (inbox-visual-previews). */}
+      {!inChat && <MessageVisuals project={d.project_id} at={d.created_at} author={d.created_by} attachments={d.attachments} materials={d.materials} />}
       <div role="radiogroup" aria-label={d.topic} className="grid gap-2">
         {options.map((o, i) => {
           const on = (choice ?? d.value) === o;

@@ -173,7 +173,7 @@ func (s *Store) ReassignTask(ctx context.Context, company, id string, in tasks.A
 		if t.Kind == tasks.KindConversation {
 			return t, inputError("a conversation task belongs to its agent")
 		}
-		if !entityName.MatchString(in.Assignee) {
+		if !validAssignee(in.Assignee) {
 			return t, inputError("assignee required")
 		}
 		if in.Assignee == t.Assignee {
@@ -217,6 +217,10 @@ func reassignTx(ctx context.Context, tx *Tx, t tasks.Task, assignee, actor, reas
 	previous := t.Assignee
 	t.Assignee = assignee
 	t.AttemptsNoProgress, t.FailStreak, t.NotBefore = 0, 0, 0
+	if t.Status == "IN_PROGRESS" && tasks.IsPerson(previous) {
+		// A person's started task given back (people-assignees): the new assignee starts it from READY.
+		t.Status = "READY"
+	}
 	if t.Status == "IN_REVIEW" {
 		t.Reviewer = ""
 	}

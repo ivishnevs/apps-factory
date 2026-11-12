@@ -122,11 +122,17 @@ const dueVersions = `SELECT v.id, v.version FROM artifact_versions v
    WHERE t.company_id=v.company_id AND t.project_id=v.project_id AND t.status NOT IN ('DONE','CANCELLED') AND r->>'id'=v.id AND r->>'version'=v.version)
  ORDER BY v.seq`
 
-// blobInUse counts what still uses a company's digest besides archived artifact versions.
+// blobInUse counts what still uses a company's digest besides archived artifact versions. A message's attachments
+// and the previews of its images count (inbox-visual-previews); a message's reference to an artifact version does
+// not keep that version's content.
 const blobInUse = `SELECT (SELECT count(*) FROM artifact_versions WHERE company_id=? AND sha256=? AND archived_at=0)
  + (SELECT count(*) FROM run_logs WHERE company_id=? AND sha256=?)
  + (SELECT count(*) FROM report_attachments WHERE company_id=? AND sha256=?)
- + (SELECT count(*) FROM skill_index WHERE scope=? AND blob=?)`
+ + (SELECT count(*) FROM skill_index WHERE scope=? AND blob=?)
+ + (SELECT count(*) FROM messages m, json_array_elements(CASE WHEN json_typeof(m.body->'attachments')='array' THEN m.body->'attachments' ELSE '[]'::json END) a
+    WHERE m.company_id=? AND (a->>'sha256'=? OR a->'preview'->>'sha256'=?))
+ + (SELECT count(*) FROM messages m, json_array_elements(CASE WHEN json_typeof(m.body->'materials')='array' THEN m.body->'materials' ELSE '[]'::json END) a
+    WHERE m.company_id=? AND a->'preview'->>'sha256'=?)`
 
 // ArchiveExpiredArtifacts runs artifact retention for one company: it archives every project's due versions and
 // deletes the contents nothing live uses any more, then records one feed event when it changed anything.
@@ -245,7 +251,7 @@ func (s *Store) deleteBlobIfUnused(ctx context.Context, company, sha string) (in
 		return 0, false, err
 	}
 	var used int
-	if err = tx.QueryRowContext(ctx, blobInUse, company, sha, company, sha, company, sha, company, sha).Scan(&used); err != nil {
+	if err = tx.QueryRowContext(ctx, blobInUse, company, sha, company, sha, company, sha, company, sha, company, sha, sha, company, sha).Scan(&used); err != nil {
 		return 0, false, err
 	}
 	if used > 0 {

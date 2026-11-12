@@ -3,6 +3,7 @@ package decisions
 
 import (
 	"appfactory/internal/factorytools"
+	"appfactory/internal/messaging"
 	"appfactory/internal/tasks"
 )
 
@@ -31,12 +32,15 @@ type Decision struct {
 	TaskID                string           `json:"task_id,omitempty"`
 	RunID                 string           `json:"run_id,omitempty"`
 	Artifacts             []tasks.Artifact `json:"artifacts,omitempty"`
-	MessageID             string           `json:"message_id,omitempty"`
-	ApprovalID            string           `json:"approval_id,omitempty"`
-	SupersedesID          string           `json:"supersedes_id,omitempty"`
-	SupersededBy          string           `json:"superseded_by,omitempty"`
-	CreatedAt             int64            `json:"created_at"`
-	UpdatedAt             int64            `json:"updated_at"`
+	// Attachments and Materials are what the proposal shows (inbox-visual-previews); its message carries them too.
+	Attachments  []messaging.Attachment  `json:"attachments,omitempty"`
+	Materials    []messaging.MaterialRef `json:"materials,omitempty"`
+	MessageID    string                  `json:"message_id,omitempty"`
+	ApprovalID   string                  `json:"approval_id,omitempty"`
+	SupersedesID string                  `json:"supersedes_id,omitempty"`
+	SupersededBy string                  `json:"superseded_by,omitempty"`
+	CreatedAt    int64                   `json:"created_at"`
+	UpdatedAt    int64                   `json:"updated_at"`
 	// Waiting are the open tasks parked on this decision (decision-waits), filled on read; never stored.
 	Waiting []Waiter `json:"waiting,omitempty"`
 }
@@ -56,8 +60,12 @@ type Propose struct {
 	TaskID       string           `json:"task_id,omitempty"`
 	RunID        string           `json:"run_id,omitempty"`
 	Artifacts    []tasks.Artifact `json:"artifacts,omitempty"`
-	RequestID    string           `json:"request_id"`
-	Actor        string           `json:"-"`
+	// Attachments (files of the run's worktree, uploaded by the node) and Materials (references) for the owner to
+	// see with the proposal (inbox-visual-previews).
+	Attachments []messaging.Attachment  `json:"attachments,omitempty"`
+	Materials   []messaging.MaterialRef `json:"materials,omitempty"`
+	RequestID   string                  `json:"request_id"`
+	Actor       string                  `json:"-"`
 }
 type Record struct {
 	// Value is the person's choice when approving (an alternative or their own words); empty keeps the proposal's.

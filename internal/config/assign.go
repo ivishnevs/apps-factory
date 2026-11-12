@@ -165,6 +165,11 @@ func AssignRefusal(agents map[string]Agent, actor, assignee string) string {
 	if MayAssign(agents, actor, assignee) {
 		return ""
 	}
+	// A person (member:USER) is outside every agent hierarchy: an agent that may assign at all gives a task to a
+	// person on that person's word, which Core checks separately (people-assignees).
+	if strings.HasPrefix(assignee, "member:") && CanAssign(agents, actor) {
+		return ""
+	}
 	if !CanAssign(agents, actor) {
 		return fmt.Sprintf("%s may not assign tasks (can_assign_tasks: none); ask your manager", actor)
 	}
