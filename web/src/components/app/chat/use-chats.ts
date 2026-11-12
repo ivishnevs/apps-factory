@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useOverview, useTeams } from "@/lib/api/client";
 import type { Message, Overview } from "@/lib/api/types";
 import { defaultReportOf, directReports, ownerConversation, type TaskWithKind } from "@/lib/api/types-ops";
+import { itemProject, openItems, type OpenItem } from "@/components/app/inbox/open-items";
 
 // A conversation of the owner with one direct report in one project (owner-<agent>-<project>).
 export interface Chat {
@@ -14,6 +15,9 @@ export interface Chat {
   // conversation task's clearer), while the newest message is the owner's.
   pending?: string;
   loading: boolean; error?: unknown;
+  // asks (agent-questions-in-chat): open questions and approvals of the project's other agents, shown in the chat
+  // with the project's lead as cards answerable in place.
+  asks: OpenItem[];
 }
 
 // conversationPending is the clearer of the report's conversation task in the project while it has input to handle.
@@ -77,10 +81,18 @@ export function useChats() {
     });
   }, []);
 
+  // The chat with a project's lead (its team's lead, else the default report, else its first chat) also shows the
+  // open questions and approvals of the project that no chat shows (escalation threads, other agents).
+  const leadChat = new Map<string, string>();
+  for (const p of pairs) if (!leadChat.has(p.project) || p.agent === def) leadChat.set(p.project, ownerConversation(p.agent, p.project));
+  const shown = new Set(pairs.map((p) => ownerConversation(p.agent, p.project)));
+  const open = openItems(data).filter((i) => !(i.msg && shown.has(i.msg.conversation_id)));
+
   const chats: Chat[] = pairs.map((p, i) => {
     const r = results[i];
     const id = ownerConversation(p.agent, p.project);
     const messages = [...(r?.data ?? [])].sort((a, b) => a.created_at - b.created_at);
+    const asks = leadChat.get(p.project) === id ? open.filter((x) => itemProject(x) === p.project) : [];
     // Unread: the report's messages newer than the owner's own last message and than what was seen here.
     let floor = seen[id] ?? 0;
     for (const m of messages) if (m.sender === "owner") floor = Math.max(floor, m.created_at);
@@ -88,7 +100,8 @@ export function useChats() {
       id, ...p, role: data?.agents.find((a) => a.name === p.agent)?.role, isDefault: p.agent === def,
       messages, last: messages.at(-1),
       unread: messages.filter((m) => m.sender !== "owner" && m.created_at > floor).length,
-      waiting: messages.filter((m) => m.sender !== "owner" && m.message_type === "question" && m.status === "PENDING").length,
+      waiting: messages.filter((m) => m.sender !== "owner" && m.message_type === "question" && m.status === "PENDING").length + asks.length,
+      asks,
       replyingRun: data ? replyingRun(data, p.agent, p.project) : undefined,
       pending: data && messages.at(-1)?.sender === "owner" ? conversationPending(data, p.agent, p.project) : undefined,
       loading: !!r?.isLoading, error: r?.error ?? undefined,

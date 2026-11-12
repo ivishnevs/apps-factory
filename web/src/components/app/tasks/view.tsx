@@ -2,6 +2,7 @@
 
 import { FileSearch } from "lucide-react";
 import { useMemo } from "react";
+import { TaskOpenItems } from "@/components/app/inbox/open-items";
 import { TaskMaterials } from "@/components/app/materials/task-materials";
 import { EmptyState, ErrorState } from "@/components/app/page";
 import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
@@ -65,6 +66,7 @@ export function TaskView({ taskId }: { taskId: string }) {
         <div className="grid min-w-0 grid-cols-1 gap-6 lg:col-start-1 lg:row-start-1">
           {!isTerminal(task.status) && <Why why={d.why} queued={d.queued} task={task} look={look} now={now} />}
           {isTerminal(task.status) && task.result && <Why why={d.why} task={task} look={look} now={now} />}
+          {!isTerminal(task.status) && <TaskOpenItems taskId={task.id} projectName={project} />}
           {task.status === "DONE" && <TaskMaterials taskId={task.id} featured now={now} />}
           <Description text={task.description} />
           {task.submission && <Submission sub={task.submission} look={look} />}

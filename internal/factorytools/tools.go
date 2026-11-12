@@ -59,15 +59,15 @@ func Definitions() []Tool {
 	}
 	question := map[string]any{"type": "object", "properties": map[string]any{"id": s(), "type": s(), "question": s(), "options": arr}, "required": []string{"id", "type", "question"}, "additionalProperties": false}
 	messageProps := func() map[string]any {
-		return map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "blocking": map[string]any{"type": "boolean"}, "questions": map[string]any{"type": "array", "items": question}, "timeout_seconds": n, "request_id": s()}
+		return map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "blocking": map[string]any{"type": "boolean"}, "questions": map[string]any{"type": "array", "items": question}, "options": arr, "timeout_seconds": n, "request_id": s()}
 	}
 	sendProps := map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "message_type": s(), "request_id": s()}
 	add("message_send", "message.send", "Send an asynchronous notification/review request/escalation. Core schedules the recipient after this project's writer is released.", sendProps, "recipient", "body", "message_type", "request_id")
 	add("question_forward", "question.forward", "Forward a question you cannot decide (its category is not delegated to you) to your manager, with a note; the asker keeps waiting.", map[string]any{"message_id": s(), "version": n, "note": s(), "request_id": s()}, "message_id", "version", "request_id")
-	add("message_ask", "message.ask", "Ask another agent. A blocking question must concern your current task. After asking, finish the turn immediately; Core resumes the task after an explicit answer, never by polling inside a turn.", messageProps(), "recipient", "body", "request_id")
+	add("message_ask", "message.ask", "Ask another agent. When you offer choices, put them in options (one button each; free text stays possible), not only in the body: a body that lists choices without options is refused (options: [] sends it as free text). A blocking question must concern your current task. After asking, finish the turn immediately; Core resumes the task after an explicit answer, never by polling inside a turn.", messageProps(), "recipient", "body", "request_id")
 	ownerProps := messageProps()
 	delete(ownerProps, "recipient")
-	add("owner_ask", "owner.ask", "Ask the owner via durable inbox, optionally with structured questions. Finish the turn after a blocking question; do not wait or poll.", ownerProps, "body", "request_id")
+	add("owner_ask", "owner.ask", "Ask the owner (people see it in the chat, on the task and in the Inbox). When you offer choices, put them in options (one button each; they can still write their own answer), not only in the body: a body that lists choices without options is refused (options: [] sends it as free text). questions is a form of several questions instead. Finish the turn after a blocking question; do not wait or poll.", ownerProps, "body", "request_id")
 	add("message_get", "message.get", "Read a message in this project.", map[string]any{"message_id": s()}, "message_id")
 	add("message_list", "message.list", "Read the current or specified conversation's messages.", map[string]any{"conversation_id": s()})
 	add("message_reply", "message.reply", "Explicitly answer a pending question addressed to you, with its latest version. Answer all structured question IDs. A final-text reply alone is not an answer.", map[string]any{"message_id": s(), "version": n, "body": s(), "answers": map[string]any{"type": "object", "additionalProperties": true}, "request_id": s()}, "message_id", "version", "body", "request_id")

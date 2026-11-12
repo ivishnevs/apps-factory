@@ -147,7 +147,29 @@ Owner answer body:
 
 Use the actual latest version from inbox. `text` answers are nonempty strings, `confirmation` is a
 JSON boolean, `single_choice` is one exact option, `multiple_choice` is a nonempty array of unique
-listed options. Arbitrary answer keys, invalid options and missing questions are rejected.
+listed options. Arbitrary answer keys, invalid options and missing questions are rejected. A person who answers a
+choice in their own words ("Something else…" in the web) sends the body without form answers, which is always an
+answer.
+
+**Choices are options** (agent-questions-in-chat). `factory_owner_ask` and `factory_message_ask` take `options`, the
+choices of one question: Core makes them a `single_choice` question (id `choice`, the body's first sentence that asks
+as its text), one button each wherever the question shows (chat, task page, Inbox, Telegram), with free text still
+allowed. `factory_exit_ask` takes `options` the same way. A question whose text lists choices without options — a
+bullet or numbered list, "Profiles: ASC Key, Cheflet, Stashy", "A, B or C", "A or B?" after a question mark or
+"which/choose/pick" — is refused (`400`, or `409` for the exit) with reason `choices_without_options` and a hint to
+ask again with the choices in `options`; nothing is sent. `options: []` sends it as a free-text question;
+`questions` (a form) is checked by its author and not refused. `options` and `questions` together are refused.
+
+```json
+{"body":"Which App Store Connect profile should I use for the Tracely TestFlight upload?","options":["ASC Key","Cheflet","Stashy"],"blocking":true,"request_id":"asc-profile"}
+```
+
+**Team questions reach the lead's chat.** An agent that is not the owner's direct report has no owner chat, so its
+question lives in an escalation thread (`chain-…`); the web shows every open question and approval of a project
+that no chat shows in the owner's chat with the project's lead and on the asking task ([owner UI](owner-ui.md)).
+The lead's conversation brief (its conversation task with the owner) lists the project's other agents' open
+questions to people (asker, task, message, options) and those people answered since its last run with the answer,
+so the lead knows what was asked and decided; it does not answer them for the person.
 
 ## Reliability and limits
 

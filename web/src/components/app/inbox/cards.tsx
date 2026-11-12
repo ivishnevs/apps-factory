@@ -105,7 +105,10 @@ function AnswerForm({ msg, h }: { msg: Message; h: InboxHandlers }) {
   const complete = qs.every((q) => (answers[q.id] ?? "").trim());
   const send = () => {
     const text = qs.length === 1 ? answers[qs[0].id].trim() : qs.map((q) => `${q.question} ${answers[q.id].trim()}`).join("\n");
-    h.answer(msg, text, Object.fromEntries(qs.map((q) => [q.id, answers[q.id].trim()])));
+    // Words of one's own instead of an option ("Something else…") answer with the text alone (Core accepts only
+    // listed options as form answers).
+    const own = qs.some((q) => q.options?.length && !q.options.includes(answers[q.id].trim()));
+    h.answer(msg, text, own ? {} : Object.fromEntries(qs.map((q) => [q.id, answers[q.id].trim()])));
   };
 
   return (

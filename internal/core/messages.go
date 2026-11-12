@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"appfactory/internal/config"
 	"appfactory/internal/messaging"
@@ -244,11 +245,47 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 			return
 		}
 	}
+	// agent-questions-in-chat: options are the choices of a one-question form, one button each (free text stays
+	// possible); a question that lists choices in its text without options is refused with a hint, nothing sent.
+	body := args["body"].(string)
+	if messageType == "question" {
+		raw, hasOptions := args["options"]
+		var options []string
+		if hasOptions {
+			b, _ := json.Marshal(raw)
+			if err := json.Unmarshal(b, &options); err != nil {
+				http.Error(w, "options must be a list of strings", 400)
+				return
+			}
+		}
+		switch {
+		case len(options) > 0 && len(questions) > 0:
+			http.Error(w, "use options for one choice or questions for a form, not both", 400)
+			return
+		case len(options) > 0:
+			questions = []messaging.Question{{ID: "choice", Type: "single_choice", Question: questionLine(body), Options: options}}
+		case !hasOptions && len(questions) == 0 && messaging.ListsChoices(body):
+			jsonStatus(w, http.StatusBadRequest, map[string]string{"reason": "choices_without_options", "hint": messaging.ChoicesHint})
+			return
+		}
+	}
 	timeout := 0
 	if v, ok := args["timeout_seconds"].(float64); ok {
 		timeout = int(v)
 	}
-	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: args["body"].(string), Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID})
+	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: body, Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID})
 	reply(w, v, err)
 }
 func asAnswers(v any) map[string]any { m, _ := v.(map[string]any); return m }
+
+// questionLine is the question of an options form: the body's first sentence that asks (up to its "?"), else a
+// plain prompt; the body is shown above it.
+func questionLine(body string) string {
+	if i := strings.IndexByte(body, '?'); i >= 0 {
+		start := strings.LastIndexAny(body[:i], ".!\n") + 1
+		if q := strings.TrimSpace(body[start : i+1]); q != "?" && len(q) <= 1024 {
+			return q
+		}
+	}
+	return "Your choice"
+}

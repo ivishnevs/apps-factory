@@ -16,6 +16,7 @@ import { useOwnerAction } from "@/components/app/nodes/owner-action";
 import { AgentAvatar } from "./agent-avatar";
 import { clock, dayKey, dayLabel } from "./time";
 import type { Chat } from "./use-chats";
+import { itemAgent, itemTask, OpenItemCard, useOpenItemHandlers, type OpenItem } from "@/components/app/inbox/open-items";
 
 export interface Outgoing { key: string; conv: string; text: string; at: number; failed?: boolean }
 
@@ -108,7 +109,7 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const mine = outgoing.filter((o) => o.conv === chat.id);
-  const count = chat.messages.length + mine.length + (chat.replyingRun ? 1 : 0);
+  const count = chat.messages.length + mine.length + (chat.replyingRun ? 1 : 0) + chat.asks.length;
 
   // Stay at the newest message when the conversation changes or a message arrives.
   useLayoutEffect(() => {
@@ -160,7 +161,7 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
             <Skeleton className="h-12 w-2/3 rounded-2xl" /><Skeleton className="ml-auto h-10 w-1/2 rounded-2xl" /><Skeleton className="h-16 w-3/5 rounded-2xl" />
           </div>
         )}
-        {!chat.loading && !chat.error && items.length === 0 && !chat.replyingRun && (
+        {!chat.loading && !chat.error && items.length === 0 && !chat.replyingRun && chat.asks.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <AgentAvatar name={chat.agent} size="lg" />
             <p className="mt-3 font-medium">Start a conversation with {chat.agent}</p>
@@ -195,6 +196,7 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
         {chat.pending && mine.length === 0 && (
           <p className="mt-1 px-1 text-right text-[11px] text-muted-foreground" aria-live="polite">{chat.agent}: {chat.pending}</p>
         )}
+        {chat.asks.length > 0 && <TeamQuestions items={chat.asks} projectName={chat.projectName} />}
         {chat.replyingRun && <Typing agent={chat.agent} />}
       </div>
 
@@ -248,5 +250,30 @@ function CreatedTasks({ body }: { body: string }) {
         );
       })}
     </ul>
+  );
+}
+
+// TeamQuestions (agent-questions-in-chat): what the project's other agents ask people, open now, as cards answerable
+// here; an answer closes the Inbox item and wakes the asking agent. The lead's brief carries them and their answers.
+function TeamQuestions({ items, projectName }: { items: OpenItem[]; projectName: string }) {
+  const { data: ov } = useOverview();
+  const h = useOpenItemHandlers();
+  return (
+    <div className="mt-6 space-y-4" aria-label="Your team asks">
+      {items.map((i) => {
+        const agent = itemAgent(i), id = itemTask(i);
+        const task = id && !id.startsWith("conv-") ? ov?.tasks.find((t) => t.id === id) : undefined;
+        return (
+          <div key={i.key}>
+            <p className="mb-1.5 flex min-w-0 items-center gap-2 px-1 text-xs text-muted-foreground">
+              <AgentAvatar name={agent} size="sm" />
+              <span className="shrink-0 font-medium text-foreground">{agent} asks</span>
+              {task && <Link href={`/tasks/${task.id}`} className="min-w-0 truncate underline-offset-4 hover:underline">{task.title}</Link>}
+            </p>
+            <OpenItemCard item={i} projectName={projectName} h={h} />
+          </div>
+        );
+      })}
+    </div>
   );
 }

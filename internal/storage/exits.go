@@ -330,6 +330,10 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 		if str(a, "question") == "" {
 			return refuse("invalid_exit", "question required")
 		}
+		// agent-questions-in-chat: listed choices travel as options (buttons wherever the question shows).
+		if _, given := a["options"]; !given && messaging.ListsChoices(str(a, "question")) {
+			return refuse("choices_without_options", messaging.ChoicesHint)
+		}
 	case "block":
 		if str(a, "reason") == "" {
 			return refuse("invalid_exit", "reason required")

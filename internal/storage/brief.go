@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
@@ -221,6 +222,10 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			b.WriteString("Working with the person in this chat: a clear request (\"create a task: …\" with what it needs) is done as asked. An idea, a goal or a wish is discussed first: propose options and trade-offs, challenge weak points, state the plan you would follow. Ask only when it is genuinely unclear and the answer changes what you would do; then ask once, all questions together, each with your recommended answer so they can just say ok. Follow-ups, small changes and anything that fits the project's direction and recorded decisions are decided by you without asking; when in doubt act on your best reading and say what you assumed. Before or when work starts, post a short summary: what you understood, the plan, the decisions you took yourself and the tasks you created (with their ids), so they can stop or change them. A plan of more than about 5 tasks waits for their explicit go; smaller ones start at once. If they reply stop or change to just-created tasks, cancel or update those tasks.\n")
 			// decision-approval-ux, inbox-chat-replies: what needs the person comes as something they can act on in the chat.
 			b.WriteString("When you need the person to choose or confirm, ask with factory_owner_ask and list the options (they get buttons in this chat); do not end a reply with a question they cannot answer there. For a decision with options, use factory_decision_propose with the recommendation as value and the rest as alternatives; they approve, pick or reject it here and you get the outcome, so do not also request approval of factory_decision_record. When their answer here already is the decision, record it with factory_decision_decide only in a delegated category; otherwise propose it once.\n")
+			// agent-questions-in-chat: the team's questions to people show in this chat; the lead knows them.
+			if err := teamQuestions(ctx, tx, &b, t.ProjectID, spec.Agent, since); err != nil {
+				return "", err
+			}
 		}
 	} else if tx.store.ExplicitExits {
 		b.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.\n")
@@ -273,4 +278,65 @@ func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, 
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE runs SET spec=?,brief_from=?,brief_to=? WHERE company_id=? AND id=?", b, from, to, tx.company, id)
 	return err
+}
+
+// teamQuestions (agent-questions-in-chat) tells the agent people talk to in a project which questions and
+// approvals the project's other agents have open with people (they show in its chat as cards) and which people
+// answered since its last run, so it knows what was asked and decided.
+func teamQuestions(ctx context.Context, tx *Tx, b *strings.Builder, project, agent string, since int64) error {
+	open, err := listDocs[messaging.Message](ctx, tx, `SELECT body FROM messages WHERE company_id=? AND project_id=? AND message_type='question' AND sender NOT IN (?,'owner','factory')
+ AND (status='ESCALATED' OR recipient='owner' AND status='PENDING' AND coalesce(body->>'delegated_to','')='') ORDER BY created_at,seq LIMIT 10`, tx.company, project, agent)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT q.body,a.body FROM messages a JOIN messages q ON q.company_id=a.company_id AND q.id=(a.body->>'in_reply_to')
+ WHERE a.company_id=? AND a.project_id=? AND a.message_type='answer' AND a.sender='owner' AND a.created_at>=? AND q.message_type='question' AND q.sender NOT IN (?,'owner','factory')
+ ORDER BY a.created_at,a.seq LIMIT 10`, tx.company, project, since, agent)
+	if err != nil {
+		return err
+	}
+	type pair struct{ q, a messaging.Message }
+	var answered []pair
+	for rows.Next() {
+		var qb, ab []byte
+		var p pair
+		if err = rows.Scan(&qb, &ab); err != nil {
+			rows.Close()
+			return err
+		}
+		if json.Unmarshal(qb, &p.q) == nil && json.Unmarshal(ab, &p.a) == nil {
+			answered = append(answered, p)
+		}
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if len(open) == 0 && len(answered) == 0 {
+		return nil
+	}
+	on := func(m messaging.Message) string {
+		if m.TaskID == "" || strings.HasPrefix(m.TaskID, "conv-") {
+			return ""
+		}
+		return " on task " + m.TaskID
+	}
+	b.WriteString("Your team's questions to people in this project (they show in this chat and are answered there, on the task or in the Inbox; do not answer them for the person):\n")
+	for _, m := range open {
+		line := fmt.Sprintf("- open: %s asks%s (message %s): %s", m.Sender, on(m), m.ID, briefExcerpt(m.Body, 1024))
+		for _, q := range m.Questions {
+			if len(q.Options) > 0 {
+				line += " [options: " + strings.Join(q.Options, ", ") + "]"
+			}
+		}
+		b.WriteString(line + "\n")
+	}
+	for _, p := range answered {
+		who := "the owner"
+		if p.a.Person != "" {
+			who = p.a.Person
+		}
+		fmt.Fprintf(b, "- answered: %s asked%s: %s\n  %s answered: %s\n", p.q.Sender, on(p.q), briefExcerpt(p.q.Body, 512), who, briefExcerpt(p.a.Body, 1024))
+	}
+	return nil
 }
