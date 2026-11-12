@@ -383,7 +383,9 @@ func evaluate(s Snapshot) Verdict {
 	}
 	if len(s.Paused) > 0 {
 		scope := s.Paused[0]
-		target := strings.Replace(scope, ":", " ", 1)
+		// The CLI's flag of the scope: factory resume --project P, --quota-key K (setup-assistant: a fix that runs).
+		kind, id, _ := strings.Cut(scope, ":")
+		target := "--" + strings.ReplaceAll(kind, "_", "-") + " " + id
 		if scope == "company" {
 			target = "--all"
 		}

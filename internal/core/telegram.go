@@ -745,6 +745,15 @@ func (b telegramBackend) Stop(ctx context.Context) (string, error) {
 	return fmt.Sprintf("Stopped: %d live runs revoked, nothing new starts until the company is started again.", n), nil
 }
 
+// Doctor is the company doctor for /doctor and the digest's problems (setup-assistant 3.1).
+func (b telegramBackend) Doctor(ctx context.Context) (string, string, error) {
+	d, err := b.c.CompanyDoctor(ctx, b.company, 24*time.Hour)
+	if err != nil {
+		return "", "", err
+	}
+	return d.Text(), d.Summary(5), nil
+}
+
 // Digest: done, in progress, waiting for the owner, failures and retries, nodes and the cost of the last day.
 func (b telegramBackend) Digest(ctx context.Context, now time.Time) (string, error) {
 	since := now.Add(-24 * time.Hour)
