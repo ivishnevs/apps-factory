@@ -71,7 +71,14 @@ export interface ProjectSetup {
 }
 
 // holder and inactive (affinity): the node holding the session and why it is inactive; such a session can be released (node-readiness). tie: node-ties.
-export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[]; holder?: string; inactive?: string; tie?: Tie }
+export interface QueuedReason { reason: string; detail: string; until?: number; nodes?: unknown[]; holder?: string; inactive?: string; tie?: Tie; subject?: string }
+// Bottleneck (throughput-signals): one cause of queued work while node capacity is idle or unusable, from the stall
+// sweep over the queued reasons and the dependency graph (GET /throughput). due: past the company's threshold (the
+// manager has the notice, the owner the alert).
+export interface Bottleneck {
+  project: string; key: string; reason: string; subject?: string; summary: string; fix: string; count: number;
+  tasks: string[]; runs?: string[]; free_slots: number; since?: number; due?: boolean;
+}
 export interface RunStatus { id: string; agent: string; task_id?: string; status: string; started_at?: number; queued?: QueuedReason }
 export interface ProjectStatus {
   project: Project; runs: RunStatus[]; tasks: Record<string, number>; waiting: Verdict[]; runnable: number; inbox: number;
@@ -199,6 +206,7 @@ export interface Overview {
   health: Health; status: ProjectStatus[]; agents: Agent[]; tasks: Task[]; pauses: Pause[]; pending: PendingCounts;
   nodes: FactoryNode[]; costs_today: CostReport; task_costs: CostReport; recent_costs: CostReport;
   live_runs?: Record<string, Run>; inbox: Message[]; approvals: Approval[]; alerts?: ActiveAlert[]; at: string; errors?: Record<string, string>;
+  throughput?: Bottleneck[];
 }
 
 export interface TaskDetail {

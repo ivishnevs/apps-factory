@@ -268,6 +268,9 @@ var alertKinds = map[string]alertKind{
 	"no_ready_node":     {"fix the node's project check on the Nodes page; the task runs once a node is ready", false},
 	"sweep_failed":      {"Core's background sweep fails on this task; it clears by itself once the sweep succeeds", false},
 	"comment_unhandled": {"reply to the agent on the task or mark the comment handled", false},
+	// throughput-signals: the project's lead has the notice; the summary names the cause and what releases it. It
+	// clears by itself once the cause is gone.
+	"throughput": {"the summary says what releases it (a limit, a node, a dependency); it clears once the work moves", true},
 }
 
 // alerts is the Alerts section of the owner's Inbox: storage's active alerts with their clearing action and, for an
@@ -280,6 +283,13 @@ func (c *Core) alerts(ctx context.Context, company string) ([]storage.ActiveAler
 	for i := range out {
 		k := alertKinds[out[i].Kind]
 		out[i].Action = k.action
+		if out[i].Kind == "throughput" {
+			// The notice went to the project's lead, whoever the anchor task's assignee reports to.
+			if lead := c.teamLead(ctx, company, out[i].ProjectID, ""); lead != "" && lead != "owner" {
+				out[i].With = lead
+			}
+			continue
+		}
 		if k.lead && out[i].Assignee != "" {
 			if lead := c.escalationTargetIn(company, out[i].Assignee); lead != "owner" {
 				out[i].With = lead

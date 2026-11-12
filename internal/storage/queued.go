@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -60,6 +61,10 @@ type QueuedReason struct {
 	// Tie is the node the run is tied to (node-ties): its task's unsaved work or its agent's session is there.
 	// Reasons pinned and affinity are its aliases for one release.
 	Tie *tasks.Tie `json:"tie,omitempty"`
+	// Subject is what holds the run, stable while the cause lasts (throughput-signals groups queued runs by reason
+	// and subject): the agent for agent_busy, the pause for paused, the node for a node reason or a tie, the project
+	// for no_ready_node; "" when the reason alone says it.
+	Subject string `json:"subject,omitempty"`
 }
 
 // QueuedNode is what one node lacks for the run ("" Reason: it can take it).
@@ -147,7 +152,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 		if p.Reason != "" {
 			detail += ": " + p.Reason
 		}
-		return &QueuedReason{Reason: QueuedPaused, Detail: detail, Until: p.Until}, nil
+		return &QueuedReason{Reason: QueuedPaused, Detail: detail, Until: p.Until, Subject: p.Scope + ":" + p.Target}, nil
 	}
 	// The agent's concurrency cap over started runs of the run's kind (work-and-conversation-runs).
 	perAgent, perProject, kind := AgentRunCaps(spec.ConfigSnapshot).For(spec.Conversation)
@@ -164,9 +169,9 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 	}
 	switch {
 	case perAgent > 0 && busy >= perAgent:
-		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d %s at a time", spec.Agent, busy, perAgent, runs)}, nil
+		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d %s at a time", spec.Agent, busy, perAgent, runs), Subject: spec.Agent}, nil
 	case perProject > 0 && busyProject >= perProject:
-		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d %s at a time in project %s", spec.Agent, busyProject, perProject, runs, spec.Project)}, nil
+		return &QueuedReason{Reason: QueuedAgentBusy, Detail: fmt.Sprintf("agent %s runs %d of %d %s at a time in project %s", spec.Agent, busyProject, perProject, runs, spec.Project), Subject: spec.Agent}, nil
 	}
 	// node-ties: the work tie (the task's unsaved work is only on one node) outranks the session tie.
 	pinned := ""
@@ -188,7 +193,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 	if pinned != "" {
 		i := slices.IndexFunc(nodes, func(n QueuedNode) bool { return n.Node == pinned })
 		if i < 0 {
-			return &QueuedReason{Reason: QueuedPinned, Detail: tie.Say() + "; the node is no longer registered", Nodes: nodes, Tie: tie}, nil
+			return &QueuedReason{Reason: QueuedPinned, Detail: tie.Say() + "; the node is no longer registered", Nodes: nodes, Tie: tie, Subject: pinned}, nil
 		}
 		tie.NodeName = nodes[i].Name
 		if n := nodes[i]; n.Reason != "" {
@@ -196,9 +201,9 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 			if reason == QueuedNotReady {
 				reason = QueuedNoReadyNode
 			}
-			return &QueuedReason{Reason: reason, Detail: tie.Say() + "; the node: " + n.Detail, Until: n.Until, Nodes: nodes, Tie: tie}, nil
+			return &QueuedReason{Reason: reason, Detail: tie.Say() + "; the node: " + n.Detail, Until: n.Until, Nodes: nodes, Tie: tie, Subject: pinned}, nil
 		}
-		return &QueuedReason{Reason: QueuedUnclaimed, Detail: tie.Say() + "; it has room, waiting for its claim", Nodes: nodes, Tie: tie}, nil
+		return &QueuedReason{Reason: QueuedUnclaimed, Detail: tie.Say() + "; it has room, waiting for its claim", Nodes: nodes, Tie: tie, Subject: pinned}, nil
 	}
 	// Session affinity: the holder of the session takes it while active; Until is the release when it is not.
 	if a, err := sessionAffinity(ctx, tx, tx.company, id, spec, "", now); err != nil {
@@ -218,12 +223,12 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 		if a.Inactive != "" {
 			detail = tie.Say() + ", and the node is " + a.Inactive + "; another node may take the run " + tie.Release
 		}
-		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes, Holder: a.Holder, Inactive: a.Inactive, Tie: tie}, nil
+		return &QueuedReason{Reason: QueuedAffinity, Detail: detail, Until: a.Release, Nodes: nodes, Holder: a.Holder, Inactive: a.Inactive, Tie: tie, Subject: a.Holder}, nil
 	}
 	best := -1
 	for i, n := range nodes {
 		if n.Reason == "" {
-			return &QueuedReason{Reason: QueuedUnclaimed, Detail: nodeLabel(n.Name, n.Node) + " has room; waiting for its claim", Nodes: nodes}, nil
+			return &QueuedReason{Reason: QueuedUnclaimed, Detail: nodeLabel(n.Name, n.Node) + " has room; waiting for its claim", Nodes: nodes, Subject: n.Node}, nil
 		}
 		if best < 0 || slices.Index(queuedRank, n.Reason) < slices.Index(queuedRank, nodes[best].Reason) {
 			best = i
@@ -238,13 +243,13 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 				parts = append(parts, nodeLabel(x.Name, x.Node)+": "+x.Detail)
 			}
 		}
-		return &QueuedReason{Reason: QueuedNoReadyNode, Detail: "no node is ready for project " + spec.Project + " — " + strings.Join(parts, "; "), Nodes: nodes}, nil
+		return &QueuedReason{Reason: QueuedNoReadyNode, Detail: "no node is ready for project " + spec.Project + " — " + strings.Join(parts, "; "), Nodes: nodes, Subject: spec.Project}, nil
 	}
 	detail := nodeLabel(n.Name, n.Node) + ": " + n.Detail
 	if len(nodes) > 1 {
 		detail += fmt.Sprintf(" (and %d other nodes cannot take it)", len(nodes)-1)
 	}
-	return &QueuedReason{Reason: n.Reason, Detail: detail, Until: n.Until, Nodes: nodes}, nil
+	return &QueuedReason{Reason: n.Reason, Detail: detail, Until: n.Until, Nodes: nodes, Subject: n.Node}, nil
 }
 
 // queuedNodes judges every registered node for the run in ClaimV2's order: online, owner pause, disk,
@@ -342,10 +347,13 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 				return nil, err
 			}
 			n := tasks.Node{Slots: r.slots, Held: l.Held, Used: l.Used, Resources: resources, ConversationSlots: r.convSlots, ConversationHeld: l.Conversation}
-			if short := n.Short(spec.Conversation, AgentResources(spec.ConfigSnapshot)); short != "" {
+			need := RunResources(spec)
+			if short := n.Short(spec.Conversation, need); short != "" {
 				reason := QueuedResourceBusy
 				if l.Held >= r.slots {
 					reason = QueuedNoSlot
+				} else if held := resourceHolders(need, l, resources); held != "" {
+					short += "; held by " + held // throughput-signals 2.2: the queue names who holds the class
 				}
 				set(reason, short, 0)
 			}
@@ -353,4 +361,15 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 		out = append(out, q)
 	}
 	return out, nil
+}
+
+// resourceHolders names who holds the classes the run cannot get on a node (its first short class), "" when no run
+// holds one (the node lacks the class).
+func resourceHolders(need map[string]int, l NodeLoad, capacity map[string]int) string {
+	for _, k := range slices.Sorted(maps.Keys(need)) {
+		if l.Used[k]+need[k] > capacity[k] && len(l.Holders[k]) > 0 {
+			return strings.Join(l.Holders[k], ", ")
+		}
+	}
+	return ""
 }

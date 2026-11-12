@@ -83,6 +83,9 @@ type Overview struct {
 	LiveRuns  map[string]storage.Run `json:"live_runs,omitempty"`
 	Inbox     []messaging.Message    `json:"inbox"`
 	Approvals []approvals.Approval   `json:"approvals"`
+	// Throughput are the causes of queued work while node capacity is idle or unusable (GET /throughput,
+	// throughput-signals): the board's Bottlenecks.
+	Throughput []storage.Bottleneck `json:"throughput,omitempty"`
 	// Alerts are the Inbox's Alerts section (GET /alerts, inbox-badge-parity): active task alerts and runs to inspect.
 	Alerts []storage.ActiveAlert `json:"alerts"`
 	At     time.Time             `json:"at"`
@@ -407,6 +410,7 @@ func (c *HTTPClient) Overview(ctx context.Context) (Overview, error) {
 	part("inbox", c.get(ctx, "/inbox", &o.Inbox))
 	part("alerts", c.get(ctx, "/alerts", &o.Alerts))
 	part("approvals", c.get(ctx, "/approvals", &o.Approvals))
+	part("throughput", c.get(ctx, "/throughput", &o.Throughput))
 	midnight := startOfDay(o.At)
 	part("costs", c.get(ctx, fmt.Sprintf("/costs?by=agent&since=%d", midnight.Unix()), &o.Costs))
 	part("task_costs", c.get(ctx, "/costs?by=task", &o.TaskCosts))

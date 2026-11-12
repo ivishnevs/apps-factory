@@ -230,6 +230,9 @@ type Agent struct {
 	// MCPServers are the definitions of spec.mcp from the company's mcp_servers.yaml, with header secrets as
 	// unresolved ${secret:NAME} references: they travel in the run's config snapshot and the node resolves them.
 	MCPServers map[string]protocol.MCPServer `yaml:"-" json:"mcp_servers,omitempty"`
+	// LimitFromRole: the agent sets no execution.max_concurrent_runs, so its work-run limit is its role's from
+	// company.yaml concurrency (throughput-signals).
+	LimitFromRole bool `yaml:"-" json:"-"`
 }
 type Catalog struct {
 	Agents   map[string]Agent
@@ -245,6 +248,29 @@ type Catalog struct {
 	// Teams are the company's teams (teams/*.yaml, company-teams D2): each agent belongs to one; a team's lead
 	// gets the owner's unaddressed messages in its projects, its audit assignee their onboarding audits.
 	Teams map[string]Team
+	// Concurrency is company.yaml concurrency (throughput-signals): the default work-run limit per agent role, key
+	// default for the other roles, merged over DefaultConcurrency. An agent's execution.max_concurrent_runs
+	// overrides it.
+	Concurrency map[string]int
+}
+
+// DefaultConcurrency is the work-run limit by role when company.yaml sets none (throughput-signals, owner
+// 2026-11-12): developers and managers two at a time, every other role one.
+var DefaultConcurrency = map[string]int{"developer": 2, "manager": 2, ConcurrencyDefault: 1}
+
+// ConcurrencyDefault is the concurrency key for roles not listed.
+const ConcurrencyDefault = "default"
+
+// RoleLimit is the work-run limit of an agent of role that sets no max_concurrent_runs.
+func (c *Catalog) RoleLimit(role string) int {
+	limits := c.Concurrency
+	if limits == nil {
+		limits = DefaultConcurrency
+	}
+	if n, ok := limits[role]; ok && role != "" {
+		return n
+	}
+	return max(limits[ConcurrencyDefault], 1)
 }
 
 // CreatesProjects reports whether the agent may call factory_project_create (project-creation D4).
@@ -382,6 +408,9 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 		return nil, err
 	}
 	if c.Teams, err = loadTeams(src, dir); err != nil {
+		return nil, err
+	}
+	if c.Concurrency, err = loadCompany(src, dir); err != nil {
 		return nil, err
 	}
 	profiles, err := documents(src, dir, "profiles", "AgentProfile")
@@ -523,9 +552,6 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 		return nil, err
 	}
 	if err := validReviewers(c.Agents); err != nil {
-		return nil, err
-	}
-	if err = loadCompany(src, dir); err != nil {
 		return nil, err
 	}
 	if err := validAssignScopes(c.Agents); err != nil {
@@ -692,6 +718,15 @@ func (c *Catalog) finish(src source, a *Agent) error {
 	}
 	if err := validLabels(a.Spec.Labels); err != nil {
 		return err
+	}
+	// throughput-signals: an agent that sets no max_concurrent_runs (0) gets its role's work-run limit from
+	// company.yaml concurrency; LimitFromRole records that the limit is the role's.
+	a.LimitFromRole = false
+	if a.Spec.Execution.MaxConcurrentRuns == 0 {
+		a.Spec.Execution.MaxConcurrentRuns, a.LimitFromRole = c.RoleLimit(a.Spec.Role), true
+		if p := a.Spec.Execution.MaxConcurrentRunsPerProject; p > a.Spec.Execution.MaxConcurrentRuns {
+			a.Spec.Execution.MaxConcurrentRunsPerProject = a.Spec.Execution.MaxConcurrentRuns
+		}
 	}
 	// trigger-log-scheduling 2.5: caps checked at dispatch and claim; parallel runs of one agent need a node
 	// (worktree tasks hold their own workspace slot; shared-workspace runs still go one at a time).
@@ -1060,23 +1095,34 @@ func loadQuotaKeys(src source, dir string) (map[string]QuotaKey, error) {
 	return doc.QuotaKeys, nil
 }
 
-// loadCompany reads configs/company.yaml (optional): owner.default_report, checked to be a direct report of
-// the owner and required when the owner has more than one (hierarchy D5); projects.audit_assignee, an agent
-// (default product-manager, project-creation D5).
-func loadCompany(src source, dir string) error {
-	// company.yaml (optional) keeps company settings only; owner.default_report and projects.audit_assignee moved
-	// to the teams (company-teams D8) and are refused as unknown fields.
-	var doc struct{}
+// loadCompany reads configs/company.yaml (optional), which keeps company settings only: concurrency, the default
+// work-run limit per agent role (throughput-signals), merged over DefaultConcurrency. owner.default_report and
+// projects.audit_assignee moved to the teams (company-teams D8) and are refused as unknown fields.
+func loadCompany(src source, dir string) (map[string]int, error) {
+	var doc struct {
+		Concurrency map[string]int `yaml:"concurrency"`
+	}
 	if p := path.Join(dir, "company.yaml"); src.exists(p) {
 		b, err := src.read(p)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err = configfile.Decode(b, &doc); err != nil {
-			return fmt.Errorf("%s: %w (the owner's default report and the audit assignee are set per team: teams/NAME.yaml lead, audit_assignee)", src.name(p), err)
+			return nil, fmt.Errorf("%s: %w (the owner's default report and the audit assignee are set per team: teams/NAME.yaml lead, audit_assignee)", src.name(p), err)
 		}
 	}
-	return nil
+	out := maps.Clone(DefaultConcurrency)
+	for _, role := range slices.Sorted(maps.Keys(doc.Concurrency)) {
+		n := doc.Concurrency[role]
+		if role != ConcurrencyDefault && !namePattern.MatchString(role) {
+			return nil, fmt.Errorf("company.yaml: concurrency: invalid role %q", role)
+		}
+		if n < 1 || n > MaxConcurrentRuns {
+			return nil, fmt.Errorf("company.yaml: concurrency.%s must be 1..%d", role, MaxConcurrentRuns)
+		}
+		out[role] = n
+	}
+	return out, nil
 }
 
 // modelName is the accepted shape of a model name or alias.

@@ -1,7 +1,7 @@
  ◆ APP FACTORY   ● all 17%   ● project-1 22%   ● project-2 16%   ● project-3 16%   ✗ project-4 0%   ◌ project-5   14:30
   1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 7
  23 t╭────────────────────────────────────────────── P1-9 · Task 9 ───────────────────────────────────────────────╮ore ▶
-╭────│ ● READY  READY   project-1   ● qa  priority 8 · v3 · attempt 0                                             │────╮
+╭────│ ● RUNNING  READY   project-1   ● qa  priority 8 · v3 · attempt 0                                           │o… ─╮
 │ ╭──│ origin  created by developer-1 from P1-3 · 25m ago                                                         │──╮ │
 │ │ ●│ why     no_capable_node — capable nodes are unavailable (run r-qa-1 is QUEUED)                             │  │ │
 │ │ P│ clears  you — start or fix a node with driver claude                                                       │9 │ │

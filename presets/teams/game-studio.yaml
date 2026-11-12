@@ -93,7 +93,6 @@ spec:
     approvals:
       mode: selective
     execution:
-      max_concurrent_runs: 1
       timeout: 60m
       max_retries: 0
     communication:

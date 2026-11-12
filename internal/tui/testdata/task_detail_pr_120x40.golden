@@ -3,10 +3,10 @@
  23 t╭────────────────────────────────────────────── P2-1 · Task 1 ───────────────────────────────────────────────╮ore ▶
 ╭────│ ● REVIEW  IN_REVIEW   project-2   ● reviewer  priority 6 · v3 · attempt 0                                  │────╮
 │ ╭──│ origin  created by lead from P2-3 · implementer developer-2 · reviewer reviewer · 4h ago                   │━━┓ │
-│ │ ◷│ PR      #12 open · head 9f3c2e1… · https://github.com/company-1/project-2/pull/12  o opens                 │  ┃ │
+│ │ ●│ PR      #12 open · head 9f3c2e1… · https://github.com/company-1/project-2/pull/12  o opens                 │  ┃ │
 │ │ P│ checks  ✓ go test ./... · ✓ go vet ./...                                                                   │6 ┃ │
 │ │ ●│ why     live_run — run r-rev-2 is running                                                                  │m ┃ │
-│ │ ◷│ clears  reviewer — wait for the review                                                                     │… ┃ │
+│ │ ↳│ clears  reviewer — wait for the review                                                                     │… ┃ │
 │ ╰──│ submission edge-case tests added                                                                           │━━┛ │
 │ ╭──│                                                                                                            │──╮ │
 │ │ ●│ ▌ Runs (2)                                                                                                 │  │ │

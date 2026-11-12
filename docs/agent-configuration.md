@@ -44,8 +44,16 @@ reassignment to another provider is ignored (the agent's model runs) with a `tas
 `maxTurns`; hitting it ends the run `max_turns`). Both are omitted from the run when unset (runtime default);
 `factory config validate` refuses another value or `max_turns` on Codex.
 Prompt paths must resolve inside FACTORY_ROOT, including symlinks. timeout is 1s–24h.
-`execution.max_concurrent_runs` (1..8, default 1) caps the agent's live work runs and `max_concurrent_runs_per_project` (default the same) its live work runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. Conversation runs (the runs of the agent's `conv-<agent>-<project>` tasks) do not count against them (work-and-conversation-runs): `execution.conversation.max_concurrent_runs` (0..8, default 0 = no cap) caps them across projects, and `execution.conversation.share_work_limit: true` counts them against the work limit as before.
-`runtime.context_window` is where the runtime compacts the session: one value for every run (`200k`, `1M`, a token count, or `max` for the model's maximum) or `{work: max, conversation: 200k}`; Claude and Codex accept 100k–1M, unset keeps the runtime's default. The node sets it per run from the run's kind (Claude `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which wins over a secret setting it; Codex `model_auto_compact_token_limit`, which Codex 0.162 does not honour yet: openai/codex#16033, so leave it unset on Codex agents). The team page and the agent editor show and edit both. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time. Keep coordinators (role manager) at 1. max_retries must be nonnegative; it is a deprecated alias kept for compatibility: automatic retry follows the
+`execution.max_concurrent_runs` (1..8; unset: the role's default from `company.yaml` `concurrency`, below) caps the agent's live work runs and `max_concurrent_runs_per_project` (default the same) its live work runs in one project; dispatch and node claim check both, `factory tasks why` reports `capacity`. Conversation runs (the runs of the agent's `conv-<agent>-<project>` tasks) do not count against them (work-and-conversation-runs): `execution.conversation.max_concurrent_runs` (0..8, default 0 = no cap) caps them across projects, and `execution.conversation.share_work_limit: true` counts them against the work limit as before.
+`runtime.context_window` is where the runtime compacts the session: one value for every run (`200k`, `1M`, a token count, or `max` for the model's maximum) or `{work: max, conversation: 200k}`; Claude and Codex accept 100k–1M, unset keeps the runtime's default. The node sets it per run from the run's kind (Claude `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which wins over a secret setting it; Codex `model_auto_compact_token_limit`, which Codex 0.162 does not honour yet: openai/codex#16033, so leave it unset on Codex agents). The team page and the agent editor show and edit both. More than 1 needs a node: worktree tasks hold their own workspace slot, while runs in a shared project workspace still go one at a time.
+
+`company.yaml` `concurrency` (throughput-signals) is the default work-run limit by role for agents that set no
+`execution.max_concurrent_runs`: `concurrency: {developer: 2, manager: 2, default: 1}` is the built-in table, a
+company's entries replace those roles and `default` covers the roles not listed (each 1..8). It limits work runs
+only; conversation runs keep their own cap. The team page shows each agent's limit, whether it is the role's
+default, and its live and queued runs. The team presets no longer set `max_concurrent_runs: 1` in their profiles,
+so their agents take the role defaults; a company copied from a preset earlier keeps its explicit 1 until the line
+is removed from its profile. max_retries must be nonnegative; it is a deprecated alias kept for compatibility: automatic retry follows the
 outcome table (three attempts without progress, a daily budget; task-lifecycle.md). A `type: recovery, mode:
 inspect` policy rule makes an unclear end of the agent's runs an inspection instead of a retry. Communication create/assign permissions are checked on named-agent task mutations; can_message
 checks explicit recipient agent names and reserved owner on scoped messaging. Capabilities
@@ -69,6 +77,12 @@ Class names are lowercase like agent names; needs are at least 1. Profiles' and 
 declare capacity in node.yaml `resources` (see development.md, Runtime protocol v2); Core grants a v2 claim only
 when the node's free capacity covers the needs and otherwise answers retry (capacity). Nodes do not enforce it.
 A run holds its classes until it has ended and the node has sealed it.
+
+A task may declare classes too (throughput-signals): `resources` on `factory_task_create`/`factory_task_update` (or
+`POST`/`PATCH /tasks`), e.g. `{"mac-build": 1}`, added to the agent's for every run of the task (not its
+conversation). Core enforces them at claim like the agent's, so tasks needing an exclusive class take turns: a
+waiting run's queued reason is `resource_busy` with the holder, e.g. `resource mac-build: 1 of 1 held, the run needs
+1; held by task gate1 (dev)`. `{}` clears them.
 
 `labels` lists node labels one run needs, e.g. `labels: [macos, xcode]`; profiles' and agents' lists merge as a
 set. Core claims the run only on a node whose node.yaml `labels` include them all (otherwise retry, capacity);

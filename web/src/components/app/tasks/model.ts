@@ -79,7 +79,17 @@ export function queuedLine(q: QueuedReason, nodeName?: (id: string) => string): 
   return `Waits for ${node} (${q.inactive})${until}`;
 }
 
-// Board columns, in order (as the terminal board groups them: a run waiting for a node is still To do). The keys
+// queuedLabel: a queued run's reason in a few words, for "queued: <reason>" on its card (throughput-signals).
+const queuedWords: Record<string, string> = {
+  paused: "paused", agent_busy: "agent at its limit", pinned: "waits for its node", affinity: "waits for its session's node", no_slot: "all slots busy",
+  resource_busy: "resource busy", node_paused: "node paused", node_disk_critical: "node disk critical", driver_disabled: "driver disabled",
+  plan_limit: "node over the plan", node_offline: "node offline", labels: "no node with its labels", not_ready: "node not ready", no_ready_node: "no node ready", no_node: "no node",
+  unclaimed: "starting",
+};
+export const queuedLabel = (q?: QueuedReason) => !q ? "waiting for a node" : queuedWords[q.reason] ?? q.reason.replace(/_/g, " ");
+
+// Board columns, in order (as the terminal board groups them). A task whose run is queued is In progress with
+// "queued: <reason>" (throughput-signals), or Blocked when the run is held back by something the owner fixes. The keys
 // are stable; the names are what the owner sees everywhere (task-board-ux: Ready → To do, Waiting → Blocked,
 // Running → In progress). Engine statuses (READY, REWORK, BLOCKED) stay as they are.
 export type ColumnKey = "backlog" | "ready" | "waiting" | "running" | "review" | "done";
@@ -97,7 +107,7 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
   if (isTerminal(t.status)) return "done";
   if (t.status === "BACKLOG") return "backlog";
   if (t.status === "IN_REVIEW") return "review";
-  if (runs.queued.has(t.id)) return heldBack(runs.why?.get(t.id)) ? "waiting" : "ready";
+  if (runs.queued.has(t.id)) return heldBack(runs.why?.get(t.id)) ? "waiting" : "running";
   if (runs.live.has(t.id) || t.status === "IN_PROGRESS") return "running";
   if (t.status === "BLOCKED" || t.status === "REWORK" || t.reason.startsWith("parked:") || t.reason.startsWith("paused:") ||
     ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node", "node_disk_critical", "no_ready_node", "secret_missing"].includes(t.reason)) return "waiting";

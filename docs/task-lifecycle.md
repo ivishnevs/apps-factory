@@ -119,7 +119,7 @@ message that person wrote ("I'll do it myself"); the manager's chat brief tells 
 Dependents wait in the normal dependency wait ("waits for P, with NAME"), never as a `stalled` escalation. When a
 person's task has not changed for the company's `people.remind_after` (default 72h; `GET|PUT
 /settings/company/people`, `remind_after_minutes`, 1h–720h) while released tasks wait on it, the person gets one
-reminder per episode (the task's `updated_at`; `person_reminders`, migration 0035) naming the waiting tasks; when the
+reminder per episode (the task's `updated_at`; `person_reminders`, migration 0037) naming the waiting tasks; when the
 last dependency of a person's READY task is done, they get "Your task is ready". Both are notifications to the
 people's inbox (`owner`) that name the person.
 
@@ -599,12 +599,38 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
   waits for raises none (inbox-badge-parity): an active park of any kind, a last ended run whose exit waited, asked
   or blocked (so a timed "still waiting for the owner" loop and its next run raise nothing), or a verdict of open
   dependencies, capacity, a node wait or a pinned node; the wait shows where it belongs.
+- `throughput` — work waits while node capacity is idle or unusable (throughput-signals, below).
 
 Every active alert, whatever its kind, and every run to inspect is listed for the owner (`GET /alerts`,
 `storage.ActiveAlerts`): kind, task and title, project, assignee, summary, since, the clearing action in words and,
-for an alert the assignee's lead can act on (`no_progress`, `idle`, `stalled`, `inspect`), `with` that lead. A kind
+for an alert the assignee's lead can act on (`no_progress`, `idle`, `stalled`, `inspect`), `with` that lead (for
+`throughput`, the project's lead, who got the notice). A kind
 Core does not describe yet is listed with its summary. The Inbox shows them as its Alerts section, and the pending
 count counts the same items.
+
+### Throughput signals
+
+The stall sweep compares, per project, queued work with idle capacity (free work slots on online nodes that are
+neither paused by the owner nor at a critical disk). Its causes come only from what Core already computes: the
+reason of every QUEUED run (`GET /runs/{id}/why`: owner or quota pause, the agent's limit, a work or session tie,
+and each node's answer: owner pause, critical disk (`node_disk_critical`), offline, driver, labels, readiness,
+slots, resources), the capacity waits of tasks that have no run yet (the agent's limit, the project workspace, a
+busy tied node, full nodes) and the dependency graph. Runs and tasks are grouped by reason and subject (the agent,
+node, pause or project that holds them), so a reason added to the queued reasons is picked up unchanged. A reason
+that only means the capacity is in use (all slots held, a resource held, the agent's limit, a tie to an active node)
+counts only while some slot is idle; every other reason counts as it is. A gate is an open task that at least 3
+released tasks wait on directly; the cause names them and everything behind it.
+
+A cause seen by a sweep starts an episode (`throughput_causes`, migration 0037) that ends when a sweep no longer sees
+it. Past the company's threshold (`throughput_after_minutes`, default 30, 5..1440; `GET|PUT
+/settings/company/stalls`) Core raises one owner alert `throughput` on the first affected task (attention event
+`task.alert.throughput`, cleared with `task.alert_cleared.throughput`) and sends the project's lead one notification
+from `factory` per sweep listing the causes that became due, each with what would release it, e.g. "network-dev: 4
+queued, limit 1, 4 free slots: raise the agent's limit … or reassign …", "1 run wait for hetzner-hel1: paused
+(critical disk), disk critical, 4.9 GiB free (critical 5 GiB); released by itself at 14:30 UTC: free disk on
+hetzner-hel1 …, or Release now its tied runs", "7 tasks wait behind MS-4 "QA verification" (READY, game-qa): …
+drop or move the dependency …". The sweep never changes anything else. `GET /throughput[?project=]` lists the
+current causes with `since` and `due`; the board shows them as Bottlenecks.
 
 An escalation (reliable-recovery D5, migration 0017) is a park of kind `escalation` on the task (`why` shows
 `parked:escalation` and who answers) plus a question from `factory` with the allowed answers as one

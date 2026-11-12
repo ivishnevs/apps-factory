@@ -1,8 +1,8 @@
 "use client";
 
-import { Hand, PanelLeftClose, Search, X } from "lucide-react";
+import { Gauge, Hand, PanelLeftClose, Search, X } from "lucide-react";
 import { useParams, usePathname, useSearchParams } from "next/navigation";
-import { useAppPath, useRouter } from "@/components/app/link";
+import Link, { useAppPath, useRouter } from "@/components/app/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { mountBoard, publishBoard, savedOpenColumns, saveOpenColumns } from "@/components/app/tasks/board-store";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTeams } from "@/lib/api/client";
-import type { Task } from "@/lib/api/types";
+import type { Bottleneck, Task } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { lookupFrom } from "@/lib/humanize";
 import { cn } from "@/lib/utils";
@@ -190,6 +190,7 @@ function Tasks() {
 
       {error && !ov ? <ErrorState error={error} /> : isLoading || !ov ? <BoardSkeleton /> : (
         <>
+          <Bottlenecks items={(ov.throughput ?? []).filter((b) => project === ALL || b.project === project)} name={name} />
           {/* Phone and tablet: a status chip bar over one list. */}
           <div className="lg:hidden">
             <div role="tablist" aria-label="Status" className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:-mx-8 md:px-8">
@@ -224,6 +225,8 @@ function Tasks() {
               {columns.map((c) => {
                 const items = byCol.get(c.key) ?? [];
                 const foldable = c.key === "backlog" || c.key === "done";
+                // throughput-signals: Blocked splits what needs you from what waits its turn (needs-action first).
+                const needYou = c.key === "waiting" ? items.filter((t) => needsAction(t)).length : 0;
                 const folded = items.length === 0 || (foldable && !open.has(c.key));
                 if (folded) {
                   return (
@@ -243,6 +246,11 @@ function Tasks() {
                       <span aria-hidden className={cn("size-2 rounded-full", dot(c.tone))} />
                       <h2 className="text-sm font-medium">{c.name}</h2>
                       <span className="text-xs tabular-nums text-muted-foreground">{items.length}</span>
+                      {c.key === "waiting" && (
+                        <span className="truncate text-xs text-muted-foreground" title="Need you: they move only when someone acts. Their turn: they wait for other work, a timer or an answer.">
+                          · <span className={cn(needYou > 0 && "font-medium text-amber-700 dark:text-amber-300")}>{needYou} need you</span> · {items.length - needYou} their turn
+                        </span>
+                      )}
                       {foldable && (
                         <button type="button" onClick={() => toggle(c.key)} aria-label={`Hide ${c.name}`} title={`Hide ${c.name}`}
                           className="-mr-1 ml-auto flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
@@ -251,7 +259,12 @@ function Tasks() {
                       )}
                     </header>
                     <div data-card-list="column" className="flex flex-col gap-2">
-                      {items.map((t) => <TaskCard onBoard key={t.id} task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} queued={runs.why.get(t.id)} nodes={ov.nodes} />)}
+                      {items.map((t, i) => (
+                        <div key={t.id} className="contents">
+                          {c.key === "waiting" && i === needYou && needYou > 0 && <p className="px-2 pt-2 text-xs font-medium text-muted-foreground">Waiting their turn</p>}
+                          <TaskCard onBoard task={t} project={name(t.project_id)} now={now} look={look} run={runs.live.get(t.id)} queued={runs.why.get(t.id)} nodes={ov.nodes} />
+                        </div>
+                      ))}
                     </div>
                   </section>
                 );
@@ -295,6 +308,40 @@ function boardKeys(e: React.KeyboardEvent<HTMLElement>) {
   if (!target) return;
   e.preventDefault();
   target.focus();
+}
+
+// Bottlenecks (throughput-signals): the stall sweep's top causes of queued work while node capacity is idle or
+// unusable, with counts and what would release each; the full list is behind "more". A cause past the company's
+// threshold is marked: the manager has the notice and you the alert.
+function Bottlenecks({ items, name }: { items: Bottleneck[]; name: (id: string) => string }) {
+  const [all, setAll] = useState(false);
+  if (items.length === 0) return null;
+  const shown = all ? items : items.slice(0, 3);
+  return (
+    <section aria-label="Bottlenecks" className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-50/40 p-3 dark:border-amber-400/20 dark:bg-amber-400/[0.04]">
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+        <Gauge aria-hidden className="size-4 text-amber-600 dark:text-amber-300" />Bottlenecks
+        <span className="text-xs font-normal text-muted-foreground">work waits while capacity is idle or unusable</span>
+      </h2>
+      <ul className="grid gap-1.5">
+        {shown.map((b) => (
+          <li key={b.project + b.key} className="flex min-w-0 items-start gap-2 text-sm">
+            <span className="mt-0.5 shrink-0 rounded-full bg-amber-500/15 px-1.5 text-xs font-medium tabular-nums text-amber-800 dark:text-amber-200" title={b.reason === "gate" ? "tasks behind it" : "waiting"}>{b.count}</span>
+            <span className="min-w-0 wrap-anywhere">
+              {b.tasks[0] ? <Link href={`/tasks/${encodeURIComponent(b.tasks[0])}`} scroll={false} className="font-medium hover:underline">{b.summary}</Link> : <span className="font-medium">{b.summary}</span>}
+              <span className="text-muted-foreground"> · {name(b.project)} · {b.fix}</span>
+              {b.due && <span className="ml-1 text-xs text-amber-700 dark:text-amber-300">(lead notified)</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {items.length > 3 && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-1.5 text-xs text-muted-foreground hover:text-foreground">
+          {all ? "Show fewer" : `${items.length - 3} more`}
+        </button>
+      )}
+    </section>
+  );
 }
 
 // dot: the solid colour of a status tone (the badge tones are tints).

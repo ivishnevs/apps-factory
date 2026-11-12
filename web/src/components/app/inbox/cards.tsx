@@ -224,6 +224,7 @@ const alertLabels: Record<string, string> = {
   no_ready_node: "No ready node",
   sweep_failed: "Sweep failed",
   comment_unhandled: "Comment not handled",
+  throughput: "Work waits, capacity idle",
 };
 
 export function alertLabel(kind: string): string {

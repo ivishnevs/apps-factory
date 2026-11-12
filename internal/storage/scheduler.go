@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -128,6 +129,12 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	}
 	spec.TaskID = t.ID
 	spec.Attempt = t.Attempt + 1
+	// throughput-signals: the task's node resources, added to the agent's at claim (an exclusive queue such as one
+	// integration gate on the Mac at a time is held by Core).
+	spec.Resources = nil
+	if t.Kind != tasks.KindConversation && len(t.Resources) > 0 {
+		spec.Resources = maps.Clone(t.Resources)
+	}
 	if err = insertRun(ctx, tx, &spec); err != nil {
 		return spec, constraint(err)
 	}

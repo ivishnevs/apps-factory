@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -500,7 +501,7 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	if overCaps(perAgent, perProject, busy, busyProject) {
 		return out, retry("agent_busy")
 	}
-	if short, err := nodeShort(ctx, tx, n, req.NodeID, spec.Conversation, req.Slot, AgentResources(spec.ConfigSnapshot)); err != nil {
+	if short, err := nodeShort(ctx, tx, n, req.NodeID, spec.Conversation, req.Slot, RunResources(spec)); err != nil {
 		return out, err
 	} else if short != "" {
 		return out, &Refusal{Retry: true, Reason: "capacity", Detail: short}
@@ -669,10 +670,13 @@ type NodeLoad struct {
 	Held         int            `json:"held"`
 	Conversation int            `json:"conversation,omitempty"`
 	Used         map[string]int `json:"used,omitempty"`
+	// Holders are, per resource class, who holds it: the task of each run using it ("task T (agent)"), or the run
+	// (throughput-signals: resource_busy names the holder).
+	Holders map[string][]string `json:"-"`
 }
 
 func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64, slots int) (NodeLoad, error) {
-	l := NodeLoad{Used: map[string]int{}}
+	l := NodeLoad{Used: map[string]int{}, Holders: map[string][]string{}}
 	rows, err := tx.QueryContext(ctx, "SELECT spec,slot FROM runs WHERE company_id=? AND node_id=? AND epoch=? AND (status IN ('CLAIMED','RUNNING','CANCELLING') OR node_held=1) ORDER BY seq", tx.company, node, epoch)
 	if err != nil {
 		return l, err
@@ -693,8 +697,13 @@ func nodeLoad(ctx context.Context, tx *Tx, node string, epoch int64, slots int) 
 			continue
 		}
 		l.Held++
-		for k, v := range AgentResources(spec.ConfigSnapshot) {
+		holder := "run " + spec.ID + " (" + spec.Agent + ")"
+		if spec.TaskID != "" {
+			holder = "task " + spec.TaskID + " (" + spec.Agent + ")"
+		}
+		for k, v := range RunResources(spec) {
 			l.Used[k] += v
+			l.Holders[k] = append(l.Holders[k], holder)
 		}
 	}
 	return l, rows.Err()
@@ -726,6 +735,23 @@ func AgentLabels(agentJSON []byte) []string {
 	}
 	_ = json.Unmarshal(agentJSON, &a)
 	return a.Spec.Labels
+}
+
+// RunResources are what a run needs per node resource class: its agent's spec.resources plus its task's
+// (throughput-signals).
+func RunResources(spec protocol.RunSpec) map[string]int {
+	need := AgentResources(spec.ConfigSnapshot)
+	if len(spec.Resources) == 0 {
+		return need
+	}
+	out := maps.Clone(need)
+	if out == nil {
+		out = map[string]int{}
+	}
+	for k, v := range spec.Resources {
+		out[k] += v
+	}
+	return out
 }
 
 // AgentResources reads spec.resources (a run's needs per node resource class) from an agent snapshot.

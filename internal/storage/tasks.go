@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -420,6 +421,12 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		if !entityName.MatchString(t.ID) || strings.TrimSpace(t.Title) == "" || len(t.Title) > 1024 || len(t.Description) > 64*1024 || t.Priority < -1000 || t.Priority > 1000 {
 			return t, inputError("valid task id/title and priority -1000..1000 required")
 		}
+		if err := validTaskResources(in.Resources); err != nil {
+			return t, err
+		}
+		if len(in.Resources) > 0 {
+			t.Resources = maps.Clone(in.Resources)
+		}
 		if _, err := projectTx(ctx, tx, t.ProjectID); err != nil {
 			return t, err
 		}
@@ -669,6 +676,15 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		}
 		if in.SideEffects != nil {
 			t.SideEffects = *in.SideEffects
+		}
+		if in.Resources != nil {
+			if err = validTaskResources(*in.Resources); err != nil {
+				return t, err
+			}
+			t.Resources = nil
+			if len(*in.Resources) > 0 {
+				t.Resources = maps.Clone(*in.Resources)
+			}
 		}
 		if in.ReviewBy != nil {
 			t.ReviewBy = strings.TrimSpace(*in.ReviewBy)
@@ -1050,6 +1066,23 @@ func checkTeam(ctx context.Context, tx *Tx, project, assignee string) error {
 	}
 	if team != "" && team != agentTeam {
 		return fmt.Errorf("%w: %w: agent %s is in team %s, project %s belongs to team %s", ErrConflict, ErrTeamMismatch, assignee, agentTeam, project, team)
+	}
+	return nil
+}
+
+// resourceClass is a node resource class name (node.yaml resources, agent spec.resources).
+var resourceClass = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+
+// validTaskResources checks a task's node resources (throughput-signals): at most 8 classes, each a resource class
+// name with a need of 1 to 64.
+func validTaskResources(r map[string]int) error {
+	if len(r) > 8 {
+		return inputError("resources: at most 8 classes")
+	}
+	for k, v := range r {
+		if !resourceClass.MatchString(k) || v < 1 || v > 64 {
+			return inputError("resources: class names are lowercase (a-z, 0-9, -) with a need of 1..64")
+		}
 	}
 	return nil
 }

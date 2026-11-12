@@ -52,3 +52,15 @@ func TestValidateNestedPaths(t *testing.T) {
 		}
 	}
 }
+
+// throughput-signals 2.2: task resources are a map of class to an integer need.
+func TestValidateTaskResources(t *testing.T) {
+	create := tool(t, "factory_task_create")
+	if err := Validate(create, map[string]any{"title": "gate", "request_id": "r", "resources": map[string]any{"mac-build": 1.0}}); err != nil {
+		t.Fatal(err)
+	}
+	err := Validate(create, map[string]any{"title": "gate", "request_id": "r", "resources": map[string]any{"mac-build": "one"}})
+	if err == nil || !strings.Contains(err.Error(), "resources.mac-build: integer required") {
+		t.Fatalf("bad need accepted: %v", err)
+	}
+}

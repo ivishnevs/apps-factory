@@ -279,7 +279,7 @@ export function RunKindFields({ value, onChange, error }: { value: RunKindInputs
     <section className="space-y-3 rounded-xl border p-3">
       <p className="text-sm font-medium">Runs</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Work runs at a time" error={err("max_concurrent_runs")} hint="Tasks it works on in parallel; empty keeps its profile's">
+        <Field label="Work runs at a time" error={err("max_concurrent_runs")} hint="Tasks it works on in parallel; empty keeps its profile's, else its role's default (company concurrency)">
           <Input inputMode="numeric" value={value.work} placeholder="profile" onChange={(e) => onChange({ ...value, work: e.target.value })} />
         </Field>
         <Field label="Conversation runs at a time" error={err("conversation_max_runs")} hint="Across projects; empty: no cap (one per project). Conversations never wait for work.">

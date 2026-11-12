@@ -1,7 +1,7 @@
  ◆ APP FACTORY   ● all 17%   ● project-1 22%   ● project-2 16%   ● project-3 16%   ✗ project-4 0%   ◌ project-5   14:30
   1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … demo │ Company 1 │ ▶ running │ ⚠ 7
  23 t╭────────────────────────────────────────────── P1-5 · Task 5 ───────────────────────────────────────────────╮ore ▶
-╭────│ ● WAITING  READY   project-1   ● pm  priority 8 · v3 · attempt 0                                           │────╮
+╭────│ ● WAITING  READY   project-1   ● pm  priority 8 · v3 · attempt 0                                           │o… ─╮
 │ ╭──│ origin  created by pm from P1-1 · 3h ago                                                                   │──╮ │
 │ │ ●│ why     parked:ask — waits for the answer to m-ask-1                                                       │  │ │
 │ │ P│ clears  you — answer message m-ask-1                                                                       │9 │ │

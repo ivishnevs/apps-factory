@@ -30,6 +30,7 @@ function RunKinds({ m, runs }: { m: TeamMember; runs?: AgentRuns }) {
       <div className="rounded-lg bg-muted/40 px-2.5 py-1.5">
         <dt className="text-muted-foreground">Work</dt>
         <dd className="tabular-nums">{runs?.work_live ?? 0} of {m.max_concurrent_runs || 1} running{runs?.work_queued ? ` · ${runs.work_queued} queued` : ""}</dd>
+        <dd className="text-muted-foreground">limit {m.max_concurrent_runs || 1}{m.max_runs_from_role ? ` (${m.role || "role"} default)` : " (set on the agent)"}</dd>
         <dd className="text-muted-foreground">window {windowLabel(w.work)}</dd>
       </div>
       <div className="rounded-lg bg-muted/40 px-2.5 py-1.5">
