@@ -17,6 +17,15 @@ reached by strict delegation may only escalate a choice. Telegram: one button pe
 "Reject"; a reply asks for changes, a reply starting with "reject" rejects all with the rest as the reason.
 `factory_artifact_get` adds `version_status` for an option of a choice.
 
+## One approval model (added 2026-11-12)
+
+After the first implementation the owner pointed out that a choice approval and a regular approval are the same
+thing. So there is one model: every artifact approval is a set of 1–6 options. A request for one version is an
+approval with one option; approving it is choosing that option. Decisions (choose, ask for changes, reject all),
+delegate rules (a delegate approves only with checked cites of what people said; changes and reject need a reason)
+and owner surfaces are the same whatever the number of options. This also closes the gap where yes/no approvals in
+`lead` mode only checked that cites were non-empty, and gives single-version approvals "ask for changes".
+
 ## Why
 
 Seen on 2026-11-12 in tvorog, project stashy, twice in one day.

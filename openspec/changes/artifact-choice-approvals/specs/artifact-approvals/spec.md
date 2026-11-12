@@ -1,9 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Choice approvals
-An agent SHALL be able to request one approval over 2–6 options, each an artifact version registered in the project
-with a label and an optional note, and MAY name its recommendation. Core SHALL refuse a request with an unknown or
-duplicate option. A request with one option SHALL be the existing yes/no approval.
+Every artifact approval SHALL be one model: 1–6 options, each an artifact version registered in the project with a
+label and an optional note, with an optional recommendation. A request for one version SHALL be an approval with one
+option, not a separate kind; approving it SHALL be choosing that option. The same decisions, delegation rules, cite
+checks and owner surfaces SHALL apply whatever the number of options. Core SHALL refuse a request with an unknown or
+duplicate option.
+
+#### Scenario: One version
+- **WHEN** an agent requests approval of a single artifact version
+- **THEN** it SHALL be an approval with one option, shown with Approve, Ask for changes and Reject, and a delegate approving it SHALL cite what people said like any choice
 
 #### Scenario: Three design variations
 - **WHEN** product-designer requests approval with options V1, V2 and V3, each a registered prototype version, and recommends V1
@@ -14,8 +20,8 @@ duplicate option. A request with one option SHALL be the existing yes/no approva
 - **THEN** Core SHALL refuse the request and say which option is unknown
 
 ### Requirement: Decisions on a choice
-A choice approval SHALL be decided by choosing one option (with an optional comment), by asking for changes (with
-required text), or by rejecting all (with a required reason). Choosing SHALL record the chosen version as approved and
+An approval SHALL be decided by choosing one option (with an optional comment; for one option this is approving), by
+asking for changes (with required text), or by rejecting all (with a required reason). Choosing SHALL record the chosen version as approved and
 the other options as not chosen; not chosen SHALL NOT count as rejected. The requesting task SHALL receive the
 decision, the chosen option or the requested changes, and who decided.
 
