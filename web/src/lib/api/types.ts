@@ -199,6 +199,9 @@ export interface Message {
   details?: string; details_note?: string; details_at?: number;
   // Files the sender attached and references to existing materials (inbox-visual-previews), in the order to show.
   attachments?: MessageAttachment[]; materials?: MaterialRef[];
+  // people-topics: the topic the message belongs to, the bringer's brief or note, and text: the body without technical
+  // lines (Core fills it on reads for people; render it instead of body when present).
+  topic_id?: string; brief?: import("./types-topics").Brief; note?: import("./types-topics").ItemNote; text?: string;
 }
 
 // A preview is a display-size rendition of a large image; the original stays downloadable.

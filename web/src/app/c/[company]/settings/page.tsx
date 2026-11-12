@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ChevronRight, Clock, Copy, Database, FolderGit2, KeyRound, LifeBuoy, LogOut, MessageCircle, ScrollText, Timer, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, ChevronRight, Clock, Copy, Database, FolderGit2, KeyRound, Languages, LifeBuoy, LogOut, MessageCircle, ScrollText, Timer, Trash2, UserRound, Users } from "lucide-react";
 import Link from "@/components/app/link";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -21,6 +21,7 @@ import { core, signOut, useCompanyInfo, useMe } from "@/lib/api/client";
 import { canManage, type Role } from "@/lib/api/types-account";
 import type { Project } from "@/lib/api/types";
 import { ago } from "@/lib/format";
+import type { PeopleLanguage } from "@/lib/api/types-topics";
 
 // Settings of this company (saas-web-ui 2.3): General (name, time zone), Members (roles), Projects (name,
 // repository, branch, team), Integrations (Telegram), Access tokens (for the CLI and scripts) and your Account. Switching and adding
@@ -97,6 +98,9 @@ function General({ role }: { role: Role }) {
         </form>
         {tz.error ? <div className="mt-3"><ErrorState error={tz.error} /></div> : null}
       </Section>
+      <Section title="Language for people" icon={Languages} description="Agents write what they bring to you (questions, approvals, escalations) in this language, and App Factory writes its own notices in it.">
+        <PeopleLanguageSetting manage={manage} />
+      </Section>
       <Section title="Sessions" icon={Timer} description="How long runs wait for the machine that holds their agent's session.">
         <SessionSettings manage={manage} />
       </Section>
@@ -104,6 +108,35 @@ function General({ role }: { role: Role }) {
         <CompanyData company={info.data.id} name={info.data.name} />
       </Section>}
     </div>
+  );
+}
+
+const languageWords: Record<PeopleLanguage, string> = { en: "English", ru: "Русский" };
+
+// PeopleLanguageSetting (people-topics D15): the language of briefs and Core's templates for people.
+function PeopleLanguageSetting({ manage }: { manage: boolean }) {
+  const q = useQuery({ queryKey: ["people-language"], queryFn: () => core<{ people_language: PeopleLanguage; languages?: PeopleLanguage[] }>("/settings/company/people_language") });
+  const [lang, setLang] = useState<PeopleLanguage | "">("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (q.data) setLang(q.data.people_language || "en"); }, [q.data]);
+  const options = (q.data?.languages?.length ? q.data.languages : (Object.keys(languageWords) as PeopleLanguage[]));
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try { await core("/settings/company/people_language", { method: "PUT", body: JSON.stringify({ people_language: lang }) }); await q.refetch(); toast.success("Language saved"); }
+    catch (err) { fail(err); }
+    finally { setBusy(false); }
+  };
+  if (q.error) return <ErrorState error={q.error} />;
+  return (
+    <form onSubmit={save} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <label className="flex-1 space-y-1.5 text-sm"><span className="font-medium">Language</span>
+        <select className="h-10 w-full rounded-md border bg-background px-2 text-sm disabled:opacity-60" value={lang} onChange={(e) => setLang(e.target.value as PeopleLanguage)} disabled={!manage || !q.data}>
+          {options.map((l) => <option key={l} value={l}>{languageWords[l] ?? l}</option>)}
+        </select>
+      </label>
+      {manage && <Button type="submit" className="h-10" disabled={busy || !q.data || lang === (q.data.people_language || "en")}>Save</Button>}
+    </form>
   );
 }
 

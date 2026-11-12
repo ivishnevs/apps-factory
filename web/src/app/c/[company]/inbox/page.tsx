@@ -4,26 +4,35 @@ import { CheckCheck, CheckCircle2, Undo2 } from "lucide-react";
 import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
 import { ApprovalCommentOutcome } from "@/components/app/approval-comment";
 import { DecisionCard } from "@/components/app/decision-card";
 import { ApprovalBadge } from "@/components/app/materials/kinds";
 import { AlertCard, ApprovalCard, MessageCard, type InboxHandlers } from "@/components/app/inbox/cards";
-import { inboxModel } from "@/components/app/inbox/model";
+import { useInbox } from "@/components/app/inbox/model";
+import { TopicCard } from "@/components/app/inbox/topic-card";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
-import { useAction, useOverview } from "@/lib/api/client";
+import { useAction } from "@/lib/api/client";
 import type { Action, Approval, Message, Task } from "@/lib/api/types";
+import { peopleText } from "@/lib/people-text";
 
 export default function InboxPage() {
-  const { data: ov, error, isLoading } = useOverview();
   const confirm = useConfirm();
   const action = useAction();
   const [gone, setGone] = useState<Set<string>>(new Set());
 
-  // The same items the nav badge counts (inbox-badge-parity): messages, approvals, reviews and alerts.
-  const { decide, read, reviews, alerts, total } = useMemo(() => inboxModel(ov, gone), [ov, gone]);
+  // The same items the nav badge counts (inbox-badge-parity): open topics, then messages, approvals, reviews and
+  // alerts outside them.
+  const { ov: { data: ov, error, isLoading }, model, ready } = useInbox(gone);
+  const { topics, decide, read, reviews, alerts, total } = model;
+
+  // A link to a topic (#topic-<id>, from the chat) scrolls to it once it is listed.
+  useEffect(() => {
+    const id = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+    if (ready && id.startsWith("topic-")) document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [ready]);
 
   // approval-comments-handled: your recent decisions with a comment, with what became of it. Not counted: they wait
   // on the team, not on you.
@@ -49,7 +58,7 @@ export default function InboxPage() {
     busy: action.isPending,
     answer: (msg, text, answers) =>
       run(keyOf(msg), { Kind: "answer", MessageID: msg.id, Version: msg.version, Text: text, Answers: answers },
-        { title: `Answer ${msg.sender}?`, description: `${msg.questions?.length === 1 ? msg.questions[0].question : msg.body.slice(0, 160)}\n\nYour answer: ${text}`, confirm: "Send answer" }, `Answer sent to ${msg.sender}`),
+        { title: `Answer ${msg.sender}?`, description: `${msg.questions?.length === 1 ? msg.questions[0].question : peopleText(msg).slice(0, 160)}\n\nYour answer: ${text}`, confirm: "Send answer" }, `Answer sent to ${msg.sender}`),
     // inbox-badge-parity: "I'll send details" keeps the question open and the task waiting; withdrawing lets it go on.
     details: (msg, kind, note) =>
       kind === "promised"
@@ -58,7 +67,7 @@ export default function InboxPage() {
           { title: "Withdraw your promise?", description: `${msg.sender} stops waiting for your details and continues without them.`, confirm: "Withdraw" }, `${msg.sender} continues without the details`),
     read: (msg) =>
       run(keyOf(msg), { Kind: "read", MessageID: msg.id, Version: msg.version },
-        { title: "Mark as read?", description: msg.body.slice(0, 200), confirm: "Mark read" }, "Marked as read"),
+        { title: "Mark as read?", description: peopleText(msg).slice(0, 200), confirm: "Mark read" }, "Marked as read"),
     decide: (kind, ap, msg, reason) =>
       run(keyOf(msg, ap), { Kind: kind, ApprovalID: ap.id, Version: Math.max(ap.version, 1), Text: reason },
         {
@@ -83,19 +92,24 @@ export default function InboxPage() {
     });
   };
 
-  const blocking = decide.filter((i) => i.blocking).length;
+  const blocking = decide.filter((i) => i.blocking).length + topics.filter((t) => t.blocked?.length).length;
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title="Inbox"
         description={!ov ? "What waits on you." : total === 0 ? "Nothing waits on you." : `${total} waiting on you${blocking ? ` · ${blocking} blocking work` : ""}`} />
       {error && !ov ? <ErrorState error={error} />
-        : isLoading || !ov ? <LoadingRows rows={3} />
+        : isLoading || !ov || !ready ? <LoadingRows rows={3} />
         : total === 0 ? <EmptyState icon={CheckCircle2} title="You're all caught up" hint="Questions, approvals, reviews, escalations and alerts from your team land here." />
         : (
           <div className="space-y-8">
+            {topics.length > 0 && (
+              <Section title="Needs your decision" count={topics.length}>
+                {topics.map((t) => <TopicCard key={t.id} topic={t} projectName={projectName[t.project_id]} />)}
+              </Section>
+            )}
             {decide.length > 0 && (
-              <Section title="Needs your decision" count={decide.length}>
+              <Section title={topics.length ? "More to decide" : "Needs your decision"} count={decide.length}>
                 {decide.map((i) => i.ap
                   ? <ApprovalCard key={i.key} ap={i.ap} msg={i.msg} projectName={projectName[i.ap.project_id]} h={h} />
                   : i.msg?.decision_id ? <DecisionItem key={i.key} msg={i.msg} projectName={projectName[i.msg.project_id]} />

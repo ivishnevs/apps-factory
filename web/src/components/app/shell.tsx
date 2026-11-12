@@ -8,13 +8,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { core, signOut, useCompanyInfo, useMe, useOverview } from "@/lib/api/client";
+import { core, signOut, useCompanyInfo, useMe } from "@/lib/api/client";
 import { canManage, type Membership } from "@/lib/api/types-account";
 import { useCompany } from "@/lib/company";
 import { cn } from "@/lib/utils";
 import { TrialBanner, useBilling } from "./billing";
 import { ConfirmProvider } from "./confirm";
-import { inboxModel } from "./inbox/model";
+import { useInbox } from "./inbox/model";
 
 // Navigation: a sidebar on wide screens, a bottom tab bar on phones (the first five; the rest under More).
 export const nav = [
@@ -132,10 +132,10 @@ function StatusNote() {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = useAppPath();
-  const { data } = useOverview();
+  const { ov: { data }, model, ready } = useInbox();
   const items = useNav();
-  // The badge counts what the Inbox page lists (inbox-badge-parity).
-  const pending = data ? inboxModel(data).total : 0;
+  // The badge counts what the Inbox page lists (inbox-badge-parity): open topics and the items outside them.
+  const pending = ready ? model.total : 0;
   const stopped = data?.pauses.some((p) => p.scope === "company");
   return (
     <ConfirmProvider>

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -381,6 +382,18 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                 <Field label="May message" error={fieldError(error, "can_message")}>
                   <Input value={(spec.communication?.can_message ?? []).join(", ")} onChange={(e) => set((d) => { d.agent.spec.communication = { ...d.agent.spec.communication, can_message: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }; })} />
                 </Field>
+              </div>
+              {/* people-topics D17: owner in can_message lets the agent bring questions and approvals to people. */}
+              <div className="flex items-start gap-3 rounded-xl border p-3">
+                <Switch id="may-bring-people" className="mt-0.5" checked={(spec.communication?.can_message ?? []).includes("owner")}
+                  onCheckedChange={(on) => set((d) => {
+                    const rest = (d.agent.spec.communication?.can_message ?? []).filter((x) => x !== "owner");
+                    d.agent.spec.communication = { ...d.agent.spec.communication, can_message: on ? [...rest, "owner"] : rest };
+                  })} />
+                <label htmlFor="may-bring-people" className="min-w-0 text-sm">
+                  <span className="font-medium">May bring questions and approvals to people</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">Off: its questions and approvals go to its manager instead of to you.</span>
+                </label>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Runtime" error={fieldError(error, "provider")}>

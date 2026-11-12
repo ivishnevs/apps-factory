@@ -3,7 +3,8 @@
 import { DecisionCard } from "@/components/app/decision-card";
 import { MessageVisuals } from "@/components/app/materials/visuals";
 import { usePerson } from "@/lib/person";
-import { ArrowLeft, ArrowUp, CircleHelp, Radio, Star } from "lucide-react";
+import { ArrowLeft, ArrowUp, CircleHelp, Hash, Radio, Star, X } from "lucide-react";
+import { toast } from "sonner";
 import Link from "@/components/app/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Message, Question } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { ErrorState } from "@/components/app/page";
-import { useOverview } from "@/lib/api/client";
+import { useOverview, useTopic, useTopics, useTopicWrite } from "@/lib/api/client";
+import type { TopicView } from "@/lib/api/types-topics";
+import { cleanBody } from "@/lib/people-text";
+import { TopicCard } from "@/components/app/inbox/topic-card";
 import { useOwnerAction as useTaskAction } from "@/components/app/tasks/use-owner-action";
 import { useOwnerAction } from "@/components/app/nodes/owner-action";
 import { AgentAvatar } from "./agent-avatar";
@@ -76,13 +80,15 @@ function Bubble({ msg, agent, first, last }: { msg: Message; agent: string; firs
         <div className={cn("min-w-0 max-w-full rounded-2xl px-3.5 py-2",
           mine ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
           mine ? (last ? "rounded-br-md" : "") : (last ? "rounded-bl-md" : ""))}>
-          <Body text={msg.body} />
+          {msg.topic_id && !mine && <TopicChip id={msg.topic_id} />}
+          <Body text={msg.text || (msg.approval_id || msg.escalation_reason ? cleanBody(msg.body) : msg.body)} />
           <MessageVisuals project={msg.project_id} at={msg.created_at} author={msg.sender} attachments={msg.attachments} materials={msg.materials} className="mt-2" />
           {!!msg.questions?.length && <Questions msg={msg} agent={agent} />}
           {msg.decision_id && !mine && msg.message_type === "review_request" && <DecisionCard id={msg.decision_id} compact inChat />}
           {!mine && <CreatedTasks body={msg.body} />}
           {answers.map(([k, v]) => <p key={k} className="mt-1 text-xs opacity-70">↳ {k}: {String(v)}</p>)}
         </div>
+        {msg.topic_id && mine && <TopicChip id={msg.topic_id} className="mt-1" />}
         {last && (
           <span className="mt-1 px-1 text-[11px] tabular-nums text-muted-foreground">
             {mine && msg.person && person(msg.person, msg.person_id) !== "you" && `${msg.person} · `}{clock(msg.created_at)}{kind && ` · ${kind}`}{msg.may_be_outdated && " · may be outdated"}
@@ -110,6 +116,9 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
   const scroller = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  // people-topics D9: the composer can write into an open topic's thread instead of the chat at large.
+  const [topic, setTopic] = useState<TopicView | null>(null);
+  const { reply } = useTopicWrite();
   const mine = outgoing.filter((o) => o.conv === chat.id);
   const count = chat.messages.length + mine.length + (chat.replyingRun ? 1 : 0) + chat.asks.length;
 
@@ -118,14 +127,14 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.id, count]);
-  useEffect(() => setText(""), [chat.id]);
+  useEffect(() => { setText(""); setTopic(null); }, [chat.id]);
 
   const send = async () => {
     const t = text.trim();
     if (!t || busy) return;
     setBusy(true);
     setText("");
-    const ok = await onSend(t);
+    const ok = topic ? await reply.mutateAsync({ topic: topic.id, body: t }).then(() => true, (e: Error) => { toast.error(e.message); return false; }) : await onSend(t);
     if (!ok) setText(t); // nothing is lost
     setBusy(false);
   };
@@ -134,6 +143,17 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
   const items: (Message | Outgoing)[] = [...chat.messages, ...mine];
   const sender = (x: Message | Outgoing) => ("sender" in x ? x.sender : "owner");
   const at = (x: Message | Outgoing) => ("created_at" in x ? x.created_at : x.at);
+  // Each open topic's card follows its first message here; a topic without one here shows at the end.
+  const cardAfter = new Map<string, TopicView[]>();
+  const loose: TopicView[] = [];
+  for (const t of chat.topics) {
+    const first = chat.messages.find((m) => m.topic_id === t.id);
+    if (first) cardAfter.set(first.id, [...(cardAfter.get(first.id) ?? []), t]);
+    else loose.push(t);
+  }
+  const card = (t: TopicView) => (
+    <div key={`topic-${t.id}`} className="mt-4"><TopicCard topic={t} projectName={chat.projectName} compact onReply={setTopic} /></div>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -184,7 +204,7 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
                   <span className="rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur">{dayLabel(at(x))}</span>
                 </div>
               )}
-              {"id" in x ? <Bubble msg={x} agent={chat.agent} first={first} last={last} /> : (
+              {"id" in x ? <><Bubble msg={x} agent={chat.agent} first={first} last={last} />{cardAfter.get(x.id)?.map(card)}</> : (
                 <div className={cn("flex flex-col items-end", first ? "mt-4" : "mt-1")}>
                   <div className={cn("max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-primary-foreground md:max-w-[70%]", !x.failed && "opacity-60")}>
                     <Body text={x.text} />
@@ -198,15 +218,23 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
         {chat.pending && mine.length === 0 && (
           <p className="mt-1 px-1 text-right text-[11px] text-muted-foreground" aria-live="polite">{chat.agent}: {chat.pending}</p>
         )}
+        {loose.map(card)}
         {chat.asks.length > 0 && <TeamQuestions items={chat.asks} projectName={chat.projectName} />}
         {chat.replyingRun && <Typing agent={chat.agent} />}
       </div>
 
       <form className="shrink-0 border-t bg-background/80 p-2 backdrop-blur md:p-3" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        {topic && (
+          <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-2 text-xs text-muted-foreground">
+            <Hash className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">In topic: <span className="font-medium text-foreground">{topic.brief.title || "this topic"}</span></span>
+            <button type="button" onClick={() => setTopic(null)} aria-label="Write to the chat, not the topic" className="-my-2 ml-auto flex size-9 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-foreground"><X className="size-3.5" /></button>
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-3xl border bg-card py-1 pl-4 pr-1 shadow-xs transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
           <label htmlFor="chat-composer" className="sr-only">Message {chat.agent}</label>
           <textarea id="chat-composer" rows={1} value={text} onChange={(e) => setText(e.target.value)}
-            placeholder={`Message ${chat.agent}…`} maxLength={16384}
+            placeholder={topic ? `Ask ${chat.agent} about this topic…` : `Message ${chat.agent}…`} maxLength={16384}
             onKeyDown={(e) => {
               // Enter sends on a keyboard; on a touch screen it is a new line and the button sends.
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !matchMedia("(pointer: coarse)").matches) {
@@ -277,5 +305,19 @@ function TeamQuestions({ items, projectName }: { items: OpenItem[]; projectName:
         );
       })}
     </div>
+  );
+}
+
+// TopicChip (people-topics D9): a message of a topic's thread names its topic and links to it in the Inbox.
+function TopicChip({ id, className }: { id: string; className?: string }) {
+  const listed = useTopics().data?.find((t) => t.id === id);
+  const one = useTopic(listed ? undefined : id);
+  const title = (listed ?? one.data)?.brief.title;
+  if (!title) return null;
+  return (
+    <Link href={`/inbox#topic-${encodeURIComponent(id)}`}
+      className={cn("mb-1 inline-flex max-w-full items-center gap-1 rounded-full border border-current/15 px-2 py-0.5 text-[11px] font-medium opacity-80 hover:opacity-100", className)}>
+      <Hash className="size-3 shrink-0" /><span className="truncate">{title}</span>
+    </Link>
   );
 }
