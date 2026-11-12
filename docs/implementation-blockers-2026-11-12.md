@@ -29,7 +29,6 @@ could not be finished and what it waits on. Each item is also noted in its chang
 | node-packaging-updates | live check of 2.2, 3.1–3.4, 3.6 | Core deploy, then one manual reinstall of the Mac and hetzner-hel1 with a package from this change; watch one real update and rollback under launchd/systemd. Codex pins: only darwin-arm64 was downloaded and verified. |
 | node-packaging-updates | 3.5 | Claude without the JS shim: owner decision 4, only after the update flow passes live smokes. |
 | inbox-visual-previews | 4.1 live | A sandbox Core with the real Telegram bot to see the images in the live inbox, chat and Telegram. |
-| saas-billing | 1.4 | Billing page not seen at phone width. |
 
 ## Needs material that does not exist in the repository
 
@@ -54,7 +53,7 @@ could not be finished and what it waits on. Each item is also noted in its chang
 | approval-comments-handled | 2.1 prompt cleanup | Prompts exist only in the prod catalog (no prod changes in this run). |
 | inbox-visual-previews | 4.1 live check | Real bot and live inbox; covered by tests with a fake Bot API. |
 | node-packaging-updates | 3.5 | Owner decision 4 (2026-11-12): only after the update flow passes live smokes. |
-| saas-billing | 1.6 | Postponed idea (On-prem) by the owner; 1.3 live Paddle check and 1.4 phone-width check as above. |
+| saas-billing | 1.6 | Postponed idea (On-prem) by the owner; 1.3 live Paddle check as above. |
 | saas-release-readiness | 1.1, 1.3, 2.1, 2.2, 5.1 | Owner's production accounts and choices (tables above). |
 | saas-release-readiness | 3.2 | External penetration test (connector-trust 3.2). |
 | saas-release-readiness | 6.2 | `hosted-connectors` done, or the launch decision to go without cloud nodes (owner). |

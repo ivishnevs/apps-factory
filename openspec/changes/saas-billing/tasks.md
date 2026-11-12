@@ -27,8 +27,10 @@
   banner; browser check desktop and phone.
   Done: `/c/<company>/billing` (owners; in the company menu when billing is on), plan-limit refusals with a link
   or a toast button to Billing, invitations disabled on Free, trial banner. Checked in a browser on desktop (trial,
-  Free over the limit, picking a node); the window could not be narrowed to a phone width, the page uses the
-  responsive layout of the other pages (stacked cards below `sm`).
+  Free over the limit, picking a node). Phone width checked 2026-11-13 (the page in a 390 px and a 360 px wide
+  frame, a local Core with a dummy Paddle): trial, Free over the node limit with three nodes, Pro scheduled to
+  cancel and Payment due; cards and plans stack, buttons fit, long node names truncate, nothing scrolls sideways
+  and the bottom navigation covers no content. Nothing needed fixing.
 - [x] 1.5 Docs: `docs/billing.md`; Terms and pricing page on the landing.
   Done: `docs/billing.md`, a Pricing section on the landing (`/`), a pointer in `deploy-railway.md`.
   **Blocker:** Terms (legal text) need the owner.
