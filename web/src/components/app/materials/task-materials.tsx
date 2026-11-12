@@ -1,24 +1,24 @@
 "use client";
 
-import { ArrowRight, FolderOpen } from "lucide-react";
+import { ArrowRight, ChevronRight, FolderOpen, History } from "lucide-react";
 import { Suspense } from "react";
 import { ErrorState } from "@/components/app/page";
 import { useHydrated } from "@/components/app/tasks/model";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTaskMaterials } from "@/lib/api/client";
-import type { Material, MaterialKind } from "@/lib/api/types-materials";
+import type { Material } from "@/lib/api/types-materials";
 import { fileSize } from "@/lib/format";
 import { cleanText } from "@/lib/humanize";
 import { ApprovalBadge, KindIcon, authorName, kinds, materialTitle } from "./kinds";
 import { MaterialRow } from "./material-row";
+import { layout, versionLabel } from "./task-result";
 import { useViewer } from "./use-viewer";
 import { MaterialViewer } from "./viewer";
 
-// Which material leads a finished task's section: a document first, then a page, a PDF, an image, data.
-const lead: MaterialKind[] = ["document", "web", "pdf", "image", "data", "code", "file"];
-
 // TaskMaterials is what the task produced: report files, artifact versions and pull requests. On a finished
-// task the main file leads as a card (featured); the rest are rows. Nothing shows when it produced nothing.
+// task its result leads as a card (featured): what its last submit or done exit named, else the newest file
+// (task-result-first). The rest of the result follows as rows; drafts, samples and older versions fold under
+// "Earlier versions", grouped by artifact. Nothing shows when it produced nothing.
 export function TaskMaterials(props: { taskId: string; featured: boolean; now: number }) {
   return <Suspense fallback={null}><Materials {...props} /></Suspense>;
 }
@@ -32,16 +32,35 @@ function Materials({ taskId, featured, now }: { taskId: string; featured: boolea
   if (q.error) return <Section count={0}><ErrorState error={q.error} /></Section>;
   if (items.length === 0) return null;
 
-  const top = featured ? lead.map((k) => items.find((m) => m.kind === k && m.content_url)).find(Boolean) : undefined;
-  const rest = items.filter((m) => m !== top);
+  const { lead, current, earlier } = layout(items, featured);
+  const folded = earlier.reduce((n, g) => n + g.items.length, 0);
   return (
     <Section count={items.length}>
       <div className="grid gap-3">
-        {top && <Featured m={top} onOpen={viewer.open} />}
-        {rest.length > 0 && (
+        {lead && <Featured m={lead} onOpen={viewer.open} />}
+        {current.length > 0 && (
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
-            {rest.map((m) => <li key={m.id}><MaterialRow m={m} now={now} onOpen={viewer.open} /></li>)}
+            {current.map((m) => <li key={m.id}><Row m={m} now={now} onOpen={viewer.open} /></li>)}
           </ul>
+        )}
+        {folded > 0 && (
+          <details className="group/earlier rounded-xl border bg-card">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <ChevronRight aria-hidden className="size-4 transition-transform group-open/earlier:rotate-90" />
+              <History aria-hidden className="size-4" />
+              Earlier versions · {folded}
+            </summary>
+            <div className="grid gap-3 border-t px-2 pt-3 pb-2">
+              {earlier.map((g) => (
+                <div key={g.key}>
+                  <h3 className="truncate px-2 pb-1 text-xs font-medium text-muted-foreground" title={g.title}>{g.title}</h3>
+                  <ul className="divide-y overflow-hidden rounded-lg border">
+                    {g.items.map((m) => <li key={m.id}><Row m={m} now={now} onOpen={viewer.open} /></li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </div>
       <MaterialViewer material={viewer.current} onClose={viewer.close} now={now} showTask={false} />
@@ -61,10 +80,18 @@ function Section({ count, children }: { count: number; children: React.ReactNode
   );
 }
 
-// Featured: the main file of a finished task, with the note it came with and one tap to read it.
+// Row is a task material named with its artifact and version, and the board's approval comment when there is one.
+function Row({ m, now, onOpen }: { m: Material; now: number; onOpen: (m: Material) => void }) {
+  const v = versionLabel(m);
+  const reason = m.approval?.reason ? cleanText(m.approval.reason) : "";
+  return <MaterialRow m={m} now={now} onOpen={onOpen} title={v ? `${materialTitle(m)} · ${v}` : undefined}
+    context={reason ? <span title={reason}>“{reason}”</span> : undefined} />;
+}
+
+// Featured: the result of a finished task, with the note it came with and one tap to read it.
 function Featured({ m, onOpen }: { m: Material; onOpen: (m: Material) => void }) {
   const summary = m.report?.summary ? cleanText(m.report.summary) : "";
-  const meta = [kinds[m.kind]?.label, fileSize(m.size), authorName(m.author)].filter(Boolean).join(" · ");
+  const meta = [m.result && "Result", kinds[m.kind]?.label, versionLabel(m), fileSize(m.size), authorName(m.author)].filter(Boolean).join(" · ");
   return (
     <button type="button" onClick={() => onOpen(m)}
       className="group flex w-full min-w-0 flex-col gap-3 rounded-2xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:flex-row sm:items-center sm:p-5">

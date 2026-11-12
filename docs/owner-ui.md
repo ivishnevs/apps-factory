@@ -581,6 +581,15 @@ are shown in plain words; IDs appear only where a person needs them.
 - **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
   page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
   button while it runs (project-pause-visible). Nodes & control still lists every pause.
+- **Task materials** (a task's page, `GET /api/tasks/{id}/materials`, task-result-first): report files, artifact
+  versions (with the archive's images) and pull requests. The task's **result** is what its last accepted submit or
+  done exit named in `artifacts` (`result: true`, listed first in the order named; a submission made outside explicit
+  exits counts too). A finished task leads with the result's first image or document as a card, the rest of the
+  result and the pull requests right under it; everything else (samples, drafts, the storyboard, earlier versions)
+  folds under **Earlier versions**, grouped by artifact, newest first, each with its approval and the board's comment.
+  Without a result the newest material with content leads and only an artifact's older versions fold away. Every row
+  names its artifact and version (`artifact_id`, `version`: "01-hero.png · screenshots-sample v2"). The Library keeps
+  its full list, one card per artifact.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies

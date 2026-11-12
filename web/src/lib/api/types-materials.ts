@@ -15,6 +15,11 @@ export interface Material {
   // metadata stays, its content is gone, so it has no content_url.
   archived_at?: number;
   archived_reason?: string;
+  // artifact_id: the artifact an artifact version (or an image inside its archive) belongs to, with version. result: the
+  // task's delivered result, the artifacts its last submit or done exit named (task-result-first); the task's
+  // materials list it first, in the order named.
+  artifact_id?: string;
+  result?: boolean;
   name: string;
   path?: string;
   version?: string;

@@ -30,12 +30,12 @@ func ExitDefinitions() []Tool {
 		out = append(out, Tool{name, "Factory: " + description, map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}, "factory." + op})
 	}
 	finish := " Call exactly one factory_exit_* tool to end the run, then finish the turn."
-	add(ExitPrefix+"submit", "task.exit.submit", "Submit your current task for review: summary, checks run and artifacts. The tree must be clean (commit, discard, or move notes to $FACTORY_SCRATCH)."+finish,
+	add(ExitPrefix+"submit", "task.exit.submit", "Submit your current task for review: summary, checks run and artifacts (the delivered result: final versions, not drafts or samples). The tree must be clean (commit, discard, or move notes to $FACTORY_SCRATCH)."+finish,
 		map[string]any{"summary": s(), "checks": arr, "artifacts": map[string]any{"type": "array", "items": artifact}, "reviewer": s()}, "summary")
 	add(ExitPrefix+"handoff", "task.exit.handoff", "Hand the current task to an agent (or yourself, to continue in a later run) with a note. As its reviewer, give verdict approved or changes_requested (with feedback) to return it to the implementer. As the implementer of an approved task whose merge failed (checks, branch protection, conflicts), hand it to yourself with merge_failed (why): it runs again after a backoff, and the third failed merge in a row escalates."+finish,
 		map[string]any{"to": s(), "note": s(), "verdict": map[string]any{"type": "string", "enum": []string{"approved", "changes_requested"}}, "feedback": s(), "merge_failed": s()}, "to", "note")
-	add(ExitPrefix+"done", "task.exit.done", "Finish the current task. Code tasks need their pull request merged first (rebase on the default branch, resolve conflicts, build, merge)."+finish,
-		map[string]any{"summary": s()}, "summary")
+	add(ExitPrefix+"done", "task.exit.done", "Finish the current task. Code tasks need their pull request merged first (rebase on the default branch, resolve conflicts, build, merge). Name the delivered result in artifacts (the final versions, not drafts or samples): the owner sees it first on the task."+finish,
+		map[string]any{"summary": s(), "artifacts": map[string]any{"type": "array", "items": artifact}}, "summary")
 	add(ExitPrefix+"ask", "task.exit.ask", "Stop and ask the owner a question the task cannot continue without; the task resumes with the answer."+finish,
 		map[string]any{"question": s(), "options": arr, "category": s(), "evidence": s()}, "question")
 	add(ExitPrefix+"block", "task.exit.block", "Stop until other tasks of this project are done (on) or until this task's open children close (on_children)."+finish,

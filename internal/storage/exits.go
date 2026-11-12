@@ -386,6 +386,29 @@ func unseenTriggers(ctx context.Context, tx *Tx, task string, ackSeq int64, all 
 	return out, rows.Err()
 }
 
+// exitArtifacts are the artifacts a submit or done exit names (its arguments' artifacts).
+func exitArtifacts(args map[string]any) []tasks.Artifact {
+	out := []tasks.Artifact{}
+	if raw, ok := args["artifacts"]; ok {
+		b, _ := json.Marshal(raw)
+		_ = json.Unmarshal(b, &out)
+	}
+	return out
+}
+
+// registerExitArtifacts registers the artifacts an exit names as versions of the task's run.
+func registerExitArtifacts(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, arts []tasks.Artifact) error {
+	for _, art := range arts {
+		if _, err := registerArtifactTx(ctx, tx, t.ProjectID, artifacts.Register{Artifact: art, TaskID: t.ID, RunID: runID, Actor: agent}); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(company_id,task_id,run_id,id,version) DO UPDATE SET uri=excluded.uri", t.ID, runID, art.ID, art.Version, art.URI, tx.company); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, req ExitRequest) (ExitResult, error) {
 	a := req.Arguments
 	out := ExitResult{Exit: req.Kind, AckSeq: req.AckSeq}
@@ -399,15 +422,9 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		if req.Facts != nil {
 			sub.Commit = req.Facts.Head
 		}
-		raw, _ := json.Marshal(a["artifacts"])
-		_ = json.Unmarshal(raw, &sub.Artifacts)
-		for _, art := range sub.Artifacts {
-			if _, err := registerArtifactTx(ctx, tx, t.ProjectID, artifacts.Register{Artifact: art, TaskID: t.ID, RunID: runID, Actor: agent}); err != nil {
-				return out, err
-			}
-			if _, err := tx.ExecContext(ctx, "INSERT INTO task_artifacts VALUES(?,?,?,?,?,?) ON CONFLICT(company_id,task_id,run_id,id,version) DO UPDATE SET uri=excluded.uri", t.ID, runID, art.ID, art.Version, art.URI, tx.company); err != nil {
-				return out, err
-			}
+		sub.Artifacts = exitArtifacts(a)
+		if err := registerExitArtifacts(ctx, tx, runID, agent, t, sub.Artifacts); err != nil {
+			return out, err
 		}
 		t.Submission, t.Status, t.Result, t.Implementer = &sub, "IN_REVIEW", sub.Summary, agent
 		t.Reviewer = str(a, "reviewer")
@@ -455,6 +472,10 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			return out, err
 		}
 	case "done":
+		// The artifacts a done exit names are the task's result (task-result-first), registered like a submission's.
+		if err := registerExitArtifacts(ctx, tx, runID, agent, t, exitArtifacts(a)); err != nil {
+			return out, err
+		}
 		t.Status, t.Result = "DONE", str(a, "summary")
 		if t.Kind == tasks.KindConversation {
 			t.Status = "READY" // input handled up to ack_seq; the conversation stays open (hierarchy D5)
@@ -753,10 +774,13 @@ func (s *Store) PendingTriggers(ctx context.Context, company, task string) ([]Un
 // TaskExit is one accepted exit of a task's run with the node's git and forge facts (the owner UI shows the
 // pull request of the latest one).
 type TaskExit struct {
-	RunID     string     `json:"run_id"`
-	Kind      string     `json:"kind"`
-	Facts     *ExitFacts `json:"facts,omitempty"`
-	CreatedAt int64      `json:"created_at"`
+	RunID string     `json:"run_id"`
+	Kind  string     `json:"kind"`
+	Facts *ExitFacts `json:"facts,omitempty"`
+	// Artifacts are the artifacts a submit or done exit named: the task's result when it is the last such exit
+	// (task-result-first).
+	Artifacts []tasks.Artifact `json:"artifacts,omitempty"`
+	CreatedAt int64            `json:"created_at"`
 }
 
 // TaskExits are a task's accepted exits, oldest first.
@@ -764,7 +788,7 @@ func (s *Store) TaskExits(ctx context.Context, company, task string) ([]TaskExit
 	if _, err := s.Task(ctx, company, task); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, "SELECT run_id,kind,facts,created_at FROM run_exits WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, task)
+	rows, err := s.DB.QueryContext(ctx, "SELECT run_id,kind,facts,arguments,created_at FROM run_exits WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, task)
 	if err != nil {
 		return nil, err
 	}
@@ -772,9 +796,17 @@ func (s *Store) TaskExits(ctx context.Context, company, task string) ([]TaskExit
 	out := []TaskExit{}
 	for rows.Next() {
 		var e TaskExit
-		var facts string
-		if err = rows.Scan(&e.RunID, &e.Kind, &facts, &e.CreatedAt); err != nil {
+		var facts, args string
+		if err = rows.Scan(&e.RunID, &e.Kind, &facts, &args, &e.CreatedAt); err != nil {
 			return nil, err
+		}
+		if e.Kind == "submit" || e.Kind == "done" {
+			var a map[string]any
+			if json.Unmarshal([]byte(args), &a) == nil {
+				if arts := exitArtifacts(a); len(arts) > 0 {
+					e.Artifacts = arts
+				}
+			}
 		}
 		if facts != "" {
 			var f ExitFacts

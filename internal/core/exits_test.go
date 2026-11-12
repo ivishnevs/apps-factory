@@ -237,7 +237,8 @@ func TestExitSubmitReviewDone(t *testing.T) {
 	// done is refused until the pull request is merged.
 	r = h.start("t")
 	_ = json.Unmarshal(h.do(r.token, "GET", "/agent/brief", nil, nil).Body.Bytes(), &brief)
-	done := map[string]any{"summary": "merged"}
+	// done names the delivered result (task-result-first): registered with the run, listed on the task's exits.
+	done := map[string]any{"summary": "merged", "artifacts": []map[string]any{{"id": "shots", "version": "final-v1", "uri": "https://example.com/shots-final-v1.png"}}}
 	if w = exit("/agent/exit", "done", done, brief.AckSeq, clean("h1", pr)); w.Code != 409 || refusalOf(t, w).Reason != "pr_not_merged" {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -258,6 +259,14 @@ func TestExitSubmitReviewDone(t *testing.T) {
 	merged := &storage.PRFacts{Number: 7, State: "merged", HeadSHA: "h1"}
 	if w = exit("/agent/exit", "done", done, brief.AckSeq, clean("h1", merged)); w.Code != 200 || h.task("t").Status != "DONE" {
 		t.Fatal(w.Code, w.Body.String(), h.task("t").Status)
+	}
+	var exits []storage.TaskExit
+	_ = json.Unmarshal(h.do(h.c.Token, "GET", "/tasks/t/exits", nil, nil).Body.Bytes(), &exits)
+	if len(exits) != 3 || exits[0].Kind != "submit" || len(exits[0].Artifacts) != 0 || exits[2].Kind != "done" || len(exits[2].Artifacts) != 1 || exits[2].Artifacts[0].Version != "final-v1" {
+		t.Fatalf("%+v", exits)
+	}
+	if arts, _ := h.s.Artifacts(ctx, storage.DefaultCompany, "code"); len(arts) != 1 || arts[0].ID != "shots" || arts[0].RunID != r.id || arts[0].TaskID != "t" {
+		t.Fatalf("%+v", arts)
 	}
 }
 
