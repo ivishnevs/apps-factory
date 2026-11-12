@@ -231,7 +231,7 @@ its count bar, kinds and last time, next to the `reports_to` tree. When the lane
 The **feed** (`GET /feed/stream`, the last 3000 rows) with an icon per event, agents in their colors and
 attention rows highlighted; `!` keeps only them, `/` filters, scrolling up pauses it and `G` returns to
 the newest. The **inbox** lists questions, escalations and approvals (`GET /inbox`, `GET /approvals`) beside
-the selected item: its body, the approval's call and arguments with `y approve` / `n reject`, or the
+the selected item: its body, its attachments as links (inbox-visual-previews), the approval's call and arguments with `y approve` / `n reject`, or the
 question's options as pills (`←`/`→`, `enter`), `a` for free text. A notification or report has no answer:
 `r` (or `enter`) replies — in the Chat tab to a direct report, with a directive on the task to any other
 agent — and `m` marks it read. A refused action says what happened instead of Core's bare `state or version

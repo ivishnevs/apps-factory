@@ -1,6 +1,7 @@
 "use client";
 
 import { DecisionCard } from "@/components/app/decision-card";
+import { MessageVisuals } from "@/components/app/materials/visuals";
 import { usePerson } from "@/lib/person";
 import { ArrowLeft, ArrowUp, CircleHelp, Radio, Star } from "lucide-react";
 import Link from "@/components/app/link";
@@ -75,6 +76,7 @@ function Bubble({ msg, agent, first, last }: { msg: Message; agent: string; firs
           mine ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
           mine ? (last ? "rounded-br-md" : "") : (last ? "rounded-bl-md" : ""))}>
           <Body text={msg.body} />
+          <MessageVisuals project={msg.project_id} at={msg.created_at} author={msg.sender} attachments={msg.attachments} materials={msg.materials} className="mt-2" />
           {!!msg.questions?.length && <Questions msg={msg} agent={agent} />}
           {msg.decision_id && !mine && msg.message_type === "review_request" && <DecisionCard id={msg.decision_id} compact inChat />}
           {!mine && <CreatedTasks body={msg.body} />}

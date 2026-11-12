@@ -149,6 +149,33 @@ Use the actual latest version from inbox. `text` answers are nonempty strings, `
 JSON boolean, `single_choice` is one exact option, `multiple_choice` is a nonempty array of unique
 listed options. Arbitrary answer keys, invalid options and missing questions are rejected.
 
+## Visual attachments
+
+What a question is about is shown where people answer it (inbox-visual-previews). `factory_message_send`,
+`factory_message_ask`, `factory_owner_ask`, `factory_question_forward` and `factory_decision_propose` accept
+`attachments` — files of the run's worktree `[{path, caption}]`, which the node's adapter uploads before the call
+like report attachments (credentials redacted, at most `MaxUpload` = 64 MiB each) — and `materials`, references to
+existing ones: `{artifact_id, artifact_version, caption}` (a version of this project) or `{report_id, path, caption}`
+(a report attachment of this project). At most 16 of each per message; captions up to 512 bytes. Core checks every
+blob and resolves every reference (name, digest, size, URI) and stores them in the message in the order given; a
+digest nobody uploaded or a reference outside the project is refused (400). A forward keeps them and appends the
+forwarder's own; a decision proposal stores them on the decision and its message. An artifact approval's question
+carries the version as a material.
+
+Core renders a preview of an image larger than 1600 px on a side or 1 MiB (PNG, JPEG, GIF; standard library, box
+filter; JPEG when opaque, else PNG) and records it with the attachment (`preview {sha256, size, width, height}`); the
+original stays downloadable. Retention never deletes a blob a message attaches or uses as a preview.
+
+The web inbox card, the chat message and the decision card show the images inline (the preview), several side by side
+(a swipe on a phone), each with its caption; a click opens the viewer full size. Other files show as material rows, a
+video as a link. The TUI lists them as links (`/blobs/<sha256>`). Telegram sends a question's or proposal's images as
+an album (one photo alone) right before the question; more than ten, or one over Telegram's 10 MB without a preview,
+stay in the inbox and the message says so.
+
+A message to the owner (or a decision proposal) whose text names image or video files (`.png`, `.jpg`, `.jpeg`,
+`.webp`, `.gif`, `.mp4`) without attachments or materials is sent, and the tool answer carries
+`warnings: [{code: "visual_without_attachment", message}]` so the agent can send it again with them.
+
 ## Reliability and limits
 
 Question deadlines default to 24h; timeout_seconds accepts 1..604800 (0 uses default). Expired or

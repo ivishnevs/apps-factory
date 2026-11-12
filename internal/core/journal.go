@@ -218,8 +218,17 @@ func (c *Core) journalTool(w http.ResponseWriter, r *http.Request, p factorytool
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
 		in.Actor = run.Spec.Agent
+		var err error
+		if in.Attachments, in.Materials, err = visualArgs(args); err != nil {
+			http.Error(w, "invalid attachments or materials", 400)
+			return
+		}
 		v, err := c.Store.ProposeDecision(ctx, c.companyFrom(r), run.Spec.Project, in)
-		reply(w, v, err)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		write(w, withWarnings(v, visualWarnings(true, in.Attachments, in.Materials, append([]string{in.Value, in.Rationale}, in.Alternatives...)...)))
 	case "factory_decision_get", "factory_decision_record":
 		id := stringArg(args, "decision_id")
 		d, err := c.Store.Decision(ctx, c.companyFrom(r), id)

@@ -172,6 +172,8 @@ func (s *Store) ArtifactApproval(ctx context.Context, company, project, id, vers
 	return getDoc[approvals.Approval](ctx, s.DB, artifactApprovalQuery, company, project, id, version)
 }
 func (s *Store) RequestArtifactApproval(ctx context.Context, company, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
+	// The question shows the version itself (inbox-visual-previews), in the chat and in Telegram too.
+	_, shown := s.withPreviews(ctx, company, project, nil, []messaging.MaterialRef{{ArtifactID: in.ArtifactID, ArtifactVersion: in.ArtifactVersion}})
 	return mutate(ctx, s, company, "artifact.approval:"+project+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
 		a := approvals.Approval{ID: protocol.ID(), Kind: "artifact", ProjectID: project, Agent: in.Agent, TaskID: in.TaskID, RunID: in.RunID, Reason: in.Reason, Status: "PENDING", Version: 1, CreatedAt: tx.now().Unix(),
 			Audience: in.Audience, Delegate: in.Delegate, Setting: in.Setting}
@@ -216,7 +218,7 @@ func (s *Store) RequestArtifactApproval(ctx context.Context, company, project st
 		}
 		a.ExpiresAt = a.CreatedAt + int64(timeout)
 		ref, _ := json.Marshal(a.Artifact)
-		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Artifact approval " + a.ID + ": " + in.Reason + "\nExact artifact version: " + string(ref), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID})
+		m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: project, TaskID: in.TaskID, RunID: in.RunID, Sender: in.Agent, Recipient: "owner", MessageType: "question", Body: "Artifact approval " + a.ID + ": " + in.Reason + "\nExact artifact version: " + string(ref), Blocking: in.Blocking, TimeoutSeconds: timeout, RequestID: in.RequestID, Materials: shown})
 		if err != nil {
 			return a, err
 		}

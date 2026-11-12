@@ -1,5 +1,17 @@
 Status: proposed 2026-11-08 by the owner ("what I have to approve must be visible right away in the inbox and in the
-producer's message, not somewhere I have to go to"). Nothing implemented.
+producer's message, not somewhere I have to go to"); implemented 2026-11-12, verified with fakes (fake runtime over
+httptest Core, fake Bot API); a check with the real bot and the live web is open (see tasks 4.1). Implementation
+decisions: attachments and materials live in the message's (and the decision's) JSON document, so no migration;
+retention counts a message's attachments and previews as uses of a blob, but a message's reference to an artifact
+version does not keep that version's content; previews are rendered by Core with the standard library (PNG, JPEG,
+GIF over 1600 px or 1 MiB → at most 1600 px, JPEG when opaque, else PNG; WebP/SVG/AVIF are shown as they are); the
+`visual_without_attachment` warning applies to messages to the owner and to decision proposals, as
+`warnings: [{code, message}]` in the tool answer, and the repeated-text check counts the attachments, so the same
+words resent with images are a new message; a forward appends the forwarder's attachments; an artifact
+approval's question carries the version as a material (chat and Telegram show it; the inbox's approval card already
+did); Telegram sends the images of attention items (questions and proposals) as one album of up to ten before the
+question, previews where they exist, and a failed album lets the question go alone; the TUI lists them as Core blob
+links.
 
 ## Why
 

@@ -145,6 +145,17 @@ export interface Message {
   blocking: boolean; status: string; version: number; created_at: number; deadline?: number; delivery_status: string;
   escalation_reason?: string; category?: string; approval_id?: string; report_id?: string; decision_id?: string;
   may_be_outdated?: boolean;
+  // Files the sender attached and references to existing materials (inbox-visual-previews), in the order to show.
+  attachments?: MessageAttachment[]; materials?: MaterialRef[];
+}
+
+// A preview is a display-size rendition of a large image; the original stays downloadable.
+export interface ImagePreview { sha256: string; size: number; width: number; height: number }
+export interface MessageAttachment { path: string; caption?: string; sha256: string; size: number; redacted?: boolean; preview?: ImagePreview }
+// A reference to an artifact version (artifact_id, artifact_version) or a report attachment (report_id, path), resolved by Core.
+export interface MaterialRef {
+  artifact_id?: string; artifact_version?: string; report_id?: string; path?: string; caption?: string;
+  name?: string; sha256?: string; size?: number; uri?: string; redacted?: boolean; preview?: ImagePreview;
 }
 
 export interface Approval {
@@ -197,4 +208,5 @@ export interface Decision {
   id: string; project_id: string; category?: string; topic: string; status: string; value: string; alternatives?: string[];
   rationale: string; created_by: string; approved_by?: string; review_rationale?: string; version: number; task_id?: string;
   message_id?: string; created_at: number; updated_at: number;
+  attachments?: MessageAttachment[]; materials?: MaterialRef[];
 }

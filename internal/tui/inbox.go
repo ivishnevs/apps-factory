@@ -233,6 +233,7 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 	for _, l := range wrap(msg.Body, w-2) {
 		lines = append(lines, stBold.Render(l))
 	}
+	lines = append(lines, visualLines(msg, w)...)
 	if ap, ok := m.approvalOf(msg); ok && ap.Artifact != nil {
 		a := ap.Artifact
 		lines = append(lines, "", stFaint.Render("artifact ")+stMagenta.Bold(true).Render(a.ID)+" "+stBold.Render(a.Version)+stFaint.Render(" · "+dash(a.Name)))
@@ -304,6 +305,37 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 		lines = append(lines, "", stFaint.Render(how+"   m  mark read"))
 	case len(msg.Questions) == 0 && msg.ApprovalID == "":
 		lines = append(lines, "", stFaint.Render("a  answer in free text"))
+	}
+	return lines
+}
+
+// visualLines lists a message's attachments and materials as links (inbox-visual-previews: the terminal shows no
+// images): caption, file, size and where Core serves the content (the web shows them inline).
+func visualLines(msg messaging.Message, w int) []string {
+	if len(msg.Attachments) == 0 && len(msg.Materials) == 0 {
+		return nil
+	}
+	lines := []string{""}
+	add := func(caption, name, sha, uri string, size int64) {
+		link := uri
+		if sha != "" {
+			link = "/blobs/" + sha
+		}
+		label := name
+		if caption != "" {
+			label = caption + " · " + name
+		}
+		lines = append(lines, stFaint.Render("attached ")+cut(label, max(w/2, 20))+stFaint.Render("  "+byteSize(size)+"  "+link))
+	}
+	for _, a := range msg.Attachments {
+		add(a.Caption, a.Path, a.SHA256, "", a.Size)
+	}
+	for _, r := range msg.Materials {
+		name := r.Name
+		if r.ArtifactID != "" {
+			name = r.ArtifactID + " " + r.ArtifactVersion + " (" + r.Name + ")"
+		}
+		add(r.Caption, name, r.SHA256, r.URI, r.Size)
 	}
 	return lines
 }

@@ -19,10 +19,15 @@ type Call struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
+// attachHelp says how a message shows what it is about (inbox-visual-previews).
+const attachHelp = "Anything visual you ask or report about (screenshots, art, a design, a comparison) goes along as attachments: files of your worktree [{path, caption}] in the order to show them (several images with captions show side by side, e.g. classic | v1 | v2; the node uploads them, credentials redacted) or materials: existing ones [{artifact_id, artifact_version} or {report_id, path}, caption]. A path in the text is not enough: people answer where they read it, without opening the repository (a message to people naming .png/.jpg/.webp/.gif/.mp4 files without attachments answers with warning visual_without_attachment; send it again with them)."
+
 func Definitions() []Tool {
 	s := func() any { return map[string]any{"type": "string"} }
 	n := map[string]any{"type": "integer"}
 	arr := map[string]any{"type": "array", "items": s()}
+	messageAttachment := map[string]any{"type": "object", "properties": map[string]any{"path": s(), "caption": s(), "sha256": s(), "size": n, "redacted": map[string]any{"type": "boolean"}}, "required": []string{"path"}, "additionalProperties": false}
+	materialRef := map[string]any{"type": "object", "properties": map[string]any{"artifact_id": s(), "artifact_version": s(), "report_id": s(), "path": s(), "caption": s()}, "additionalProperties": false}
 	out := []Tool{}
 	add := func(name, op, description string, props map[string]any, required ...string) {
 		if required == nil {
@@ -58,16 +63,23 @@ func Definitions() []Tool {
 		add("task_"+action, "task.review", "Review another agent's IN_REVIEW task: "+action+". Rejection requires feedback.", map[string]any{"id": s(), "version": n, "feedback": s(), "request_id": s()}, "id", "version", "request_id")
 	}
 	question := map[string]any{"type": "object", "properties": map[string]any{"id": s(), "type": s(), "question": s(), "options": arr}, "required": []string{"id", "type", "question"}, "additionalProperties": false}
-	messageProps := func() map[string]any {
-		return map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "blocking": map[string]any{"type": "boolean"}, "questions": map[string]any{"type": "array", "items": question}, "timeout_seconds": n, "request_id": s()}
+	// Visual attachments (inbox-visual-previews): files of the worktree ({path, caption}, uploaded by the node) and
+	// references to existing materials, shown inline where people answer.
+	visuals := func(props map[string]any) map[string]any {
+		props["attachments"] = map[string]any{"type": "array", "items": messageAttachment}
+		props["materials"] = map[string]any{"type": "array", "items": materialRef}
+		return props
 	}
-	sendProps := map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "message_type": s(), "request_id": s()}
-	add("message_send", "message.send", "Send an asynchronous notification/review request/escalation. Core schedules the recipient after this project's writer is released.", sendProps, "recipient", "body", "message_type", "request_id")
-	add("question_forward", "question.forward", "Forward a question you cannot decide (its category is not delegated to you) to your manager, with a note; the asker keeps waiting.", map[string]any{"message_id": s(), "version": n, "note": s(), "request_id": s()}, "message_id", "version", "request_id")
-	add("message_ask", "message.ask", "Ask another agent. A blocking question must concern your current task. After asking, finish the turn immediately; Core resumes the task after an explicit answer, never by polling inside a turn.", messageProps(), "recipient", "body", "request_id")
+	messageProps := func() map[string]any {
+		return visuals(map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "blocking": map[string]any{"type": "boolean"}, "questions": map[string]any{"type": "array", "items": question}, "timeout_seconds": n, "request_id": s()})
+	}
+	sendProps := visuals(map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "message_type": s(), "request_id": s()})
+	add("message_send", "message.send", "Send an asynchronous notification/review request/escalation. Core schedules the recipient after this project's writer is released. "+attachHelp, sendProps, "recipient", "body", "message_type", "request_id")
+	add("question_forward", "question.forward", "Forward a question you cannot decide (its category is not delegated to you) to your manager, with a note; the asker keeps waiting. The question keeps its attachments; add your own with attachments/materials.", visuals(map[string]any{"message_id": s(), "version": n, "note": s(), "request_id": s()}), "message_id", "version", "request_id")
+	add("message_ask", "message.ask", "Ask another agent. A blocking question must concern your current task. After asking, finish the turn immediately; Core resumes the task after an explicit answer, never by polling inside a turn. "+attachHelp, messageProps(), "recipient", "body", "request_id")
 	ownerProps := messageProps()
 	delete(ownerProps, "recipient")
-	add("owner_ask", "owner.ask", "Ask the owner via durable inbox, optionally with structured questions. Finish the turn after a blocking question; do not wait or poll.", ownerProps, "body", "request_id")
+	add("owner_ask", "owner.ask", "Ask the owner via durable inbox, optionally with structured questions. Finish the turn after a blocking question; do not wait or poll. "+attachHelp, ownerProps, "body", "request_id")
 	add("message_get", "message.get", "Read a message in this project.", map[string]any{"message_id": s()}, "message_id")
 	add("message_list", "message.list", "Read the current or specified conversation's messages.", map[string]any{"conversation_id": s()})
 	add("message_reply", "message.reply", "Explicitly answer a pending question addressed to you, with its latest version. Answer all structured question IDs. A final-text reply alone is not an answer.", map[string]any{"message_id": s(), "version": n, "body": s(), "answers": map[string]any{"type": "object", "additionalProperties": true}, "request_id": s()}, "message_id", "version", "body", "request_id")
@@ -92,7 +104,7 @@ func Definitions() []Tool {
 	add("report_create", "report.create", "Persist a significant-action report: what, why, changes, result and any owner action. attachments name files of your worktree ({path}); the node uploads them with known credentials redacted. Identity/task/run come from this run; reports do not block execution or grant approval.", map[string]any{"kind": s(), "summary": s(), "purpose": s(), "changes": arr, "result": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "attachments": map[string]any{"type": "array", "items": attachment}, "needs_owner_action": map[string]any{"type": "boolean"}, "owner_action": s(), "request_id": s()}, "kind", "summary", "purpose", "changes", "result", "request_id")
 	add("report_get", "report.get", "Read a full project report.", map[string]any{"report_id": s()}, "report_id")
 	add("report_list", "report.list", "List report summaries. after is next_after from the previous page; limit 1..20. Read full details with report_get.", map[string]any{"kind": s(), "task_id": s(), "run_id": s(), "after": n, "limit": n})
-	add("decision_propose", "decision.propose", "Propose a significant project decision with rationale; it reaches the owner in your chat and the Inbox. Put the other options in alternatives (the recommendation is value): the owner approves, picks an alternative, writes their own or rejects, and you get the outcome as a message. Do not also request approval of factory_decision_record for it. Proposing does not stop normal development; ask the owner separately when blocked.", map[string]any{"category": s(), "topic": s(), "value": s(), "alternatives": arr, "rationale": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "request_id": s()}, "topic", "value", "rationale", "request_id")
+	add("decision_propose", "decision.propose", "Propose a significant project decision with rationale; it reaches the owner in your chat and the Inbox. Put the other options in alternatives (the recommendation is value): the owner approves, picks an alternative, writes their own or rejects, and you get the outcome as a message. Do not also request approval of factory_decision_record for it. Proposing does not stop normal development; ask the owner separately when blocked. "+attachHelp, visuals(map[string]any{"category": s(), "topic": s(), "value": s(), "alternatives": arr, "rationale": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "request_id": s()}), "topic", "value", "rationale", "request_id")
 	add("decision_decide", "decision.decide", "Atomically approve a significant decision in an explicitly policy-delegated category, or where the project's decision setting lets you (as the lead: only what the owner's earlier answers or recorded decisions cover, named in cites; money and destructive changes never). No owner notification or approval is implied. Cannot bypass owner review/rejection or replace an owner decision. Replacement of a policy decision requires its exact ID/version.", map[string]any{"category": s(), "topic": s(), "value": s(), "rationale": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "supersedes_id": s(), "supersedes_version": n, "cites": arr, "request_id": s()}, "category", "topic", "value", "rationale", "request_id")
 
 	add("decision_get", "decision.get", "Read the full versioned decision, rationale and replacement history links.", map[string]any{"decision_id": s()}, "decision_id")
