@@ -48,7 +48,8 @@ export function useChats() {
   const data = ov.data;
   const def = data ? defaultReportOf(data) : "";
   const reports = useMemo(() => (data ? directReports(data.agents ?? [], def) : []), [data, def]);
-  const projects = useMemo(() => (data?.status ?? []).map((s) => s.project), [data]);
+  // archived-projects-hidden: no chats for archived projects.
+  const projects = useMemo(() => (data?.status ?? []).map((s) => s.project).filter((p) => !p.archived), [data]);
   // company-teams: in a team's project the owner talks to that team's lead only.
   const leads = useTeams().data?.teams;
   const pairs = useMemo(() => projects.flatMap((p) => {

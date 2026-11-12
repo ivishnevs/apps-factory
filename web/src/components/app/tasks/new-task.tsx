@@ -43,7 +43,7 @@ export function NewTask({ overview, defaultProject, open: openProp, onOpenChange
 
 function NewTaskForm({ overview, defaultProject, onDone }: { overview: Overview; defaultProject?: string; onDone: () => void }) {
   const router = useRouter();
-  const projects = overview.status.map((s) => s.project);
+  const projects = overview.status.map((s) => s.project).filter((p) => !p.archived || p.id === defaultProject);
   const [project, setProject] = useState(defaultProject && projects.some((p) => p.id === defaultProject) ? defaultProject : projects[0]?.id ?? "");
   const chosen = projects.find((p) => p.id === project);
   const setup = chosen ? setupView(chosen, overview.nodes) : undefined;
