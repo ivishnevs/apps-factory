@@ -73,7 +73,7 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 
 // nodesTx loads the company's registered nodes with what their runs hold (node-agent D3).
 func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,conversation_slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
+	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,conversation_slots,drivers,"+nodeLabelsSQL+",resources,health,version FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +82,9 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 	for rows.Next() {
 		var n tasks.Node
 		var epoch int64
+		var version string
 		var drivers, labels, resources, health []byte
-		if err = rows.Scan(&n.ID, &n.Name, &epoch, &n.Online, &n.LastSeen, &n.Slots, &n.ConversationSlots, &drivers, &labels, &resources, &health); err != nil {
+		if err = rows.Scan(&n.ID, &n.Name, &epoch, &n.Online, &n.LastSeen, &n.Slots, &n.ConversationSlots, &drivers, &labels, &resources, &health, &version); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -95,6 +96,7 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		_ = json.Unmarshal(labels, &n.Labels)
 		_ = json.Unmarshal(resources, &n.Resources)
 		n.Disk = readDisk(health).tasksDisk()
+		n.UpdateRequired = tx.store.updateRequired(version)
 		out = append(out, n)
 		epochs = append(epochs, epoch)
 	}

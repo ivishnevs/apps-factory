@@ -110,6 +110,37 @@ Core serves `GET /install.sh` and `GET /downloads/node/<file>` without a credent
 (default `<root>/dist/node`). The script names `FACTORY_CORE_URL`, else the request's scheme and host
 (`X-Forwarded-Proto`, `X-Forwarded-Host` behind a proxy). Nodes need `https` unless Core is on the same machine.
 
+The packages' `VERSION` is the build time in UTC with the commit, `2026.11.12.1530+6cfd893` (a `VERSION` argument
+overrides it); `factory-node` carries it (`-X appfactory/internal/node.Version`) and reports it in register. The Nodes
+page shows each node's version and "<release> available" when Core hands out a newer one (`GET /node-install`
+`release`). Core gives no work to a node below `min_node_version` (`FACTORY_MIN_NODE_VERSION`, else the code's
+minimum, none yet; a dotted version): its card says "update required" until it is reinstalled.
+
+## Settings from the web
+
+Owners and admins change a node's work slots, conversation slots, labels, each driver on or off and the disk
+watermarks on the Nodes page (Settings on the node card) or with `PUT /nodes/{id}/config`
+`{"config": {...}, "base_version": N}`; every change is a `node_config_changed` event naming who changed what. The node
+gets the new version in its poll answer, fetches it, applies it without a restart (the pool grows at once, a removed
+busy slot finishes its run first, a driver turned on is probed at once) and keeps it in
+`<state_dir>/remote-config.json`, read over node.yaml at the next start; node.yaml itself is never rewritten. The card
+shows each setting as applied, pending or refused with the reason, next to node.yaml's value; "Use node.yaml" clears
+them. The machine's person decides in node.yaml:
+
+```yaml
+remote: off                  # no setting from the web; or a map keeping some local:
+# remote: {labels: false, drivers: false}   # keys: slots, conversation_slots, labels, drivers, disk
+slots_max: 4                 # caps the slots the web may set (0: none)
+policy: {runtimes: [codex]}  # the web cannot turn on another driver
+```
+
+Sandbox, `policy`, `runtime_env`, paths, binaries and logins are never set from the web. A change that would leave
+the node without a driver is refused.
+
+The node also reports labels it detects (`macos`/`linux`, `arm64`/`amd64`, `xcode`, `ios-sim`, `headless`, `gpu`)
+next to the ones the owner sets; both select agents' runs (`labels: [macos, xcode]` needs no labels in node.yaml on a
+Mac with Xcode), and managers see them with `factory_nodes`.
+
 ## Updating the runtimes
 
 `factory-node runtimes update [claude|codex]` installs or updates the runtimes to the versions this node supports,

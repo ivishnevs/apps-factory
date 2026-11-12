@@ -6,6 +6,7 @@ import (
 	"appfactory/internal/config"
 	"appfactory/internal/core"
 	"appfactory/internal/policies"
+	"appfactory/internal/protocol"
 	"appfactory/internal/secrets"
 	"appfactory/internal/storage"
 	"appfactory/internal/worker"
@@ -262,6 +263,11 @@ func run() error {
 		if s.ArtifactRetentionMaxDays, err = strconv.Atoi(v); err != nil || s.ArtifactRetentionMaxDays < 0 {
 			return fmt.Errorf("FACTORY_ARTIFACT_RETENTION_MAX_DAYS must be a number of days (0: no ceiling)")
 		}
+	}
+	// node-packaging-updates C: nodes below this version get no work (the code's minimum unless the env raises it).
+	s.MinNodeVersion = env("FACTORY_MIN_NODE_VERSION", storage.MinNodeVersion)
+	if _, ok := protocol.CompareVersions(s.MinNodeVersion, s.MinNodeVersion); s.MinNodeVersion != "" && !ok {
+		return fmt.Errorf("FACTORY_MIN_NODE_VERSION %q: a dotted version such as 2026.11.12.1530 required", s.MinNodeVersion)
 	}
 	if keys == nil {
 		slog.Warn("no " + secrets.MasterKeyEnv + ": company secrets can be neither set nor delivered")

@@ -30,6 +30,9 @@ const LeaseTTL = 45 * time.Second
 
 type Store struct {
 	DB *DB
+	// MinNodeVersion is the oldest node version that gets work (node-packaging-updates C, FACTORY_MIN_NODE_VERSION;
+	// empty: any). A node below it registers and shows "update required" but is offered and granted no run.
+	MinNodeVersion string
 	// Blobs holds OpenSpec documents, artifact contents, attachments and run logs by digest (Options.Blobs).
 	Blobs blobstore.Store
 	// Clock is the source of every timestamp Store writes or compares; nil means wall time.

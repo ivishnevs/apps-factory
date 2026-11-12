@@ -25,9 +25,19 @@ import (
 
 // Drivers builds the enabled drivers of c. getenv supplies CODEX_BIN.
 func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
+	return buildDrivers(c, getenv, true)
+}
+
+// OptionalDrivers builds the drivers node.yaml leaves off that policy.runtimes allows: the settings from the web may
+// turn them on (node-packaging-updates B).
+func OptionalDrivers(c node.Config, getenv func(string) string) []driver.Driver {
+	return buildDrivers(c, getenv, false)
+}
+
+func buildDrivers(c node.Config, getenv func(string) string, on bool) []driver.Driver {
 	var r []driver.Driver
 	allowed := func(rt string) bool { return len(c.Policy.Runtimes) == 0 || slices.Contains(c.Policy.Runtimes, rt) } // connector-trust: policy.runtimes
-	if c.Drivers.Codex.On() && allowed("codex") {
+	if c.Drivers.Codex.On() == on && allowed("codex") {
 		bin := c.Drivers.Codex.Binary
 		if bin == "" {
 			bin = getenv("CODEX_BIN")
@@ -37,7 +47,7 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 		}
 		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, FullAccess: c.Policy.FullAccess})
 	}
-	if cc := c.Drivers.Claude; cc.On() && allowed("claude") {
+	if cc := c.Drivers.Claude; cc.On() == on && allowed("claude") {
 		shim := cc.Shim
 		if shim == "" && c.BinDir != "" {
 			shim = claude.DefaultShimFor(c.BinDir, func(p string) bool { _, err := os.Stat(p); return err == nil })
@@ -76,7 +86,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return node.ErrNoKeys
 	}
 	slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
-	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS), Box: keys.Box})
+	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Optional: OptionalDrivers(c, getenv), Host: node.LocalHost(runtime.GOOS), Box: keys.Box})
 }
 
 // SkillStoreMaxAge is how long a stored skill stays unused before the GC removes it.
@@ -92,8 +102,24 @@ type Node struct {
 	Box *ecdh.PrivateKey
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
+	// Optional are drivers node.yaml leaves off that the settings from the web may turn on (node-packaging-updates B).
+	Optional []driver.Driver
+	// Detected are the labels the node detected (node.DetectLabels; Run detects them when nil); Version the
+	// package's (node.PackageVersion when empty).
+	Detected []string
+	Version  string
 
-	health *driverHealth // set by Run
+	health *driverHealth  // set by Run
+	remote *remoteConfig  // set by Run
+	gate   *node.DiskGate // set by Run
+}
+
+// enabled reports whether c turns the named driver on.
+func enabled(c node.Config, name string) bool {
+	if name == "claude" {
+		return c.Drivers.Claude.On()
+	}
+	return c.Drivers.Codex.On()
 }
 
 // ErrNoDriver: no enabled driver passed its version check and probe at start.
@@ -107,7 +133,30 @@ func Run(ctx context.Context, n Node) error {
 	if c.Probes.Interval <= 0 || c.Probes.VersionInterval <= 0 {
 		c.Probes = node.Defaults().Probes
 	}
-	n.health = newDriverHealth(n.Drivers, c.Probes)
+	// Settings from the web (node-packaging-updates B): remote-config.json over node.yaml.
+	nodeYAML := c
+	n.remote = newRemoteConfig(nodeYAML)
+	c = n.remote.effective()
+	n.Config = c // the session registers what is in effect
+	all := append(append([]driver.Driver{}, n.Drivers...), n.Optional...)
+	listed := map[string]bool{}
+	for _, d := range n.Drivers {
+		listed[string(d.Name())] = true
+	}
+	// driverOn: a driver runs when the settings from the web turned it on, else when node.yaml did (n.Drivers).
+	driverOn := func(eff node.Config, d driver.Driver) bool {
+		name := string(d.Name())
+		if e := enabled(eff, name); e != enabled(nodeYAML, name) {
+			return e
+		}
+		return listed[name]
+	}
+	n.health = newDriverHealth(all, c.Probes)
+	for _, d := range all {
+		if !driverOn(c, d) {
+			n.health.turnOff(string(d.Name()))
+		}
+	}
 	n.health.check(ctx, true)
 	if !n.health.anyUsable() {
 		return fmt.Errorf("%w: %+v", ErrNoDriver, n.health.infos())
@@ -161,9 +210,22 @@ func Run(ctx context.Context, n Node) error {
 		company = node.DefaultCompany
 	}
 	jan := &janitor.Janitor{Config: c.Janitor, Worktrees: trees, Company: company, Sessions: store}
+	// One disk gate for claims, health and the janitor; the settings from the web change its watermarks.
+	n.gate = node.NewDiskGate(n.Host, c.Disk)
 	if n.Host.FreeBytes != nil {
-		low := uint64(c.Disk.LowGiB * node.GiB)
-		jan.LowDisk = func() bool { free, err := n.Host.FreeBytes(c.Disk.Path); return err == nil && free < low }
+		jan.LowDisk = func() bool {
+			low, _ := n.gate.Watermarks()
+			free, err := n.Host.FreeBytes(c.Disk.Path)
+			return err == nil && free < low
+		}
+	}
+	// What the node reports about itself (node-packaging-updates): its package version and detected labels.
+	if n.Version == "" {
+		n.Version = node.PackageVersion(c.BinDir)
+	}
+	if n.Detected == nil {
+		n.Detected = node.DetectLabels(ctx, n.Host, runtime.GOARCH)
+		slog.Info("labels detected", "labels", n.Detected, "version", n.Version)
 	}
 	// The v2 heartbeat's cleanup list goes to jan.Cleanup.
 	go jan.Run(ctx)
@@ -190,7 +252,7 @@ func Run(ctx context.Context, n Node) error {
 	}
 	// The catalog's NodeHooks document (register answer, then heartbeat answers when it changes): janitor
 	// hooks under node.yaml's, stack checks for the self-checks, a copy in state_dir for the doctor.
-	checks = newSelfChecks(n.Host, c.Labels)
+	checks = newSelfChecks(n.Host, union(c.Labels, n.Detected))
 	checks.doctor.Scanner = scanner(c.Worktrees)
 	s.checks = checks.failed
 	s.onHooks = func(d protocol.NodeHooksDelivery) {
@@ -213,7 +275,7 @@ func Run(ctx context.Context, n Node) error {
 	go events.Run(ctx, time.Second)
 	pool := &Pool{Slots: c.Slots, ConversationSlots: c.ConversationSlots, StateDir: c.StateDir}
 	names := []string{}
-	for _, d := range n.Drivers {
+	for _, d := range all {
 		w := &worker.Worker{Events: events, API: n.API, Company: company, Driver: d, MCPBinary: mcp, ShimBinary: shim, StateDir: c.StateDir, Worktrees: trees, NodeID: c.Name, RunStopped: runStopped,
 			SkillStore: skillStore, Sessions: store, EnvAllow: c.RuntimeEnv, ProjectsRoot: c.ProjectsRoot, Box: n.Box}
 		if c.StateDir != "" {
@@ -232,15 +294,33 @@ func Run(ctx context.Context, n Node) error {
 		name := string(d.Name())
 		pool.Sources = append(pool.Sources, &Source{Name: name, Process: w.ProcessRun,
 			Claimable: func() bool { return n.health.usable(name) }})
-		names = append(names, name)
+		if driverOn(c, d) {
+			names = append(names, name)
+		}
 	}
 	usable := n.health.anyUsable // false: the whole node pauses
 	pool.Claimable = usable
 	if n.Host.FreeBytes != nil {
 		// disk-pause-conversations: below the critical watermark only conversations, below the floor nothing.
-		gate := node.NewDiskGate(n.Host, c.Disk)
+		gate := n.gate
 		pool.Claimable = func() bool { return usable() && gate.ConversationClaimable() }
 		pool.WorkClaimable = gate.Claimable
+	}
+	// Settings from the web take effect live: slots resize the pool, drivers turn on or off with their own probe, the
+	// disk gate takes the watermarks, and the heartbeat carries the capacity and the report at once.
+	n.remote.apply = func(eff node.Config) {
+		pool.Resize(eff.Slots, eff.ConversationSlots)
+		n.gate.Set(eff.Disk)
+		checks.setLabels(union(eff.Labels, n.Detected))
+		if s != nil {
+			s.setCapacity(capacity{slots: eff.Slots, conversation: eff.ConversationSlots, labels: eff.Labels, detected: n.Detected})
+		}
+		for _, d := range all {
+			n.health.setEnabled(ctx, string(d.Name()), driverOn(eff, d))
+		}
+		if s != nil {
+			s.driversChanged()
+		}
 	}
 	if s != nil {
 		n.health.changed = s.driversChanged

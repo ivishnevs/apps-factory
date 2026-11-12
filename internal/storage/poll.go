@@ -56,7 +56,7 @@ const maxOfferScan = 256
 func (s *Store) pollNode(ctx context.Context, company, node string, epoch int64) (Node, error) {
 	var n Node
 	var drivers, labels, health []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT epoch,drivers,labels,health FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&n.Epoch, &drivers, &labels, &health)
+	err := s.DB.QueryRowContext(ctx, "SELECT epoch,drivers,"+nodeLabelsSQL+",health,version FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&n.Epoch, &drivers, &labels, &health, &n.Version)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && epoch > n.Epoch {
 		return n, ErrUnknownNode
 	}
@@ -95,7 +95,7 @@ func (s *Store) OffersFor(ctx context.Context, company, node string, epoch int64
 	if err = s.DB.QueryRowContext(ctx, "SELECT count(*) FROM pauses WHERE company_id=? AND (scope='node' AND target=? OR scope='company' AND (until=0 OR until>?))", company, node, s.Now().Unix()).Scan(&paused); err != nil {
 		return out, err
 	}
-	if paused > 0 {
+	if paused > 0 || s.updateRequired(n.Version) != "" { // below min_node_version: no work until it is updated
 		return out, nil
 	}
 	left, leftConv := map[string]int{}, map[string]int{}

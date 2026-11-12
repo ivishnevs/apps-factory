@@ -136,6 +136,19 @@ func (c *Core) nodeDownloads() string {
 	return filepath.Join(c.Root, "dist", "node")
 }
 
+// nodeRelease is the VERSION of the node packages this Core hands out ("" when it has none).
+func (c *Core) nodeRelease() string {
+	dir := c.nodeDownloads()
+	if dir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "VERSION"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 var nodePackage = regexp.MustCompile(`^factory-node-(darwin|linux)-(arm64|amd64)\.tar\.gz$`)
 
 // nodePackages lists the platforms this Core can hand out, like darwin-arm64.

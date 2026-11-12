@@ -41,6 +41,17 @@ type Register struct {
 	Reason string `json:"reason,omitempty"`
 	// Features: newer runtime options this node's drivers apply (storage.FeatureContextWindow).
 	Features []string `json:"features,omitempty"`
+	// Version is the node package's VERSION; DetectedLabels what the node found it can do (node-packaging-updates).
+	Version        string   `json:"version,omitempty"`
+	DetectedLabels []string `json:"detected_labels,omitempty"`
+}
+
+// Capacity is the heartbeat's capacity: slots and labels as they are now (settings from the web change them live).
+type Capacity struct {
+	Slots             int      `json:"slots"`
+	ConversationSlots int      `json:"conversation_slots"`
+	Labels            []string `json:"labels"`
+	DetectedLabels    []string `json:"detected_labels"`
 }
 
 // DriverInfo is a driver as last checked: Version from CheckVersion, OK when no check failed; Check names the
@@ -85,6 +96,9 @@ type Heartbeat struct {
 	// Readiness are the results of Core's project checks (node-readiness); [] when none ran yet, never omitted, so
 	// Core knows this node reports them.
 	Readiness []protocol.ProjectReadiness `json:"readiness"`
+	// Capacity and Config: the node's slots and labels now and its report of the settings from the web.
+	Capacity *Capacity                  `json:"capacity,omitempty"`
+	Config   *protocol.NodeConfigReport `json:"config,omitempty"`
 }
 
 type Health struct {
@@ -132,6 +146,8 @@ type HeartbeatAnswer struct {
 	Hooks *protocol.NodeHooksDelivery `json:"hooks,omitempty"`
 	// Checks: the project readiness checks Core wants run (node-readiness).
 	Checks []protocol.ProjectCheck `json:"checks,omitempty"`
+	// ConfigVersion: the version of the node's settings from the web (0: none).
+	ConfigVersion int64 `json:"config_version,omitempty"`
 }
 
 // ErrStaleEpoch: Core knows a newer epoch of this node_id, so another process uses this state_dir's identity.
@@ -183,6 +199,11 @@ type session struct {
 	lastBeat time.Time
 	// ready runs the project readiness checks Core asks for (node-readiness); nil when the host cannot run commands.
 	ready *projectChecks
+	// remote: the settings from the web (nil: node.yaml alone); cap: slots and labels now; version: the package's.
+	remote  *remoteConfig
+	capMu   sync.Mutex
+	cap     capacity
+	version string
 }
 
 // newSession seals what the previous epoch left, reads the identity, takes the next epoch and registers.
@@ -206,8 +227,13 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 		h = newDriverHealth(n.Drivers, c.Probes)
 		h.check(ctx, true)
 	}
-	s := &session{api: n.API, cfg: c, host: n.Host, gate: node.NewDiskGate(n.Host, c.Disk), trees: trees, inv: node.NewInventory(id, epoch),
-		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{}}
+	gate := n.gate
+	if gate == nil {
+		gate = node.NewDiskGate(n.Host, c.Disk)
+	}
+	s := &session{api: n.API, cfg: c, host: n.Host, gate: gate, trees: trees, inv: node.NewInventory(id, epoch),
+		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{},
+		remote: n.remote, cap: capacity{slots: c.Slots, conversation: c.ConversationSlots, labels: c.Labels, detected: n.Detected}, version: n.Version}
 	if n.Host.Run != nil {
 		s.ready = newProjectChecks(n.Host.Run, s.driversChanged) // a finished check pass is reported at once
 	}
@@ -228,8 +254,10 @@ func (s *session) readiness() []protocol.ProjectReadiness {
 // register registers the current epoch with the drivers as last checked, retrying while Core is
 // unreachable; a refusal is final.
 func (s *session) register(ctx context.Context, reason string) error {
-	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: s.cfg.Slots, ConversationSlots: s.cfg.ConversationSlots, Features: []string{"context_window"},
-		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: s.cfg.Labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason}
+	cp := s.capacity()
+	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: cp.slots, ConversationSlots: cp.conversation, Features: []string{"context_window"},
+		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: cp.labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason,
+		Version: s.version, DetectedLabels: cp.detected}
 	if req.Resources == nil {
 		req.Resources = map[string]int{}
 	}
@@ -348,7 +376,7 @@ func (s *session) health() Health {
 	if s.host.FreeBytes != nil {
 		if free, err := s.host.FreeBytes(s.cfg.Disk.Path); err == nil {
 			h.FreeDiskBytes, h.Disk = free, s.gate.Level(free)
-			h.DiskLowBytes, h.DiskCriticalBytes = s.gate.Low, s.gate.Critical
+			h.DiskLowBytes, h.DiskCriticalBytes = s.gate.Watermarks()
 			floor := s.gate.FloorBytes()
 			h.DiskConversationFloorBytes = &floor
 		}
@@ -366,8 +394,14 @@ func (s *session) beat(ctx context.Context) error {
 	if health.StalledSeconds > 0 {
 		slog.Warn("heartbeat stalled; reporting it", "seconds", health.StalledSeconds)
 	}
-	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: health, ResetDone: done,
-		Drivers: s.drivers.infos(), Hooks: s.cfg.Hooks, HooksHash: s.hooksHash(), Readiness: s.readiness()}, &a)
+	cp := s.capacity()
+	hb := Heartbeat{Epoch: s.inv.Epoch(), Inventory: s.inv.Snapshot(), Health: health, ResetDone: done,
+		Drivers: s.drivers.infos(), Hooks: s.cfg.Hooks, HooksHash: s.hooksHash(), Readiness: s.readiness(),
+		Capacity: &Capacity{Slots: cp.slots, ConversationSlots: cp.conversation, Labels: nonNilStrings(cp.labels), DetectedLabels: nonNilStrings(cp.detected)}}
+	if s.remote != nil {
+		hb.Config = s.remote.reported()
+	}
+	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", hb, &a)
 	if err == nil {
 		s.lastBeat = time.Now()
 	}
@@ -409,7 +443,15 @@ func (s *session) beat(ctx context.Context) error {
 		slog.Info("work claims paused by Core (critical disk); conversations continue", "paused", a.PauseWork)
 	}
 	s.queueCleanups(a.Cleanup)
+	s.fetchConfig(ctx, a.ConfigVersion)
 	return nil
+}
+
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 // stopRuns stops the listed runs of the inventory (from a heartbeat or a poll answer).

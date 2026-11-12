@@ -38,7 +38,25 @@ func NewDiskGate(h Host, c Disk) *DiskGate {
 func (d *DiskGate) floor() uint64 { return min(d.Floor, d.Critical) }
 
 // FloorBytes is the conversation floor in effect (health.disk_conversation_floor_bytes).
-func (d *DiskGate) FloorBytes() uint64 { return d.floor() }
+func (d *DiskGate) FloorBytes() uint64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.floor()
+}
+
+// Set replaces the watermarks (settings from the web, node-packaging-updates B); the next check judges by them.
+func (d *DiskGate) Set(c Disk) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Low, d.Critical, d.Floor = uint64(c.LowGiB*GiB), uint64(c.CriticalGiB*GiB), uint64(c.ConversationFloorGiB*GiB)
+}
+
+// Watermarks are the low and critical watermarks in bytes.
+func (d *DiskGate) Watermarks() (low, critical uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.Low, d.Critical
+}
 
 // Claimable reports whether a slot may claim a work or review run now. An unreadable disk keeps the previous
 // decision.
@@ -97,6 +115,8 @@ func (d *DiskGate) check() {
 
 // Level classifies free bytes by the watermarks: ok, low or critical (the inventory heartbeat's health.disk).
 func (d *DiskGate) Level(free uint64) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	switch {
 	case free < d.Critical:
 		return "critical"

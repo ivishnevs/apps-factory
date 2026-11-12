@@ -35,8 +35,18 @@ Nodes have no token: every request is signed with the node's key (RFC 9421 `Sign
  "drivers": [{"name": "codex", "version": "codex-cli 0.162.1", "ok": true},
              {"name": "claude", "version": "2.1.284", "ok": false, "check": "auth", "detail": "not logged in"}],
  "resources": {"simulator": 2, "build": 2}, "labels": ["macos", "xcode"],
- "hooks": "ios", "reason": "start|reregister"}
+ "hooks": "ios", "reason": "start|reregister",
+ "version": "2026.11.12.1530+6cfd893", "detected_labels": ["macos", "arm64", "xcode", "ios-sim", "gpu"]}
 ```
+
+`version` (node-packaging-updates C) is the node package's `VERSION`; a node below Core's `min_node_version`
+(`FACTORY_MIN_NODE_VERSION`, else the code's minimum; none yet) registers, is listed with `update_required`, raises
+`node_update_required` (attention) and gets no offer; its claims are refused `retry/update_required` and queued runs
+name it (`update_required`). A node without a version is below any minimum; a version that is not dotted numbers
+(`dev`) is never below. `detected_labels` (3.6) are what the node found it can do: `macos`/`linux`, `arm64`/`amd64`,
+`xcode` (xcodebuild works), `ios-sim` (an iOS simulator runtime), `headless` (Linux without a display), `gpu` (every
+Mac; Linux with a DRI render node or an NVIDIA GPU). They select runs like `labels` (claim, offers, queued reasons,
+session holders) and are listed apart.
 
 Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 60, "hooks": {"name": "ios", "hash": "…", "missing": false, "spec": {…}}}`.
 
@@ -72,7 +82,7 @@ something for the node, else empty when the wait ends:
 
 ```json
 {"offers": [{"run_id": "…", "provider": "codex"}], "stop": [{"run_id": "…", "reason": "revoked"}],
- "reset": ["task-id"], "cleanup": ["task-id"], "hooks_changed": true}
+ "reset": ["task-id"], "cleanup": ["task-id"], "hooks_changed": true, "config_version": 3}
 ```
 
 - `offers` are hints: `QUEUED` runs of the node's company, oldest first, at most `free` per provider, whose driver is
@@ -92,6 +102,12 @@ something for the node, else empty when the wait ends:
   unknown node or newer epoch `404 unknown_node` (the heartbeat registers again). A waiting poll of a node whose key is
   revoked ends `401`.
 - After an error the node polls again with a backoff from 1 s doubling to 30 s, with jitter.
+- `config_version` (node-packaging-updates B) is the version of the node's settings from the web (0: none). The
+  request's `config_version` is the version the node applied; another one answers a waiting poll at once (a change
+  wakes the polls), and the node fetches `GET /nodes/{node_id}/config` (signed) → `{"version": 3, "config": {"slots":
+  4, "conversation_slots": 1, "labels": ["ios"], "drivers": {"claude": {"enabled": true}}, "disk":
+  {"low_watermark_gib": 30, "critical_watermark_gib": 5, "conversation_floor_gib": 1}}}` (an absent setting keeps
+  node.yaml's). The heartbeat answer carries `config_version` too.
 
 ## 5. Claim (phase 1)
 
@@ -153,6 +169,12 @@ not started in its window ends as "not started" (§10). `session_id` keeps arriv
  "hooks": "ios", "hooks_hash": "…"}
 ```
 
+- `capacity` (optional) `{"slots", "conversation_slots", "labels", "detected_labels"}` replaces the node's slots and
+  labels without a new epoch (settings from the web apply live; the node detects its labels at start); more room wakes the
+  polls. `config` (optional) is the node's report of the settings from the web: `{"version": 3, "settings":
+  {"slots": {"state": "applied", "reason": "capped at slots_max 2"}, "labels": {"state": "refused", "reason": "…"}},
+  "local": {…node.yaml's values…}, "pinned": ["labels"], "slots_max": 2}`; a version with refused settings is one
+  `node_config_refused` (attention) event. A driver turned off by the settings leaves `drivers`.
 - `drivers` (optional; the node sends it in every heartbeat) replaces the node's driver list as in register: a
   driver that failed or passed its checks again is declared without a new epoch, and claims use it from then on.
 - `health.checks` lists the node's failing self-checks (`git`, `git.user`, `forge.auth`, `ps`, `stack.<name>` from

@@ -14,6 +14,7 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 | --- | --- | --- |
 | factory_project_get | factory.project.get | Current project |
 | factory_agent_list | factory.agent.list | Agent name/role/capabilities |
+| factory_nodes | factory.node.list | The company's nodes: online, paused, disk, work and conversation slots (busy), `labels` the owner set and `detected_labels` the node found (macos/linux, arm64/amd64, xcode, ios-sim, headless, gpu; both select runs), usable runtimes, version and `update_required` (node-packaging-updates) |
 | factory_settings_get | factory.settings.get | Company or project rules (`scope: company|project`), read-only, the run's own company and project |
 | factory_question_forward | factory.question.forward | Forward a question you received and cannot decide to your manager (`message_id`, `version`, `note`) |
 | factory_task_get / factory_task_list | factory.task.get / factory.task.list | Current project's tasks; the list is compact (no descriptions) unless `full: true`, filters `status`, `open`, `assignee`, `openspec_change`, `covers`, `query` ([duplicate warnings](task-lifecycle.md#duplicate-warnings)) |

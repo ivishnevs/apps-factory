@@ -25,6 +25,8 @@ type pollRequest struct {
 	Skip             []string       `json:"skip,omitempty"`
 	Hooks            string         `json:"hooks,omitempty"`
 	HooksHash        string         `json:"hooks_hash,omitempty"`
+	// ConfigVersion: the version of the settings from the web this node applied.
+	ConfigVersion int64 `json:"config_version,omitempty"`
 }
 
 type pollOffer struct {
@@ -42,6 +44,9 @@ type pollAnswer struct {
 	SyncJobs     []syncJob   `json:"sync_jobs"`
 	// AcceptAccounts: a person continued with these runtimes' changed accounts (node-runtime-accounts 3.3).
 	AcceptAccounts []string `json:"accept_accounts"`
+	// ConfigVersion: the version of the node's settings from the web (node-packaging-updates B); another than the
+	// applied one is fetched.
+	ConfigVersion int64 `json:"config_version"`
 }
 
 // skips are runs whose claim Core refused for now; the poll asks Core not to offer them until their time passed.
@@ -132,6 +137,9 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 			wait = max(1, min(wait, int((left+time.Second-1)/time.Second)))
 		}
 		req := pollRequest{Epoch: s.inv.Epoch(), Free: free, FreeConversation: freeConv, WaitSeconds: wait, Skip: skip, Hooks: s.cfg.Hooks, HooksHash: s.hooksHash()}
+		if s.remote != nil {
+			req.ConfigVersion = s.remote.version()
+		}
 		reqCtx, cancel := context.WithTimeout(ctx, time.Duration(req.WaitSeconds)*time.Second+15*time.Second)
 		// A slot freed while this poll waits makes it stale (it told Core fewer free slots): poll again at once.
 		var redo atomic.Bool
@@ -172,6 +180,7 @@ func (s *session) poll(ctx context.Context, pool *Pool) {
 		if a.HooksChanged {
 			s.driversChanged() // the heartbeat delivers the NodeHooks document
 		}
+		s.fetchConfig(ctx, a.ConfigVersion)
 		for _, j := range a.SyncJobs {
 			s.startSyncJob(ctx, j)
 		}

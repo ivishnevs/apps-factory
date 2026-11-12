@@ -114,8 +114,8 @@ type Spec struct {
 	// Resources are a run's needs per node resource class (e.g. simulator: 1); Core checks them against the
 	// node's node.yaml resources at claim (runtime protocol v2).
 	Resources map[string]int `yaml:"resources" json:"resources,omitempty"`
-	// Labels are node labels a run needs (e.g. macos, xcode); Core claims it only on a node whose node.yaml
-	// labels include them all (node-agent D3).
+	// Labels are node labels a run needs (e.g. macos, xcode); Core claims it only on a node whose labels (node.yaml or
+	// the web, and the ones the node detects) include them all (node-agent D3).
 	Labels []string `yaml:"labels" json:"labels,omitempty"`
 	// MCP names the company's external MCP servers (mcp_servers.yaml) the agent's runs get besides the
 	// Factory server (external-mcp-servers); Claude agents only.
