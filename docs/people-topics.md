@@ -83,6 +83,13 @@ An agent reaches people only with `owner` in `spec.communication.can_message`. W
 goes to its manager, its artifact approval that would reach people is its manager's to decide, and its escalation of
 a delegated approval hands it one level up. Nothing is refused for that reason.
 
+Who decides an approval that moved: the approval setting decides where an approval goes first and its ceiling. After
+that the approval moves along the hierarchy, and the agent it is assigned to now (not escalated) decides it, whatever
+agent the setting names today. Core reads the current mode at each decision: under people only (`owner`) no agent
+decides, the holder only escalates (or hands it on, under strict delegation); a strict agent's approval that reaches
+its manager under people only says so in its setting ("its manager brings it to them"). In lead mode the holder's
+approval still needs `cites`.
+
 ## Surfaces
 
 - Web Inbox: one card per open topic (brief, items with their notes, previews, buttons, approve all); the chat of the

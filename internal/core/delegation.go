@@ -58,14 +58,17 @@ func (c *Core) artifactDelegate(ctx context.Context, company, project string, in
 	if in.audience == "internal" {
 		kind = tasks.KindInternalArtifacts
 	}
-	_, delegate, setting := c.approvalMode(ctx, company, project, kind)
+	mode, delegate, setting := c.approvalMode(ctx, company, project, kind)
 	if delegate == in.requester {
 		delegate = ""
 	}
-	in.delegate, in.setting = delegate, setting
+	in.delegate, in.setting, in.peopleOnly = delegate, setting, mode.Mode == tasks.ApproveOwner
 }
 
-type requestDelegation struct{ audience, requester, delegate, setting string }
+type requestDelegation struct {
+	audience, requester, delegate, setting string
+	peopleOnly                             bool // the mode is people only: no agent decides, it only hands on
+}
 
 // approvalDecideTool is factory_approval_decide: the delegate of a pending approval approves, rejects or escalates it.
 func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p factorytools.Call, run storage.Run) {
@@ -133,16 +136,13 @@ func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p fact
 	if a.Audience == "internal" {
 		kind = tasks.KindInternalArtifacts
 	}
-	mode, delegate, setting := c.approvalMode(r.Context(), company, a.ProjectID, kind)
-	peopleOnly := a.Choice() && mode.Mode == tasks.ApproveOwner
-	if peopleOnly && action != "escalate" {
-		// People only (artifact-choice-approvals): no agent decides a choice of this project; the agent it reached
-		// (strict delegation) only hands it on.
-		http.Error(w, "people decide this project's artifacts ("+setting+"): no agent decides this choice, escalate it", 403)
-		return
-	}
-	if delegate != run.Spec.Agent && !peopleOnly {
-		http.Error(w, "the approval setting changed: it waits for people now", 403)
+	// The approval setting decides where an approval goes first and its ceiling; after that it moves along the
+	// hierarchy (strict delegation hands it up) and the agent holding it decides (people-topics D18). The current mode
+	// is read again: people only refuses every agent decision, so the holder only hands it on; a change from one agent
+	// mode to another leaves it with its holder.
+	mode, _, setting := c.approvalMode(r.Context(), company, a.ProjectID, kind)
+	if mode.Mode == tasks.ApproveOwner && action != "escalate" {
+		http.Error(w, "people decide this project's artifacts ("+setting+"): no agent decides it, escalate it", 403)
 		return
 	}
 	if strings.TrimSpace(reason) == "" {

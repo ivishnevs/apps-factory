@@ -77,3 +77,17 @@ buttons and say what replaced them, and a decision on the older version SHALL be
 #### Scenario: Old Telegram button
 - **WHEN** kf2 v4 joins the topic and the owner presses Approve on the kf2 v3 Telegram message
 - **THEN** Core SHALL refuse it and the bot SHALL answer that v3 was replaced by v4
+
+### Requirement: The holder of an approval decides it
+The approval setting SHALL decide where an approval goes first and its ceiling. After that the approval SHALL move
+along the hierarchy, and the agent it is assigned to now (not escalated) SHALL be allowed to decide it, for yes/no and
+choice approvals, even when the current setting names another agent. Under the people-only mode no agent SHALL
+approve, reject, choose or ask for changes; escalating (or handing it up under strict delegation) SHALL stay allowed.
+
+#### Scenario: Handed up, the manager decides
+- **WHEN** a strict delegate escalates an approval, which goes to its manager, and the manager approves it
+- **THEN** the approval SHALL be approved with the manager as `decided_by`
+
+#### Scenario: People-only ceiling
+- **WHEN** the project's mode becomes people only while an agent holds an approval and that agent approves it
+- **THEN** Core SHALL refuse the decision and SHALL accept the agent's escalation

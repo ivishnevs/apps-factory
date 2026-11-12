@@ -257,6 +257,21 @@ this setting. Changes:
   `can_message`; without it the escalation goes one level up instead.
 - The team page shows and edits it as "May bring questions and approvals to people" per agent.
 
+## D18. Who decides an approval that moved
+
+Found 2026-11-13: a delegate handed an approval up (D17), and `factory_approval_decide` refused its manager with "the
+approval setting changed", because it recomputed the delegate from the project's mode; anything handed up got stuck.
+Owner rule: the approval setting decides where an approval goes first (at request) and the ceiling; after that the
+approval moves along the hierarchy, and the agent it is assigned to now (`delegate`, not escalated) decides it.
+
+- `factory_approval_decide` authorizes the current holder, for yes/no and choice approvals alike.
+- The ceiling is read at each decision from the current mode: people only (`owner`) refuses approve, reject, choose
+  and changes from any agent; escalate (or a hand-up under strict delegation) stays allowed.
+- A mode changed from one agent mode to another after the request leaves the approval with its holder, who still
+  decides; lead mode keeps its `cites` rule for approve.
+- A strict agent's approval that reaches its manager under people only says so in its setting: the manager brings it
+  to people.
+
 ## Risks
 
 - **Wrong grouping.** Version lines before tasks; the bringer can move items (D4).

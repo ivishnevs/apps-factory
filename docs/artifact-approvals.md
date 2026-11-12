@@ -233,7 +233,8 @@ Any other cite is refused: without such a basis the delegate escalates. `changes
 cite (the delegate's own judgement on weak work; no person is asked). `escalate` may `drop` options it judges not
 good enough (`[{"option":"2","reason":"off-brief palette"}]`, at least one option stays; dropping all is `reject`):
 people see the kept options first and the dropped ones collapsed with the delegate's reasons, and may still choose
-one. Under the people-only mode (`owner`) Core refuses every agent decision on a choice; an agent it reached by
-strict delegation can only escalate it.
+one. Under the people-only mode (`owner`) Core refuses every agent decision, on a choice or a yes/no approval; an
+agent it reached by strict delegation can only escalate it. Otherwise the agent an approval is assigned to now decides
+it, also after a strict delegate handed it up or after the setting moved to another agent (people-topics D18).
 `factory_decision_decide` is allowed where the project's decision mode names the agent (the lead with `cites`), as
 well as in policy-delegated categories; a people-only decision mode refuses agents even there.

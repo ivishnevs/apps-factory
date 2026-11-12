@@ -11,6 +11,10 @@
 - [x] 1.5 Strict delegation (D17): an agent without `owner` in `can_message` is routed to its manager instead of
       refused; approvals with a delegate need no `owner`; the gate checks the bringer; team page toggle.
 
+- [x] 1.6 Who decides a moved approval (D18): the current holder decides a handed-up approval (yes/no and choice);
+      people only refuses agent decisions but keeps escalate; tests for approve, reject, choose after a hand-up, an
+      agent-to-agent mode change, the people-only ceiling and a strict request under people only.
+
 ## 2. Topics and items
 
 - [x] 2.1 Items, states, open/settled, reopen by version line within 30 days; `GET /topics`, `GET /topics/{id}` with

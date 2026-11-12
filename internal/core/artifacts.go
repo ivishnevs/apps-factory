@@ -152,13 +152,16 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		in.Delegate, in.Setting = rd.delegate, rd.setting
 		if in.Delegate == "" && !ownerAllowed(snapshot, current) {
 			// Strict delegation (people-topics D17): it would reach people; an agent that may not bring items to people
-			// has its manager decide it instead.
+			// has its manager decide it instead (under people only the manager only brings it to them: D18).
 			m := c.escalationTargetIn(c.companyFrom(r), run.Spec.Agent)
 			if m == "" || m == "owner" {
 				http.Error(w, "owner communication permission required", 403)
 				return
 			}
 			in.Delegate, in.Setting = m, "strict delegation: "+run.Spec.Agent+" may not bring items to people, its manager "+m+" decides"
+			if rd.peopleOnly {
+				in.Setting = "strict delegation: " + run.Spec.Agent + " may not bring items to people, its manager " + m + " brings it to them (" + rd.setting + ")"
+			}
 		}
 		in.Strict = true
 		v, err := c.Store.RequestArtifactApproval(r.Context(), c.companyFrom(r), run.Spec.Project, in)
