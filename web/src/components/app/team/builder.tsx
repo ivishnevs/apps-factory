@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, Bot, KeyRound, Plus, Server, Sparkles, Trash
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
+import { AgentSecrets } from "@/components/app/team/agent-secrets";
 import Link from "@/components/app/link";
 import { ErrorState, LoadingRows } from "@/components/app/page";
 import { Badge } from "@/components/ui/badge";
@@ -395,6 +396,7 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
               <Field label="Prompt" error={fieldError(error, "prompt")}>
                 <Textarea value={draft.prompt} onChange={(e) => set((d) => { d.prompt = e.target.value; })} className="min-h-56 font-mono text-xs" spellCheck={false} />
               </Field>
+              <AgentSecrets name={name} onSaved={(version, secrets) => set((d) => { d.base = version; d.agent.spec.secrets = secrets.length ? secrets : undefined; })} />
               <p className="text-xs text-muted-foreground">Skills of this document: {(spec.skills?.include ?? []).join(", ") || "none (its profile may add some)"} — change them with Skills on the agent&apos;s card. Anything else: the document in the YAML editor.</p>
               {formError(error) && <ErrorState error={formError(error)} />}
               <div className="flex flex-wrap gap-2">
