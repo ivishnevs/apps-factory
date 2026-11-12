@@ -107,8 +107,16 @@ func (s *AssignScope) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON writes the list or the scope word; unset is null.
+// MarshalJSON writes none and direct_reports as false and true, the form nodes before assign-by-hierarchy read in
+// agent snapshots (a string there failed their runs with "invalid agent snapshot"); subtree and lists stay as they
+// are, unset is null.
 func (s AssignScope) MarshalJSON() ([]byte, error) {
+	switch s.Mode {
+	case AssignNone:
+		return []byte("false"), nil
+	case AssignDirectReports:
+		return []byte("true"), nil
+	}
 	v, _ := s.MarshalYAML()
 	return json.Marshal(v)
 }
