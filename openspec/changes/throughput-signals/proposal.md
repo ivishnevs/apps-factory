@@ -1,5 +1,6 @@
 Status: proposed 2026-11-08 by the owner ("no manual interventions: make the system convenient and predictable").
-Nothing implemented.
+Scope settled with the owner 2026-11-12: one generic idle-capacity detector instead of a fix per case; no open
+questions. Nothing implemented.
 
 ## Why
 
@@ -7,60 +8,63 @@ Game project, night of 2026-11-07: 3 nodes with 10 slots, 2 runs live, 83 open t
 owner saw idle machines and a wall of blocked tasks and could not tell why. The answer took an hour of API reading:
 
 1. **Every agent runs one task at a time.** `max_concurrent_runs: 0` means a limit of 1 (`tasks/state.go`). network-dev
-   had four READY tasks (playtest server deploy, playtest builds, Flag Run state, mode registry) queued behind one run,
-   while the owner's Mac had four free slots. Nothing said so except a per-task reason `capacity`.
-2. **Planning gates that do not need to exist.** The producer made seven spec tasks (M3, M4, M5, three class-talents
-   specs, second arena map) and a design task depend on two QA verifications (M2-D15, MS-4), which in turn waited on
-   implementation and a serialized merge queue. Writing a spec does not need a neighbour's verification; about 25
-   implementation tasks waited behind those specs. Nothing in Factory notices such a gate.
+   had four READY tasks queued behind one run while the owner's Mac had four free slots. Nothing said so except a
+   per-task reason `capacity`.
+2. **Planning gates that do not need to exist.** The producer made seven spec tasks and a design task depend on two QA
+   verifications, which waited on implementation and a serialized merge queue; about 25 implementation tasks waited
+   behind those specs. Nothing in Factory noticed such a gate.
 3. **A run waited on a paused node's session** (see node-readiness) while showing under To do.
 
-Each case was "fixed" by the owner or by an outside session poking the producer. That does not scale and is not
-predictable. Factory has the data to see all three by itself.
+The morning of 2026-11-08 added four more shapes (a merge queue held in the producer's messages, tasks waking on a
+timer for a message, a manager not knowing what a node can do, an owner question hidden among blocks), and on
+2026-11-12 seven runs waited on `hetzner-hel1` paused for a critical disk because the session lock did not count that
+pause (fixed in code the same day). Each case was found by hand. Fixing them one by one does not scale: Factory
+already knows, for every queued run, why each node does not take it (`queuedNodes`), so it can find and explain any
+idle capacity itself.
 
 ## What Changes
 
-- **Concurrency defaults by role, visible and adjustable.** An agent's default run limit comes from its role in the
-  company config (`concurrency: {developer: 2, manager: 2, default: 1}`), not a hard-coded 1; `max_concurrent_runs`
-  still overrides. The team page shows each agent's limit, live runs and queued tasks.
-- **Idle-capacity signal.** Core's stall sweep computes, per project, free node slots that could take queued work and
-  why they do not: agent limit reached (with the agent and its queue), session affinity behind a paused or busy node,
-  no ready node (node-readiness), dependency gates. When work waits while slots stay free for longer than a threshold
-  (default 30 min), Core sends one deterministic "throughput" notice per episode to the project's manager (the owner
-  only if the owner is the manager), naming the cause and the change that would release it ("network-dev: 4 queued,
-  limit 1, 4 free slots: raise the limit or reassign"). It never changes anything itself.
-- **Gate check on dependencies.** When a planning task (spec, design, plan: kind from its title or an explicit
-  `kind`) depends on a verification or implementation task, the create/update answer warns `planning_gated`
-  (non-blocking, like task-duplicate-warnings): "a spec rarely needs <task> done; depend on it from the implementation
-  tasks instead". The throughput notice lists such gates with the number of tasks behind each.
-- **Board tells the same story.** The Blocked column header splits "need you" from "waiting their turn"; a
-  "Bottlenecks" strip above the board shows the top causes from the sweep (agent queues, gates, paused nodes) with
-  counts. A task with a queued run shows under Running as "queued: <reason>", never under To do.
+- **Idle-capacity sweep (the core).** Core's stall sweep compares, per project, queued work with free slots, using the
+  per-run, per-node reasons Core already computes for queued runs (owner pause, critical disk, offline, driver,
+  labels, readiness, slots, resources, session or work tie, agent limit) and the dependency graph (a task with N tasks
+  behind it). No separate cause logic: a new cause added to the queued reasons is picked up by the sweep without
+  change. When work waits while capacity is idle or unusable for longer than a threshold (default 30 min, company
+  setting), Core sends one deterministic "throughput" notice per episode to the project's manager and raises an owner
+  alert marked "with <manager>" (inbox-badge-parity), naming the cause and what would release it: "7 runs wait for
+  hetzner-hel1: paused, disk 4.9 GiB free (critical 5 GiB); free disk or Release now", "network-dev: 4 queued, limit 1,
+  4 free slots: raise the limit or reassign", "7 tasks wait behind MS-4 (verification)". It never changes anything.
+- **Concurrency defaults by role.** An agent's default work-run limit comes from its role in the company config
+  (`concurrency: {developer: 2, manager: 2, default: 1}`), not a hard-coded 1; `max_concurrent_runs` still overrides
+  (work-and-conversation-runs: role defaults apply to work runs only). The team page shows each agent's limit, live
+  runs and queue.
+- **Exclusive resources per task.** A task may declare the node resources its runs need (`resources: {mac-build: 1}`),
+  added to the agent's; Core already enforces node `resources` at claim. A queue such as "one integration gate on the
+  Mac at a time" is then held by Core and visible as `resource_busy`, not in the manager's messages.
+- **Board tells the same story.** A "Bottlenecks" strip above the board shows the sweep's top causes with counts; the
+  Blocked column splits "need you" from "waiting their turn"; a task with a queued run shows under In progress as
+  "queued: <reason>", never under To do.
 - **Manager instructions.** Default manager prompt: specs and designs depend on decisions and earlier specs, not on
-  verifications; act on throughput notices (raise limits within authority, reorder, split gates).
+  verifications; act on throughput notices (raise limits within authority, reorder, split gates); use task resources
+  for exclusive work instead of announcing turns.
 
 Not in scope: automatic limit changes, automatic dependency rewrites, cost budgets (cost-ledger).
 
-## Open use cases (seen 2026-11-08, no solution chosen yet)
+## Settled 2026-11-12 (owner)
 
-Morning of 2026-11-08, same project: the playtest server was deployed, but the board showed To do 0 and almost
-everything Blocked; the Hetzner node had 2 free slots and nothing to run. Cases to cover, simplest fix first:
-
-1. **The manager serializes work by hand.** After an integration gate failed from CPU overload on the Mac, the
-   producer announced "no integration runs or merges on the Mac until I say your turn". Six tasks (MS-1, flag-run-pacing
-   4.4/5.x/tuning, arena-mode follow-up, VP-2b) parked waiting for that message. The order lives only in the
-   producer's messages; the owner cannot see the queue or who is next.
-2. **A task waiting for a message wakes on a timer.** Those six tasks park with `wait` (1 of 12) and wake every
-   1–2 hours, find no "your turn" and park again: each wake is a paid run, and when the message does come the task
-   still sleeps until its timer. Same shape as decision-waits, but for a directive or message.
-3. **The manager does not know what a node can do.** The producer treats the Mac as the only place for gates and
-   captures; it was never told the Linux node runs the headless suites and screenshots (only iOS and real FPS need the
-   Mac). Nodes report empty labels, so nothing in Factory tells it either.
-4. **A question to the owner hides among the blocks.** The VP-2b verdict (an inbox question) gated a task and the
-   plan after it, but on the board it looked like one more blocked card.
+- **No `planning_gated` warning.** Guessing a planning task from its title is a heuristic; the sweep names real gates
+  deterministically from the dependency graph and the count of tasks behind them.
+- **The 2026-11-08 cases go where they have a general fix:**
+  1. Merge queue held in messages: exclusive resources per task (above).
+  2. Tasks waiting for a message on a timer: decision-waits, widened to waiting on an event (a decision, a message
+     from a named agent or the owner, promised owner details).
+  3. Manager not knowing what a node can do: node-packaging-updates, nodes detect and report their labels.
+  4. Owner question among blocks: inbox-badge-parity, agent-questions-in-chat and the Blocked split (above).
+- **Who hears it:** the project's manager gets the notice; the owner sees the same alert in the Inbox marked
+  "with <manager>".
 
 ## Impact
 
-Company config (`concurrency`), scheduler limits, stall sweep (`throughput` notice), task create/update warnings
-(`planning_gated`), board and team page (web, TUI), default manager prompt. Spec: `task-engine`. Related:
-`node-readiness`, `task-duplicate-warnings`, `task-board-ux`, `park-watchdog`, `session-affinity`.
+Stall sweep (`throughput` notice and alert over the queued reasons), company config (`concurrency`, throughput
+threshold), task `resources`, board and team page (web, TUI), default manager prompt. Spec: `task-engine`. Related:
+`node-readiness`, `inbox-badge-parity`, `decision-waits`, `node-packaging-updates`, `task-board-ux`, `park-watchdog`,
+`session-affinity`.

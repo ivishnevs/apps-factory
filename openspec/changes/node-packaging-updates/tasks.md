@@ -26,4 +26,7 @@
 - [ ] 3.3 One Go binary (shim and mcp as subcommands), Codex standalone binary from `codex.lock`, runtimes managed by
       the node; install.sh needs only curl, tar, git.
 - [ ] 3.4 Update flow: download and verify, self-test, drain, switch, health check, rollback; policy auto/approve.
+- [ ] 3.6 Detected labels (throughput-signals, 2026-11-12): the node reports what it can do (`os:macos|linux`, arch,
+      `xcode`/`ios-sim`, `headless`, `gpu`) next to the labels set by the owner; the Nodes page and the manager's
+      `factory_nodes` show them; agents and tasks select on them like on set labels; tests.
 - [ ] 3.5 (later) Claude driven without the JS shim.

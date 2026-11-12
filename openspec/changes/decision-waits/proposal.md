@@ -1,5 +1,7 @@
 Status: proposed 2026-11-07 by the owner ("write down the idea: a task waiting on a decision should not wake on a
-timer"). Nothing implemented.
+timer"). Widened 2026-11-12 (throughput-signals, owner): a task waits on an event, a decision being one kind; the
+same shape covers a message from a named agent or the owner and promised owner details (inbox-badge-parity).
+Nothing implemented.
 
 ## Why
 
@@ -27,6 +29,12 @@ Seen on the game project, task VP-2 `575b3ebf` (PR #182), 2026-11-07:
 - **Agents use it.** Tool descriptions and the default manager and developer instructions: when work needs a pending
   decision, park on the decision instead of a timed wait; a timed wait that names a proposed decision gets a hint to
   use `decision_id`.
+
+- **Wait on a message or promised details (same mechanism).** The park tool also accepts `from` (an agent or the
+  owner, optionally `topic`): the task parks with kind `message` and wakes on the next message from that sender to the
+  task or its agent in the project, with the message in its brief. Seen 2026-11-08: six tasks parked waiting for the
+  producer's "your turn" and woke every 1–2 hours to find nothing. A question answered with "I'll send details"
+  (inbox-badge-parity) parks the asking task the same way on the owner's details.
 
 Not in scope: deciding automatically on timeout.
 

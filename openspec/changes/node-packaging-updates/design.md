@@ -62,6 +62,10 @@ What the person sees: `curl -fsSL https://<core>/install.sh | sh` on a machine w
 - **Visible state.** Each setting on the node card shows `applied`, `pending` or `refused: <reason>`, and next to it
   the value from `node.yaml`.
 
+Detected labels (throughput-signals, 2026-11-12): besides the labels the owner sets, the node detects and reports
+what it can do (OS, arch, Xcode and iOS simulator, headless display, GPU), so a manager learns that the Linux node runs
+the headless suites without being told; nodes reported empty labels on 2026-11-08.
+
 ## C. Version updates
 
 - **The node reports its version.** Registration carries `version`, the package's `VERSION`. The Nodes page shows

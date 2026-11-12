@@ -2,6 +2,9 @@
 
 - [ ] 1.1 Park kind `decision` (`decision_id`, optional deadline that escalates, never wakes to poll); recording or
       withdrawing the decision wakes every task parked on it with the outcome in the brief; tests.
+- [ ] 1.2 Park kind `message` (`from` agent or owner, optional `topic`): the next message from that sender to the task
+      or its agent in the project wakes it with the message in the brief; no timer polls; promised owner details
+      (inbox-badge-parity 3.3) use it; tests.
 
 ## 2. Surfaces
 
