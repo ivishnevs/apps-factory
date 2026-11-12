@@ -1,5 +1,12 @@
 Status: proposed 2026-11-11 by the owner ("it is nonsense that the CEO cannot answer; an answer takes no disk
-space"). Nothing implemented.
+space"). Implemented 2026-11-12 (all tasks; see tasks.md). Decisions made in implementation: a disk-paused node
+stays an active session holder for conversations (inactive only below its conversation floor) and inactive for work
+and review runs; a node that reports no conversation floor (older) counts as paused for conversations at critical,
+as it is; the floor is capped at the critical watermark; Evaluate now sees owner node pauses ("resume node …"), so a task whose
+only capable nodes are owner-paused is held before dispatch, as a disk-paused one already was (a task pinned to an
+owner-paused node is unchanged); with
+several unavailable nodes the disk pause gives the reason (it clears by itself once space is freed); the held
+message's reason shows on the chat's waiting line (there is no separate Inbox alert for a held message).
 
 ## Why
 

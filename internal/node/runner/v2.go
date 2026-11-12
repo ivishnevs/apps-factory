@@ -96,6 +96,9 @@ type Health struct {
 	// DiskLowBytes and DiskCriticalBytes are the watermarks Disk is judged by (node.yaml disk).
 	DiskLowBytes      uint64 `json:"disk_low_bytes,omitempty"`
 	DiskCriticalBytes uint64 `json:"disk_critical_bytes,omitempty"`
+	// DiskConversationFloorBytes is the free space below which the node takes no conversation either
+	// (disk-pause-conversations); sent whenever Disk is, so Core tells this node from an older one.
+	DiskConversationFloorBytes *uint64 `json:"disk_conversation_floor_bytes,omitempty"`
 	// Checks are the failing node self-checks (node.check_failed{check} on Core); [] when none fails. Driver
 	// probes are reported in the heartbeat's drivers instead (driver_unsupported).
 	Checks []node.CheckResult `json:"checks"`
@@ -119,7 +122,10 @@ type HeartbeatAnswer struct {
 	Stop        []stop   `json:"stop"`
 	Acked       []string `json:"acked"`
 	Cleanup     []string `json:"cleanup"`
-	Pause       bool     `json:"pause"`
+	// Pause is the owner's pause of the node: no claim of any kind. PauseWork is Core's pause for a critical disk
+	// (disk-pause-conversations): conversation runs only.
+	Pause     bool `json:"pause"`
+	PauseWork bool `json:"pause_work"`
 	// Reset: tasks whose worktree must be reset from the remote branch (workspace_diverged, reset_workspace).
 	Reset []string `json:"reset"`
 	// Hooks: the NodeHooks document changed since the hash the node sent.
@@ -149,7 +155,8 @@ type session struct {
 
 	incarnation string
 	company     string      // from the register answer; empty from a Core that does not send it
-	paused      atomic.Bool // Core's pause
+	paused      atomic.Bool // Core's pause (the owner paused the node): no claims
+	pausedWork  atomic.Bool // Core's pause_work (critical disk): conversation claims only
 	switching   atomic.Bool // re-registering: no claims
 	// kick asks for a heartbeat now: a driver was disabled or re-enabled (the heartbeat carries the drivers).
 	kick     chan struct{}
@@ -271,6 +278,9 @@ func (s *session) claimable() bool {
 	return !s.paused.Load() && !s.switching.Load() && !node.LocallyPaused(s.cfg.StateDir) // connector-trust: factory-node pause
 }
 
+// workClaimable: Core has not paused work and review runs on the node (pause_work, a critical disk).
+func (s *session) workClaimable() bool { return !s.pausedWork.Load() }
+
 // run sends the inventory heartbeat every interval until ctx ends; it fails when the node must stop.
 func (s *session) run(ctx context.Context) error {
 	go s.janitor(ctx)
@@ -339,6 +349,8 @@ func (s *session) health() Health {
 		if free, err := s.host.FreeBytes(s.cfg.Disk.Path); err == nil {
 			h.FreeDiskBytes, h.Disk = free, s.gate.Level(free)
 			h.DiskLowBytes, h.DiskCriticalBytes = s.gate.Low, s.gate.Critical
+			floor := s.gate.FloorBytes()
+			h.DiskConversationFloorBytes = &floor
 		}
 	}
 	return h
@@ -392,6 +404,9 @@ func (s *session) beat(ctx context.Context) error {
 	s.stopRuns(a.Stop, "heartbeat")
 	if was := s.paused.Swap(a.Pause); was != a.Pause {
 		slog.Info("claiming paused by Core", "paused", a.Pause)
+	}
+	if was := s.pausedWork.Swap(a.PauseWork); was != a.PauseWork {
+		slog.Info("work claims paused by Core (critical disk); conversations continue", "paused", a.PauseWork)
 	}
 	s.queueCleanups(a.Cleanup)
 	return nil
@@ -453,6 +468,7 @@ func (s *session) reregister(ctx context.Context, why string) error {
 	}
 	s.inv.Reset(epoch)
 	s.paused.Store(false)
+	s.pausedWork.Store(false)
 	if err = s.register(ctx, "reregister"); ctx.Err() != nil {
 		return nil
 	}

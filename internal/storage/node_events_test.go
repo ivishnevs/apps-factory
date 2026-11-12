@@ -86,8 +86,9 @@ func TestNodeLowDiskOnceAndPause(t *testing.T) {
 	register(t, s, "n1", 1)
 	for _, level := range []string{"ok", "low", "low", "critical", "critical", "low", "critical"} {
 		a := beat(t, s, "n1", 1, `{"disk":"`+level+`"}`)
-		if a.Pause != (level == "critical") {
-			t.Fatalf("disk %s: pause %v", level, a.Pause)
+		// disk-pause-conversations: a critical disk pauses work (pause_work), not every claim (pause).
+		if a.PauseWork != (level == "critical") || a.Pause {
+			t.Fatalf("disk %s: pause_work %v pause %v", level, a.PauseWork, a.Pause)
 		}
 	}
 	if low, crit := nodeEvents(t, s, "node.low_disk"), nodeEvents(t, s, "node.disk_critical"); len(low) != 1 || !low[0].Attention || len(crit) != 1 || !crit[0].Attention {
@@ -97,7 +98,7 @@ func TestNodeLowDiskOnceAndPause(t *testing.T) {
 		t.Fatalf("paused %d resumed %d", len(p), len(r))
 	}
 	// Unreadable disk keeps the last answer.
-	if a := beat(t, s, "n1", 1, `{}`); !a.Pause {
+	if a := beat(t, s, "n1", 1, `{}`); !a.PauseWork {
 		t.Fatal("unreadable disk lifted the pause")
 	}
 	beat(t, s, "n1", 1, `{"disk":"ok"}`)

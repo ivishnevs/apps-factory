@@ -67,11 +67,13 @@ export function runsByTask(ov?: Overview) {
 
 // heldBack (node-readiness): a queued run that waits for something the owner can act on — a paused or offline node
 // holding its agent's session, or no node ready for its project — not merely for a free slot.
-export const heldBack = (q?: QueuedReason) => !!q && (q.reason === "no_ready_node" || q.reason === "affinity" && !!q.inactive);
+// A node paused for a critical disk (disk-pause-conversations) waits for the owner to free disk there.
+export const heldBack = (q?: QueuedReason) => !!q && (q.reason === "no_ready_node" || q.reason === "node_disk_critical" || q.reason === "affinity" && !!q.inactive);
 
 // queuedLine: a held-back queued run in a few words, e.g. "Waits for MacBook-Air (paused) until 14:30".
 export function queuedLine(q: QueuedReason, nodeName?: (id: string) => string): string {
   if (q.reason === "no_ready_node") return "No node is ready for its project";
+  if (q.reason === "node_disk_critical") return `Waits for disk space: ${q.detail}`;
   const node = q.holder ? nodeName?.(q.holder) || q.holder : "its node";
   const until = q.until ? ` until ${new Date(q.until * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
   return `Waits for ${node} (${q.inactive})${until}`;
@@ -98,7 +100,7 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
   if (runs.queued.has(t.id)) return heldBack(runs.why?.get(t.id)) ? "waiting" : "ready";
   if (runs.live.has(t.id) || t.status === "IN_PROGRESS") return "running";
   if (t.status === "BLOCKED" || t.status === "REWORK" || t.reason.startsWith("parked:") || t.reason.startsWith("paused:") ||
-    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node", "no_ready_node", "secret_missing"].includes(t.reason)) return "waiting";
+    ["dependencies", "artifacts", "unassigned", "pinned_node_unavailable", "no_capable_node", "node_disk_critical", "no_ready_node", "secret_missing"].includes(t.reason)) return "waiting";
   return "ready";
 }
 
@@ -110,7 +112,7 @@ export function needsAction(t: { reason?: string; status?: string; clearer?: { w
   if (isTerminal(t.status ?? "") || r === "backlog" || r === "terminal") return false;
   if (needsOwner(t)) return true;
   if (t.status === "BLOCKED" || t.status === "REWORK") return true;
-  if (["unassigned", "pinned_node_unavailable", "no_capable_node", "no_ready_node", "secret_missing", "artifacts"].includes(r)) return true;
+  if (["unassigned", "pinned_node_unavailable", "no_capable_node", "node_disk_critical", "no_ready_node", "secret_missing", "artifacts"].includes(r)) return true;
   if (r.startsWith("paused:")) return who !== "time";
   if (r === "parked:escalation" || r === "parked:inspect" || r === "parked:block") return true;
   if (r === "parked:ask") return who === "owner" || who.startsWith("member:") || who.startsWith("person:");
@@ -121,7 +123,7 @@ export function needsAction(t: { reason?: string; status?: string; clearer?: { w
 const reasonLabels: Record<string, string> = {
   live_run: "Running", dependencies: "Blocked by dependencies", artifacts: "Waiting for artifacts", unassigned: "No assignee",
   backoff: "Backing off", capacity: "Queued", idle: "Idle", runnable: "Runnable", backlog: "In backlog", terminal: "Closed",
-  pinned_node_unavailable: "Its node is offline", no_capable_node: "No node can run it", no_ready_node: "No node is ready",
+  pinned_node_unavailable: "Its node is offline", no_capable_node: "No node can run it", node_disk_critical: "Node disk critical", no_ready_node: "No node is ready",
   "parked:escalation": "Escalated", "parked:inspect": "Needs inspection", "parked:wait": "Waiting", "parked:ask": "Question asked",
   "parked:block": "Blocked", "parked:children": "Waiting for subtasks",
 };

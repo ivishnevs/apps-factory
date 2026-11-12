@@ -13,6 +13,8 @@ export interface NodeDriver {
 export interface NodeHealth {
   load1?: number; cpus?: number; free_disk_bytes?: number; busy_slots?: number; disk?: "ok" | "low" | "critical" | string;
   disk_low_bytes?: number; disk_critical_bytes?: number; checks?: { check: string; status: string; detail?: string }[];
+  // disk-pause-conversations: below it the node takes no conversation either (absent from older nodes).
+  disk_conversation_floor_bytes?: number;
   stalled_seconds?: number;
 }
 

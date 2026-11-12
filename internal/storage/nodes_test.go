@@ -271,7 +271,7 @@ func TestStartAndHeartbeat(t *testing.T) {
 	if st, res, _, _ := runRow(t, s, "d"); st != "ENDED" || !strings.Contains(res, "missing from node n1 inventory") {
 		t.Fatal(st, res)
 	}
-	if a, _ := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Health: json.RawMessage(`{"disk":"critical"}`)}); !a.Pause {
+	if a, _ := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Health: json.RawMessage(`{"disk":"critical"}`)}); !a.PauseWork || a.Pause {
 		t.Fatal("critical disk did not pause")
 	}
 	if _, err := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 0}); !errors.Is(err, ErrStaleEpoch) {

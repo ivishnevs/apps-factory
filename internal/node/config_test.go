@@ -247,10 +247,40 @@ func TestDiskGatePausesOnceAndResumes(t *testing.T) {
 		}
 	}
 	log2 := out.String()
-	for msg, n := range map[string]int{"below low watermark": 2, "below critical watermark; claiming paused": 2, "claiming resumed": 1, "above low watermark": 1, "unreadable": 1} {
+	for msg, n := range map[string]int{"below low watermark": 2, "below critical watermark; work claims paused, conversations continue": 2, "claiming resumed": 1, "above low watermark": 1, "unreadable": 1} {
 		if c := strings.Count(log2, msg); c != n {
 			t.Errorf("%q logged %d times, want %d\n%s", msg, c, n, log2)
 		}
+	}
+}
+
+// disk-pause-conversations 1.1: below the critical watermark conversations are still claimable, below the
+// conversation floor nothing is; the floor never exceeds the critical watermark.
+func TestDiskGateConversationFloor(t *testing.T) {
+	free := uint64(30 * GiB)
+	log, out := testLog()
+	d := &DiskGate{Path: "/work", Low: 20 * GiB, Critical: 5 * GiB, Floor: 1 * GiB, Log: log, FreeBytes: func(string) (uint64, error) { return free, nil }}
+	for i, s := range []struct {
+		free       uint64
+		work, conv bool
+	}{{30 * GiB, true, true}, {36 * GiB / 10, false, true}, {GiB / 2, false, false}, {GiB / 4, false, false}, {2 * GiB, false, true}, {6 * GiB, true, true}} {
+		free = s.free
+		if w, c := d.Claimable(), d.ConversationClaimable(); w != s.work || c != s.conv {
+			t.Fatalf("step %d (%d bytes): work %v conversation %v", i, s.free, w, c)
+		}
+	}
+	for msg, n := range map[string]int{"below the conversation floor; every claim paused": 1, "conversation claims resumed": 1} {
+		if c := strings.Count(out.String(), msg); c != n {
+			t.Errorf("%q logged %d times, want %d", msg, c, n)
+		}
+	}
+	// A floor above the critical watermark is capped at it.
+	d = &DiskGate{Path: "/work", Low: 20 * GiB, Critical: 2 * GiB, Floor: 3 * GiB, FreeBytes: func(string) (uint64, error) { return 5 * GiB / 2, nil }}
+	if !d.ConversationClaimable() || d.FloorBytes() != 2*GiB {
+		t.Fatal("floor above critical not capped", d.FloorBytes())
+	}
+	if c := Defaults().Disk; c.ConversationFloorGiB != 1 {
+		t.Fatal("default conversation floor", c.ConversationFloorGiB)
 	}
 }
 

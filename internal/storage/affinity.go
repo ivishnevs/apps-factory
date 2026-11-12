@@ -142,10 +142,12 @@ func holderInactive(ctx context.Context, q affinityQuerier, company, holder stri
 	if pausedAt.Valid {
 		return "paused", pausedAt.Int64, nil
 	}
-	// Core's own pause (critical disk) stops the holder as surely as the owner's: it took no run, so its sessions
-	// must time out like a paused node's (2026-11-12: seven runs waited on hetzner-hel1 at 4.9 GiB free while
-	// 11 slots elsewhere were free).
-	if diskCritical(health) {
+	// Core's own pause (critical disk) stops the holder as surely as the owner's for work and review runs: it
+	// takes none, so their sessions must time out like a paused node's (2026-11-12: seven runs waited on
+	// hetzner-hel1 at 4.9 GiB free while 11 slots elsewhere were free). It still takes conversations
+	// (disk-pause-conversations), so a conversation's session stays with it unless its disk is below the
+	// conversation floor too.
+	if diskPaused(health, spec.Conversation) {
 		return "paused (critical disk)", 0, nil
 	}
 	var ds []NodeDriver
@@ -259,12 +261,52 @@ func (s *Store) RunAffinity(ctx context.Context, company, id string) (*Affinity,
 	return sessionAffinity(ctx, s.DB, company, id, spec, "", s.Now())
 }
 
-// diskCritical is Core's pause of a node for a critical disk, read from the node's reported health. Every check of
-// whether a node can take runs (claims, queued reasons, session affinity, Release now) uses it.
-func diskCritical(health []byte) bool {
-	var h struct {
-		Disk string `json:"disk"`
+// diskCritical is Core's pause of a node for a critical disk, read from the node's reported health: the node takes
+// no work or review run (disk-pause-conversations). Every check of whether a node can take runs (claims, offers,
+// queued reasons, Evaluate, session affinity, Release now) uses it through diskPaused.
+func diskCritical(health []byte) bool { return readDisk(health).critical() }
+
+// diskPaused tells whether a node with this health takes no run of the kind: no work or review run at a critical
+// disk, no conversation below the conversation floor as well.
+func diskPaused(health []byte, conversation bool) bool {
+	h := readDisk(health)
+	if conversation {
+		return h.full()
 	}
-	_ = json.Unmarshal(health, &h)
-	return h.Disk == "critical"
+	return h.critical()
 }
+
+// nodeDisk is the disk part of a node's reported health.
+type nodeDisk struct {
+	Disk     string `json:"disk"`
+	Free     uint64 `json:"free_disk_bytes"`
+	Critical uint64 `json:"disk_critical_bytes"`
+	// Floor is absent from a node older than disk-pause-conversations, which stops every claim at critical.
+	Floor *uint64 `json:"disk_conversation_floor_bytes"`
+}
+
+func readDisk(health []byte) nodeDisk {
+	var h nodeDisk
+	_ = json.Unmarshal(health, &h)
+	return h
+}
+
+func (h nodeDisk) critical() bool { return h.Disk == "critical" }
+
+// full: the node takes no conversation either (below its conversation floor, or an older node at critical).
+func (h nodeDisk) full() bool { return h.critical() && (h.Floor == nil || h.Free < *h.Floor) }
+
+// tasksDisk is the disk pause as Evaluate sees it (nil when the disk is not critical).
+func (h nodeDisk) tasksDisk() *tasks.NodeDisk {
+	if !h.critical() {
+		return nil
+	}
+	d := &tasks.NodeDisk{Free: h.Free, Critical: h.Critical, Full: h.full()}
+	if h.Floor != nil {
+		d.Floor = *h.Floor
+	}
+	return d
+}
+
+// what says the disk pause in words: "disk critical, 3.6 GiB free (critical 5 GiB)".
+func (h nodeDisk) what() string { return h.tasksDisk().What() }

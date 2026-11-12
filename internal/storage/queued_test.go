@@ -70,7 +70,7 @@ func TestQueuedWhy(t *testing.T) {
 
 	// Disk below critical, then an owner pause of the node.
 	beat(`{"disk":"critical","free_disk_bytes":1073741824,"disk_critical_bytes":2147483648}`, NodeDriver{Name: "codex", OK: true})
-	want("r1", QueuedNodePaused, "disk 1.0 GiB free, critical below 2.0 GiB")
+	want("r1", QueuedNodeDiskCritical, "mini-n1 (n1): disk critical, 1 GiB free (critical 2 GiB)")
 	beat(`{"disk":"ok"}`, NodeDriver{Name: "codex", OK: true})
 	if err := s.SetPause(ctx, co, Pause{Scope: "node", Target: "n1", Reason: "maintenance"}); err != nil {
 		t.Fatal(err)

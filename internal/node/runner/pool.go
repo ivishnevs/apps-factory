@@ -36,7 +36,10 @@ type Pool struct {
 	ConversationSlots int
 	Sources           []*Source
 	Claimable         func() bool // nil always claims
-	Now               func() time.Time
+	// WorkClaimable is false while the node takes conversation runs only (Core's pause_work, the critical disk;
+	// disk-pause-conversations): work slots then take conversations too. nil always claims.
+	WorkClaimable func() bool
+	Now           func() time.Time
 	// Refused is called for an offer whose claim Core refused for now (the poller skips it a while).
 	Refused func(run string)
 	// StateDir keeps the local activity log (connector-trust): what ran on this machine, readable without Core.
@@ -99,20 +102,27 @@ func (p *Pool) source(provider string) *Source {
 }
 
 // Free is how many offers the pool takes now per provider: its idle work slots for each driver it may claim with,
-// none while the node may not claim.
+// none while the node may not claim or takes conversations only.
 func (p *Pool) Free() map[string]int { return p.free(false) }
 
-// FreeConversation is how many conversation runs the pool's idle conversation slots take now per provider.
+// FreeConversation is how many conversation runs the pool's idle conversation slots take now per provider; while
+// the node takes conversations only, its idle work slots count too.
 func (p *Pool) FreeConversation() map[string]int { return p.free(true) }
+
+func (p *Pool) workClaimable() bool { return p.WorkClaimable == nil || p.WorkClaimable() }
 
 func (p *Pool) free(conversation bool) map[string]int {
 	free := map[string]int{}
 	if p.Claimable != nil && !p.Claimable() {
 		return free
 	}
+	work := p.workClaimable()
+	if !conversation && !work {
+		return free
+	}
 	idle := 0
 	for _, s := range p.Status() {
-		if !s.Busy && (s.Index >= p.Slots) == conversation {
+		if !s.Busy && ((s.Index >= p.Slots) == conversation || conversation && !work) {
 			idle++
 		}
 	}
@@ -210,7 +220,7 @@ func (p *Pool) loop(ctx context.Context, i, gen int, offers <-chan Offer) {
 		case o = <-offers:
 		}
 		src := p.source(o.Provider)
-		if src == nil || src.Claimable != nil && !src.Claimable() || p.Claimable != nil && !p.Claimable() {
+		if src == nil || src.Claimable != nil && !src.Claimable() || p.Claimable != nil && !p.Claimable() || !o.Conversation && !p.workClaimable() {
 			continue // offered just before the driver or the node stopped claiming: it stays queued
 		}
 		if !p.update(i, gen, func(s *slot) { s.busy, s.run = true, o.RunID }) {
