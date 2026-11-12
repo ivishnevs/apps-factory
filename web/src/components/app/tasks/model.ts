@@ -113,7 +113,7 @@ export function needsAction(t: { reason?: string; status?: string; clearer?: { w
   if (["unassigned", "pinned_node_unavailable", "no_capable_node", "no_ready_node", "secret_missing", "artifacts"].includes(r)) return true;
   if (r.startsWith("paused:")) return who !== "time";
   if (r === "parked:escalation" || r === "parked:inspect" || r === "parked:block") return true;
-  if (r === "parked:ask") return who === "owner" || who.startsWith("member:") || who.startsWith("person:");
+  if (r === "parked:ask" || r === "parked:decision" || r === "parked:message") return who === "owner" || who.startsWith("member:") || who.startsWith("person:");
   return false;
 }
 
@@ -123,7 +123,7 @@ const reasonLabels: Record<string, string> = {
   backoff: "Backing off", capacity: "Queued", idle: "Idle", runnable: "Runnable", backlog: "In backlog", terminal: "Closed",
   pinned_node_unavailable: "Its node is offline", no_capable_node: "No node can run it", no_ready_node: "No node is ready",
   "parked:escalation": "Escalated", "parked:inspect": "Needs inspection", "parked:wait": "Waiting", "parked:ask": "Question asked",
-  "parked:block": "Blocked", "parked:children": "Waiting for subtasks",
+  "parked:block": "Blocked", "parked:children": "Waiting for subtasks", "parked:decision": "Waits for a decision", "parked:message": "Waits for a message",
 };
 export function reasonLabel(reason: string): string {
   if (reasonLabels[reason]) return reasonLabels[reason];

@@ -125,7 +125,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	// Messages addressed to the agent (conversation task triggers, hierarchy D5).
 	var messages []string
 	for _, g := range triggers {
-		if g.kind == "message" && g.ref != "" {
+		if (g.kind == "message" || g.kind == "message_received") && g.ref != "" {
 			messages = append(messages, g.ref)
 		}
 	}
@@ -223,7 +223,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			b.WriteString("When you need the person to choose or confirm, ask with factory_owner_ask and list the options (they get buttons in this chat); do not end a reply with a question they cannot answer there. For a decision with options, use factory_decision_propose with the recommendation as value and the rest as alternatives; they approve, pick or reject it here and you get the outcome, so do not also request approval of factory_decision_record. When their answer here already is the decision, record it with factory_decision_decide only in a delegated category; otherwise propose it once.\n")
 		}
 	} else if tx.store.ExplicitExits {
-		b.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.\n")
+		b.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (on a pending decision with decision_id, on a message with from, or until a time). Read authority_input in tool results: directives win over the plan.\n")
 	} else {
 		b.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")
 	}

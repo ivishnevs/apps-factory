@@ -61,7 +61,9 @@ func TestEvaluateReasons(t *testing.T) {
 			s.Parks = []Park{{ID: "p", Kind: ParkBlock, RefID: ParkRefResetWorkspace, Reason: "waiting for the node to reset the worktree", Who: "owner"}}
 		}, ReasonParked + ParkBlock, "node"},
 		{"blocked status without park", func(s *Snapshot) { s.Task.Status, s.Task.BlockReason = "BLOCKED", "manual: x" }, ReasonIdle, "owner"},
-		{"dependency", func(s *Snapshot) { s.Dependencies = []Dependency{{"a", "DONE"}, {"b", "IN_REVIEW"}} }, ReasonDependencies, "task:b"},
+		{"dependency", func(s *Snapshot) {
+			s.Dependencies = []Dependency{{ID: "a", Status: "DONE"}, {ID: "b", Status: "IN_REVIEW"}}
+		}, ReasonDependencies, "task:b"},
 		{"artifact", func(s *Snapshot) {
 			s.Task.Status, s.Task.BlockReason = "BLOCKED", "artifact: waiting for owner approval of layout@1"
 			s.UnapprovedArtifacts = []Artifact{{ID: "layout", Version: "1"}}
@@ -86,14 +88,14 @@ func TestEvaluateReasons(t *testing.T) {
 		}, ReasonParked + ParkInspect, "owner"},
 		{"parks before dependencies", func(s *Snapshot) {
 			s.Parks = []Park{block}
-			s.Dependencies = []Dependency{{"b", "READY"}}
+			s.Dependencies = []Dependency{{ID: "b", Status: "READY"}}
 		}, ReasonParked + ParkBlock, "owner"},
 		{"dependencies before artifacts", func(s *Snapshot) {
-			s.Dependencies = []Dependency{{"b", "READY"}}
+			s.Dependencies = []Dependency{{ID: "b", Status: "READY"}}
 			s.UnapprovedArtifacts = []Artifact{{ID: "x", Version: "1"}}
 		}, ReasonDependencies, "task:b"},
 		{"dependencies before capacity", func(s *Snapshot) {
-			s.Dependencies = []Dependency{{"b", "READY"}}
+			s.Dependencies = []Dependency{{ID: "b", Status: "READY"}}
 			s.AgentRun = &Run{ID: "r2", Status: "RUNNING"}
 		}, ReasonDependencies, "task:b"},
 	}

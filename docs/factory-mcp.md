@@ -38,7 +38,7 @@ With explicit exits on (`FACTORY_EXPLICIT_EXITS=1`, see below) `factory_task_sub
 | factory_exit_done | `summary`: DONE (a repository task only with its pull request merged); on a conversation task "input handled", it stays open |
 | factory_exit_ask | `question`, `options?`, `category?`, `evidence?`: `ask` park and a question up the chain |
 | factory_exit_block | `on: [task]` or `on_children: true`, `reason`: waits on open tasks of the project or on open children; anything else (a closed or foreign task, a cycle, no open child) becomes an ask |
-| factory_exit_wait | `reason`, `deadline`, `wake_at` or `after`: `wait` park until the time (task-lifecycle.md, Waits) |
+| factory_exit_wait | `reason` and one of: `decision_id` (`decision` park until the decision is recorded or withdrawn), `from` + optional `topic` (`message` park until the next message from that agent or owner), `wake_at` or `after` with a `deadline` (`wait` park until the time); an event wait's `deadline` is optional and only escalates (task-lifecycle.md, Waits) |
 | factory_task_direct | `task_id`, `text`, `urgent?`, `request_id`: a directive (authority input) to a task you have authority over |
 
 Tool names use underscores for runtime interoperability; policy names keep dots. Task creation

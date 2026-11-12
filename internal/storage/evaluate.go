@@ -154,10 +154,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 			parks.Close()
 			return snap, err
 		}
-		p.Who = "owner"
-		if recipient != "" && recipient != "owner" {
-			p.Who = "agent:" + recipient
-		}
+		p.Who = parkWho(p.Kind, p.RefID, recipient)
 		snap.Parks = append(snap.Parks, p)
 	}
 	if err = parks.Err(); err != nil {
@@ -186,12 +183,26 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	if err = triggers.Close(); err != nil {
 		return snap, err
 	}
+	if slices.ContainsFunc(snap.Parks, func(p tasks.Park) bool { return p.Kind == tasks.ParkDecision || p.Kind == tasks.ParkMessage }) {
+		if snap.Awaits, err = eventAwaits(ctx, tx, t.ID); err != nil {
+			return snap, err
+		}
+	}
+	rooted := false
 	for _, dep := range t.Dependencies {
 		d, err := taskTx(ctx, tx, dep)
 		if err != nil {
 			return snap, err
 		}
-		snap.Dependencies = append(snap.Dependencies, tasks.Dependency{ID: d.ID, Status: d.Status})
+		dd := tasks.Dependency{ID: d.ID, Status: d.Status}
+		if d.Status != "DONE" && !rooted {
+			// The first open dependency is the one the verdict names: its root wait shows on this task too.
+			rooted = true
+			if dd.Awaits, err = rootAwaits(ctx, tx, d.ID, 3, map[string]bool{t.ID: true}); err != nil {
+				return snap, err
+			}
+		}
+		snap.Dependencies = append(snap.Dependencies, dd)
 	}
 	if slices.ContainsFunc(snap.Parks, func(p tasks.Park) bool { return p.Kind == tasks.ParkChildren }) {
 		children, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (body->>'parent_task_id')=? AND status NOT IN ('DONE','CANCELLED') ORDER BY created_at,id LIMIT 20", tx.company, t.ID)

@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { displayId } from "./format";
-import type { Tie, Wait } from "./api/types";
+import type { Awaits, Tie, Wait } from "./api/types";
 
 // Core explains why a task does not run as a CLI-shaped verdict (internal/tasks/state.go Evaluate and park):
 // a reason, a detail with raw IDs and statuses, and a clearer {who, action} whose action is often a
@@ -42,6 +42,22 @@ export interface Verdictish {
   status?: string;
   wait?: Wait;
   tie?: Tie;
+  awaits?: Awaits;
+}
+
+// decisionHref is where a decision is decided: its Inbox notice (decision-waits).
+export const decisionHref = (a: Awaits) => (a.message_id ? `/inbox?m=${encodeURIComponent(a.message_id)}` : "/inbox");
+
+// awaitsWords is an event wait in words: "Waits for your decision: tonemapper" or "Waits for a message from producer".
+export function awaitsWords(a: Awaits, look?: Lookup): { headline: string; who?: Party; you: boolean } {
+  const you = a.who === "owner";
+  if (a.kind === "decision") {
+    const topic = a.topic ? `: ${a.topic}` : "";
+    return { headline: you ? `Waits for your decision${topic}` : `Waits for a decision${topic}`, you,
+      who: { label: you ? "Decide" : "The decision", href: decisionHref(a), you } };
+  }
+  const from = a.from === "owner" ? "you" : a.from ?? "someone";
+  return { headline: `Waits for a message from ${from}${a.topic ? ` (${a.topic})` : ""}`, you, who: party(a.who, look) };
 }
 
 // tieNode is the tie's node as people know it (its name, else a short ID).
@@ -201,6 +217,17 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       case "wait":
         return out({ headline: "Sleeping", brief: "Wakes on its own", detail: note, who: undefined,
           next: "It wakes at its time; a comment or a directive wakes it now." });
+      case "decision": {
+        // decision-waits: parked on a decision, no timer; the decision wakes it with the outcome.
+        const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: base.you ? "Waits for your decision" : "Waits for a decision", who: p, you: base.you };
+        return out({ headline: w.headline, label: base.you ? "Waits for your decision" : "Waits for a decision", brief: base.you ? "Decide in the inbox" : undefined, detail: note, who: w.who,
+          next: base.you ? "Approve or reject the decision; it runs once with your answer." : "It runs once the decision is recorded." });
+      }
+      case "message": {
+        const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: "Waits for a message", who: p, you: base.you };
+        return out({ headline: w.headline, label: "Waits for a message", brief: base.you ? "Write to its agent" : undefined, detail: note, who: w.who,
+          next: base.you ? "Your next message to its agent in this project wakes it." : "The next message from them wakes it; a comment or a directive wakes it now." });
+      }
       default:
         return out({ headline: "On hold", detail: note, next: cleanText(action, look) || undefined });
     }
@@ -209,6 +236,14 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
     const id = who.startsWith("task:") ? who.slice(5) : /^dependency (\S+)/.exec(detail)?.[1] ?? "";
     const st = /\bis ([A-Z_]+)$/.exec(detail)?.[1] ?? look?.(id)?.status;
     const name = id ? taskName(id, look, true) : "another task";
+    if (v.awaits) {
+      // The root of the wait (decision-waits): the dependency waits for a decision or a message.
+      const w = awaitsWords(v.awaits, look);
+      const root = v.awaits.task_id && v.awaits.task_id !== id ? taskName(v.awaits.task_id, look, true) : "it";
+      return out({ headline: `Waiting for ${name}`, label: "Waiting for a dependency", brief: w.headline.replace(/^Waits/, "it waits"),
+        detail: `${taskName(id, look, true)} has to be done first; ${root} ${w.headline.replace(/^Waits/, "waits")}.`,
+        next: w.you && v.awaits.kind === "decision" ? "Decide in the inbox; both continue after that." : "It starts on its own when that task is done.", you: false });
+    }
     return out({ headline: `Waiting for ${name}`, label: "Waiting for a dependency", brief: st ? `it is ${statusWords(st)}` : undefined,
       detail: id ? `${taskName(id, look, true)} has to be done first${st ? `; it is ${statusWords(st)}` : ""}.` : "Another task has to be done first.",
       next: "It starts on its own when that task is done." });

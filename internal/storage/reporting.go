@@ -47,6 +47,10 @@ func exitFeed(ctx context.Context, tx *Tx, runID, agent string, before tasks.Tas
 			summary += " (" + out.Note + ")"
 		}
 	case "wait":
+		if eventWaitKind(a) != "" {
+			summary = feedEventWait(agent, a)
+			break
+		}
 		wake, deadline, _ := waitTimes(a, tx.now())
 		summary = fmt.Sprintf("%s waiting until %s (deadline %s): %s", agent, wake.UTC().Format(time.RFC3339), deadline.UTC().Format(time.RFC3339), str(a, "reason"))
 	}

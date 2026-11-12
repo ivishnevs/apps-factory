@@ -19,6 +19,20 @@ export function useDecision(id?: string) {
   return useQuery({ queryKey: ["decision", id], queryFn: () => api<Decision>(`/decisions/${encodeURIComponent(id!)}`), enabled: !!id, refetchInterval: 15_000 });
 }
 
+// Waiting (decision-waits): the tasks parked on the decision — “VP-2 and 3 more wait on this” — so the owner sees
+// what the decision blocks.
+function Waiting({ d }: { d: Decision }) {
+  const w = d.waiting ?? [];
+  if (w.length === 0) return null;
+  const first = w[0];
+  return (
+    <p className="text-xs text-amber-700 dark:text-amber-300">
+      <Link href={`/tasks/${encodeURIComponent(first.task_id)}`} className="font-medium underline-offset-2 hover:underline">{first.title || "A task"}</Link>
+      {w.length > 1 ? ` and ${w.length - 1} more wait` : " waits"} on this
+    </p>
+  );
+}
+
 export function DecisionCard({ id, compact, inChat }: { id: string; compact?: boolean; inChat?: boolean }) {
   const { data: d } = useDecision(id);
   const { run, pending } = useOwnerAction();
@@ -44,6 +58,7 @@ export function DecisionCard({ id, compact, inChat }: { id: string; compact?: bo
   return (
     <div className={cn("mt-3 space-y-3", compact && "text-sm")}>
       <p className="flex items-center gap-1.5 text-sm font-medium"><Scale className="size-3.5 opacity-70" />Decision: {d.topic}</p>
+      <Waiting d={d} />
       {!compact && d.rationale && <p className="text-sm text-muted-foreground">{d.rationale}</p>}
       <div role="radiogroup" aria-label={d.topic} className="grid gap-2">
         {options.map((o, i) => {
