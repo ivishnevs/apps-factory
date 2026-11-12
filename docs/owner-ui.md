@@ -127,7 +127,7 @@ it yet (below).
 who clears it, the queued run's cause with each node's answer, pending triggers, Core's active parks (kind,
 reason, what it waits on, who clears it, since when; from `GET /tasks/{id}/parks`, an older Core's from the
 feed events), dependencies, children, the body, every run with outcome,
-exit and cost, comments and recent events — with the actions: `p` pause · `u` resume · `r` retry · `n` run
+exit and cost, comments (a board comment with its outcome, `→ forwarded to manager by demo` or `not handled yet`) and recent events — with the actions: `p` pause · `u` resume · `r` retry · `n` run
 · `x` cancel (cascading to open children) · `a` reassign · `P` priority · `c` comment · `d` directive
 (`!text` is urgent and stops the live run) · `L` live run · `t` transcript · `o` open the PR · `f` flow.
 
@@ -578,14 +578,29 @@ are shown in plain words; IDs appear only where a person needs them.
   (or opened with `?project=`) is remembered per company in the browser (`localStorage`
   `factory.tasks.project.<company>`, tasks-project-memory): Tasks opened without `?project=` shows it again; All
   projects is remembered too; an archived or removed project is forgotten.
+- **Task page** comments (owner-comments-handled): under each of the owner's comments its outcome — "done by …",
+  "forwarded to … by …", "declined by …: why" or "not handled yet". A DONE or CANCELLED task has no comment box:
+  its text box offers **Reopen with comment** (the task goes back to its assignee with the comment) and **Ask the
+  lead about it** (a question to the project lead naming the task); Core refuses a plain comment there (409
+  `task_closed`), so the TUI, CLI and Telegram behave the same.
 - **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
   page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
   button while it runs (project-pause-visible). Nodes & control still lists every pause.
+- **Task materials** (a task's page, `GET /api/tasks/{id}/materials`, task-result-first): report files, artifact
+  versions (with the archive's images) and pull requests. The task's **result** is what its last accepted submit or
+  done exit named in `artifacts` (`result: true`, listed first in the order named; a submission made outside explicit
+  exits counts too). A finished task leads with the result's first image or document as a card, the rest of the
+  result and the pull requests right under it; everything else (samples, drafts, the storyboard, earlier versions)
+  folds under **Earlier versions**, grouped by artifact, newest first, each with its approval and the board's comment.
+  Without a result the newest material with content leads and only an artifact's older versions fold away. Every row
+  names its artifact and version (`artifact_id`, `version`: "01-hero.png · screenshots-sample v2"). The Library keeps
+  its full list, one card per artifact.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies
   (owners and admins), showing the code the terminal printed.
-- **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Members (everyone reads;
+- **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Company rules (the standing
+  rules every agent's brief carries, up to 8 KB; owners and admins edit, everyone reads; company-rules-web), Members (everyone reads;
   owners change roles and remove; the last owner stays), Projects (name, repository, branch, team), Integrations
   (Telegram: the company's bot from a @BotFather token — owners and admins; Connect Telegram for one's own chat with
   a t.me link, the daily digest switch, Disconnect; see [messaging](messaging.md#telegram)), Access tokens

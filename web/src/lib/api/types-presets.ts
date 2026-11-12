@@ -24,7 +24,7 @@ export interface AgentSpec {
   // work-and-conversation-runs: max_concurrent_runs limits work runs; conversation.max_concurrent_runs conversation runs (0: no cap).
   execution?: { timeout?: string; max_concurrent_runs?: number; max_concurrent_runs_per_project?: number; max_retries?: number; conversation?: { max_concurrent_runs?: number; share_work_limit?: boolean } };
   prompt?: { file?: string };
-  communication?: { can_message?: string[]; can_create_tasks?: boolean; can_assign_tasks?: boolean };
+  communication?: { can_message?: string[]; can_create_tasks?: boolean; can_assign_tasks?: boolean | "none" | "direct_reports" | "subtree" | string[] };
   skills?: { include?: string[] };
   capabilities?: string[];
   [k: string]: unknown;

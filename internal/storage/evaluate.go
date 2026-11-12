@@ -94,7 +94,7 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		}
 		_ = json.Unmarshal(labels, &n.Labels)
 		_ = json.Unmarshal(resources, &n.Resources)
-		n.Paused = diskCritical(health)
+		n.Disk = readDisk(health).tasksDisk()
 		out = append(out, n)
 		epochs = append(epochs, epoch)
 	}
@@ -103,6 +103,27 @@ func nodesTx(ctx context.Context, tx *Tx) ([]tasks.Node, error) {
 		return nil, err
 	}
 	rows.Close()
+	// The owner's node pauses (disk-pause-conversations 2.1: the verdict names them and their reason).
+	pauses := map[string]string{}
+	prows, err := tx.QueryContext(ctx, "SELECT target,reason FROM pauses WHERE company_id=? AND scope='node'", tx.company)
+	if err != nil {
+		return nil, err
+	}
+	for prows.Next() {
+		var target, reason string
+		if err = prows.Scan(&target, &reason); err != nil {
+			prows.Close()
+			return nil, err
+		}
+		pauses[target] = reason
+	}
+	prows.Close()
+	if err = prows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].PauseReason, out[i].OwnerPaused = pauses[out[i].ID]
+	}
 	faults, err := companyFaults(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -154,10 +175,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 			parks.Close()
 			return snap, err
 		}
-		p.Who = "owner"
-		if recipient != "" && recipient != "owner" {
-			p.Who = "agent:" + recipient
-		}
+		p.Who = parkWho(p.Kind, p.RefID, recipient)
 		snap.Parks = append(snap.Parks, p)
 	}
 	if err = parks.Err(); err != nil {
@@ -186,12 +204,26 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	if err = triggers.Close(); err != nil {
 		return snap, err
 	}
+	if slices.ContainsFunc(snap.Parks, func(p tasks.Park) bool { return p.Kind == tasks.ParkDecision || p.Kind == tasks.ParkMessage }) {
+		if snap.Awaits, err = eventAwaits(ctx, tx, t.ID); err != nil {
+			return snap, err
+		}
+	}
+	rooted := false
 	for _, dep := range t.Dependencies {
 		d, err := taskTx(ctx, tx, dep)
 		if err != nil {
 			return snap, err
 		}
-		snap.Dependencies = append(snap.Dependencies, tasks.Dependency{ID: d.ID, Status: d.Status, Person: personLabel(ctx, tx, d.Assignee)})
+		dd := tasks.Dependency{ID: d.ID, Status: d.Status, Person: personLabel(ctx, tx, d.Assignee)}
+		if d.Status != "DONE" && !rooted {
+			// The first open dependency is the one the verdict names: its root wait shows on this task too.
+			rooted = true
+			if dd.Awaits, err = rootAwaits(ctx, tx, d.ID, 3, map[string]bool{t.ID: true}); err != nil {
+				return snap, err
+			}
+		}
+		snap.Dependencies = append(snap.Dependencies, dd)
 	}
 	snap.Person = personLabel(ctx, tx, t.Assignee)
 	if slices.ContainsFunc(snap.Parks, func(p tasks.Park) bool { return p.Kind == tasks.ParkChildren }) {

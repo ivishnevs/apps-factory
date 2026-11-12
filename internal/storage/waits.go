@@ -227,6 +227,10 @@ func (s *Store) ExpireWaits(ctx context.Context, company string) error {
 			return err
 		}
 	}
+	// Event waits past their deadline escalate; they never wake on a timer (decision-waits).
+	if err = expireEventDeadlines(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

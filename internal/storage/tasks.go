@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"appfactory/internal/artifacts"
@@ -462,6 +463,14 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 			}
 			t.Status = "READY" // unapproved required artifacts hold it (reads show BLOCKED)
 		}
+		// task-duplicate-warnings: covered work (explicit or inferred) and the tasks this one replaces.
+		if err := coverTask(ctx, tx, &t, in.Covers, true); err != nil {
+			return t, err
+		}
+		replaced, err := replaceable(ctx, tx, &t, in.Replaces)
+		if err != nil {
+			return t, err
+		}
 		b, _ := json.Marshal(t)
 		if _, err := tx.ExecContext(ctx, "INSERT INTO tasks(id,project_id,status,assignee,priority,version,body,created_at,company_id) VALUES(?,?,?,?,?,?,?,?,?)", t.ID, t.ProjectID, t.Status, t.Assignee, t.Priority, t.Version, b, t.CreatedAt, tx.company); err != nil {
 			return t, err
@@ -472,11 +481,29 @@ func (s *Store) CreateTask(ctx context.Context, company string, in tasks.Create)
 		if err := entityEvent(ctx, tx, "task.created", t.ProjectID, t.ID, t); err != nil {
 			return t, err
 		}
-		if in.Ready {
-			return t, addTrigger(ctx, tx, &t, "created_ready", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", "created ready")
+		if err := replaceTasks(ctx, tx, t, replaced, in.Actor, in.CancelAllowed); err != nil {
+			return t, err
 		}
-		return t, nil
+		if in.Ready {
+			if err := addTrigger(ctx, tx, &t, "created_ready", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", "created ready"); err != nil {
+				return t, err
+			}
+		}
+		return t, warnDuplicates(ctx, tx, &t)
 	})
+}
+
+// warnDuplicates sets the duplicate warnings of a create or update answer (a warning never refuses the change).
+func warnDuplicates(ctx context.Context, tx *Tx, t *tasks.Task) error {
+	ws, err := duplicateCheck(ctx, tx, *t)
+	if err != nil {
+		return err
+	}
+	t.Warnings = ws
+	if slices.ContainsFunc(ws, tasks.DuplicateWarning.Strong) {
+		t.DuplicateHint = tasks.DuplicateHint
+	}
+	return nil
 }
 
 // ErrCycle refuses a parent/dependency combination in which a task would wait on itself.
@@ -578,7 +605,9 @@ func saveTaskNote(ctx context.Context, tx *Tx, t *tasks.Task, kind, note string)
 	old := t.Version
 	t.Version++
 	t.UpdatedAt = tx.now().Unix()
-	b, err := json.Marshal(t)
+	stored := *t // fields set on reads and answers are not stored
+	stored.NotDuplicateOf, stored.PossibleDuplicates, stored.Warnings, stored.DuplicateHint = nil, nil, nil, ""
+	b, err := json.Marshal(stored)
 	if err != nil {
 		return err
 	}
@@ -597,6 +626,10 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
+		}
+		if in.OnlyNotDuplicate() {
+			// Marking a pair not duplicate changes no task: any status, no version.
+			return t, markNotDuplicate(ctx, tx, t, in.NotDuplicateOf, in.Actor)
 		}
 		if t.Version != in.Version {
 			return t, ErrConflict
@@ -620,6 +653,7 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 		if err = editableRun(ctx, tx, t); err != nil {
 			return t, err
 		}
+		before := t
 		if in.Title != nil {
 			t.Title = *in.Title
 		}
@@ -681,11 +715,43 @@ func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Upd
 				return t, err
 			}
 		}
+		// task-duplicate-warnings: explicit covers replace the keys; a changed text infers inferred keys again.
+		textChanged := in.Title != nil && *in.Title != before.Title || in.Description != nil && *in.Description != before.Description
+		if in.OpenSpecChange != nil {
+			t.OpenSpecChangeInferred = false
+		}
+		switch {
+		case in.Covers != nil:
+			err = coverTask(ctx, tx, &t, *in.Covers, false)
+		case (textChanged || in.OpenSpecChange != nil) && (len(t.Covers) == 0 || t.CoversInferred):
+			err = coverTask(ctx, tx, &t, nil, false)
+		}
+		if err != nil {
+			return t, err
+		}
+		replaced, err := replaceable(ctx, tx, &t, in.Replaces)
+		if err != nil {
+			return t, err
+		}
 		if err = saveTask(ctx, tx, &t, "task.updated"); err != nil {
 			return t, err
 		}
+		if err = replaceTasks(ctx, tx, t, replaced, in.Actor, in.CancelAllowed); err != nil {
+			return t, err
+		}
+		if len(in.NotDuplicateOf) > 0 {
+			if err = markNotDuplicate(ctx, tx, t, in.NotDuplicateOf, in.Actor); err != nil {
+				return t, err
+			}
+		}
 		if t.Assignee != "" && t.Assignee != previousAssignee {
-			err = addTrigger(ctx, tx, &t, "assignment", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", "assigned to "+t.Assignee)
+			if err = addTrigger(ctx, tx, &t, "assignment", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", "assigned to "+t.Assignee); err != nil {
+				return t, err
+			}
+		}
+		// The check runs again when what it compares changed: title, covers, change, assignee or replaces.
+		if t.Title != before.Title || !slices.Equal(t.Covers, before.Covers) || t.OpenSpecChange != before.OpenSpecChange || t.Assignee != before.Assignee || len(replaced) > 0 {
+			err = warnDuplicates(ctx, tx, &t)
 		}
 		return t, err
 	})
@@ -904,6 +970,12 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if text == "" {
 		return nil
 	}
+	_, err := commentWith(ctx, tx, id, author, text, "")
+	return err
+}
+
+// commentWith adds a comment with its locked category (owner-comments-handled) and returns its id.
+func commentWith(ctx context.Context, tx *Tx, id, author, text, category string) (string, error) {
 	if author == "" {
 		author = "owner"
 	}
@@ -911,8 +983,9 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if author == "owner" {
 		person = personName(ctx)
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person) VALUES(?,?,?,?,?,?,?)", protocol.ID(), id, author, text, tx.now().Unix(), tx.company, person)
-	return err
+	cid := protocol.ID()
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person,category) VALUES(?,?,?,?,?,?,?,?)", cid, id, author, text, tx.now().Unix(), tx.company, person, category)
+	return cid, err
 }
 func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {
 	return listDocs[protocol.Envelope](ctx, s.DB, "SELECT body FROM entity_events WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR entity_id=?) ORDER BY seq", company, project, project, id, id)

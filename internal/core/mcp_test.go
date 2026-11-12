@@ -32,7 +32,7 @@ func TestRunScopedMCP(t *testing.T) {
 	}
 	a := catalog.Agents["demo"]
 	a.Spec.Communication.CanCreateTasks = true
-	a.Spec.Communication.CanAssignTasks = true
+	a.Spec.Communication.CanAssignTasks = config.AssignScope{Mode: config.AssignDirectReports}
 	catalog.Agents["demo"] = a
 	reviewer := a
 	reviewer.Metadata.Name = "reviewer"

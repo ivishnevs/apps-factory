@@ -38,7 +38,8 @@ func TestEvaluateNodeReasons(t *testing.T) {
 		{"no driver", func(s *Snapshot) { s.Needs.Provider = "claude" }, ReasonNoCapableNode, "no usable claude driver"},
 		{"too few of a class", func(s *Snapshot) { s.Needs.Resources["simulator"] = 2 }, ReasonNoCapableNode, "has 1 simulator, the run needs 2"},
 		{"capable node offline", func(s *Snapshot) { s.Nodes[0].Online = false }, ReasonNoCapableNode, "capable nodes are unavailable: mini-1 (n1) offline"},
-		{"capable node paused", func(s *Snapshot) { s.Nodes[0].Paused = true }, ReasonNoCapableNode, "mini-1 (n1) paused"},
+		{"capable node paused by the owner", func(s *Snapshot) { s.Nodes[0].OwnerPaused, s.Nodes[0].PauseReason = true, "maintenance" }, ReasonNoCapableNode, "mini-1 (n1) paused by the owner: maintenance"},
+		{"capable node disk critical", func(s *Snapshot) { s.Nodes[0].Disk = &NodeDisk{Free: 36 << 30 / 10, Critical: 5 << 30, Floor: 1 << 30} }, ReasonNodeDiskCritical, "mini-1: disk critical, 3.6 GiB free (critical 5 GiB)"},
 		{"class held", func(s *Snapshot) { s.Nodes[0].Held, s.Nodes[0].Used["simulator"] = 1, 1 }, ReasonCapacity, "resource simulator: 1 of 1 held"},
 		{"slots held", func(s *Snapshot) { s.Nodes[0].Held = 2 }, ReasonCapacity, "all 2 slots held"},
 		{"agent busy first", func(s *Snapshot) {
@@ -88,6 +89,13 @@ func TestEvaluateNodeReasons(t *testing.T) {
 	if w := s.nodeReason(true).Wait; w == nil || w.Kind != WaitPinnedNode || w.Node != "mini-1 (n1)" {
 		t.Fatalf("pinned to a full node: wait %+v", w)
 	}
+	// disk-pause-conversations 2.1: a pinned node paused for its disk names the fix.
+	s = base()
+	s.PinnedNode, s.Nodes[0].Disk = "n1", &NodeDisk{Free: 4 << 30, Critical: 5 << 30, Floor: 1 << 30}
+	if v := Evaluate(s); v.Reason != ReasonCapacity || !strings.Contains(v.Detail, "the node is paused: disk critical, 4 GiB free (critical 5 GiB)") || v.Clearer.Action != "free disk on mini-1; it resumes by itself above 5 GiB" {
+		t.Fatalf("pinned to a disk-paused node: %+v", v)
+	}
+
 	// The escalation check ignores parks and needs: an escalated task is still pinned_node_unavailable.
 	s = base()
 	s.PinnedNode, s.Needs, s.Parks = "gone", NodeNeeds{}, []Park{{Kind: ParkEscalation, RefID: "m1", Reason: "pinned"}}
@@ -120,5 +128,53 @@ func TestEvaluateTie(t *testing.T) {
 	s.Task.Status = "DONE"
 	if v = Evaluate(s); v.Tie != nil {
 		t.Fatal("terminal task tied", v.Tie)
+	}
+}
+
+// TestDiskPauseVerdicts (disk-pause-conversations 1.2, 2.1): a node paused for a critical disk holds work with
+// node_disk_critical and the fix (free disk; it resumes by itself), not "start or fix a node"; it still takes a
+// conversation unless its disk is below the conversation floor; an owner pause says to resume the node with the
+// owner's reason; "start or fix a node" stays for offline or incapable nodes.
+func TestDiskPauseVerdicts(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	base := func(kind string) Snapshot {
+		s := ready()
+		s.Task.Kind, s.Task.ProjectID, s.Now = kind, "wrappie", now
+		s.Nodes = []Node{{ID: "n1", Name: "tvorog-mac", Online: true, LastSeen: now.Unix(), Slots: 2, ConversationSlots: 1, Drivers: []NodeDriver{{Name: "claude", OK: true}}, Used: map[string]int{},
+			Disk: &NodeDisk{Free: 36 << 30 / 10, Critical: 5 << 30, Floor: 1 << 30}}}
+		s.Needs = NodeNeeds{Provider: "claude"}
+		return s
+	}
+	work := Evaluate(base(""))
+	if work.Reason != ReasonNodeDiskCritical || work.Detail != "tvorog-mac: disk critical, 3.6 GiB free (critical 5 GiB)" ||
+		work.Clearer.Who != "owner" || work.Clearer.Action != "free disk on tvorog-mac; it resumes by itself above 5 GiB" {
+		t.Fatalf("work task on a disk-paused node: %+v", work)
+	}
+	if v := Evaluate(base(KindConversation)); v.Reason != ReasonRunnable {
+		t.Fatalf("conversation on a disk-paused node above the floor: %+v", v)
+	}
+	full := base(KindConversation)
+	full.Nodes[0].Disk.Free, full.Nodes[0].Disk.Full = 1<<29, true
+	if v := Evaluate(full); v.Reason != ReasonNodeDiskCritical || v.Clearer.Action != "free disk on tvorog-mac; it resumes by itself above 1 GiB" || !strings.Contains(v.Detail, "below the conversation floor 1 GiB") {
+		t.Fatalf("conversation below the floor: %+v", v)
+	}
+	owner := base("")
+	owner.Nodes[0].Disk, owner.Nodes[0].OwnerPaused, owner.Nodes[0].PauseReason = nil, true, "moving the Mac"
+	if v := Evaluate(owner); v.Reason != ReasonNoCapableNode || v.Clearer.Action != "resume node tvorog-mac (paused by the owner: moving the Mac)" {
+		t.Fatalf("owner pause: %+v", v)
+	}
+	if v := Evaluate(func() Snapshot { s := owner; s.Task.Kind = KindConversation; return s }()); v.Reason != ReasonNoCapableNode {
+		t.Fatalf("an owner pause stops conversations too: %+v", v)
+	}
+	offline := base("")
+	offline.Nodes[0].Disk, offline.Nodes[0].Online = nil, false
+	if v := Evaluate(offline); v.Reason != ReasonNoCapableNode || !strings.HasPrefix(v.Clearer.Action, "start or fix a node with driver claude") {
+		t.Fatalf("offline: %+v", v)
+	}
+	// Mixed: the disk pause comes first (it clears by itself once space is freed) and the detail lists the rest.
+	mixed := base("")
+	mixed.Nodes = append(mixed.Nodes, Node{ID: "n2", Name: "box", Online: false, Slots: 1, Drivers: []NodeDriver{{Name: "claude", OK: true}}})
+	if v := Evaluate(mixed); v.Reason != ReasonNodeDiskCritical || !strings.Contains(v.Detail, "box (n2) offline") {
+		t.Fatalf("mixed: %+v", v)
 	}
 }

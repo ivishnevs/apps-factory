@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleUserRound, Clock, Hand, Loader2, Pin } from "lucide-react";
+import { CircleUserRound, Clock, Copy, Hand, Loader2, Pin } from "lucide-react";
 import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import type { FactoryNode, QueuedReason, Run, Task } from "@/lib/api/types";
@@ -84,6 +84,8 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
   const col = column && columns.find((c) => c.key === column);
   const badge = !col && ["CANCELLED", "BLOCKED", "REWORK"].includes(task.status);
   const yours = needsOwner(task), action = !yours && needsAction(task);
+  // task-duplicate-warnings: an unanswered warning that another open task covers the same work.
+  const dup = task.possible_duplicates?.length ?? 0;
   const node = run?.node_id ? nodes?.find((n) => n.node_id === run.node_id)?.name ?? run.node_id.slice(0, 8) : "";
   const live = run && run.status !== "QUEUED" && run.started_at > 0;
   // node-ties: a task tied to a node by its unsaved work runs only there; the card names that node.
@@ -99,6 +101,12 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
         <span aria-hidden className="text-muted-foreground/40">·</span>
         <span className="min-w-0 truncate">{project}</span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
+          {dup > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 text-[11px] font-medium leading-5 text-amber-700 dark:text-amber-300"
+              title={`Possible duplicate of ${task.possible_duplicates?.map((d) => `${displayId(d.task_id)} ${d.title}`).join(", ")}`}>
+              <Copy aria-hidden className="size-3" />duplicate?
+            </span>
+          )}
           {badge && <StatusBadge value={task.status} className="h-5 px-1.5 text-[11px]" />}
           {col && <span className={cn("rounded-full px-1.5 text-[11px] font-medium leading-5", toneClass(col.key === "done" ? task.status : col.tone))}>{col.key === "done" ? task.status.toLowerCase() : col.name.toLowerCase()}</span>}
           <PriorityMark value={task.priority} showValue={false} />

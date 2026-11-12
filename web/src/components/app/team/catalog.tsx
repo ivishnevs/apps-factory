@@ -54,7 +54,8 @@ export function MemberCard({ m, onOpen, onSkills, onEdit, runs }: { m: TeamMembe
           </div>
           {m.description && <p className="mt-0.5 text-sm text-muted-foreground">{m.description}</p>}
           <p className="mt-2 text-xs text-muted-foreground">
-            Reports to <span className="font-medium text-foreground">{m.reports_to === "owner" ? "you" : m.reports_to}</span> · runs on {m.provider === "claude" ? "Claude" : m.provider === "codex" ? "Codex" : m.provider}{m.model && m.model !== "default" ? ` (${m.model})` : ""}
+            Reports to <span className="font-medium text-foreground">{m.reports_to === "owner" ? "you" : m.reports_to}</span>
+            {(m.assigns_to?.length ?? 0) > 0 && <> · assigns work to <span className="text-foreground">{m.assigns_to!.join(", ")}</span></>} · runs on {m.provider === "claude" ? "Claude" : m.provider === "codex" ? "Codex" : m.provider}{m.model && m.model !== "default" ? ` (${m.model})` : ""}
           </p>
           {(m.review_required || m.reviewer || (m.review_paths?.length ?? 0) > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">

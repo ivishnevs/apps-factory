@@ -1,5 +1,11 @@
 Status: proposed 2026-11-07 by the owner ("I added the secret, but I cannot give it to the agent in the agent's UI").
-Nothing implemented.
+Implemented 2026-11-12: Core routes (agent secret uses, own uses, give a secret to agents, wrong-kind refusal), the agent
+editor's Secrets section, the Secrets page's "Give to an agent", tests and an end-to-end test with a node.
+Decisions made while implementing: the editor's secret changes save at once as their own catalog change (not with the
+form's Save), so each gets its note; the reverse mismatch (a text secret as a file) is refused too; a wrong-kind use the
+agent already had is kept and marked rather than blocking its other edits; the kind check runs on the team-builder
+routes (editor, Secrets page, `PUT /catalog/agents/{name}`), not on raw catalog pushes or the YAML editor, where a
+missing secret may be set later; a secret not yet set can still be named through the API (the agent waits).
 
 ## Why
 

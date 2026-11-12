@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -22,9 +23,9 @@ import (
 //	node.online           a node that was offline is seen again
 //	node.offline          silent for NodeOffline (no attention); again with attention after OfflineAttention
 //	node.low_disk         health.disk low or critical; re-armed when it is ok again (attention)
-//	node.disk_critical    health.disk critical; Core answers pause (attention); re-armed at ok
+//	node.disk_critical    health.disk critical; Core answers pause_work (attention, reaches Telegram); re-armed at ok
 //	node.disk_ok          health.disk ok after an alert
-//	node.paused           Core started answering pause; node.resumed when it stops
+//	node.paused           Core started answering pause_work (critical disk); node.resumed when it stops
 //	node.restart_loop     RestartLoopCount process restarts within RestartLoopWindow (attention)
 //	node.check_failed     a self-check started failing; ref is the check name (attention)
 //	node.check_passed     a failing self-check passes again; ref is the check name
@@ -151,7 +152,7 @@ func markNodeSeen(ctx context.Context, tx *Tx, id string) error {
 }
 
 // nodeHealthEvents judges a heartbeat's health against what was raised before and returns whether Core
-// answers pause (critical disk; an unreadable disk keeps the last answer).
+// answers pause_work (critical disk; an unreadable disk keeps the last answer).
 func nodeHealthEvents(ctx context.Context, tx *Tx, id string, health json.RawMessage) (bool, error) {
 	var name, failedJSON string
 	var diskAlerts int
@@ -179,7 +180,11 @@ func nodeHealthEvents(ctx context.Context, tx *Tx, id string, health json.RawMes
 		}
 		if err == nil && h.Disk == "critical" && diskAlerts&criticalBit == 0 {
 			diskAlerts |= criticalBit
-			err = ev("node.disk_critical", "free disk below the critical watermark; claims paused until space is freed", "", true)
+			// disk-pause-conversations: the owner learns the node, the space and the fix where they wait (Inbox
+			// feed, Telegram), once per episode.
+			d := readDisk(health)
+			err = ev("node.disk_critical", d.what()+": work and review runs wait, conversations continue; free disk on "+cmp.Or(name, id)+
+				", it resumes by itself "+d.tasksDisk().Resumes(false), "", true)
 		}
 	}
 	if err != nil {
@@ -191,9 +196,9 @@ func nodeHealthEvents(ctx context.Context, tx *Tx, id string, health json.RawMes
 	}
 	switch {
 	case pause && !paused:
-		err = ev("node.paused", "Core pauses claims on this node (critical disk)", "", false)
+		err = ev("node.paused", "Core pauses work and review claims on this node (critical disk); conversations continue", "", false)
 	case !pause && paused:
-		err = ev("node.resumed", "claims resume on this node", "", false)
+		err = ev("node.resumed", "work claims resume on this node", "", false)
 	}
 	if err != nil {
 		return false, err

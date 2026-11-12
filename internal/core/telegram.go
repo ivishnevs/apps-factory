@@ -515,6 +515,11 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 	out := []telegram.Item{}
 	asked := map[string]bool{}
 	for _, f := range page.Items {
+		if f.Type == "task.possible_duplicate" {
+			// For the creating manager (its feed and the board), not a message to people (task-duplicate-warnings).
+			out = append(out, telegram.Item{Seq: f.Sequence})
+			continue
+		}
 		where := strings.Trim(f.ProjectID+"/"+f.TaskID, "/")
 		it := telegram.Item{Seq: f.Sequence, Text: fmt.Sprintf("⚠ %s %s: %s", where, f.Type, f.Summary)}
 		if d, m, ok := b.proposalOf(ctx, f); ok {

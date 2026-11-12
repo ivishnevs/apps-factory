@@ -125,7 +125,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	// Messages addressed to the agent (conversation task triggers, hierarchy D5).
 	var messages []string
 	for _, g := range triggers {
-		if g.kind == "message" && g.ref != "" {
+		if (g.kind == "message" || g.kind == "message_received") && g.ref != "" {
 			messages = append(messages, g.ref)
 		}
 	}
@@ -152,6 +152,13 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 		if cm.CreatedAt > prev.started && cm.Author != t.Assignee {
 			fmt.Fprintf(&b, "Comment by %s: %s\n", cm.Author, briefExcerpt(cm.Text, 2*1024))
 		}
+	}
+	// owner-comments-handled: the board comments this run owes an outcome for; the lead's quiet copy.
+	if err = commentsBrief(ctx, tx, &b, t, spec.Agent); err != nil {
+		return "", err
+	}
+	if err = leadCopy(ctx, tx, &b, t, spec.Agent, since); err != nil {
+		return "", err
 	}
 	created, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (body->>'origin_task')=? ORDER BY created_at,id", tx.company, t.ID)
 	if err != nil {
@@ -230,7 +237,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			b.WriteString("When you need the person to choose or confirm, ask with factory_owner_ask and list the options (they get buttons in this chat); do not end a reply with a question they cannot answer there. For a decision with options, use factory_decision_propose with the recommendation as value and the rest as alternatives; they approve, pick or reject it here and you get the outcome, so do not also request approval of factory_decision_record. When their answer here already is the decision, record it with factory_decision_decide only in a delegated category; otherwise propose it once.\n")
 		}
 	} else if tx.store.ExplicitExits {
-		b.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (until a time). Read authority_input in tool results: directives win over the plan.\n")
+		b.WriteString("End the run with exactly one factory_exit_* call: submit (for review, clean tree), done (finished; merge your pull request first), handoff (another agent or yourself later), ask (a question you cannot continue without), block (wait on other tasks or your children) or wait (on a pending decision with decision_id, on a message with from, or until a time). Read authority_input in tool results: directives win over the plan.\n")
 	} else {
 		b.WriteString("Finish with a concise submission summary, changed files and checks. Your completed turn submits this task for review; it does not accept the task.\n")
 	}
@@ -244,10 +251,23 @@ func briefExcerpt(s string, limit int) string {
 	return s[:limit] + "\n[truncated; read the full task/attempt through Factory CLI when needed]"
 }
 
+// diskBriefNote tells a conversation run on a node paused for a critical disk what that means for the owner
+// (disk-pause-conversations 1.3): the agent answers, but new work and review runs wait until space is freed.
+func diskBriefNote(node string, d nodeDisk) string {
+	space := "below its critical watermark"
+	if d.Critical > 0 {
+		space = tasks.GiB(d.Free) + " free, critical watermark " + tasks.GiB(d.Critical)
+	}
+	return fmt.Sprintf("Node status: the disk of node %s is critical (%s). Factory paused new work and review runs on %s until disk space is freed; it resumes by itself %s. Conversations like this one continue. "+
+		"If you start or hand off work, tell the owner that new work waits until disk space is freed on %s (or another node takes it) instead of promising it starts now.\n\n",
+		node, space, node, d.tasksDisk().Resumes(false), node)
+}
+
 // briefClaim builds and stores the brief of a task run being claimed, with its brief window. A run without
 // a task (a message delivery or a direct run) keeps the prompt it was created with. With history the brief
-// starts with the conversation's recent history (a conversation starting a fresh session on another node).
-func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, history bool) error {
+// starts with the conversation's recent history (a conversation starting a fresh session on another node); a note
+// (the node's disk state) comes first.
+func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, history bool, note string) error {
 	if spec.TaskID == "" {
 		return nil
 	}
@@ -274,8 +294,13 @@ func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, 
 		}
 		spec.Prompt = h + spec.Prompt
 	}
+	spec.Prompt = note + spec.Prompt
 	b, err := json.Marshal(spec)
 	if err != nil {
+		return err
+	}
+	// The open board comments of the task are shown to this run (owner-comments-handled).
+	if _, err = tx.ExecContext(ctx, "UPDATE comment_outcomes SET shown_run=? WHERE company_id=? AND task_id=? AND status='open'", id, tx.company, t.ID); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE runs SET spec=?,brief_from=?,brief_to=? WHERE company_id=? AND id=?", b, from, to, tx.company, id)

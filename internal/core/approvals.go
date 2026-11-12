@@ -159,7 +159,7 @@ func (c *Core) approvalTool(w http.ResponseWriter, r *http.Request, p factorytoo
 			http.Error(w, "owner communication permission required", 403)
 			return
 		}
-		if assignee, _ := call.Arguments["assignee"].(string); assignee != "" && (!a.Spec.Communication.CanAssignTasks || a.Authorize("factory.task.assign").Effect == "deny") {
+		if assignee, _ := call.Arguments["assignee"].(string); assignee != "" && (config.AssignRefusal(c.cat(c.companyFrom(r)).Agents, run.Spec.Agent, assignee) != "" || a.Authorize("factory.task.assign").Effect == "deny") {
 			http.Error(w, "assignment denied", 403)
 			return
 		}

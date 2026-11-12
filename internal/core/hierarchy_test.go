@@ -421,3 +421,37 @@ func TestDelegatedClosedAndSubtreeBrief(t *testing.T) {
 		}
 	}
 }
+
+// TestAssignmentScope (assign-by-hierarchy 1.2): a manager assigns, creates for and reassigns to its direct reports
+// only; a task for a deeper agent is refused naming the manager to give it to; the owner assigns to anyone.
+func TestAssignmentScope(t *testing.T) {
+	h := newExitHarness(t)
+	// calorie-qa moves under calorie-ios: calorie-manager → calorie-ios → calorie-qa.
+	qa := h.c.Agents["calorie-qa"]
+	qa.Spec.ReportsTo = "calorie-ios"
+	h.c.Agents["calorie-qa"] = qa
+	create := func(actor, assignee, id string) (int, string) {
+		t.Helper()
+		body := map[string]any{"project_id": "notes", "title": id, "assignee": assignee, "request_id": id}
+		if actor != "" {
+			body["actor"] = actor
+		}
+		w := h.do(h.c.Token, "POST", "/tasks", body, nil)
+		return w.Code, w.Body.String()
+	}
+	if code, body := create("calorie-manager", "calorie-qa", "past-the-lead"); code != 403 || !strings.Contains(body, "give the task to calorie-ios") {
+		t.Fatal(code, body)
+	}
+	if code, body := create("calorie-manager", "calorie-ios", "to-a-report"); code != 200 {
+		t.Fatal(code, body)
+	}
+	if code, body := create("", "calorie-qa", "by-the-owner"); code != 200 {
+		t.Fatal(code, body)
+	}
+	// Reassigning past the direct report is refused the same way.
+	h.create("ios-task", "notes", "calorie-ios")
+	w := h.do(h.c.Token, "POST", "/tasks/ios-task/reassign", map[string]any{"version": h.task("ios-task").Version, "actor": "calorie-manager", "assignee": "calorie-qa", "request_id": "re"}, nil)
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "give the task to calorie-ios") || h.task("ios-task").Assignee != "calorie-ios" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

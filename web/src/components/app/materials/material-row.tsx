@@ -9,10 +9,12 @@ import { ApprovalBadge, ArchivedBadge, KindIcon, PRBadge, authorName, kinds, mat
 
 // MaterialRow is one material in a list: its icon, name and who made it when. A file opens the viewer
 // (onOpen); a link or a pull request opens where it lives, in a new tab.
-export function MaterialRow({ m, now, onOpen, context, className }: {
+export function MaterialRow({ m, now, onOpen, context, title, className }: {
   m: Material; now: number; onOpen: (m: Material) => void;
-  // context is shown under the name in the Library: the task and the project.
-  context?: React.ReactNode; className?: string;
+  // context is shown under the name in the Library: the task and the project; on a task, the board's approval comment.
+  context?: React.ReactNode;
+  // title replaces the name (a task's rows add the artifact and version: task-result-first).
+  title?: string; className?: string;
 }) {
   const ago = since(m.created_at, now);
   const archived = m.versions?.filter((v) => v.archived_at).length ?? 0;
@@ -23,7 +25,7 @@ export function MaterialRow({ m, now, onOpen, context, className }: {
       <KindIcon kind={m.kind} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-[15px] font-medium sm:text-sm" title={m.path || m.name}>{materialTitle(m)}</span>
+          <span className="min-w-0 truncate text-[15px] font-medium sm:text-sm" title={m.path || m.name}>{title ?? materialTitle(m)}</span>
           {m.pr && <PRBadge state={m.pr.state} className="shrink-0" />}
           {m.approval && <ApprovalBadge status={m.approval.status} className="hidden shrink-0 sm:inline-flex" />}
           {!!m.archived_at && <ArchivedBadge at={m.archived_at} reason={m.archived_reason} className="shrink-0" />}

@@ -190,7 +190,33 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 	if err != nil {
 		return err
 	}
-	return c.Store.SyncAlerts(ctx, company, "no_progress", noProgress)
+	if err = c.Store.SyncAlerts(ctx, company, "no_progress", noProgress); err != nil {
+		return err
+	}
+	return c.sweepComments(ctx, company)
+}
+
+// sweepComments wakes the project lead for board comments without the outcome done past the team's limit, and
+// alerts the owner about comments that runs keep ending without handling (owner-comments-handled).
+func (c *Core) sweepComments(ctx context.Context, company string) error {
+	cat := c.cat(company)
+	limit := func(team string) time.Duration {
+		if t, ok := cat.Teams[team]; ok {
+			return t.CommentLimit()
+		}
+		if lead := cat.Lead(team); lead != "" {
+			return cat.Teams[cat.TeamOf(lead)].CommentLimit()
+		}
+		return config.DefaultCommentOutcomeWithin
+	}
+	if _, err := c.Store.CommentStalls(ctx, company, limit); err != nil {
+		return err
+	}
+	unhandled, err := c.Store.UnhandledComments(ctx, company)
+	if err != nil {
+		return err
+	}
+	return c.Store.SyncAlerts(ctx, company, "comment_unhandled", unhandled)
 }
 
 // unmergedCheckEvery is the period of the unmerged-branch check (task-worktrees D9).

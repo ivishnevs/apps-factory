@@ -9,11 +9,15 @@ import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin } from "lucide-react";
 import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
-import { nodeHealth, nodeId, type NodeDriver, type NodeFull } from "@/lib/api/types-ops";
+import { nodeHealth, nodeId, type NodeDriver, type NodeFull, type NodeHealth } from "@/lib/api/types-ops";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const gib = (b?: number) => `${((b ?? 0) / 2 ** 30).toFixed(1)} GiB`;
+
+// diskFull (disk-pause-conversations): a critical disk below the conversation floor takes no conversation either; an
+// older node without a floor stops everything at critical.
+const diskFull = (h: NodeHealth) => h.disk === "critical" && (h.disk_conversation_floor_bytes === undefined || (h.free_disk_bytes ?? 0) < h.disk_conversation_floor_bytes);
 
 // care: what of a node needs the owner (internal/tui nodeCare), "" when nothing.
 export function nodeCare(n: FactoryNode) {
@@ -170,7 +174,7 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
             
           </div>
           <p className={cn("mt-0.5 text-xs", state === "offline" ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
-            {state === "offline" ? `Silent since ${ago(n.last_seen)}` : `${state === "paused" ? "Paused" : "Online"} · checked in ${ago(n.last_seen)}`}
+            {state === "offline" ? `Silent since ${ago(n.last_seen)}` : `${state === "paused" ? (pause || diskFull(h) ? "Paused" : "Work paused") : "Online"} · checked in ${ago(n.last_seen)}`}
           </p>
         </div>
         {care && (
@@ -267,7 +271,10 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
       <footer className="mt-auto flex items-center gap-3 border-t px-4 py-3 md:px-5">
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {pause ? <>Paused by {pause.actor}{pause.reason ? `: ${pause.reason}` : ""}</>
-            : !n.online ? "Offline: takes no work" : h.disk === "critical" ? "Takes no work: the disk is almost full" : "Takes new work"}
+            : !n.online ? "Offline: takes no work" : h.disk === "critical"
+              ? (diskFull(h) ? "Takes nothing: the disk is full; free disk on this machine"
+                : `Answers conversations only; free disk, work resumes by itself above ${gib(h.disk_critical_bytes)}`)
+              : "Takes new work"}
         </p>
         {pause ? (
           <Button variant="outline" className="h-10" onClick={onResume} disabled={busy}><Play className="size-4" />Resume</Button>

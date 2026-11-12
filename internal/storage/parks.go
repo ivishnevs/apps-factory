@@ -41,10 +41,7 @@ func (s *Store) TaskParks(ctx context.Context, company, task string, all bool) (
 		if err = rows.Scan(&p.ID, &p.Kind, &p.RefID, &p.Reason, &p.Status, &p.RunID, &p.CreatedAt, &p.ClearedAt, &recipient); err != nil {
 			return nil, err
 		}
-		p.Who = "owner"
-		if recipient != "" && recipient != "owner" {
-			p.Who = "agent:" + recipient
-		}
+		p.Who = parkWho(p.Kind, p.RefID, recipient)
 		out = append(out, p)
 	}
 	return out, rows.Err()

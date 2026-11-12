@@ -111,7 +111,7 @@ the statuses an agent's run would, with `POST /tasks/{id}/actions`:
   see the forge, so the person confirms that the approved pull request is merged; done is refused without an approval.
 
 Other members and agents get 403. Agents may read a person's task, message about it and depend on it; they may not
-change its assignee, title or description, `ready`/`block`/`cancel` it or reassign it (403 with the hint to message
+change its assignee, title or description, `ready`/`block`/`cancel` it, reassign it or name it in `replaces` (403 with the hint to message
 instead). An agent assigns a task to a person only with `assign_reason` (or the reassign `reason`) citing the id of a
 message that person wrote ("I'll do it myself"); the manager's chat brief tells it so and shows the writer as
 `member:<user>`.
@@ -119,7 +119,7 @@ message that person wrote ("I'll do it myself"); the manager's chat brief tells 
 Dependents wait in the normal dependency wait ("waits for P, with NAME"), never as a `stalled` escalation. When a
 person's task has not changed for the company's `people.remind_after` (default 72h; `GET|PUT
 /settings/company/people`, `remind_after_minutes`, 1h–720h) while released tasks wait on it, the person gets one
-reminder per episode (the task's `updated_at`; `person_reminders`, migration 0033) naming the waiting tasks; when the
+reminder per episode (the task's `updated_at`; `person_reminders`, migration 0035) naming the waiting tasks; when the
 last dependency of a person's READY task is done, they get "Your task is ready". Both are notifications to the
 people's inbox (`owner`) that name the person.
 
@@ -250,6 +250,43 @@ with the same key returns 409. A replay response can be older than current state
 CLI generates a fresh key per invocation unless a JSON mutation supplies request_id. CLI does not
 blindly retry a failed HTTP request. Scheduler dispatch and Worker event replay are independently
 idempotent. Invalid mutation rollback also rolls back dependency edits and events.
+
+## Duplicate warnings
+
+(task-duplicate-warnings) Core warns, never refuses, when two open tasks may cover the same work.
+
+- **Covered work (`covers`).** A task lists the work it covers as keys: `<change>#<n.m>` (an OpenSpec `tasks.md`
+  item), `<change>#<n>` (a group, covering its items), `pr#<number>`, `msg:<id8>` (a review finding or request).
+  Core normalizes them ("PR #148" is `pr#148`). With none given Core infers them from the title and description
+  (`covers_inferred`): a known change followed by items (`world-models 7.1–7.3`, `player-profile-and-xp task 3.2`,
+  `<change>#4`), `tasks.md 3.2` with `openspec_change`, and `#148`, `PR 148` for pull requests. Known changes are
+  the project's tasks' `openspec_change` and the changes done exits reported. A task without `openspec_change`
+  that names exactly one known change gets it (`openspec_change_inferred`).
+- **Replacement (`replaces`).** A create or update with `replaces: [ids]` (a split, a narrower re-plan) cancels each
+  replaced task in the same transaction when the actor may cancel it (the owner, its creator or an authority over
+  it, with `factory.task.cancel` allowed by policy) and it is not running (BACKLOG, READY, BLOCKED or REWORK, no live
+  run, no open children, not the actor's own run task). The cancel comment and `replaced_by` name the new task,
+  and open tasks that depended on it depend on the new task instead. A task already cancelled for an earlier part
+  gets the new part as one more replacement and its dependents wait for that part too. A replaced task that stays
+  open warns `original_open`. A done task cannot be replaced.
+- **Warnings.** After a create, or an update that changes the title, `covers`, `openspec_change`, assignee or
+  `replaces`, the answer carries `warnings` (and `duplicate_hint` when one is strong), each naming the other open
+  task (id, title, status, assignee) and its reasons: `same_work_item` (overlapping keys, listed in `keys`),
+  `same_title` (equal titles after lowercasing, removing milestone prefixes such as `3D-WQ2:` and ids, with the
+  same assignee), `original_open` (a replaced task still open, or the parent left READY to run again by a split
+  that is not its own run's decomposition; one task of a run warns about a given parent) and `same_change_open`
+  (up to 10 open tasks of the same assignee and change, context only). Tasks created by the same run or under the
+  same parent are not compared with each other.
+- **Until answered.** A strong warning is kept (`task_duplicates`) and shows on both tasks as
+  `possible_duplicates` (web board badge "duplicate?", TUI `≈dup`) and as an attention row
+  `task.possible_duplicate` in the creator's feed (not sent to Telegram), until one of the tasks closes or a side
+  marks the pair with `PATCH /tasks/{id}` `not_duplicate_of: [ids]` (any open status, no version needed when it
+  is the only field; the web "Keep both" does it). A marked pair never warns again and reads list it in
+  `not_duplicate_of`.
+- **Cheap search.** `GET /tasks` filters `open=1`, `assignee`, `openspec_change`, `covers` (a group matches its
+  items) and `query` (all words in the title); `compact=1` answers id, title, status, assignee,
+  `openspec_change`, `covers`, dependencies and possible duplicates only. `factory_task_list` is compact unless
+  `full: true`.
 
 ## CLI
 
@@ -424,6 +461,41 @@ children and UNKNOWN-run blocks are still stored.
 - The migration backfills a `ready` trigger for READY tasks and parks for existing manual/OpenSpec blocks,
   unanswered blocking questions and UNKNOWN current runs.
 
+## Board comments (owner-comments-handled)
+
+The owner's comment on a task is the board's word: Core enforces its handling instead of relying on prompts
+(migration 0034, `comment_outcomes`; with explicit exits; a conversation task takes the owner's chat as messages).
+
+- **Every board comment gets an outcome.** An owner comment on an open, assigned task is owed by the task's runs
+  (whoever runs it next, also after a reassignment): `done`, `forwarded` (to whom, with a note) or `declined` (with a
+  reason the owner reads). The brief lists the open ones ("Board comments that need your outcome", with their ids);
+  every exit (`submit`, `handoff`, `done`, `ask`, `block`, `wait`) carries `comments: [{comment_id, outcome, reason?,
+  task_id?}]` and is refused with 409 `comments_unhandled` (the list and how to record each) while one has none. A
+  run that ends without an exit (a crash, a timeout, no exit; a stop by the owner or Core does not count) leaves the
+  comment open for the next run; after two such runs the stall sweep raises the owner alert `comment_unhandled`,
+  which clears with the outcome.
+- **Forwards go up the chain.** `factory_comment_forward {comment_id, note}` records `forwarded` and gives the comment
+  verbatim, with the task link and the note, to the agent's manager: an open row on the manager's conversation task
+  and one `board_comment` trigger. A manager that cannot act forwards it on, so a release comment on a developer's
+  task reaches the lead without a parallel copy. A manager's (and the lead's) `done` names `task_id`, the task it
+  created or changed for the comment.
+- **The project lead sees every board comment, quietly.** The lead's conversation brief lists the project's board
+  comments since its last run with their outcomes ("forwarded to manager by demo", "not handled yet by demo"); this
+  wakes nothing, so a simple comment costs only the assignee's run. The lead (the project team's lead) is woken —
+  the comment given to it on its conversation task — only when the outcome is `declined` (it confirms with its own
+  decline or overrides with `done` and a task), when no outcome is `done` while the task is active past the team's
+  `comment_outcome_within` (default `1h`; the stall sweep, once per comment), or at once when the comment is in a
+  locked category (release, money, deletion, legal: named with the comment as `category`, or detected in its text
+  by a fixed word list). A forward to a manager who is the lead and the lead's copy are one message. The lead cannot
+  forward (the board wrote the comment): it records `done` with a task or `declined`; like everyone it cannot exit
+  while a comment it was given has no outcome.
+- **No comments on closed tasks.** Core refuses a comment on a DONE or CANCELLED task with 409
+  `{"reason": "task_closed", "options": [reopen, ask_lead]}`. `POST /tasks/{id}/reopen {text, request_id}` reopens it
+  READY for its assignee with the comment as its board comment (an authority `owner_comment` trigger);
+  `POST /tasks/{id}/ask-lead {text, request_id}` sends the owner's question to the project lead with the task named.
+- `GET /tasks/{id}/comments` carries each board comment's `category` and `outcomes` (`agent`, `reason`: assignee,
+  forward, declined, stalled or locked, `status`: open, done, forwarded or declined, `note`, `to`, `task`, `at`).
+
 ## Owner console v0
 
 - `factory status [PROJECT]` (`GET /status`): per project the task counts by status, active runs (including
@@ -472,6 +544,31 @@ answer leaves the task unassigned for `factory tasks reassign`) and `cancel`. Au
 authority comment, an owner `ready`, a reassignment, an owner or manager message on a conversation task) ends an
 active wait at once (`task.wait_interrupted`) and the task runs; on a conversation task any new message does.
 Task pause and reprioritize keep the wait (its timer and episode); a closed task ends its episode. Wait wakes are ordinary runs and count against the daily budget.
+
+### Event waits (decision-waits)
+
+A task that waits for something inside Factory parks on it instead of a timer, with the same tool:
+
+- `factory_exit_wait {reason, decision_id}` parks on a decision of the task's project that is still `proposed` or
+  `under_discussion` (`parked:decision`; a unique id prefix of 8+ characters is accepted). Recording it (approved,
+  rejected) or withdrawing it (superseded) clears the park of every task parked on it and adds a `decision_recorded`
+  trigger whose text is the outcome (the approved value and note, or the rejection reason); `under_discussion` wakes
+  nobody. A decision already recorded is refused (`decision_recorded`, with the outcome), an unknown one
+  `unknown_decision`. The park's clearer is the decision's addressee (the owner), so the task counts in the owner's
+  "needs you"; the verdict carries `awaits {kind, decision_id, message_id, topic, who}`, the board says "Waits for
+  your decision: TOPIC" and links to the decision's Inbox notice, and `GET /decisions/{id}` lists the waiting tasks
+  (`waiting`). A dependent's `dependencies` verdict carries the root's `awaits` (with `task_id`, up to three levels).
+- `factory_exit_wait {reason, from, topic?}` parks on the next message from an agent or the owner (`parked:message`,
+  cleared by that sender). A message from that sender about the task (`task_id`), or about no task and addressed to
+  the task's assignee, in the task's project, clears it — so does that sender's comment on the task — with a
+  `message_received` trigger carrying the message into the brief. `Store.ParkOnMessage` parks a task this way from
+  Core (a question answered with "I'll send details", inbox-badge-parity).
+- Neither has a timer, an episode or `max_waits`. An optional `deadline` (at most 14 days ahead) never wakes the
+  task: past it, the tick opens one `event_wait_deadline` escalation — to the owner for a decision or a message from
+  the owner, else to the assignee's manager — with the answers `keep_waiting` (the park stays), `continue` (the park
+  is overridden and the task runs now) and `cancel`. Authority input overrides an event park like a timed wait.
+- A timed wait whose reason names an open decision of the project (an id or 8+ character prefix) is refused
+  (`wait_on_decision`) with the hint to park on it with `decision_id`.
 
 ## Stall detection and escalations
 
@@ -595,8 +692,10 @@ message) is taken only by the node that holds the session — the node of the se
 node is active, however busy it is: other nodes are not offered the run and their claims are refused with retry
 `affinity`; the queued reason says "tied to NODE: its agent session is there". When the holder becomes
 inactive (offline, paused by the owner or by Core for a critical disk, removed, unable to run the agent, or not ready
-for the run's project), a release timer starts (`session_locks`); a holder active again clears it. "Release now" works
-for a disk-paused node as for an owner-paused one.
+for the run's project), a release timer starts (`session_locks`); a holder active again clears it. A critical disk
+makes the holder inactive for work and review runs only: it still takes conversations (disk-pause-conversations), so a
+conversation's session stays there unless its disk is below the conversation floor. "Release now" works for a
+disk-paused node as for an owner-paused one.
 
 Pausing a node that holds sessions asks what to do with them (node-readiness 4.1): `GET /nodes/{id}/sessions` lists
 the sessions it holds for open tasks and the queued runs waiting for them; `POST /nodes/{id}/pause {"reason",

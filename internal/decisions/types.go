@@ -37,6 +37,14 @@ type Decision struct {
 	SupersededBy          string           `json:"superseded_by,omitempty"`
 	CreatedAt             int64            `json:"created_at"`
 	UpdatedAt             int64            `json:"updated_at"`
+	// Waiting are the open tasks parked on this decision (decision-waits), filled on read; never stored.
+	Waiting []Waiter `json:"waiting,omitempty"`
+}
+
+// Waiter is a task parked on a decision.
+type Waiter struct {
+	TaskID string `json:"task_id"`
+	Title  string `json:"title"`
 }
 type Propose struct {
 	Category string `json:"category,omitempty"`

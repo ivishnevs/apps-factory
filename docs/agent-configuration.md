@@ -119,6 +119,17 @@ reach only the runtime: environment variables, files under `<state_dir>/runs/<ru
 ends, and they are redacted from the run's log, events, result and attachments (long lines of a multi-line value
 too).
 
+Owners and admins give secrets to agents in the web UI (agent-secrets-ui), each change a catalog version with a note:
+the agent editor's Secrets section lists the agent's own uses, those inherited from its profile and its MCP servers'
+header secrets (read-only), each marked when the secret is missing or set with the other kind, and adds (from the
+company's secrets; the secret's kind decides text variable or file, the variable defaults to its name) or removes own
+uses; the Secrets page gives a secret to several agents at once ("Give to an agent", or when adding it) and names the
+agents before a used secret is deleted. API: `GET /catalog/agents/{name}/secrets` (uses with `profile`, `server`,
+`state`: set, missing, wrong_kind), `PUT /catalog/agents/{name}/secrets` (`{base, secrets}`: the agent's own uses),
+`POST /secrets/{name}/agents` (`{base, agents, env}`). Core refuses a new or changed use whose secret is set with the
+other kind (a file secret as a text variable, or the reverse) with a hint, there and in `PUT /catalog/agents/{name}`;
+a use the agent already had stays and is marked. Agents cannot reach these routes.
+
 ## Runtime context
 
 Context contains the prompt, deduplicated applicable policy instructions, tool/approval settings,
@@ -155,6 +166,22 @@ refuses an unknown target, a manager in another team, a self reference and cycle
 chain of an agent is its managers up to the owner, its subtree the agents whose chain contains it. Every agent
 may message the agents of its team and the owner; `communication.can_message` adds agents of other teams but
 never removes these.
+
+Assigning tasks follows the tree (assign-by-hierarchy): `communication.can_assign_tasks` is whom the agent may give
+tasks to: `none`, `direct_reports`, `subtree` or a list of agents of its team (`true` and `false` are short for
+`direct_reports` and `none`). Unset, it is `direct_reports` for an agent with reports and `none` otherwise. Core
+checks the assignee of every create, assign and reassign by an agent and refuses one outside the scope, naming the
+agent to give it to (the assignee's closest manager in scope: "developer-lite reports to product-manager: give the
+task to product-manager"). An agent may always assign to itself; the owner and people assign to anyone. The
+instructions of an agent with a scope list exactly the agents it may assign to, each with its own team, so routing
+lives in the catalog rather than in prompts. A listed agent outside the team or unknown fails validation;
+`direct_reports` or `subtree` on an agent without reports is a save warning. A manager's authority over its whole
+subtree (pause, resume, cancel, reprioritize, directives) is unchanged.
+
+```yaml
+communication:
+  can_assign_tasks: direct_reports   # none | direct_reports | subtree | [product-manager, app-release]
+```
 
 Creating projects (project-creation): `communication.can_create_projects` offers `factory_project_create`; unset,
 it is true for the owner's direct reports (`reports_to: owner` or none, i.e. the CEO) and false for everyone else.

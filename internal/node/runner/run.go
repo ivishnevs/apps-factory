@@ -237,8 +237,10 @@ func Run(ctx context.Context, n Node) error {
 	usable := n.health.anyUsable // false: the whole node pauses
 	pool.Claimable = usable
 	if n.Host.FreeBytes != nil {
-		disk := node.NewDiskGate(n.Host, c.Disk).Claimable
-		pool.Claimable = func() bool { return usable() && disk() }
+		// disk-pause-conversations: below the critical watermark only conversations, below the floor nothing.
+		gate := node.NewDiskGate(n.Host, c.Disk)
+		pool.Claimable = func() bool { return usable() && gate.ConversationClaimable() }
+		pool.WorkClaimable = gate.Claimable
 	}
 	if s != nil {
 		n.health.changed = s.driversChanged
@@ -253,8 +255,9 @@ func Run(ctx context.Context, n Node) error {
 	var failed error
 	done := make(chan struct{})
 	if s != nil {
-		local := pool.Claimable
+		local, localWork := pool.Claimable, pool.WorkClaimable
 		pool.Claimable = func() bool { return s.claimable() && local() && !checks.blocked() }
+		pool.WorkClaimable = func() bool { return s.workClaimable() && (localWork == nil || localWork()) }
 		s.busy = func() int { return busySlots(pool) }
 		go func() {
 			defer close(done)

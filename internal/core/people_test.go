@@ -307,6 +307,7 @@ func TestAgentsAndPeoplesTasks(t *testing.T) {
 		"factory_task_block":    {"id": "menu", "version": version(), "reason": "wait", "request_id": "block"},
 		"factory_task_ready":    {"id": "menu", "version": version(), "request_id": "ready"},
 		"factory_task_reassign": {"id": "menu", "version": version(), "assignee": "demo", "request_id": "re"},
+		"factory_task_create":   {"title": "Menu, my way", "assignee": "demo", "replaces": []string{"menu"}, "request_id": "rep"},
 	} {
 		if w := call(name, args); w.Code != 403 || !strings.Contains(w.Body.String(), "message about it") && !strings.Contains(w.Body.String(), "comment on it") {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())

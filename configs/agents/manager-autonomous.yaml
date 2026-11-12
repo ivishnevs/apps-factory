@@ -13,4 +13,3 @@ spec:
   communication:
     can_message: [demo]
     can_create_tasks: true
-    can_assign_tasks: true

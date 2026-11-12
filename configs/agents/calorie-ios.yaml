@@ -17,7 +17,6 @@ spec:
   communication:
     can_message: [calorie-manager, calorie-qa]
     can_create_tasks: false
-    can_assign_tasks: false
   tools:
     deny: [factory.owner.ask, factory.owner.request_approval, factory.decision.propose, factory.task.review]
   policies: [calorie-project]

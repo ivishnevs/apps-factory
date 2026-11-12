@@ -113,7 +113,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 			if t.Operation == "factory.task.create" && !a.Spec.Communication.CanCreateTasks {
 				return false
 			}
-			if t.Operation == "factory.task.assign" && !a.Spec.Communication.CanAssignTasks {
+			if t.Operation == "factory.task.assign" && !config.CanAssign(c.cat(company).Agents, a.Metadata.Name) {
 				return false
 			}
 			if projectTool(t) && !a.CreatesProjects() {
@@ -231,6 +231,13 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	if p.Name == "factory_task_direct" {
 		c.directiveCall(w, r, p, run, current)
+		return
+	}
+	if p.Name == "factory_comment_forward" {
+		id, _ := p.Arguments["comment_id"].(string)
+		note, _ := p.Arguments["note"].(string)
+		v, err := c.Store.ForwardComment(r.Context(), c.companyFrom(r), run.Spec.ID, id, note)
+		reply(w, v, err)
 		return
 	}
 	if approvalMeta(p.Name) {
@@ -357,10 +364,14 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		http.Error(w, "task id required", 400)
 		return
 	}
-	// Enforce assignment privileges also for create-with-assignee (including self).
-	if assignee, ok := args["assignee"].(string); ok && assignee != "" {
+	// Enforce assignment privileges also for create-with-assignee (including self); a list's assignee is a filter.
+	if assignee, ok := args["assignee"].(string); ok && assignee != "" && p.Name != "factory_task_list" {
+		if why := config.AssignRefusal(c.cat(c.companyFrom(r)).Agents, run.Spec.Agent, assignee); why != "" {
+			http.Error(w, "assignment outside your scope: "+why, 403)
+			return
+		}
 		for _, a := range []config.Agent{snapshot, current} {
-			if !a.Spec.Communication.CanAssignTasks {
+			if !config.CanAssign(c.cat(c.companyFrom(r)).Agents, run.Spec.Agent) && assignee != run.Spec.Agent {
 				http.Error(w, "assignment permission required", 403)
 				return
 			}
@@ -412,10 +423,19 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	case "factory_task_get":
 		path = "/tasks/" + url.PathEscape(id)
 	case "factory_task_list":
+		// Compact by default (task-duplicate-warnings 3.1); full: true adds descriptions and the rest.
 		path = "/tasks"
 		query.Set("project", run.Spec.Project)
-		if status, ok := args["status"].(string); ok {
-			query.Set("status", status)
+		for _, k := range []string{"status", "assignee", "openspec_change", "covers", "query"} {
+			if v, ok := args[k].(string); ok && v != "" {
+				query.Set(k, v)
+			}
+		}
+		if open, _ := args["open"].(bool); open {
+			query.Set("open", "1")
+		}
+		if full, _ := args["full"].(bool); !full {
+			query.Set("compact", "1")
 		}
 	case "factory_task_create":
 		method = "POST"

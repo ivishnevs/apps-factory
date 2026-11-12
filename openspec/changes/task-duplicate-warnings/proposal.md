@@ -1,5 +1,12 @@
-Status: proposed 2026-11-07 by the owner ("the manager must check open tasks, but not on every task of a big
-decomposition; Factory adds deterministic checks that warn and never block"). Nothing implemented.
+Status: implemented 2026-11-12 (proposed 2026-11-07 by the owner: "the manager must check open tasks, but not on every
+task of a big decomposition; Factory adds deterministic checks that warn and never block"). Decisions the proposal
+left open: `GET /tasks` stays full by default for the web and TUI (`compact=1`; `factory_task_list` is compact
+unless `full: true`); a group key `<change>#3` overlaps its items `<change>#3.x`; `openspec_change` is inferred only
+from known changes; `replaces` cancels only a task that is not running (BACKLOG, READY, BLOCKED, REWORK, no live
+run, no open children, not the run's own task) and needs the actor's policy to allow `factory.task.cancel`; a done
+task cannot be replaced; `original_open` for a parent only when the parent is READY without a children park and
+the creating run is not working on it, once per run; the feed attention row is quieted when the warning ends and is
+not sent to Telegram; an update with only `not_duplicate_of` needs no version and works in any open status.
 
 ## Why
 

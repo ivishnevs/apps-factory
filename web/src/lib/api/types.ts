@@ -15,8 +15,14 @@ export interface Wait {
 export interface Tie {
   node: string; node_name?: string; reason: "work" | "session"; since?: number; release: string; release_at?: number; unsaved?: string;
 }
+// Awaits (decision-waits): the decision or message a task — or the dependency it waits for (task_id, the root) — is
+// parked on. who is the decision's addressee or the awaited sender ("owner" or "agent:NAME"); message_id is the
+// decision's Inbox notice.
+export interface Awaits {
+  kind: "decision" | "message"; decision_id?: string; message_id?: string; from?: string; topic?: string; who: string; deadline?: number; task_id?: string;
+}
 export interface Verdict {
-  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait; tie?: Tie;
+  task_id: string; status: string; reason: string; detail?: string; clearer: Clearer; pending_triggers?: Trigger[]; wait?: Wait; tie?: Tie; awaits?: Awaits;
 }
 
 export interface Artifact { id: string; version: string; uri: string; size?: number; name?: string; sha256?: string }
@@ -32,9 +38,16 @@ export interface Task {
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
   progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
+  // task-duplicate-warnings: the work it covers (inferred from its text when it named none), the tasks it replaces
+  // or was replaced by, and the unanswered duplicate warnings with another open task.
+  covers?: string[]; covers_inferred?: boolean; replaces?: string[]; replaced_by?: string[];
+  not_duplicate_of?: string[]; possible_duplicates?: DuplicateWarning[];
   // Added by the overview: the why reason, who clears it and the task's tie to a node.
-  reason: string; clearer: Clearer; wait?: Wait; tie?: Tie;
+  reason: string; clearer: Clearer; wait?: Wait; tie?: Tie; awaits?: Awaits;
 }
+
+// DuplicateWarning is tasks.DuplicateWarning: another open task that may cover the same work, and why.
+export interface DuplicateWarning { task_id: string; title: string; status: string; assignee?: string; reasons: string[]; keys?: string[] }
 
 export interface Agent { name: string; role?: string; reports_to?: string; provider?: string; model?: string }
 
@@ -154,7 +167,9 @@ export interface Approval {
   audience?: string; delegate?: string; setting?: string; escalated?: boolean; decided_by?: string; cites?: string[];
 }
 
-export interface Comment { id: string; author: string; text: string; created_at: number; person?: string }
+// A board comment's handling (owner-comments-handled): one entry per agent that got it; status open is "not handled yet".
+export interface CommentOutcome { agent: string; reason: string; status: "open" | "done" | "forwarded" | "declined"; note?: string; to?: string; task?: string; at?: number }
+export interface Comment { id: string; author: string; text: string; created_at: number; person?: string; category?: string; outcomes?: CommentOutcome[] }
 export interface PRFacts { number: number; state: string; head_sha: string; url?: string }
 export interface ExitFacts { head: string; dirty: boolean; branch: string; default_branch: string; ahead_of_default: number; pushed: boolean; pr?: PRFacts }
 export interface TaskExit { run_id: string; kind: string; facts?: ExitFacts; created_at: number }
@@ -172,7 +187,7 @@ export interface TaskDetail {
 }
 
 // An owner action (internal/tui.Action; Go field names, no json tags). Kind is one of: pause, resume, retry,
-// run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create,
+// run, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create,
 // create_project (NewProject is the POST /projects body), hold, release, read.
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
@@ -197,4 +212,6 @@ export interface Decision {
   id: string; project_id: string; category?: string; topic: string; status: string; value: string; alternatives?: string[];
   rationale: string; created_by: string; approved_by?: string; review_rationale?: string; version: number; task_id?: string;
   message_id?: string; created_at: number; updated_at: number;
+  // The open tasks parked on it (decision-waits).
+  waiting?: { task_id: string; title: string }[];
 }

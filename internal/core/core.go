@@ -124,6 +124,7 @@ func (c *Core) Handler() http.Handler {
 	c.accountRoutes(m)
 	c.invitationRoutes(m)
 	c.secretRoutes(m)
+	c.agentSecretRoutes(m)
 	c.skillRoutes(m)
 	c.presetRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -292,6 +293,12 @@ func reply(w http.ResponseWriter, v any, err error) {
 			// An archived artifact version (artifact-retention): its metadata stays, its content is gone.
 			jsonStatus(w, http.StatusGone, map[string]any{"error": archived.Error(), "archived_at": archived.ArchivedAt, "reason": archived.Reason,
 				"artifact_id": archived.ID, "version": archived.Version, "latest_version": archived.Latest})
+			return
+		}
+		var closed *storage.ClosedTaskError
+		if errors.As(err, &closed) {
+			// owner-comments-handled: a comment on a closed task is refused with the two ways on.
+			jsonStatus(w, 409, map[string]any{"reason": "task_closed", "error": closed.Error(), "status": closed.Status, "lead": closed.Lead, "options": closed.Options()})
 			return
 		}
 		var answered *storage.AnsweredError

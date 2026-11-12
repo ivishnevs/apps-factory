@@ -7,7 +7,7 @@ export interface CatalogDocument { version: number; path: string; size: number; 
 
 export interface TeamMember {
   name: string; team?: string; document?: string; skills?: string[]; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
-  creates_tasks?: boolean; review_required?: boolean; reviewer?: string; review_paths?: string[];
+  creates_tasks?: boolean; assigns_to?: string[]; review_required?: boolean; reviewer?: string; review_paths?: string[];
   // work-and-conversation-runs: resolved limits per run kind and the context window per kind.
   max_concurrent_runs?: number; conversation_max_runs?: number; share_work_limit?: boolean; context_window?: { work?: string; conversation?: string };
 }

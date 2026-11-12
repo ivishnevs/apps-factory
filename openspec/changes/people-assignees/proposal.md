@@ -66,7 +66,8 @@ Implemented 2026-11-12 (docs/task-lifecycle.md "People's tasks"). Decisions the 
   owner, also an owner message without a person, i.e. the CLI), in `assign_reason` or the reassign `reason`.
   Directives carry no person, so they cannot be cited as a person's word.
 - **Hands off**: agents are refused assign, title/description updates, `ready`, `block`, `cancel` and reassign of a
-  person's task; dependency and priority changes stay allowed. `replaces` does not exist yet (task-duplicate-warnings).
+  person's task; `replaces` naming a person's task (task-duplicate-warnings) is refused the same way; dependency and priority
+  changes stay allowed.
 - **Reminders and "your task is ready"** go to the people's inbox (recipient `owner`) and name the person: people have
   no personal inbox yet. A cancelled person's task still stalls its dependents (it can never be done).
 - **"Mine" for the CLI**: `--assignee me` is the signed-in person; an owner token carries no person, so it means the

@@ -1,13 +1,13 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Pin, Send } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock, Copy, FileText, GitBranch, GitPullRequest, Hand, Loader2, MessageSquareWarning, OctagonAlert, Pin, Send } from "lucide-react";
 import Link from "@/components/app/link";
 import { useState } from "react";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Comment, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, Task, TaskPark, Verdict } from "@/lib/api/types";
+import type { Comment, CommentOutcome, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, Task, TaskPark, Verdict } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -232,6 +232,45 @@ export function Submission({ sub, look }: { sub: Sub; look?: Lookup }) {
   );
 }
 
+const duplicateReasons: Record<string, string> = {
+  same_work_item: "covers the same work", same_title: "same title and assignee", original_open: "the original is still open",
+};
+
+// PossibleDuplicates: open tasks that may cover the same work (task-duplicate-warnings). Whoever created the task
+// answers in its run; the owner can keep both here, which ends the warning for good.
+export function PossibleDuplicates({ task, look }: { task: Task; look?: Lookup }) {
+  const qc = useQueryClient();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState("");
+  const list = task.possible_duplicates ?? [];
+  if (list.length === 0) return null;
+  const keep = async (other: string) => {
+    if (!(await confirm({ title: "Keep both tasks?", description: `${displayId(task.id)} and ${displayId(other)} are not duplicates: the warning ends and does not come back for them.`, confirm: "Keep both" }))) return;
+    setBusy(other);
+    try {
+      await core(`/tasks/${encodeURIComponent(task.id)}`, { method: "PATCH", body: JSON.stringify({ version: task.version, not_duplicate_of: [other] }) });
+      toast.success("Kept both tasks");
+      await qc.invalidateQueries();
+    } catch (e) { toast.error(cleanText(e instanceof Error ? e.message : String(e)) || "Something went wrong"); } finally { setBusy(""); }
+  };
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-4">
+      <p className="mb-1.5 flex items-center gap-2 text-sm font-semibold"><Copy className="size-4 text-amber-600 dark:text-amber-400" />Possible duplicate</p>
+      <ul className="grid gap-2">
+        {list.map((d) => (
+          <li key={d.task_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <Link href={`/tasks/${encodeURIComponent(d.task_id)}`} className="min-w-0 font-medium underline-offset-4 hover:underline wrap-anywhere">
+              <span className="font-mono text-xs text-muted-foreground">{displayId(d.task_id)}</span> {cleanText(d.title, look)}
+            </Link>
+            <span className="text-muted-foreground">{d.status.replace(/_/g, " ").toLowerCase()} · {d.assignee || "unassigned"} · {d.reasons.map((r) => duplicateReasons[r] ?? r).join(", ")}{d.keys?.length ? ` (${d.keys.join(", ")})` : ""}</span>
+            <Button size="sm" variant="outline" className="ml-auto h-10 sm:h-8" disabled={busy !== ""} onClick={() => keep(d.task_id)}>Keep both</Button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ReviewNotes({ task, look }: { task: Task; look?: Lookup }) {
   if (!task.review_feedback && !task.block_reason) return null;
   return (
@@ -252,7 +291,30 @@ export function ReviewNotes({ task, look }: { task: Task; look?: Lookup }) {
   );
 }
 
-export function Comments({ taskId, comments, now, look }: { taskId: string; comments: Comment[]; now: number; look?: Lookup }) {
+// What became of a board comment (owner-comments-handled), in words.
+function outcomeWords(o: CommentOutcome): string {
+  switch (o.status) {
+    case "done": return `done by ${o.agent}${o.task ? ` (task ${o.task})` : ""}`;
+    case "forwarded": return `forwarded to ${o.to} by ${o.agent}`;
+    case "declined": return `declined by ${o.agent}: ${o.note ?? ""}`;
+    default: return `not handled yet (${o.agent})`;
+  }
+}
+
+function Outcomes({ outcomes, look }: { outcomes: CommentOutcome[]; look?: Lookup }) {
+  return (
+    <ul className="mt-1.5 space-y-0.5" aria-label="Outcome">
+      {outcomes.map((o, i) => (
+        <li key={i} className={cn("text-xs wrap-anywhere", o.status === "open" ? "text-amber-700 dark:text-amber-400" : o.status === "declined" ? "text-red-700 dark:text-red-400" : "text-muted-foreground")}>
+          {o.status === "done" ? <CheckCircle2 className="mr-1 inline size-3 align-[-2px]" /> : <CircleDot className="mr-1 inline size-3 align-[-2px]" />}
+          {cleanText(outcomeWords(o), look)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function Comments({ taskId, comments, now, look, closed }: { taskId: string; comments: Comment[]; now: number; look?: Lookup; closed?: boolean }) {
   const person = usePerson();
   const [text, setText] = useState("");
   const { run, pending } = useOwnerAction();
@@ -260,6 +322,14 @@ export function Comments({ taskId, comments, now, look }: { taskId: string; comm
     e.preventDefault();
     if (!text.trim()) return;
     const res = await run({ Kind: "comment", TaskID: taskId, Text: text.trim() }, { title: "Post this comment?", confirm: "Comment" });
+    if (res !== null) setText("");
+  };
+  // A closed task runs no more: no comment box; the owner reopens it with the comment or asks the lead.
+  const closedAction = async (kind: "reopen" | "ask_lead") => {
+    if (!text.trim()) return;
+    const res = await run({ Kind: kind, TaskID: taskId, Text: text.trim() }, kind === "reopen"
+      ? { title: "Reopen this task with your comment?", confirm: "Reopen" }
+      : { title: "Ask the project lead about this task?", confirm: "Ask the lead" });
     if (res !== null) setText("");
   };
   return (
@@ -272,18 +342,31 @@ export function Comments({ taskId, comments, now, look }: { taskId: string; comm
               <div className={cn("min-w-0 flex-1 rounded-xl rounded-tl-sm px-3.5 py-2.5", c.author === "owner" ? "bg-foreground/[0.06]" : "bg-muted/60")}>
                 <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? person(c.person, undefined, "You") : c.author}</span><span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
                 <p className="mt-0.5 text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(c.text, look)}</p>
+                {(c.outcomes ?? []).length > 0 && <Outcomes outcomes={c.outcomes ?? []} look={look} />}
               </div>
             </li>
           ))}
         </ol>
       )}
-      <form onSubmit={send} className="flex items-end gap-2">
-        <label htmlFor="comment" className="sr-only">Add a comment</label>
-        <Textarea id="comment" value={text} onChange={(e) => setText(e.target.value)} rows={1} placeholder="Add a comment for the team…"
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(e); }}
-          className="max-h-40 min-h-11 flex-1 resize-none text-base md:min-h-10 md:text-sm" />
-        <Button type="submit" size="icon" className="size-11 md:size-10" aria-label="Post comment" disabled={!text.trim() || pending}><Send /></Button>
-      </form>
+      {closed ? (
+        <div className="space-y-2">
+          <label htmlFor="closed-comment" className="text-xs text-muted-foreground">This task is closed and runs no more. Reopen it with your comment, or ask the project lead about it.</label>
+          <Textarea id="closed-comment" value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="What should happen, or what do you want to know…"
+            className="max-h-40 min-h-11 resize-none text-base md:min-h-10 md:text-sm" />
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" disabled={!text.trim() || pending} onClick={() => closedAction("reopen")}>Reopen with comment</Button>
+            <Button type="button" size="sm" variant="outline" disabled={!text.trim() || pending} onClick={() => closedAction("ask_lead")}>Ask the lead about it</Button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={send} className="flex items-end gap-2">
+          <label htmlFor="comment" className="sr-only">Add a comment</label>
+          <Textarea id="comment" value={text} onChange={(e) => setText(e.target.value)} rows={1} placeholder="Add a comment for the team…"
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(e); }}
+            className="max-h-40 min-h-11 flex-1 resize-none text-base md:min-h-10 md:text-sm" />
+          <Button type="submit" size="icon" className="size-11 md:size-10" aria-label="Post comment" disabled={!text.trim() || pending}><Send /></Button>
+        </form>
+      )}
     </Block>
   );
 }

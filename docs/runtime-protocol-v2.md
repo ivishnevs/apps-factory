@@ -77,7 +77,9 @@ something for the node, else empty when the wait ends:
 
 - `offers` are hints: `QUEUED` runs of the node's company, oldest first, at most `free` per provider, whose driver is
   usable on the node and whose agent's labels it has, not tied to another node by its task's unsaved work, none while
-  the node or the company is paused. Several nodes may get the same offer; only the claim (§5) takes a run, and the
+  the node or the company is paused, only conversation runs while the node's `health.disk` is `critical` and none
+  below its conversation floor (disk-pause-conversations). While Core answers `pause_work` the node sends no `free`
+  work slots and counts its idle work slots in `free_conversation`. Several nodes may get the same offer; only the claim (§5) takes a run, and the
   loser gets `409 drop/duplicate`. The node hands each offer to an idle slot; one it cannot take stays queued.
 - `stop`, `reset`, `cleanup` are what the heartbeat answer (§7) lists for the node: stops of its live runs Core
   revoked or gave a stop reason, worktree resets and closed tasks' worktrees. Work a poll of the node already
@@ -170,7 +172,7 @@ Answer `200`:
 
 ```json
 {"incarnation": "…", "stop": [{"run_id": "…", "reason": "revoked|terminal|timed_out|unknown_run"}],
- "acked": ["run-id"], "cleanup": ["task-id"], "pause": false, "reset": ["task-id"],
+ "acked": ["run-id"], "cleanup": ["task-id"], "pause": false, "pause_work": false, "reset": ["task-id"],
  "hooks": {"name": "ios", "hash": "…", "spec": {…}}}
 ```
 
@@ -183,8 +185,13 @@ Answer `200`:
   Core, past `timeout + grace` (Core ends it `timed_out`), unknown to Core (e.g. after a restore).
 - Core marks `lost` only RUNNING runs of this node missing from the inventory; CLAIMED runs are judged by
   `start_by`.
-- `pause: true` — stop claiming (owner pause of the node, or `health.disk: critical`). The node also pauses on its
-  own thresholds from `node.yaml`; both are the same thresholds.
+- `pause: true` — the owner paused the node (`factory pause --node`): stop every claim, conversations too.
+- `pause_work: true` — Core's pause for `health.disk: critical` (disk-pause-conversations): stop claiming work and
+  review runs, keep claiming conversation runs (they need no worktree or build, a few MB of session and logs) while
+  free space stays above `disk.conversation_floor_gib`. The node also pauses on its own thresholds from `node.yaml`
+  (the same thresholds); its heartbeat reports `health.disk_conversation_floor_bytes`, so Core refuses a
+  conversation below the floor too. A node that reports no floor (older) stops every claim at critical, and Core
+  treats it so.
 - A changed `incarnation` → the node stops and seals all runs, re-registers with a new epoch, reports nothing older.
 - A node silent for 60 s of continuous Core ticking is offline; its unended runs are lost (§10). Limitation: the
   continuity guard protects a laptop that sleeps together with Core on the same machine; with Core on another host,
@@ -265,7 +272,9 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   `drop/stale`; task's live run is another run, assignee changed, cancel requested, or the task's `why`
   verdict (the run itself ignored) is terminal, backlog, unassigned, parked or waiting on dependencies →
   `drop/not_runnable` and the run ends `stale`;
-  paused (company, project, agent, quota key) → `retry/paused`; no `ok` driver for the provider or a missing
+  paused (company, project, agent, quota key) or the node paused by the owner → `retry/paused`; the node's disk
+  critical for a work or review run, or below its conversation floor for a conversation → `retry/disk_critical`
+  (disk-pause-conversations); no `ok` driver for the provider or a missing
   agent label → `retry/capacity`; the agent has another live run → `retry/agent_busy`; no free slot or
   resource classes short (`spec.resources` of the run's agent snapshot against node.yaml `resources` minus the
   needs of the runs the node holds, see "Capacity until the seal"; an undeclared class has capacity 0) →
@@ -274,6 +283,9 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   `409 {"retry":true,"reason":…}` / `409 {"drop":true,"reason":…}`.
 - **Claim answer**: `run_spec` is the stored RunSpec plus `company`, its prompt the brief built in the claim's
   transaction; `brief` is `{from, to}` of the run's trigger window; `start_by` is claim + 60 s. Branch names stay the node's (`af/<task>…`).
+  A conversation claimed on a node whose disk is critical gets a note first in its brief: the node, its free space
+  and watermark, that new work and review runs wait until space is freed, and that the agent tells the owner so
+  instead of promising work now (disk-pause-conversations 1.3).
 - **Register** answers `409 {"reason":"stale_epoch"}` for an epoch not above the last one. **Heartbeat**
   answers `409 {"reason":"stale_epoch"}` for an older epoch and `404 {"reason":"unknown_node"}` for an
   unknown node or a newer epoch than registered (the node registers again).
@@ -283,8 +295,8 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   (started longer ago than `timeout_seconds` + 60 s; Core ends it `timed_out` and keeps it unreleased
   until the node confirms the stop, since the runtime may still act). `acked`: `ended_unacked` runs whose terminal event Core applied (the run
   records `end_applied`). Started runs of this epoch missing from the inventory for more than 30 s after
-  `/start` end `lost` (`lost: missing from node … inventory`). `pause` is true while `health.disk` is
-  `critical` (a heartbeat without `health.disk` keeps the last answer). `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
+  `/start` end `lost` (`lost: missing from node … inventory`). `pause_work` is true while `health.disk` is
+  `critical` (a heartbeat without `health.disk` keeps the last answer); `pause` while the owner paused the node. `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
   Idle stop). `timed_out` is judged on the entry's `elapsed_ms` (the node's sleep-excluding clock since the
   claim), never on Core's wall clock. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
   most 30 answers (the node retries a busy worktree from the next listing).
@@ -330,23 +342,30 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
 - **Evaluate** (`GET /tasks/{id}/why`, `factory tasks why`) with registered nodes: `pinned_node_unavailable` (the
   node the task is tied to by its unsaved work was removed, is offline past 30 min, or cannot run the assignee; the
   stalled sweep opens one escalation answered by `reset_workspace`, which releases the tie and makes the next run
-  start a new session; the name stays for one release, the verdict's `tie` is the new notion), `no_capable_node` (no online node without disk pause has the assignee's driver, labels and resources),
+  start a new session; the name stays for one release, the verdict's `tie` is the new notion), `node_disk_critical`
+  (the capable nodes that are online are paused for a critical disk — for a conversation only below the
+  conversation floor; detail "tvorog-mac: disk critical, 3.6 GiB free (critical 5 GiB)", clearer "free disk on
+  tvorog-mac; it resumes by itself above 5 GiB"), `no_capable_node` (no online, unpaused node has the assignee's
+  driver, labels and resources; an owner pause of a capable node says "resume node N (paused by the owner:
+  REASON)", offline or incapable nodes "start or fix a node with …"),
   `capacity` (capable nodes are full, or the pinned node is offline for less than the pin timeout). A QUEUED run
   nobody can claim reports these instead of `live_run`.
 - **Why a run is QUEUED** (`queued` on the run in `GET /status`, `GET /runs/{id}` and `GET /tasks/{id}/why`;
   `storage.QueuedWhy`): the claim's own checks judged without a claim — a pause (`paused`, with the owner's reason
   and a quota pause's `until`), the agent's cap (`agent_busy`), the node the run is tied to (`tie`), else each node's answer
-  (`node_offline`, `node_paused` by the owner or at critical disk, `driver_disabled` with the hold-off `until`,
+  (`node_offline`, `node_paused` by the owner, `node_disk_critical` with free space and watermark — a work or review
+  run at critical disk, a conversation only below the conversation floor —, `driver_disabled` with the hold-off `until`,
   `labels`, `no_slot`, `resource_busy`) in `nodes`, the node closest to taking the run giving `reason` and
   `detail`; `unclaimed` when a node has room, `no_node` without registered nodes.
 - **Node health events** (node-agent D5; company-wide feed rows, entity `node:<id>`, written in the transaction of
   the register, heartbeat or expiry that saw the change; the episode state is in the `nodes` row):
   `node.registered` (every register), `node.online` (a node that was offline is seen again), `node.offline` (silent
   for 60 s; again with attention after 10 more minutes, once), `node.low_disk` (attention; `health.disk` low or
-  critical, once until it is `ok` again, then `node.disk_ok`), `node.disk_critical` (attention; once per episode),
-  `node.paused`/`node.resumed` (Core's `pause` answer changes), `node.restart_loop` (attention; 4 process restarts
+  critical, once until it is `ok` again, then `node.disk_ok`), `node.disk_critical` (attention, so it reaches
+  Telegram; once per episode; names the node, free space, watermark and the fix), `node.paused`/`node.resumed`
+  (Core's `pause_work` answer changes), `node.restart_loop` (attention; 4 process restarts
   — registers with reason `start` after the node's first — within 15 minutes, once until a window without a
   restart), `node.check_failed` (attention, `ref` = the check; once per failure, `node.check_passed` when it passes
   again, kept across restarts), `node.heartbeat_stalled` (attention; from `health.stalled_seconds`).
 
-Not yet: a per-node owner pause.
+A per-node owner pause (`factory pause --node`) answers `pause` and stops every claim.

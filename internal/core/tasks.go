@@ -150,7 +150,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Assignee != "" && !c.assigneeExists(w, r, p.Assignee) {
 			return
 		}
-		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
+		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && (!c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) || !c.assignScope(w, r, p.Actor, p.Assignee)) {
 			return
 		}
 		if !c.agentAssignsPerson(w, r, p.Actor, p.Assignee, p.AssignReason) {
@@ -165,6 +165,10 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		p.CreatedBy = "owner"
 		if p.Actor != "" {
 			p.CreatedBy = p.Actor
+		}
+		p.CancelAllowed = c.cancelAllowed(c.companyFrom(r), p.Actor)
+		if c.agentReplacesPerson(w, r, p.Actor, p.Replaces) {
+			return
 		}
 		// Only Factory MCP calls carry an origin; agent-created tasks are deduplicated by it.
 		if run, ok := r.Context().Value(runKey{}).(protocol.RunSpec); ok {
@@ -192,6 +196,20 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
+		// task-duplicate-warnings 3.1: filters (open, assignee, openspec_change, covers, query) and the compact form.
+		f, err := taskFilterOf(r.URL.Query())
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if f.assignee != "" {
+			f.assignees = c.assigneeFilter(r, f.assignee) // people-assignees: --assignee me
+		}
+		list = f.apply(list)
+		if f.compact {
+			write(w, compactTasks(list))
+			return
+		}
 		snaps, err := c.Store.TaskSnapshots(ctx, company, project)
 		if err != nil {
 			reply(w, nil, err)
@@ -202,19 +220,12 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			verdicts[snap.Task.ID] = c.evaluateIn(company, snap)
 		}
 		out := make([]taskView, 0, len(list))
-		var assignees []string
-		if a := r.URL.Query().Get("assignee"); a != "" {
-			assignees = c.assigneeFilter(r, a) // people-assignees: --assignee me
-		}
 		for _, t := range list {
-			if assignees != nil && !slices.Contains(assignees, t.Assignee) {
-				continue
-			}
 			v, ok := verdicts[t.ID]
 			if !ok { // terminal
 				v = tasks.Evaluate(tasks.Snapshot{Task: t})
 			}
-			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie})
+			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits})
 		}
 		write(w, out)
 	})
@@ -228,7 +239,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		v := c.evaluateIn(c.companyFrom(r), snap)
-		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie})
+		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits})
 	})
 	// Diagnostics only: why a task does not run now and who clears it (trigger-log-scheduling D3).
 	m.HandleFunc("GET /tasks/{id}/why", func(w http.ResponseWriter, r *http.Request) {
@@ -323,10 +334,15 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		operation := "factory.task.update"
-		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Kind == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil {
+		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Kind == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil &&
+			p.Covers == nil && len(p.Replaces) == 0 && len(p.NotDuplicateOf) == 0 {
 			operation = "factory.task.assign"
 		}
+		p.CancelAllowed = c.cancelAllowed(c.companyFrom(r), p.Actor)
 		if !c.taskPermit(w, r, p.Actor, operation, false, false) {
+			return
+		}
+		if c.agentReplacesPerson(w, r, p.Actor, p.Replaces) {
 			return
 		}
 		if (p.Assignee != nil || p.Description != nil || p.Title != nil) && c.agentHandsOff(w, r, p.Actor, r.PathValue("id"), "reassign or rewrite") {
@@ -337,6 +353,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 			if !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
+				return
+			}
+			if *p.Assignee != "" && !c.assignScope(w, r, p.Actor, *p.Assignee) {
 				return
 			}
 			if !c.agentAssignsPerson(w, r, p.Actor, *p.Assignee, p.AssignReason) {
@@ -364,6 +383,47 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			p.Authority = c.hasAuthority(r.Context(), c.companyFrom(r), p.Actor, t)
 		}
 		v, err := c.Store.CommentTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
+		reply(w, v, err)
+	})
+	// owner-comments-handled: a closed task takes no comment; the owner reopens it with the comment, or asks the
+	// project lead about it.
+	m.HandleFunc("POST /tasks/{id}/reopen", func(w http.ResponseWriter, r *http.Request) {
+		var p tasks.Comment
+		if !decode(w, r, &p) {
+			return
+		}
+		if p.Actor != "" {
+			http.Error(w, "only the owner reopens a closed task", 403)
+			return
+		}
+		v, err := c.Store.ReopenTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
+		reply(w, v, err)
+	})
+	m.HandleFunc("POST /tasks/{id}/ask-lead", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Text      string `json:"text"`
+			RequestID string `json:"request_id"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		company := c.companyFrom(r)
+		t, err := c.Store.Task(r.Context(), company, r.PathValue("id"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if strings.TrimSpace(p.Text) == "" {
+			http.Error(w, "text required", 400)
+			return
+		}
+		lead := c.teamLead(r.Context(), company, t.ProjectID, "")
+		if lead == "" {
+			http.Error(w, "the project has no lead to ask", 409)
+			return
+		}
+		body := fmt.Sprintf("About task %s (%s, %s, assignee %s): %s", t.ID, t.Title, t.Status, t.Assignee, p.Text)
+		v, err := c.ownerMessageTo(r.Context(), company, t.ProjectID, lead, body, "question", p.RequestID)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks/{id}/actions", func(w http.ResponseWriter, r *http.Request) {
@@ -470,6 +530,8 @@ type taskView struct {
 	Wait    *tasks.Wait   `json:"wait,omitempty"`
 	// Tie is the task's tie to a node (node-ties).
 	Tie *tasks.Tie `json:"tie,omitempty"`
+	// Awaits is the decision or message it (or the dependency it waits for) is parked on (decision-waits).
+	Awaits *tasks.Awaits `json:"awaits,omitempty"`
 }
 
 // needs fills what the assignee's runs need from a node (node-agent D3) from the agent catalog.
@@ -530,8 +592,18 @@ func (c *Core) taskPermit(w http.ResponseWriter, r *http.Request, actor, operati
 		write(w, d)
 		return false
 	}
-	if create && !a.Spec.Communication.CanCreateTasks || assign && !a.Spec.Communication.CanAssignTasks {
+	if create && !a.Spec.Communication.CanCreateTasks || assign && !config.CanAssign(c.cat(c.companyFrom(r)).Agents, actor) {
 		http.Error(w, "agent communication permissions deny operation", 403)
+		return false
+	}
+	return true
+}
+
+// assignScope refuses a task for an agent outside the actor's assignment scope (assign-by-hierarchy), naming the
+// agent to give it to instead. The owner (no actor) assigns to anyone.
+func (c *Core) assignScope(w http.ResponseWriter, r *http.Request, actor, assignee string) bool {
+	if why := config.AssignRefusal(c.cat(c.companyFrom(r)).Agents, actor, assignee); why != "" {
+		http.Error(w, "assignment outside your scope: "+why, 403)
 		return false
 	}
 	return true

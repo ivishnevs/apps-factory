@@ -118,6 +118,15 @@ func conversationWaiting(q *QueuedReason, agent string) string {
 		return "waiting for a node: " + joinAnd(full) + verb
 	case QueuedUnclaimed:
 		return "starting: " + q.Detail
+	case QueuedNodeDiskCritical:
+		// disk-pause-conversations: a conversation waits for disk only below the node's conversation floor.
+		var disk []string
+		for _, n := range q.Nodes {
+			if n.Reason == QueuedNodeDiskCritical {
+				disk = append(disk, label(n))
+			}
+		}
+		return "waiting for disk space: " + q.Detail + "; free disk on " + joinAnd(disk)
 	}
 	return "waiting for a node: " + q.Detail
 }

@@ -506,6 +506,9 @@ func (m *Model) cardLines(t Task, w int, col string, selected bool) []string {
 	if hasErrs && errs.N > 0 {
 		badge = errBadge(errs.N) + " "
 	}
+	if len(t.PossibleDuplicates) > 0 { // task-duplicate-warnings: an unanswered possible duplicate
+		badge += stYellow.Render("≈dup") + " "
+	}
 	line2 := rightAlign(stFaint.Render(t.ID)+" "+projectChip(t.ProjectID), badge+prio+stFaint.Render(strconv.Itoa(t.Priority)), w)
 	cost := ""
 	for _, g := range m.ov.TaskCosts.Groups {
@@ -776,6 +779,13 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 	if t.PausedBy != "" {
 		add(stYellow.Render("⏸ paused by " + t.PausedBy))
 	}
+	for _, d := range t.PossibleDuplicates {
+		reasons := strings.Join(d.Reasons, ", ")
+		if len(d.Keys) > 0 {
+			reasons += " (" + strings.Join(d.Keys, ", ") + ")"
+		}
+		add(stFaint.Render("dup?    ") + stYellow.Render(d.TaskID+" "+d.Title) + stFaint.Render(" — "+reasons))
+	}
 	if len(why.Pending) > 0 {
 		parts := []string{}
 		for _, g := range why.Pending {
@@ -889,6 +899,10 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 		section(fmt.Sprintf("Comments (%d)", len(d.Comments)))
 		for _, c := range d.Comments {
 			add("  " + stFaint.Render(time.Unix(c.CreatedAt, 0).In(m.opts.Location).Format("01-02 15:04")) + " " + lipgloss.NewStyle().Foreground(agentColor(c.Author)).Render(c.Author) + ": " + oneLine(c.Text))
+			if len(c.Outcomes) > 0 {
+				// owner-comments-handled: what became of the board's comment.
+				add(stFaint.Render("       → " + oneLine(storage.DescribeOutcomes(c.Outcomes))))
+			}
 		}
 	}
 	if len(d.Events) > 0 {

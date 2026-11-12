@@ -4,7 +4,7 @@ import { FileSearch } from "lucide-react";
 import { useMemo } from "react";
 import { TaskMaterials } from "@/components/app/materials/task-materials";
 import { EmptyState, ErrorState } from "@/components/app/page";
-import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
+import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, PossibleDuplicates, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
 import { columnOf, isTerminal, runsByTask, useClock, useHydrated, useOverviewData } from "@/components/app/tasks/model";
 import { TaskActions } from "@/components/app/tasks/task-actions";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -69,8 +69,9 @@ export function TaskView({ taskId }: { taskId: string }) {
           <Description text={task.description} />
           {task.submission && <Submission sub={task.submission} look={look} />}
           {task.status !== "DONE" && <TaskMaterials taskId={task.id} featured={false} now={now} />}
+          <PossibleDuplicates task={task} look={look} />
           <ReviewNotes task={task} look={look} />
-          <Comments taskId={task.id} comments={d.comments ?? []} now={now} look={look} />
+          <Comments taskId={task.id} comments={d.comments ?? []} now={now} look={look} closed={isTerminal(task.status)} />
         </div>
         <aside className="grid min-w-0 grid-cols-1 gap-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <DetailsList task={task} parent={parent} cost={d.costs?.total?.cost_usd ?? 0} now={now} look={look} />

@@ -80,7 +80,9 @@ type Spec struct {
 	Communication struct {
 		CanMessage     []string `yaml:"can_message" json:"can_message"`
 		CanCreateTasks bool     `yaml:"can_create_tasks" json:"can_create_tasks"`
-		CanAssignTasks bool     `yaml:"can_assign_tasks" json:"can_assign_tasks"`
+		// CanAssignTasks is whom the agent may give tasks to (assign-by-hierarchy): none, direct_reports, subtree
+		// or a list of agents; unset is direct_reports for an agent with reports, none otherwise.
+		CanAssignTasks AssignScope `yaml:"can_assign_tasks" json:"can_assign_tasks"`
 		// CanCreateProjects lets the agent call factory_project_create, always behind an owner approval
 		// (project-creation D4); unset means true for the owner's direct reports (the CEO), false otherwise.
 		CanCreateProjects *bool `yaml:"can_create_projects" json:"can_create_projects,omitempty"`
@@ -526,7 +528,15 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 	if err = loadCompany(src, dir); err != nil {
 		return nil, err
 	}
+	if err := validAssignScopes(c.Agents); err != nil {
+		return nil, err
+	}
 	deriveCommunication(c.Agents)
+	for _, name := range Names(c.Agents) {
+		a := c.Agents[name]
+		a.Instructions += hierarchyInstructions(c, name)
+		c.Agents[name] = a
+	}
 	for name, a := range c.Agents {
 		if name == "owner" {
 			return nil, fmt.Errorf("agent name owner is reserved")
@@ -804,7 +814,6 @@ func (c *Catalog) finish(src source, a *Agent) error {
 		ctx.WriteString("Shell commands under deny or approval rules are guarded on PATH: a refused command exits 126 with the rule's instruction. For an approval rule, request factory_owner_request_approval with call {\"name\":\"command\",\"arguments\":{\"argv\":[exact argv, starting with the command name]}} and finish the turn; once APPROVED, exactly that command runs once.\n")
 	}
 	fmt.Fprintf(&ctx, "Factory tools: mode=%s; allow=%v; deny=%v. Factory approvals: mode=%s; require=%v. The policy evaluator marks protected operations as requiring parameter-bound approval. For supported mutation tools, request an exact call through factory_owner_request_approval and finish the turn when blocking. Only APPROVED authorizes retry with identical arguments; deny takes precedence. Release, purchase, production-secret and project-deletion executors are not implemented yet.\n", a.Spec.Tools.Mode, a.Spec.Tools.Allow, a.Spec.Tools.Deny, a.Spec.Approvals.Mode, a.Spec.Approvals.Require)
-	fmt.Fprintf(&ctx, "Communication: can_message=%v; can_create_tasks=%t; can_assign_tasks=%t. Core enforces these permissions for Factory messaging and task tools.\n", a.Spec.Communication.CanMessage, a.Spec.Communication.CanCreateTasks, a.Spec.Communication.CanAssignTasks)
 	if a.CreatesProjects() {
 		ctx.WriteString("Projects: you may start a new project with factory_project_create (project_id, name, description, repo_mode local|github|existing). Every call needs the owner's approval of that exact call: request it with factory_owner_request_approval and finish the turn; nothing is created before approval. Then create the project's first tasks with factory_task_create and its project_id.\n")
 	}
@@ -814,27 +823,8 @@ func (c *Catalog) finish(src source, a *Agent) error {
 			fmt.Fprintf(&ctx, "- %s: %s (categories: %s)\n", s.Name, s.Description, strings.Join(s.Categories, ", "))
 		}
 	}
-	// The team roster (agent-capabilities 2.3): who does what, needs what and is reviewed by whom, for agents that
-	// plan and hand out work, so they follow the input chains and link tasks with dependencies.
-	if a.Spec.Communication.CanCreateTasks || a.Spec.Communication.CanAssignTasks {
-		ctx.WriteString("Your team (assign work by what each agent does and needs; when one agent's work needs another's output, create both tasks and link them with dependencies):\n")
-		for _, name := range Names(c.Agents) {
-			o := c.Agents[name]
-			if name == a.Metadata.Name || o.Spec.Team != a.Spec.Team {
-				continue
-			}
-			fmt.Fprintf(&ctx, "- %s (%s)", name, o.Spec.Role)
-			if o.Metadata.Description != "" {
-				fmt.Fprintf(&ctx, ": %s", o.Metadata.Description)
-			}
-			if len(o.Spec.Capabilities) > 0 {
-				fmt.Fprintf(&ctx, ". %s", strings.Join(o.Spec.Capabilities, "; "))
-			}
-			ctx.WriteString("\n")
-		}
-		// dependency-wait-escalations 3.2: a planned wait is a dependency, never a manual block.
-		ctx.WriteString("Waiting: a task with open dependencies waits and starts by itself when they are done; never block it to hold it (that is refused, and only the owner clears a block). To make a task wait for work, add that work as a dependency. A stalled escalation about a planned wait: answer keep_waiting; drop_dependency removes the dependency.\n")
-	}
+	// The communication permissions and the roster need the whole reporting tree: hierarchyInstructions adds them
+	// once every agent is loaded.
 	a.Instructions = ctx.String()
 	return nil
 }

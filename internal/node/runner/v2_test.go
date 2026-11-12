@@ -348,9 +348,21 @@ func TestV2Heartbeat(t *testing.T) {
 	if snap := inv.Snapshot(); len(snap) != 2 { // r-done acked
 		t.Fatalf("%+v", snap)
 	}
+	if h := hb.Health; h.DiskConversationFloorBytes == nil || *h.DiskConversationFloorBytes != node.GiB {
+		t.Fatalf("conversation floor not reported: %+v", h.DiskConversationFloorBytes)
+	}
 	f.answers = []HeartbeatAnswer{{Pause: false}}
 	if err = s.beat(ctx); err != nil || !s.claimable() {
 		t.Fatal("pause not lifted", err)
+	}
+	// disk-pause-conversations: pause_work (critical disk) stops work claims only.
+	f.answers = []HeartbeatAnswer{{PauseWork: true}}
+	if err = s.beat(ctx); err != nil || !s.claimable() || s.workClaimable() {
+		t.Fatal("pause_work not applied", err, s.claimable(), s.workClaimable())
+	}
+	f.answers = []HeartbeatAnswer{{}}
+	if err = s.beat(ctx); err != nil || !s.workClaimable() {
+		t.Fatal("pause_work not lifted", err)
 	}
 	f.mu.Lock()
 	f.incarnation = "inc-2" // database restored

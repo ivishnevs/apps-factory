@@ -15,8 +15,8 @@
 - [x] 2.1 Agents may assign to a person only with that person's message or directive cited as the reason; agents'
       status, assignee, description, cancel and `replaces` changes on a person's task are refused with a hint; tests.
       (`assign_reason` on create/assign, the reassign `reason`: the id of a message that person wrote; 403 with the
-      hint to message instead for assign, update of title/description, ready, block, cancel and reassign. `replaces`
-      does not exist yet (task-duplicate-warnings is not implemented); its refusal belongs to that change.)
+      hint to message instead for assign, update of title/description, ready, block, cancel, reassign and
+      `replaces` (create or update naming a person's task).)
 - [x] 2.2 Briefs and dependency waits name the person ("waits for <task>, with <person>"); manager prompt: "I'll do it
       myself" → create or reassign to the person, do not plan the work for an agent. (Dependency verdict and brief
       line; the owner-chat brief adds the rule and shows the writer as `member:<user>`; tool descriptions.)
@@ -25,7 +25,7 @@
 
 - [x] 3.1 A dependency on a person's task is never `stalled`; reminder to the person after `people.remind_after`
       (default 72h) without change while tasks wait on it, once per episode; "your task is ready" notice; tests.
-      (`GET|PUT /settings/company/people`, migration 0033 `people_remind_after_minutes` and `person_reminders`; no
+      (`GET|PUT /settings/company/people`, migration 0035 `people_remind_after_minutes` and `person_reminders`; no
       `idle` alert for a person's task.)
 
 ## 4. UI

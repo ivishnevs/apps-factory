@@ -27,6 +27,9 @@ const (
 	ReasonPinnedNode = "pinned_node_unavailable"
 	// ReasonNoCapableNode: no online, unpaused node has the assignee's driver, labels and resources.
 	ReasonNoCapableNode = "no_capable_node"
+	// ReasonNodeDiskCritical: the capable nodes that could take the task's runs are paused for a critical disk
+	// (disk-pause-conversations): free disk there; the node resumes by itself.
+	ReasonNodeDiskCritical = "node_disk_critical"
 	// ReasonNoReadyNode: capable nodes exist but none is ready for the task's project (node-readiness): the task
 	// waits for a node's fix with its retries untouched; it does not escalate.
 	ReasonNoReadyNode = "no_ready_node"
@@ -44,11 +47,15 @@ const (
 	ParkAsk        = "ask"
 	ParkBlock      = "block"
 	ParkChildren   = "children"
+	// ParkDecision waits for a decision (ref: its id) to be recorded, ParkMessage for the next message from a sender
+	// (ref: an agent or owner); neither has a timer (decision-waits).
+	ParkDecision = "decision"
+	ParkMessage  = "message"
 	// ParkRefResetWorkspace is the ref of the block park that waits for the node to reset a diverged worktree.
 	ParkRefResetWorkspace = "reset_workspace"
 )
 
-var parkOrder = []string{ParkEscalation, ParkInspect, ParkWait, ParkAsk, ParkBlock, ParkChildren}
+var parkOrder = []string{ParkEscalation, ParkInspect, ParkWait, ParkAsk, ParkDecision, ParkMessage, ParkBlock, ParkChildren}
 
 // Run is the state of a run relevant to scheduling.
 type Run struct {
@@ -88,6 +95,23 @@ type Dependency struct {
 	Status string `json:"status"`
 	// Person names the person the dependency is assigned to (people-assignees); "" for an agent's task.
 	Person string `json:"person,omitempty"`
+	// Awaits is the event the dependency (or one of its own open dependencies) is parked on: the root of the wait.
+	Awaits *Awaits `json:"awaits,omitempty"`
+}
+
+// Awaits is the event a task parked on a decision or a message waits for (decision-waits): the board says "Waits for
+// your decision: <topic>" and links to it. Who is the decision's addressee or the awaited sender (owner or
+// agent:<name>). TaskID is the parked task when the wait is reached through dependencies.
+type Awaits struct {
+	Kind       string `json:"kind"` // decision or message
+	DecisionID string `json:"decision_id,omitempty"`
+	// MessageID is the decision's Inbox notice, where it is decided.
+	MessageID string `json:"message_id,omitempty"`
+	From      string `json:"from,omitempty"`
+	Topic     string `json:"topic,omitempty"`
+	Who       string `json:"who"`
+	Deadline  int64  `json:"deadline,omitempty"`
+	TaskID    string `json:"task_id,omitempty"`
 }
 
 // Child is an open child task (parent_task_id) of a task parked on its children.
@@ -118,6 +142,8 @@ type Snapshot struct {
 	Dependencies        []Dependency
 	// Children are the task's open children, loaded when it has a children park (they clear it).
 	Children []Child
+	// Awaits is the event of the task's own decision or message park (nil when none).
+	Awaits *Awaits
 	// UnapprovedArtifacts are required artifact versions without a current owner approval.
 	UnapprovedArtifacts []Artifact
 	// Paused are the pauses covering the task: "company", "project:<id>", "agent:<name>",
@@ -202,6 +228,8 @@ type Verdict struct {
 	Wait *Wait `json:"wait,omitempty"`
 	// Tie is the task's tie to a node (node-ties), whatever the reason.
 	Tie *Tie `json:"tie,omitempty"`
+	// Awaits is the decision or message the task, or the dependency it waits for, is parked on (decision-waits).
+	Awaits *Awaits `json:"awaits,omitempty"`
 }
 
 // Wait kinds of a capacity verdict.
@@ -333,16 +361,27 @@ func evaluate(s Snapshot) Verdict {
 	}
 	for _, kind := range parkOrder {
 		if p, ok := park(s, kind); ok {
-			return v(ReasonParked+kind, p.Detail, p.Clearer.Who, p.Clearer.Action)
+			out := v(ReasonParked+kind, p.Detail, p.Clearer.Who, p.Clearer.Action)
+			if kind == ParkDecision || kind == ParkMessage {
+				out.Awaits = s.Awaits
+			}
+			return out
 		}
 	}
 	for _, d := range s.Dependencies {
 		if d.Status != "DONE" {
+			detail, action := fmt.Sprintf("dependency %s is %s", d.ID, d.Status), "dependency must reach DONE"
 			if d.Person != "" {
 				// A person's task is waited for, not escalated (people-assignees).
-				return v(ReasonDependencies, fmt.Sprintf("waits for %s, with %s (%s)", d.ID, d.Person, d.Status), "task:"+d.ID, d.Person+" moves it to DONE")
+				detail, action = fmt.Sprintf("waits for %s, with %s (%s)", d.ID, d.Person, d.Status), d.Person+" moves it to DONE"
 			}
-			return v(ReasonDependencies, fmt.Sprintf("dependency %s is %s", d.ID, d.Status), "task:"+d.ID, "dependency must reach DONE")
+			if a := d.Awaits; a != nil {
+				// The root of the wait (decision-waits): the dependents of a parked task show what it waits for.
+				detail += "; " + a.TaskID + " " + a.Words()
+			}
+			out := v(ReasonDependencies, detail, "task:"+d.ID, action)
+			out.Awaits = d.Awaits
+			return out
 		}
 	}
 	if len(s.UnapprovedArtifacts) > 0 {
@@ -465,6 +504,22 @@ func personVerdict(v func(reason, detail, who, action string) Verdict, t Task, n
 	return v(ReasonIdle, detail, who, name+" starts it on the board (or factory tasks start "+t.ID+" VERSION)")
 }
 
+// Words says what the event wait waits for: "waits for decision D [topic]" or "waits for a message from X".
+func (a Awaits) Words() string {
+	if a.Kind == ParkDecision {
+		s := "waits for decision " + a.DecisionID
+		if a.Topic != "" {
+			s += " [" + a.Topic + "]"
+		}
+		return s
+	}
+	s := "waits for a message from " + a.From
+	if a.Topic != "" {
+		s += " (" + a.Topic + ")"
+	}
+	return s
+}
+
 // wait attaches the structured capacity case to a verdict.
 func wait(v Verdict, w Wait) Verdict {
 	v.Wait = &w
@@ -518,6 +573,10 @@ func park(s Snapshot, kind string) (Verdict, bool) {
 			return hold(p.Reason, strings.Join(who, ","), "wait for "+what+" to close (or factory tasks ready "+t.ID+" VERSION to release it early)")
 		case ParkWait:
 			return hold(p.Reason, "time", "wakes at its time; a directive or authority comment wakes it now (factory comment "+t.ID+" TEXT)")
+		case ParkDecision:
+			return hold(p.Reason, p.Who, "decide decision "+p.RefID+" (Inbox, or factory decisions record "+p.RefID+"); the task wakes with the outcome")
+		case ParkMessage:
+			return hold(p.Reason, p.Who, "the next message from "+p.RefID+" to "+t.ID+" or its agent wakes it; a directive or authority comment wakes it now")
 		default:
 			return hold(p.Reason, p.Who, "clear the "+kind+" park")
 		}

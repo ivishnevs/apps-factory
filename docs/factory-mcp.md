@@ -16,13 +16,13 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 | factory_agent_list | factory.agent.list | Agent name/role/capabilities |
 | factory_settings_get | factory.settings.get | Company or project rules (`scope: company|project`), read-only, the run's own company and project |
 | factory_question_forward | factory.question.forward | Forward a question you received and cannot decide to your manager (`message_id`, `version`, `note`) |
-| factory_task_get / factory_task_list | factory.task.get / factory.task.list | Current project's tasks |
-| factory_task_create | factory.task.create | BACKLOG; requires can_create_tasks; `project_id` is the run's project (default) or a project the agent created |
+| factory_task_get / factory_task_list | factory.task.get / factory.task.list | Current project's tasks; the list is compact (no descriptions) unless `full: true`, filters `status`, `open`, `assignee`, `openspec_change`, `covers`, `query` ([duplicate warnings](task-lifecycle.md#duplicate-warnings)) |
+| factory_task_create | factory.task.create | BACKLOG; requires can_create_tasks; an `assignee` other than the agent must be in its assignment scope (`can_assign_tasks`); `project_id` is the run's project (default) or a project the agent created; `covers`, `replaces`; the answer carries duplicate `warnings` |
 | factory_project_create | factory.project.create | New project (`project_id`, `name`, `description`, `repo_mode` local\|github\|existing, `workspace`, `repo_url`, `default_branch`, `openspec`, `audit`, `request_id`); always needs the owner's approval of the exact call; requires `communication.can_create_projects` (default: the owner's direct reports). See [projects](projects.md) |
-| factory_task_update | factory.task.update | Metadata/dependencies with version |
-| factory_task_assign | factory.task.assign | Assignee with version; requires can_assign_tasks |
+| factory_task_update | factory.task.update | Metadata/dependencies with version; `covers`, `replaces`, `not_duplicate_of` (answers a duplicate warning) |
+| factory_task_assign | factory.task.assign | Assignee with version; the assignee must be in the agent's assignment scope (`can_assign_tasks`, agent-configuration.md#hierarchy); a refusal names the agent to give the task to |
 | factory_task_ready / block / cancel | factory.task.ready / block / cancel | Existing state machine; cancel needs authority over the task (or its creator), `cascade` for open children |
-| factory_task_pause / resume / reassign / reprioritize | factory.task.pause / resume / reassign / reprioritize | Authority actions over the assignee's subtree (agent-configuration.md#hierarchy); pause/resume with `agent` for an agent of the subtree |
+| factory_task_pause / resume / reassign / reprioritize | factory.task.pause / resume / reassign / reprioritize | Authority actions over the assignee's subtree (agent-configuration.md#hierarchy); the new assignee of a reassign must be in the agent's assignment scope; pause/resume with `agent` for an agent of the subtree |
 | factory_task_submit | factory.task.submit | Current task/run structured submission draft |
 | factory_task_accept / reject | factory.task.review | Another agent's IN_REVIEW work; rejection needs feedback |
 | factory_artifact_register / list / get / request_approval | factory.artifact.register / list / get / request_approval | Immutable artifact versions and owner content approval |
@@ -38,8 +38,13 @@ With explicit exits on (`FACTORY_EXPLICIT_EXITS=1`, see below) `factory_task_sub
 | factory_exit_done | `summary`: DONE (a repository task only with its pull request merged); on a conversation task "input handled", it stays open |
 | factory_exit_ask | `question`, `options?`, `category?`, `evidence?`: `ask` park and a question up the chain |
 | factory_exit_block | `on: [task]` or `on_children: true`, `reason`: waits on open tasks of the project or on open children; anything else (a closed or foreign task, a cycle, no open child) becomes an ask |
-| factory_exit_wait | `reason`, `deadline`, `wake_at` or `after`: `wait` park until the time (task-lifecycle.md, Waits) |
+| factory_exit_wait | `reason` and one of: `decision_id` (`decision` park until the decision is recorded or withdrawn), `from` + optional `topic` (`message` park until the next message from that agent or owner), `wake_at` or `after` with a `deadline` (`wait` park until the time); an event wait's `deadline` is optional and only escalates (task-lifecycle.md, Waits) |
 | factory_task_direct | `task_id`, `text`, `urgent?`, `request_id`: a directive (authority input) to a task you have authority over |
+| factory_comment_forward | `comment_id`, `note`: a board comment of the run's task that is not the agent's to do goes verbatim, with the task link, to its manager; the outcome is `forwarded`. The project lead cannot forward |
+
+Every exit also takes `comments: [{comment_id, outcome: done\|declined, reason?, task_id?}]`, one outcome per board
+comment the brief lists; while one has none the exit is refused with 409 `comments_unhandled`
+([task lifecycle](task-lifecycle.md#board-comments-owner-comments-handled)).
 
 Tool names use underscores for runtime interoperability; policy names keep dots. Task creation
 with an assignee additionally requires assignment permission, even self-assignment. Dependencies

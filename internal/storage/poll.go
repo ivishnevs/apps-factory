@@ -55,8 +55,8 @@ const maxOfferScan = 256
 // ErrStaleEpoch for an older one (like the heartbeat).
 func (s *Store) pollNode(ctx context.Context, company, node string, epoch int64) (Node, error) {
 	var n Node
-	var drivers, labels []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT epoch,drivers,labels FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&n.Epoch, &drivers, &labels)
+	var drivers, labels, health []byte
+	err := s.DB.QueryRowContext(ctx, "SELECT epoch,drivers,labels,health FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&n.Epoch, &drivers, &labels, &health)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && epoch > n.Epoch {
 		return n, ErrUnknownNode
 	}
@@ -68,6 +68,7 @@ func (s *Store) pollNode(ctx context.Context, company, node string, epoch int64)
 	}
 	_ = json.Unmarshal(drivers, &n.Drivers)
 	_ = json.Unmarshal(labels, &n.Labels)
+	n.Health = health
 	return n, nil
 }
 
@@ -146,6 +147,11 @@ func (s *Store) OffersFor(ctx context.Context, company, node string, epoch int64
 			return out, err
 		}
 		if pinned != "" && pinned != node || len(tasks.MissingLabels(n.Labels, AgentLabels(c.snapshot))) > 0 {
+			continue
+		}
+		// disk-pause-conversations: a node paused for a critical disk is offered conversations only (none below
+		// its conversation floor).
+		if diskPaused(n.Health, c.conversation) {
 			continue
 		}
 		c.rank = 2

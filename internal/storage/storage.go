@@ -42,6 +42,9 @@ type Store struct {
 	EscalationTarget func(company, assignee string) string
 	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
 	ManagerOf func(company, agent string) string
+	// LeadOf is the lead of a project's team ("" for a project without a team: the company's default lead), who
+	// sees every board comment of the project (owner-comments-handled); nil wakes no lead.
+	LeadOf func(company, team string) string
 	// TeamOf is the team of agent (company-teams D4): a task of a project with a team may be created for,
 	// assigned or delegated only to an agent of that team. nil or "" (an unknown agent) checks nothing.
 	TeamOf func(company, agent string) string

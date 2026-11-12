@@ -295,7 +295,7 @@ drivers:
   codex: {enabled: true, binary: codex}  # binary default: CODEX_BIN, else codex
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
 probes: {interval: 10m, version_interval: 1h, attempts: 3, retry_backoff: 5s, transient_failures: 3}  # driver check periods (at least 1m) and transient-failure handling (defaults)
-disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5}  # path default: state_dir
+disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5, conversation_floor_gib: 1}  # path default: state_dir
 worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
 poll: {wait_seconds: 25}      # how long Core may hold the poll open (1..25, default 25); lower behind a proxy that cuts requests sooner
 hooks: default               # NodeHooks document of the company catalog (protocol v2; default: default)
@@ -336,10 +336,13 @@ Claude runs only through the node: enable `drivers.claude` on nodes logged in to
   a disabled one the failing `check` — `version`, `probe` or `auth` — with its `detail`), and a flip sends a
   heartbeat at once: Core updates the node's drivers without a new epoch, claims follow them, and Core records one
   `driver_unsupported` attention event per driver that becomes unusable (`driver_restored` when it is usable again).
-- Disk: before each claim a free slot reads free space on `disk.path`. Below the critical watermark claiming
-  pauses (one error log), below the low watermark one warning is logged; both clear with a log line when space
-  returns. Running runs continue. With protocol v2 the heartbeat's `health.disk` makes Core raise one
-  `node.low_disk` per low episode and one `node.disk_critical` (and answer `pause`) per critical one.
+- Disk: before each claim a free slot reads free space on `disk.path`. Below the critical watermark work and
+  review claims pause while conversation claims go on (disk-pause-conversations: an answer takes no disk); below
+  `disk.conversation_floor_gib` (default 1 GiB, at most the critical watermark) every claim pauses; below the low
+  watermark one warning is logged; each crossing logs once and clears with a log line when space returns. Running
+  runs continue. With protocol v2 the heartbeat's `health.disk` (with `disk_conversation_floor_bytes`) makes Core
+  raise one `node.low_disk` per low episode and one `node.disk_critical` (and answer `pause_work`) per critical one;
+  an owner pause of the node answers `pause` and stops every claim.
 - Self-checks (node-agent D7, protocol v2): at start, every `probes.interval` and when the `NodeHooks` checks change,
   the node runs `git`, `git.user`, `forge.auth`, `ps` and the stack checks; the failing ones go into the heartbeat's
   `health.checks` (driver probes do not: a failing driver is one `driver_unsupported` through `drivers`), and Core raises one `node.check_failed{check}` per failure (and
@@ -430,7 +433,8 @@ The node speaks [runtime protocol v2](runtime-protocol-v2.md):
   an ended but unsealed run still holds its class. A new epoch releases what the old process held. Agents'
   `spec.labels` must all be node labels; a shortfall answers `409 {"retry":true,"reason":"capacity","detail":…}`.
   `factory tasks why` shows `no_capable_node` (no online, unpaused node has the assignee's driver, labels and
-  resources), `capacity` (capable nodes are full, or the pinned node is briefly offline) and
+  resources; "resume node N" for an owner pause), `node_disk_critical` (the capable nodes are paused for a critical
+  disk: "free disk on N; it resumes by itself above 5 GiB"), `capacity` (capable nodes are full, or the pinned node is briefly offline) and
   `pinned_node_unavailable` (the node holding the task's unpushed work was removed, is offline past 30 min, or
   cannot run the assignee); a QUEUED run nobody can claim shows the node reason instead of `live_run`.
 

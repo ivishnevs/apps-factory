@@ -78,3 +78,24 @@ say that no agent has it yet.
 #### Scenario: Company-wide skill used by two agents
 - **WHEN** `release-readiness` is installed company-wide and only the CEO, PM and App Store Publisher include it
 - **THEN** its row SHALL read "Any agent may use" and "Used by appstore-publisher, ceo, product-manager", never "Every agent"
+
+### Requirement: A task's result leads its materials
+A finished task's page SHALL lead with the materials the agent named as the result in its last accepted submission or done exit, and without such materials with the newest material that has content. Materials outside the result SHALL be folded under "Earlier versions", grouped by artifact with their approvals, and every row SHALL name its artifact and version.
+
+#### Scenario: Screenshots task with samples
+- **WHEN** the owner opens a done screenshots task whose last submission named the final gallery, and that produced two approved samples and a storyboard
+- **THEN** the final gallery SHALL be the lead card and the samples and the storyboard SHALL be under "Earlier versions" with the board's approval comments
+
+### Requirement: Company rules in Settings
+The web Settings SHALL show the company rules every agent's brief carries, let owners and admins edit and save them within the 8 KB limit, and show them read-only to members.
+
+#### Scenario: Owner edits the rules
+- **WHEN** an owner opens Settings → Company rules, changes the text and saves
+- **THEN** the next brief of every agent SHALL carry the new text
+
+### Requirement: Comment outcomes and closed-task actions on the task page
+The task page SHALL show each owner comment's outcome (done, forwarded to whom, declined and why) or "not handled yet", and SHALL offer no comment box on a DONE or CANCELLED task, offering "Reopen with comment" and "Ask the lead about it" instead.
+
+#### Scenario: Done task
+- **WHEN** the owner opens a DONE task
+- **THEN** the page SHALL show "Reopen with comment" and "Ask the lead about it" and no comment box

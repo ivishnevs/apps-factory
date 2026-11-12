@@ -100,6 +100,17 @@ func (c *Core) agentAssignsPerson(w http.ResponseWriter, r *http.Request, actor,
 	return false
 }
 
+// agentReplacesPerson refuses an agent's replaces naming a person's task (replaces cancels it); it reports whether it
+// answered the request.
+func (c *Core) agentReplacesPerson(w http.ResponseWriter, r *http.Request, actor string, ids []string) bool {
+	for _, id := range ids {
+		if c.agentHandsOff(w, r, actor, id, "replace") {
+			return true
+		}
+	}
+	return false
+}
+
 // agentHandsOff refuses an agent's change of a person's task (403 with the hint to comment); it reports whether
 // it answered the request.
 func (c *Core) agentHandsOff(w http.ResponseWriter, r *http.Request, actor, id, what string) bool {

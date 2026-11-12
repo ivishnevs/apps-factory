@@ -305,7 +305,11 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	if _, err = tx.ExecContext(ctx, "INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.ProjectID, m.ConversationID, nullable(m.TaskID), m.Sender, m.Recipient, m.MessageType, m.Status, m.DeliveryStatus, m.Version, b, m.CreatedAt, hex.EncodeToString(fingerprint[:]), tx.company); err != nil {
 		return m, err
 	}
-	return m, entityEvent(ctx, tx, "message.created", m.ProjectID, m.ID, m)
+	if err = entityEvent(ctx, tx, "message.created", m.ProjectID, m.ID, m); err != nil {
+		return m, err
+	}
+	// A task parked on a message from this sender wakes (decision-waits).
+	return m, messageArrived(ctx, tx, m.ProjectID, m.TaskID, m.Recipient, m.Sender, m.ID, m.Body)
 }
 func saveMessage(ctx context.Context, tx *Tx, m *messaging.Message, kind string) error {
 	old := m.Version
@@ -482,6 +486,9 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 		return answer, err
 	}
 	if err = entityEvent(ctx, tx, "message.created", answer.ProjectID, answer.ID, answer); err != nil {
+		return answer, err
+	}
+	if err = messageArrived(ctx, tx, answer.ProjectID, answer.TaskID, answer.Recipient, answer.Sender, answer.ID, answer.Body); err != nil {
 		return answer, err
 	}
 	if err = answerEscalation(ctx, tx, m, in); err != nil {
