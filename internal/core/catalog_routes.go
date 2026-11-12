@@ -70,7 +70,7 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	a := agents[name]
 	required, reviewer := a.Review()
 	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
-		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
+		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
 		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
@@ -83,15 +83,17 @@ type TeamMember struct {
 	Name string `json:"name"`
 	Team string `json:"team,omitempty"`
 	// Document is the agent's catalog document; Skills its own spec.skills.include (the skill picker edits both).
-	Document       string   `json:"document,omitempty"`
-	Skills         []string `json:"skills"`
-	Description    string   `json:"description,omitempty"`
-	Role           string   `json:"role"`
-	ReportsTo      string   `json:"reports_to"`
-	Prompt         string   `json:"prompt"`
-	Provider       string   `json:"provider"`
-	Model          string   `json:"model,omitempty"`
-	CreatesTasks   bool     `json:"creates_tasks,omitempty"`
+	Document     string   `json:"document,omitempty"`
+	Skills       []string `json:"skills"`
+	Description  string   `json:"description,omitempty"`
+	Role         string   `json:"role"`
+	ReportsTo    string   `json:"reports_to"`
+	Prompt       string   `json:"prompt"`
+	Provider     string   `json:"provider"`
+	Model        string   `json:"model,omitempty"`
+	CreatesTasks bool     `json:"creates_tasks,omitempty"`
+	// AssignsTo are the agents it may give tasks to (assign-by-hierarchy).
+	AssignsTo      []string `json:"assigns_to,omitempty"`
 	ReviewRequired bool     `json:"review_required,omitempty"`
 	Reviewer       string   `json:"reviewer,omitempty"`
 	ReviewPaths    []string `json:"review_paths,omitempty"`
@@ -162,11 +164,11 @@ func (c *Core) ApplyCatalogChange(ctx context.Context, company, author string, c
 		if err != nil {
 			return storage.CatalogVersion{}, fmt.Errorf("%w: %v", storage.ErrInput, err)
 		}
-		return storage.CatalogVersion{Version: ch.Base, Documents: len(docs), Warnings: append(config.ReviewCoverage(cat), config.CapabilityWarnings(cat)...)}, nil
+		return storage.CatalogVersion{Version: ch.Base, Documents: len(docs), Warnings: append(append(config.ReviewCoverage(cat), config.CapabilityWarnings(cat)...), config.AssignWarnings(cat)...)}, nil
 	}
 	v, err := c.SaveCatalog(ctx, company, storage.CatalogSave{Base: ch.Base, Docs: docs, Author: author, Note: ch.Note})
 	if err == nil {
-		v.Warnings = append(config.ReviewCoverage(c.cat(company)), config.CapabilityWarnings(c.cat(company))...)
+		v.Warnings = append(append(config.ReviewCoverage(c.cat(company)), config.CapabilityWarnings(c.cat(company))...), config.AssignWarnings(c.cat(company))...)
 	}
 	return v, err
 }

@@ -1,5 +1,5 @@
-Status: proposed 2026-11-12 by the owner (agreed in the chat: delegation follows the reporting tree in Core, not in
-prompts). Nothing implemented.
+Status: proposed and implemented 2026-11-12 by the owner's request (delegation follows the reporting tree in Core,
+not in prompts).
 
 ## Why
 
@@ -27,8 +27,8 @@ the system, so prompts carry only each role's craft and the company's facts.
     # [product-manager, app-release]: an explicit list
   ```
   `can_create_tasks` stays a switch. A task an agent creates without an assignee, or for itself, can be assigned only
-  within its scope. The old boolean is replaced outright (`true` → `direct_reports`, `false` → `none`); no
-  compatibility layer.
+  within its scope. `true` and `false` stay valid as short forms of `direct_reports` and `none`, so stored catalogs keep
+  loading; the repository's configs and presets drop the key and take the default from the tree.
 - **Core checks the assignee.** Creating, assigning or reassigning a task to an agent outside the scope is refused
   with the agent to use instead: "developer-lite reports to product-manager: give the task to product-manager". The
   owner and people with the owner or admin role still assign to anyone.

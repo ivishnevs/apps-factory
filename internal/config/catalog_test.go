@@ -642,8 +642,8 @@ func TestCatalogFromFS(t *testing.T) {
 	}
 }
 
-// TestTeamRosterInLeadInstructions (agent-capabilities 2.3): agents that create or assign tasks get their team's
-// roster with roles, descriptions and capabilities.
+// TestTeamRosterInLeadInstructions (agent-capabilities 2.3, assign-by-hierarchy): agents that may assign tasks get
+// the roster of exactly the agents in their scope; others get none.
 func TestTeamRosterInLeadInstructions(t *testing.T) {
 	c, err := LoadCatalog("../..")
 	if err != nil {
@@ -651,27 +651,25 @@ func TestTeamRosterInLeadInstructions(t *testing.T) {
 	}
 	found := false
 	for name, a := range c.Agents {
-		if !a.Spec.Communication.CanCreateTasks && !a.Spec.Communication.CanAssignTasks {
-			if strings.Contains(a.Instructions, "Your team (assign work") {
-				t.Fatalf("%s gets the roster without planning work", name)
+		targets := AssignTargets(c.Agents, name)
+		if len(targets) == 0 {
+			if strings.Contains(a.Instructions, "Agents you assign work to") {
+				t.Fatalf("%s gets a roster without anyone to assign to", name)
 			}
-			continue
-		}
-		mates := 0
-		for other, o := range c.Agents {
-			if other != name && o.Spec.Team == a.Spec.Team {
-				mates++
-			}
-		}
-		if mates == 0 {
 			continue
 		}
 		found = true
-		if !strings.Contains(a.Instructions, "Your team (assign work") {
-			t.Fatalf("%s plans work without the roster:\n%s", name, a.Instructions)
+		if !strings.Contains(a.Instructions, "Agents you assign work to") {
+			t.Fatalf("%s may assign without the roster:\n%s", name, a.Instructions)
+		}
+		for _, other := range Names(c.Agents) {
+			listed := strings.Contains(a.Instructions, "\n- "+other+" (")
+			if listed != slices.Contains(targets, other) {
+				t.Fatalf("%s: roster lists %s = %t, scope %v", name, other, listed, targets)
+			}
 		}
 	}
 	if !found {
-		t.Skip("no planning agent with teammates in the repository catalog")
+		t.Skip("no agent with reports in the repository catalog")
 	}
 }

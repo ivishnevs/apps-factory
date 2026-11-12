@@ -156,6 +156,22 @@ chain of an agent is its managers up to the owner, its subtree the agents whose 
 may message the agents of its team and the owner; `communication.can_message` adds agents of other teams but
 never removes these.
 
+Assigning tasks follows the tree (assign-by-hierarchy): `communication.can_assign_tasks` is whom the agent may give
+tasks to: `none`, `direct_reports`, `subtree` or a list of agents of its team (`true` and `false` are short for
+`direct_reports` and `none`). Unset, it is `direct_reports` for an agent with reports and `none` otherwise. Core
+checks the assignee of every create, assign and reassign by an agent and refuses one outside the scope, naming the
+agent to give it to (the assignee's closest manager in scope: "developer-lite reports to product-manager: give the
+task to product-manager"). An agent may always assign to itself; the owner and people assign to anyone. The
+instructions of an agent with a scope list exactly the agents it may assign to, each with its own team, so routing
+lives in the catalog rather than in prompts. A listed agent outside the team or unknown fails validation;
+`direct_reports` or `subtree` on an agent without reports is a save warning. A manager's authority over its whole
+subtree (pause, resume, cancel, reprioritize, directives) is unchanged.
+
+```yaml
+communication:
+  can_assign_tasks: direct_reports   # none | direct_reports | subtree | [product-manager, app-release]
+```
+
 Creating projects (project-creation): `communication.can_create_projects` offers `factory_project_create`; unset,
 it is true for the owner's direct reports (`reports_to: owner` or none, i.e. the CEO) and false for everyone else.
 Set it to `false` to take the tool from a direct report, `true` to give it to another agent. A tool deny of

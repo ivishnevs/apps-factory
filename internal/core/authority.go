@@ -57,9 +57,8 @@ func (c *Core) authorityRoutes(m *http.ServeMux) {
 				if !c.agentExists(w, c.companyFrom(r), p.Assignee) {
 					return
 				}
-				// An agent reassigns within its subtree (or to itself); the owner to anyone.
-				if p.Actor != "" && p.Actor != config.Owner && p.Assignee != p.Actor && !slices.Contains(config.Subtree(c.cat(c.companyFrom(r)).Agents, p.Actor), p.Assignee) {
-					http.Error(w, "the new assignee must be in your subtree", 403)
+				// An agent reassigns within its assignment scope (or to itself); the owner to anyone (assign-by-hierarchy).
+				if !c.assignScope(w, r, p.Actor, p.Assignee) {
 					return
 				}
 			}

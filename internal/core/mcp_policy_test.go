@@ -31,7 +31,7 @@ func TestMCPCapturedPermissionsAndAssignAllowlist(t *testing.T) {
 			}
 			current := agents["demo"]
 			current.Spec.Communication.CanCreateTasks = true
-			current.Spec.Communication.CanAssignTasks = true
+			current.Spec.Communication.CanAssignTasks = config.AssignScope{Mode: config.AssignDirectReports}
 			captured := current
 			name := "factory_task_create"
 			args := map[string]any{"title": "child", "request_id": "child"}

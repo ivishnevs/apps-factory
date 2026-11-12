@@ -23,7 +23,6 @@ spec:
     - "Reviewed by: the owner"
     communication:
       can_create_tasks: true
-      can_assign_tasks: true
   skills:
   - product-requirements
   - openspec

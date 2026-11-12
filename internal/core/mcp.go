@@ -113,7 +113,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 			if t.Operation == "factory.task.create" && !a.Spec.Communication.CanCreateTasks {
 				return false
 			}
-			if t.Operation == "factory.task.assign" && !a.Spec.Communication.CanAssignTasks {
+			if t.Operation == "factory.task.assign" && !config.CanAssign(c.cat(company).Agents, a.Metadata.Name) {
 				return false
 			}
 			if projectTool(t) && !a.CreatesProjects() {
@@ -359,8 +359,12 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	}
 	// Enforce assignment privileges also for create-with-assignee (including self).
 	if assignee, ok := args["assignee"].(string); ok && assignee != "" {
+		if why := config.AssignRefusal(c.cat(c.companyFrom(r)).Agents, run.Spec.Agent, assignee); why != "" {
+			http.Error(w, "assignment outside your scope: "+why, 403)
+			return
+		}
 		for _, a := range []config.Agent{snapshot, current} {
-			if !a.Spec.Communication.CanAssignTasks {
+			if !config.CanAssign(c.cat(c.companyFrom(r)).Agents, run.Spec.Agent) && assignee != run.Spec.Agent {
 				http.Error(w, "assignment permission required", 403)
 				return
 			}

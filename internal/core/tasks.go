@@ -149,7 +149,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Assignee != "" && !c.agentExists(w, c.companyFrom(r), p.Assignee) {
 			return
 		}
-		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
+		if p.Actor != "" && p.Assignee != "" && p.Assignee != p.Actor && (!c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) || !c.assignScope(w, r, p.Actor, p.Assignee)) {
 			return
 		}
 		if p.Ready && !c.taskPermit(w, r, p.Actor, "factory.task.ready", false, false) {
@@ -323,6 +323,9 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 				return
 			}
 			if !c.taskPermit(w, r, p.Actor, "factory.task.assign", false, true) {
+				return
+			}
+			if *p.Assignee != "" && !c.assignScope(w, r, p.Actor, *p.Assignee) {
 				return
 			}
 		}
@@ -506,8 +509,18 @@ func (c *Core) taskPermit(w http.ResponseWriter, r *http.Request, actor, operati
 		write(w, d)
 		return false
 	}
-	if create && !a.Spec.Communication.CanCreateTasks || assign && !a.Spec.Communication.CanAssignTasks {
+	if create && !a.Spec.Communication.CanCreateTasks || assign && !config.CanAssign(c.cat(c.companyFrom(r)).Agents, actor) {
 		http.Error(w, "agent communication permissions deny operation", 403)
+		return false
+	}
+	return true
+}
+
+// assignScope refuses a task for an agent outside the actor's assignment scope (assign-by-hierarchy), naming the
+// agent to give it to instead. The owner (no actor) assigns to anyone.
+func (c *Core) assignScope(w http.ResponseWriter, r *http.Request, actor, assignee string) bool {
+	if why := config.AssignRefusal(c.cat(c.companyFrom(r)).Agents, actor, assignee); why != "" {
+		http.Error(w, "assignment outside your scope: "+why, 403)
 		return false
 	}
 	return true
