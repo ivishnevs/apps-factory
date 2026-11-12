@@ -14,9 +14,10 @@ import (
 // it. The task is evaluated again in the claim's transaction, with the run being claimed as its live run;
 // a run the task no longer wants ends stale (no attempt, no backoff) and the worker drops its command.
 
-// staleVerdict reports whether an Evaluate verdict means the task no longer wants a queued run. Pauses,
-// capacity and node reasons keep the run QUEUED: the claim's own checks answer retry for them.
-func staleVerdict(v tasks.Verdict) bool {
+// StaleVerdict reports whether an Evaluate verdict means the task no longer wants a queued run. Pauses,
+// capacity and node reasons keep the run QUEUED: the claim's own checks answer retry for them. The review
+// dispatcher asks it too, so it does not queue a run the claim would end at once.
+func StaleVerdict(v tasks.Verdict) bool {
 	switch v.Reason {
 	case tasks.ReasonTerminal, tasks.ReasonBacklog, tasks.ReasonUnassigned, tasks.ReasonDependencies:
 		return true
@@ -47,7 +48,7 @@ func recheckTask(ctx context.Context, tx *Tx, id string, spec protocol.RunSpec) 
 	}
 	// The run being claimed is the task's live run; the assignee was a configured agent at dispatch.
 	snap.CurrentRun, snap.AgentConfigured = nil, true
-	if v := tasks.Evaluate(snap); staleVerdict(v) {
+	if v := tasks.Evaluate(snap); StaleVerdict(v) {
 		return v.Reason + ": " + v.Detail, nil
 	}
 	return "", nil

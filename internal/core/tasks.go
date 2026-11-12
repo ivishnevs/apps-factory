@@ -713,6 +713,11 @@ func (c *Core) scheduleCompany(ctx context.Context, company string) error {
 		if snap.WakeSeq <= snap.HandledSeq || snap.CurrentRun != nil && snap.CurrentRun.Live() {
 			continue
 		}
+		// A review that waits (an open escalation or decision, open dependencies) is not dispatched: the claim
+		// re-check would end its run stale at once, and every tick would queue another one.
+		if storage.StaleVerdict(c.evaluateIn(company, snap)) {
+			continue
+		}
 		if err = c.dispatchTask(ctx, company, t, true); err != nil {
 			return err
 		}

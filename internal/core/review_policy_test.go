@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"appfactory/internal/policies"
 	"appfactory/internal/storage"
@@ -164,5 +165,44 @@ func TestReviewPaths(t *testing.T) {
 	r = h.start("t")
 	if w = exit(r, "done", map[string]any{"summary": "merged"}, clean("h1", merged)); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+// TestParkedReviewNotDispatched: a review whose runs failed into a retries_exhausted escalation waits for the
+// answer. The review dispatcher used to queue a run every tick that the claim re-check ended stale at once
+// (prod 2026-11-12: thousands of stale review runs of the producer).
+func TestParkedReviewNotDispatched(t *testing.T) {
+	h := newExitHarness(t)
+	demo := h.c.Agents["demo"]
+	demo.Rules = append(append([]policies.Rule{}, demo.Rules...), policies.Rule{Name: "review-code", Type: "review", Required: true, Reviewer: "reviewer"})
+	h.c.Agents["demo"] = demo
+	h.create("t", "code", "demo")
+	r := h.start("t")
+	var b struct {
+		AckSeq int64 `json:"ack_seq"`
+	}
+	_ = json.Unmarshal(h.do(r.token, "GET", "/agent/brief", nil, nil).Body.Bytes(), &b)
+	open := &storage.PRFacts{Number: 9, State: "open", HeadSHA: "h1"}
+	if w := h.do(r.token, "POST", "/agent/exit", map[string]any{"kind": "submit", "arguments": map[string]any{"summary": "login"}, "ack_seq": b.AckSeq, "facts": clean("h1", open)}, nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.end(r, "succeeded", "accepted")
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		h.fake.Advance(2 * time.Hour)
+		h.end(h.start("t"), "setup_failed", "")
+	}
+	if es, _ := h.s.Escalations(ctx, storage.DefaultCompany, true); len(es) != 1 || es[0].Reason != "retries_exhausted" {
+		t.Fatalf("escalations: %+v", es)
+	}
+	parked := h.task("t")
+	h.fake.Advance(2 * time.Hour)
+	for i := 0; i < 3; i++ {
+		if err := h.c.Schedule(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := h.task("t"); got.Status != "IN_REVIEW" || got.CurrentRunID != parked.CurrentRunID || got.Attempt != parked.Attempt {
+		t.Fatalf("parked review dispatched: run %s→%s attempt %d→%d", parked.CurrentRunID, got.CurrentRunID, parked.Attempt, got.Attempt)
 	}
 }
