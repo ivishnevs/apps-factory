@@ -113,3 +113,10 @@ The web chat with a project's lead SHALL show the open owner questions and appro
 #### Scenario: App Release asks while the owner talks to the CEO
 - **WHEN** App Release asks the owner which asc profile to use on a tracely task
 - **THEN** the card SHALL appear in the owner's tracely chat with the CEO and on the task page, and answering it there SHALL answer App Release and clear the Inbox item
+
+### Requirement: New-project errors are visible
+Submitting the new-project form with invalid fields SHALL bring the first invalid field into view and focus it.
+
+#### Scenario: Error above the fold
+- **WHEN** the owner presses Create project at the bottom of the sheet and the ID field above is refused
+- **THEN** the sheet SHALL scroll to the ID field and focus it, showing its error
