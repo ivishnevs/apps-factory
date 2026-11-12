@@ -3,6 +3,7 @@
 import { Check, CircleAlert, Eye, FolderInput, FolderPlus, GitBranch, Lock, MessageCircleQuestion, ShieldCheck, ShieldQuestion, Siren, X } from "lucide-react";
 import Link from "@/components/app/link";
 import { useState } from "react";
+import { MessageVisuals } from "@/components/app/materials/visuals";
 import { Markdown } from "@/components/app/run/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -71,6 +72,7 @@ export function MessageCard({ msg, projectName, h }: { msg: Message; projectName
   return (
     <Shell kind={kind} blocking={msg.blocking} from={msg.sender} project={projectName ?? msg.project_id} taskId={msg.task_id} conversation={msg.conversation_id} at={msg.created_at} due={msg.deadline}>
       <Markdown text={msg.body} className="font-medium" />
+      <MessageVisuals project={msg.project_id} at={msg.created_at} author={msg.sender} attachments={msg.attachments} materials={msg.materials} className="mt-3" />
       {msg.escalation_reason && <p className="mt-2 text-xs text-muted-foreground">{escalationWhy(msg.escalation_reason)}</p>}
       {msg.may_be_outdated && (
         <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">The task changed since this was asked; the question may be outdated.</p>

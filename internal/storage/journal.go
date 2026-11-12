@@ -99,14 +99,16 @@ func journalLinks(ctx context.Context, tx *Tx, project, task, run string, refs [
 	return nil
 }
 func journalNotice(ctx context.Context, tx *Tx, project, task, run, actor, body, reportID, decisionID string) (string, error) {
+	m, err := journalNoticeWith(ctx, tx, project, task, run, actor, body, reportID, decisionID, nil, nil)
+	return m.ID, err
+}
+
+// journalNoticeWith is the notice with attachments and materials (a decision proposal's, inbox-visual-previews).
+func journalNoticeWith(ctx context.Context, tx *Tx, project, task, run, actor, body, reportID, decisionID string, atts []messaging.Attachment, mats []messaging.MaterialRef) (messaging.Message, error) {
 	if actor == "owner" || actor == "" {
 		actor = "system"
 	}
-	m, err := sendMessageTx(ctx, tx, messaging.Send{ReportID: reportID, DecisionID: decisionID, ProjectID: project, TaskID: task, RunID: run, Sender: actor, Recipient: "owner", MessageType: "review_request", Body: body, RequestID: "notice-" + reportID + decisionID})
-	if err != nil {
-		return "", err
-	}
-	return m.ID, nil
+	return sendMessageTx(ctx, tx, messaging.Send{ReportID: reportID, DecisionID: decisionID, ProjectID: project, TaskID: task, RunID: run, Sender: actor, Recipient: "owner", MessageType: "review_request", Body: body, RequestID: "notice-" + reportID + decisionID, Attachments: atts, Materials: mats})
 }
 func closeJournalNotice(ctx context.Context, tx *Tx, id string) error {
 	if id == "" {
@@ -280,6 +282,7 @@ func (s *Store) Decisions(ctx context.Context, company, project, status, topic s
 	return page, err
 }
 func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
+	withA, withM := s.withPreviews(ctx, company, project, in.Attachments, in.Materials)
 	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
 		now := tx.now().Unix()
 		d := decisions.Decision{ID: protocol.ID(), ProjectID: project, Category: in.Category, Topic: canonicalTopic(in.Topic), Status: "proposed", Value: in.Value, Alternatives: in.Alternatives, Rationale: in.Rationale, CreatedBy: in.Actor, TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}
@@ -308,10 +311,11 @@ func (s *Store) ProposeDecision(ctx context.Context, company, project string, in
 		for i, a := range d.Alternatives {
 			notice += fmt.Sprintf("\nAlternative %d: %s", i+1, shortText(a, 512))
 		}
-		d.MessageID, err = journalNotice(ctx, tx, project, d.TaskID, d.RunID, d.CreatedBy, notice, "", d.ID)
+		m, err := journalNoticeWith(ctx, tx, project, d.TaskID, d.RunID, d.CreatedBy, notice, "", d.ID, withA, withM)
 		if err != nil {
 			return d, err
 		}
+		d.MessageID, d.Attachments, d.Materials = m.ID, m.Attachments, m.Materials
 		body, _ := json.Marshal(d)
 		if _, err = tx.ExecContext(ctx, "INSERT INTO decisions VALUES(?,?,?,?,?,?,?)", d.ID, project, d.Topic, d.Status, d.Version, body, tx.company); err != nil {
 			return d, err

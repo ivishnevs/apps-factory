@@ -7,7 +7,8 @@ export type MaterialKind = "document" | "pdf" | "web" | "image" | "data" | "code
 export interface Material {
   id: string;
   kind: MaterialKind;
-  source: "report" | "artifact" | "submission" | "exit" | "archive";
+  // message: a file attached to a message or a decision proposal (inbox-visual-previews).
+  source: "report" | "artifact" | "submission" | "exit" | "archive" | "message";
   // archive: the archive version an image comes from; versions: an artifact's older versions (one card per artifact).
   archive?: string;
   versions?: { version: string; created_at: number; content_url?: string; url?: string; size?: number; archived_at?: number }[];

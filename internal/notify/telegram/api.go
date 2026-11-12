@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -73,6 +75,11 @@ func (a API) call(ctx context.Context, method string, in, out any) error {
 		return fmt.Errorf("telegram %s: invalid request", method)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return a.do(req, method, out)
+}
+
+// do sends a Bot API request and reads its envelope into out.
+func (a API) do(req *http.Request, method string, out any) error {
 	client := a.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
@@ -120,6 +127,78 @@ func (a API) Send(ctx context.Context, chat int64, text string, buttons []Button
 	var m Message
 	err := a.call(ctx, "sendMessage", in, &m)
 	return m.MessageID, err
+}
+
+// Photo is an image sent to a chat (inbox-visual-previews): its file name, caption and content.
+type Photo struct {
+	Name    string
+	Caption string
+	Data    []byte
+}
+
+// MaxAlbum is the most photos one album (sendMediaGroup) holds.
+const MaxAlbum = 10
+
+// SendPhotos sends photos to the chat in the order given: one photo alone, two to MaxAlbum as one album (a
+// comparison shows side by side); more are cut off (the caller says so in its text).
+func (a API) SendPhotos(ctx context.Context, chat int64, photos []Photo) error {
+	if len(photos) == 0 {
+		return nil
+	}
+	photos = photos[:min(len(photos), MaxAlbum)]
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("chat_id", strconv.FormatInt(chat, 10))
+	method := "sendMediaGroup"
+	media := []map[string]any{}
+	for i, p := range photos {
+		field := "photo" + strconv.Itoa(i)
+		if len(photos) == 1 {
+			method, field = "sendPhoto", "photo"
+			if p.Caption != "" {
+				_ = mw.WriteField("caption", shorten(p.Caption, 1000))
+			}
+		} else {
+			item := map[string]any{"type": "photo", "media": "attach://" + field}
+			if p.Caption != "" {
+				item["caption"] = shorten(p.Caption, 1000)
+			}
+			media = append(media, item)
+		}
+		fw, err := mw.CreateFormFile(field, cmpOr(p.Name, field+".jpg"))
+		if err != nil {
+			return err
+		}
+		if _, err = fw.Write(p.Data); err != nil {
+			return err
+		}
+	}
+	if len(media) > 0 {
+		b, _ := json.Marshal(media)
+		_ = mw.WriteField("media", string(b))
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	base := a.BaseURL
+	if base == "" {
+		base = "https://api.telegram.org"
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", base+"/bot"+a.Token+"/"+method, &body)
+	if err != nil {
+		return fmt.Errorf("telegram %s: invalid request", method)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return a.do(req, method, nil)
+}
+
+func cmpOr(v ...string) string {
+	for _, s := range v {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // Updates long-polls updates from offset (timeout 0 returns at once).

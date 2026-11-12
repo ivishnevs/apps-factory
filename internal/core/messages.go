@@ -160,7 +160,12 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 		version, _ := args["version"].(float64)
 		note, _ := args["note"].(string)
 		key, _ := args["request_id"].(string)
-		v, err := c.Store.ForwardQuestion(ctx, c.companyFrom(r), messageID, run.Spec.Agent, int(version), note, key)
+		atts, mats, err := visualArgs(args)
+		if err != nil {
+			http.Error(w, "invalid attachments or materials", 400)
+			return
+		}
+		v, err := c.Store.ForwardQuestion(ctx, c.companyFrom(r), messageID, run.Spec.Agent, int(version), note, key, atts, mats)
 		reply(w, v, err)
 		return
 	case "factory_message_reply":
@@ -248,7 +253,17 @@ func (c *Core) messageTool(w http.ResponseWriter, r *http.Request, pName string,
 	if v, ok := args["timeout_seconds"].(float64); ok {
 		timeout = int(v)
 	}
-	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: args["body"].(string), Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID})
-	reply(w, v, err)
+	atts, mats, err := visualArgs(args)
+	if err != nil {
+		http.Error(w, "invalid attachments or materials", 400)
+		return
+	}
+	body := args["body"].(string)
+	v, err := c.Store.SendMessage(ctx, c.companyFrom(r), messaging.Send{ProjectID: run.Spec.Project, TaskID: taskID, Sender: run.Spec.Agent, Recipient: recipient, ConversationID: conversationID, MessageType: messageType, Body: body, Questions: questions, Blocking: blocking, TimeoutSeconds: timeout, RequestID: args["request_id"].(string), RunID: run.Spec.ID, Attachments: atts, Materials: mats})
+	if err != nil {
+		reply(w, nil, err)
+		return
+	}
+	write(w, withWarnings(v, visualWarnings(recipient == "owner", atts, mats, body, questionTexts(questions))))
 }
 func asAnswers(v any) map[string]any { m, _ := v.(map[string]any); return m }

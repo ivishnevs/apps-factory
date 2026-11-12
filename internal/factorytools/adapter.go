@@ -155,9 +155,9 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 	if kind := ExitKind(c.Name); kind != "" {
 		return a.Exit(ctx, kind, c.Arguments)
 	}
-	switch c.Name {
-	case "factory_artifact_upload", "factory_report_create":
-		// The adapter streams the named worktree files to Core first (core-owned-project-data D4, D6).
+	if uploads(c.Name) {
+		// The adapter streams the named worktree files to Core first (core-owned-project-data D4, D6;
+		// inbox-visual-previews: message and decision attachments).
 		if err := a.upload(ctx, &c); err != nil {
 			return nil, err
 		}

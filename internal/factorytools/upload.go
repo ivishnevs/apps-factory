@@ -40,7 +40,8 @@ func (a *Adapter) upload(ctx context.Context, c *Call) error {
 			return err
 		}
 		c.Arguments["sha256"], c.Arguments["size"] = blob.SHA256, blob.Size
-	case "factory_report_create":
+	case "factory_report_create", "factory_message_send", "factory_message_ask", "factory_owner_ask", "factory_question_forward", "factory_decision_propose":
+		// Report, message and decision attachments (inbox-visual-previews): redacted, then uploaded.
 		list, _ := c.Arguments["attachments"].([]any)
 		for _, item := range list {
 			att, ok := item.(map[string]any)
@@ -64,6 +65,15 @@ func (a *Adapter) upload(ctx context.Context, c *Call) error {
 		}
 	}
 	return nil
+}
+
+// uploads tells whether a tool's call names worktree files the adapter uploads first.
+func uploads(name string) bool {
+	switch name {
+	case "factory_artifact_upload", "factory_report_create", "factory_message_send", "factory_message_ask", "factory_owner_ask", "factory_question_forward", "factory_decision_propose":
+		return true
+	}
+	return false
 }
 
 // readFile reads a regular file of the worktree, confined to it (no traversal or symlink escape).

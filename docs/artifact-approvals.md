@@ -159,7 +159,8 @@ Once a day Core archives the versions older than that which are none of: the lat
 latest approved version, a version with an open approval request, a required input of a task that is not done or
 cancelled. An archived version keeps its row: id, version, digest, size, author, time, task links, approvals and
 the image listing of an archive. It gets `archived_at` and `archived_reason` (`retention: N days`). Its content is
-deleted from the blob store once no live version, run log, report attachment or skill uses the same digest. Each run
+deleted from the blob store once no live version, run log, report attachment, message attachment (or its preview) or
+skill uses the same digest. Each run
 that archives or deletes something records one feed event `artifact.retention` with the counts and the bytes freed.
 
 Reads of an archived version's content (`/content`, `/entry`, a run's blob download) answer `410 Gone` with

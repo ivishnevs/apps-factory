@@ -302,6 +302,34 @@ type PersonContexter interface {
 	PersonContext(ctx context.Context, who string) context.Context
 }
 
+// Imager is an optional Backend: the images a question or a decision proposal carries (inbox-visual-previews),
+// sent as an album right before it, so the person judges them where they answer. More than MaxAlbum is
+// noted in the message (the rest are in the inbox).
+type Imager interface {
+	Images(ctx context.Context, question string) (photos []Photo, more int, err error)
+}
+
+// album sends the images of the item's question before the item; a failure leaves the text to go alone (the
+// images stay in the inbox) and is logged.
+func (n *Notifier) album(ctx context.Context, p *Person, t Target) string {
+	im, ok := n.Backend.(Imager)
+	if !ok || t.Question == "" {
+		return ""
+	}
+	photos, more, err := im.Images(ctx, t.Question)
+	if err == nil && len(photos) > 0 {
+		err = n.API.SendPhotos(ctx, p.ChatID, photos)
+	}
+	if err != nil {
+		slog.Warn("telegram images not sent", "question", t.Question, "error", err)
+		return "\n\nImages are in the App Factory inbox."
+	}
+	if more > 0 {
+		return fmt.Sprintf("\n\n%d more attached in the App Factory inbox.", more)
+	}
+	return ""
+}
+
 func (n *Notifier) as(ctx context.Context, who string) context.Context {
 	if pc, ok := n.Backend.(PersonContexter); ok {
 		return pc.PersonContext(ctx, who)
@@ -526,7 +554,7 @@ func (n *Notifier) outbound(ctx context.Context, st *State) error {
 		}
 		for _, it := range items {
 			if it.Text != "" && (role == RoleOwner || !it.OwnersOnly && role == RoleAdmin) {
-				text := it.Text
+				text := it.Text + n.album(ctx, p, it.Target)
 				if it.Target.Question != "" {
 					text += "\n\nReply to this message to answer."
 				}
