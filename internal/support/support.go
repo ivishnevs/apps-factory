@@ -83,7 +83,7 @@ func Queued(q QueuedWhy) Answer {
 	case "node_paused":
 		a.Fix, a.Runbook = "resume the node (factory resume --node N) or release its sessions so another node takes the run", RunbookPauses
 	case "affinity":
-		a.Fix, a.Runbook = "the run waits for the node holding the agent's session; resume that node, or release the session (factory nodes sessions release NODE) so another node starts a fresh one", RunbookNoAnswer
+		a.Fix, a.Runbook = "the run waits for the node holding the agent's session; resume that node, or release the session (Nodes page: Release now) so another node starts a fresh one", RunbookNoAnswer
 		if q.Inactive != "" {
 			a.Cause += " (holder " + q.Holder + " is " + q.Inactive + ")"
 		}

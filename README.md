@@ -241,6 +241,7 @@ The scripts check `GET /health` and refuse to run against the wrong company. Ful
 - [runtime-protocol.md](docs/runtime-protocol.md) — Codex 0.162.1 app-server protocol and limits.
 - [runtime-protocol-v2.md](docs/runtime-protocol-v2.md) — Core ↔ node protocol v2 (registration, heartbeat, control).
 - [skills.md](docs/skills.md) — per-company skills registry and how runs get skills.
+- [setup-assistant.md](docs/setup-assistant.md) — owner MCP server (`factory mcp`), company doctor, factory-setup runbooks, node network checks.
 - [task-engine-verification.md](docs/task-engine-verification.md) — Task Engine verification results.
 - [task-lifecycle.md](docs/task-lifecycle.md) — projects, tasks, scheduling, recovery, waits and owner controls.
 
