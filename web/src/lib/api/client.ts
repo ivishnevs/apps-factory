@@ -7,6 +7,7 @@ import type { Material, MaterialPage } from "./types-materials";
 import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Teams } from "./types-catalog";
 import type { CompanyInfo, Me } from "./types-account";
 import type { AgentDoc, AgentPreset, Setup, TeamPreset } from "./types-presets";
+import type { TopicDecision, TopicView } from "./types-topics";
 import { csrf, currentCompany } from "@/lib/company";
 
 // Every request goes to this app's /api/*, which Next proxies to the owner API (next.config.ts). The browser
@@ -148,6 +149,33 @@ export function useCore<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: st
     onSuccess: () => Promise.all(refresh.map((queryKey) => qc.invalidateQueries({ queryKey }))),
   });
 }
+
+// People topics (people-topics D5, D9): the open topics of the Inbox (refreshed with the overview) and one topic. A
+// Core without topics (404) has none: the Inbox shows its items as before.
+const noTopics = (e: unknown) => { if (e instanceof ApiError && e.status === 404) return [] as TopicView[]; throw e; };
+export const useTopics = () =>
+  useQuery({ queryKey: ["topics", "open"], queryFn: () => core<TopicView[] | null>("/topics?open=1").then((v) => v ?? [], noTopics), refetchInterval: 5000 });
+export const useTopic = (id: string | undefined) =>
+  useQuery({ queryKey: ["topic", id], queryFn: () => core<TopicView>(`/topics/${encodeURIComponent(id ?? "")}`), enabled: !!id, staleTime: 60_000, retry: false });
+
+// useTopicWrite decides items of a topic together (all or none) or writes in its thread; both refresh the Inbox and chats.
+export function useTopicWrite() {
+  const qc = useQueryClient();
+  const refresh = () => Promise.all([["topics"], ["topic"], ["overview"], ["messages"]].map((queryKey) => qc.invalidateQueries({ queryKey })));
+  const decide = useMutation({
+    mutationFn: ({ topic, items }: { topic: string; items: TopicDecision[] }) =>
+      core<{ decided: string[] }>(`/topics/${encodeURIComponent(topic)}/decide`, { method: "POST", body: JSON.stringify({ items, request_id: requestId() }) }),
+    onSettled: refresh,
+  });
+  const reply = useMutation({
+    mutationFn: ({ topic, body }: { topic: string; body: string }) =>
+      core<Message>(`/topics/${encodeURIComponent(topic)}/messages`, { method: "POST", body: JSON.stringify({ body, request_id: requestId() }) }),
+    onSettled: refresh,
+  });
+  return { decide, reply };
+}
+
+const requestId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 // The team builder (team-builder): presets, an agent as fields, and what keeps the company's work from running.
 export const useAgentPresets = () => useQuery({ queryKey: ["presets", "agents"], queryFn: () => core<AgentPreset[]>("/presets/agents"), staleTime: Infinity });

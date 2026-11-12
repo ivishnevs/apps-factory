@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { ActiveAlert, Approval, Message, Question, RepoMode } from "@/lib/api/types";
 import { repoModeWords } from "@/lib/project-setup";
+import { cleanBody, peopleText } from "@/lib/people-text";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ArtifactPreview } from "./artifact-preview";
@@ -73,7 +74,7 @@ export function MessageCard({ msg, projectName, h }: { msg: Message; projectName
   const kind = kindOf(msg);
   return (
     <Shell kind={kind} blocking={msg.blocking} from={msg.sender} project={projectName ?? msg.project_id} taskId={msg.task_id} conversation={msg.conversation_id} at={msg.created_at} due={msg.deadline}>
-      <Markdown text={msg.body} className="font-medium" />
+      <Markdown text={peopleText(msg)} className="font-medium" />
       <MessageVisuals project={msg.project_id} at={msg.created_at} author={msg.sender} attachments={msg.attachments} materials={msg.materials} className="mt-3" />
       {msg.escalation_reason && <p className="mt-2 text-xs text-muted-foreground">{escalationWhy(msg.escalation_reason)}</p>}
       {msg.may_be_outdated && (
@@ -238,8 +239,8 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
   const artifact = ap.kind === "artifact" || !!ap.artifact;
   return (
     <Shell kind="approval" blocking={msg?.blocking} from={ap.agent} project={projectName ?? ap.project_id} taskId={ap.task_id} at={ap.created_at} due={ap.expires_at} dueVerb="Expires">
-      <Markdown text={msg?.body || (artifact ? `Approve ${ap.artifact?.name ?? ap.artifact?.id}?` : `Approve ${ap.call.name}?`)} className="font-medium" />
-      {ap.reason && <p className="mt-1.5 text-sm text-muted-foreground">{ap.reason}</p>}
+      <Markdown text={(msg && peopleText(msg)) || (artifact ? `Approve ${ap.artifact?.name ?? ap.artifact?.id}?` : `Approve ${ap.call.name}?`)} className="font-medium" />
+      {ap.reason && <p className="mt-1.5 text-sm text-muted-foreground">{cleanBody(ap.reason)}</p>}
 
       <div className="mt-4">
         {artifact && ap.artifact ? <ArtifactPreview project={ap.project_id} artifact={ap.artifact} /> : ap.call?.name === "factory_project_create" ? (
@@ -290,7 +291,7 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
 }
 
 // ProjectRequest: an agent's factory_project_create call (project-creation D6) as the project it would create.
-function ProjectRequest({ args }: { args: Record<string, unknown> }) {
+export function ProjectRequest({ args }: { args: Record<string, unknown> }) {
   const str = (k: string) => (typeof args[k] === "string" ? (args[k] as string).trim() : args[k] == null ? "" : String(args[k]));
   const id = str("project_id"), name = str("name") || id;
   const mode = (str("repo_mode") || (str("workspace") || str("repo_url") ? "existing" : "local")) as RepoMode;
@@ -348,7 +349,7 @@ function catalogItem(p: string): string {
   if (/node-hooks\//.test(p)) return "the node hooks";
   return p;
 }
-function CatalogChangeRequest({ args }: { args: Record<string, unknown> }) {
+export function CatalogChangeRequest({ args }: { args: Record<string, unknown> }) {
   const put = Object.keys((args.put as Record<string, unknown>) ?? {});
   const del = ((args.delete as unknown[]) ?? []).map(String);
   const destructive = del.filter((p) => /(^|\/)(agents|teams)\//.test(p));
