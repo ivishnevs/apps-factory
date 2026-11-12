@@ -68,6 +68,12 @@ type Message struct {
 	TaskWakeSeq   int64  `json:"task_wake_seq,omitempty"`
 	TaskAssignee  string `json:"task_assignee,omitempty"`
 	MayBeOutdated bool   `json:"may_be_outdated,omitempty"`
+	// Details is the owner's deferred answer to a question (inbox-badge-parity): "promised" keeps the question open
+	// ("I'll send details") until the details are "sent" or the promise is "withdrawn"; DetailsNote is what the
+	// owner wrote with the promise, DetailsAt when it was made.
+	Details     string `json:"details,omitempty"`
+	DetailsNote string `json:"details_note,omitempty"`
+	DetailsAt   int64  `json:"details_at,omitempty"`
 	// Attachments are files of the sender's worktree uploaded with the message, Materials references to existing
 	// ones (inbox-visual-previews); a forward keeps both.
 	Attachments []Attachment  `json:"attachments,omitempty"`
@@ -112,6 +118,14 @@ type MaterialRef struct {
 	Redacted        bool     `json:"redacted,omitempty"`
 	Preview         *Preview `json:"preview,omitempty"`
 }
+
+// Details values of a question and of a reply.
+const (
+	DetailsPromised  = "promised"
+	DetailsSent      = "sent"
+	DetailsWithdrawn = "withdrawn"
+)
+
 type Send struct {
 	ReportID       string     `json:"-"`
 	DecisionID     string     `json:"-"`
@@ -134,6 +148,9 @@ type Send struct {
 	Materials   []MaterialRef `json:"materials,omitempty"`
 }
 type Reply struct {
+	// Details: "promised" defers the answer (the question stays open, the asking task waits for the owner's
+	// details), "withdrawn" withdraws such a promise; "" answers (with the details, when they were promised).
+	Details   string         `json:"details,omitempty"`
 	Version   int            `json:"version"`
 	Sender    string         `json:"sender"`
 	Body      string         `json:"body"`

@@ -176,7 +176,8 @@ agent to give it to (the assignee's closest manager in scope: "developer-lite re
 task to product-manager"). An agent may always assign to itself; the owner and people assign to anyone. The
 instructions of an agent with a scope list exactly the agents it may assign to, each with its own team, so routing
 lives in the catalog rather than in prompts. A listed agent outside the team or unknown fails validation;
-`direct_reports` or `subtree` on an agent without reports is a save warning. A manager's authority over its whole
+`direct_reports` or `subtree` on an agent without reports is a save warning. In JSON (agent snapshots sent to nodes, catalog reads) `none` and `direct_reports` are written as `false` and
+`true`, which nodes built before this read as before. A manager's authority over its whole
 subtree (pause, resume, cancel, reprioritize, directives) is unchanged.
 
 ```yaml

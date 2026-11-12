@@ -99,6 +99,25 @@ The web page for it comes with the SaaS web. A request lives 15 minutes, can be 
 before approval. Approve only a machine you just ran it on, with the same code. The enrollment code path
 ([development](development.md#node-identity)) stays for scripts and machines that cannot reach the web.
 
+## A second machine and its network (setup-assistant)
+
+A node refuses a Core URL that is not `https` unless Core is on the same machine (`http://127.0.0.1`, `localhost`).
+A self-hosted Core listening on loopback is reached from another machine through:
+
+- Tailscale (recommended): on the Core machine `tailscale serve --bg --https=443 http://127.0.0.1:8080`; the node uses
+  `FACTORY_URL=https://<machine>.<tailnet>.ts.net` (a valid certificate, reachable only inside the tailnet);
+- an SSH tunnel kept up by a service: `ssh -N -L 8080:127.0.0.1:8080 core-host` and `FACTORY_URL=http://127.0.0.1:8080`.
+
+A plain LAN URL (`http://192.168.x.y:8080`) is refused on purpose.
+
+`factory-node doctor` and the running node check the network the runtimes use, through the system resolver:
+`net.dns` and `net.api` per runtime (api.anthropic.com, or `ANTHROPIC_BASE_URL`'s host, for Claude; chatgpt.com for
+Codex) and `net.forge` (github.com). A failing `net.api` disables that runtime on the node with the cause and the fix,
+so its runs stay queued instead of failing with `ENOTFOUND`; a run that still ends with such an error is the node's
+fault and does not count against its task. Usual causes are a corporate VPN such as Cloudflare WARP, a stale Tailscale
+resolver (`tailscale up --accept-dns=false`) or a proxy. Runbooks `adding-a-machine` and `dns-and-proxy` of the
+`factory-setup` skill walk through both ([setup-assistant](setup-assistant.md)).
+
 ## Building the packages
 
 ```sh

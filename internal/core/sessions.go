@@ -109,7 +109,7 @@ func requiredRole(method, path string) string {
 	read := method == http.MethodGet || method == http.MethodHead
 	under := func(prefix string) bool { return path == prefix || strings.HasPrefix(path, prefix+"/") }
 	switch {
-	case path == "/company" && !read, under("/memberships") && !read, under("/invitations"):
+	case path == "/company" && !read, under("/memberships") && !read, under("/invitations"), under("/billing"):
 		return storage.RoleOwner
 	case under("/owner-tokens"), under("/node-enrollments"), under("/node-keys"), under("/node-connects"):
 		return storage.RoleAdmin
@@ -457,6 +457,9 @@ func (c *Core) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := claims.Return
+	if res.Created {
+		c.startTrial(r, res.User.Account) // saas-billing: a new account starts on a Pro trial
+	}
 	if res.Created && res.Company == "" {
 		// Joined through the invitation; a link used up meanwhile leaves them a company of their own.
 		if target = c.joinOnSignUp(r.Context(), res.User.ID, token); target == "" {

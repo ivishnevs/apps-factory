@@ -8,16 +8,11 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
 import { DecisionCard } from "@/components/app/decision-card";
-import { ApprovalCard, answerable, MessageCard, type InboxHandlers } from "@/components/app/inbox/cards";
+import { AlertCard, ApprovalCard, MessageCard, type InboxHandlers } from "@/components/app/inbox/cards";
+import { inboxModel } from "@/components/app/inbox/model";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { useAction, useOverview } from "@/lib/api/client";
 import type { Action, Approval, Message, Task } from "@/lib/api/types";
-
-type Item = { key: string; msg?: Message; ap?: Approval; blocking: boolean; due: number; at: number; decide: boolean };
-
-// Blocking first, then the soonest deadline, then the newest.
-const order = (a: Item, b: Item) =>
-  Number(b.blocking) - Number(a.blocking) || (a.due || Infinity) - (b.due || Infinity) || b.at - a.at;
 
 export default function InboxPage() {
   const { data: ov, error, isLoading } = useOverview();
@@ -25,28 +20,8 @@ export default function InboxPage() {
   const action = useAction();
   const [gone, setGone] = useState<Set<string>>(new Set());
 
-  const { decide, read } = useMemo(() => {
-    const inbox = ov?.inbox ?? [];
-    // A delegated approval is the delegate's until it escalates (approval-delegation).
-    const approvals = (ov?.approvals ?? []).filter((a) => (a.status === "PENDING" || !a.status) && (!a.delegate || a.escalated));
-    const apById = new Map(approvals.map((a) => [a.id, a]));
-    const used = new Set<string>();
-    const items: Item[] = inbox.map((m) => {
-      const ap = (m.approval_id && apById.get(m.approval_id)) || approvals.find((a) => a.message_id === m.id);
-      if (ap) used.add(ap.id);
-      return { key: `m:${m.id}`, msg: m, ap: ap || undefined, blocking: m.blocking, due: ap ? ap.expires_at : m.deadline ?? 0, at: m.created_at, decide: !!ap || answerable(m) };
-    });
-    for (const ap of approvals) {
-      if (!used.has(ap.id)) items.push({ key: `a:${ap.id}`, ap, blocking: false, due: ap.expires_at, at: ap.created_at, decide: true });
-    }
-    // Only what is open (decision-approval-ux): questions, approvals, decision proposals, reports asking for action.
-    const live = items.filter((i) => !gone.has(i.key));
-    return { decide: live.filter((i) => i.decide || !!i.msg?.decision_id).sort(order), read: live.filter((i) => !i.decide && !i.msg?.decision_id).sort((a, b) => b.at - a.at) };
-  }, [ov?.inbox, ov?.approvals, gone]);
-
-  // Work submitted for your review (human-review-visibility 2.3): tasks in review that wait for you.
-  const reviews = useMemo(() => (ov?.tasks ?? []).filter((t) => t.status === "IN_REVIEW" && t.clearer?.who === "owner" && !gone.has(`r:${t.id}`))
-    .sort((a, b) => b.updated_at - a.updated_at), [ov?.tasks, gone]);
+  // The same items the nav badge counts (inbox-badge-parity): messages, approvals, reviews and alerts.
+  const { decide, read, reviews, alerts, total } = useMemo(() => inboxModel(ov, gone), [ov, gone]);
 
   const projectName = useMemo(() => Object.fromEntries((ov?.status ?? []).map((s) => [s.project.id, s.project.name])), [ov?.status]);
 
@@ -69,6 +44,12 @@ export default function InboxPage() {
     answer: (msg, text, answers) =>
       run(keyOf(msg), { Kind: "answer", MessageID: msg.id, Version: msg.version, Text: text, Answers: answers },
         { title: `Answer ${msg.sender}?`, description: `${msg.questions?.length === 1 ? msg.questions[0].question : msg.body.slice(0, 160)}\n\nYour answer: ${text}`, confirm: "Send answer" }, `Answer sent to ${msg.sender}`),
+    // inbox-badge-parity: "I'll send details" keeps the question open and the task waiting; withdrawing lets it go on.
+    details: (msg, kind, note) =>
+      kind === "promised"
+        ? promise(msg, note)
+        : run(keyOf(msg), { Kind: "answer", MessageID: msg.id, Version: msg.version, Text: note, Details: "withdrawn" },
+          { title: "Withdraw your promise?", description: `${msg.sender} stops waiting for your details and continues without them.`, confirm: "Withdraw" }, `${msg.sender} continues without the details`),
     read: (msg) =>
       run(keyOf(msg), { Kind: "read", MessageID: msg.id, Version: msg.version },
         { title: "Mark as read?", description: msg.body.slice(0, 200), confirm: "Mark read" }, "Marked as read"),
@@ -87,7 +68,15 @@ export default function InboxPage() {
         : { title: "Send it back?", description: `“${t.title}” goes back to ${t.implementer || t.assignee} with your feedback: ${feedback}`, confirm: "Send back" },
       accept ? "Accepted" : "Sent back");
 
-  const total = decide.length + read.length + reviews.length;
+  // A promise keeps the question in the Inbox: it is not hidden, it shows "details promised" after the refresh.
+  const promise = async (msg: Message, note: string) => {
+    if (!(await confirm({ title: "Send the details later?", description: `The question stays open in your Inbox as “details promised”, and ${msg.sender}'s task waits for them without running again. Answer it (or message ${msg.sender}) with the details when you have them.`, confirm: "I'll send details" }))) return;
+    action.mutate({ Kind: "answer", MessageID: msg.id, Version: msg.version, Text: note, Details: "promised" }, {
+      onSuccess: () => toast.success(`${msg.sender} waits for your details`),
+      onError: (e) => toast.error(e.message),
+    });
+  };
+
   const blocking = decide.filter((i) => i.blocking).length;
 
   return (
@@ -96,7 +85,7 @@ export default function InboxPage() {
         description={!ov ? "What waits on you." : total === 0 ? "Nothing waits on you." : `${total} waiting on you${blocking ? ` · ${blocking} blocking work` : ""}`} />
       {error && !ov ? <ErrorState error={error} />
         : isLoading || !ov ? <LoadingRows rows={3} />
-        : total === 0 ? <EmptyState icon={CheckCircle2} title="You're all caught up" hint="Questions, approvals, reviews and escalations from your team land here." />
+        : total === 0 ? <EmptyState icon={CheckCircle2} title="You're all caught up" hint="Questions, approvals, reviews, escalations and alerts from your team land here." />
         : (
           <div className="space-y-8">
             {decide.length > 0 && (
@@ -115,6 +104,11 @@ export default function InboxPage() {
             {read.length > 0 && (
               <Section title="Reports for you" count={read.length}>
                 {read.map((i) => <MessageCard key={i.key} msg={i.msg!} projectName={projectName[i.msg!.project_id]} h={h} />)}
+              </Section>
+            )}
+            {alerts.length > 0 && (
+              <Section title="Alerts" count={alerts.length}>
+                {alerts.map((a) => <AlertCard key={a.id} alert={a} projectName={projectName[a.project_id]} />)}
               </Section>
             )}
           </div>

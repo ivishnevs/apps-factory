@@ -50,14 +50,20 @@ func (c *Core) authorityRoutes(m *http.ServeMux) {
 			if !decode(w, r, &p) {
 				return
 			}
+			// people-assignees: agents leave a person's task with the person.
+			if name == "reassign" && c.agentHandsOff(w, r, p.Actor, r.PathValue("id"), "reassign") {
+				return
+			}
 			if _, ok := c.authorityOver(w, r, r.PathValue("id"), p.Actor, "factory.task."+name); !ok {
 				return
 			}
 			if name == "reassign" {
-				if !c.agentExists(w, c.companyFrom(r), p.Assignee) {
+				// A person gets a task on their word.
+				if !c.assigneeExists(w, r, p.Assignee) || !c.agentAssignsPerson(w, r, p.Actor, p.Assignee, p.Reason) {
 					return
 				}
-				// An agent reassigns within its assignment scope (or to itself); the owner to anyone (assign-by-hierarchy).
+				// An agent reassigns within its assignment scope (or to itself, or to a person on their word); the owner to
+				// anyone (assign-by-hierarchy, people-assignees).
 				if !c.assignScope(w, r, p.Actor, p.Assignee) {
 					return
 				}

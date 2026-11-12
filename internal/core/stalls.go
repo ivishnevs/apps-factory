@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"appfactory/internal/config"
@@ -101,6 +102,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return ok && !moved(ref).After(at) && now.Sub(at) < backlogAfter
 	}
 	stalled, idle, noReady := []storage.EscalationWant{}, []storage.Alert{}, []storage.Alert{}
+	waiting := map[string]bool{} // tasks whose verdict names whom they wait for: no no_progress alert
 	for _, s := range snaps {
 		t := s.Task
 		if t.Status == "BACKLOG" || t.Kind == tasks.KindConversation { // a conversation waits for input by design
@@ -111,6 +113,8 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 			switch {
 			case d.Status == "CANCELLED":
 				why = "was cancelled; this task can never run until the dependency is replaced"
+			case tasks.IsPerson(open[d.ID].Assignee):
+				// A person's task is waited for, never a stall; its person gets reminders (people-assignees).
 			case d.Status != "DONE" && open[d.ID].Assignee == "":
 				why = "has no assignee"
 			case d.Status == "BACKLOG" && stale(d.ID):
@@ -125,6 +129,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		for _, ch := range s.Children {
 			why := ""
 			switch {
+			case tasks.IsPerson(ch.Assignee):
 			case ch.Assignee == "":
 				why = "has no assignee"
 			case ch.Status == "BACKLOG" && stale(ch.ID):
@@ -135,7 +140,10 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 			}
 		}
 		v := c.evaluateIn(company, s)
-		if v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
+		if waitsOnSomeone(v) {
+			waiting[t.ID] = true
+		}
+		if v.Reason == tasks.ReasonIdle && t.Assignee != "" && !tasks.IsPerson(t.Assignee) && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
 		}
 		if v.Reason == tasks.ReasonNoReadyNode {
@@ -155,6 +163,9 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return err
 	}
 	if err = c.Store.SyncAlerts(ctx, company, "stalled", nil); err != nil {
+		return err
+	}
+	if err = c.remindPeople(ctx, company, now, snaps); err != nil {
 		return err
 	}
 	pinned, err := c.Store.PinnedUnavailable(ctx, company, func(s *tasks.Snapshot) { c.needs(company, s) })
@@ -180,7 +191,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 	if err = c.Store.SyncAlerts(ctx, company, "no_ready_node", noReady); err != nil {
 		return err
 	}
-	noProgress, err := c.Store.NoProgress(ctx, company, now.Add(-noProgressAlertAfter))
+	noProgress, err := c.Store.NoProgress(ctx, company, now.Add(-noProgressAlertAfter), func(id string) bool { return waiting[id] })
 	if err != nil {
 		return err
 	}
@@ -188,6 +199,17 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return err
 	}
 	return c.sweepComments(ctx, company)
+}
+
+// waitsOnSomeone tells whether a verdict says whom the task waits for (inbox-badge-parity): a park, open
+// dependencies, a queued run's capacity or node wait, or a pinned node. Such a task raises no no_progress alert: the
+// wait is shown where it belongs.
+func waitsOnSomeone(v tasks.Verdict) bool {
+	switch v.Reason {
+	case tasks.ReasonDependencies, tasks.ReasonCapacity, tasks.ReasonPinnedNode, tasks.ReasonNoCapableNode, tasks.ReasonNoReadyNode, tasks.ReasonNodeDiskCritical, tasks.ReasonProjectSetup:
+		return true
+	}
+	return strings.HasPrefix(v.Reason, tasks.ReasonParked)
 }
 
 // sweepComments wakes the project lead for board comments without the outcome done past the team's limit, and

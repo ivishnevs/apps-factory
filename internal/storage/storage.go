@@ -68,6 +68,9 @@ type Store struct {
 	// ArtifactRetentionMaxDays caps every project's artifact retention (artifact-retention,
 	// FACTORY_ARTIFACT_RETENTION_MAX_DAYS; the hosted cloud sets 30); 0 sets no ceiling.
 	ArtifactRetentionMaxDays int
+	// PlanLimits enforces each account's plan (saas-billing, FACTORY_BILLING): own nodes on approval and on claim,
+	// invitations. Off (self-hosted and dev Cores): no limits.
+	PlanLimits bool
 }
 
 func (s *Store) Now() time.Time {

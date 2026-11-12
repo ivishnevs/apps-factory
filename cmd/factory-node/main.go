@@ -328,7 +328,7 @@ func doctor(args []string) (int, error) {
 		return 0, nil
 	}
 	h := node.LocalHost(runtime.GOOS)
-	d := node.Doctor{Host: h, DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo}
+	d := node.Doctor{Host: h, DiskPath: *disk, Low: uint64(*low * node.GiB), Critical: uint64(*critical * node.GiB), Repo: *repo, Net: node.SystemNetwork()}
 	c, err := node.LoadConfig(node.ConfigPath(*path))
 	if err != nil {
 		return 2, err
@@ -362,8 +362,8 @@ func doctor(args []string) (int, error) {
 		shim = claude.DefaultShimFor(c.BinDir, func(p string) bool { _, err := os.Stat(p); return err == nil })
 	}
 	accounts := node.AccountsDir(c.StateDir)
-	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: accounts}},
-		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: accounts, Sandbox: c.Sandbox}}}
+	d.Runtimes = []node.Runtime{{Name: "codex", Probe: codex.Driver{Binary: codexBin, Host: &h, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: accounts, Net: d.Net}},
+		{Name: "claude", Probe: claude.Driver{Host: &h, BinDir: binDir, Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: accounts, Sandbox: c.Sandbox, Net: d.Net}}}
 	known := []string{}
 	for _, rt := range d.Runtimes {
 		known = append(known, rt.Name)

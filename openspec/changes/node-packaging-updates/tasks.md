@@ -27,7 +27,7 @@
 - [x] 3.1 Nodes report `version`; Nodes page shows it; Core `min_node_version` (below it: no work, "update required").
       Done 2026-11-12: packages are versioned by build time (`2026.11.12.1530+<commit>`, `scripts/package-node.sh`,
       `-X appfactory/internal/node.Version`, else the package's `VERSION` file); register carries `version`
-      (migration 0035); `protocol.CompareVersions` orders dotted versions, `dev` is never below; Core enforces the
+      (migration 0038); `protocol.CompareVersions` orders dotted versions, `dev` is never below; Core enforces the
       minimum in offers, claim, queued reasons and the scheduler's node verdicts (`TestMinNodeVersion`).
 - [x] 3.2 Settings from the web (node-remote-config): desired config per node, poll `config_version`, layered
       `remote-config.json`, local pins and `slots_max`, live pool resize, applied/pending/refused on the card.

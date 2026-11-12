@@ -1,5 +1,6 @@
 "use client";
 
+import { failWithBilling } from "@/components/app/billing";
 import { useQuery } from "@tanstack/react-query";
 import { Copy, KeyRound, Plus, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
@@ -176,7 +177,7 @@ function ApproveDialog({ k, onClose }: { k: NodeKey; onClose: () => void }) {
       await core(`/node-keys/${encodeURIComponent(k.node_id)}/approve`, { method: "POST", body: JSON.stringify({ fingerprint: want }) });
       toast.success(`${k.name || k.node_id} approved`);
       onClose();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    } catch (e) { failWithBilling(e); setBusy(false); }
   };
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

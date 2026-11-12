@@ -83,8 +83,10 @@ type Overview struct {
 	LiveRuns  map[string]storage.Run `json:"live_runs,omitempty"`
 	Inbox     []messaging.Message    `json:"inbox"`
 	Approvals []approvals.Approval   `json:"approvals"`
-	At        time.Time              `json:"at"`
-	Errors    map[string]string      `json:"errors,omitempty"`
+	// Alerts are the Inbox's Alerts section (GET /alerts, inbox-badge-parity): active task alerts and runs to inspect.
+	Alerts []storage.ActiveAlert `json:"alerts"`
+	At     time.Time             `json:"at"`
+	Errors map[string]string     `json:"errors,omitempty"`
 }
 
 // TaskDetail is one task's detail pane.
@@ -137,27 +139,31 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string         // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
-	TaskID     string         // task actions
-	Project    string         // say, create
-	Title      string         // create (Text is the description)
-	Deps       []string       // create: dependencies
-	Ready      bool           // create: released at once
-	Version    int            // task, message or approval version
-	Text       string         // reason, comment, directive, answer body
-	Assignee   string         // reassign
-	ReviewBy   string         // create, run, retry, reviewer: the task's reviewer (an agent, owner or member:USER)
-	DecisionID string         // decide: the proposed decision (Version is its version)
-	Status     string         // decide: approved, rejected or under_discussion
-	Value      string         // decide: the chosen value when approving (an alternative or the person's own)
-	Priority   int            // reprioritize
-	Urgent     bool           // direct
-	Cascade    bool           // cancel
-	MessageID  string         // answer
-	Answers    map[string]any // answer: structured answers
-	ApprovalID string         // approve, reject
-	Scope      string         // hold, release: project, agent, quota_key or node (the company is the kill switch)
-	Target     string         // hold, release: the project ID, agent name, quota key or node ID
+	Kind       string   // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
+	TaskID     string   // task actions
+	Project    string   // say, create
+	Title      string   // create (Text is the description)
+	Deps       []string // create: dependencies
+	Ready      bool     // create: released at once
+	Version    int      // task, message or approval version
+	Text       string   // reason, comment, directive, answer body
+	Assignee   string   // reassign
+	ReviewBy   string   // create, run, retry, reviewer: the task's reviewer (an agent, owner or member:USER)
+	DecisionID string   // decide: the proposed decision (Version is its version)
+	Status     string   // decide: approved, rejected or under_discussion
+	Value      string   // decide: the chosen value when approving (an alternative or the person's own)
+	Priority   int      // reprioritize
+	Urgent     bool     // direct
+	Cascade    bool     // cancel
+	// PullRequest and Merged: a person's work_submit ("#200" or its URL) and work_done (people-assignees).
+	PullRequest string
+	Merged      bool
+	MessageID   string         // answer
+	Details     string         // answer: promised ("I'll send details") or withdrawn (inbox-badge-parity)
+	Answers     map[string]any // answer: structured answers
+	ApprovalID  string         // approve, reject
+	Scope       string         // hold, release: project, agent, quota_key or node (the company is the kill switch)
+	Target      string         // hold, release: the project ID, agent name, quota key or node ID
 	// NewProject is create_project's POST /projects body; its request_id is set per submit (one is made when empty).
 	NewProject *tasks.ProjectCreate
 }
@@ -195,7 +201,19 @@ func (a Action) Describe() string {
 		}
 		return "cancel " + a.TaskID
 	case "answer":
+		switch a.Details {
+		case "promised":
+			return "promise details for " + a.MessageID + " (the question stays open)"
+		case "withdrawn":
+			return "withdraw the promised details for " + a.MessageID
+		}
 		return "answer " + a.MessageID + ": " + a.Text
+	case "work_start":
+		return "start " + a.TaskID
+	case "work_submit":
+		return "submit " + a.TaskID + " for review with pull request " + a.PullRequest
+	case "work_done":
+		return "mark " + a.TaskID + " done (pull request merged)"
 	case "accept":
 		return "accept " + a.TaskID
 	case "rework":
@@ -387,6 +405,7 @@ func (c *HTTPClient) Overview(ctx context.Context) (Overview, error) {
 	part("pending", c.get(ctx, "/pending/count", &o.Pending))
 	part("nodes", c.get(ctx, "/nodes", &o.Nodes))
 	part("inbox", c.get(ctx, "/inbox", &o.Inbox))
+	part("alerts", c.get(ctx, "/alerts", &o.Alerts))
 	part("approvals", c.get(ctx, "/approvals", &o.Approvals))
 	midnight := startOfDay(o.At)
 	part("costs", c.get(ctx, fmt.Sprintf("/costs?by=agent&since=%d", midnight.Unix()), &o.Costs))
@@ -607,6 +626,17 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 			version = t.Version
 		}
 		err = c.API.Do(ctx, "POST", task+"/actions", map[string]any{"version": version, "action": "ready", "reason": a.Kind + " by owner", "request_id": rid}, &result)
+	case "work_start", "work_submit", "work_done":
+		// A person moves their task (people-assignees): start, submit with the pull request (Text is the summary),
+		// done once the approved pull request is merged.
+		body := map[string]any{"version": a.Version, "action": strings.TrimPrefix(a.Kind, "work_"), "request_id": rid}
+		if a.Kind == "work_submit" {
+			body["summary"], body["pull_request"] = a.Text, a.PullRequest
+		}
+		if a.Kind == "work_done" {
+			body["merged"] = a.Merged
+		}
+		err = c.API.Do(ctx, "POST", task+"/actions", body, &result)
 	case "cancel":
 		body := map[string]any{"version": a.Version, "action": "cancel", "request_id": rid}
 		if a.Text != "" {
@@ -629,6 +659,9 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		body := map[string]any{"version": a.Version, "body": a.Text, "request_id": rid}
 		if len(a.Answers) > 0 {
 			body["answers"] = a.Answers
+		}
+		if a.Details != "" {
+			body["details"] = a.Details
 		}
 		err = c.API.Do(ctx, "POST", "/inbox/"+url.PathEscape(a.MessageID)+"/answer", body, &result)
 	case "accept", "rework":

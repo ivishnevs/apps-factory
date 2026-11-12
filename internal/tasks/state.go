@@ -93,6 +93,8 @@ type Trigger struct {
 type Dependency struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
+	// Person names the person the dependency is assigned to (people-assignees); "" for an agent's task.
+	Person string `json:"person,omitempty"`
 	// Awaits is the event the dependency (or one of its own open dependencies) is parked on: the root of the wait.
 	Awaits *Awaits `json:"awaits,omitempty"`
 }
@@ -126,6 +128,9 @@ type Snapshot struct {
 	Now time.Time
 	// AgentConfigured: the assignee exists in the company's agent catalog.
 	AgentConfigured bool
+	// Person is the name of the person a person's task is assigned to (people-assignees; storage fills it, else
+	// the user id is shown).
+	Person string
 	// CurrentRun is the task's current run, if any.
 	CurrentRun *Run
 	// Parks are the task's active parks.
@@ -326,7 +331,8 @@ func evaluate(s Snapshot) Verdict {
 	if t.Assignee == "" {
 		return v(ReasonUnassigned, "no assignee", "owner", "assign an agent (factory tasks update "+t.ID+")")
 	}
-	if !s.AgentConfigured {
+	user, person := PersonUser(t.Assignee)
+	if !s.AgentConfigured && !person {
 		return v(ReasonUnassigned, "assignee "+t.Assignee+" is not a configured agent", "owner", "assign a configured agent or add its config")
 	}
 	if r := s.CurrentRun; r != nil && r.Live() {
@@ -364,12 +370,16 @@ func evaluate(s Snapshot) Verdict {
 	}
 	for _, d := range s.Dependencies {
 		if d.Status != "DONE" {
-			detail := fmt.Sprintf("dependency %s is %s", d.ID, d.Status)
+			detail, action := fmt.Sprintf("dependency %s is %s", d.ID, d.Status), "dependency must reach DONE"
+			if d.Person != "" {
+				// A person's task is waited for, not escalated (people-assignees).
+				detail, action = fmt.Sprintf("waits for %s, with %s (%s)", d.ID, d.Person, d.Status), d.Person+" moves it to DONE"
+			}
 			if a := d.Awaits; a != nil {
 				// The root of the wait (decision-waits): the dependents of a parked task show what it waits for.
 				detail += "; " + a.TaskID + " " + a.Words()
 			}
-			out := v(ReasonDependencies, detail, "task:"+d.ID, "dependency must reach DONE")
+			out := v(ReasonDependencies, detail, "task:"+d.ID, action)
 			out.Awaits = d.Awaits
 			return out
 		}
@@ -378,12 +388,17 @@ func evaluate(s Snapshot) Verdict {
 		a := s.UnapprovedArtifacts[0]
 		return v(ReasonArtifacts, fmt.Sprintf("artifact %s@%s is not approved", a.ID, a.Version), "owner", "approve the artifact version (factory artifacts approval ...)")
 	}
+	if person && t.Status != "IN_REVIEW" && t.Status != "BLOCKED" {
+		return personVerdict(v, t, cmp.Or(s.Person, user))
+	}
 	if s.MissingSecret != "" {
 		return v(ReasonSecretMissing, "secret "+s.MissingSecret+" is not set", "owner", "set it on the Secrets page or with factory secrets set NAME")
 	}
 	if len(s.Paused) > 0 {
 		scope := s.Paused[0]
-		target := strings.Replace(scope, ":", " ", 1)
+		// The CLI's flag of the scope: factory resume --project P, --quota-key K (setup-assistant: a fix that runs).
+		kind, id, _ := strings.Cut(scope, ":")
+		target := "--" + strings.ReplaceAll(kind, "_", "-") + " " + id
 		if scope == "company" {
 			target = "--all"
 		}
@@ -474,6 +489,21 @@ func evaluate(s Snapshot) Verdict {
 		return v(n.Reason, n.Detail, n.Clearer.Who, n.Clearer.Action)
 	}
 	return v(ReasonRunnable, "", "scheduler", "dispatch on the next tick")
+}
+
+// personVerdict explains a person's task (people-assignees): Core runs nothing for it; the person moves it through
+// the same statuses an agent's run would.
+func personVerdict(v func(reason, detail, who, action string) Verdict, t Task, name string) Verdict {
+	who, detail := t.Assignee, "assigned to "+name
+	switch {
+	case t.Status == "IN_PROGRESS":
+		return v(ReasonIdle, detail+", in progress", who, name+" submits it for review with the pull request (factory tasks submit-pr "+t.ID+" VERSION PR SUMMARY)")
+	case t.Status == "REWORK" || t.Status == "READY" && t.ReviewFeedback != "":
+		return v(ReasonIdle, detail+"; changes requested: "+t.ReviewFeedback, who, name+" reworks it and submits it again")
+	case t.Status == "READY" && t.Implementer == t.Assignee && t.Submission != nil:
+		return v(ReasonIdle, detail+"; approved", who, name+" merges the pull request, then marks it done (factory tasks done "+t.ID+" VERSION)")
+	}
+	return v(ReasonIdle, detail, who, name+" starts it on the board (or factory tasks start "+t.ID+" VERSION)")
 }
 
 // Words says what the event wait waits for: "waits for decision D [topic]" or "waits for a message from X".

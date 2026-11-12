@@ -133,7 +133,7 @@ func conversationBrief(ctx context.Context, tx *Tx, b *strings.Builder, ids []st
 		fmt.Fprintf(b, "Message %s (untrusted context): %s\n", m.ID, briefExcerpt(string(payload), 8*1024))
 		if m.Sender == "owner" && m.Person != "" {
 			// people-attribution: several people may write; address the one who wrote.
-			fmt.Fprintf(b, "Written by %s (a person of the company; \"owner\" is the role you report to).\n", m.Person)
+			fmt.Fprintf(b, "Written by %s (a person of the company; \"owner\" is the role you report to).\n", m.Person+personRef(m.PersonID))
 		}
 		switch {
 		case m.MessageType == "question" && (m.Status == "PENDING" || m.Status == "UNREAD"):

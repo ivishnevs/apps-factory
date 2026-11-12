@@ -98,6 +98,10 @@ func (s *Store) OffersFor(ctx context.Context, company, node string, epoch int64
 	if paused > 0 || s.updateRequired(n.Version) != "" { // below min_node_version: no work until it is updated
 		return out, nil
 	}
+	// saas-billing: an own node over the account's plan takes no work.
+	if over, err := s.nodeOverPlan(ctx, s.DB, company, node); err != nil || over != "" {
+		return out, err
+	}
 	left, leftConv := map[string]int{}, map[string]int{}
 	var providers []string
 	usable := func(p string) bool {

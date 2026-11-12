@@ -1,5 +1,11 @@
 Status: proposed 2026-11-11 by the owner ("why did the approval come to the Inbox and not to the chat with the
-manager; it would be great to have it in the task too"). Nothing implemented.
+manager; it would be great to have it in the task too"); implemented 2026-11-12. Implementation decisions: a question
+that lists choices without options is refused with the hint (nothing sent, so no duplicate question after the resend);
+`options: []` sends it as free text; the "escalation tool" is `factory_exit_ask` (already took options, now checked
+too), and `factory_message_ask` takes `options` like `factory_owner_ask`; Core's open list is the existing
+`GET /inbox` (no new route); in the chat the open team items sit under the newest message (they leave when answered;
+the answer is in the asker's thread and the lead's brief); the web's "Something else…" on a choice now sends the
+person's words as a free-text answer without form answers (before, Core refused it as an unlisted option).
 
 ## Why
 

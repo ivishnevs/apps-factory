@@ -157,6 +157,23 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 			a.Text = text
 			return nil
 		})
+	case "p", "w":
+		// inbox-badge-parity: p promises the details (the question stays open, the task waits for them), w withdraws
+		// that promise (the task continues without them).
+		if isApproval {
+			return nil
+		}
+		promised := msg.Details == messaging.DetailsPromised
+		switch {
+		case key == "p" && !promised:
+			m.askConfirm(Action{Kind: "answer", MessageID: msg.ID, Version: msg.Version, Details: messaging.DetailsPromised})
+		case key == "w" && promised:
+			m.askConfirm(Action{Kind: "answer", MessageID: msg.ID, Version: msg.Version, Details: messaging.DetailsWithdrawn})
+		case promised:
+			m.setToast("details are already promised: a answers with them, w withdraws the promise", true)
+		default:
+			m.setToast("w withdraws promised details; p promises them first", true)
+		}
 	case "t":
 		if msg.TaskID != "" {
 			return m.openDetail(msg.TaskID)
@@ -190,6 +207,9 @@ func (m *Model) inboxLines(w, h int) []string {
 	items := m.ov.Inbox
 	now := m.now()
 	if len(items) == 0 {
+		if len(m.ov.Alerts) > 0 {
+			return panel(fmt.Sprintf("Inbox · %d", len(m.ov.Alerts)), m.alertLines(w-4), w, h, true)
+		}
 		return panel("Inbox", []string{"", stGreen.Render("  ✓ nothing waits on you")}, w, h, true)
 	}
 	s.clamp(m)
@@ -209,11 +229,13 @@ func (m *Model) inboxLines(w, h int) []string {
 		}
 		list = append(list, head, body, "")
 	}
-	listPanel := panel(fmt.Sprintf("Inbox · %d", len(items)), list, listW, h, true)
+	list = append(list, m.alertLines(listW-4)...)
+	n := len(items) + len(m.ov.Alerts)
+	listPanel := panel(fmt.Sprintf("Inbox · %d", n), list, listW, h, true)
 	if w < 100 {
 		// Narrow: the list on top, the selected item below.
-		top := min(len(items)*3+2, h/2)
-		return append(panel(fmt.Sprintf("Inbox · %d", len(items)), list, w, top, true), panel("Item", m.inboxItemLines(items[s.cursor], w-4), w, h-top, false)...)
+		top := min(len(list)+2, h/2)
+		return append(panel(fmt.Sprintf("Inbox · %d", n), list, w, top, true), panel("Item", m.inboxItemLines(items[s.cursor], w-4), w, h-top, false)...)
 	}
 	return hjoin(0, listPanel, panel("Item", m.inboxItemLines(items[s.cursor], w-listW-4), w-listW, h, false))
 }
@@ -228,6 +250,9 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 	}
 	if msg.MayBeOutdated {
 		lines = append(lines, stYellow.Render("◐ the task changed since this was asked: it may be outdated"))
+	}
+	if p := promisedLine(msg); p != "" {
+		lines = append(lines, stYellow.Render(p))
 	}
 	lines = append(lines, "")
 	for _, l := range wrap(msg.Body, w-2) {
@@ -306,6 +331,33 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 	case len(msg.Questions) == 0 && msg.ApprovalID == "":
 		lines = append(lines, "", stFaint.Render("a  answer in free text"))
 	}
+	if answerable(msg) && msg.Details != messaging.DetailsPromised {
+		lines = append(lines, stFaint.Render("p  I'll send details (the question stays open; the task waits for them)"))
+	}
+	return lines
+}
+
+// alertLines are the Inbox's Alerts section (inbox-badge-parity): active task alerts and runs to inspect, the same
+// items the pending count counts; one marked "with <lead>" is the lead's to act on. They are read here; t on a
+// message opens its task, the board shows an alert's task.
+func (m *Model) alertLines(w int) []string {
+	if len(m.ov.Alerts) == 0 {
+		return nil
+	}
+	now := m.now()
+	lines := []string{stTitle.Render(fmt.Sprintf("Alerts · %d", len(m.ov.Alerts)))}
+	for _, a := range m.ov.Alerts {
+		head := stOrange.Render("● "+strings.ReplaceAll(a.Kind, "_", " ")) + "  " + projectChip(a.ProjectID) + stFaint.Render("  "+a.TaskID)
+		body := oneLine(a.Summary)
+		if a.With != "" {
+			body = "with " + a.With + " · " + body
+		}
+		lines = append(lines, rightAlign(head, stFaint.Render(ago(now, time.Unix(a.Since, 0))+" ago"), w), "  "+cut(body, w-2))
+		if a.Action != "" {
+			lines = append(lines, "  "+stFaint.Render(cut("→ "+a.Action, w-2)))
+		}
+		lines = append(lines, "")
+	}
 	return lines
 }
 
@@ -338,6 +390,18 @@ func visualLines(msg messaging.Message, w int) []string {
 		add(r.Caption, name, r.SHA256, r.URI, r.Size)
 	}
 	return lines
+}
+
+// promisedLine says that the owner promised the details of a question (inbox-badge-parity).
+func promisedLine(msg messaging.Message) string {
+	if msg.Details != messaging.DetailsPromised {
+		return ""
+	}
+	s := "⏳ details promised: a answers with them, w withdraws the promise; the asking task waits for them"
+	if msg.DetailsNote != "" {
+		s += " (" + msg.DetailsNote + ")"
+	}
+	return s
 }
 
 func slicesContains(list []string, s string) bool {

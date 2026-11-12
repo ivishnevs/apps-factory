@@ -46,7 +46,7 @@ func TestPausesStopDispatchAndShowInWhy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if v := verdict(t, s, "a"); v.Reason != tasks.ReasonPaused+"project:p" || v.Clearer.Action != "factory resume project p" {
+	if v := verdict(t, s, "a"); v.Reason != tasks.ReasonPaused+"project:p" || v.Clearer.Action != "factory resume --project p" {
 		t.Fatal(v)
 	}
 	if err := s.ClearPause(ctx, co, "project", "p", ""); err != nil {

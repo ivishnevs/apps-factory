@@ -25,6 +25,12 @@ const steps = [
   { icon: ShieldCheck, title: "You decide", text: "Questions, approvals and merged pull requests come to your inbox. Costs and a kill switch are one click away." },
 ];
 
+// Pricing (saas-billing, owner 2026-11-06; prices are revisited before launch): Core enforces the same limits.
+const pricing = [
+  { name: "Free", price: 0, lines: ["1 machine of your own (node)", "Just you", "Agents, projects and history not limited"] },
+  { name: "Pro", price: 29, lines: ["5 machines of your own (nodes)", "Invite your team", "2,000 cloud credits a month (cloud nodes, coming soon)", "14 days free for new accounts, no card"] },
+];
+
 export default function Landing() {
   const me = useSignedIn();
   const company = me ? (me.last_company && me.companies.some((c) => c.company === me.last_company) ? me.last_company : me.companies[0].company) : "";
@@ -62,6 +68,21 @@ export default function Landing() {
               <p className="mt-2 text-sm text-muted-foreground">{s.text}</p>
             </div>
           ))}
+        </section>
+        <section id="pricing" className="pb-20">
+          <h2 className="text-center text-2xl font-semibold tracking-tight md:text-3xl">Pricing</h2>
+          <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-muted-foreground">Agents run on your machines and your own Claude and Codex subscriptions, so you never pay us for tokens. Paddle handles payment, taxes and invoices.</p>
+          <div className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
+            {pricing.map((p) => (
+              <div key={p.name} className="rounded-2xl border bg-card p-5">
+                <h3 className="font-semibold">{p.name}</h3>
+                <p className="mt-1"><span className="text-3xl font-semibold tracking-tight">${p.price}</span><span className="text-sm text-muted-foreground"> / month</span></p>
+                <ul className="mt-4 space-y-2 text-sm">
+                  {p.lines.map((l) => <li key={l} className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />{l}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
         </section>
       </main>
       <footer className="border-t py-6 text-center text-xs text-muted-foreground">App Factory · <a href="/security" className="underline-offset-4 hover:underline">Security</a></footer>

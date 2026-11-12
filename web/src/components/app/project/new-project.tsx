@@ -111,7 +111,15 @@ function NewProjectForm({ overview, onDone }: { overview: Overview; onDone: () =
     setTeamError(needTeam ? "Pick the team that works on it" : "");
     const errs = validateProject(p, taken);
     setErrors(errs);
-    if (Object.keys(errs).length || needTeam) return;
+    if (Object.keys(errs).length || needTeam) {
+      // The form is longer than the sheet: bring the first refused field into view, or the owner sees nothing happen.
+      const first = (["name", "id", "team", "description", "workspace", "repo_url", "default_branch"] as const)
+        .find((k) => (k === "team" ? needTeam : errs[k as keyof Errors]));
+      const el = first ? document.getElementById(`np-${first}`) : null;
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      el?.focus({ preventScroll: true });
+      return;
+    }
     setRefusal("");
     const a: Action = { Kind: "create_project", NewProject: p };
     try {

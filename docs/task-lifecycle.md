@@ -90,6 +90,45 @@ Task events in the database preserve earlier submissions/review states even afte
 notifications carry bounded identity/status/version pointers; fetch snapshots/history through Core. Comments record review and
 action reasons; artifact rows retain references per run/version.
 
+## People's tasks
+
+A task's assignee is an agent of the catalog or a person of the company, `member:<user>` (people-assignees), set in
+the same field (create, `PATCH /tasks/{id}` `assignee`, `POST /tasks/{id}/reassign`; Core refuses a user who is not a
+member). No new status and no new wait reason: Core dispatches no run for a person's task, and `why` says `idle`,
+"assigned to NAME", with the person as clearer and their next step. Reassigning a task with a live run stops the run
+first, as for any reassignment; reassigning a person's started task to an agent ("give it back") makes it READY for
+the agent.
+
+The person (or an owner of the company; the owner's CLI token and the operator act as the owner) moves it through
+the statuses an agent's run would, with `POST /tasks/{id}/actions`:
+
+- `start`: READY (or REWORK) → IN_PROGRESS, once its dependencies are DONE.
+- `submit` with `summary` and `pull_request` (`#200` or its URL; required when the project has a repository) →
+  IN_REVIEW, implementer the person. An agent `review_by` gets a review run (explicit exits) and returns the task with
+  its verdict; a person or the owner reviews it with `POST /tasks/{id}/review`. Changes requested return it READY to
+  the person with the feedback.
+- `done` with `merged: true` after the approval: DONE, which releases the dependents (`dependency_done`). Core cannot
+  see the forge, so the person confirms that the approved pull request is merged; done is refused without an approval.
+
+Other members and agents get 403. Agents may read a person's task, message about it and depend on it; they may not
+change its assignee, title or description, `ready`/`block`/`cancel` it, reassign it or name it in `replaces` (403 with the hint to message
+instead). An agent assigns a task to a person only with `assign_reason` (or the reassign `reason`) citing the id of a
+message that person wrote ("I'll do it myself"); the manager's chat brief tells it so and shows the writer as
+`member:<user>`.
+
+Dependents wait in the normal dependency wait ("waits for P, with NAME"), never as a `stalled` escalation. When a
+person's task has not changed for the company's `people.remind_after` (default 72h; `GET|PUT
+/settings/company/people`, `remind_after_minutes`, 1h–720h) while released tasks wait on it, the person gets one
+reminder per episode (the task's `updated_at`; `person_reminders`, migration 0035) naming the waiting tasks; when the
+last dependency of a person's READY task is done, they get "Your task is ready". Both are notifications to the
+people's inbox (`owner`) that name the person.
+
+`factory tasks list --assignee me` lists the signed-in person's tasks (for the owner's token: the company's
+owners'); `factory tasks start ID VERSION`, `tasks submit-pr ID VERSION PR SUMMARY`, `tasks done ID VERSION
+--merged`. The web board lists people in the assignee pickers, has "Mine" in the assignee filter, shows a person's
+avatar on cards and the person's moves on the task; the TUI shows `@user` and filters with `a:people` or
+`a:member:USER`.
+
 ## Explicit exits
 
 With `FACTORY_EXPLICIT_EXITS=1` a turn no longer submits implicitly: each run ends with one exit tool
@@ -544,6 +583,8 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
   `unblock`, still accepted) or `cancel`. It clears itself when the dependency moves, is assigned and released, or
   closes. A task parked on its children (`parked:children`) stalls the same way on an open child: one escalation per
   (task, child), and `drop_dependency` releases the parent from its children park.
+- A dependency on a person's task (`member:USER`, see [People's tasks](#peoples-tasks)) is never `stalled`, and a
+  person's task raises no `idle` alert: the person gets a reminder instead.
 - A task that waits on open dependencies is not blocked by hand: an agent's `block` of a READY task with open
   dependencies is refused (409) with the hint to keep the wait; the owner's block stays allowed. To hold a task
   for other work, add that work as a dependency.
@@ -554,7 +595,16 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
   `task.alert.idle` per episode (`task_alerts`, migration 0012), cleared with `task.alert_cleared.idle`.
 - `no_progress` — the task's runs have made no progress (Failure, retry and cancellation) for 8 hours since
   the first run after its last progress: one attention event `task.alert.no_progress` per episode, cleared
-  (`task.alert_cleared.no_progress`) and re-armed by progress or authority input.
+  (`task.alert_cleared.no_progress`) and re-armed by progress or authority input. A task whose state says whom it
+  waits for raises none (inbox-badge-parity): an active park of any kind, a last ended run whose exit waited, asked
+  or blocked (so a timed "still waiting for the owner" loop and its next run raise nothing), or a verdict of open
+  dependencies, capacity, a node wait or a pinned node; the wait shows where it belongs.
+
+Every active alert, whatever its kind, and every run to inspect is listed for the owner (`GET /alerts`,
+`storage.ActiveAlerts`): kind, task and title, project, assignee, summary, since, the clearing action in words and,
+for an alert the assignee's lead can act on (`no_progress`, `idle`, `stalled`, `inspect`), `with` that lead. A kind
+Core does not describe yet is listed with its summary. The Inbox shows them as its Alerts section, and the pending
+count counts the same items.
 
 An escalation (reliable-recovery D5, migration 0017) is a park of kind `escalation` on the task (`why` shows
 `parked:escalation` and who answers) plus a question from `factory` with the allowed answers as one
@@ -609,7 +659,8 @@ cancellation.
   `GET|PUT /settings/company`, project `rules` in `PATCH /projects/{id}`, up to 8 KiB each). Every brief carries
   them; agents reread them with `factory_settings_get`.
 - `factory pending` (`GET /pending/count`): inbox items, pending approvals, active stall alerts, runs to inspect,
-  tasks in review, and their total.
+  tasks in review, those waiting for the owner's review (`owner_reviews`), and the total of what the Inbox lists:
+  its messages, the reviews for the owner and the alerts (`GET /alerts`; inbox-badge-parity).
 - `factory answer MESSAGE_ID TEXT` answers a question without a structured form; `factory approve|reject
   APPROVAL_ID REASON` decides an approval. Structured forms still use `inbox answer ID JSON_FILE`.
 - `GET /feed/stream` streams the feed as server-sent events (`id` = feed sequence; filters `project`, `task`,

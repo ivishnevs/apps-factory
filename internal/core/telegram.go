@@ -504,7 +504,12 @@ func (b telegramBackend) questionItem(m messaging.Message) (string, telegram.Tar
 	if m.TaskID != "" {
 		where += " / " + m.TaskID
 	}
-	return fmt.Sprintf("❓ %s\n%s\n\n%s", t.Label, where, m.Body), t
+	text := fmt.Sprintf("❓ %s\n%s\n\n%s", t.Label, where, m.Body)
+	if m.Details == messaging.DetailsPromised {
+		// inbox-badge-parity: still open, the asking task waits for the details.
+		text += "\n\n⏳ Details promised: reply with them here (or withdraw the promise in the Inbox on the website)."
+	}
+	return text, t
 }
 
 func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram.Item, error) {
@@ -615,6 +620,8 @@ func (b telegramBackend) answer(ctx context.Context, id string, choice int, text
 	}
 	in := messaging.Reply{Version: m.Version, Sender: "owner", Body: text, RequestID: key}
 	switch {
+	case m.Details == messaging.DetailsPromised && choice < 0 && strings.TrimSpace(text) != "":
+		// The promised details, in the owner's words, whatever the form (inbox-badge-parity).
 	case len(m.Questions) == 1 && m.Questions[0].Type == "single_choice":
 		q := m.Questions[0]
 		if choice < 0 {
@@ -743,6 +750,15 @@ func (b telegramBackend) Stop(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("Stopped: %d live runs revoked, nothing new starts until the company is started again.", n), nil
+}
+
+// Doctor is the company doctor for /doctor and the digest's problems (setup-assistant 3.1).
+func (b telegramBackend) Doctor(ctx context.Context) (string, string, error) {
+	d, err := b.c.CompanyDoctor(ctx, b.company, 24*time.Hour)
+	if err != nil {
+		return "", "", err
+	}
+	return d.Text(), d.Summary(5), nil
 }
 
 // Digest: done, in progress, waiting for the owner, failures and retries, nodes and the cost of the last day.

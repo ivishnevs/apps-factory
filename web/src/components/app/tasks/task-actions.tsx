@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpDown, Ban, CheckCheck, Eye, Megaphone, MoreHorizontal, Pause, Play, RotateCcw, Undo2, UserRoundPen } from "lucide-react";
+import { ArrowUpDown, Ban, CheckCheck, Eye, GitPullRequest, Megaphone, MoreHorizontal, Pause, Play, RotateCcw, Undo2, UserRoundPen } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,8 +16,10 @@ import { Field, touchInput } from "./field";
 import { isTerminal } from "./model";
 import { useOwnerAction } from "./use-owner-action";
 import { ReviewerSelect, reviewerName, useReviewSuggestion } from "./reviewer";
+import { assigneeName, displayName, isPerson, PERSON, personSteps, useMembers, useMovesPersonTask } from "./people";
 
-type Kind = "pause" | "resume" | "retry" | "run" | "accept" | "rework" | "cancel" | "reassign" | "reprioritize" | "direct" | "reviewer";
+type Kind = "pause" | "resume" | "retry" | "run" | "accept" | "rework" | "cancel" | "reassign" | "reprioritize" | "direct" | "reviewer"
+  | "work_start" | "work_submit" | "work_done";
 interface Def { kind: Kind; label: string; icon: React.ElementType; destructive?: boolean; input?: boolean }
 const defs: Record<Kind, Def> = {
   run: { kind: "run", label: "Run now", icon: Play },
@@ -31,31 +33,41 @@ const defs: Record<Kind, Def> = {
   reprioritize: { kind: "reprioritize", label: "Change priority", icon: ArrowUpDown, input: true },
   reviewer: { kind: "reviewer", label: "Change reviewer", icon: Eye, input: true },
   cancel: { kind: "cancel", label: "Cancel task", icon: Ban, destructive: true, input: true },
+  work_start: { kind: "work_start", label: "Start", icon: Play },
+  work_submit: { kind: "work_submit", label: "Submit for review", icon: GitPullRequest, input: true },
+  work_done: { kind: "work_done", label: "Mark done", icon: CheckCheck },
 };
 
-// The owner's actions on a task, in the order the menu lists them, and the one worth a primary button.
-function available(t: BoardTask, failed: boolean): { all: Kind[]; primary?: Kind } {
+// The owner's actions on a task, in the order the menu lists them, and the one worth a primary button. A person's
+// task (people-assignees) has no runs: no retry or directive; its person (or an owner) moves it instead.
+function available(t: BoardTask, failed: boolean, moves: boolean): { all: Kind[]; primary?: Kind } {
   if (isTerminal(t.status)) return { all: [] };
+  const person = isPerson(t.assignee);
   const all: Kind[] = [];
-  if (t.status === "BACKLOG" || t.status === "READY") all.push("run");
+  const steps = moves ? personSteps(t) : [];
+  all.push(...steps);
+  if (t.status === "BACKLOG" || t.status === "READY" && !person) all.push("run");
   // Work in review with no agent reviewer waits for a person: accept it or send it back.
   const yours = t.status === "IN_REVIEW" && !t.reviewer;
   if (yours) all.push("accept", "rework");
-  if (t.status !== "BACKLOG") all.push("retry");
-  all.push(t.paused_by ? "resume" : "pause", "direct", "reassign");
+  if (t.status !== "BACKLOG" && !person) all.push("retry");
+  all.push(t.paused_by ? "resume" : "pause");
+  if (!person) all.push("direct");
+  all.push("reassign");
   if (["BACKLOG", "READY", "REWORK", "BLOCKED"].includes(t.status)) all.push("reviewer");
   all.push("reprioritize", "cancel");
-  const primary: Kind | undefined = yours ? "accept" : t.paused_by ? "resume" : t.status === "BACKLOG" ? "run" : t.status === "BLOCKED" || t.status === "REWORK" || failed ? "retry" : undefined;
+  const primary: Kind | undefined = yours ? "accept" : steps[0] ?? (t.paused_by ? "resume" : t.status === "BACKLOG" ? "run" : !person && (t.status === "BLOCKED" || t.status === "REWORK" || failed) ? "retry" : person ? "reassign" : undefined);
   return { all, primary };
 }
 
 const titles: Record<Kind, string> = {
   run: "Run this task now?", accept: "Accept this work?", rework: "Send it back?", retry: "Retry this task?", pause: "Pause this task?", resume: "Resume this task?", direct: "Send this directive?",
   reassign: "Reassign this task?", reprioritize: "Change the priority?", cancel: "Cancel this task?", reviewer: "Change the reviewer?",
+  work_start: "Start this task?", work_submit: "Submit it for review?", work_done: "Is the pull request merged?",
 };
 
 // explain: what an action does to this task, in words, for its confirmation.
-function explain(a: Action, t: Task): string {
+function explain(a: Action, t: Task, nameOf: (assignee?: string) => string = (x) => x ?? ""): string {
   const name = `“${t.title}”`;
   switch (a.Kind) {
     case "run": return `${name} is released to the team and starts as soon as ${t.assignee || "an agent"} is free.${a.ReviewBy ? ` ${reviewerName(a.ReviewBy)} review${a.ReviewBy === "owner" ? "" : "s"} its work.` : ""}`;
@@ -66,7 +78,15 @@ function explain(a: Action, t: Task): string {
     case "pause": return `No new runs of ${name} start until you resume it. A run in progress continues.`;
     case "resume": return `${name} can run again.`;
     case "direct": return `${t.assignee || "The assignee"} gets this directive${a.Urgent ? " now, interrupting the current run" : " on the next run"}: ${a.Text}`;
-    case "reassign": return `${name} moves to ${a.Assignee}.`;
+    case "reassign": return isPerson(a.Assignee)
+      ? `${name} moves to ${nameOf(a.Assignee)}. No agent works on it: they start it, submit it with their pull request and mark it done after the review; tasks that depend on it wait for them.`
+      : `${name} moves to ${a.Assignee}.`;
+    case "work_start": return `${name} is in progress. Agents leave it to its person.`;
+    case "work_submit": return `${name} goes to ${reviewerName(t.review_by) || "its reviewer"} for review with pull request ${a.PullRequest || "(none)"}.`;
+    case "work_done": {
+      const pr = t.submission?.pull_request;
+      return `${name} is done${pr?.number ? ` with pull request #${pr.number} merged` : ""}; the tasks that wait for it start.`;
+    }
     case "reprioritize": return `${name} gets priority ${a.Priority}.`;
     case "cancel": return a.Cascade ? `${name} and its open subtasks stop for good.` : `${name} stops for good.`;
   }
@@ -78,7 +98,10 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
   const [dialog, setDialog] = useState<Kind | null>(null);
   // A release needs the task's reviewer (review-coverage): without one, Run now / Retry ask for it first.
   const [releaseKind, setReleaseKind] = useState<Kind | null>(null);
-  const { all, primary } = available(task, failed);
+  const moves = useMovesPersonTask(task);
+  const people = useMembers().data;
+  const nameOf = (x?: string) => assigneeName(x, people);
+  const { all, primary } = available(task, failed, moves);
   if (all.length === 0) return null;
 
   const start = (k: Kind) => {
@@ -87,7 +110,8 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
     const a: Action = { Kind: k, TaskID: task.id, Version: task.version };
     if (k === "pause") a.Text = "paused by owner";
     if (k === "resume") a.Text = "resumed by owner";
-    void run(a, { title: titles[k], confirm: defs[k].label, description: explain(a, task) });
+    if (k === "work_done") a.Merged = true;
+    void run(a, { title: titles[k], confirm: k === "work_done" ? "Merged: mark done" : defs[k].label, description: explain(a, task, nameOf) });
   };
   const submit = async (a: Action) => {
     setDialog(null);
@@ -98,7 +122,7 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
       await run(rel, { title: titles[k], confirm: defs[k].label, description: explain(rel, task) });
       return;
     }
-    await run(a, { title: titles[a.Kind as Kind], confirm: a.Kind === "cancel" ? "Cancel task" : defs[a.Kind as Kind].label, destructive: a.Kind === "cancel", description: explain(a, task) });
+    await run(a, { title: titles[a.Kind as Kind], confirm: a.Kind === "cancel" ? "Cancel task" : defs[a.Kind as Kind].label, destructive: a.Kind === "cancel", description: explain(a, task, nameOf) });
   };
   const lead = primary ?? "direct";
   const rest = all.filter((k) => k !== lead);
@@ -162,7 +186,9 @@ function InputForm({ kind, task, agents, hasOpenChildren, release, onClose, onSu
   const [cascade, setCascade] = useState(hasOpenChildren);
   const [assignee, setAssignee] = useState(task.assignee || "");
   const [priority, setPriority] = useState(String(task.priority));
+  const [pr, setPR] = useState(task.submission?.pull_request?.url ?? (task.submission?.pull_request?.number ? `#${task.submission.pull_request.number}` : ""));
   const [error, setError] = useState("");
+  const people = useMembers().data ?? [];
   const base: Action = { Kind: kind, TaskID: task.id, Version: task.version };
 
   const submit = (e: React.FormEvent) => {
@@ -174,9 +200,12 @@ function InputForm({ kind, task, agents, hasOpenChildren, release, onClose, onSu
       if (!text.trim()) return setError("Write what the assignee should do");
       onSubmit({ ...base, Text: text.trim(), Urgent: urgent });
     } else if (kind === "reassign") {
-      if (!assignee) return setError("Choose an agent");
-      if (assignee === task.assignee) return setError(`Already assigned to ${assignee}`);
+      if (!assignee) return setError("Choose an agent or a person");
+      if (assignee === task.assignee) return setError(`Already assigned to ${assigneeName(assignee, people)}`);
       onSubmit({ ...base, Assignee: assignee });
+    } else if (kind === "work_submit") {
+      if (!text.trim()) return setError("Write what was done");
+      onSubmit({ ...base, Text: text.trim(), PullRequest: pr.trim() });
     } else if (kind === "reprioritize") {
       const p = Number(priority.trim());
       if (!Number.isInteger(p) || priority.trim() === "") return setError("A whole number");
@@ -194,7 +223,8 @@ function InputForm({ kind, task, agents, hasOpenChildren, release, onClose, onSu
   const head: Record<string, [string, string]> = {
     rework: ["Send back for rework", `${task.assignee || "The assignee"} gets the task back with what should change.`],
     direct: ["Direct the assignee", `${task.assignee || "The assignee"} gets it on their next run of this task; an urgent one interrupts the current run.`],
-    reassign: ["Reassign", "Who should work on this task?"],
+    reassign: ["Reassign", "Who should work on this task? A person does it themselves; agents leave it to them."],
+    work_submit: ["Submit for review", `${reviewerName(task.review_by) || "Its reviewer"} reviews it. After the approval, merge the pull request and mark the task done.`],
     reprioritize: ["Change priority", "Higher runs first. The board orders by it."],
     cancel: ["Cancel task", "The task stops for good and a run in progress is stopped."],
     reviewer: [release ? "Choose its reviewer" : "Change reviewer", release ? "Reviewer is required: who checks the work before it is done?" : "Who checks the work before it is done?"],
@@ -226,12 +256,24 @@ function InputForm({ kind, task, agents, hasOpenChildren, release, onClose, onSu
       {kind === "reassign" && (
         <Field id="act-assignee" label="Assignee" error={error}>
           <Select value={assignee} onValueChange={(v) => { setAssignee(v); setError(""); }}>
-            <SelectTrigger id="act-assignee" className="w-full data-[size=default]:h-11 md:data-[size=default]:h-9"><SelectValue placeholder="Choose an agent" /></SelectTrigger>
+            <SelectTrigger id="act-assignee" className="w-full data-[size=default]:h-11 md:data-[size=default]:h-9"><SelectValue placeholder="Choose an agent or a person" /></SelectTrigger>
             <SelectContent position="popper">
               {agents.map((a) => <SelectItem key={a.name} value={a.name}>{a.name}{a.role && <span className="text-muted-foreground"> · {a.role}</span>}</SelectItem>)}
+              {people.map((p) => <SelectItem key={p.user} value={PERSON + p.user}>{displayName(p)}<span className="text-muted-foreground"> · person</span></SelectItem>)}
             </SelectContent>
           </Select>
         </Field>
+      )}
+      {kind === "work_submit" && (
+        <>
+          <Field id="act-pr" label="Pull request" hint="#200 or its URL; needed when the project has a repository.">
+            <Input id="act-pr" autoFocus value={pr} onChange={(e) => { setPR(e.target.value); setError(""); }} placeholder="#200" className={touchInput} />
+          </Field>
+          <Field id="act-summary" label="What was done" error={error}>
+            <Textarea id="act-summary" rows={3} value={text} onChange={(e) => { setText(e.target.value); setError(""); }}
+              placeholder="Laid out the main menu; screenshots in the pull request." className="text-base md:text-sm" />
+          </Field>
+        </>
       )}
       {kind === "reviewer" && (
         <Field id="act-reviewer" label="Reviewer" hint={suggestion && shownReviewer === suggestion ? "Suggested by the team's review rules." : undefined} error={error}>

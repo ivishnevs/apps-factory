@@ -1,5 +1,4 @@
-Status: proposed 2026-11-07 by the owner ("tell the producer which tasks I do myself, or take them on the board; agents
-blocked by my task continue when I merge and move it to done"). Nothing implemented.
+Status: implemented 2026-11-12 (proposed 2026-11-07 by the owner: "tell the producer which tasks I do myself, or take them on the board; agents blocked by my task continue when I merge and move it to done"). See "Implementation" below.
 
 ## Why
 
@@ -48,3 +47,28 @@ the existing status transitions opened to the assigned person (authority checks)
 manager prompt ("I'll do it myself"), Factory MCP schemas (`assignee: member:<user>`, refusals for agents), web
 board and TUI, notifications. Specs: `task-engine`, `factory-mcp`. Related: `dependency-wait-escalations` (a person's
 task is never a stall), `task-duplicate-warnings`, `people-attribution`, `review-coverage`.
+
+## Implementation
+
+Implemented 2026-11-12 (docs/task-lifecycle.md "People's tasks"). Decisions the proposal left open:
+
+- **The person's moves** are `POST /tasks/{id}/actions` with `start`, `submit` (`summary`, `pull_request`) and `done`
+  (`merged`), allowed to the assigned person and the company's owners (the owner's CLI token and the operator act as
+  the owner); other members and agents get 403. `start` waits for the dependencies, like an agent's run.
+- **"Done only with the merged pull request"**: Core does not talk to the forge (agents' merge facts come from their
+  node), so the person confirms the merge (`merged: true`); Core requires the submitted pull request (in a project
+  with a repository) and a recorded approval of it (`pr_approvals`, by the reviewer person or the agent's verdict).
+- **Agent reviewer**: a person's submission to an agent `review_by` gives the task to the reviewer for a review run
+  (as after `factory_exit_submit`); the verdict returns it to the person. The review run gets the pull request in its
+  brief; the node has no Factory branch of a person's task to prepare, so an agent review of a person's pull request
+  in a repository project is not exercised end to end yet (covered with fakes in a project without a repository).
+- **"That person's word"** is the id of a message the person wrote (sender owner with their person id; for an
+  owner, also an owner message without a person, i.e. the CLI), in `assign_reason` or the reassign `reason`.
+  Directives carry no person, so they cannot be cited as a person's word.
+- **Hands off**: agents are refused assign, title/description updates, `ready`, `block`, `cancel` and reassign of a
+  person's task; `replaces` naming a person's task (task-duplicate-warnings) is refused the same way; dependency and priority
+  changes stay allowed.
+- **Reminders and "your task is ready"** go to the people's inbox (recipient `owner`) and name the person: people have
+  no personal inbox yet. A cancelled person's task still stalls its dependents (it can never be done).
+- **"Mine" for the CLI**: `--assignee me` is the signed-in person; an owner token carries no person, so it means the
+  company's owners.

@@ -45,11 +45,47 @@ var patterns = []pattern{
 		"the requested url returned error: 401", "host key verification failed"}},
 }
 
+// FixNetwork is the fix of a run that could not reach its runtime's API host.
+const FixNetwork = "the node cannot resolve or reach the runtime's API host: check its VPN or proxy (Cloudflare WARP), a stale resolver (Tailscale DNS) and its DNS settings; factory-node doctor shows net.dns and net.api; runbook dns-and-proxy of the factory-setup skill"
+
+// networkErrors are the runtime's network error texts (Node.js and Go); networkHosts the runtimes' API hosts. A run
+// is a network fault only when its end names both (setup-assistant 4.2: ENOTFOUND for api.anthropic.com on
+// 2026-11-11).
+var (
+	networkErrors = []string{"enotfound", "econnrefused", "eai_again", "getaddrinfo", "no such host", "connection refused", "could not resolve host"}
+	networkHosts  = []string{"api.anthropic.com", "chatgpt.com", "api.openai.com", "auth.openai.com"}
+)
+
+// NetworkFault is a run end caused by the node's network to the runtime's API host (nil when result does not say
+// so). It holds after the agent worked too: the runtime's own request failed, so the attempt is the node's.
+func NetworkFault(outcome, result string) *protocol.NodeFault {
+	if outcome != "setup_failed" && outcome != "failed" {
+		return nil
+	}
+	m := strings.ToLower(result)
+	if !containsAny(m, networkErrors) || !containsAny(m, networkHosts) {
+		return nil
+	}
+	return &protocol.NodeFault{Kind: protocol.FaultNetwork, Detail: excerpt(result), Fix: FixNetwork}
+}
+
+func containsAny(s string, subs []string) bool {
+	for _, x := range subs {
+		if strings.Contains(s, x) {
+			return true
+		}
+	}
+	return false
+}
+
 // Classify says whether a run's end is the node's fault (nil when it is not or the text is unknown). outcome is
 // the run's outcome: setup_failed (nothing of the agent ran) trusts every known cause and a worktree failure;
 // failed trusts only runtime start refusals, and only when the runtime used nothing (usedTokens false), since an
-// agent's own final text may quote anything.
+// agent's own final text may quote anything. A network error to the API host (NetworkFault) counts either way.
 func Classify(outcome, result string, usedTokens bool) *protocol.NodeFault {
+	if f := NetworkFault(outcome, result); f != nil {
+		return f
+	}
 	if outcome != "setup_failed" && (outcome != "failed" || usedTokens) {
 		return nil
 	}

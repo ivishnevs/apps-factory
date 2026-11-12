@@ -13,7 +13,7 @@ func authorityDefinitions() []Tool {
 			map[string]any{"id": s(), "version": n, "agent": s(), "reason": s(), "request_id": s()}, "request_id"),
 		tool("resume", "Resume a task (id, version) or an agent you or a lower authority paused; the task runs again only with new input.",
 			map[string]any{"id": s(), "version": n, "agent": s(), "reason": s(), "request_id": s()}, "request_id"),
-		tool("reassign", "Give a task you have authority over to an agent of your subtree (or yourself); a running run stops and the new assignee starts with your reason.",
+		tool("reassign", "Give a task you have authority over to an agent of your subtree (or yourself); a running run stops and the new assignee starts with your reason. To a person (member:USER) only on their word: the reason cites the id of their message. A task assigned to a person is theirs: it is not reassigned by agents.",
 			map[string]any{"id": s(), "version": n, "assignee": s(), "reason": s(), "request_id": s()}, "id", "version", "assignee", "request_id"),
 		tool("reprioritize", "Change the priority (-1000..1000) of a task you have authority over; its waits stay.",
 			map[string]any{"id": s(), "version": n, "priority": n, "request_id": s()}, "id", "version", "priority", "request_id"),
