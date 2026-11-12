@@ -1,5 +1,14 @@
 Status: proposed 2026-11-09 by the owner ("the inbox shows 1, but it is empty when I open it; this did not happen
-before"). Open questions decided by the owner 2026-11-12 (below); ready to implement. Nothing implemented.
+before"). Open questions decided by the owner 2026-11-12 (below). Implemented 2026-11-12 (all tasks; see tasks.md).
+Decisions made in implementation: the badge total now also counts the reviews waiting for the owner (the Inbox page
+lists them; `owner_reviews`), and the web badge is computed from the page's own items; "with <lead>" marks the alert
+kinds a lead acts on (`no_progress`, `idle`, `stalled`, `inspect`, the assignee's manager), the others
+(`comment_unhandled`, `no_ready_node`, `sweep_failed`, a new kind) are the owner's; `no_progress` also skips a task
+whose last ended run waited, asked or blocked (else the alert flaps while the waiting task runs again); only a
+blocking question parks its task on the promise (a non-blocking one only stays open); any owner message that wakes
+the waiting task counts as the details and closes the question, and authority input that overrides the wait
+withdraws it; the promised question is neither escalated at its deadline nor auto-forwarded; the park is made with
+`parkOnMessageTx` in the answer's transaction (the same mechanism as `Store.ParkOnMessage`).
 
 ## Why
 

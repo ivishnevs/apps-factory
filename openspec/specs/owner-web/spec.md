@@ -106,3 +106,17 @@ Home's project list, the Chat page and the new-task form SHALL show only active 
 #### Scenario: Nine archived projects
 - **WHEN** a company has three active and nine archived projects
 - **THEN** Home SHALL list three projects and the Chat page SHALL show chats for those three only
+
+### Requirement: Team questions in the lead's chat
+The web chat with a project's lead SHALL show the open owner questions and approvals of the project's other agents as cards naming the asking agent and its task, answerable in place. The task page SHALL show its open question or approval with options and an answer box. An answer given anywhere SHALL close the item everywhere.
+
+#### Scenario: App Release asks while the owner talks to the CEO
+- **WHEN** App Release asks the owner which asc profile to use on a tracely task
+- **THEN** the card SHALL appear in the owner's tracely chat with the CEO and on the task page, and answering it there SHALL answer App Release and clear the Inbox item
+
+### Requirement: New-project errors are visible
+Submitting the new-project form with invalid fields SHALL bring the first invalid field into view and focus it.
+
+#### Scenario: Error above the fold
+- **WHEN** the owner presses Create project at the bottom of the sheet and the ID field above is refused
+- **THEN** the sheet SHALL scroll to the ID field and focus it, showing its error

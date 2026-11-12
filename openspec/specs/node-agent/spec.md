@@ -140,3 +140,10 @@ it, and the Nodes page SHALL list per node the pinned tasks and held sessions wi
 - **WHEN** VP-3 is pinned to `hetzner-hel1`, which runs 4 of 4, and the Mac has free slots
 - **THEN** the task SHALL show that it waits for `hetzner-hel1` because its unpushed work is there, not that all nodes
   are busy
+
+### Requirement: Runtime network checks
+The node's `doctor` and periodic checks SHALL resolve and reach each enabled runtime's API host and the forge through the system resolver. A failure SHALL disable the driver with the cause and the fix. A run that ends with a network error to the API host SHALL count as a node fault, retried on another node and not counted as an attempt without progress.
+
+#### Scenario: Broken DNS on a node
+- **WHEN** a node cannot resolve api.anthropic.com
+- **THEN** `doctor` SHALL fail `net.api`, the node SHALL take no Claude runs, and the queued tasks SHALL keep their attempts

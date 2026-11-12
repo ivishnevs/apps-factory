@@ -91,9 +91,17 @@ func (s *Store) SetCompanyTimeZone(ctx context.Context, company, zone string) er
 // NoProgress lists the open tasks whose runs have made no progress (D2) since before the given time: the
 // first run after the task's last progress started then or earlier (reliable-recovery D8). The episode ends
 // with progress, which re-arms the alert.
-func (s *Store) NoProgress(ctx context.Context, company string, since time.Time) ([]Alert, error) {
+//
+// A task whose state says whom it waits for raises none (inbox-badge-parity): an active park of any kind (a wait, an
+// ask, a decision or message wait, a block, an escalation), or a last ended run whose exit waits, asks or blocks (so the alert
+// does not flap while the waiting task runs again). waits is Core's verdict check for the waits only the catalog
+// shows (a queued run's capacity or node wait, a pinned node, open dependencies); nil checks nothing more.
+func (s *Store) NoProgress(ctx context.Context, company string, since time.Time, waits func(task string) bool) ([]Alert, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT t.id,min(r.created_at),count(*) FROM tasks t JOIN runs r ON r.company_id=t.company_id AND r.task_id=t.id
  WHERE t.company_id=? AND t.status NOT IN ('DONE','CANCELLED','BACKLOG') AND r.created_at>coalesce((t.body->>'progress_at')::bigint,0)
+ AND NOT EXISTS (SELECT 1 FROM task_parks p WHERE p.company_id=t.company_id AND p.task_id=t.id AND p.status='active')
+ AND coalesce((SELECT e.kind FROM runs l LEFT JOIN run_exits e ON e.company_id=l.company_id AND e.run_id=l.id
+  WHERE l.company_id=t.company_id AND l.task_id=t.id AND l.status='ENDED' ORDER BY l.created_at DESC,l.id DESC LIMIT 1),'') NOT IN ('wait','ask','block')
  GROUP BY t.id HAVING min(r.created_at)<=? ORDER BY t.id`, company, since.Unix())
 	if err != nil {
 		return nil, err
@@ -106,6 +114,9 @@ func (s *Store) NoProgress(ctx context.Context, company string, since time.Time)
 		var runs int
 		if err = rows.Scan(&id, &first, &runs); err != nil {
 			return nil, err
+		}
+		if waits != nil && waits(id) {
+			continue
 		}
 		out = append(out, Alert{TaskID: id, Summary: fmt.Sprintf("no progress in %d runs since %s", runs, time.Unix(first, 0).UTC().Format(time.RFC3339))})
 	}
@@ -194,7 +205,9 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		return nil // already applied, CANCELLED, or READY after a kill switch
 	}
 	inspect, err := false, error(nil)
-	if nodeFault == "" { // a node fault started nothing: no external effect to inspect
+	// A node fault started nothing: no external effect to inspect; a network fault (setup-assistant 4.2) may have
+	// ended an agent that already worked, so its side effects are inspected as before.
+	if nodeFault == "" || nodeFault == protocol.FaultNetwork {
 		inspect, err = inspectsRun(ctx, tx, t, specJSON, outcome)
 	}
 	if err != nil || inspect {

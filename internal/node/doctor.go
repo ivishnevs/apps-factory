@@ -38,6 +38,9 @@ type Doctor struct {
 	// Scanner is the worktrees' pre-push secret scanner (worktrees.scan_command, default gitleaks); empty when
 	// worktrees are off. Without it pushes of task branches are refused.
 	Scanner []string
+	// Net runs the network checks (net.dns, net.forge to the forge; the drivers check their API hosts); nil skips
+	// them (setup-assistant 4.1).
+	Net *Network
 }
 
 // Runtime is a driver probe as the doctor runs it; the driver owns the probe (runtime-drivers D4).
@@ -61,6 +64,7 @@ func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r = append(r, StackChecks(ctx, d.Host, d.Labels, d.Stack)...)
 	r = append(r, binary("factory-mcp", d.BinDir(), d.Host), binary("factory-shim", d.BinDir(), d.Host))
 	r = append(r, d.core(ctx))
+	r = append(r, d.Net.NetChecks(ctx, ForgeHost, "net.forge")...)
 	usable := []string{}
 	for _, rt := range d.Runtimes {
 		explicit := slices.Contains(d.Drivers, rt.Name)

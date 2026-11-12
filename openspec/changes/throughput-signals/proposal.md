@@ -1,6 +1,6 @@
 Status: proposed 2026-11-08 by the owner ("no manual interventions: make the system convenient and predictable").
 Scope settled with the owner 2026-11-12: one generic idle-capacity detector instead of a fix per case; no open
-questions. Implemented 2026-11-12 (migration 0035; replays with fakes; see tasks.md). The owner alert is an
+questions. Implemented 2026-11-12 (migration 0037; replays with fakes; see tasks.md). The owner alert is an
 ordinary task alert of kind `throughput`; the "with <manager>" mark in the Inbox comes from inbox-badge-parity.
 
 ## Why

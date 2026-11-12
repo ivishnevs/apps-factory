@@ -106,6 +106,8 @@ type Submission struct {
 	Commit    string     `json:"commit,omitempty"`
 	Checks    []string   `json:"checks,omitempty"`
 	Artifacts []Artifact `json:"artifacts,omitempty"`
+	// PullRequest is the pull request a person submitted their task with (people-assignees).
+	PullRequest *PullRequest `json:"pull_request,omitempty"`
 }
 type Task struct {
 	RequiredArtifacts []Artifact  `json:"required_artifacts,omitempty"`
@@ -309,6 +311,8 @@ type Create struct {
 	SideEffects bool `json:"side_effects,omitempty"`
 	// Resources are node resources the task's runs need (Task.Resources).
 	Resources map[string]int `json:"resources,omitempty"`
+	// AssignReason is why an agent gives the task to a person (people-assignees): it cites that person's message.
+	AssignReason string `json:"assign_reason,omitempty"`
 	// Covers are the work keys the task covers (Task.Covers); empty: Core infers them.
 	Covers []string `json:"covers,omitempty"`
 	// Replaces cancels these open tasks for this one when the actor may cancel them (Task.Replaces).
@@ -349,6 +353,8 @@ type Update struct {
 	Actor          string   `json:"actor,omitempty"`
 	// CancelAllowed: Create.CancelAllowed.
 	CancelAllowed bool `json:"-"`
+	// AssignReason: Create.AssignReason.
+	AssignReason string `json:"assign_reason,omitempty"`
 }
 
 // OnlyNotDuplicate reports whether the update only marks pairs as not duplicates.
@@ -366,6 +372,12 @@ type Action struct {
 	Actor     string `json:"actor,omitempty"`
 	// Cascade cancels the task's open children with it; cancelling a task with open children needs it.
 	Cascade bool `json:"cascade,omitempty"`
+	// A person's task (people-assignees) moves with the actions start, submit (Summary and PullRequest: "#200" or
+	// its URL; required when the project has a repository) and done (Merged: the person confirms that the approved
+	// pull request is merged).
+	Summary     string `json:"summary,omitempty"`
+	PullRequest string `json:"pull_request,omitempty"`
+	Merged      bool   `json:"merged,omitempty"`
 }
 
 // Authority is an authority action on a task (hierarchy D2): pause, resume, reassign or reprioritize. Actor is

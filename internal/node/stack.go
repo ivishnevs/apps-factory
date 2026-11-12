@@ -80,5 +80,6 @@ func (d Doctor) SelfChecks(ctx context.Context) []CheckResult {
 	if d.Host.Run != nil && d.Host.LookPath != nil {
 		r = append(append(d.git(ctx), d.scanner()...), d.ps(ctx))
 	}
+	r = append(r, d.Net.NetChecks(ctx, ForgeHost, "net.forge")...)
 	return append(r, StackChecks(ctx, d.Host, d.Labels, d.Stack)...)
 }

@@ -257,3 +257,24 @@ func TestTaskResourcesExclusive(t *testing.T) {
 		t.Fatalf("cleared %+v %v", v.Resources, err)
 	}
 }
+
+// TestThroughputPlanLimit (throughput-signals with saas-billing): a node over the account's plan is unusable
+// capacity: a run only it could take is a cause naming the plan, and its slots are not counted as idle.
+func TestThroughputPlanLimit(t *testing.T) {
+	s, _ := clockStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	register(t, s, "n1", 1)
+	register(t, s, "n2", 1, func(r *NodeRegistration) { r.Labels = []string{"gpu"} })
+	nodeKey(t, s, co, "n1", NodeKeyActive, 100)
+	nodeKey(t, s, co, "n2", NodeKeyActive, 200)
+	s.PlanLimits = true
+	if err := s.SetAccountPlan(ctx, DefaultAccount, PlanFree); err != nil {
+		t.Fatal(err)
+	}
+	queue(t, s, "r1", "p1", "dev", `{"spec":{"labels":["gpu"]}}`)
+	bs, err := s.Bottlenecks(ctx, co, nil)
+	if err != nil || len(bs) != 1 || bs[0].Key != "plan_limit:n2" || bs[0].FreeSlots != 2 || !strings.Contains(bs[0].Fix, "upgrade the plan") {
+		t.Fatalf("bottlenecks %+v %v", bs, err)
+	}
+}

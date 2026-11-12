@@ -11,11 +11,15 @@
       least 3 released tasks waiting on it directly; the summary also counts everything behind it). Capacity-bound
       reasons (no_slot, resource_busy, agent_busy, a tie to an active node) count only while a slot is idle; every
       other reason, including `node_disk_critical` and reasons added later, counts as it is. Episodes live in
-      `throughput_causes` (migration 0035); past `throughput_after_minutes` (default 30, `PUT
+      `throughput_causes` (migration 0037); past `throughput_after_minutes` (default 30, `PUT
       /settings/company/stalls`) one task alert kind `throughput` (attention feed item, anchored on the first
       affected task) and one notification from `factory` to the project's lead per sweep with the newly due causes
       and their fixes. `GET /throughput`. Tests: TestThroughputDiskPausedHolder, TestThroughputOwnerPausedNodes,
       TestThroughputAgentLimitAndGate (storage), TestThroughputSweep (core).
+      With main (2026-11-12 merge): the Inbox Alerts list (inbox-badge-parity) shows kind `throughput` with its
+      clearing action and `with` the project's lead; a person's task (people-assignees) is never a capacity cause,
+      only a gate; `plan_limit` (saas-billing) is a cause naming the plan and over-plan nodes are not idle capacity
+      (TestThroughputPlanLimit, TestTaskWaitSkipsPeople).
 
 ## 2. Limits and resources
 

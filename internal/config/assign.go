@@ -107,8 +107,16 @@ func (s *AssignScope) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON writes the list or the scope word; unset is null.
+// MarshalJSON writes none and direct_reports as false and true, the form nodes before assign-by-hierarchy read in
+// agent snapshots (a string there failed their runs with "invalid agent snapshot"); subtree and lists stay as they
+// are, unset is null.
 func (s AssignScope) MarshalJSON() ([]byte, error) {
+	switch s.Mode {
+	case AssignNone:
+		return []byte("false"), nil
+	case AssignDirectReports:
+		return []byte("true"), nil
+	}
 	v, _ := s.MarshalYAML()
 	return json.Marshal(v)
 }
@@ -163,6 +171,11 @@ func MayAssign(agents map[string]Agent, actor, assignee string) bool {
 // manager of assignee that actor may assign to ("" when actor may assign it).
 func AssignRefusal(agents map[string]Agent, actor, assignee string) string {
 	if MayAssign(agents, actor, assignee) {
+		return ""
+	}
+	// A person (member:USER) is outside every agent hierarchy: an agent that may assign at all gives a task to a
+	// person on that person's word, which Core checks separately (people-assignees).
+	if strings.HasPrefix(assignee, "member:") && CanAssign(agents, actor) {
 		return ""
 	}
 	if !CanAssign(agents, actor) {

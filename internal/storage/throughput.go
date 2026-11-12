@@ -95,6 +95,8 @@ func throughputFix(reason, node string) string {
 		return "resume when the pause is no longer needed"
 	case QueuedNoNode:
 		return "enroll a node"
+	case QueuedPlanLimit:
+		return "upgrade the plan or remove a node: " + node + " is over the account's plan and takes no work"
 	case ReasonGate:
 		return "specs and designs depend on decisions and earlier specs, not on verifications: drop or move the dependency where the work does not need it, or split the gate"
 	}
@@ -538,7 +540,7 @@ func gateBottlenecks(ctx context.Context, tx *Tx, free int) ([]Bottleneck, error
 }
 
 // idleSlots are the free work slots on the nodes that take work now: online, not paused by the owner, disk not
-// critical.
+// critical, within the account's plan.
 func idleSlots(ctx context.Context, tx *Tx) (int, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT n.id,n.epoch,n.slots,n.health FROM nodes n WHERE n.company_id=? AND n.online=1
  AND NOT EXISTS (SELECT 1 FROM pauses p WHERE p.company_id=n.company_id AND p.scope='node' AND p.target=n.id) ORDER BY n.id`, tx.company)
@@ -567,6 +569,12 @@ func idleSlots(ctx context.Context, tx *Tx) (int, error) {
 	free := 0
 	for _, n := range nodes {
 		if diskPaused(n.health, false) {
+			continue
+		}
+		// A node over the account's plan (saas-billing) takes no work: its slots are not idle capacity.
+		if over, err := tx.store.nodeOverPlan(ctx, tx, tx.company, n.id); err != nil {
+			return 0, err
+		} else if over != "" {
 			continue
 		}
 		l, err := nodeLoad(ctx, tx, n.id, n.epoch, n.slots)

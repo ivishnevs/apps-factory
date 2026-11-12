@@ -239,7 +239,11 @@ question's options as pills (`←`/`→`, `enter`), `a` for free text. A notific
 `r` (or `enter`) replies — in the Chat tab to a direct report, with a directive on the task to any other
 agent — and `m` marks it read. A refused action says what happened instead of Core's bare `state or version
 conflict`: the question was answered or withdrawn meanwhile, the task changed (its version is stale), the
-approval was decided; the screen has been refreshed.
+approval was decided; the screen has been refreshed. `p` answers an open question with "I'll send details" (it
+stays open as details promised and the asking task waits for them), `w` withdraws that promise. Below the
+messages, the **Alerts** section (`GET /alerts`) lists the active task alerts and runs to inspect with their task,
+summary, age, clearing action and `with <lead>` when the lead is expected to act; the header's `⚠` counts the
+messages and the alerts (inbox-badge-parity).
 
 ## 7 Nodes — capacity, drivers, pauses
 
@@ -477,7 +481,7 @@ are counted into the next: `(+2 more)`); the replay of history at startup does n
 
 ## Behaviour
 
-- Refresh: the overview (`/health`, `/status`, `/tasks`, `/pauses`, `/pending/count`, `/nodes`, `/inbox`,
+- Refresh: the overview (`/health`, `/status`, `/tasks`, `/pauses`, `/pending/count`, `/nodes`, `/inbox`, `/alerts`,
   `/approvals`, `/costs` by agent today, by task, and the runs of the last 24 h, plus each live run's record
   for its usage) every 3 s, one read at a time; the agent catalog once. Only `/health` and `/status` failing
   marks Core unreachable (the header shows it and how old the data is).
@@ -586,6 +590,12 @@ are shown in plain words; IDs appear only where a person needs them.
   its text box offers **Reopen with comment** (the task goes back to its assignee with the comment) and **Ask the
   lead about it** (a question to the project lead naming the task); Core refuses a plain comment there (409
   `task_closed`), so the TUI, CLI and Telegram behave the same.
+- **Inbox** `/c/{company}/inbox` (inbox-badge-parity): Needs your decision, Reviews for you, Reports for you and
+  **Alerts** (`GET /alerts`: every active task alert and run to inspect, with task, project, summary, age, the
+  clearing action and "with <lead>" when the lead is expected to act). The nav badge is computed from the same items
+  as the page (`inbox/model.ts`), so it never shows a count the page does not list. A question card offers **I'll send
+  details**: it stays open as "details promised" until the details are sent (**Send details**) or the promise is
+  withdrawn (**Withdraw promise**); its task waits meanwhile.
 - **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
   page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
   button while it runs (project-pause-visible). Nodes & control still lists every pause.
@@ -598,6 +608,14 @@ are shown in plain words; IDs appear only where a person needs them.
   Without a result the newest material with content leads and only an artifact's older versions fold away. Every row
   names its artifact and version (`artifact_id`, `version`: "01-hero.png · screenshots-sample v2"). The Library keeps
   its full list, one card per artifact.
+- **Team questions in the chat and on the task** (agent-questions-in-chat): an open question or approval of a project
+  that no chat shows (an agent that is not a direct report asks the owner, so it lands in an escalation thread
+  `chain-…`) appears in the owner's chat with the project's lead (the team's lead, else the default report) as a card
+  under the newest message: "App Release asks", the task, the question with one button per option plus "Something
+  else…" for free text, or the approval with Approve and Reject; the chat counts it in "asks you". A task's page shows
+  its open question or approval the same way under Waiting for your answer ("Open in inbox" stays in the status).
+  The cards are the Inbox's (`GET /inbox` through the overview); an answer from the chat, the task, the Inbox or
+  Telegram answers the same message, so the item closes everywhere and the asking agent wakes with the answer.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies
@@ -624,3 +642,12 @@ are shown in plain words; IDs appear only where a person needs them.
   asks to reload. The YAML editor (Advanced) stays for everything else.
 - A banner on Teams and on a team's page lists what keeps work from running (missing secrets, no connector, a team without a
   project).
+
+## Owner MCP server (setup-assistant)
+
+`factory mcp` serves the same owner API to the owner's own coding agent over stdio: status, the company doctor, why
+a task or chat waits (with its fix and runbook), recent runs with causes and usage explained, catalog validation,
+an agent's effective instructions and skills, runbooks, and the local node's doctor and log. Its change tools preview
+the exact effect and run only with a confirmation code after the owner agreed; no tool outputs a secret. Core API
+added for it: `GET /doctor`, `GET /runs/recent`, `GET /agents/{agent}/effective`. Details:
+[setup-assistant](setup-assistant.md).

@@ -94,6 +94,10 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 			return err
 		}
 	}
+	// Details the owner promised are not awaited any more (inbox-badge-parity).
+	if err = settlePromisedDetails(ctx, tx, t.ID, messaging.DetailsWithdrawn, "superseded by "+why); err != nil {
+		return err
+	}
 	if err = clearRetryEscalations(ctx, tx, *t, why); err != nil {
 		return err
 	}
@@ -268,6 +272,9 @@ func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 	}
 	for _, t := range dependents {
 		if err = addTrigger(ctx, tx, &t, "dependency_done", false, "system", done.ID, "last open dependency "+done.ID+" is DONE"); err != nil {
+			return err
+		}
+		if err = personTaskReady(ctx, tx, t, done); err != nil {
 			return err
 		}
 	}

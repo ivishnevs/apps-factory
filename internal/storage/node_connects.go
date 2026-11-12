@@ -162,6 +162,10 @@ func (s *Store) ApproveNodeConnect(ctx context.Context, company, id, actor strin
 	if err != nil {
 		return NodeKey{}, err
 	}
+	// saas-billing: one more own node only within the account's plan.
+	if err = checkNodeLimit(ctx, tx, company); err != nil {
+		return NodeKey{}, err
+	}
 	now := tx.now().Unix()
 	if _, err = tx.ExecContext(ctx, "DELETE FROM node_keys WHERE node_id=? AND status=? AND created_at<=?", c.NodeID, NodeKeyPending, tx.now().Add(-PendingNodeKeyTTL).Unix()); err != nil {
 		return NodeKey{}, err

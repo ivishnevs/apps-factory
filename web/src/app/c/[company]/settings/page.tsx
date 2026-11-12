@@ -6,6 +6,7 @@ import Link from "@/components/app/link";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { failWithBilling, PlanLimitLink, useBilling } from "@/components/app/billing";
 import { useConfirm } from "@/components/app/confirm";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { CompanyRules } from "@/components/app/settings/company-rules";
@@ -169,7 +170,7 @@ function Invitations() {
       setUrl(out.url);
       await links.refetch();
       await copy(out.url);
-    } catch (err) { fail(err); }
+    } catch (err) { failWithBilling(err); }
     finally { setBusy(false); }
   };
   const revoke = async (id: string) => {
@@ -177,6 +178,9 @@ function Invitations() {
     catch (err) { fail(err); }
   };
   const days = (t: number) => Math.max(1, Math.ceil((t * 1000 - Date.now()) / 86400000));
+  // saas-billing: inviting starts with Pro.
+  const plan = useBilling().data;
+  const blocked = !!plan?.enabled && !plan.effective.invitations;
   return (
     <div className="mt-5 space-y-3 border-t pt-4">
       <div>
@@ -187,8 +191,9 @@ function Invitations() {
         <select aria-label="Role for the invited person" className="h-10 rounded-md border bg-background px-2 text-sm" value={role} onChange={(e) => setRole(e.target.value as Role)}>
           <option value="member">Member</option><option value="admin">Admin</option>
         </select>
-        <Button className="h-10" onClick={create} disabled={busy}>Create invite link</Button>
+        <Button className="h-10" onClick={create} disabled={busy || blocked}>Create invite link</Button>
       </div>
+      {blocked && <p className="text-sm text-muted-foreground">Inviting people starts with Pro; you are on {plan?.effective.name}. <PlanLimitLink /></p>}
       <p className="text-xs text-muted-foreground">{role === "admin" ? "An admin manages" : "A member works with"}: {roleWords[role].toLowerCase()}. To make someone an owner, change their role after they join.</p>
       {url && (
         <div className="flex gap-2">

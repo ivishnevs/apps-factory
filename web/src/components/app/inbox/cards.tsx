@@ -1,13 +1,13 @@
 "use client";
 
-import { Check, CircleAlert, Eye, FolderInput, FolderPlus, GitBranch, Lock, MessageCircleQuestion, ShieldCheck, ShieldQuestion, Siren, X } from "lucide-react";
+import { BellRing, Check, CircleAlert, Clock, Eye, FolderInput, FolderPlus, GitBranch, Lock, MessageCircleQuestion, ShieldCheck, ShieldQuestion, Siren, X } from "lucide-react";
 import Link from "@/components/app/link";
 import { useState } from "react";
 import { MessageVisuals } from "@/components/app/materials/visuals";
 import { Markdown } from "@/components/app/run/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Approval, Message, Question, RepoMode } from "@/lib/api/types";
+import type { ActiveAlert, Approval, Message, Question, RepoMode } from "@/lib/api/types";
 import { repoModeWords } from "@/lib/project-setup";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,8 @@ import { Countdown } from "./countdown";
 export interface InboxHandlers {
   answer: (msg: Message, text: string, answers: Record<string, unknown>) => void;
   read: (msg: Message) => void;
+  // details: "I'll send details" (promised, with an optional note) or withdraw that promise (inbox-badge-parity).
+  details: (msg: Message, kind: "promised" | "withdrawn", note: string) => void;
   decide: (kind: "approve" | "reject", ap: Approval, msg: Message | undefined, reason: string) => void;
   busy: boolean;
 }
@@ -77,6 +79,12 @@ export function MessageCard({ msg, projectName, h }: { msg: Message; projectName
       {msg.may_be_outdated && (
         <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">The task changed since this was asked; the question may be outdated.</p>
       )}
+      {msg.details === "promised" && (
+        <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+          <Clock className="mt-px size-3.5 shrink-0" />
+          <span>Details promised{msg.details_at ? ` ${ago(msg.details_at)}` : ""}{msg.details_note ? ` (“${msg.details_note}”)` : ""}. {msg.blocking && msg.task_id ? `${msg.sender}'s task waits for them and does not run again until you send them or withdraw.` : "Send them below when you have them."}</span>
+        </p>
+      )}
       {answerable(msg) ? <AnswerForm msg={msg} h={h} /> : (
         <div className="mt-4 flex justify-end">
           <Button variant="outline" className="h-10" disabled={h.busy} onClick={() => h.read(msg)}><Check /> Mark as read</Button>
@@ -86,18 +94,29 @@ export function MessageCard({ msg, projectName, h }: { msg: Message; projectName
   );
 }
 
+// Later: "I'll send details" on an open question, "Withdraw" once they are promised (inbox-badge-parity).
+function Later({ msg, h, note }: { msg: Message; h: InboxHandlers; note: string }) {
+  if (msg.details === "promised") {
+    return <Button variant="outline" className="h-10" disabled={h.busy} onClick={() => h.details(msg, "withdrawn", note)}>Withdraw promise</Button>;
+  }
+  return <Button variant="outline" className="h-10" disabled={h.busy} onClick={() => h.details(msg, "promised", note)}><Clock />I&apos;ll send details</Button>;
+}
+
 function AnswerForm({ msg, h }: { msg: Message; h: InboxHandlers }) {
   const qs = msg.questions ?? [];
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [free, setFree] = useState("");
+  const promised = msg.details === "promised";
   const single = qs.length === 1 && qs[0].type === "single_choice" && (qs[0].options?.length ?? 0) > 0;
 
-  if (qs.length === 0) {
+  // The promised details are free text, whatever form the question had.
+  if (qs.length === 0 || promised) {
     return (
       <div className="mt-4 space-y-3">
-        <Textarea value={free} onChange={(e) => setFree(e.target.value)} placeholder="Your answer…" className="min-h-24 text-base md:text-sm" aria-label="Answer" />
-        <div className="flex justify-end">
-          <Button className="h-10" disabled={!free.trim() || h.busy} onClick={() => h.answer(msg, free.trim(), {})}>Send answer</Button>
+        <Textarea value={free} onChange={(e) => setFree(e.target.value)} placeholder={promised ? "The details…" : "Your answer…"} className="min-h-24 text-base md:text-sm" aria-label="Answer" />
+        <div className="flex flex-wrap justify-end gap-2">
+          <Later msg={msg} h={h} note={promised ? "" : free.trim()} />
+          <Button className="h-10" disabled={!free.trim() || h.busy} onClick={() => h.answer(msg, free.trim(), {})}>{promised ? "Send details" : "Send answer"}</Button>
         </div>
       </div>
     );
@@ -107,7 +126,10 @@ function AnswerForm({ msg, h }: { msg: Message; h: InboxHandlers }) {
   const complete = qs.every((q) => (answers[q.id] ?? "").trim());
   const send = () => {
     const text = qs.length === 1 ? answers[qs[0].id].trim() : qs.map((q) => `${q.question} ${answers[q.id].trim()}`).join("\n");
-    h.answer(msg, text, Object.fromEntries(qs.map((q) => [q.id, answers[q.id].trim()])));
+    // Words of one's own instead of an option ("Something else…") answer with the text alone (Core accepts only
+    // listed options as form answers).
+    const own = qs.some((q) => q.options?.length && !q.options.includes(answers[q.id].trim()));
+    h.answer(msg, text, own ? {} : Object.fromEntries(qs.map((q) => [q.id, answers[q.id].trim()])));
   };
 
   return (
@@ -124,6 +146,7 @@ function AnswerForm({ msg, h }: { msg: Message; h: InboxHandlers }) {
       ))}
       <div className="flex items-center justify-end gap-2">
         {single && <span className="mr-auto text-xs text-muted-foreground">{answers[qs[0].id] ? "" : "Pick an option"}</span>}
+        <Later msg={msg} h={h} note="" />
         <Button className="h-10" disabled={!complete || h.busy} onClick={send}>Send answer</Button>
       </div>
     </div>
@@ -167,6 +190,45 @@ function Options({ q, value, onChange }: { q: Question; value?: string; onChange
       })}
     </div>
   );
+}
+
+// AlertCard: an active task alert or a run to inspect (inbox-badge-parity), counted by the badge like every Inbox
+// item. "with <lead>": the lead is expected to act; the owner sees it too.
+export function AlertCard({ alert, projectName }: { alert: ActiveAlert; projectName?: string }) {
+  return (
+    <article className="rounded-2xl border bg-card p-4 shadow-xs sm:p-5">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+          <BellRing className="size-3.5" />{alertLabel(alert.kind)}
+        </span>
+        {alert.with && <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">with {alert.with}</span>}
+        <span className="ml-auto text-xs text-muted-foreground tabular-nums" title="raised">{ago(alert.since)}</span>
+      </header>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {projectName ?? alert.project_id}
+        {alert.assignee && <> · {alert.assignee}</>}
+        {" · "}<Link href={`/tasks/${alert.task_id}`} className="font-mono text-foreground underline-offset-4 hover:underline" title={alert.task_id}>{displayId(alert.task_id)}</Link>
+      </p>
+      {alert.task_title && <Link href={`/tasks/${alert.task_id}`} className="mt-1 block text-[15px] font-medium leading-snug underline-offset-4 hover:underline">{alert.task_title}</Link>}
+      <p className="mt-2 text-sm whitespace-pre-wrap text-muted-foreground">{alert.summary}</p>
+      {alert.action && <p className="mt-2 text-xs text-muted-foreground"><span className="font-medium text-foreground">To clear it:</span> {alert.action}</p>}
+    </article>
+  );
+}
+
+const alertLabels: Record<string, string> = {
+  no_progress: "No progress",
+  idle: "Idle",
+  stalled: "Stalled",
+  inspect: "Run to inspect",
+  no_ready_node: "No ready node",
+  sweep_failed: "Sweep failed",
+  comment_unhandled: "Comment not handled",
+  throughput: "Work waits, capacity idle",
+};
+
+export function alertLabel(kind: string): string {
+  return alertLabels[kind] ?? kind.replace(/[-_]/g, " ");
 }
 
 export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: Message; projectName?: string; h: InboxHandlers }) {

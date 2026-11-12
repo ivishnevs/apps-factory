@@ -92,6 +92,12 @@ func (c *Core) ownerRoutes(m *http.ServeMux) {
 		v, err := c.Store.Escalations(r.Context(), c.companyFrom(r), r.URL.Query().Get("all") == "")
 		reply(w, v, err)
 	})
+	// The Inbox's Alerts section (inbox-badge-parity): every active task alert and run to inspect, with how it
+	// clears and the lead expected to act; GET /pending/count counts the same items.
+	m.HandleFunc("GET /alerts", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.alerts(r.Context(), c.companyFrom(r))
+		reply(w, v, err)
+	})
 	m.HandleFunc("GET /pending/count", func(w http.ResponseWriter, r *http.Request) {
 		v, err := c.Store.PendingCounts(r.Context(), c.companyFrom(r))
 		reply(w, v, err)
@@ -245,4 +251,50 @@ func serveSSE(w http.ResponseWriter, r *http.Request, next func(context.Context)
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// alertKind says how an alert of a kind clears and whether the assignee's lead is expected to act (else the owner).
+// A kind not listed (a newer one) is listed with its summary alone, for the owner.
+type alertKind struct {
+	action string
+	lead   bool
+}
+
+var alertKinds = map[string]alertKind{
+	"no_progress":       {"look at its runs, then give it what it needs: an answer, a directive, another assignee, or cancel it", true},
+	"idle":              {"the summary names who moves it next", true},
+	"stalled":           {"answer the stalled escalation of the task", true},
+	"inspect":           {"inspect the workspace, then resolve the run: retry, continue or cancel", true},
+	"no_ready_node":     {"fix the node's project check on the Nodes page; the task runs once a node is ready", false},
+	"sweep_failed":      {"Core's background sweep fails on this task; it clears by itself once the sweep succeeds", false},
+	"comment_unhandled": {"reply to the agent on the task or mark the comment handled", false},
+	// throughput-signals: the project's lead has the notice; the summary names the cause and what releases it. It
+	// clears by itself once the cause is gone.
+	"throughput": {"the summary says what releases it (a limit, a node, a dependency); it clears once the work moves", true},
+}
+
+// alerts is the Alerts section of the owner's Inbox: storage's active alerts with their clearing action and, for an
+// alert a lead can act on, the lead ("with <lead>"); the owner sees every one of them.
+func (c *Core) alerts(ctx context.Context, company string) ([]storage.ActiveAlert, error) {
+	out, err := c.Store.ActiveAlerts(ctx, company)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		k := alertKinds[out[i].Kind]
+		out[i].Action = k.action
+		if out[i].Kind == "throughput" {
+			// The notice went to the project's lead, whoever the anchor task's assignee reports to.
+			if lead := c.teamLead(ctx, company, out[i].ProjectID, ""); lead != "" && lead != "owner" {
+				out[i].With = lead
+			}
+			continue
+		}
+		if k.lead && out[i].Assignee != "" {
+			if lead := c.escalationTargetIn(company, out[i].Assignee); lead != "owner" {
+				out[i].With = lead
+			}
+		}
+	}
+	return out, nil
 }

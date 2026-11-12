@@ -150,6 +150,12 @@ type Backend interface {
 	MarkApplied(ctx context.Context, update int64) error
 }
 
+// Doctorer is a Backend with the company doctor (setup-assistant 3.1): /doctor answers with the whole report, and
+// the daily digest carries its problems, each with its fix.
+type Doctorer interface {
+	Doctor(ctx context.Context) (report, problems string, err error)
+}
+
 // Gone is the error Role returns for a person who left the company: their chat is unbound.
 type Gone struct{}
 
@@ -165,7 +171,7 @@ const StopConfirmWindow = 5 * time.Minute
 const sentKept = 200
 
 const help = "Reply to a message to answer it. @name text writes to that agent. Plain text answers the last message " +
-	"from an agent. Commands: /inbox, /status, /digest on|off, /stop (owners and admins), /disconnect."
+	"from an agent. Commands: /inbox, /status, /doctor and /stop (owners and admins), /digest on|off, /disconnect."
 
 type Notifier struct {
 	API     API
@@ -403,6 +409,13 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 	case text == "/status":
 		out, err := n.Backend.Status(ctx)
 		return reply(out, err, "status unavailable: ")
+	case text == "/doctor":
+		d, ok := n.Backend.(Doctorer)
+		if !ok || !manager(role) {
+			return n.say(ctx, p.ChatID, "Only owners and admins can run the company doctor.", m.MessageID)
+		}
+		report, _, err := d.Doctor(ctx)
+		return reply(report, err, "doctor unavailable: ")
 	case text == "/disconnect":
 		delete(st.People, who)
 		return n.say(ctx, p.ChatID, "Disconnected from "+n.Backend.Company(ctx)+". Connect again from Settings → Integrations.", m.MessageID)
@@ -648,6 +661,13 @@ func (n *Notifier) digest(ctx context.Context, p *Person) error {
 	text, err := n.Backend.Digest(ctx, n.now())
 	if err != nil {
 		return err
+	}
+	if d, ok := n.Backend.(Doctorer); ok {
+		if _, problems, err := d.Doctor(ctx); err != nil {
+			slog.Warn("telegram digest: company doctor", "error", err)
+		} else if problems != "" {
+			text += "\n\n" + problems
+		}
 	}
 	if err = n.say(ctx, p.ChatID, text, 0); err != nil {
 		return err

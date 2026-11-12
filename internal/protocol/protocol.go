@@ -198,6 +198,9 @@ const (
 	FaultRuntime    = "runtime"     // the runtime binary is missing or refuses to start (root, packaging)
 	FaultSandbox    = "sandbox"     // the runtime's sandbox cannot start (bwrap, socat, user namespaces)
 	FaultTool       = "tool"        // a tool the project requires is missing or too old
+	// FaultNetwork: the runtime could not resolve or reach its API host (ENOTFOUND, ECONNREFUSED; setup-assistant
+	// 4.2): the node's resolver, VPN or proxy, not the task.
+	FaultNetwork = "network"
 )
 
 // NodeFault is a node-side cause of a failed run or readiness check: Detail says what failed, Fix how to fix it.

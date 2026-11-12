@@ -72,6 +72,8 @@ type Core struct {
 	MultiCompany bool
 	// SignupTemplate is the starter catalog of a company created at sign-up (default DefaultSignupTemplate).
 	SignupTemplate string
+	// Billing is how this Core charges (saas-billing, FACTORY_BILLING); the zero value is off: no plan limits.
+	Billing BillingConfig
 }
 
 type companyKey struct{}
@@ -100,6 +102,7 @@ func (c *Core) Handler() http.Handler {
 	if c.Store != nil {
 		c.hierarchyHooks()
 		c.Store.Wake = c.wakeups.signal
+		c.Store.PlanLimits = c.Billing.On()
 	}
 	m := http.NewServeMux()
 	c.configRoutes(m)
@@ -127,6 +130,8 @@ func (c *Core) Handler() http.Handler {
 	c.agentSecretRoutes(m)
 	c.skillRoutes(m)
 	c.presetRoutes(m)
+	c.billingRoutes(m)
+	c.supportRoutes(m)
 	m.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		database, err := c.Store.DatabaseVersion(r.Context())
 		if err != nil {
@@ -210,6 +215,11 @@ func (c *Core) Handler() http.Handler {
 			c.telegramHook(w, r)
 			return
 		}
+		// The payment provider's notifications, checked by their signature (saas-billing).
+		if r.URL.Path == paddleHookPath && r.Method == http.MethodPost {
+			c.paddleHook(w, r)
+			return
+		}
 		// Sign-in (user-accounts D3) needs no credential.
 		if strings.HasPrefix(r.URL.Path, "/auth/") {
 			c.authRoutes(w, r)
@@ -287,6 +297,9 @@ func reply(w http.ResponseWriter, v any, err error) {
 		}
 		if errors.Is(err, storage.ErrForbidden) {
 			status = 403
+		}
+		if planLimitReply(w, err) {
+			return
 		}
 		var archived *storage.ArchivedError
 		if errors.As(err, &archived) {

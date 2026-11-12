@@ -83,7 +83,7 @@ export function queuedLine(q: QueuedReason, nodeName?: (id: string) => string): 
 const queuedWords: Record<string, string> = {
   paused: "paused", agent_busy: "agent at its limit", pinned: "waits for its node", affinity: "waits for its session's node", no_slot: "all slots busy",
   resource_busy: "resource busy", node_paused: "node paused", node_disk_critical: "node disk critical", driver_disabled: "driver disabled",
-  node_offline: "node offline", labels: "no node with its labels", not_ready: "node not ready", no_ready_node: "no node ready", no_node: "no node",
+  plan_limit: "node over the plan", node_offline: "node offline", labels: "no node with its labels", not_ready: "node not ready", no_ready_node: "no node ready", no_node: "no node",
   unclaimed: "starting",
 };
 export const queuedLabel = (q?: QueuedReason) => !q ? "waiting for a node" : queuedWords[q.reason] ?? q.reason.replace(/_/g, " ");

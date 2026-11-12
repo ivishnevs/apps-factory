@@ -36,7 +36,7 @@ func ExitDefinitions() []Tool {
 		map[string]any{"to": s(), "note": s(), "verdict": map[string]any{"type": "string", "enum": []string{"approved", "changes_requested"}}, "feedback": s(), "merge_failed": s()}, "to", "note")
 	add(ExitPrefix+"done", "task.exit.done", "Finish the current task. Code tasks need their pull request merged first (rebase on the default branch, resolve conflicts, build, merge). Name the delivered result in artifacts (the final versions, not drafts or samples): the owner sees it first on the task."+finish,
 		map[string]any{"summary": s(), "artifacts": map[string]any{"type": "array", "items": artifact}}, "summary")
-	add(ExitPrefix+"ask", "task.exit.ask", "Stop and ask the owner a question the task cannot continue without; the task resumes with the answer."+finish,
+	add(ExitPrefix+"ask", "task.exit.ask", "Stop and ask the owner a question the task cannot continue without; the task resumes with the answer. Choices go in options (one button each; free text stays possible): a question that lists choices without options is refused (options: [] for none)."+finish,
 		map[string]any{"question": s(), "options": arr, "category": s(), "evidence": s()}, "question")
 	add(ExitPrefix+"block", "task.exit.block", "Stop until other tasks of this project are done (on) or until this task's open children close (on_children)."+finish,
 		map[string]any{"on": arr, "on_children": map[string]any{"type": "boolean"}, "reason": s()}, "reason")

@@ -1,5 +1,33 @@
 Status: proposed 2026-11-11 by the owner ("put into proposals an MCP server or a skill that helps users with setup,
-and later with ongoing support"). Nothing implemented.
+and later with ongoing support"). Partly implemented 2026-11-12: everything except 2.2 `factory import paperclip`
+(see tasks.md).
+
+Blockers: 2.2 needs the Paperclip export or API format; none is in the repository, the docs or this change, and
+there is no recorded Paperclip API to test against, so no importer was invented. The `moving-in-from-paperclip`
+runbook covers the move with Factory's commands until a real export is provided.
+
+Decisions made in implementation:
+- Confirmation is a code, not an MCP elicitation: a change tool called without `confirm` returns the effect and a
+  single-use code (HMAC over the tool and its exact arguments, key per server process, valid 10 minutes); clients
+  without elicitation support work the same way.
+- `factory mcp` authenticates with an owner token (`FACTORY_TOKEN`; `FACTORY_COMPANY` sends `X-Factory-Company` for
+  the operator token), not a browser session: a session cookie cannot be handed to a stdio process safely.
+- The enrollment code is printed by `factory_node_enrollment`: it is a one-time, expiring code the owner needs on
+  the new machine; every other secret stays out of answers, and node output passes through the credential redactor.
+- Network checks: per runtime `net.dns` + `net.api` (Claude: api.anthropic.com or `ANTHROPIC_BASE_URL`'s host, none
+  for Bedrock/Vertex; Codex: chatgpt.com), the forge as `net.forge` in doctor and the periodic self-checks (reported,
+  not blocking). "Reach" is a TCP connection to 443, not a TLS or HTTP request. A lookup or dial timeout is transient
+  (the existing retry-before-disable rule); "no such host" and a refused connection disable at once.
+- A network fault needs both an errno text (ENOTFOUND, ECONNREFUSED, EAI_AGAIN, getaddrinfo, no such host,
+  connection refused) and an API host in the run's result, and counts even after the agent used tokens (unlike other
+  node faults); side-effect tasks are still parked for inspection. It is charged per project like other node faults
+  (re-check after `ReadinessRecheck`), and the node probes its drivers at once.
+- The company doctor is computed in Core (`GET /doctor`) so the CLI, the MCP server and Telegram say the same; the
+  Telegram "digest" is the existing daily digest plus the doctor's problems, and `/doctor` on request.
+- A pause's clearer said `factory resume project P`, which the CLI does not take; it now says
+  `factory resume --project P` (`--quota-key K`).
+- The company doctor's "stuck" excludes waits that clear by themselves (capacity, backoff, a claim on its way) and
+  includes a session tie only when its holder node is inactive.
 
 ## Why
 

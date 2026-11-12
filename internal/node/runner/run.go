@@ -35,14 +35,14 @@ func Drivers(c node.Config, getenv func(string) string) []driver.Driver {
 		if bin == "" {
 			bin = "codex"
 		}
-		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, FullAccess: c.Policy.FullAccess})
+		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, FullAccess: c.Policy.FullAccess, Net: node.SystemNetwork()})
 	}
 	if cc := c.Drivers.Claude; cc.On() && allowed("claude") {
 		shim := cc.Shim
 		if shim == "" && c.BinDir != "" {
 			shim = claude.DefaultShimFor(c.BinDir, func(p string) bool { _, err := os.Stat(p); return err == nil })
 		}
-		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, StateDir: c.StateDir, FullAccess: c.Policy.FullAccess})
+		r = append(r, claude.Driver{Node: cc.Node, Shim: shim, Executable: cc.Executable, AllowAPIKey: cc.AllowAPIKey, BinDir: c.BinDir, ConfigDir: node.ExpandHome(cc.ConfigDir), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, StateDir: c.StateDir, FullAccess: c.Policy.FullAccess, Net: node.SystemNetwork()})
 	}
 	return r
 }
@@ -76,7 +76,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return node.ErrNoKeys
 	}
 	slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
-	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS), Box: keys.Box})
+	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Host: node.LocalHost(runtime.GOOS), Box: keys.Box, Net: node.SystemNetwork()})
 }
 
 // SkillStoreMaxAge is how long a stored skill stays unused before the GC removes it.
@@ -92,6 +92,8 @@ type Node struct {
 	Box *ecdh.PrivateKey
 	// Watchdog overrides the watchdog settings; nil uses the defaults.
 	Watchdog *node.Watchdog
+	// Net runs the self-checks' network check of the forge (net.forge, setup-assistant 4.1); nil skips it.
+	Net *node.Network
 
 	health *driverHealth // set by Run
 }
@@ -191,6 +193,7 @@ func Run(ctx context.Context, n Node) error {
 	// The catalog's NodeHooks document (register answer, then heartbeat answers when it changes): janitor
 	// hooks under node.yaml's, stack checks for the self-checks, a copy in state_dir for the doctor.
 	checks = newSelfChecks(n.Host, c.Labels)
+	checks.doctor.Net = n.Net
 	checks.doctor.Scanner = scanner(c.Worktrees)
 	s.checks = checks.failed
 	s.onHooks = func(d protocol.NodeHooksDelivery) {
@@ -223,6 +226,7 @@ func Run(ctx context.Context, n Node) error {
 		w.ToolRun = n.Host.Run
 		w.AuthFailed = func(err error) { n.health.authFailed(string(d.Name()), err) }
 		w.RunSucceeded = func() { n.health.runSucceeded(string(d.Name())) }
+		w.NetworkFailed = n.health.recheck
 		w.RuntimeActivity = func() { n.health.activity(string(d.Name())) }
 		policy := c.Policy
 		w.LocalPolicy = func(spec protocol.RunSpec) string { return policy.Refuse(spec.Project, string(spec.Provider)) }

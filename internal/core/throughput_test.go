@@ -141,6 +141,23 @@ func TestThroughputSweep(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &bs) != nil || len(bs) != 2 || !bs[0].Due || !bs[1].Due {
 		t.Fatalf("GET /throughput %d %s", w.Code, w.Body.String())
 	}
+	// The Inbox's Alerts list them with what releases them, marked with the project's lead (inbox-badge-parity).
+	listed, err := c.alerts(ctx, co)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, a := range listed {
+		if a.Kind == "throughput" {
+			n++
+			if a.Action == "" || a.With == "owner" {
+				t.Fatalf("listed %+v", a)
+			}
+		}
+	}
+	if n != 2 {
+		t.Fatalf("listed %+v", listed)
+	}
 	sweep(time.Minute)
 	sweep(time.Minute)
 	if len(alerts()) != 2 || len(noticesTo("manager")) != 1 {
@@ -157,5 +174,16 @@ func TestThroughputSweep(t *testing.T) {
 	sweep(time.Minute)
 	if got = alerts(); len(got) != 1 || got["game/agent_busy:demo"] == "" {
 		t.Fatalf("after the gate closed %+v", got)
+	}
+}
+
+// A person's task (people-assignees) is never a capacity cause, whatever its verdict.
+func TestTaskWaitSkipsPeople(t *testing.T) {
+	v := tasks.Verdict{Reason: tasks.ReasonCapacity, Wait: &tasks.Wait{Kind: tasks.WaitAgent, Agent: "member:alice", Limit: 1}}
+	if w := taskWait(tasks.Task{ID: "x", ProjectID: "p", Assignee: "member:alice"}, v); w != nil {
+		t.Fatalf("person's task counted: %+v", w)
+	}
+	if w := taskWait(tasks.Task{ID: "x", ProjectID: "p", Assignee: "dev"}, v); w == nil {
+		t.Fatal("agent's capacity wait dropped")
 	}
 }

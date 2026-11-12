@@ -466,6 +466,12 @@ func (s *Store) ClaimV2(ctx context.Context, company, id string, req ClaimReques
 	} else if paused {
 		return out, &Refusal{Retry: true, Reason: "paused", Detail: "node " + req.NodeID + " paused by the owner"}
 	}
+	// saas-billing: an own node over the account's plan (after a downgrade) takes no work.
+	if over, err := s.nodeOverPlan(ctx, tx, company, req.NodeID); err != nil {
+		return out, err
+	} else if over != "" {
+		return out, &Refusal{Retry: true, Reason: "plan_limit", Detail: "node " + nodeLabel(nodeName, req.NodeID) + " " + over}
+	}
 	// disk-pause-conversations: at a critical disk the node takes conversations only, below its conversation floor
 	// nothing; Core enforces it whatever the node's own gate decided.
 	disk := readDisk(health)

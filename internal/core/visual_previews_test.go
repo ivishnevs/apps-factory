@@ -226,7 +226,7 @@ func TestVisualMaterialsForwardAndDecisions(t *testing.T) {
 	}
 
 	// A question to the manager with an attachment, forwarded with one more: both reach the owner.
-	q := call("factory_message_ask", map[string]any{"recipient": "manager", "body": "Night or day towers?", "attachments": []any{map[string]any{"path": "art/towers.png", "caption": "day"}}, "request_id": "ask-manager"})
+	q := call("factory_message_ask", map[string]any{"recipient": "manager", "body": "Night or day towers?", "options": []any{"Night", "Day"}, "attachments": []any{map[string]any{"path": "art/towers.png", "caption": "day"}}, "request_id": "ask-manager"})
 	night, err := a.Call(ctx, factorytools.Call{Name: "factory_report_create", Arguments: map[string]any{"kind": "problem", "summary": "night", "purpose": "p", "changes": []any{}, "result": "r", "attachments": []any{map[string]any{"path": "art/towers-night.png"}}, "request_id": "rep-night"}})
 	if err != nil {
 		t.Fatal(err)

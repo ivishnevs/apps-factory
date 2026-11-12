@@ -60,9 +60,22 @@ func TestAssignScopeParsing(t *testing.T) {
 			t.Fatalf("json %s: %+v %v", in, s, err)
 		}
 	}
-	b, _ := json.Marshal(AssignScope{Mode: AssignList, Agents: []string{"x"}})
-	if string(b) != `["x"]` {
-		t.Fatalf("marshal list: %s", b)
+	for want, s := range map[string]AssignScope{`["x"]`: {Mode: AssignList, Agents: []string{"x"}}, `true`: {Mode: AssignDirectReports}, `false`: {Mode: AssignNone}, `"subtree"`: {Mode: AssignSubtree}, `null`: {}} {
+		b, _ := json.Marshal(s)
+		var back AssignScope
+		if string(b) != want || json.Unmarshal(b, &back) != nil || back.Mode != s.Mode {
+			t.Fatalf("marshal %+v: %s (back %+v)", s, b, back)
+		}
+	}
+	// A node built before assign-by-hierarchy reads the snapshot field as a bool.
+	var old struct {
+		CanAssign bool `json:"can_assign_tasks"`
+	}
+	b, _ := json.Marshal(struct {
+		S AssignScope `json:"can_assign_tasks"`
+	}{AssignScope{Mode: AssignDirectReports}})
+	if err := json.Unmarshal(b, &old); err != nil || !old.CanAssign {
+		t.Fatalf("old node reading %s: %v", b, err)
 	}
 }
 

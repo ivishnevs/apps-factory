@@ -12,6 +12,7 @@ import { NewProject } from "@/components/app/project/new-project";
 import { NewTask } from "@/components/app/tasks/new-task";
 import { SetupNotice } from "@/components/app/project/setup-notice";
 import { TaskCard } from "@/components/app/tasks/parts";
+import { displayName, PERSON, useMembers, useMine } from "@/components/app/tasks/people";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,6 +23,7 @@ import { lookupFrom } from "@/lib/humanize";
 import { cn } from "@/lib/utils";
 
 const ALL = "all";
+const MINE = "mine";
 type View = "open" | "you" | ColumnKey;
 const views: { key: View; name: string }[] = [
   { key: "open", name: "Open" }, { key: "you", name: "Needs you" }, { key: "running", name: "In progress" }, { key: "waiting", name: "Blocked" },
@@ -62,6 +64,9 @@ function Tasks() {
   useEffect(() => mountBoard(), []);
   const project = params.get("project") ?? ALL;
   const assignee = params.get("assignee") ?? ALL;
+  // people-assignees: "Mine" is the signed-in person's tasks; people are listed next to the agents.
+  const mine = useMine();
+  const people = useMembers().data ?? [];
   const team = params.get("team") ?? ALL;
   const teams = useTeams().data?.teams ?? [];
   const view = (params.get("view") as View) ?? "open";
@@ -112,14 +117,14 @@ function Tasks() {
       .filter((t) => !isConversation(t))
       .filter((t) => project === ALL || t.project_id === project)
       .filter((t) => team === ALL || teamOf.get(t.project_id) === team)
-      .filter((t) => assignee === ALL || t.assignee === assignee)
+      .filter((t) => assignee === ALL || t.assignee === (assignee === MINE ? mine : assignee))
       .filter((t) => !needle || [t.id, t.title, t.description, t.assignee].some((f) => f?.toLowerCase().includes(needle)))
       .map((t) => ({ task: t, col: columnOf(t, runs) }))
       .sort((a, b) => order(a.task, b.task));
     const byCol = new Map<ColumnKey, Task[]>(columns.map((c) => [c.key, []]));
     for (const f of filtered) byCol.get(f.col)!.push(f.task);
     return { filtered, byCol };
-  }, [ov, runs, project, assignee, team, q]);
+  }, [ov, runs, project, assignee, team, q, mine]);
   // The columns as shown, for previous/next in the task panel (task-board-ux 2.4).
   useEffect(() => { publishBoard(columns.map((c) => ({ name: c.name, ids: (byCol.get(c.key) ?? []).map((t) => t.id) }))); }, [byCol]);
 
@@ -175,7 +180,9 @@ function Tasks() {
             <SelectTrigger aria-label="Assignee" className="w-full data-[size=default]:h-11 sm:w-40 sm:data-[size=default]:h-9"><SelectValue /></SelectTrigger>
             <SelectContent position="popper">
               <SelectItem value={ALL}>Everyone</SelectItem>
+              {mine && <SelectItem value={MINE}>Mine</SelectItem>}
               {ov?.agents.map((a) => <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>)}
+              {people.map((p) => <SelectItem key={p.user} value={PERSON + p.user}>{displayName(p)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
