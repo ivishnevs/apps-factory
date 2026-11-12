@@ -46,6 +46,8 @@ type UnhandledComment struct {
 	Text      string `json:"text"`
 	// NeedsTask: a done outcome must name the task created or changed for it (task_id).
 	NeedsTask bool `json:"needs_task,omitempty"`
+	// Approval is the approval whose decision the comment came with: a done outcome says what was changed.
+	Approval string `json:"approval_id,omitempty"`
 }
 
 // ClosedTaskError refuses a comment on a DONE or CANCELLED task (409): nobody runs a closed task again, so the
@@ -72,7 +74,9 @@ func (e *ClosedTaskError) Options() []map[string]string {
 type openComment struct {
 	row, comment, task, agent, reason, note string
 	text, commentTask, category, person     string
-	conversation                            bool
+	// approval is the approval whose decision the comment came with (approval-comments-handled).
+	approval     string
+	conversation bool
 }
 
 func closedTaskError(ctx context.Context, tx *Tx, t tasks.Task) error {
@@ -95,6 +99,12 @@ func leadOf(ctx context.Context, tx *Tx, project string) string {
 // category also wakes the project lead at once. Conversation tasks take the owner's chat as messages, and
 // without explicit exits there is no exit to refuse: neither keeps outcomes.
 func boardComment(ctx context.Context, tx *Tx, t tasks.Task, commentID, category string) error {
+	return boardCommentNote(ctx, tx, t, commentID, category, "")
+}
+
+// boardCommentNote is boardComment with a note the comment arrives with (an approval decision's comment says
+// which decision it came with).
+func boardCommentNote(ctx context.Context, tx *Tx, t tasks.Task, commentID, category, note string) error {
 	if !tx.store.ExplicitExits || !isAgent(t.Assignee) || t.Kind == tasks.KindConversation || t.Status == "DONE" || t.Status == "CANCELLED" {
 		return nil
 	}
@@ -109,8 +119,8 @@ func boardComment(ctx context.Context, tx *Tx, t tasks.Task, commentID, category
 			shown = t.CurrentRunID
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO comment_outcomes(id,company_id,comment_id,task_id,agent,reason,shown_run,created_at) VALUES(?,?,?,?,?,'assignee',?,?)",
-		protocol.ID(), tx.company, commentID, t.ID, t.Assignee, shown, tx.now().Unix()); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO comment_outcomes(id,company_id,comment_id,task_id,agent,reason,note,shown_run,created_at) VALUES(?,?,?,?,?,'assignee',?,?,?)",
+		protocol.ID(), tx.company, commentID, t.ID, t.Assignee, note, shown, tx.now().Unix()); err != nil {
 		return err
 	}
 	if category == "" {
@@ -167,7 +177,7 @@ func giveComment(ctx context.Context, tx *Tx, commentID, agent, reason, note str
 
 // openComments are the open rows of task with their comments.
 func openComments(ctx context.Context, tx *Tx, task string) ([]openComment, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT o.id,o.comment_id,o.task_id,o.agent,o.reason,o.note,c.text,c.task_id,c.category,c.person,coalesce(t.body->>'kind','')='conversation'
+	rows, err := tx.QueryContext(ctx, `SELECT o.id,o.comment_id,o.task_id,o.agent,o.reason,o.note,c.text,c.task_id,c.category,c.person,c.approval_id,coalesce(t.body->>'kind','')='conversation'
  FROM comment_outcomes o JOIN task_comments c ON c.company_id=o.company_id AND c.id=o.comment_id JOIN tasks t ON t.company_id=o.company_id AND t.id=o.task_id
  WHERE o.company_id=? AND o.task_id=? AND o.status='open' ORDER BY o.seq`, tx.company, task)
 	if err != nil {
@@ -177,7 +187,7 @@ func openComments(ctx context.Context, tx *Tx, task string) ([]openComment, erro
 	var out []openComment
 	for rows.Next() {
 		var o openComment
-		if err = rows.Scan(&o.row, &o.comment, &o.task, &o.agent, &o.reason, &o.note, &o.text, &o.commentTask, &o.category, &o.person, &o.conversation); err != nil {
+		if err = rows.Scan(&o.row, &o.comment, &o.task, &o.agent, &o.reason, &o.note, &o.text, &o.commentTask, &o.category, &o.person, &o.approval, &o.conversation); err != nil {
 			return nil, err
 		}
 		out = append(out, o)
@@ -193,7 +203,7 @@ func commentsBrief(ctx context.Context, tx *Tx, b *strings.Builder, t tasks.Task
 	}
 	lead := leadOf(ctx, tx, t.ProjectID)
 	b.WriteString("Board comments that need your outcome (the owner's word: Core refuses every exit of this run until each has one):\n")
-	conversation := false
+	conversation, decision := false, false
 	for _, o := range open {
 		line := "- comment " + o.comment
 		if o.commentTask != t.ID {
@@ -207,10 +217,14 @@ func commentsBrief(ctx context.Context, tx *Tx, b *strings.Builder, t tasks.Task
 		}
 		b.WriteString(line + ": " + briefExcerpt(o.text, 2*1024) + "\n")
 		conversation = conversation || o.conversation
+		decision = decision || o.approval != ""
 	}
 	b.WriteString("Record them on your exit with comments: [{comment_id, outcome: \"done\"}] when you did what it asks, or {comment_id, outcome: \"declined\", reason} with a reason the owner reads.")
 	if conversation {
 		b.WriteString(" Here done needs task_id: the task you created or changed for it.")
+	}
+	if decision {
+		b.WriteString(" A comment the owner gave with an approval decision is part of the decision, approved or rejected: its done needs reason, what you changed for it in a few words (the owner reads it on the approval).")
 	}
 	if agent == lead {
 		b.WriteString(" You are the project lead: the board wrote it, so it stops with you; act through a task (done with task_id) or decline it with a reason.\n")
@@ -273,6 +287,9 @@ func DescribeOutcomes(outcomes []CommentOutcome) string {
 			s := "done by " + o.Agent
 			if o.Task != "" {
 				s += " (task " + o.Task + ")"
+			}
+			if o.Note != "" {
+				s += ": " + o.Note
 			}
 			parts = append(parts, s)
 		case "forwarded":
@@ -338,6 +355,8 @@ func checkComments(ctx context.Context, tx *Tx, t tasks.Task, args map[string]an
 			return nil, refuse("invalid_exit", "comment "+g.comment+": outcome must be done or declined (forward it with factory_comment_forward)"), nil
 		case g.outcome == "declined" && g.reason == "":
 			return nil, refuse("invalid_exit", "comment "+g.comment+": a decline needs a reason the owner reads"), nil
+		case g.outcome == "done" && row.approval != "" && strings.TrimSpace(g.reason) == "":
+			return nil, refuse("invalid_exit", "comment "+g.comment+" came with the owner's decision on approval "+row.approval+": done needs reason, what you changed for it in a few words (the owner reads it on the approval)"), nil
 		case g.outcome == "done" && row.conversation && g.task == "":
 			return nil, refuse("invalid_exit", "comment "+g.comment+": done needs task_id, the task you created or changed for it"), nil
 		}
@@ -356,7 +375,7 @@ func checkComments(ctx context.Context, tx *Tx, t tasks.Task, args map[string]an
 	var missing []UnhandledComment
 	for _, o := range open {
 		if _, ok := given[o.comment]; !ok {
-			missing = append(missing, UnhandledComment{CommentID: o.comment, TaskID: o.commentTask, Text: shortText(o.text, 512), NeedsTask: o.conversation})
+			missing = append(missing, UnhandledComment{CommentID: o.comment, TaskID: o.commentTask, Text: shortText(o.text, 512), NeedsTask: o.conversation, Approval: o.approval})
 		}
 	}
 	if len(missing) == 0 {
@@ -370,6 +389,12 @@ func checkComments(ctx context.Context, tx *Tx, t tasks.Task, args map[string]an
 	if missing[0].NeedsTask {
 		hint += "; done needs task_id, the task you created or changed for it"
 	}
+	for _, m := range missing {
+		if m.Approval != "" {
+			hint += "; a comment that came with an approval decision is part of the decision: its done needs reason, what you changed for it"
+			break
+		}
+	}
 	if lead := leadOf(ctx, tx, t.ProjectID); lead != t.Assignee {
 		hint += "; forward one that is not yours with factory_comment_forward {comment_id, note} first"
 	}
@@ -381,10 +406,8 @@ func checkComments(ctx context.Context, tx *Tx, t tasks.Task, args map[string]an
 func recordComments(ctx context.Context, tx *Tx, t tasks.Task, agent string, given []givenOutcome) error {
 	lead := leadOf(ctx, tx, t.ProjectID)
 	for _, g := range given {
-		note := ""
-		if g.outcome == "declined" {
-			note = g.reason
-		}
+		// The reason of a decline, or what a done did (approval-comments-handled: the approval shows it).
+		note := strings.TrimSpace(g.reason)
 		if _, err := tx.ExecContext(ctx, "UPDATE comment_outcomes SET status=?,agent=?,note=?,linked_task=?,decided_at=? WHERE company_id=? AND comment_id=? AND task_id=? AND status='open'",
 			g.outcome, agent, note, g.task, tx.now().Unix(), tx.company, g.comment, t.ID); err != nil {
 			return err

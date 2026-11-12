@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"appfactory/internal/approvals"
 	"appfactory/internal/artifacts"
 	"appfactory/internal/reports"
 	"appfactory/internal/storage"
@@ -86,6 +87,8 @@ type MaterialApproval struct {
 	Status    string `json:"status"`
 	DecidedAt int64  `json:"decided_at,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	// Comment is what became of the decision's comment (approval-comments-handled).
+	Comment *approvals.CommentState `json:"comment,omitempty"`
 }
 
 // MaterialPage is a page of the Library, newest first; NextBefore continues it.
@@ -276,7 +279,7 @@ func taskMaterials(ctx context.Context, c tui.Client, d tui.TaskDetail) ([]Mater
 			continue
 		}
 		if a, err := c.ArtifactApproval(ctx, t.ProjectID, m.ArtifactID, m.Version); err == nil && a != nil {
-			ms[i].Approval = &MaterialApproval{ID: a.ID, Status: a.Status, DecidedAt: a.DecidedAt, Reason: a.DecisionReason}
+			ms[i].Approval = &MaterialApproval{ID: a.ID, Status: a.Status, DecidedAt: a.DecidedAt, Reason: a.DecisionReason, Comment: a.Comment}
 		}
 	}
 	titles(ms, []tui.Task{t})

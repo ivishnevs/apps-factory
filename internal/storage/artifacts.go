@@ -169,7 +169,11 @@ func artifactApprovalTx(ctx context.Context, tx *Tx, project, id, version string
 	return getDoc[approvals.Approval](ctx, tx, artifactApprovalQuery, tx.company, project, id, version)
 }
 func (s *Store) ArtifactApproval(ctx context.Context, company, project, id, version string) (approvals.Approval, error) {
-	return getDoc[approvals.Approval](ctx, s.DB, artifactApprovalQuery, company, project, id, version)
+	a, err := getDoc[approvals.Approval](ctx, s.DB, artifactApprovalQuery, company, project, id, version)
+	if err == nil {
+		err = approvalCommentState(ctx, s.DB, company, &a)
+	}
+	return a, err
 }
 func (s *Store) RequestArtifactApproval(ctx context.Context, company, project string, in artifacts.ApprovalRequest) (approvals.Approval, error) {
 	// The question shows the version itself (inbox-visual-previews), in the chat and in Telegram too.

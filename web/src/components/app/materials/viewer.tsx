@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, ChevronRight, Download, EyeOff, X } from "lucide-react";
+import { ApprovalCommentOutcome } from "@/components/app/approval-comment";
 import Link from "@/components/app/link";
 import { ErrorState } from "@/components/app/page";
 import { CodeBlock, Markdown } from "@/components/app/run/markdown";
@@ -110,6 +111,13 @@ function About({ m, showTask }: { m: Material; showTask: boolean }) {
         {m.redacted && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="size-3.5" />Secrets were removed from this file</span>}
         {path && <span className="min-w-0 max-w-full truncate font-mono text-xs text-muted-foreground" title={path}>{path}</span>}
       </div>
+      {m.approval?.comment && m.approval.reason && (
+        // approval-comments-handled: the comment the decision came with, and what became of it.
+        <p className="text-sm wrap-anywhere">
+          <span className="text-muted-foreground">Your comment: </span>“{cleanText(m.approval.reason)}”
+          <ApprovalCommentOutcome comment={m.approval.comment} className="mt-0.5 block" />
+        </p>
+      )}
     </div>
   );
 }

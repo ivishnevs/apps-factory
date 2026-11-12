@@ -32,6 +32,20 @@ type Approval struct {
 	// DecidedByPerson is the person who decided (people-attribution); empty for agents and the CLI.
 	DecidedByPerson string   `json:"decided_by_person,omitempty"`
 	Cites           []string `json:"cites,omitempty"`
+	// CommentID is the board comment the owner's decision reason became on the approval's task
+	// (approval-comments-handled): every reason but the default one is the board's word on the work.
+	CommentID string `json:"comment_id,omitempty"`
+	// Comment is that comment's handling, filled on read (never stored).
+	Comment *CommentState `json:"comment,omitempty"`
+}
+
+// CommentState is what became of a decision's comment (approval-comments-handled).
+type CommentState struct {
+	ID string `json:"id"`
+	// Status is open (not handled yet), done, forwarded or declined.
+	Status string `json:"status"`
+	// Outcome is the handling in words ("done by launch-creative: frame 1 without the window", "not handled yet").
+	Outcome string `json:"outcome"`
 }
 type Request struct {
 	ProjectID, Agent, TaskID, RunID string

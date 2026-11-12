@@ -101,6 +101,12 @@ The shared inbox and the [approvals](approvals.md) interface are used:
 {"version":1,"action":"approve","reason":"Reviewed this exact version","request_id":"owner-layout-v2"}
 ```
 
+A reason other than the default (`approved by owner`), approving or rejecting, is the owner's comment on the work
+(approval-comments-handled): Core records it as a board comment on the requesting task, the task's next exit is
+refused until it has an outcome, and a `done` outcome says what was changed for it. The approval shows that outcome
+under the decision: on the task's materials, in the file viewer and in the Inbox's "Your comments on approvals"
+("done by launch-creative: frame 1 without the window", "not handled yet").
+
 `reject` keeps consumers blocked; `revoke` forbids new starts on the approval. A plain inbox answer does not approve
 the artifact. The decision and the queue wake-up/stop are stored atomically. A version can have only one active
 request/approval. After rejection, revocation or expiry a new explicit request may be created; earlier decisions

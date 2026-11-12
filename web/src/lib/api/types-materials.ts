@@ -1,4 +1,4 @@
-import type { PRFacts } from "./types";
+import type { ApprovalComment, PRFacts } from "./types";
 
 // Task materials (internal/web/materials.go): what tasks produced. A report's attached file (a blob), an
 // artifact version (uploaded content or an external link) or a pull request.
@@ -37,7 +37,7 @@ export interface Material {
   author?: string;
   created_at: number;
   report?: { id: string; kind: string; summary: string; result?: string };
-  approval?: { id: string; status: string; decided_at?: number; reason?: string };
+  approval?: { id: string; status: string; decided_at?: number; reason?: string; comment?: ApprovalComment };
   pr?: PRFacts;
 }
 

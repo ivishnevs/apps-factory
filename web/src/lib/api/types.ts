@@ -215,11 +215,15 @@ export interface Approval {
   artifact?: Artifact; call: { name: string; arguments?: Record<string, unknown> }; reason: string; status: string;
   version: number; created_at: number; expires_at: number; decided_at?: number; decision_reason?: string;
   audience?: string; delegate?: string; setting?: string; escalated?: boolean; decided_by?: string; cites?: string[];
+  // approval-comments-handled: the board comment the decision reason became, and what became of it.
+  comment_id?: string; comment?: ApprovalComment;
 }
 
 // A board comment's handling (owner-comments-handled): one entry per agent that got it; status open is "not handled yet".
 export interface CommentOutcome { agent: string; reason: string; status: "open" | "done" | "forwarded" | "declined"; note?: string; to?: string; task?: string; at?: number }
-export interface Comment { id: string; author: string; text: string; created_at: number; person?: string; category?: string; outcomes?: CommentOutcome[] }
+export interface Comment { id: string; author: string; text: string; created_at: number; person?: string; category?: string; approval_id?: string; outcomes?: CommentOutcome[] }
+// What became of a decision's comment (approval-comments-handled): status open is "not handled yet".
+export interface ApprovalComment { id: string; status: "open" | "done" | "forwarded" | "declined"; outcome: string }
 export interface PRFacts { number: number; state: string; head_sha: string; url?: string }
 export interface ExitFacts { head: string; dirty: boolean; branch: string; default_branch: string; ahead_of_default: number; pushed: boolean; pr?: PRFacts }
 export interface TaskExit { run_id: string; kind: string; facts?: ExitFacts; created_at: number }

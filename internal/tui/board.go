@@ -909,8 +909,13 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 	if len(d.Comments) > 0 {
 		section(fmt.Sprintf("Comments (%d)", len(d.Comments)))
 		for _, c := range d.Comments {
-			add("  " + stFaint.Render(time.Unix(c.CreatedAt, 0).In(m.opts.Location).Format("01-02 15:04")) + " " + lipgloss.NewStyle().Foreground(agentColor(c.Author)).Render(c.Author) + ": " + oneLine(c.Text))
-			if len(c.Outcomes) > 0 {
+			on := ""
+			if c.ApprovalID != "" {
+				// approval-comments-handled: the board's comment came with its decision on an approval.
+				on = stFaint.Render(" on approval " + c.ApprovalID)
+			}
+			add("  " + stFaint.Render(time.Unix(c.CreatedAt, 0).In(m.opts.Location).Format("01-02 15:04")) + " " + lipgloss.NewStyle().Foreground(agentColor(c.Author)).Render(c.Author) + on + ": " + oneLine(c.Text))
+			if len(c.Outcomes) > 0 || c.ApprovalID != "" {
 				// owner-comments-handled: what became of the board's comment.
 				add(stFaint.Render("       → " + oneLine(storage.DescribeOutcomes(c.Outcomes))))
 			}

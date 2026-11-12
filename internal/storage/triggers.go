@@ -334,16 +334,7 @@ func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent b
 	if err != nil {
 		return err
 	}
-	what := "approval " + a.ID
-	switch {
-	case a.Kind == "artifact" && a.Artifact != nil:
-		what = "artifact approval " + a.ID + " of " + a.Artifact.ID + "@" + a.Artifact.Version
-	case a.Kind == "command":
-		what = "command approval " + a.ID
-	case a.Call.Name != "":
-		what = "approval " + a.ID + " of " + a.Call.Name
-	}
-	text := what + " " + strings.ToLower(a.Status) + " by the owner: " + a.DecisionReason
+	text := approvalWhat(a) + " " + strings.ToLower(a.Status) + " by the owner: " + a.DecisionReason
 	if err = addTrigger(ctx, tx, &t, "approval_decided", true, "owner", a.ID, text); err != nil {
 		return err
 	}

@@ -1,4 +1,6 @@
-Status: proposed 2026-11-12 by the owner. Nothing implemented.
+Status: implemented 2026-11-12 except the prompt cleanup of 2.1; proposed 2026-11-12 by the owner. Blocker: the tvorog Launch Creative and Reviewer
+prompts live only in the prod company's catalog, not in this repository; the owner drops their approval-comment line
+there after this ships.
 
 ## Why
 

@@ -493,8 +493,21 @@ The owner's comment on a task is the board's word: Core enforces its handling in
   `{"reason": "task_closed", "options": [reopen, ask_lead]}`. `POST /tasks/{id}/reopen {text, request_id}` reopens it
   READY for its assignee with the comment as its board comment (an authority `owner_comment` trigger);
   `POST /tasks/{id}/ask-lead {text, request_id}` sends the owner's question to the project lead with the task named.
-- `GET /tasks/{id}/comments` carries each board comment's `category` and `outcomes` (`agent`, `reason`: assignee,
-  forward, declined, stalled or locked, `status`: open, done, forwarded or declined, `note`, `to`, `task`, `at`).
+- **Approval decisions with a comment (approval-comments-handled).** When the owner approves or rejects an approval
+  (artifact, action or command) with a reason other than the default (`approved by owner`, or a bare `ok`, `lgtm`,
+  `yes`, `approved`, `ок`, `да`, `одобрено`; a rejection's reason always counts), Core records the reason as a board
+  comment on the approval's task, linked to it (`task_comments.approval_id`, migration 0040; the approval keeps
+  `comment_id`), and the rules above apply as they are: the next brief lists it ("[on artifact approval … approved]"),
+  every exit is refused until it has an outcome, the lead gets the quiet copy. The decision's `approval_decided`
+  trigger is the one wake-up. A `done` outcome of such a comment needs `reason`: what was changed for it ("frame 1
+  without the window"), shown on the approval. On a DONE or CANCELLED task the comment goes to the project lead's
+  conversation (reason `closed`); an approval without a task, on a conversation task, decided by a delegate agent or
+  revoked records no comment. Approval reads (`GET /approvals`, `GET /approvals/{id}`, the artifact approval of the
+  task's materials) carry `comment: {id, status, outcome}` (status open, done, forwarded or declined; outcome in words,
+  e.g. "done by launch-creative: frame 1 without the window" or "not handled yet by launch-creative").
+- `GET /tasks/{id}/comments` carries each board comment's `category`, `approval_id` and `outcomes` (`agent`, `reason`:
+  assignee, forward, declined, stalled, locked or closed, `status`: open, done, forwarded or declined, `note` (a
+  decline's reason or what a done did), `to`, `task`, `at`).
 
 ## Owner console v0
 

@@ -306,6 +306,8 @@ type Comment struct {
 	Person string `json:"person,omitempty"`
 	// Category is the locked category of a board comment (owner-comments-handled).
 	Category string `json:"category,omitempty"`
+	// ApprovalID is the approval whose decision the board comment came with (approval-comments-handled).
+	ApprovalID string `json:"approval_id,omitempty"`
 	// Outcomes is how a board comment was handled, one entry per agent that got it (owner-comments-handled);
 	// an entry with status open is "not handled yet". Empty for other comments.
 	Outcomes []CommentOutcome `json:"outcomes,omitempty"`
@@ -335,7 +337,7 @@ func listComments(ctx context.Context, tx *Tx, id string) ([]Comment, error) {
 func comments(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, company, id string) ([]Comment, error) {
-	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at,person,category FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, id)
+	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at,person,category,approval_id FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +345,7 @@ func comments(ctx context.Context, q interface {
 	out := []Comment{}
 	for rows.Next() {
 		var c Comment
-		if err = rows.Scan(&c.ID, &c.Author, &c.Text, &c.CreatedAt, &c.Person, &c.Category); err != nil {
+		if err = rows.Scan(&c.ID, &c.Author, &c.Text, &c.CreatedAt, &c.Person, &c.Category, &c.ApprovalID); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

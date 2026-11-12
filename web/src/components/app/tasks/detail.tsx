@@ -294,7 +294,7 @@ export function ReviewNotes({ task, look }: { task: Task; look?: Lookup }) {
 // What became of a board comment (owner-comments-handled), in words.
 function outcomeWords(o: CommentOutcome): string {
   switch (o.status) {
-    case "done": return `done by ${o.agent}${o.task ? ` (task ${o.task})` : ""}`;
+    case "done": return `done by ${o.agent}${o.task ? ` (task ${o.task})` : ""}${o.note ? `: ${o.note}` : ""}`;
     case "forwarded": return `forwarded to ${o.to} by ${o.agent}`;
     case "declined": return `declined by ${o.agent}: ${o.note ?? ""}`;
     default: return `not handled yet (${o.agent})`;
@@ -340,7 +340,7 @@ export function Comments({ taskId, comments, now, look, closed }: { taskId: stri
             <li key={c.id} className="flex gap-3">
               <AgentAvatar name={c.author} size="sm" className="mt-0.5" />
               <div className={cn("min-w-0 flex-1 rounded-xl rounded-tl-sm px-3.5 py-2.5", c.author === "owner" ? "bg-foreground/[0.06]" : "bg-muted/60")}>
-                <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? person(c.person, undefined, "You") : c.author}</span><span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
+                <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? person(c.person, undefined, "You") : c.author}</span>{c.approval_id && <span className="shrink-0 text-muted-foreground">on approval {displayId(c.approval_id)}</span>}<span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
                 <p className="mt-0.5 text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(c.text, look)}</p>
                 {(c.outcomes ?? []).length > 0 && <Outcomes outcomes={c.outcomes ?? []} look={look} />}
               </div>
