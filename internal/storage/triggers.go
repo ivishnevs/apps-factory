@@ -94,6 +94,10 @@ func overrideParks(ctx context.Context, tx *Tx, t *tasks.Task, actor, kind strin
 			return err
 		}
 	}
+	// Details the owner promised are not awaited any more (inbox-badge-parity).
+	if err = settlePromisedDetails(ctx, tx, t.ID, messaging.DetailsWithdrawn, "superseded by "+why); err != nil {
+		return err
+	}
 	if err = clearRetryEscalations(ctx, tx, *t, why); err != nil {
 		return err
 	}

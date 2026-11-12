@@ -83,8 +83,10 @@ type Overview struct {
 	LiveRuns  map[string]storage.Run `json:"live_runs,omitempty"`
 	Inbox     []messaging.Message    `json:"inbox"`
 	Approvals []approvals.Approval   `json:"approvals"`
-	At        time.Time              `json:"at"`
-	Errors    map[string]string      `json:"errors,omitempty"`
+	// Alerts are the Inbox's Alerts section (GET /alerts, inbox-badge-parity): active task alerts and runs to inspect.
+	Alerts []storage.ActiveAlert `json:"alerts"`
+	At     time.Time             `json:"at"`
+	Errors map[string]string     `json:"errors,omitempty"`
 }
 
 // TaskDetail is one task's detail pane.
@@ -154,6 +156,7 @@ type Action struct {
 	Urgent     bool           // direct
 	Cascade    bool           // cancel
 	MessageID  string         // answer
+	Details    string         // answer: promised ("I'll send details") or withdrawn (inbox-badge-parity)
 	Answers    map[string]any // answer: structured answers
 	ApprovalID string         // approve, reject
 	Scope      string         // hold, release: project, agent, quota_key or node (the company is the kill switch)
@@ -195,6 +198,12 @@ func (a Action) Describe() string {
 		}
 		return "cancel " + a.TaskID
 	case "answer":
+		switch a.Details {
+		case "promised":
+			return "promise details for " + a.MessageID + " (the question stays open)"
+		case "withdrawn":
+			return "withdraw the promised details for " + a.MessageID
+		}
 		return "answer " + a.MessageID + ": " + a.Text
 	case "accept":
 		return "accept " + a.TaskID
@@ -387,6 +396,7 @@ func (c *HTTPClient) Overview(ctx context.Context) (Overview, error) {
 	part("pending", c.get(ctx, "/pending/count", &o.Pending))
 	part("nodes", c.get(ctx, "/nodes", &o.Nodes))
 	part("inbox", c.get(ctx, "/inbox", &o.Inbox))
+	part("alerts", c.get(ctx, "/alerts", &o.Alerts))
 	part("approvals", c.get(ctx, "/approvals", &o.Approvals))
 	midnight := startOfDay(o.At)
 	part("costs", c.get(ctx, fmt.Sprintf("/costs?by=agent&since=%d", midnight.Unix()), &o.Costs))
@@ -629,6 +639,9 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		body := map[string]any{"version": a.Version, "body": a.Text, "request_id": rid}
 		if len(a.Answers) > 0 {
 			body["answers"] = a.Answers
+		}
+		if a.Details != "" {
+			body["details"] = a.Details
 		}
 		err = c.API.Do(ctx, "POST", "/inbox/"+url.PathEscape(a.MessageID)+"/answer", body, &result)
 	case "accept", "rework":

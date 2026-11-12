@@ -386,7 +386,10 @@ func DemoFixture() Fixture {
 		Nodes:     demoNodes(at),
 		Inbox:     []messaging.Message{ask, appr, artMsg, note, esc, projMsg},
 		Approvals: []approvals.Approval{approval, artApproval, projApproval},
-		Costs:     costs, TaskCosts: taskCosts, RecentCosts: storage.CostReport{Runs: recent},
+		Alerts: []storage.ActiveAlert{{ID: "al-1", Kind: "no_progress", TaskID: "P2-2", TaskTitle: "Task 2", ProjectID: "project-2", Assignee: "developer-2",
+			Summary: "no progress in 3 runs since " + at.Add(-9*time.Hour).UTC().Format(time.RFC3339), Since: at.Add(-time.Hour).Unix(),
+			Action: "look at its runs, then give it what it needs: an answer, a directive, another assignee, or cancel it", With: "lead"}},
+		Costs: costs, TaskCosts: taskCosts, RecentCosts: storage.CostReport{Runs: recent},
 		LiveRuns: map[string]storage.Run{"r-d1-7": f.Runs["r-d1-7"], "r-rev-2": f.Runs["r-rev-2"], "r-d2-4": f.Runs["r-d2-4"], "r-lead-c1": f.Runs["r-lead-c1"], "r-qa-1": f.Runs["r-qa-1"]},
 		At:       at,
 	}

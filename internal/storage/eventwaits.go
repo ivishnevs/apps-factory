@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"appfactory/internal/decisions"
+	"appfactory/internal/messaging"
 	"appfactory/internal/tasks"
 )
 
@@ -303,6 +304,12 @@ func messageArrived(ctx context.Context, tx *Tx, project, task, recipient, sende
 		}
 		if err = addTrigger(ctx, tx, &t, "message_received", false, sender, ref, "the message you waited for, from "+sender+": "+body); err != nil {
 			return err
+		}
+		// The owner's message is the details the owner promised (inbox-badge-parity): the question closes.
+		if sender == "owner" {
+			if err = settlePromisedDetails(ctx, tx, id, messaging.DetailsSent, ""); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

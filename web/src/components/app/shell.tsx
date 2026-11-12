@@ -13,6 +13,7 @@ import { canManage, type Membership } from "@/lib/api/types-account";
 import { useCompany } from "@/lib/company";
 import { cn } from "@/lib/utils";
 import { ConfirmProvider } from "./confirm";
+import { inboxModel } from "./inbox/model";
 
 // Navigation: a sidebar on wide screens, a bottom tab bar on phones (the first five; the rest under More).
 export const nav = [
@@ -122,7 +123,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const path = useAppPath();
   const { data } = useOverview();
   const items = useNav();
-  const pending = data?.pending.total ?? 0;
+  // The badge counts what the Inbox page lists (inbox-badge-parity).
+  const pending = data ? inboxModel(data).total : 0;
   const stopped = data?.pauses.some((p) => p.scope === "company");
   return (
     <ConfirmProvider>

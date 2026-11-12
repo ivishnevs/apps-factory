@@ -1030,7 +1030,15 @@ func (m *Model) projectChipLabel(p, label string, mode int) string {
 
 // attentionCount is what waits on the owner: inbox items and active alerts.
 func (m *Model) attentionCount() int {
-	return len(m.ov.Inbox) + m.ov.Pending.Alerts + m.ov.Pending.Inspect
+	return len(m.ov.Inbox) + m.alertCount()
+}
+
+// alertCount is the Inbox's Alerts section (inbox-badge-parity); an older Core without GET /alerts gives the counts.
+func (m *Model) alertCount() int {
+	if m.ov.Alerts == nil {
+		return m.ov.Pending.Alerts + m.ov.Pending.Inspect
+	}
+	return len(m.ov.Alerts)
 }
 
 // tabLabel is a tab's label: "1 Dashboard", "1 Dash", or "1" (mode 2, but the current tab).
@@ -1206,7 +1214,7 @@ func (m *Model) hints() [][2]string {
 		if msg, ok := m.inboxSelected(); ok && !answerable(msg) && msg.ApprovalID == "" {
 			return append([][2]string{{"↑↓", "item"}, {"r", "reply"}, {"m", "mark read"}, {"t", "task"}}, common...)
 		}
-		return append([][2]string{{"↑↓", "item"}, {"←→", "option"}, {"enter", "answer"}, {"a", "text"}, {"v", "preview"}, {"y/n", "approve"}}, common...)
+		return append([][2]string{{"↑↓", "item"}, {"←→", "option"}, {"enter", "answer"}, {"a", "text"}, {"p/w", "promise details"}, {"v", "preview"}, {"y/n", "approve"}}, common...)
 	case tabNodes:
 		return append([][2]string{{"h/l", "nodes/pauses"}, {"j/k", "move"}, {"p", "pause…"}, {"u", "resume"}, {"K", "kill switch"}}, common...)
 	case tabCosts:

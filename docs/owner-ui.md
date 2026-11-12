@@ -236,7 +236,11 @@ question's options as pills (`←`/`→`, `enter`), `a` for free text. A notific
 `r` (or `enter`) replies — in the Chat tab to a direct report, with a directive on the task to any other
 agent — and `m` marks it read. A refused action says what happened instead of Core's bare `state or version
 conflict`: the question was answered or withdrawn meanwhile, the task changed (its version is stale), the
-approval was decided; the screen has been refreshed.
+approval was decided; the screen has been refreshed. `p` answers an open question with "I'll send details" (it
+stays open as details promised and the asking task waits for them), `w` withdraws that promise. Below the
+messages, the **Alerts** section (`GET /alerts`) lists the active task alerts and runs to inspect with their task,
+summary, age, clearing action and `with <lead>` when the lead is expected to act; the header's `⚠` counts the
+messages and the alerts (inbox-badge-parity).
 
 ## 7 Nodes — capacity, drivers, pauses
 
@@ -474,7 +478,7 @@ are counted into the next: `(+2 more)`); the replay of history at startup does n
 
 ## Behaviour
 
-- Refresh: the overview (`/health`, `/status`, `/tasks`, `/pauses`, `/pending/count`, `/nodes`, `/inbox`,
+- Refresh: the overview (`/health`, `/status`, `/tasks`, `/pauses`, `/pending/count`, `/nodes`, `/inbox`, `/alerts`,
   `/approvals`, `/costs` by agent today, by task, and the runs of the last 24 h, plus each live run's record
   for its usage) every 3 s, one read at a time; the agent catalog once. Only `/health` and `/status` failing
   marks Core unreachable (the header shows it and how old the data is).
@@ -583,6 +587,12 @@ are shown in plain words; IDs appear only where a person needs them.
   its text box offers **Reopen with comment** (the task goes back to its assignee with the comment) and **Ask the
   lead about it** (a question to the project lead naming the task); Core refuses a plain comment there (409
   `task_closed`), so the TUI, CLI and Telegram behave the same.
+- **Inbox** `/c/{company}/inbox` (inbox-badge-parity): Needs your decision, Reviews for you, Reports for you and
+  **Alerts** (`GET /alerts`: every active task alert and run to inspect, with task, project, summary, age, the
+  clearing action and "with <lead>" when the lead is expected to act). The nav badge is computed from the same items
+  as the page (`inbox/model.ts`), so it never shows a count the page does not list. A question card offers **I'll send
+  details**: it stays open as "details promised" until the details are sent (**Send details**) or the promise is
+  withdrawn (**Withdraw promise**); its task waits meanwhile.
 - **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
   page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
   button while it runs (project-pause-visible). Nodes & control still lists every pause.

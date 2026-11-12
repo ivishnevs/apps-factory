@@ -554,7 +554,16 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
   `task.alert.idle` per episode (`task_alerts`, migration 0012), cleared with `task.alert_cleared.idle`.
 - `no_progress` — the task's runs have made no progress (Failure, retry and cancellation) for 8 hours since
   the first run after its last progress: one attention event `task.alert.no_progress` per episode, cleared
-  (`task.alert_cleared.no_progress`) and re-armed by progress or authority input.
+  (`task.alert_cleared.no_progress`) and re-armed by progress or authority input. A task whose state says whom it
+  waits for raises none (inbox-badge-parity): an active park of any kind, a last ended run whose exit waited, asked
+  or blocked (so a timed "still waiting for the owner" loop and its next run raise nothing), or a verdict of open
+  dependencies, capacity, a node wait or a pinned node; the wait shows where it belongs.
+
+Every active alert, whatever its kind, and every run to inspect is listed for the owner (`GET /alerts`,
+`storage.ActiveAlerts`): kind, task and title, project, assignee, summary, since, the clearing action in words and,
+for an alert the assignee's lead can act on (`no_progress`, `idle`, `stalled`, `inspect`), `with` that lead. A kind
+Core does not describe yet is listed with its summary. The Inbox shows them as its Alerts section, and the pending
+count counts the same items.
 
 An escalation (reliable-recovery D5, migration 0017) is a park of kind `escalation` on the task (`why` shows
 `parked:escalation` and who answers) plus a question from `factory` with the allowed answers as one
@@ -609,7 +618,8 @@ cancellation.
   `GET|PUT /settings/company`, project `rules` in `PATCH /projects/{id}`, up to 8 KiB each). Every brief carries
   them; agents reread them with `factory_settings_get`.
 - `factory pending` (`GET /pending/count`): inbox items, pending approvals, active stall alerts, runs to inspect,
-  tasks in review, and their total.
+  tasks in review, those waiting for the owner's review (`owner_reviews`), and the total of what the Inbox lists:
+  its messages, the reviews for the owner and the alerts (`GET /alerts`; inbox-badge-parity).
 - `factory answer MESSAGE_ID TEXT` answers a question without a structured form; `factory approve|reject
   APPROVAL_ID REASON` decides an approval. Structured forms still use `inbox answer ID JSON_FILE`.
 - `GET /feed/stream` streams the feed as server-sent events (`id` = feed sequence; filters `project`, `task`,

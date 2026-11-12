@@ -115,6 +115,8 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(ov.Nodes)
 	case p == "/inbox":
 		reply(ov.Inbox)
+	case p == "/alerts":
+		reply(ov.Alerts)
 	case p == "/approvals":
 		reply(ov.Approvals)
 	case p == "/costs":
@@ -269,7 +271,7 @@ func TestHTTPClientOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Health.Company != "Company 1" || len(ov.Status) != 5 || len(ov.Tasks) != 24 || len(ov.LiveRuns) != 5 || len(ov.Inbox) != 6 || len(ov.Nodes) != 3 || len(ov.Approvals) != 3 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
+	if ov.Health.Company != "Company 1" || len(ov.Status) != 5 || len(ov.Tasks) != 24 || len(ov.LiveRuns) != 5 || len(ov.Inbox) != 6 || len(ov.Alerts) != 1 || ov.Alerts[0].With != "lead" || len(ov.Nodes) != 3 || len(ov.Approvals) != 3 || ov.Errors != nil || ov.Health.DefaultReport != "pm" {
 		t.Fatalf("%+v", ov)
 	}
 	if len(ov.Agents) != 7 || ov.Agents[1].Name != "developer-1" || ov.Agents[1].ReportsTo != "pm" || ov.Agents[1].Provider != "claude" {
