@@ -34,6 +34,30 @@ could not be finished and what it waits on. Each item is also noted in its chang
 |---|---|---|
 | setup-assistant | 2.2 `factory import paperclip` | A real Paperclip export or recorded API responses; no format was invented. |
 
+## Not started, and why (checked against each change on 2026-11-12)
+
+| Change | Why it was not implemented |
+|---|---|
+| milestones | Four open questions wait for the owner (`proposal.md` "Open questions (with recommendations)"): active milestones per project, tasks outside the active one, source of truth, ETA. Answering "as recommended" makes it ready. |
+| team-page-clarity | Task 1.1 is "wording and layout …; owner approves": a design must be approved before any code (Status: "not designed or implemented"). |
+| park-watchdog | Status "idea (not scheduled; the owner wants to think about it)"; task 1.1 "Owner decides whether to adopt …". Recommendation: close it, its cases are covered by throughput-signals, decision-waits and inbox-badge-parity. |
+| agent-context-window | "Deferred by the owner 2026-11-07" after the research; task 1.2 is also blocked on an upstream Codex issue (#16033). |
+| hosted-connectors | Everything depends on spike 0.2 (Fly.io Sprites: a real account and paid machines, `factory-node` claiming a task in a Sprite); the decisions in 0.1 "may change with what it shows". Needs the owner's Fly.io account and budget. |
+
+## Partly implemented: the exact open tasks
+
+| Change | Open task | Reason |
+|---|---|---|
+| approval-comments-handled | 2.1 prompt cleanup | Prompts exist only in the prod catalog (no prod changes in this run). |
+| inbox-visual-previews | 4.1 live check | Real bot and live inbox; covered by tests with a fake Bot API. |
+| node-packaging-updates | 3.5 | Owner decision 4 (2026-11-12): only after the update flow passes live smokes. |
+| saas-billing | 1.6 | Postponed idea (On-prem) by the owner; 1.3 live Paddle check and 1.4 phone-width check as above. |
+| saas-release-readiness | 1.1, 1.3, 2.1, 2.2, 5.1 | Owner's production accounts and choices (tables above). |
+| saas-release-readiness | 3.2 | External penetration test (connector-trust 3.2). |
+| saas-release-readiness | 6.2 | `hosted-connectors` done, or the launch decision to go without cloud nodes (owner). |
+| setup-assistant | 2.2 | No Paperclip export format available. |
+| connector-trust | 1.5, 2.2, 2.3, 3.2 | Isolated mode "later" (owner); signing, source publishing and pentest need accounts and an external firm. |
+
 ## Recommended follow-ups (not blockers)
 
 - Node.js for the Claude single executable is still 22.18.0; six 22.x security releases since (latest 22.23.5).
