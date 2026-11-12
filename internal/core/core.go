@@ -23,9 +23,12 @@ import (
 
 type Core struct {
 	approvalMu sync.Mutex
-	Skills     *skills.Registry
-	Store      *storage.Store
-	Agents     map[string]config.Agent
+	// handlerMu guards hooked, the Store whose hooks Handler wired.
+	handlerMu sync.Mutex
+	hooked    *storage.Store
+	Skills    *skills.Registry
+	Store     *storage.Store
+	Agents    map[string]config.Agent
 	// NodeHooks are the catalog's NodeHooks documents, served to nodes in the register and heartbeat answers.
 	NodeHooks map[string]protocol.NodeHooks
 	Token     string
@@ -100,9 +103,21 @@ func (c *Core) companyFrom(r *http.Request) string {
 
 func (c *Core) Handler() http.Handler {
 	if c.Store != nil {
-		c.hierarchyHooks()
-		c.Store.Wake = c.wakeups.signal
-		c.Store.PlanLimits = c.Billing.On()
+		// The Store's hooks are wired once per Store and the flags written only when they change: Handler is built
+		// again per request in tests while waiting polls and sweeps read them.
+		c.handlerMu.Lock()
+		if c.hooked != c.Store {
+			c.hierarchyHooks()
+			c.Store.Wake = c.wakeups.signal
+			c.hooked = c.Store
+		}
+		c.handlerMu.Unlock()
+		if c.Store.ExplicitExits != c.ExplicitExits {
+			c.Store.ExplicitExits = c.ExplicitExits
+		}
+		if on := c.Billing.On(); c.Store.PlanLimits != on {
+			c.Store.PlanLimits = on
+		}
 	}
 	m := http.NewServeMux()
 	c.configRoutes(m)

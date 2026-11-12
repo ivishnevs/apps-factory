@@ -58,6 +58,11 @@ type Config struct {
 	// ProjectsRoot is where the node creates the repositories of new projects and clones existing ones given
 	// by URL (project-creation D3); empty is <state_dir>/projects. A leading ~/ is the user's home.
 	ProjectsRoot string `yaml:"projects_root"`
+	// Remote decides which settings Core may set from the web (node-packaging-updates B): absent or on every remote
+	// setting (slots, conversation_slots, labels, drivers, disk), off none, or a map of settings to false to keep
+	// those local. SlotsMax (0: none) caps the slots Core may set.
+	Remote   Remote `yaml:"remote"`
+	SlotsMax int    `yaml:"slots_max"`
 }
 
 // DefaultCompany is the company of a node whose node.yaml names none.
@@ -242,6 +247,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Slots < 1 || c.Slots > maxSlots {
 		errs = append(errs, fmt.Errorf("slots %d: must be between 1 and %d", c.Slots, maxSlots))
+	}
+	if c.SlotsMax < 0 || c.SlotsMax > maxSlots {
+		errs = append(errs, fmt.Errorf("slots_max %d: must be between 1 and %d (0: no cap)", c.SlotsMax, maxSlots))
 	}
 	if c.ConversationSlots < 0 || c.ConversationSlots > maxSlots {
 		errs = append(errs, fmt.Errorf("conversation_slots %d: must be between 0 and %d", c.ConversationSlots, maxSlots))

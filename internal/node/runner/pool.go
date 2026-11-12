@@ -5,6 +5,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -83,6 +84,9 @@ type slot struct {
 	run    string
 	cancel context.CancelFunc
 	beat   time.Time
+	// conv: a conversation slot (takes conversation runs only). retired: removed by Resize; an idle one stopped, a
+	// busy one finishes its run and then stops. A later Resize may reuse it.
+	conv, retired bool
 }
 
 func (p *Pool) now() time.Time {
@@ -121,11 +125,13 @@ func (p *Pool) free(conversation bool) map[string]int {
 		return free
 	}
 	idle := 0
-	for _, s := range p.Status() {
-		if !s.Busy && ((s.Index >= p.Slots) == conversation || conversation && !work) {
+	p.mu.Lock()
+	for _, s := range p.slots {
+		if !s.busy && !s.retired && (s.conv == conversation || conversation && !work) {
 			idle++
 		}
 	}
+	p.mu.Unlock()
 	if idle == 0 {
 		return free
 	}
@@ -163,17 +169,18 @@ func (p *Pool) Offer(o Offer) bool {
 
 // Run starts the slots and returns when ctx ends, after running runs were interrupted.
 func (p *Pool) Run(ctx context.Context) error {
+	p.mu.Lock()
 	if p.Slots < 1 || p.ConversationSlots < 0 || len(p.Sources) == 0 {
+		p.mu.Unlock()
 		return errors.New("pool needs slots and sources")
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	p.mu.Lock()
 	p.ctx = ctx
 	p.offers, p.convOffers = make(chan Offer), make(chan Offer)
 	p.slots = make([]*slot, p.Slots+p.ConversationSlots)
 	for i := range p.slots {
-		p.slots[i] = &slot{}
+		p.slots[i] = &slot{conv: i >= p.Slots}
 		p.start(i)
 	}
 	p.mu.Unlock()
@@ -193,7 +200,7 @@ func (p *Pool) start(i int) {
 	ctx, stop := context.WithCancel(p.ctx)
 	s.stop = stop
 	offers := p.offers
-	if i >= p.Slots {
+	if s.conv {
 		offers = p.convOffers // a conversation slot takes conversation runs only
 	}
 	p.wg.Add(1)
@@ -223,8 +230,8 @@ func (p *Pool) loop(ctx context.Context, i, gen int, offers <-chan Offer) {
 		if src == nil || src.Claimable != nil && !src.Claimable() || p.Claimable != nil && !p.Claimable() || !o.Conversation && !p.workClaimable() {
 			continue // offered just before the driver or the node stopped claiming: it stays queued
 		}
-		if !p.update(i, gen, func(s *slot) { s.busy, s.run = true, o.RunID }) {
-			return
+		if !p.take(i, gen, o.RunID) {
+			return // retired meanwhile: the run stays queued and is offered again
 		}
 		node.LogActivity(p.StateDir, node.Activity{Event: "run.offered", Run: o.RunID, Runtime: o.Provider})
 		refused := src.Process(ctx, o.RunID, func(run string, cancel context.CancelFunc) {
@@ -243,7 +250,8 @@ func (p *Pool) loop(ctx context.Context, i, gen int, offers <-chan Offer) {
 	}
 }
 
-// update applies f to slot i if gen is its current loop; a replaced loop gets false and exits.
+// update applies f to slot i if gen is its current loop; a replaced loop gets false and exits, and so does a retired
+// slot's loop (after f: a retired slot's run still ends normally).
 func (p *Pool) update(i, gen int, f func(*slot)) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -252,15 +260,86 @@ func (p *Pool) update(i, gen int, f func(*slot)) bool {
 		return false
 	}
 	f(s)
+	return !s.retired
+}
+
+// take marks slot i busy with run unless its loop was replaced or the slot retired.
+func (p *Pool) take(i, gen int, run string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s := p.slots[i]
+	if s.gen != gen || s.retired {
+		return false
+	}
+	s.busy, s.run = true, run
 	return true
 }
 
+// Resize sets the work and conversation slots while the pool runs (settings from the web, node-packaging-updates B):
+// new slots start at once, a removed idle slot stops, a removed busy slot finishes its run and then stops. Before Run
+// it only sets the counts.
+func (p *Pool) Resize(slots, conversation int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Slots, p.ConversationSlots = slots, conversation
+	if p.ctx == nil || p.ctx.Err() != nil {
+		return
+	}
+	for _, conv := range []bool{false, true} {
+		want := slots
+		if conv {
+			want = conversation
+		}
+		var live []int
+		for i, s := range p.slots {
+			if !s.retired && s.conv == conv {
+				live = append(live, i)
+			}
+		}
+		// Shrink: idle slots first, the newest first.
+		for k := len(live) - 1; k >= 0 && len(live) > want; k-- {
+			if s := p.slots[live[k]]; !s.busy {
+				p.retire(live[k])
+				live = slices.Delete(live, k, k+1)
+			}
+		}
+		for k := len(live) - 1; k >= 0 && len(live) > want; k-- {
+			p.retire(live[k])
+			live = slices.Delete(live, k, k+1)
+		}
+		// Grow: reuse a retired slot that is idle again, else add one.
+		for n := len(live); n < want; n++ {
+			i := slices.IndexFunc(p.slots, func(s *slot) bool { return s.retired && !s.busy })
+			if i < 0 {
+				p.slots = append(p.slots, &slot{})
+				i = len(p.slots) - 1
+			}
+			s := p.slots[i]
+			s.retired, s.conv = false, conv
+			p.start(i)
+		}
+	}
+}
+
+// retire removes slot i: an idle slot stops now, a busy one when its run ends; p.mu is held.
+func (p *Pool) retire(i int) {
+	s := p.slots[i]
+	s.retired = true
+	if !s.busy && s.stop != nil {
+		s.stop()
+	}
+}
+
+// Status lists the slots in use: every slot except a retired one that finished.
 func (p *Pool) Status() []node.Slot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	r := make([]node.Slot, len(p.slots))
+	r := make([]node.Slot, 0, len(p.slots))
 	for i, s := range p.slots {
-		r[i] = node.Slot{Index: i, Busy: s.busy, Run: s.run, Beat: s.beat}
+		if s.retired && !s.busy {
+			continue
+		}
+		r = append(r, node.Slot{Index: i, Busy: s.busy, Run: s.run, Beat: s.beat})
 	}
 	return r
 }
@@ -268,7 +347,7 @@ func (p *Pool) Status() []node.Slot {
 func (p *Pool) Restart(i int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if i < 0 || i >= len(p.slots) || p.slots[i].busy || p.ctx.Err() != nil {
+	if i < 0 || i >= len(p.slots) || p.slots[i].busy || p.slots[i].retired || p.ctx.Err() != nil {
 		return
 	}
 	p.start(i)

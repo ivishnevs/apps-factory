@@ -36,6 +36,9 @@ type Node struct {
 	// ConversationSlots take only conversation runs, on top of Slots; ConversationHeld counts the runs in them
 	// (work-and-conversation-runs).
 	ConversationSlots, ConversationHeld int
+	// UpdateRequired says why the node gets no work until it is updated (below Core's min_node_version); "" when its
+	// version is supported (node-packaging-updates).
+	UpdateRequired string
 }
 
 type NodeDriver struct {
@@ -125,6 +128,9 @@ func (n Node) label() string {
 // Incapable says why the node can never run a run with these needs ("" when it can): no usable driver for
 // the provider, missing labels, or a resource class it does not have enough of.
 func (n Node) Incapable(need NodeNeeds) string {
+	if n.UpdateRequired != "" {
+		return n.UpdateRequired
+	}
 	if !slices.ContainsFunc(n.Drivers, func(d NodeDriver) bool { return d.Name == need.Provider && d.OK }) {
 		return "no usable " + need.Provider + " driver"
 	}

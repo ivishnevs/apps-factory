@@ -1,6 +1,8 @@
 Status: raised 2026-11-06 by the owner ("can we package it without dependencies like node, and support updates
 somehow"); owner decided 2026-11-07: the Claude shim ships as a single executable (option 2). Done 2026-11-07: Node SEA, no
-Node.js for Claude (1.3, 2.1). Open: the update flow (1.2, owner approves), then 2.2–2.4.
+Node.js for Claude (1.3, 2.1). Partly implemented 2026-11-12: node versions and `min_node_version` (2.3, 3.1), settings
+from the web (3.2), detected labels (3.6); open: one binary and the update flow (2.2, 3.3, 3.4), Claude without the JS
+shim (3.5). Blockers: the live check on the real nodes needs their one manual reinstall (tasks.md).
 
 ## Why
 

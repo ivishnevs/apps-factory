@@ -46,6 +46,9 @@ type driverState struct {
 	strikes   int
 	authUntil time.Time
 	held      bool // the "probe passes, hold-off continues" line was logged for this hold-off
+	// off: the driver is turned off on this node (settings from the web or node.yaml): no checks, no claims, not
+	// in the heartbeat's drivers.
+	off bool
 	// transients counts the consecutive checks that ended in a transient-only failure after their retries;
 	// probes.TransientFailures of them disable the driver. evidence: a run on the driver succeeded or
 	// produced runtime activity since the last check.
@@ -64,7 +67,20 @@ func (h *driverHealth) clock() time.Time {
 	return time.Now()
 }
 
-func (s *driverState) ok() bool { return s.versionErr == "" && s.probeFail == "" && s.authFail == "" }
+func (s *driverState) ok() bool {
+	return !s.off && s.versionErr == "" && s.probeFail == "" && s.authFail == ""
+}
+
+// turnOff marks drivers off before the first check (node.yaml or the settings from the web turned them off).
+func (h *driverHealth) turnOff(names ...string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, n := range names {
+		if s := h.state[n]; s != nil {
+			s.off = true
+		}
+	}
+}
 
 func newDriverHealth(drivers []driver.Driver, p node.Probes) *driverHealth {
 	def := node.Defaults().Probes
@@ -144,12 +160,67 @@ func (h *driverHealth) probe(ctx context.Context, d driver.Driver, version bool)
 // activity since the previous check is evidence of health, and such a failure then never disables it.
 func (h *driverHealth) check(ctx context.Context, version bool) bool {
 	flipped := false
-	limit := max(h.probes.TransientFailures, 1)
 	for _, d := range h.drivers {
+		if h.off(string(d.Name())) {
+			continue // turned off by the settings from the web: no probe
+		}
+		if h.checkOne(ctx, d, version) {
+			flipped = true
+		}
+		if ctx.Err() != nil {
+			return flipped
+		}
+	}
+	return flipped
+}
+
+// off reports whether the named driver is turned off on this node (settings from the web, node.yaml enabled).
+func (h *driverHealth) off(name string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.state[name]
+	return s == nil || s.off
+}
+
+// setEnabled turns the named driver on or off (settings from the web, node-packaging-updates B): off it claims
+// nothing and leaves the heartbeat's drivers; on it runs its version check and probe at once, its own probe only.
+// It reports whether anything changed and calls changed then.
+func (h *driverHealth) setEnabled(ctx context.Context, name string, on bool) bool {
+	h.mu.Lock()
+	s := h.state[name]
+	if s == nil || s.off == !on {
+		h.mu.Unlock()
+		return false
+	}
+	s.off = !on
+	if on {
+		s.probeFail = "not checked yet" // no claim before its first check passes
+	}
+	h.mu.Unlock()
+	if on {
+		slog.Info("driver turned on by the settings from the web; checking it", "driver", name)
+		for _, d := range h.drivers {
+			if string(d.Name()) == name {
+				h.checkOne(ctx, d, true)
+			}
+		}
+	} else {
+		slog.Info("driver turned off by the settings from the web", "driver", name)
+	}
+	if h.changed != nil {
+		h.changed()
+	}
+	return true
+}
+
+// checkOne runs one driver's checks (check); true when the driver changed between usable and disabled.
+func (h *driverHealth) checkOne(ctx context.Context, d driver.Driver, version bool) bool {
+	limit := max(h.probes.TransientFailures, 1)
+	{
 		name := string(d.Name())
 		r := h.probe(ctx, d, version)
 		if ctx.Err() != nil {
-			return flipped // a cancelled check says nothing about the driver
+			return false // a cancelled check says nothing about the driver
 		}
 		h.mu.Lock()
 		s := h.state[name]
@@ -201,9 +272,8 @@ func (h *driverHealth) check(ctx context.Context, version bool) bool {
 		case !was && now:
 			slog.Info("driver re-enabled on this node", "driver", name, "version", vNow)
 		}
-		flipped = flipped || was != now
+		return was != now
 	}
-	return flipped
 }
 
 // activity records evidence that the named driver works: one of its runs produced a runtime event since
@@ -307,6 +377,9 @@ func (h *driverHealth) infos() []DriverInfo {
 	r := make([]DriverInfo, 0, len(h.drivers))
 	for _, d := range h.drivers {
 		s := h.state[string(d.Name())]
+		if s.off {
+			continue
+		}
 		i := DriverInfo{Name: string(d.Name()), Version: s.version, OK: s.ok(), TransientFailures: s.transients}
 		if s.authFail != "" && !s.authUntil.IsZero() {
 			i.Until = s.authUntil.Unix()

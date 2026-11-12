@@ -125,7 +125,7 @@ func holderInactive(ctx context.Context, q affinityQuerier, company, holder stri
 	var online bool
 	var lastSeen int64
 	var drivers, labels, health []byte
-	err := q.QueryRowContext(ctx, "SELECT online,last_seen,drivers,labels,health FROM nodes WHERE company_id=? AND id=?", company, holder).Scan(&online, &lastSeen, &drivers, &labels, &health)
+	err := q.QueryRowContext(ctx, "SELECT online,last_seen,drivers,"+nodeLabelsSQL+",health FROM nodes WHERE company_id=? AND id=?", company, holder).Scan(&online, &lastSeen, &drivers, &labels, &health)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "removed", 0, nil
 	}

@@ -116,7 +116,23 @@ export interface FactoryNode {
   node_id: string; name: string; labels?: string[]; slots?: number; conversation_slots?: number; drivers?: { name: string; ok: boolean; [k: string]: unknown }[];
   health: Record<string, unknown>; registered_at: number; last_seen: number; online: boolean; in_use: NodeUse; tied?: NodeTied;
   readiness?: ProjectReadiness[];
+  // node-packaging-updates: the package version, below Core's min_node_version no work; labels the node detected
+  // (macos/linux, arm64/amd64, xcode, ios-sim, headless, gpu) next to the owner's; the settings from the web.
+  version?: string; update_required?: boolean; min_version?: string; detected_labels?: string[] | null;
+  config?: NodeConfigView;
   [k: string]: unknown;
+}
+// protocol.NodeSettings: the settings from the web (an absent one keeps node.yaml's).
+export interface NodeSettings {
+  slots?: number; conversation_slots?: number; labels?: string[];
+  drivers?: Record<string, { enabled?: boolean }>;
+  disk?: { low_watermark_gib?: number; critical_watermark_gib?: number; conversation_floor_gib?: number };
+}
+export interface NodeSettingState { state: "applied" | "pending" | "refused"; reason?: string }
+// storage.NodeConfigView: desired settings and version, the node's report (local: node.yaml's values) and each state.
+export interface NodeConfigView {
+  version: number; desired: NodeSettings; updated_by?: string; updated_at?: number; states: Record<string, NodeSettingState>;
+  report?: { version: number; settings: Record<string, NodeSettingState>; local: NodeSettings; pinned?: string[]; slots_max?: number };
 }
 
 export interface CostGroup {

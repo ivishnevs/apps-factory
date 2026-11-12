@@ -120,6 +120,37 @@ func (c *Core) nodeRoutes(m *http.ServeMux) {
 	})
 	m.HandleFunc("POST /runs/{id}/claim", c.claim)
 	m.HandleFunc("GET /runs/{id}/skills/{hash}", c.runSkill)
+	// Settings from the web (node-packaging-updates B): the node's desired settings with each one's state there. The
+	// node reads the same route, signed, when its poll answer names a newer config_version.
+	m.HandleFunc("GET /nodes/{id}/config", func(w http.ResponseWriter, r *http.Request) {
+		v, err := c.Store.NodeConfig(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		reply(w, struct {
+			storage.NodeConfigView
+			Config protocol.NodeSettings `json:"config"`
+		}{v, v.Desired}, err)
+	})
+	// Owners and admins (requiredRole: /nodes): replace the node's settings from the web; base_version guards against
+	// a change made meanwhile. People only: an agent never changes a node.
+	m.HandleFunc("PUT /nodes/{id}/config", func(w http.ResponseWriter, r *http.Request) {
+		if _, agent := r.Context().Value(runKey{}).(protocol.RunSpec); agent {
+			http.Error(w, "people only", http.StatusForbidden)
+			return
+		}
+		var p struct {
+			Config      protocol.NodeSettings `json:"config"`
+			BaseVersion int64                 `json:"base_version,omitempty"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		company := c.companyFrom(r)
+		var person string
+		if pr := principalOf(r); pr.Kind == "session" {
+			person = c.personOf(r.Context(), company, pr.User).Name
+		}
+		v, err := c.Store.SetNodeConfig(r.Context(), company, r.PathValue("id"), p.Config, p.BaseVersion, author(r), person)
+		reply(w, v, err)
+	})
 	// Owner: removing a replaced machine.
 	m.HandleFunc("DELETE /nodes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, c.Store.RemoveNode(r.Context(), c.companyFrom(r), r.PathValue("id")))
@@ -139,6 +170,7 @@ func nodeRoute(r *http.Request) bool {
 	case post && len(parts) == 3 && parts[0] == "nodes" && (parts[2] == "heartbeat" || parts[2] == "keys" || parts[2] == "poll"):
 	case post && len(parts) == 3 && parts[0] == "runs" && slices.Contains([]string{"claim", "start", "workspace", "credential", "project-setup", "events"}, parts[2]):
 	case r.Method == http.MethodGet && len(parts) == 4 && parts[0] == "runs" && (parts[2] == "blobs" || parts[2] == "skills"):
+	case r.Method == http.MethodGet && len(parts) == 3 && parts[0] == "nodes" && parts[2] == "config": // settings from the web
 	case r.Method == http.MethodPut && len(parts) == 3 && parts[0] == "runs" && parts[2] == "logs":
 	case post && len(parts) == 3 && parts[0] == "skills" && parts[1] == "sync-jobs":
 	default:

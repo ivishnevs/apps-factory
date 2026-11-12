@@ -405,6 +405,10 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		c.feedListTool(w, r, args, run)
 		return
 	}
+	if p.Name == "factory_nodes" {
+		c.nodesTool(w, r)
+		return
+	}
 	if p.Name == "factory_agent_list" {
 		out := []map[string]any{}
 		agents := c.cat(c.companyFrom(r)).Agents

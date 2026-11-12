@@ -38,6 +38,17 @@ func (c *selfChecks) setStack(stack []protocol.NodeStackCheck) {
 	}
 }
 
+// setLabels replaces the labels the stack checks apply by (settings from the web) and re-runs the checks.
+func (c *selfChecks) setLabels(labels []string) {
+	c.mu.Lock()
+	c.doctor.Labels = labels
+	c.mu.Unlock()
+	select {
+	case c.kick <- struct{}{}:
+	default:
+	}
+}
+
 // failed is the last pass's failing checks.
 func (c *selfChecks) failed() []node.CheckResult {
 	c.mu.Lock()

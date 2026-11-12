@@ -85,7 +85,8 @@ waiting run's queued reason is `resource_busy` with the holder, e.g. `resource m
 1; held by task gate1 (dev)`. `{}` clears them.
 
 `labels` lists node labels one run needs, e.g. `labels: [macos, xcode]`; profiles' and agents' lists merge as a
-set. Core claims the run only on a node whose node.yaml `labels` include them all (otherwise retry, capacity);
+set. Core claims the run only on a node whose labels include them all: node.yaml's `labels` (or the Nodes page's) and
+the ones the node detects (`macos`/`linux`, `arm64`/`amd64`, `xcode`, `ios-sim`, `headless`, `gpu`) (otherwise retry, capacity);
 `factory tasks why` says `no_capable_node` while no online node has the driver, labels and resources.
 
 ### External MCP servers

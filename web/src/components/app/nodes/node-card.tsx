@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
 import { nodeHealth, nodeId, type NodeDriver, type NodeFull, type NodeHealth } from "@/lib/api/types-ops";
 import { ago, displayId } from "@/lib/format";
+import { NodeSettingsPanel } from "@/components/app/nodes/node-settings";
 import { cn } from "@/lib/utils";
 
 export const gib = (b?: number) => `${((b ?? 0) / 2 ** 30).toFixed(1)} GiB`;
@@ -23,6 +24,7 @@ const diskFull = (h: NodeHealth) => h.disk === "critical" && (h.disk_conversatio
 export function nodeCare(n: FactoryNode) {
   const h = nodeHealth(n);
   if (!n.online) return "offline";
+  if (n.update_required) return "update required";
   if (h.disk === "critical") return "disk critical";
   const bad = ((n as NodeFull).drivers ?? []).find((d) => !d.ok);
   if (bad) return `${bad.name} disabled`;
@@ -143,8 +145,21 @@ function Tied({ node, inactive }: { node: FactoryNode; inactive?: boolean }) {
   );
 }
 
-export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
+// behind (node-packaging-updates C): the node's version is older than the release this Core hands out. Versions are
+// dotted numbers (2026.11.12.1530+commit); anything else ("dev") is not compared.
+function behind(version?: string, release?: string) {
+  const parts = (v?: string) => (v && /^v?\d+(\.\d+)*([+-].*)?$/.test(v) ? v.replace(/^v/, "").split(/[+-]/)[0].split(".").map(Number) : null);
+  const a = parts(version), b = parts(release);
+  if (!a || !b) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+  }
+  return false;
+}
+
+export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manage = false, release }: {
   node: FactoryNode; pause?: PauseT; onPause: () => void; onResume: () => void; onRevoke?: () => void; busy?: boolean;
+  manage?: boolean; release?: string;
 }) {
   const n = node as NodeFull;
   const h = nodeHealth(node);
@@ -171,7 +186,8 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <h3 className="truncate font-semibold">{n.name || id}</h3>
-            
+            <span className="font-mono text-[11px] text-muted-foreground" title="Node version">{n.version || "version unknown"}</span>
+            {!n.update_required && behind(n.version, release) && <span className="text-[11px] text-amber-700 dark:text-amber-300">{release} available</span>}
           </div>
           <p className={cn("mt-0.5 text-xs", state === "offline" ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
             {state === "offline" ? `Silent since ${ago(n.last_seen)}` : `${state === "paused" ? (pause || diskFull(h) ? "Paused" : "Work paused") : "Online"} · checked in ${ago(n.last_seen)}`}
@@ -179,7 +195,7 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
         </div>
         {care && (
           <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-            care === "offline" || care.includes("critical") || care.includes("disabled") ? "bg-red-500/15 text-red-700 dark:text-red-300" : "bg-amber-500/15 text-amber-700 dark:text-amber-300")}>
+            care === "offline" || care.includes("critical") || care.includes("disabled") || care.includes("update") ? "bg-red-500/15 text-red-700 dark:text-red-300" : "bg-amber-500/15 text-amber-700 dark:text-amber-300")}>
             {care}
           </span>
         )}
@@ -210,7 +226,7 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
           ) : null}
           <p className="mt-1 text-[11px] text-muted-foreground">
             {convSlots > 0 ? "Conversations answer here even when the work slots are full. " : "No conversation slots: conversations share the work slots. "}
-            Set slots and conversation_slots in the machine&apos;s node.yaml and restart factory-node.
+            Change them under Settings below; the node applies them without a restart.
           </p>
           {resources.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -263,15 +279,25 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy }: {
 
         <NodeSecurity sec={(n.health as { security?: SecurityInfo } | undefined)?.security} />
 
-        {(n.labels ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1.5">{(n.labels ?? []).map((l) => <span key={l} className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{l}</span>)}</div>
+        {/* Labels select which agents' runs the node takes: the owner's (filled) and the ones the node detected (outlined). */}
+        {((n.labels ?? []).length > 0 || (n.detected_labels ?? []).length > 0) && (
+          <div className="flex flex-wrap gap-1.5">
+            {(n.labels ?? []).map((l) => <span key={l} className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground" title="Set by the owner">{l}</span>)}
+            {(n.detected_labels ?? []).filter((l) => !(n.labels ?? []).includes(l)).map((l) => (
+              <span key={`d-${l}`} className="rounded-md border border-dashed px-2 py-0.5 text-xs text-muted-foreground" title="Detected by the node">{l}</span>
+            ))}
+          </div>
         )}
+
+        <NodeSettingsPanel key={`${id}-${n.config?.version ?? 0}`} nodeId={id} config={n.config} manage={manage} />
       </div>
 
       <footer className="mt-auto flex items-center gap-3 border-t px-4 py-3 md:px-5">
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {pause ? <>Paused by {pause.actor}{pause.reason ? `: ${pause.reason}` : ""}</>
-            : !n.online ? "Offline: takes no work" : h.disk === "critical"
+            : !n.online ? "Offline: takes no work"
+            : n.update_required ? `Takes no work: Core needs version ${n.min_version} or newer; reinstall with the install command`
+            : h.disk === "critical"
               ? (diskFull(h) ? "Takes nothing: the disk is full; free disk on this machine"
                 : `Answers conversations only; free disk, work resumes by itself above ${gib(h.disk_critical_bytes)}`)
               : "Takes new work"}

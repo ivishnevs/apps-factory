@@ -45,6 +45,8 @@ type PollRequest struct {
 	// Hooks and HooksHash: the NodeHooks document the node uses and the hash it applied (as in the heartbeat).
 	Hooks     string `json:"hooks,omitempty"`
 	HooksHash string `json:"hooks_hash,omitempty"`
+	// ConfigVersion is the version of the settings from the web the node applied (node-packaging-updates B).
+	ConfigVersion int64 `json:"config_version,omitempty"`
 }
 
 // PollAnswer is the poll's answer; every list is present, empty when there is nothing.
@@ -53,9 +55,15 @@ type PollAnswer struct {
 	storage.PollWork
 	// HooksChanged: the catalog's NodeHooks document differs from the node's; the node's next heartbeat gets it.
 	HooksChanged bool `json:"hooks_changed,omitempty"`
+	// ConfigVersion is the version of the node's settings from the web (0: none); a node that applied another one
+	// fetches GET /nodes/{id}/config. A change answers a waiting poll at once.
+	ConfigVersion int64 `json:"config_version,omitempty"`
+	configChanged bool
 }
 
-func (a PollAnswer) empty() bool { return len(a.Offers) == 0 && a.PollWork.Empty() && !a.HooksChanged }
+func (a PollAnswer) empty() bool {
+	return len(a.Offers) == 0 && a.PollWork.Empty() && !a.HooksChanged && !a.configChanged
+}
 
 // notifier wakes waiting polls: a commit that queued a run or changed what a node must do signals its company (D6).
 type notifier struct {
@@ -179,6 +187,7 @@ func (c *Core) poll(w http.ResponseWriter, r *http.Request) {
 			nodeReply(w, nil, err)
 			return
 		}
+		empty.ConfigVersion = a.ConfigVersion // every answer names the settings' version
 		if len(a.Offers) > 0 || !a.empty() && !c.pollers.seen(node, key) {
 			c.pollers.deliver(node, key)
 			write(w, a)
@@ -217,11 +226,16 @@ func (c *Core) pollAnswer(ctx context.Context, company, node string, p PollReque
 	a = PollAnswer{Offers: offers, PollWork: work}
 	hooks := config.DeliverNodeHooks(c.cat(company).NodeHooks, p.Hooks)
 	a.HooksChanged = hooks.Hash != p.HooksHash
+	if a.ConfigVersion, err = c.Store.NodeConfigVersion(ctx, company, node); err != nil {
+		return a, "", err
+	}
+	a.configChanged = a.ConfigVersion > 0 && a.ConfigVersion != p.ConfigVersion
 	key, _ := json.Marshal(struct {
-		Epoch int64
-		Work  string
-		Hooks string
-	}{p.Epoch, work.Key(), map[bool]string{true: hooks.Hash}[a.HooksChanged]})
+		Epoch  int64
+		Work   string
+		Hooks  string
+		Config int64
+	}{p.Epoch, work.Key(), map[bool]string{true: hooks.Hash}[a.HooksChanged], map[bool]int64{true: a.ConfigVersion}[a.configChanged]})
 	return a, string(key), nil
 }
 

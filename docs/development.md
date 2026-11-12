@@ -286,6 +286,7 @@ name: mini-1                 # default: host name; a label only (Core identifies
 slots: 2                     # 1..64
 conversation_slots: 1        # 0..64, on top of slots: conversation runs only (work-and-conversation-runs)
 resources: {simulator: 2, build: 2}  # capacity per class, counts >= 0; sent in register, Core enforces at claim
+slots_max: 4                 # caps the slots the settings from the web may set (node-install.md); remote: off|{key: false} pins
 labels: [macos, xcode]       # sent in register; Core claims an agent's run only where all its spec.labels are
 runtime_env: [XCODE_*, MY_TOOL_HOME]  # extra variables agent runtimes inherit (allowlist; credentials never pass)
 state_dir: data/factory-node # keys, company, pidfiles, node_id, epoch; never shared by live nodes

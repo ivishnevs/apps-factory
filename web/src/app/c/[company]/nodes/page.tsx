@@ -17,7 +17,7 @@ import { canManage } from "@/lib/api/types-account";
 import type { Pause as PauseT } from "@/lib/api/types";
 import { companyPause, nodeId, scopeName } from "@/lib/api/types-ops";
 import { ago } from "@/lib/format";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 // Nodes & control: the kill switch, the active pauses with resume, pausing a project, agent, node or quota
 // key (hold/release), and each registered node with its slots, drivers and disk (internal/tui/nodes.go).
@@ -48,6 +48,8 @@ export default function Page() {
   const kinds = Object.values(agentRuns ?? {}).reduce((s, a) => ({ work_live: s.work_live + a.work_live, work_queued: s.work_queued + a.work_queued, conversation_live: s.conversation_live + a.conversation_live, conversation_queued: s.conversation_queued + a.conversation_queued }), { work_live: 0, work_queued: 0, conversation_live: 0, conversation_queued: 0 });
   const { run, pending } = useOwnerAction();
   const manage = canManage(useCompanyInfo().data?.role);
+  // node-packaging-updates C: the release this Core hands out, to show which nodes are behind.
+  const install = useQuery({ queryKey: ["node-install"], queryFn: () => core<{ release?: string }>("/node-install"), staleTime: 60_000 }).data;
   const confirm = useConfirm();
   const qc = useQueryClient();
   // Revoking (node-identity 4.1): the node's keys stop working at once and its live runs end.
@@ -147,7 +149,7 @@ export default function Page() {
                   const id = nodeId(n);
                   const pause = pauses.find((p) => p.scope === "node" && p.target === id);
                   return (
-                    <NodeCard key={id} node={n} pause={pause} busy={pending}
+                    <NodeCard key={id} node={n} pause={pause} busy={pending} manage={manage} release={install?.release}
                       onPause={() => setDialog({ open: true, initial: { scope: "node", target: id } })}
                       onResume={() => pause && release(pause)}
                       onRevoke={manage ? () => revoke(id, n.name || id) : undefined} />

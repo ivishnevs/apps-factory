@@ -36,6 +36,7 @@ const (
 	QueuedDriverDisabled   = "driver_disabled" // the run's driver failed its checks on the node
 	QueuedNodeOffline      = "node_offline"    // the node does not beat
 	QueuedLabels           = "labels"          // the node lacks the agent's labels
+	QueuedNodeUpdate       = "update_required" // the node is below Core's min_node_version (node-packaging-updates)
 	QueuedNotReady         = "not_ready"       // the node has a readiness fault for the run's project (node-readiness)
 	// QueuedNoReadyNode: every node that could take the run is not ready for its project (node-readiness); the
 	// detail names the nodes and their fixes.
@@ -255,7 +256,7 @@ func queuedWhy(ctx context.Context, tx *Tx, id string) (*QueuedReason, error) {
 // queuedNodes judges every registered node for the run in ClaimV2's order: online, owner pause, disk,
 // driver, labels, project readiness (node-readiness), slots, resource classes.
 func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Time) ([]QueuedNode, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,conversation_slots,drivers,labels,resources,health FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
+	rows, err := tx.QueryContext(ctx, "SELECT id,name,epoch,online,last_seen,slots,conversation_slots,drivers,"+nodeLabelsSQL+",resources,health,version FROM nodes WHERE company_id=? ORDER BY name,id", tx.company)
 	if err != nil {
 		return nil, err
 	}
@@ -265,11 +266,12 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 		online                           bool
 		slots, convSlots                 int
 		drivers, labels, resources, hlth []byte
+		version                          string
 	}
 	var all []row
 	for rows.Next() {
 		var r row
-		if err = rows.Scan(&r.q.Node, &r.q.Name, &r.epoch, &r.online, &r.lastSeen, &r.slots, &r.convSlots, &r.drivers, &r.labels, &r.resources, &r.hlth); err != nil {
+		if err = rows.Scan(&r.q.Node, &r.q.Name, &r.epoch, &r.online, &r.lastSeen, &r.slots, &r.convSlots, &r.drivers, &r.labels, &r.resources, &r.hlth, &r.version); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -310,6 +312,8 @@ func queuedNodes(ctx context.Context, tx *Tx, spec protocol.RunSpec, now time.Ti
 				d += ": " + pauseReason
 			}
 			set(QueuedNodePaused, d, 0)
+		case tx.store.updateRequired(r.version) != "":
+			set(QueuedNodeUpdate, tx.store.updateRequired(r.version), 0)
 		case overPlan != "":
 			set(QueuedPlanLimit, overPlan, 0)
 		case diskPaused(r.hlth, spec.Conversation):

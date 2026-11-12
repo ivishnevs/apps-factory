@@ -7,7 +7,8 @@ RUN mkdir -p /data /blobs && chmod 700 /data /blobs
 RUN CGO_ENABLED=0 go build -trimpath -o /factory ./cmd/factory
 # The node packages this Core hands out (node-install D1): built with Node.js for the Claude shim.
 FROM golang:1.26.0-bookworm AS nodepkg
-ARG NODE_VERSION=dev
+# Empty: scripts/package-node.sh versions the packages by build time (node-packaging-updates C).
+ARG NODE_VERSION=
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx

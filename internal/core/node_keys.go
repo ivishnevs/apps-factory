@@ -113,7 +113,10 @@ func (c *Core) nodeKeyRoutes(m *http.ServeMux) {
 	})
 	m.HandleFunc("GET /node-install", func(w http.ResponseWriter, r *http.Request) {
 		base := c.nodeURL(r)
-		reply(w, map[string]any{"core_url": base, "command": "curl -fsSL " + base + "/install.sh | sh", "available": c.nodePackages()}, nil)
+		// release: the version of the packages this Core hands out; min_node_version: below it a node gets no work
+		// (node-packaging-updates C).
+		reply(w, map[string]any{"core_url": base, "command": "curl -fsSL " + base + "/install.sh | sh", "available": c.nodePackages(),
+			"release": c.nodeRelease(), "min_node_version": c.Store.MinNodeVersion}, nil)
 	})
 	// node-runtime-accounts 3.3: continue with a node runtime's changed account (people only; admin role).
 	m.HandleFunc("POST /nodes/{id}/accounts/{runtime}/accept", func(w http.ResponseWriter, r *http.Request) {

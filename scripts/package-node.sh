@@ -7,7 +7,9 @@
 set -eu
 OUT="${1:?usage: scripts/package-node.sh OUT_DIR [VERSION]}"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-VERSION="${2:-$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo dev)}"
+# VERSION orders releases (node-packaging-updates C: Core's min_node_version compares them): the build time in UTC,
+# YYYY.MM.DD.HHMM, and the commit when known (2026.11.12.1530+6cfd893). The node binary carries it too.
+VERSION="${2:-$(date -u +%Y.%m.%d.%H%M)$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null | sed 's/^/+/')}"
 PLATFORMS="${NODE_PLATFORMS:-darwin/arm64 darwin/amd64 linux/arm64 linux/amd64}"
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
@@ -46,7 +48,7 @@ for p in $PLATFORMS; do
   stage="$WORK/stage-$os-$arch"
   mkdir -p "$stage/bin" "$stage/claude-code"
   for cmd in factory-node factory-shim factory-mcp; do
-    (cd "$ROOT" && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$stage/bin/$cmd" "./cmd/$cmd")
+    (cd "$ROOT" && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X appfactory/internal/node.Version=$VERSION" -o "$stage/bin/$cmd" "./cmd/$cmd")
   done
   cp "$WORK/sea/$os-$arch/factory-claude" "$stage/bin/factory-claude"
   claude_lock "$os" "$arch" > "$stage/claude-code/claude.lock"
