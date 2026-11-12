@@ -20,3 +20,16 @@ budget SHALL make new cloud work wait with a reason, never lose it.
 #### Scenario: Own machine only
 - **WHEN** a team works on "your machines only" and the company has no credits
 - **THEN** its work runs on its connectors exactly as before and no credit limit is shown for it
+
+### Requirement: Virtual nodes are isolated from Core
+All management and configuration of virtual nodes SHALL live in the virtual nodes manager, which SHALL talk to Core
+only through Core's public API; Core SHALL treat a virtual node as an ordinary node and SHALL contain no notion of a
+virtual node, a provider, credits or cloud budgets.
+
+#### Scenario: Manager not deployed
+- **WHEN** App Factory runs without the virtual nodes manager
+- **THEN** Core, nodes and the web work as before, and existing virtual nodes appear as nodes that are offline
+
+#### Scenario: Virtual node claims a run
+- **WHEN** a virtual node is awake and a run is claimable for it
+- **THEN** it enrolls, claims and reports through the same node API, keys and signatures as any node

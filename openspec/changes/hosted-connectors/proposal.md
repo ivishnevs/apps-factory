@@ -1,7 +1,8 @@
 Status: naming decided 2026-11-06 (virtual nodes; connectors renamed nodes); remaining decisions and a technical
 spike on Fly.io Sprites still needed. 2026-11-12: the owner will provide a Fly.io account for the spike (0.2).
 Updated 2026-11-05: own connectors and cloud work kept apart (budgets, Costs), naming options, credit pricing.
-Nothing is implemented. Raised by the owner on 2026-11-05.
+2026-11-12: architecture decided (`design.md`): an isolated virtual nodes manager, Core untouched (a virtual node
+is an ordinary node). Nothing is implemented. Raised by the owner on 2026-11-05.
 
 ## Why
 
@@ -99,11 +100,13 @@ by credits. So:
 
 ## Impact
 
-New `internal/cloud` (Fly Sprites client: create, resume, suspend, destroy; node bootstrap with pre-approved keys),
-`internal/storage` (cloud connectors, credit balance and entries, cloud budgets), the dispatcher (credits and cloud budgets
-as wait reasons, resume a suspended Sprite for claimable work), the cost ledger (compute seconds, priced amount),
-web (Connectors: "Run in App Factory cloud", Costs → Your machines / Cloud, credit packs, cloud budgets and "where a team works" on team pages, setup
-wizard choice), `saas-billing` (packs through the same provider, credits included in plans), docs.
+All virtual node code lives in the virtual nodes manager (`internal/vnodes`, `cmd/factory-vnodes`, its own storage and
+API: provider client, lifecycle, credits, cloud budgets, "where a team works"); for Core a virtual node is an ordinary
+node (`design.md` D1, owner 2026-11-12). Core gains only general node capabilities that serve every node: a service
+account for node administration, a queue read, node pause with a reason, node labels, team placement on nodes if
+missing (`design.md` D4). Web: Nodes → "Run in App Factory cloud", Costs → Cloud, credit packs, cloud budgets and
+"where a team works" through the manager's API; setup wizard choice. `saas-billing` (packs through the same provider,
+credits included in plans), docs.
 
 ## Decisions (2026-11-06)
 
