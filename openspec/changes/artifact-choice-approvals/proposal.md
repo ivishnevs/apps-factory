@@ -1,4 +1,4 @@
-Status: proposed 2026-11-12 by the owner ("can we extend approvals beyond yes/no?"). Not implemented.
+Status: proposed 2026-11-12 by the owner ("can we extend approvals beyond yes/no?"), approved by the owner the same day with two additions: a delegate may drop weak options and escalate the rest, and a delegate choice may cite people-written company or project rules.
 
 ## Why
 
@@ -32,8 +32,14 @@ What went wrong is the shape of the approval, not the agents:
   (required text: what to change, optionally on which options), or **rejects all** (required reason). Choosing
   records the chosen version as approved and the others as not chosen (not rejected: they stay usable later).
 - **The same delegation rules.** `internal_artifacts` / `external_artifacts` modes apply to choice approvals as they
-  do to single ones. A delegate may choose only when the owner's earlier answers or recorded decisions cover the
-  choice, and SHALL cite them; otherwise it escalates to people. A delegate cannot approve a choice without choosing.
+  do to single ones. A delegate may choose only when what people said covers the choice — their earlier answers,
+  recorded decisions, or the company's or project's rules written by people — and SHALL cite it; Core checks that
+  each cite names one of those. Otherwise it escalates to people. A delegate cannot approve a choice without
+  choosing. Asking for changes or rejecting all needs no cite: that is the delegate's own judgement (its role and the
+  rules), with a required reason.
+- **A delegate may filter before escalating.** It may drop options it judges not good enough, each with a reason,
+  and escalate the rest (at least one). People see the dropped options collapsed with the delegate's reasons and can
+  still choose one of them. Dropping every option is "reject all".
 - **What the requester gets.** The `approval_decided` input on the requesting task names the decision, the chosen
   option (`id@version` and label) or the requested changes, and who decided (owner or the delegate, per
   `attribution-and-artifact-links`).
@@ -44,7 +50,7 @@ What went wrong is the shape of the approval, not the agents:
 - **Tools.** `factory_artifact_request_approval` accepts `options: [{artifact_id, artifact_version, label, note?}]`
   and `recommended` (an option index or artifact id). Core validates every option against the project's registered
   versions and refuses unknown or duplicate ones. `factory_approval_decide` (delegates) accepts `choice`,
-  `changes` or `reject`.
+  `changes` or `reject`, and `escalate` with optional `drop: [{option, reason}]`.
 - **Tasks that require an approved version** keep working: the chosen version is an approved version; the not-chosen
   ones are not.
 

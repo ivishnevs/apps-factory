@@ -28,10 +28,26 @@ decision, the chosen option or the requested changes, and who decided.
 - **THEN** no option SHALL be approved and the requester SHALL receive the requested changes
 
 ### Requirement: Delegates choose or escalate
-Under a delegated mode a delegate SHALL decide a choice approval only by choosing, asking for changes or rejecting.
-A delegate choice SHALL cite the owner's earlier answers or recorded decisions that cover it; a choice not covered
-SHALL be escalated to people. A delegate SHALL NOT approve a choice approval without choosing. In the people-only
-mode Core SHALL refuse every agent decision.
+Under a delegated mode a delegate SHALL decide a choice approval only by choosing, asking for changes, rejecting all
+or escalating, and SHALL NOT approve it without choosing. Asking for changes or rejecting all SHALL need a reason and
+no cite. In the people-only mode Core SHALL refuse every agent decision.
+
+#### Scenario: Weak work sent back early
+- **WHEN** a delegate rejects all options with the reason "none follows the brief"
+- **THEN** the requester SHALL receive the rejection from the delegate
+
+### Requirement: A delegate choice cites what people said
+A delegate choice SHALL cite what people said that covers it: their earlier answers, recorded decisions, or company
+or project rules written by people. Core SHALL refuse a cite that names none of these. A choice not covered SHALL be
+escalated to people.
+
+#### Scenario: Choice covered by project rules
+- **WHEN** the project rules written by the owner say "dark theme only" and only V3 of three options is dark
+- **THEN** the delegate MAY choose V3 citing those rules, and the requester SHALL receive that the delegate chose it
+
+#### Scenario: Weak work sent back
+- **WHEN** the delegate judges every option not good enough
+- **THEN** it MAY reject all or ask for changes with a reason, and no person SHALL be asked
 
 #### Scenario: Lead without a basis
 - **WHEN** the CEO is the delegate and no owner answer covers which variation to take
@@ -40,6 +56,15 @@ mode Core SHALL refuse every agent decision.
 #### Scenario: Approve as material
 - **WHEN** a delegate tries to approve a choice approval without choosing an option
 - **THEN** Core SHALL refuse and hint to choose with cites or escalate
+
+### Requirement: Delegates filter before escalating
+A delegate escalating a choice approval MAY drop options, each with a reason, and SHALL keep at least one. People SHALL
+see the kept options first and the dropped ones collapsed with the delegate's reasons, and SHALL be able to choose any
+option, dropped ones included.
+
+#### Scenario: Two of five dropped
+- **WHEN** the delegate drops two of five options as off-brief and escalates
+- **THEN** people SHALL see three options, and the two dropped ones collapsed with their reasons and still choosable
 
 ## MODIFIED Requirements
 

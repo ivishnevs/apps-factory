@@ -8,13 +8,14 @@
 
 ## 2. Delegation
 
-- [ ] 2.1 `factory_approval_decide` accepts `choice`/`changes`/`reject` for choice approvals; a delegate choice requires cites of the owner's answers or decisions
-- [ ] 2.2 A delegate cannot approve a choice approval without choosing; it escalates to people instead
-- [ ] 2.3 People-only mode refuses every agent decision on a choice approval
+- [ ] 2.1 `factory_approval_decide` accepts `choice`/`changes`/`reject`/`escalate` for choice approvals; a delegate choice requires cites, and Core checks each cite names a people's answer, a recorded decision, or a people-written company or project rule
+- [ ] 2.2 A delegate cannot approve a choice approval without choosing; changes and reject need a reason, no cite
+- [ ] 2.3 `escalate` accepts `drop: [{option, reason}]` keeping at least one option; dropped options are stored with the reason and stay choosable by people
+- [ ] 2.4 People-only mode refuses every agent decision on a choice approval
 
 ## 3. Owner surfaces
 
-- [ ] 3.1 TUI inbox: options as a list with label, note and recommendation; `v` previews the focused option; enter chooses; `c` asks for changes; `n` rejects all
+- [ ] 3.1 TUI inbox: options as a list with label, note and recommendation, dropped options collapsed with the delegate's reasons; `v` previews the focused option; enter chooses; `c` asks for changes; `n` rejects all
 - [ ] 3.2 Web inbox, task page and lead chat card: options with previews (images inline, prototypes open in a new tab), choose / ask for changes / reject
 - [ ] 3.3 Telegram: one button per option plus "Changes…" and "Reject"
 - [ ] 3.4 Library: a choice approval links each option's card and shows which one was chosen
