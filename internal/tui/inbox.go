@@ -16,6 +16,9 @@ import (
 type inboxState struct {
 	cursor int
 	option int
+	// shown counts the v presses on a message that carries several artifacts: each previews the next (artifact-links).
+	shownMsg string
+	shown    int
 }
 
 func (s *inboxState) clamp(m *Model) {
@@ -182,7 +185,22 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 		if isApproval && ap.Artifact != nil {
 			return m.previewArtifact(ap)
 		}
-		m.setToast("v previews an artifact approval", true)
+		// artifact-links: the artifacts a message carries, one per press.
+		var arts []messaging.MaterialRef
+		for _, r := range msg.Materials {
+			if r.ArtifactID != "" {
+				arts = append(arts, r)
+			}
+		}
+		if len(arts) > 0 {
+			if s.shownMsg != msg.ID {
+				s.shownMsg, s.shown = msg.ID, 0
+			}
+			r := arts[s.shown%len(arts)]
+			s.shown++
+			return m.previewMaterial(msg, r)
+		}
+		m.setToast("v previews an artifact: this item carries none", true)
 	}
 	return nil
 }
@@ -397,12 +415,22 @@ func visualLines(msg messaging.Message, w int) []string {
 	for _, a := range msg.Attachments {
 		add(a.Caption, a.Path, a.SHA256, "", a.Size)
 	}
+	arts := 0
 	for _, r := range msg.Materials {
 		name := r.Name
 		if r.ArtifactID != "" {
 			name = r.ArtifactID + " " + r.ArtifactVersion + " (" + r.Name + ")"
+			arts++
 		}
 		add(r.Caption, name, r.SHA256, r.URI, r.Size)
+	}
+	if arts > 0 && msg.ApprovalID == "" {
+		// artifact-links: the artifacts open here as an approval's does.
+		hint := "v previews the artifact"
+		if arts > 1 {
+			hint = "v previews the artifacts, one per press"
+		}
+		lines = append(lines, stFaint.Render(hint))
 	}
 	return lines
 }

@@ -284,8 +284,9 @@ func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 // artifactApproved fires the authority trigger artifact_approved on open tasks of the project that require
 // the version or are pinned to the artifact (they require, and their runs pin, another version of it: a new
 // approved version is input for them, explicit-exits-authority D6). urgent stops their live runs like an
-// urgent directive. The requesting task (requester) is woken by approvalDecided instead.
-func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID, requester string, urgent bool) error {
+// urgent directive. The requesting task (requester) is woken by approvalDecided instead. decider is who approved
+// the version (approvalDecider): the owner, or the agent the approval was delegated to (approval-attribution).
+func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artifact, approvalID, requester, decider string, urgent bool) error {
 	open, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND project_id=? AND status NOT IN ('DONE','CANCELLED') ORDER BY status,priority DESC,created_at,id", tx.company, project)
 	if err != nil {
 		return err
@@ -307,7 +308,7 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 		if text == "" {
 			continue
 		}
-		if err = addTrigger(ctx, tx, &t, "artifact_approved", true, "owner", approvalID, text); err != nil {
+		if err = addTrigger(ctx, tx, &t, "artifact_approved", true, decider, approvalID, text); err != nil {
 			return err
 		}
 		if urgent {
@@ -320,9 +321,12 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 }
 
 // approvalDecided fires the authority trigger approval_decided on the open task that requested the approval
-// (approval.task_id) when the owner approves or rejects it: the decision is the owner's input on that task, so
-// it overrides its wait and ask parks like a directive (explicit-exits-authority D7) and the next brief shows
-// it with the reason. An urgent artifact approval stops the task's live run as in artifactApproved.
+// (approval.task_id) when it is approved or rejected: the decision is input on that task, so it overrides its
+// wait and ask parks like a directive (explicit-exits-authority D7) and the next brief shows it with the reason.
+// The trigger is the decider's (approval-attribution): the owner's decision is the owner's input (rank 0); the
+// decision of the agent the approval was delegated to (approval-delegation) is that agent's, under its own name
+// and rank, and its text names the delegation. An urgent artifact approval stops the task's live run as in
+// artifactApproved.
 func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent bool) error {
 	if a.TaskID == "" {
 		return nil
@@ -334,14 +338,33 @@ func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent b
 	if err != nil {
 		return err
 	}
-	text := approvalWhat(a) + " " + strings.ToLower(a.Status) + " by the owner: " + a.DecisionReason
-	if err = addTrigger(ctx, tx, &t, "approval_decided", true, "owner", a.ID, text); err != nil {
+	text := approvalWhat(a) + " " + strings.ToLower(a.Status) + " " + approvalDecidedBy(a) + ": " + a.DecisionReason
+	if err = addTrigger(ctx, tx, &t, "approval_decided", true, approvalDecider(a), a.ID, text); err != nil {
 		return err
 	}
 	if urgent && a.Kind == "artifact" && a.Status == "APPROVED" {
 		return stopUrgently(ctx, tx, t, "artifact_approved")
 	}
 	return nil
+}
+
+// approvalDecider is who decided an approval: the agent it was delegated to (DecidedBy), else the owner.
+func approvalDecider(a approvals.Approval) string {
+	if a.DecidedBy != "" {
+		return a.DecidedBy
+	}
+	return "owner"
+}
+
+// approvalDecidedBy names the decider in words: "by the owner", or "by <agent> (delegated: <setting>)".
+func approvalDecidedBy(a approvals.Approval) string {
+	if a.DecidedBy == "" {
+		return "by the owner"
+	}
+	if a.Setting == "" {
+		return "by " + a.DecidedBy + " (delegated)"
+	}
+	return "by " + a.DecidedBy + " (delegated: " + a.Setting + ")"
 }
 
 // CommentTask adds a comment. Only a comment by an authority (the owner, or an agent with authority over the

@@ -40,6 +40,8 @@ function Library() {
   const params = useSearchParams();
   const project = params.get("project") ?? ALL;
   const type = params.get("type") ?? ALL;
+  // artifact (artifact-links): a message's link to one artifact's card; the card opens in the viewer.
+  const artifact = params.get("artifact") ?? "";
   const [q, setQ] = useState(params.get("q") ?? "");
   const [needle, setNeedle] = useState(q.trim());
   useEffect(() => { const t = setTimeout(() => setNeedle(q.trim()), 300); return () => clearTimeout(t); }, [q]);
@@ -52,9 +54,15 @@ function Library() {
   };
 
   const kind = kindGroups.find((g) => g.key === type)?.kinds.join(",");
-  const lib = useLibrary({ project: project === ALL ? undefined : project, kind, q: needle || undefined });
+  const lib = useLibrary({ project: project === ALL ? undefined : project, kind, q: needle || undefined, artifact: artifact || undefined });
   const items = useMemo(() => (hydrated ? lib.data?.pages.flatMap((p) => p.items) : undefined) ?? [], [hydrated, lib.data]);
   const viewer = useViewer(items);
+  // A link to one artifact opens its card once it is loaded (back closes it, the card stays listed).
+  const card = artifact && items.length === 1 && !params.get("file") ? items[0] : undefined;
+  const [opened, setOpened] = useState("");
+  useEffect(() => {
+    if (card && opened !== card.id) { setOpened(card.id); viewer.open(card); }
+  }, [card, opened, viewer]);
   const days = useMemo(() => {
     const out: { label: string; items: Material[] }[] = [];
     for (const m of items) {
@@ -63,7 +71,7 @@ function Library() {
     }
     return out;
   }, [items]);
-  const filtered = project !== ALL || type !== ALL || !!needle;
+  const filtered = project !== ALL || type !== ALL || !!needle || !!artifact;
   const loading = !hydrated || lib.isLoading;
 
   return (
@@ -95,6 +103,13 @@ function Library() {
         <Chips label="Type" value={type} onChange={(v) => set("type", v, ALL)}
           options={[{ value: ALL, label: "All" }, ...kindGroups.map((g) => ({ value: g.key, label: g.label }))]} />
       </div>
+      {artifact && (
+        <div className="-mt-2 mb-5">
+          <Button variant="secondary" size="sm" className="h-10 max-w-full md:h-9" aria-label={`Show everything, not only ${artifact}`} onClick={() => set("artifact", "", "")}>
+            <span className="min-w-0 truncate">Artifact {artifact}</span><X />
+          </Button>
+        </div>
+      )}
 
       {lib.error ? <ErrorState error={lib.error} />
         : loading ? <LoadingRows rows={5} />

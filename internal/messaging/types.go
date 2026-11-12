@@ -169,4 +169,7 @@ type Reply struct {
 	Body      string         `json:"body"`
 	Answers   map[string]any `json:"answers,omitempty"`
 	RequestID string         `json:"request_id"`
+	// Delegate: Core answers an approval's question for the agent the approval was delegated to, which decided
+	// it (approval-attribution); Sender is that agent. Never set from a request.
+	Delegate bool `json:"-"`
 }

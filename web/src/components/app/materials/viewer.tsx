@@ -21,6 +21,10 @@ const withParam = (url: string, k: string, v: string) => `${url}${url.includes("
 // Text larger than this is not rendered inline; it can still be downloaded.
 const maxInline = 8_000_000;
 
+// libraryHref is an artifact's Library card (artifact-links); undefined for anything else.
+export const libraryHref = (m: { artifact_id?: string; project_id: string }) =>
+  m.artifact_id ? `/library?${new URLSearchParams({ project: m.project_id, artifact: m.artifact_id })}` : undefined;
+
 type Body = { as: "markdown" | "text" | "code" | "json" | "table" | "none"; text: string };
 
 function asOf(m: Material, type: string): Body["as"] {
@@ -37,17 +41,18 @@ function asOf(m: Material, type: string): Body["as"] {
 // MaterialViewer is a material full screen on a phone and a wide side sheet on a desktop: the file rendered
 // (markdown as a document, images inline, JSON pretty, CSV as a table, HTML and PDF in a sandboxed frame,
 // other text as code) under its name, who made it, the report it came with and a download button.
-export function MaterialViewer({ material, onClose, now, showTask = true }: { material: Material | null; onClose: () => void; now: number; showTask?: boolean }) {
+// libraryLink (artifact-links): an artifact opened from a message links to its Library card.
+export function MaterialViewer({ material, onClose, now, showTask = true, libraryLink = false }: { material: Material | null; onClose: () => void; now: number; showTask?: boolean; libraryLink?: boolean }) {
   return (
     <Sheet open={!!material} onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent side="right" showCloseButton={false} className="w-full gap-0 p-0 sm:max-w-3xl xl:max-w-4xl">
-        {material && <ViewerBody m={material} onClose={onClose} now={now} showTask={showTask} />}
+        {material && <ViewerBody m={material} onClose={onClose} now={now} showTask={showTask} libraryLink={libraryLink} />}
       </SheetContent>
     </Sheet>
   );
 }
 
-function ViewerBody({ m, onClose, now, showTask }: { m: Material; onClose: () => void; now: number; showTask: boolean }) {
+function ViewerBody({ m, onClose, now, showTask, libraryLink }: { m: Material; onClose: () => void; now: number; showTask: boolean; libraryLink: boolean }) {
   const ago = since(m.created_at, now);
   const meta = [kinds[m.kind]?.label, fileSize(m.size), authorName(m.author), ago && (ago === "now" ? "just now" : `${ago} ago`)].filter(Boolean).join(" · ");
   const url = m.content_url;
@@ -75,7 +80,7 @@ function ViewerBody({ m, onClose, now, showTask }: { m: Material; onClose: () =>
         <Button variant="ghost" size="icon" className="-mr-1 size-10 sm:size-9" aria-label="Close" onClick={onClose}><X /></Button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <About m={m} showTask={showTask} />
+        <About m={m} showTask={showTask} library={libraryLink ? libraryHref(m) : undefined} />
         <div className="px-4 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-8">
           {url ? <Content m={m} url={url} />
             : m.archived_at ? <p className="py-10 text-center text-sm text-muted-foreground">This version was archived on {archivedDate(m.archived_at)}{m.archived_reason ? ` (${m.archived_reason})` : ""}. Its record stays; its content is no longer stored. Newer versions of it are in the Library.</p>
@@ -87,10 +92,10 @@ function ViewerBody({ m, onClose, now, showTask }: { m: Material; onClose: () =>
 }
 
 // About: the report the file came with, its approval, the task it belongs to.
-function About({ m, showTask }: { m: Material; showTask: boolean }) {
+function About({ m, showTask, library }: { m: Material; showTask: boolean; library?: string }) {
   const summary = m.report?.summary && cleanText(m.report.summary);
   const path = m.path && m.path !== m.name ? m.path : "";
-  if (!summary && !m.approval && !(showTask && m.task_id) && !path && !m.redacted && !m.archived_at) return <div className="h-4" />;
+  if (!summary && !m.approval && !(showTask && m.task_id) && !library && !path && !m.redacted && !m.archived_at) return <div className="h-4" />;
   return (
     <div className="space-y-3 px-4 pt-4 pb-5 sm:px-8 sm:pt-6">
       {summary && (
@@ -103,6 +108,11 @@ function About({ m, showTask }: { m: Material; showTask: boolean }) {
         {showTask && m.task_id && (
           <Link href={`/tasks/${encodeURIComponent(m.task_id)}`} className="inline-flex min-w-0 max-w-full items-center gap-1 font-medium underline-offset-4 hover:underline">
             <span className="shrink-0 text-muted-foreground">Task</span><span className="min-w-0 truncate">{m.task_title || "Open the task"}</span><ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          </Link>
+        )}
+        {library && (
+          <Link href={library} className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline">
+            Open in the Library<ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           </Link>
         )}
         {m.approval && <ApprovalBadge status={m.approval.status} />}

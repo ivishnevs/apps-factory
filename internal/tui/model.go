@@ -1175,8 +1175,10 @@ func (m *Model) hints() [][2]string {
 		return formHint()
 	case m.projForm != nil:
 		return [][2]string{{"tab", "next field"}, {"ctrl+s", "create"}, {"esc", "cancel"}}
-	case m.preview != nil:
+	case m.preview != nil && m.preview.decide:
 		return [][2]string{{"j/k", "scroll"}, {"o", "open"}, {"y/n", "approve/reject"}, {"esc", "close"}}
+	case m.preview != nil:
+		return [][2]string{{"j/k", "scroll"}, {"o", "open"}, {"esc", "close"}}
 	case m.input != nil:
 		return [][2]string{{"enter", "ok"}, {"esc", "cancel"}}
 	case m.confirm != nil:

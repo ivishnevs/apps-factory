@@ -409,7 +409,9 @@ repository). In the inbox an artifact approval shows the artifact (id, version, 
 rendered (headings, lists, emphasis, quotes, code blocks) and text shown in a viewport inside the UI, `o` there
 writes it to a private temp file and opens it with the system viewer, `y`/`n` approve or reject from the
 preview; anything not text (an image, a PDF) is opened with the system viewer right away; an external
-reference (`https:`) opens in the browser. (glamour v2 needs Go 1.25.8 in `go.mod` while the build image pins
+reference (`https:`) opens in the browser. A question or message that carries artifact versions (its sender's
+materials, or the artifacts Core found named in its text: attribution-and-artifact-links) lists them, and `v`
+previews them the same way, one per press; such a preview decides nothing. (glamour v2 needs Go 1.25.8 in `go.mod` while the build image pins
 1.25.0, so the preview uses its own small renderer.)
 
 ```

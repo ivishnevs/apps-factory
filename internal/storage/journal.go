@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -286,7 +287,13 @@ func (s *Store) Decisions(ctx context.Context, company, project, status, topic s
 	return page, err
 }
 func (s *Store) ProposeDecision(ctx context.Context, company, project string, in decisions.Propose) (decisions.Decision, error) {
-	withA, withM := s.withPreviews(ctx, company, project, in.Attachments, in.Materials)
+	// The artifacts the proposal links and names in its text go along as materials (artifact-links).
+	texts := append([]string{in.Topic, in.Value, in.Rationale}, in.Alternatives...)
+	for _, a := range in.Artifacts {
+		texts = append(texts, a.ID+"@"+a.Version)
+	}
+	mentioned := append(slices.Clone(in.Materials), s.mentionedMaterials(ctx, company, project, in.Materials, texts...)...)
+	withA, withM := s.withPreviews(ctx, company, project, in.Attachments, mentioned)
 	return mutate(ctx, s, company, "decision.propose:"+project+":"+in.Actor+":"+in.RunID, in.RequestID, in, func(tx *Tx) (decisions.Decision, error) {
 		now := tx.now().Unix()
 		d := decisions.Decision{ID: protocol.ID(), ProjectID: project, Category: in.Category, Topic: canonicalTopic(in.Topic), Status: "proposed", Value: in.Value, Alternatives: in.Alternatives, Rationale: in.Rationale, CreatedBy: in.Actor, TaskID: in.TaskID, RunID: in.RunID, Artifacts: in.Artifacts, Version: 1, CreatedAt: now, UpdatedAt: now}

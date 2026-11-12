@@ -1,14 +1,15 @@
 "use client";
 
-import { Maximize2 } from "lucide-react";
+import { ChevronRight, Maximize2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import Link from "@/components/app/link";
 import type { MaterialRef, MessageAttachment } from "@/lib/api/types";
 import type { Material } from "@/lib/api/types-materials";
 import { useNow } from "@/components/app/run/use-now";
 import { cn } from "@/lib/utils";
 import { MaterialRow } from "./material-row";
 import { messageVisuals, type Visual } from "./message-visuals";
-import { MaterialViewer } from "./viewer";
+import { MaterialViewer, libraryHref } from "./viewer";
 
 // MessageVisuals (inbox-visual-previews) shows what a message or a decision proposal carries where the person
 // answers: images inline in the order given with their captions — several side by side (a swipe on a phone), so
@@ -23,6 +24,7 @@ export function MessageVisuals({ project, at, author, attachments, materials, cl
   if (items.length === 0) return null;
   const images = items.filter((v) => v.thumb);
   const others = items.filter((v) => !v.thumb);
+  const artifacts = items.filter((v) => v.material.artifact_id);
   return (
     <div className={cn("min-w-0 space-y-2", className)}>
       {images.length > 0 && <Images images={images} onOpen={setOpen} />}
@@ -33,7 +35,20 @@ export function MessageVisuals({ project, at, author, attachments, materials, cl
           ))}
         </div>
       )}
-      <MaterialViewer material={open} onClose={() => setOpen(null)} now={now} showTask={false} />
+      {artifacts.length > 0 && (
+        // artifact-links: each artifact the message carries links to its Library card.
+        <p className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>In the Library:</span>
+          {artifacts.map((v) => (
+            <Link key={v.material.id} href={libraryHref(v.material) ?? "/library"}
+              className="inline-flex min-h-8 min-w-0 max-w-full items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline">
+              <span className="min-w-0 truncate">{v.material.artifact_id}{v.material.version ? ` ${v.material.version}` : ""}</span>
+              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+            </Link>
+          ))}
+        </p>
+      )}
+      <MaterialViewer material={open} onClose={() => setOpen(null)} now={now} showTask={false} libraryLink />
     </div>
   );
 }

@@ -73,7 +73,8 @@ export const useCosts = (since: string) => useQuery({ queryKey: ["costs", since]
 // the Library across the company, newest first, paged with next_before.
 export const useTaskMaterials = (id: string) =>
   useQuery({ queryKey: ["materials", "task", id], queryFn: () => api<Material[]>(`/tasks/${encodeURIComponent(id)}/materials`), refetchInterval: 30000 });
-export interface LibraryFilter { project?: string; kind?: string; q?: string }
+// artifact narrows the Library to that artifact's card (artifact-links: a message links its artifacts there).
+export interface LibraryFilter { project?: string; kind?: string; q?: string; artifact?: string }
 export const useLibrary = (f: LibraryFilter, limit = 50) =>
   useInfiniteQuery({
     queryKey: ["materials", "library", f, limit],

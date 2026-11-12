@@ -140,7 +140,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		q := r.URL.Query()
-		reply(w, page(all, q.Get("project"), q.Get("kind"), q.Get("q"), before, limit), nil)
+		reply(w, page(all, q.Get("project"), q.Get("kind"), q.Get("q"), q.Get("artifact"), before, limit), nil)
 	})
 	mux.HandleFunc("GET /api/blobs/{sha256}", func(w http.ResponseWriter, r *http.Request) {
 		if !tui.ValidSHA256(r.PathValue("sha256")) {

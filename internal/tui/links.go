@@ -17,12 +17,14 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"appfactory/internal/approvals"
+	"appfactory/internal/messaging"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
-// External links: a task's pull request (o opens it in the browser) and an artifact awaiting approval (v
-// previews it: markdown and text in a viewport inside the UI, anything else downloaded to a temp file and
-// opened with the system viewer).
+// External links: a task's pull request (o opens it in the browser) and an artifact awaiting approval or one a
+// message carries (v previews it: markdown and text in a viewport inside the UI, anything else downloaded to a
+// temp file and opened with the system viewer).
 
 // openCommand is the system opener: open on macOS, xdg-open elsewhere.
 func openCommand() string {
@@ -112,10 +114,12 @@ func (m *Model) openTaskPR() tea.Cmd {
 	return m.openExternal(u, fmt.Sprintf("PR #%d", pr.Number))
 }
 
-// previewState is an artifact preview modal: the rendered text in a viewport.
+// previewState is an artifact preview modal: the rendered text in a viewport. id is what the download answers
+// (previewMsg); decide: the preview is of an approval, decided from it with y/n.
 type previewState struct {
 	title   string
-	art     approvals.Approval
+	id      string
+	decide  bool
 	loading bool
 	err     error
 	text    []string
@@ -146,11 +150,21 @@ func textual(name string, b []byte) bool {
 
 // previewArtifact downloads an approval's artifact: text is previewed here, anything else opened.
 func (m *Model) previewArtifact(ap approvals.Approval) tea.Cmd {
-	a := ap.Artifact
-	if a == nil {
+	if ap.Artifact == nil {
 		m.setToast("this approval is not about an artifact", true)
 		return nil
 	}
+	return m.previewVersion(ap.ProjectID, *ap.Artifact, ap.ID, true)
+}
+
+// previewMaterial previews an artifact version a message carries (artifact-links), like an approval's.
+func (m *Model) previewMaterial(msg messaging.Message, r messaging.MaterialRef) tea.Cmd {
+	a := tasks.Artifact{ID: r.ArtifactID, Version: r.ArtifactVersion, URI: r.URI, SHA256: r.SHA256, Size: r.Size, Name: r.Name}
+	return m.previewVersion(msg.ProjectID, a, msg.ID+"\x00"+r.ArtifactID+"\x00"+r.ArtifactVersion, false)
+}
+
+// previewVersion downloads an artifact version of project: text is previewed here, anything else opened.
+func (m *Model) previewVersion(project string, a tasks.Artifact, id string, decide bool) tea.Cmd {
 	if a.SHA256 == "" {
 		// An external reference (git:, https:): only a web URL can be opened.
 		if strings.HasPrefix(a.URI, "https://") || strings.HasPrefix(a.URI, "http://") {
@@ -163,19 +177,19 @@ func (m *Model) previewArtifact(ap approvals.Approval) tea.Cmd {
 	if name == "" {
 		name = a.ID + "-" + a.Version
 	}
-	m.preview = &previewState{title: a.ID + " " + a.Version + " · " + name, art: ap, loading: true, name: name}
-	c, ctx, id := m.c, m.ctx, ap.ID
+	m.preview = &previewState{title: a.ID + " " + a.Version + " · " + name, id: id, decide: decide, loading: true, name: name}
+	c, ctx := m.c, m.ctx
 	return func() tea.Msg {
 		rctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		b, err := c.ArtifactContent(rctx, ap.ProjectID, a.ID, a.Version)
+		b, err := c.ArtifactContent(rctx, project, a.ID, a.Version)
 		return previewMsg{id: id, data: b, err: err}
 	}
 }
 
 func (m *Model) onPreview(msg previewMsg) tea.Cmd {
 	p := m.preview
-	if p == nil || p.art.ID != msg.id {
+	if p == nil || p.id != msg.id {
 		return nil
 	}
 	p.loading, p.err, p.raw = false, msg.err, msg.data
@@ -224,6 +238,9 @@ func (p *previewState) key(m *Model, key string) tea.Cmd {
 			return m.openPreviewFile(p)
 		}
 	case "y", "n":
+		if !p.decide {
+			return nil
+		}
 		// Decide from the preview: the same reason input as in the inbox.
 		m.preview = nil
 		return m.inbox.key(m, key)
@@ -266,8 +283,11 @@ func (m *Model) previewLines(w, h int) []string {
 	if p.text != nil {
 		pct = stFaint.Render(fmt.Sprintf("%d lines · %3.0f%%", len(p.text), p.vp.ScrollPercent()*100))
 	}
-	hint := stAccent.Render("j/k") + stFaint.Render(" scroll ") + stAccent.Render("o") + stFaint.Render(" open in viewer ") +
-		stAccent.Render("y") + stFaint.Render(" approve ") + stAccent.Render("n") + stFaint.Render(" reject ") + stAccent.Render("esc") + stFaint.Render(" close")
+	hint := stAccent.Render("j/k") + stFaint.Render(" scroll ") + stAccent.Render("o") + stFaint.Render(" open in viewer ")
+	if p.decide {
+		hint += stAccent.Render("y") + stFaint.Render(" approve ") + stAccent.Render("n") + stFaint.Render(" reject ")
+	}
+	hint += stAccent.Render("esc") + stFaint.Render(" close")
 	lines = append(lines[:vh], rule(inner), rightAlign(hint, pct, inner))
 	return frame(stMagenta.Bold(true).Render("Preview · ")+stBold.Render(p.title), lines, mw, mh, theme.magenta, false, false)
 }

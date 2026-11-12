@@ -413,10 +413,10 @@ func taskExits(ctx context.Context, c tui.Client, ts []tui.Task) map[string][]st
 	return out
 }
 
-// page filters the list (project, kinds as a comma list, q in the name, path, summary or task title) and
-// cuts the page below before (Unix seconds; 0 is the newest). A page ends on a whole second, so items that
-// share the last one's time are never split across pages.
-func page(ms []Material, project, kinds, q string, before int64, limit int) MaterialPage {
+// page filters the list (project, kinds as a comma list, q in the name, path, summary or task title, artifact:
+// the Library card of that artifact id, artifact-links) and cuts the page below before (Unix seconds; 0 is the
+// newest). A page ends on a whole second, so items that share the last one's time are never split across pages.
+func page(ms []Material, project, kinds, q, artifact string, before int64, limit int) MaterialPage {
 	want := map[string]bool{}
 	for _, k := range strings.Split(kinds, ",") {
 		if k = strings.TrimSpace(k); k != "" {
@@ -426,7 +426,8 @@ func page(ms []Material, project, kinds, q string, before int64, limit int) Mate
 	q = strings.ToLower(strings.TrimSpace(q))
 	p := MaterialPage{Items: []Material{}}
 	for _, m := range ms {
-		if (project != "" && m.ProjectID != project) || (len(want) > 0 && !want[m.Kind]) || (before > 0 && m.CreatedAt >= before) {
+		if (project != "" && m.ProjectID != project) || (len(want) > 0 && !want[m.Kind]) || (before > 0 && m.CreatedAt >= before) ||
+			(artifact != "" && (m.ArtifactID != artifact || m.Source != "artifact")) {
 			continue
 		}
 		if q != "" {

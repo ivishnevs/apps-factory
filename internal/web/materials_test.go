@@ -136,11 +136,28 @@ func TestLibrary(t *testing.T) {
 // TestPageKeepsTies: a page never splits the items of one second.
 func TestPageKeepsTies(t *testing.T) {
 	ms := []Material{{ID: "a", CreatedAt: 5}, {ID: "b", CreatedAt: 4}, {ID: "c", CreatedAt: 4}, {ID: "d", CreatedAt: 3}}
-	p := page(ms, "", "", "", 0, 2)
+	p := page(ms, "", "", "", "", 0, 2)
 	if len(p.Items) != 3 || !p.HasMore || p.NextBefore != 4 {
 		t.Fatalf("%+v", p)
 	}
-	if p = page(ms, "", "", "", 4, 2); len(p.Items) != 1 || p.Items[0].ID != "d" || p.HasMore {
+	if p = page(ms, "", "", "", "", 4, 2); len(p.Items) != 1 || p.Items[0].ID != "d" || p.HasMore {
+		t.Fatalf("%+v", p)
+	}
+}
+
+// TestPageArtifact (artifact-links): artifact narrows the list to that artifact's Library card in the project,
+// not the images inside its archive nor another project's artifact of the same id.
+func TestPageArtifact(t *testing.T) {
+	ms := []Material{
+		{ID: "artifact:p:pouch-design:v2", Source: "artifact", ArtifactID: "pouch-design", ProjectID: "p", CreatedAt: 5},
+		{ID: "archive:p:pouch-design:v2:a.png", Source: "archive", ArtifactID: "pouch-design", ProjectID: "p", CreatedAt: 5},
+		{ID: "artifact:p:other:v1", Source: "artifact", ArtifactID: "other", ProjectID: "p", CreatedAt: 4},
+		{ID: "artifact:q:pouch-design:v1", Source: "artifact", ArtifactID: "pouch-design", ProjectID: "q", CreatedAt: 3},
+	}
+	if p := page(ms, "p", "", "", "pouch-design", 0, 50); len(p.Items) != 1 || p.Items[0].ID != "artifact:p:pouch-design:v2" {
+		t.Fatalf("%+v", p)
+	}
+	if p := page(ms, "", "", "", "pouch-design", 0, 50); len(p.Items) != 2 {
 		t.Fatalf("%+v", p)
 	}
 }

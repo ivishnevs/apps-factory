@@ -147,7 +147,11 @@ func validQuestions(questions []messaging.Question) error {
 }
 func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Send) (messaging.Message, error) {
 	with := in
-	with.Attachments, with.Materials = s.withPreviews(ctx, company, in.ProjectID, in.Attachments, in.Materials)
+	if in.Recipient == "owner" {
+		// An artifact named in the text goes along as a material (artifact-links).
+		with.Materials = append(slices.Clone(in.Materials), s.mentionedMaterials(ctx, company, in.ProjectID, in.Materials, in.Body, questionsText(in.Questions))...)
+	}
+	with.Attachments, with.Materials = s.withPreviews(ctx, company, in.ProjectID, with.Attachments, with.Materials)
 	return mutate(ctx, s, company, "message.send:"+in.Sender+":"+in.ProjectID+":"+in.RunID, in.RequestID, in, func(tx *Tx) (messaging.Message, error) {
 		return sendMessageTx(ctx, tx, with)
 	})
@@ -440,10 +444,12 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if m.MessageType != "question" || m.Status != "PENDING" && m.Status != "ESCALATED" || m.Version != in.Version {
 		return m, ErrConflict
 	}
-	if in.Sender != m.Recipient && in.Sender != "owner" {
+	// The delegate of an approval answers its question through its decision (decideApprovalTx), not by a reply.
+	delegate := in.Delegate && m.ApprovalID != "" && in.Sender != ""
+	if in.Sender != m.Recipient && in.Sender != "owner" && !delegate {
 		return m, inputError("only recipient or owner can answer")
 	}
-	if (m.Status == "ESCALATED" || m.Deadline <= tx.now().Unix()) && in.Sender != "owner" {
+	if (m.Status == "ESCALATED" || m.Deadline <= tx.now().Unix()) && in.Sender != "owner" && !delegate {
 		return m, ErrConflict
 	}
 	switch in.Details {
@@ -685,10 +691,14 @@ func (s *Store) ForwardQuestion(ctx context.Context, company, id, from string, v
 		Materials   []messaging.MaterialRef `json:",omitempty"`
 	}{from, note, version, atts, mats}
 	project := ""
+	withM := mats
 	if m, err := s.Message(ctx, company, id); err == nil {
 		project = m.ProjectID
+		// An artifact the question or the note names goes along as a material on its way to people (artifact-links).
+		have := append(slices.Clone(m.Materials), mats...)
+		withM = append(slices.Clone(mats), s.mentionedMaterials(ctx, company, project, have, m.Body, questionsText(m.Questions), note)...)
 	}
-	withA, withM := s.withPreviews(ctx, company, project, atts, mats)
+	withA, withM := s.withPreviews(ctx, company, project, atts, withM)
 	people := forwardBrief{brief: fp.Brief, note: fp.Note, topic: fp.Topic, strict: fp.Strict, agent: true}
 	return mutate(ctx, s, company, "message.forward:"+id, key, input, func(tx *Tx) (messaging.Message, error) {
 		m, err := messageTx(ctx, tx, id)

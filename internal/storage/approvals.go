@@ -129,11 +129,12 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 		// The request's question may be gone (withdrawn when a newer owner message superseded the ended run's
 		// question): the approval is still decided, and approvalDecided tells the agent.
 		if m.Status == "PENDING" || m.Status == "ESCALATED" {
-			by := ""
+			// The answer is the decider's (approval-attribution): a delegate's decision is not the owner's word.
+			sender, by := "owner", ""
 			if in.DecidedBy != "" {
-				by = " by " + in.DecidedBy + " (delegated: " + a.Setting + ")"
+				sender, by = in.DecidedBy, " "+approvalDecidedBy(approvals.Approval{DecidedBy: in.DecidedBy, Setting: a.Setting})
 			}
-			if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: "owner", Body: "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
+			if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: sender, Delegate: in.DecidedBy != "", Body: "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
 				return a, err
 			}
 		}
@@ -159,7 +160,7 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 		err = reconcileArtifactTasks(ctx, tx)
 	}
 	if err == nil && a.Kind == "artifact" && a.Status == "APPROVED" && a.Artifact != nil {
-		err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, a.TaskID, in.Urgent)
+		err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, a.TaskID, approvalDecider(a), in.Urgent)
 	}
 	if err == nil && (a.Status == "APPROVED" || a.Status == "REJECTED") {
 		err = approvalDecided(ctx, tx, a, in.Urgent)
