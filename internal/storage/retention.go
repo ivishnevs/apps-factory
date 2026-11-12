@@ -118,6 +118,8 @@ const dueVersions = `SELECT v.id, v.version FROM artifact_versions v
    WHERE a.company_id=v.company_id AND a.project_id=v.project_id AND a.id=v.id)
  AND NOT EXISTS (SELECT 1 FROM approvals p WHERE p.company_id=v.company_id AND p.project_id=v.project_id AND p.kind='artifact'
    AND p.artifact_id=v.id AND p.artifact_version=v.version AND p.status='PENDING')
+ AND NOT EXISTS (SELECT 1 FROM approval_options o JOIN approvals p ON p.company_id=o.company_id AND p.id=o.approval_id
+   WHERE o.company_id=v.company_id AND o.project_id=v.project_id AND o.artifact_id=v.id AND o.artifact_version=v.version AND p.status='PENDING')
  AND NOT EXISTS (SELECT 1 FROM tasks t, json_array_elements(CASE WHEN json_typeof(t.body->'required_artifacts')='array' THEN t.body->'required_artifacts' ELSE '[]'::json END) r
    WHERE t.company_id=v.company_id AND t.project_id=v.project_id AND t.status NOT IN ('DONE','CANCELLED') AND r->>'id'=v.id AND r->>'version'=v.version)
  ORDER BY v.seq`

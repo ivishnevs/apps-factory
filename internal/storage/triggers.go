@@ -339,6 +339,10 @@ func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent b
 		return err
 	}
 	text := approvalWhat(a) + " " + strings.ToLower(a.Status) + " " + approvalDecidedBy(a) + ": " + a.DecisionReason
+	if a.Choice() {
+		// The decision, the chosen option or the requested changes, and who decided (artifact-choice-approvals).
+		text = approvalWhat(a) + ": " + choiceDecision(a)
+	}
 	if err = addTrigger(ctx, tx, &t, "approval_decided", true, approvalDecider(a), a.ID, text); err != nil {
 		return err
 	}

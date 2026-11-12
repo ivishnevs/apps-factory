@@ -36,7 +36,12 @@ func (c *Core) artifactRoutes(m *http.ServeMux) {
 		if !decode(w, r, &p) {
 			return
 		}
-		record, err := c.Store.Artifact(r.Context(), c.companyFrom(r), r.PathValue("project"), p.ArtifactID, p.ArtifactVersion)
+		id, version := p.ArtifactID, p.ArtifactVersion
+		if id == "" && version == "" && len(p.Options) > 0 {
+			// A choice approval (artifact-choice-approvals): its first option names the producing agent.
+			id, version = p.Options[0].ArtifactID, p.Options[0].ArtifactVersion
+		}
+		record, err := c.Store.Artifact(r.Context(), c.companyFrom(r), r.PathValue("project"), id, version)
 		if err != nil {
 			reply(w, nil, err)
 			return

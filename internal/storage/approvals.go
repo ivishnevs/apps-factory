@@ -96,7 +96,8 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 	if err != nil {
 		return a, err
 	}
-	if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 4096 {
+	// Choosing takes an optional comment; every other decision its reason (artifact-choice-approvals).
+	if in.RequestID == "" || strings.TrimSpace(in.Reason) == "" && in.Action != approvals.ActionChoose || len(in.Reason) > 4096 {
 		return a, inputError("request_id and decision reason required")
 	}
 	if a.Version != in.Version {
@@ -111,14 +112,20 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 		if a.Status != "PENDING" || a.ExpiresAt <= tx.now().Unix() {
 			return a, ErrConflict
 		}
-		switch in.Action {
-		case "approve":
+		switch {
+		case a.Choice():
+			if err = decideChoice(&a, in); err != nil {
+				return a, err
+			}
+		case in.Action == "approve":
 			a.Status = "APPROVED"
 			if a.Kind == "artifact" {
 				a.ExpiresAt = 0
 			}
-		case "reject":
+		case in.Action == "reject":
 			a.Status = "REJECTED"
+		case in.Action == approvals.ActionChoose || in.Action == approvals.ActionChanges:
+			return a, inputError("choose and changes are for choice approvals: this one is approved or rejected")
 		default:
 			return a, inputError("action must be approve, reject or revoke")
 		}
@@ -134,7 +141,11 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 			if in.DecidedBy != "" {
 				sender, by = in.DecidedBy, " "+approvalDecidedBy(approvals.Approval{DecidedBy: in.DecidedBy, Setting: a.Setting})
 			}
-			if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: sender, Delegate: in.DecidedBy != "", Body: "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason, RequestID: in.RequestID}); err != nil {
+			body := "Approval " + a.ID + " " + a.Status + by + ": " + in.Reason
+			if a.Choice() {
+				body = "Approval " + a.ID + ": " + choiceDecision(approvals.Approval{Options: a.Options, Chosen: a.Chosen, ChangesOn: a.ChangesOn, Status: a.Status, DecisionReason: in.Reason, DecidedBy: in.DecidedBy, Setting: a.Setting})
+			}
+			if _, err = replyMessageTx(ctx, tx, m.ID, messaging.Reply{Version: m.Version, Sender: sender, Delegate: in.DecidedBy != "", Body: body, RequestID: in.RequestID}); err != nil {
 				return a, err
 			}
 		}
@@ -152,9 +163,21 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 		}
 	}
 	err = saveApproval(ctx, tx, &a, "approval.resolved")
+	if err == nil && a.Choice() && a.Status == "APPROVED" && in.Action != "revoke" {
+		// The chosen version is the approval's version from now on (artifact-choice-approvals).
+		_, err = tx.ExecContext(ctx, "UPDATE approvals SET artifact_id=?, artifact_version=? WHERE company_id=? AND id=?", a.Artifact.ID, a.Artifact.Version, tx.company, a.ID)
+	}
 	if err == nil && a.Kind == "artifact" && a.Status == "REJECTED" && a.Artifact != nil {
 		// A composite showing the rejected version goes with it (people-topics D11).
 		err = supersedeComposites(ctx, tx, a.ProjectID, a.Artifact.ID, a.Artifact.Version, "", "its part "+a.Artifact.ID+" "+a.Artifact.Version+" was rejected")
+	}
+	if err == nil && a.Choice() && a.Status == "REJECTED" {
+		// Rejecting all rejects every option's version: composites showing one go too.
+		for _, o := range a.Options {
+			if err = supersedeComposites(ctx, tx, a.ProjectID, o.Artifact.ID, o.Artifact.Version, "", "its part "+o.Artifact.ID+" "+o.Artifact.Version+" was rejected"); err != nil {
+				break
+			}
+		}
 	}
 	if err == nil && a.Kind == "artifact" {
 		err = reconcileArtifactTasks(ctx, tx)
@@ -162,7 +185,7 @@ func decideApprovalTx(ctx context.Context, tx *Tx, id string, in approvals.Decis
 	if err == nil && a.Kind == "artifact" && a.Status == "APPROVED" && a.Artifact != nil {
 		err = artifactApproved(ctx, tx, a.ProjectID, *a.Artifact, a.ID, a.TaskID, approvalDecider(a), in.Urgent)
 	}
-	if err == nil && (a.Status == "APPROVED" || a.Status == "REJECTED") {
+	if err == nil && (a.Status == "APPROVED" || a.Status == "REJECTED" || a.Status == approvals.StatusChanges) {
 		err = approvalDecided(ctx, tx, a, in.Urgent)
 	}
 	return a, err

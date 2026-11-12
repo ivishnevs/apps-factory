@@ -133,13 +133,24 @@ func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p fact
 	if a.Audience == "internal" {
 		kind = tasks.KindInternalArtifacts
 	}
-	mode, delegate, _ := c.approvalMode(r.Context(), company, a.ProjectID, kind)
-	if delegate != run.Spec.Agent {
+	mode, delegate, setting := c.approvalMode(r.Context(), company, a.ProjectID, kind)
+	peopleOnly := a.Choice() && mode.Mode == tasks.ApproveOwner
+	if peopleOnly && action != "escalate" {
+		// People only (artifact-choice-approvals): no agent decides a choice of this project; the agent it reached
+		// (strict delegation) only hands it on.
+		http.Error(w, "people decide this project's artifacts ("+setting+"): no agent decides this choice, escalate it", 403)
+		return
+	}
+	if delegate != run.Spec.Agent && !peopleOnly {
 		http.Error(w, "the approval setting changed: it waits for people now", 403)
 		return
 	}
 	if strings.TrimSpace(reason) == "" {
 		http.Error(w, "reason required", 400)
+		return
+	}
+	if a.Choice() {
+		c.choiceDecideTool(w, r, p, run, a, action, reason, cites)
 		return
 	}
 	if action == "escalate" {

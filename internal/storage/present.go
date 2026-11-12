@@ -81,11 +81,11 @@ func presentState(ctx context.Context, q querier, company string, t *tasks.Task)
 		return nil
 	}
 	for _, a := range t.RequiredArtifacts {
-		ap, err := getDoc[approvals.Approval](ctx, q, artifactApprovalQuery, company, t.ProjectID, a.ID, a.Version)
+		ap, err := getDoc[approvals.Approval](ctx, q, artifactApprovalQuery, artifactApprovalArgs(company, t.ProjectID, a.ID, a.Version)...)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if err != nil || ap.Status != "APPROVED" || ap.Artifact == nil || !sameArtifact(*ap.Artifact, a) {
+		if err != nil || !versionApproved(ap, a) {
 			t.Status, t.BlockReason = "BLOCKED", fmt.Sprintf("artifact: waiting for owner approval of %s@%s", a.ID, a.Version)
 			return nil
 		}

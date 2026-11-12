@@ -31,7 +31,7 @@ func DecisionComment(action, reason string) bool {
 	if r == "" {
 		return false
 	}
-	return action == "reject" || !defaultDecisionReasons[r]
+	return action == "reject" || action == approvals.ActionChanges || !defaultDecisionReasons[r]
 }
 
 // approvalComment records the owner's decision reason as a board comment on the approval's task and sets
@@ -61,7 +61,7 @@ func approvalComment(ctx context.Context, tx *Tx, a *approvals.Approval, action,
 		return err
 	}
 	a.CommentID = cid
-	what := approvalWhat(*a) + " " + strings.ToLower(a.Status)
+	what := approvalWhat(*a) + " " + strings.ToLower(strings.ReplaceAll(a.Status, "_", " "))
 	if t.Status == "DONE" || t.Status == "CANCELLED" {
 		return giveComment(ctx, tx, cid, leadOf(ctx, tx, t.ProjectID), "closed", "the owner's comment on "+what+" of task "+t.ID+", which is "+t.Status+": act on it through a task or decline it")
 	}
@@ -71,6 +71,8 @@ func approvalComment(ctx context.Context, tx *Tx, a *approvals.Approval, action,
 // approvalWhat names an approval for people and agents.
 func approvalWhat(a approvals.Approval) string {
 	switch {
+	case a.Choice():
+		return "artifact choice approval " + a.ID
 	case a.Kind == "artifact" && a.Artifact != nil:
 		return "artifact approval " + a.ID + " of " + a.Artifact.ID + "@" + a.Artifact.Version
 	case a.Kind == "command":
