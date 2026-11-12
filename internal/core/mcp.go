@@ -357,8 +357,8 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		http.Error(w, "task id required", 400)
 		return
 	}
-	// Enforce assignment privileges also for create-with-assignee (including self).
-	if assignee, ok := args["assignee"].(string); ok && assignee != "" {
+	// Enforce assignment privileges also for create-with-assignee (including self); a list's assignee is a filter.
+	if assignee, ok := args["assignee"].(string); ok && assignee != "" && p.Name != "factory_task_list" {
 		if why := config.AssignRefusal(c.cat(c.companyFrom(r)).Agents, run.Spec.Agent, assignee); why != "" {
 			http.Error(w, "assignment outside your scope: "+why, 403)
 			return
@@ -416,10 +416,19 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 	case "factory_task_get":
 		path = "/tasks/" + url.PathEscape(id)
 	case "factory_task_list":
+		// Compact by default (task-duplicate-warnings 3.1); full: true adds descriptions and the rest.
 		path = "/tasks"
 		query.Set("project", run.Spec.Project)
-		if status, ok := args["status"].(string); ok {
-			query.Set("status", status)
+		for _, k := range []string{"status", "assignee", "openspec_change", "covers", "query"} {
+			if v, ok := args[k].(string); ok && v != "" {
+				query.Set(k, v)
+			}
+		}
+		if open, _ := args["open"].(bool); open {
+			query.Set("open", "1")
+		}
+		if full, _ := args["full"].(bool); !full {
+			query.Set("compact", "1")
 		}
 	case "factory_task_create":
 		method = "POST"

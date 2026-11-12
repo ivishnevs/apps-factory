@@ -162,6 +162,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if p.Actor != "" {
 			p.CreatedBy = p.Actor
 		}
+		p.CancelAllowed = c.cancelAllowed(c.companyFrom(r), p.Actor)
 		// Only Factory MCP calls carry an origin; agent-created tasks are deduplicated by it.
 		if run, ok := r.Context().Value(runKey{}).(protocol.RunSpec); ok {
 			p.OriginRun, p.OriginTask = run.ID, run.TaskID
@@ -186,6 +187,17 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		list, err := c.Store.Tasks(ctx, company, project, r.URL.Query().Get("status"))
 		if err != nil {
 			reply(w, nil, err)
+			return
+		}
+		// task-duplicate-warnings 3.1: filters (open, assignee, openspec_change, covers, query) and the compact form.
+		f, err := taskFilterOf(r.URL.Query())
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		list = f.apply(list)
+		if f.compact {
+			write(w, compactTasks(list))
 			return
 		}
 		snaps, err := c.Store.TaskSnapshots(ctx, company, project)
@@ -312,9 +324,11 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		operation := "factory.task.update"
-		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Kind == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil {
+		if p.Assignee != nil && p.Title == nil && p.Description == nil && p.Priority == nil && p.OpenSpecChange == nil && p.Kind == nil && p.Dependencies == nil && p.RequiredArtifacts == nil && p.Model == nil && p.ReviewBy == nil &&
+			p.Covers == nil && len(p.Replaces) == 0 && len(p.NotDuplicateOf) == 0 {
 			operation = "factory.task.assign"
 		}
+		p.CancelAllowed = c.cancelAllowed(c.companyFrom(r), p.Actor)
 		if !c.taskPermit(w, r, p.Actor, operation, false, false) {
 			return
 		}

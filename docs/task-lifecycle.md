@@ -212,6 +212,43 @@ CLI generates a fresh key per invocation unless a JSON mutation supplies request
 blindly retry a failed HTTP request. Scheduler dispatch and Worker event replay are independently
 idempotent. Invalid mutation rollback also rolls back dependency edits and events.
 
+## Duplicate warnings
+
+(task-duplicate-warnings) Core warns, never refuses, when two open tasks may cover the same work.
+
+- **Covered work (`covers`).** A task lists the work it covers as keys: `<change>#<n.m>` (an OpenSpec `tasks.md`
+  item), `<change>#<n>` (a group, covering its items), `pr#<number>`, `msg:<id8>` (a review finding or request).
+  Core normalizes them ("PR #148" is `pr#148`). With none given Core infers them from the title and description
+  (`covers_inferred`): a known change followed by items (`world-models 7.1–7.3`, `player-profile-and-xp task 3.2`,
+  `<change>#4`), `tasks.md 3.2` with `openspec_change`, and `#148`, `PR 148` for pull requests. Known changes are
+  the project's tasks' `openspec_change` and the changes done exits reported. A task without `openspec_change`
+  that names exactly one known change gets it (`openspec_change_inferred`).
+- **Replacement (`replaces`).** A create or update with `replaces: [ids]` (a split, a narrower re-plan) cancels each
+  replaced task in the same transaction when the actor may cancel it (the owner, its creator or an authority over
+  it, with `factory.task.cancel` allowed by policy) and it is not running (BACKLOG, READY, BLOCKED or REWORK, no live
+  run, no open children, not the actor's own run task). The cancel comment and `replaced_by` name the new task,
+  and open tasks that depended on it depend on the new task instead. A task already cancelled for an earlier part
+  gets the new part as one more replacement and its dependents wait for that part too. A replaced task that stays
+  open warns `original_open`. A done task cannot be replaced.
+- **Warnings.** After a create, or an update that changes the title, `covers`, `openspec_change`, assignee or
+  `replaces`, the answer carries `warnings` (and `duplicate_hint` when one is strong), each naming the other open
+  task (id, title, status, assignee) and its reasons: `same_work_item` (overlapping keys, listed in `keys`),
+  `same_title` (equal titles after lowercasing, removing milestone prefixes such as `3D-WQ2:` and ids, with the
+  same assignee), `original_open` (a replaced task still open, or the parent left READY to run again by a split
+  that is not its own run's decomposition; one task of a run warns about a given parent) and `same_change_open`
+  (up to 10 open tasks of the same assignee and change, context only). Tasks created by the same run or under the
+  same parent are not compared with each other.
+- **Until answered.** A strong warning is kept (`task_duplicates`) and shows on both tasks as
+  `possible_duplicates` (web board badge "duplicate?", TUI `≈dup`) and as an attention row
+  `task.possible_duplicate` in the creator's feed (not sent to Telegram), until one of the tasks closes or a side
+  marks the pair with `PATCH /tasks/{id}` `not_duplicate_of: [ids]` (any open status, no version needed when it
+  is the only field; the web "Keep both" does it). A marked pair never warns again and reads list it in
+  `not_duplicate_of`.
+- **Cheap search.** `GET /tasks` filters `open=1`, `assignee`, `openspec_change`, `covers` (a group matches its
+  items) and `query` (all words in the title); `compact=1` answers id, title, status, assignee,
+  `openspec_change`, `covers`, dependencies and possible duplicates only. `factory_task_list` is compact unless
+  `full: true`.
+
 ## CLI
 
 ```sh

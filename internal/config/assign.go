@@ -252,5 +252,7 @@ func hierarchyInstructions(c *Catalog, name string) string {
 	}
 	// dependency-wait-escalations 3.2: a planned wait is a dependency, never a manual block.
 	b.WriteString("Waiting: a task with open dependencies waits and starts by itself when they are done; never block it to hold it (that is refused, and only the owner clears a block). To make a task wait for work, add that work as a dependency. A stalled escalation about a planned wait: answer keep_waiting; drop_dependency removes the dependency.\n")
+	// task-duplicate-warnings 3.2: one cheap check per batch, covered work named, replacements explicit.
+	b.WriteString("No duplicate tasks: before creating a batch of tasks, list the open ones once (factory_task_list open: true with openspec_change or assignee; compact, no descriptions), not once per task, and update an existing task instead of creating a second one for the same work. On follow-ups and carry-overs set covers (<change>#<n.m>, pr#<number>, msg:<id8>) and openspec_change. When you split or re-plan a task, create the new tasks with replaces: [the original] (Core cancels it and moves its dependents). A create or update answer may carry duplicate warnings: answer each strong one (cancel the new task, update the existing one, or keep both with not_duplicate_of).\n")
 	return b.String()
 }

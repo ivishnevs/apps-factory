@@ -172,6 +172,24 @@ type Task struct {
 	Counterpart string `json:"counterpart,omitempty"`
 	// PausedBy is the authority whose pause holds the task (hierarchy D2); set on reads.
 	PausedBy string `json:"paused_by,omitempty"`
+	// Covers are the work keys the task covers (task-duplicate-warnings): <change>#<n.m>, <change>#<n>, pr#<n>,
+	// msg:<id8>. CoversInferred: Core read them from the title and description (the task named none);
+	// OpenSpecChangeInferred: likewise for openspec_change.
+	Covers                 []string `json:"covers,omitempty"`
+	CoversInferred         bool     `json:"covers_inferred,omitempty"`
+	OpenSpecChangeInferred bool     `json:"openspec_change_inferred,omitempty"`
+	// Replaces are the tasks this one replaces (a split or a narrower re-plan); ReplacedBy the tasks that
+	// replaced this one when it was cancelled for them.
+	Replaces   []string `json:"replaces,omitempty"`
+	ReplacedBy []string `json:"replaced_by,omitempty"`
+	// NotDuplicateOf are the tasks marked as not duplicates of this one (either side marked it); set on reads.
+	NotDuplicateOf []string `json:"not_duplicate_of,omitempty"`
+	// PossibleDuplicates are the unanswered strong duplicate warnings between this open task and another open
+	// one (either side warned); set on reads.
+	PossibleDuplicates []DuplicateWarning `json:"possible_duplicates,omitempty"`
+	// Warnings and DuplicateHint are set only on a create or update answer: the duplicate check of this change.
+	Warnings      []DuplicateWarning `json:"warnings,omitempty"`
+	DuplicateHint string             `json:"duplicate_hint,omitempty"`
 }
 
 // KindConversation is the kind of an agent's conversation task.
@@ -285,10 +303,16 @@ type Create struct {
 	ReviewBy string `json:"review_by,omitempty"`
 	// SideEffects: the task's runs act outside the workspace; failures are inspected, not retried.
 	SideEffects bool `json:"side_effects,omitempty"`
+	// Covers are the work keys the task covers (Task.Covers); empty: Core infers them.
+	Covers []string `json:"covers,omitempty"`
+	// Replaces cancels these open tasks for this one when the actor may cancel them (Task.Replaces).
+	Replaces []string `json:"replaces,omitempty"`
 	// Trusted metadata set by Core, never decoded from a request body.
 	OriginTask string            `json:"-"`
 	OriginRun  string            `json:"-"`
 	Roles      map[string]string `json:"-"` // agent name → role, from the Core catalog
+	// CancelAllowed: the actor's policy allows factory.task.cancel (replaces cancels only then).
+	CancelAllowed bool `json:"-"`
 }
 type Update struct {
 	RequiredArtifacts *[]Artifact `json:"required_artifacts,omitempty"`
@@ -305,10 +329,27 @@ type Update struct {
 	// ReviewBy sets the task's reviewer; Core refuses clearing it outside the backlog.
 	ReviewBy *string `json:"review_by,omitempty"`
 	// Model sets the task's model override ("" clears it); only an authority over the task may set it.
-	Model     *string `json:"model,omitempty"`
-	RequestID string  `json:"request_id,omitempty"`
-	Actor     string  `json:"actor,omitempty"`
+	Model *string `json:"model,omitempty"`
+	// Covers replaces the task's covered work keys; [] clears them (Core infers them again).
+	Covers *[]string `json:"covers,omitempty"`
+	// Replaces adds tasks this one replaces (Create.Replaces).
+	Replaces []string `json:"replaces,omitempty"`
+	// NotDuplicateOf marks the pairs (this task, each id) as not duplicates: their warnings end for good. An
+	// update with only not_duplicate_of works in any open status.
+	NotDuplicateOf []string `json:"not_duplicate_of,omitempty"`
+	RequestID      string   `json:"request_id,omitempty"`
+	Actor          string   `json:"actor,omitempty"`
+	// CancelAllowed: Create.CancelAllowed.
+	CancelAllowed bool `json:"-"`
 }
+
+// OnlyNotDuplicate reports whether the update only marks pairs as not duplicates.
+func (u Update) OnlyNotDuplicate() bool {
+	return len(u.NotDuplicateOf) > 0 && u.RequiredArtifacts == nil && u.Title == nil && u.Description == nil && u.Priority == nil &&
+		u.Assignee == nil && u.OpenSpecChange == nil && u.Kind == nil && u.Dependencies == nil && u.SideEffects == nil &&
+		u.ReviewBy == nil && u.Model == nil && u.Covers == nil && len(u.Replaces) == 0
+}
+
 type Action struct {
 	Version   int    `json:"version"`
 	Action    string `json:"action"`
