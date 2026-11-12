@@ -248,7 +248,7 @@ function ItemRow({ topic, row, busy, send, act, compact }: { topic: TopicView; r
       )}
       <ItemVisuals it={it} compact={compact} />
       {row.history.length > 0 && <HistoryList items={row.history} current={it} />}
-      {replaced && <p className="mt-2 text-xs text-muted-foreground">Replaced by a newer version</p>}
+      {replaced && <p className="mt-2 text-xs text-muted-foreground">{ap?.status === "SUPERSEDED" && ap.decision_reason ? `Withdrawn: ${ap.decision_reason}` : "Replaced by a newer version"}</p>}
       {it.waits && <ItemActions topic={topic} it={it} busy={busy} send={send} act={act} />}
     </div>
   );

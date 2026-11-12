@@ -131,6 +131,7 @@ func openEscalation(ctx context.Context, tx *Tx, reason string, answers []string
 		TimeoutSeconds: escalationTimeout, RequestID: "escalation-" + id, UpChain: true,
 		// Core's own escalation: briefed from its template, one topic per agent and reason (people-topics D8, D4).
 		Brief:  escalationBrief(peopleLanguageTx(ctx, tx), reason, t.Assignee, t.Title, w.Summary, answers),
+		Note:   &messaging.ItemNote{What: t.Title},
 		People: messaging.PeopleRef{Path: messaging.PathCore, Kind: "escalation", Key: "agent:" + t.Assignee + ":" + reason}})
 	if err != nil {
 		return err

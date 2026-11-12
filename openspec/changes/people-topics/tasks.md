@@ -29,9 +29,9 @@
 
 ## 4. Surfaces
 
-- [ ] 4.1 Web Inbox: topics (header: title, ask, recommendation, waits for you; items with notes, previews,
+- [x] 4.1 Web Inbox: topics (header: title, ask, recommendation, waits for you; items with notes, previews,
       previous version and your comment; buttons; "approve all"); no ids, hashes or JSON.
-- [ ] 4.2 Web chat: topic card and thread in the lead's chat; replies; read state shared with the Inbox; badge parity.
+- [x] 4.2 Web chat: topic card and thread in the lead's chat; replies; read state shared with the Inbox; badge parity.
 - [x] 4.3 Telegram: one message per new open item (approvals included) with buttons and album; a replaced version's
       message is edited (buttons removed, "replaced by vN"); updates in the digest only.
 - [x] 4.4 TUI inbox lists topics.
@@ -46,3 +46,6 @@
 - [x] 5.3 Docs: `docs/approvals.md`, `docs/artifact-approvals.md`, `docs/factory-mcp.md`, `docs/task-lifecycle.md`,
       a new `docs/people-topics.md`.
 - [ ] 5.4 Full Go tests, vet, web tsc and lint; live check on the demo stack (web Inbox and chat in the browser).
+      Done 2026-11-12: all green; Inbox checked live on a local Core seeded with the P3-9a, escalation and Nakama
+      cases (topics, version history, withdrawn composite, approve all). Open: the phone width (the browser window
+      did not resize), the chat topic card (the seed had no lead chat) and Telegram with the real bot.

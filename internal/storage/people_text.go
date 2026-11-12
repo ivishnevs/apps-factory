@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -60,6 +59,22 @@ var escalationSituation = map[string][2]string{
 	QuotaPausedReason:         {"hit the subscription limit", "упёрлась в лимит подписки"},
 }
 
+// A topic of one agent's escalations of a reason, as its title (people-topics D8).
+var escalationGroup = map[string][2]string{
+	"retries_exhausted":       {"tasks stopped after failed runs", "задачи остановились после неудачных запусков"},
+	"budget_exhausted":        {"tasks used up their run budget", "задачи израсходовали бюджет запусков"},
+	"no_exit":                 {"runs end without a result", "запуски заканчиваются без результата"},
+	"change_missing":          {"tasks name a missing OpenSpec change", "задачи ссылаются на несуществующий ченж"},
+	"session_lost":            {"tasks lost their session", "задачи потеряли сессию"},
+	"inspect":                 {"tasks need a look", "задачи требуют проверки"},
+	"stalled":                 {"tasks wait on dependencies that do not move", "задачи ждут зависимостей, которые не двигаются"},
+	"pinned_node_unavailable": {"tasks' machine is unavailable", "машина задач недоступна"},
+	"workspace_diverged":      {"workspaces diverged from the repository", "рабочие копии разошлись с репозиторием"},
+	"wait_deadline":           {"waits passed their deadline", "ожидания пропустили дедлайн"},
+	"wait_exhausted":          {"tasks waited too many times", "задачи ждали слишком много раз"},
+	"event_deadline":          {"awaited events did not come", "ожидаемые события не наступили"},
+}
+
 // What each escalation answer does.
 var answerEffect = map[string][2]string{
 	"retry":           {"runs it again now", "запустить заново сейчас"},
@@ -88,11 +103,17 @@ func escalationBrief(lang, reason, agent, title, summary string, answers []strin
 	if what == "" {
 		what = strings.ReplaceAll(reason, "_", " ")
 	}
-	subject := title
+	// The topic gathers this agent's escalations of one reason: its title names the agent and what happened; each
+	// task is an item (its note names it).
+	subject := title + ": " + what
 	if agent != "" {
-		subject = agent + ": " + title
+		group := escalationGroup[reason][i]
+		if group == "" {
+			group = [2]string{"tasks need you", "задачи ждут вашего решения"}[i]
+		}
+		subject = agent + ": " + group
 	}
-	b := &messaging.Brief{Title: subject, Ask: [2]string{"How should it continue?", "Как продолжить?"}[i]}
+	b := &messaging.Brief{Title: subject, Ask: [2]string{"How should they continue?", "Как продолжить?"}[i]}
 	if r := []rune(b.Title); len(r) > messaging.MaxTitle {
 		b.Title = string(r[:messaging.MaxTitle-1]) + "…"
 	}
@@ -103,7 +124,7 @@ func escalationBrief(lang, reason, agent, title, summary string, answers []strin
 		}
 	}
 	b.After = strings.Join(after, "\n")
-	b.Context = fmt.Sprintf([2]string{"The task %s.\n\n%s", "Задача %s.\n\n%s"}[i], what, humanCause(summary))
+	b.Context = humanCause(summary)
 	return b
 }
 

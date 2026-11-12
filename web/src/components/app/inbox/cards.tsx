@@ -162,10 +162,18 @@ const answerLabels: Record<string, string> = {
   new_session: "Continue in a new session",
   spec: "It writes the spec: run without the check",
   retry: "Try again",
+  cancel: "Cancel",
+  reassign: "Assign someone else",
+  accept: "Accept as it is",
+  continue: "Let it continue",
+  extend: "Give it more time",
+  wait: "Wait for the reset",
+  resume: "Resume now",
 };
 
 export function optionLabel(o: string): string {
-  return answerLabels[o] ?? o.replace(/[-_]/g, " ");
+  const s = answerLabels[o] ?? o.replace(/[-_]/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function Options({ q, value, onChange }: { q: Question; value?: string; onChange: (v: string) => void }) {
