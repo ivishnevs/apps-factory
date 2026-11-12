@@ -173,8 +173,10 @@ Mac with Xcode), and managers see them with `factory_nodes`.
 The runtimes are the package's: each version directory has the Claude Code and Codex its locks pin, and an update
 brings new locks and fetches the matching runtimes before it switches. `factory-node runtimes update [claude|codex]
 [-home DIR] [-prev DIR]` installs them by hand (install.sh runs it): Claude Code from `claude-code/claude.lock`
-(sha512), Codex from `codex/codex.lock` (sha256, the official standalone release binary; `internal/driver/codex/
-codex.lock` in the repository), each file replaced atomically so running agents finish on the old one. A Codex of your
+(sha512), Codex from `codex/codex.lock` (sha256, the official standalone release binary and, beside it, its
+`codex-code-mode-host`, which Codex starts from the file next to its executable and without which every Codex run
+fails at start; `internal/driver/codex/codex.lock` in the repository), each file replaced atomically so running agents
+finish on the old one. `factory-node doctor` fails `codex.code_mode_host` when a pinned Codex lacks it. A Codex of your
 own (`drivers.codex.binary` outside the node's directory) is left alone. Logins stay as they are; restart the node
 afterwards.
 

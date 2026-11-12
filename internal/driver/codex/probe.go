@@ -2,10 +2,12 @@ package codex
 
 import (
 	"context"
+	"path/filepath"
 	"runtime"
 	"strings"
 
 	"appfactory/internal/node"
+	"appfactory/internal/node/runtimes"
 )
 
 func (d Driver) host() node.Host {
@@ -30,6 +32,12 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 		return []node.CheckResult{{Check: "codex.binary", Status: node.Fail, Detail: d.binary() + " not found", Hint: install}}
 	}
 	r := []node.CheckResult{{Check: "codex.binary", Status: node.Pass, Detail: bin}}
+	if c, ok := codeModeHost(h, bin); ok {
+		if c.Status == node.Fail {
+			return append(r, c)
+		}
+		r = append(r, c)
+	}
 	out, errOut, err := h.Run(ctx, bin, "--version")
 	if err != nil {
 		detail := err.Error()
@@ -67,4 +75,20 @@ func (d Driver) Probe(ctx context.Context) []node.CheckResult {
 	}
 	// setup-assistant 4.1: Codex reaches its endpoint through the system resolver, like this check.
 	return append(r, d.Net.NetChecks(ctx, node.CodexAPIHost, "net.api")...)
+}
+
+// codeModeHost checks the code-mode host beside a Codex the node package installed from codex.lock (a .codex.pin
+// beside it): Codex runs it from the file next to its executable and fails at the start of every run without it, while
+// `codex --version` still passes. ok is false for a Codex the person installed (npm keeps the host elsewhere).
+func codeModeHost(h node.Host, bin string) (c node.CheckResult, ok bool) {
+	dir := filepath.Dir(bin)
+	if h.Stat == nil || !h.Exists(filepath.Join(dir, "."+runtimes.CodexBin+".pin")) {
+		return c, false
+	}
+	path := filepath.Join(dir, runtimes.CodexHelper)
+	if !h.Exists(path) {
+		return node.CheckResult{Check: "codex.code_mode_host", Status: node.Fail, Detail: path + " missing: every Codex run fails at start",
+			Hint: "factory-node runtimes update codex (a package whose codex.lock pins " + runtimes.CodexHelper + ")"}, true
+	}
+	return node.CheckResult{Check: "codex.code_mode_host", Status: node.Pass, Detail: path}, true
 }
