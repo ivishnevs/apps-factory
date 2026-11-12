@@ -18,11 +18,25 @@ func callFingerprint(call factorytools.Call) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
+
+// Approval reads one approval with its decision comment's outcome (approval-comments-handled).
 func (s *Store) Approval(ctx context.Context, company, id string) (approvals.Approval, error) {
-	return getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
+	a, err := getDoc[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND id=?", company, id)
+	if err == nil {
+		err = approvalCommentState(ctx, s.DB, company, &a)
+	}
+	return a, err
 }
+
+// Approvals lists approvals with their decision comments' outcomes (approval-comments-handled).
 func (s *Store) Approvals(ctx context.Context, company, project string) ([]approvals.Approval, error) {
-	return listDocs[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND (?='' OR project_id=?) ORDER BY seq", company, project, project)
+	list, err := listDocs[approvals.Approval](ctx, s.DB, "SELECT body FROM approvals WHERE company_id=? AND (?='' OR project_id=?) ORDER BY seq", company, project, project)
+	for i := range list {
+		if err == nil {
+			err = approvalCommentState(ctx, s.DB, company, &list[i])
+		}
+	}
+	return list, err
 }
 func (s *Store) RequestApproval(ctx context.Context, company string, in approvals.Request) (approvals.Approval, error) {
 	return mutate(ctx, s, company, "approval.request:"+in.ProjectID+":"+in.Agent+":"+in.TaskID, in.RequestID, in, func(tx *Tx) (approvals.Approval, error) {
@@ -62,6 +76,7 @@ func (s *Store) RequestApproval(ctx context.Context, company string, in approval
 }
 func saveApproval(ctx context.Context, tx *Tx, a *approvals.Approval, kind string) error {
 	a.Version++
+	a.Comment = nil // filled on read
 	b, _ := json.Marshal(a)
 	if _, err := tx.ExecContext(ctx, "UPDATE approvals SET status=?,body=? WHERE id=?", a.Status, b, a.ID); err != nil {
 		return err
@@ -121,6 +136,12 @@ func (s *Store) DecideApproval(ctx context.Context, company, id string, in appro
 		a.DecidedBy, a.Cites = in.DecidedBy, in.Cites
 		if in.DecidedBy == "" {
 			a.DecidedByPerson = personName(ctx)
+			if in.Action != "revoke" {
+				// approval-comments-handled: the owner's reason beyond the default is a board comment on the task.
+				if err = approvalComment(ctx, tx, &a, in.Action, in.Reason); err != nil {
+					return a, err
+				}
+			}
 		}
 		err = saveApproval(ctx, tx, &a, "approval.resolved")
 		if err == nil && a.Kind == "artifact" {

@@ -2,6 +2,7 @@
 
 import { ArrowRight, ChevronRight, FolderOpen, History } from "lucide-react";
 import { Suspense } from "react";
+import { ApprovalCommentOutcome } from "@/components/app/approval-comment";
 import { ErrorState } from "@/components/app/page";
 import { useHydrated } from "@/components/app/tasks/model";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,8 +85,10 @@ function Section({ count, children }: { count: number; children: React.ReactNode
 function Row({ m, now, onOpen }: { m: Material; now: number; onOpen: (m: Material) => void }) {
   const v = versionLabel(m);
   const reason = m.approval?.reason ? cleanText(m.approval.reason) : "";
+  // approval-comments-handled: what became of the comment the decision came with.
+  const outcome = m.approval?.comment;
   return <MaterialRow m={m} now={now} onOpen={onOpen} title={v ? `${materialTitle(m)} · ${v}` : undefined}
-    context={reason ? <span title={reason}>“{reason}”</span> : undefined} />;
+    context={reason ? <span title={outcome ? `${reason} — ${outcome.outcome}` : reason}>“{reason}”{outcome && <> · <ApprovalCommentOutcome comment={outcome} /></>}</span> : undefined} />;
 }
 
 // Featured: the result of a finished task, with the note it came with and one tap to read it.

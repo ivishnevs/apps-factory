@@ -85,7 +85,11 @@ Core's database keeps requests, decisions, their inbox link and the `approval_id
 `approval.requested`, `.resolved`, `.expired`. An owner decision (approve or reject) on a
 task's request (`task_id`) adds the authority trigger `approval_decided` with the decision and reason to that task:
 it lifts the task's wait/ask parks, and the next brief shows the decision (likewise for artifact approvals;
-revocation and expiry add no trigger). The default timeout is 24 hours, the maximum 7 days; the time check applies
+revocation and expiry add no trigger). A reason beyond the default (`approved by owner`) is also the board's comment
+on that task (approval-comments-handled, see [task lifecycle](task-lifecycle.md#board-comments-owner-comments-handled)):
+the task's runs cannot exit until it has an outcome, and `GET /approvals` and `GET /approvals/ID` show it as
+`comment: {id, status, outcome}` (the Inbox lists your recent decisions with a comment and what became of them).
+The default timeout is 24 hours, the maximum 7 days; the time check applies
 even before the background status update. Expiry never means permission. Stable request and decision keys make it
 safe to repeat HTTP requests after a lost response.
 

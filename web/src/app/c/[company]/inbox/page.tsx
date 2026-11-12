@@ -7,7 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
+import { ApprovalCommentOutcome } from "@/components/app/approval-comment";
 import { DecisionCard } from "@/components/app/decision-card";
+import { ApprovalBadge } from "@/components/app/materials/kinds";
 import { AlertCard, ApprovalCard, MessageCard, type InboxHandlers } from "@/components/app/inbox/cards";
 import { inboxModel } from "@/components/app/inbox/model";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
@@ -22,6 +24,10 @@ export default function InboxPage() {
 
   // The same items the nav badge counts (inbox-badge-parity): messages, approvals, reviews and alerts.
   const { decide, read, reviews, alerts, total } = useMemo(() => inboxModel(ov, gone), [ov, gone]);
+
+  // approval-comments-handled: your recent decisions with a comment, with what became of it. Not counted: they wait
+  // on the team, not on you.
+  const notes = useMemo(() => recentApprovalComments(ov?.approvals ?? [], Date.now() / 1000), [ov?.approvals]);
 
   const projectName = useMemo(() => Object.fromEntries((ov?.status ?? []).map((s) => [s.project.id, s.project.name])), [ov?.status]);
 
@@ -113,7 +119,36 @@ export default function InboxPage() {
             )}
           </div>
         )}
+      {ov && notes.length > 0 && (
+        <div className="mt-8">
+          <Section title="Your comments on approvals" count={notes.length}>
+            {notes.map((ap) => <ApprovalNote key={ap.id} ap={ap} projectName={projectName[ap.project_id]} />)}
+          </Section>
+        </div>
+      )}
     </div>
+  );
+}
+
+// recentApprovalComments: decisions of the last week that came with a comment, newest first.
+function recentApprovalComments(approvals: Approval[], now: number): Approval[] {
+  return approvals.filter((a) => a.comment && a.status !== "PENDING" && (a.decided_at ?? 0) > now - 7 * 86400)
+    .sort((a, b) => (b.decided_at ?? 0) - (a.decided_at ?? 0)).slice(0, 10);
+}
+
+// ApprovalNote: one decision's comment and its outcome ("done by launch-creative: frame 1 without the window").
+function ApprovalNote({ ap, projectName }: { ap: Approval; projectName?: string }) {
+  const what = ap.artifact ? `${ap.artifact.name || ap.artifact.id}${ap.artifact.version ? ` · ${ap.artifact.version}` : ""}` : ap.call?.name || "approval";
+  return (
+    <article className="rounded-2xl border bg-card p-4 shadow-xs">
+      <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+        <span>{projectName ?? ap.project_id} · {ap.agent} · {what}</span>
+        <ApprovalBadge status={ap.status} />
+      </p>
+      <p className="mt-1.5 text-sm wrap-anywhere">“{ap.decision_reason}”</p>
+      <ApprovalCommentOutcome comment={ap.comment} className="mt-1 block" />
+      {ap.task_id && <Link href={`/tasks/${encodeURIComponent(ap.task_id)}`} className="mt-2 inline-flex text-xs font-medium underline-offset-4 hover:underline">Open the task</Link>}
+    </article>
   );
 }
 

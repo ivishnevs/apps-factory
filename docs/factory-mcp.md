@@ -45,7 +45,8 @@ With explicit exits on (`FACTORY_EXPLICIT_EXITS=1`, see below) `factory_task_sub
 
 Every exit also takes `comments: [{comment_id, outcome: done\|declined, reason?, task_id?}]`, one outcome per board
 comment the brief lists; while one has none the exit is refused with 409 `comments_unhandled`
-([task lifecycle](task-lifecycle.md#board-comments-owner-comments-handled)).
+([task lifecycle](task-lifecycle.md#board-comments-owner-comments-handled)). A comment the owner gave with an approval
+decision (approval-comments-handled) needs `reason` on `done` too: what was changed for it, shown on the approval.
 
 Tool names use underscores for runtime interoperability; policy names keep dots. Task creation
 with an assignee additionally requires assignment permission, even self-assignment. Dependencies
