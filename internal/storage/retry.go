@@ -368,7 +368,7 @@ func inspectsRun(ctx context.Context, tx *Tx, t tasks.Task, specJSON []byte, out
 func excerpt512(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) > 512 {
-		return s[:512] + "…"
+		return cutUTF8(s, 512) + "…"
 	}
 	return s
 }

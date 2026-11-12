@@ -77,10 +77,7 @@ func connectCode() (string, error) {
 
 func clip(s string, n int) string {
 	s = strings.TrimSpace(s)
-	if len(s) > n {
-		s = s[:n]
-	}
-	return s
+	return cutUTF8(s, n)
 }
 
 // CreateNodeConnect stores a node's connection request from address. The node id and the key must not be in use.

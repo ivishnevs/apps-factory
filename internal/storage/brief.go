@@ -253,7 +253,7 @@ func briefExcerpt(s string, limit int) string {
 	if len(s) <= limit {
 		return s
 	}
-	return s[:limit] + "\n[truncated; read the full task/attempt through Factory CLI when needed]"
+	return cutUTF8(s, limit) + "\n[truncated; read the full task/attempt through Factory CLI when needed]"
 }
 
 // diskBriefNote tells a conversation run on a node paused for a critical disk what that means for the owner

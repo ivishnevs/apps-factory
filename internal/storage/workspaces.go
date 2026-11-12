@@ -89,9 +89,7 @@ func (s *Store) ReportWorkspace(ctx context.Context, company, runID, lease strin
 	if (w.Branch != "" && !branchName.MatchString(w.Branch)) || len(w.NodeID) > 128 {
 		return w, inputError("invalid branch or node_id")
 	}
-	if len(w.WIPUnsaved) > 1024 {
-		w.WIPUnsaved = w.WIPUnsaved[:1024]
-	}
+	w.WIPUnsaved = cutUTF8(w.WIPUnsaved, 1024)
 	w.TaskID, w.RunID, w.UpdatedAt = taskID.String, runID, tx.now().Unix()
 	spec, err := getDoc[protocol.RunSpec](ctx, tx, "SELECT spec FROM runs WHERE company_id=? AND id=?", company, runID)
 	if err != nil {
