@@ -4,7 +4,7 @@ Status: implemented on both sides behind the switch (2026-10-14): Core (§11) an
 guards (§12). The open questions of §10 were decided as written (§12). Owner decisions of 2026-10-14: explicit exits
 yes, `done` only with a merged pull request yes (projects without a remote use `scratch`). Consolidates
 `explicit-exits-authority` D1–D9 and `task-worktrees` D5–D6 into one contract between the MCP adapter on the node
-(`cmd/factory-mcp`, `internal/factorytools`) and Core, so both sides can build against it. Nothing changes until
+(`factory-node mcp`, `internal/factorytools`) and Core, so both sides can build against it. Nothing changes until
 Core's switch is on (§9).
 
 ## 1. Who does what
@@ -188,7 +188,7 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
 
 ## 12. Adapter, worker and exit guard notes
 
-- Adapter (`internal/factorytools/adapter.go`, `cmd/factory-mcp`): `ack_seq` starts at `GET /agent/brief` (an
+- Adapter (`internal/factorytools/adapter.go`, `factory-node mcp`): `ack_seq` starts at `GET /agent/brief` (an
   older Core without it leaves sequences untracked: no header); `X-Factory-Ack-Seq` on every request; the seq of
   `X-Factory-Seen-Seq` and of a 409's `unseen` counts only after the response line was written to the runtime
   (`ServeWith`'s delivered hook). Exit tools are intercepted: facts from `FACTORY_WORKDIR` (`git rev-parse`,

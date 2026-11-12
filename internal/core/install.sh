@@ -4,11 +4,13 @@
 #   curl -fsSL {{{.CoreURL}}}/install.sh | sh -s -- --code fne_... # connect with an enrollment code
 # Options: --code CODE, --name NAME, --no-service, --no-browser, --os-user NAME (Linux: install for a separate system
 # user that owns nothing else, connector-trust). FACTORY_NODE_HOME (default ~/.app-factory).
-# Running it again upgrades the node in place: node.yaml and the keys are kept.
+# Running it again upgrades the node in place: node.yaml and the keys are kept. It needs curl, tar and git only: the
+# node itself downloads the runtimes its package pins (Claude Code, the standalone Codex) and checks them.
+# Layout (node-packaging-updates 3.3, 3.4): versions/<v>/ holds a version with its runtimes, current points at the one
+# the service runs, bin, claude-code and codex point into current; the node updates itself by switching current.
 set -eu
 
 CORE_URL="{{{.CoreURL}}}"
-CODEX_VERSION="{{{.CodexVersion}}}"
 HOME_DIR="${FACTORY_NODE_HOME:-$HOME/.app-factory}"
 CODE=""
 NAME=""
@@ -93,23 +95,8 @@ if command -v node >/dev/null 2>&1; then
 else
   say "  Node.js: not installed (Claude agents do not need it; projects whose tools do will show as not ready)"
 fi
+# The package's checksum (coreutils' sha256sum on Linux, shasum on macOS: part of every such system).
 if command -v sha256sum >/dev/null 2>&1; then SUM="sha256sum"; elif command -v shasum >/dev/null 2>&1; then SUM="shasum -a 256"; else die "sha256sum or shasum is required"; fi
-# Claude agents need nothing installed: the package carries the shim as one executable and the pinned Claude Code
-# is downloaded below (node-packaging-updates 2.1).
-CLAUDE=1
-if command -v sha512sum >/dev/null 2>&1; then SUM512="sha512sum"; elif command -v shasum >/dev/null 2>&1; then SUM512="shasum -a 512"; else SUM512=""; fi
-[ -n "$SUM512" ] || { CLAUDE=0; say "  no sha512sum or shasum: Claude agents are off"; }
-# Codex: the node supports exactly one version; npm installs it next to the node, else a matching global one.
-CODEX_BIN=""
-if command -v npm >/dev/null 2>&1; then
-  CODEX_BIN="$HOME_DIR/codex/node_modules/.bin/codex"
-  say "  Codex $CODEX_VERSION will be installed next to the node"
-elif command -v codex >/dev/null 2>&1 && codex --version 2>/dev/null | grep -qx "codex-cli $CODEX_VERSION"; then
-  CODEX_BIN=$(command -v codex); say "  codex: $CODEX_BIN"
-else
-  say "  no npm and no codex-cli $CODEX_VERSION: Codex agents are off"
-fi
-[ "$CLAUDE" = 1 ] || [ -n "$CODEX_BIN" ] || say "  warning: neither Claude nor Codex can run here yet; the node connects but takes no work"
 
 step "Downloading the node from $CORE_URL"
 PKG="factory-node-$OS-$ARCH.tar.gz"
@@ -120,47 +107,56 @@ curl -fsSL "$CORE_URL/downloads/node/SHA256SUMS" -o "$TMP/SHA256SUMS" || die "th
 want=$(grep " $PKG\$" "$TMP/SHA256SUMS" | cut -d' ' -f1)
 got=$($SUM "$TMP/$PKG" | cut -d' ' -f1)
 [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum of $PKG does not match"
-mkdir -p "$HOME_DIR"
-# runtimes/ holds the node's own runtime logins (node-runtime-accounts): never removed here.
-rm -rf "$HOME_DIR/bin" "$HOME_DIR/workers" "$HOME_DIR/claude-code"
-tar -xzf "$TMP/$PKG" -C "$HOME_DIR"
-say "  installed in $HOME_DIR ($(cat "$HOME_DIR/VERSION" 2>/dev/null || echo unknown))"
+mkdir -p "$TMP/pkg" "$HOME_DIR/versions"
+tar -xzf "$TMP/$PKG" -C "$TMP/pkg"
+V=$(cat "$TMP/pkg/VERSION" 2>/dev/null || true)
+case "$V" in ""|*/*|.|..) die "the package has no valid VERSION" ;; esac
+VDIR="$HOME_DIR/versions/$V"
+PREV=""
+[ -L "$HOME_DIR/current" ] && PREV=$(readlink "$HOME_DIR/current" | sed 's#.*/##')
+# A package installed before the versioned layout: its bin, claude-code, workers and npm Codex go (runtimes/ holds the
+# node's own runtime logins, node-runtime-accounts, and is never removed here).
+for d in bin claude-code codex workers; do
+  if [ -e "$HOME_DIR/$d" ] && [ ! -L "$HOME_DIR/$d" ]; then rm -rf "${HOME_DIR:?}/$d"; fi
+done
+rm -f "$HOME_DIR/VERSION" "$HOME_DIR/SBOM.json"
+rm -rf "$VDIR.new"
+mv "$TMP/pkg" "$VDIR.new"
+if [ "$PREV" = "$V" ]; then rm -rf "${VDIR:?}.old"; mv "$VDIR" "$VDIR.old"; fi
+rm -rf "$VDIR"
+mv "$VDIR.new" "$VDIR"
+say "  version $V in $VDIR"
 
-if [ "$CLAUDE" = 1 ]; then
-  step "Installing Claude Code (pinned for $OS-$ARCH)"
-  libc=any
-  if [ "$OS" = linux ]; then
-    libc=glibc
-    if ls /lib/ld-musl-* >/dev/null 2>&1; then libc=musl; fi
-  fi
-  lock=$(grep "^$libc " "$HOME_DIR/claude-code/claude.lock" 2>/dev/null || true)
-  url=$(echo "$lock" | cut -d' ' -f2); want=$(echo "$lock" | cut -d' ' -f3)
-  if [ -z "$url" ] || ! curl -fsSL "$url" -o "$TMP/claude.tgz"; then
-    say "  could not download Claude Code: Claude agents are off"; CLAUDE=0
-  elif [ "$($SUM512 "$TMP/claude.tgz" | cut -d' ' -f1)" != "$want" ]; then
-    say "  Claude Code download does not match its checksum: Claude agents are off"; CLAUDE=0
-  else
-    mkdir -p "$TMP/claude"
-    tar -xzf "$TMP/claude.tgz" -C "$TMP/claude"
-    mv -f "$TMP/claude/package/claude" "$HOME_DIR/claude-code/claude"
-    chmod 755 "$HOME_DIR/claude-code/claude"
-    if [ "$OS" = darwin ]; then
-      # The shim's executable is rebuilt with its script inside; sign it for this Mac (ad hoc).
-      codesign --sign - --force "$HOME_DIR/bin/factory-claude" >/dev/null 2>&1 || say "  warning: could not sign factory-claude"
-    fi
-    say "  Claude Code $("$HOME_DIR/claude-code/claude" --version 2>/dev/null | head -1)"
-  fi
+step "Installing the runtimes it pins (Claude Code, Codex)"
+# The node downloads them and checks each against its lock (sha512, sha256); a previous version's are reused.
+RT_PREV=""
+[ -n "$PREV" ] && [ -d "$HOME_DIR/versions/$PREV" ] && RT_PREV="$HOME_DIR/versions/$PREV"
+[ -d "$VDIR.old" ] && RT_PREV="$VDIR.old"
+CONFIG="$HOME_DIR/node.yaml"
+set -- runtimes update -home "$VDIR"
+[ -z "$RT_PREV" ] || set -- "$@" -prev "$RT_PREV"
+[ ! -f "$CONFIG" ] || set -- "$@" -config "$CONFIG"
+"$VDIR/bin/factory-node" "$@" | sed 's/^/  /' || true
+rm -rf "$VDIR.old"
+CLAUDE=0; [ -x "$VDIR/claude-code/claude" ] && CLAUDE=1
+CODEX=0; [ -x "$VDIR/codex/codex" ] && CODEX=1
+[ "$CLAUDE" = 1 ] || say "  Claude agents are off on this machine"
+[ "$CODEX" = 1 ] || say "  Codex agents are off on this machine (or use your own: drivers.codex.binary in node.yaml)"
+[ "$CLAUDE" = 1 ] || [ "$CODEX" = 1 ] || say "  warning: neither Claude nor Codex can run here yet; the node connects but takes no work"
+if [ "$OS" = darwin ] && [ -f "$VDIR/bin/factory-claude" ]; then
+  # The shim's executable is rebuilt with its script inside; sign it for this Mac (ad hoc).
+  codesign --sign - --force "$VDIR/bin/factory-claude" >/dev/null 2>&1 || say "  warning: could not sign factory-claude"
 fi
 
-case "$CODEX_BIN" in
-  "$HOME_DIR"/codex/*)
-    step "Installing Codex $CODEX_VERSION"
-    if ! npm install --prefix "$HOME_DIR/codex" --no-audit --no-fund --no-update-notifier --loglevel=error "@openai/codex@$CODEX_VERSION"; then
-      say "  npm install failed: Codex agents are off"; CODEX_BIN=""
-    fi ;;
-esac
+# Switch: current is the version the service runs; bin, claude-code and codex follow it.
+ln -sfn "versions/$V" "$HOME_DIR/current"
+for d in bin claude-code codex; do ln -sfn "current/$d" "$HOME_DIR/$d"; done
+rm -f "$HOME_DIR/update.json"
+for old in "$HOME_DIR"/versions/*; do
+  b=${old##*/}
+  [ "$b" = "$V" ] || [ "$b" = "$PREV" ] || rm -rf "$old"
+done
 
-CONFIG="$HOME_DIR/node.yaml"
 STATE="$HOME_DIR/state"
 if [ ! -f "$CONFIG" ]; then
   step "Writing $CONFIG"
@@ -172,13 +168,17 @@ if [ ! -f "$CONFIG" ]; then
     echo "bin_dir: \"$HOME_DIR/bin\""
     echo "projects_root: \"$HOME/AppFactory/projects\""
     echo "drivers:"
-    if [ -n "$CODEX_BIN" ]; then echo "  codex: {enabled: true, binary: \"$CODEX_BIN\"}"; else echo "  codex: {enabled: false}"; fi
+    if [ "$CODEX" = 1 ]; then echo "  codex: {enabled: true}"; else echo "  codex: {enabled: false}"; fi
     if [ "$CLAUDE" = 1 ]; then echo "  claude: {enabled: true}"; else echo "  claude: {enabled: false}"; fi
     echo "# Each task in its own git worktree, so a team's agents work in one project at once."
     echo "worktrees: {enabled: true}"
     echo "# Agents write only in their task's worktree (connector-trust); full lets them act as you everywhere."
     echo "sandbox: worktree"
   } > "$CONFIG"
+elif grep -q "binary: \"$HOME_DIR/codex/node_modules/.bin/codex\"" "$CONFIG"; then
+  # The npm Codex of an earlier install is gone: the node runs the standalone Codex it pins (codex/codex).
+  sed "s#, *binary: \"$HOME_DIR/codex/node_modules/.bin/codex\"##" "$CONFIG" > "$CONFIG.new" && cat "$CONFIG.new" > "$CONFIG" && rm -f "$CONFIG.new"
+  say "  node.yaml: Codex is now the standalone build the node pins"
 fi
 if [ "$OS" = linux ] && grep -q '^sandbox: *worktree' "$CONFIG" 2>/dev/null; then
   # node-readiness 3.2: Claude Code's sandbox needs bubblewrap with a user namespace and socat. Only the commands
@@ -269,7 +269,7 @@ fi
 
 step "Checking the node"
 "$FN" doctor -config "$CONFIG" || true
-[ -z "$CODEX_BIN" ] || [ -f "$HOME/.codex/auth.json" ] || say "Codex is not signed in: run $CODEX_BIN login"
+[ "$CODEX" = 0 ] || [ -f "$HOME/.codex/auth.json" ] || say "Codex is not signed in: run $HOME_DIR/codex/codex login"
 
 step "Done"
 say "This machine is an App Factory node. Check it any time: FACTORY_URL=$CORE_URL $FN doctor -config $CONFIG"

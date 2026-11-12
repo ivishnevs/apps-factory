@@ -16,17 +16,21 @@ display: open it anywhere you are signed in), `--no-service` (do not install lau
 
 What it does:
 
-1. Checks the platform (macOS or Linux, arm64 or amd64), `curl`, `tar`, `git`; `npm` for Codex agents (without
-   `npm`, a global `codex-cli` of the supported version). Claude agents need nothing installed.
-2. Downloads `factory-node-<os>-<arch>.tar.gz` and checks it against `SHA256SUMS`, unpacks `bin/` (`factory-node`,
-   `factory-shim`, `factory-mcp`, `factory-claude`) and `claude-code/claude.lock` into `~/.app-factory`.
-   `factory-claude` is the Claude shim built as one executable with its Node.js runtime (Node single executable
-   application on the official Node.js 22 build of the platform, node-packaging-updates): no Node.js on the machine.
-3. Downloads the pinned Claude Code build of the platform (the Claude Agent SDK's own platform package, URL and
-   sha512 in `claude-code/claude.lock`; glibc or musl on Linux), checks its sha512 and puts the binary at
-   `~/.app-factory/claude-code/claude` (not `runtimes/`, which holds the node's own logins), where `factory-claude` finds it. On macOS it signs `factory-claude` for
-   the machine (`codesign --sign -`), because injecting the shim invalidates the Node.js signature.
-   `npm install @openai/codex@<supported>` into `~/.app-factory/codex`.
+1. Checks the platform (macOS or Linux, arm64 or amd64), `curl`, `tar`, `git` (and `sha256sum` or `shasum`, part of
+   every Linux and macOS). Nothing else: no Node.js, no npm (node-packaging-updates 3.3).
+2. Downloads `factory-node-<os>-<arch>.tar.gz`, checks it against `SHA256SUMS` and unpacks it into
+   `~/.app-factory/versions/<version>/`: `bin/factory-node` (the only Go executable: `factory-shim` and `factory-mcp`
+   are links to it, and `factory-node shim` / `factory-node mcp` the same programs), `bin/factory-claude`,
+   `claude-code/claude.lock` and `codex/codex.lock`. `factory-claude` is the Claude shim built as one executable with
+   its Node.js runtime (Node single executable application on the official Node.js 22 build of the platform): no
+   Node.js on the machine.
+3. Runs `factory-node runtimes update` of that version: the node downloads the runtimes its package pins and checks
+   each against its lock: the Claude Code build of the platform (the Claude Agent SDK's own platform package, sha512,
+   glibc or musl on Linux) into `claude-code/claude`, where `factory-claude` finds it, and the official standalone
+   Codex release binary (sha256) into `codex/codex`. A previous version's runtimes with the same pin are reused. On
+   macOS it signs `factory-claude` for the machine (`codesign --sign -`), because injecting the shim invalidates the
+   Node.js signature. Then `current` points at the version, and `bin`, `claude-code` and `codex` in `~/.app-factory`
+   point into `current` (the versioned layout updates switch; `runtimes/` keeps the node's own logins).
 4. Writes `~/.app-factory/node.yaml` once (name, `state_dir` `~/.app-factory/state`, `bin_dir`, `projects_root`
    `~/AppFactory/projects`, the drivers it could set up, `worktrees: {enabled: true}` so each task runs in its own
    git worktree and a team's agents work in one project at once). Edit it freely; the installer keeps it. Pushes of
@@ -40,7 +44,10 @@ What it does:
    logout, or says `sudo loginctl enable-linger USER` when it may not.
 7. Runs `factory-node doctor` and says what is missing (for example `codex login`, `claude` sign-in).
 
-Running it again upgrades: `bin/`, `workers/` and Codex are replaced, `node.yaml` and the keys stay, no new connection.
+Running it again upgrades: the new version goes next to the previous one (older ones are removed), `node.yaml` and
+the keys stay, no new connection. An install from before the versioned layout loses its own `bin/`, `claude-code/`,
+`workers/` and npm Codex; a node.yaml naming that npm Codex (`drivers.codex.binary`) is changed to the pinned one. A
+Codex of your own stays usable with `drivers.codex.binary`. From then on nodes update from the web (below).
 
 ### Linux readiness (node-readiness)
 
@@ -163,14 +170,50 @@ Mac with Xcode), and managers see them with `factory_nodes`.
 
 ## Updating the runtimes
 
-`factory-node runtimes update [claude|codex]` installs or updates the runtimes to the versions this node supports,
-only when you run it: Claude Code from the package's `claude-code/claude.lock` (sha512 checked, the file replaced
-atomically, so running agents finish on the old one), Codex with `npm install` into `~/.app-factory/codex` (a Codex
-installed elsewhere is yours: the command says what to run). Logins stay as they are; restart the node afterwards.
+The runtimes are the package's: each version directory has the Claude Code and Codex its locks pin, and an update
+brings new locks and fetches the matching runtimes before it switches. `factory-node runtimes update [claude|codex]
+[-home DIR] [-prev DIR]` installs them by hand (install.sh runs it): Claude Code from `claude-code/claude.lock`
+(sha512), Codex from `codex/codex.lock` (sha256, the official standalone release binary; `internal/driver/codex/
+codex.lock` in the repository), each file replaced atomically so running agents finish on the old one. A Codex of your
+own (`drivers.codex.binary` outside the node's directory) is left alone. Logins stay as they are; restart the node
+afterwards.
+
+## Node updates
+
+Core offers each node that is behind the release it hands out (`VERSION` of its downloads) the package for the node's
+platform (`platform`, reported in register) with its sha256, in every poll and heartbeat answer (`update: {version,
+url, sha256, attempt, now}`). The node, run by launchd or systemd (`FACTORY_NODE_SERVICE` in the unit) in the versioned
+layout:
+
+1. downloads the package into `versions/<v>/`, checks its sha256 and fetches the runtimes its locks pin (reusing the
+   running version's when the pin is the same);
+2. runs `versions/<v>/bin/factory-node selftest`: the binary starts here, reads node.yaml, reaches Core with the
+   node's keys (signed `GET /health`) and passes the probes of the enabled drivers, without a model call. A failure
+   ends the attempt;
+3. drains: claims nothing and waits for its live runs (work and conversations) to end, without a limit;
+4. switches `current` to `versions/<v>` (`update.json` records the switch) and exits with status 75; launchd
+   (`KeepAlive`) or systemd (`Restart=always`) starts the new version;
+5. the new version must register with a usable driver within 2 minutes (and start at most 3 times); otherwise
+   `current` goes back to the previous version, which restarts and reports the failure. The previous version is kept
+   until the next successful update.
+
+The node reports each step in its heartbeat (`update: {state, version, from, reason, runs}`); the Nodes page shows it
+("Updating to v: waiting for 2 live runs to end"), and Core records `node_update_started`, `node_update_failed`
+(attention: feed and Telegram) and `node_updated` (register with another version). A failed attempt is not tried again
+until an owner or admin presses "Retry update" (`POST /nodes/{id}/update`), which starts a new attempt.
+
+The company chooses the policy on the Nodes page (`GET`/`PUT /settings/node-updates`, owners and admins): automatic
+(the default) updates every node that is behind at its next drain; with approval a node behind the release is asked
+about once (`node_update_available`: the Nodes page shows "Update to v", Telegram asks with a button) and updates once
+approved. "Update now" (`POST /nodes/{id}/update {"now": true}`) stops the drain from waiting: the live runs are
+interrupted like at a restart and queued again, with their work in progress saved (node-ties). One stable channel;
+nodes installed before the versioned layout, run by hand, or built from the checkout (`dev`) say why they do not
+update and need `install.sh` once.
 
 ## Not yet
 
-A desktop app, Homebrew, signed and notarized binaries, self-update, Windows, Codex without npm.
+A desktop app, Homebrew, signed and notarized binaries (connector-trust 2.2), release channels, Windows, Claude without
+the JS shim (node-packaging-updates 3.5).
 
 ## The node's own runtime logins (node-runtime-accounts)
 

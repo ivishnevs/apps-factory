@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,11 +31,7 @@ import (
 // next run gets neither the variable nor the file.
 func TestAgentSecretsEndToEnd(t *testing.T) {
 	bin := t.TempDir()
-	for _, name := range []string{"factory-mcp", "factory-shim"} {
-		if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, name), "appfactory/cmd/"+name).CombinedOutput(); err != nil {
-			t.Fatalf("%v\n%s", err, out)
-		}
-	}
+	buildNodeBin(t, bin)
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = 1
 	defer func() { storage.HeartbeatSeconds = beat }()

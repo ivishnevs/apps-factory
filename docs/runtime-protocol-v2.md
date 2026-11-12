@@ -46,7 +46,9 @@ name it (`update_required`). A node without a version is below any minimum; a ve
 (`dev`) is never below. `detected_labels` (3.6) are what the node found it can do: `macos`/`linux`, `arm64`/`amd64`,
 `xcode` (xcodebuild works), `ios-sim` (an iOS simulator runtime), `headless` (Linux without a display), `gpu` (every
 Mac; Linux with a DRI render node or an NVIDIA GPU). They select runs like `labels` (claim, offers, queued reasons,
-session holders) and are listed apart.
+session holders) and are listed apart. `platform` (3.4, `darwin-arm64`, …) names the package Core offers the node as
+an update, and `update` is its update report as in the heartbeat; a register with another `version` than before is a
+`node_updated` event.
 
 Answer `200 {"incarnation": "…", "heartbeat_seconds": 10, "start_window_seconds": 60, "hooks": {"name": "ios", "hash": "…", "missing": false, "spec": {…}}}`.
 
@@ -108,6 +110,12 @@ something for the node, else empty when the wait ends:
   4, "conversation_slots": 1, "labels": ["ios"], "drivers": {"claude": {"enabled": true}}, "disk":
   {"low_watermark_gib": 30, "critical_watermark_gib": 5, "conversation_floor_gib": 1}}}` (an absent setting keeps
   node.yaml's). The heartbeat answer carries `config_version` too.
+- `update` (node-packaging-updates 3.4) is the release Core offers the node while it is due: `{"version":
+  "2026.11.13.0900+abc", "url": "/downloads/node/factory-node-linux-arm64.tar.gz", "sha256": "…", "attempt":
+  1794450000, "now": true}` (the package for the `platform` the node registered; `attempt` the approval or retry it
+  rides on, 0 under the auto policy; `now`: "update now", the drain does not wait). A new or changed offer answers a
+  waiting poll at once; every answer carries it. The heartbeat answer carries it too, and a heartbeat answer without
+  it withdraws an update the node has not switched to yet.
 
 ## 5. Claim (phase 1)
 
@@ -175,6 +183,11 @@ not started in its window ends as "not started" (§10). `session_id` keeps arriv
   {"slots": {"state": "applied", "reason": "capped at slots_max 2"}, "labels": {"state": "refused", "reason": "…"}},
   "local": {…node.yaml's values…}, "pinned": ["labels"], "slots_max": 2}`; a version with refused settings is one
   `node_config_refused` (attention) event. A driver turned off by the settings leaves `drivers`.
+- `update` (optional, node-packaging-updates 3.4) is the node's update: `{"state": "downloading|testing|draining|
+  switching|failed", "version": "<to>", "from": "<running>", "reason": "…", "runs": 2, "attempt": N}`; absent when none
+  is in progress and none failed. Core stamps a new state with its own time, records `node_update_started` when the
+  node begins a version and `node_update_failed` (attention) once per failed attempt, and offers a failed attempt's
+  version again only after a retry (a new attempt).
 - `drivers` (optional; the node sends it in every heartbeat) replaces the node's driver list as in register: a
   driver that failed or passed its checks again is declared without a new epoch, and claims use it from then on.
 - `health.checks` lists the node's failing self-checks (`git`, `git.user`, `forge.auth`, `ps`, `stack.<name>` from

@@ -7,6 +7,7 @@ import { useConfirm } from "@/components/app/confirm";
 import { AddNode, InstallConnector, PendingNodes } from "@/components/app/nodes/enrollment";
 import { KillSwitch } from "@/components/app/nodes/kill-switch";
 import { NodeCard } from "@/components/app/nodes/node-card";
+import { NodeUpdatePolicy, useNodeUpdates } from "@/components/app/nodes/node-update";
 import { useOwnerAction } from "@/components/app/nodes/owner-action";
 import { PauseDialog, type PauseRequest } from "@/components/app/nodes/pause-dialog";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,8 @@ export default function Page() {
   const manage = canManage(useCompanyInfo().data?.role);
   // node-packaging-updates C: the release this Core hands out, to show which nodes are behind.
   const install = useQuery({ queryKey: ["node-install"], queryFn: () => core<{ release?: string }>("/node-install"), staleTime: 60_000 }).data;
+  // node-packaging-updates 3.4: the company's update policy (automatic or with approval).
+  const updates = useNodeUpdates().data;
   const confirm = useConfirm();
   const qc = useQueryClient();
   // Revoking (node-identity 4.1): the node's keys stop working at once and its live runs end.
@@ -137,6 +140,7 @@ export default function Page() {
               <p className="text-sm text-muted-foreground">
                 Runs: {kinds.work_live} work and {kinds.conversation_live} conversation running · {kinds.work_queued} work and {kinds.conversation_queued} conversation queued
               </p>
+              <div className="mt-2"><NodeUpdatePolicy manage={manage} /></div>
             </div>
             {ov.errors?.nodes && <div className="mb-3"><ErrorState error={ov.errors.nodes} /></div>}
             {nodes.length === 0 ? (
@@ -149,7 +153,7 @@ export default function Page() {
                   const id = nodeId(n);
                   const pause = pauses.find((p) => p.scope === "node" && p.target === id);
                   return (
-                    <NodeCard key={id} node={n} pause={pause} busy={pending} manage={manage} release={install?.release}
+                    <NodeCard key={id} node={n} pause={pause} busy={pending} manage={manage} release={install?.release ?? updates?.release} policy={updates?.policy}
                       onPause={() => setDialog({ open: true, initial: { scope: "node", target: id } })}
                       onResume={() => pause && release(pause)}
                       onRevoke={manage ? () => revoke(id, n.name || id) : undefined} />

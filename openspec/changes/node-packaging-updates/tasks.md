@@ -13,7 +13,8 @@
 - [x] 2.1 Node package without a Node.js requirement; doctor no longer checks Node.js. Claude Code is downloaded by
       install.sh from the SDK's npm platform package pinned in `claude-code/claude.lock` (sha512); macOS signs
       `factory-claude` ad hoc on install.
-- [ ] 2.2 Self-update with drain, verification, rollback; per-company automatic or with approval; channels.
+- [x] 2.2 Self-update with drain, verification, rollback; per-company automatic or with approval; channels.
+      Done 2026-11-12 with 3.4. Channels: not now (owner decision 3): one stable release, the one Core hands out.
 - [x] 2.3 Core: supported node version range; nodes below it get no work; web shows versions and "update".
       Done 2026-11-12 with 3.1: `min_node_version` (code minimum, none yet; `FACTORY_MIN_NODE_VERSION`), no offers,
       claims refused `update_required`, queued reason `update_required`, `node_update_required` event; the card shows
@@ -40,9 +41,35 @@
       Settings panel with node.yaml's value and applied/pending/refused per setting (`TestSettingsFromTheWebRealCore`,
       `TestApplyRemote`, `TestPoolResize`, `TestNodeConfig`, `TestNodeConfigRoutes`). Settings: slots, conversation
       slots, labels, driver enabled, disk watermarks (owner decision 5).
-- [ ] 3.3 One Go binary (shim and mcp as subcommands), Codex standalone binary from `codex.lock`, runtimes managed by
+- [x] 3.3 One Go binary (shim and mcp as subcommands), Codex standalone binary from `codex.lock`, runtimes managed by
       the node; install.sh needs only curl, tar, git.
-- [ ] 3.4 Update flow: download and verify, self-test, drain, switch, health check, rollback; policy auto/approve.
+      Done 2026-11-12: `cmd/factory-shim` and `cmd/factory-mcp` are gone; `factory-node shim` / `factory-node mcp`, and
+      run as factory-shim (or a guarded command linked to it) / factory-mcp it is that program (`TestPersonality`, the
+      worker and driver tests run the shim and MCP adapter through links); the package and `make build` link
+      factory-shim and factory-mcp to factory-node. `internal/driver/codex/codex.lock` pins the official standalone
+      Codex 0.162.1 per platform (URL, sha256, archive entry; `TestCodexLock`), copied into each package as
+      `codex/codex.lock`; `internal/node/runtimes` installs Claude Code (sha512) and Codex (sha256) from the locks into
+      the package directory, reusing the previous version's file at the same pin (`TestCodexFromLock`,
+      `TestClaudeFromLock` against a fake release server); the node runs `codex/codex` unless node.yaml or CODEX_BIN
+      names another (`node.CodexBinary`). install.sh needs curl, tar and git (sha256sum/shasum of the system): it
+      unpacks into `versions/<v>`, runs `factory-node runtimes update -home -prev`, points `current`, `bin`,
+      `claude-code`, `codex` at it, keeps the previous version, removes a pre-layout install's own dirs and npm Codex
+      and rewrites node.yaml's npm Codex binary (`TestInstallScriptVersionedLayout` runs it against a fake Core).
+- [x] 3.4 Update flow: download and verify, self-test, drain, switch, health check, rollback; policy auto/approve.
+      Done 2026-11-12: Core offers a node behind its release the package of the node's `platform` (register) with
+      its sha256 in every poll and heartbeat answer (`update: {version, url, sha256, attempt, now}`); policy per
+      company `auto` (default) / `approve` (`GET/PUT /settings/node-updates`, the Nodes page), approval and "update now"
+      with `POST /nodes/{id}/update` (owners and admins) and the Telegram button of `node_update_available`; a failed
+      attempt is not offered again until a retry (new attempt). The node (`runner.Updater`, `internal/node/selfupdate`)
+      downloads into `versions/<v>`, checks the sha256, fetches the runtimes, runs `factory-node selftest` (binary,
+      node.yaml, Core with the node's keys, the enabled drivers' probes; no model call), drains (no claims, waits for
+      live runs without a limit; "update now" stops waiting and the restart interrupts them), switches `current`,
+      exits 75 for launchd/systemd (`FACTORY_NODE_SERVICE` in the units) and the new version must register with a
+      usable driver within 2 minutes and 3 starts, else it switches back and the previous version reports
+      `update_failed`; events `node_update_started`, `node_update_failed` (attention), `node_updated`; the Nodes page
+      shows the step, "Update to v", "Update now", "Retry update" and the policy (`TestNodeUpdateRealCore`,
+      `TestNodeUpdateNowAndWithdraw`, `TestNodeUpdateHealthDeadline`, `TestNodeUpdateRoutes`, `TestDecideNodeUpdate`,
+      `TestUnpackSwitchLocate`, `TestHealthCheckRollback`). Migration 0039.
 - [x] 3.6 Detected labels (throughput-signals, 2026-11-12): the node reports what it can do (`os:macos|linux`, arch,
       `xcode`/`ios-sim`, `headless`, `gpu`) next to the labels set by the owner; the Nodes page and the manager's
       `factory_nodes` show them; agents and tasks select on them like on set labels; tests.
@@ -53,6 +80,13 @@
       (`TestDetectLabels`, `TestDetectedLabelsSelect`, `TestFactoryNodesTool`). Tasks select through their agent's
       labels (tasks have no labels of their own).
 
-Blockers (2026-11-12): checking 3.1, 3.2 and 3.6 on the real nodes (the owner's Mac, hetzner-hel1) needs one manual
-reinstall of each node with a package built from this change and the Core deployed; not done here (no prod access).
-- [ ] 3.5 (later) Claude driven without the JS shim.
+Blockers (2026-11-12): checking 3.1, 3.2, 3.3, 3.4 and 3.6 on the real nodes (the owner's Mac, hetzner-hel1) needs
+one manual reinstall of each node with a package built from this change (the last manual one: the versioned layout)
+and the Core deployed, then one release later to watch a real update (launchd and systemd restarting into the new
+version, a rollback); not done here (no prod access, no real nodes). The Codex pins in `codex.lock` are the GitHub
+release's published sha256 digests of rust-v0.162.1; the darwin-arm64 archive was downloaded and matches (entry
+`codex-aarch64-apple-darwin`), the other three are not downloaded here and the binaries were not run on a machine.
+Release signatures (verified by the node before the self-test) come with connector-trust 2.2 (Apple account).
+- [ ] 3.5 (later) Claude driven without the JS shim. Not started: the owner made it conditional (decision 4) on the
+      Go driver passing the shim's driver tests and live smokes after the update flow, with the shim kept as a
+      fallback (`drivers.claude.mode`).

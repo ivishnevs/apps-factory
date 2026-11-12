@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,11 +24,7 @@ import (
 // and the run ends succeeded with exit_state accepted, although the turn kept running after the exit.
 func TestExplicitExitEndToEnd(t *testing.T) {
 	bin := t.TempDir()
-	for _, name := range []string{"factory-mcp", "factory-shim"} {
-		if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, name), "appfactory/cmd/"+name).CombinedOutput(); err != nil {
-			t.Fatalf("%v\n%s", err, out)
-		}
-	}
+	buildNodeBin(t, bin)
 	beat := storage.HeartbeatSeconds
 	storage.HeartbeatSeconds = 1
 	defer func() { storage.HeartbeatSeconds = beat }()

@@ -17,6 +17,26 @@ with approval.
 - **WHEN** a new release appears while the node runs two tasks
 - **THEN** the node SHALL stop claiming, wait for both to end, switch, and resume claiming after a health check
 
+#### Scenario: New version does not come up
+- **WHEN** the new version does not register with a usable driver within 2 minutes after the switch
+- **THEN** the node SHALL switch back to the previous version, restart it and report `update_failed` with the reason,
+  and Core SHALL not offer that release again until an owner or admin retries it
+
+#### Scenario: Approval and update now
+- **WHEN** the company updates with approval and a node is behind the release
+- **THEN** the Nodes page and Telegram SHALL ask to approve it, the node SHALL update only once approved, and "update
+  now" SHALL stop the drain from waiting for live runs, which are queued again
+
+### Requirement: One node executable with pinned runtimes
+A node package SHALL carry one Go executable (the command shim and the MCP adapter are its subcommands and links to
+it) and lock files that pin Claude Code and the standalone Codex per platform; the node SHALL install the pinned
+runtimes itself and check each against its checksum, so installing a node needs only curl, tar and git.
+
+#### Scenario: Machine without npm
+- **WHEN** a person installs a node on a machine without Node.js or npm
+- **THEN** the node SHALL download Codex and Claude Code as its locks pin them, refuse a download whose checksum
+  differs, and run Codex agents with that Codex
+
 ### Requirement: Nodes report their version and Core enforces a minimum
 A node SHALL report its package version when it registers; the Nodes page SHALL show it; a node below Core's
 `min_node_version` SHALL get no work and its card SHALL say "update required".

@@ -476,9 +476,14 @@ func TestBuiltShimDecider(t *testing.T) {
 	if _, err = exec.LookPath("node"); err != nil {
 		t.Skip("node not installed")
 	}
-	bin := filepath.Join(t.TempDir(), "factory-shim")
-	if out, err := exec.Command("go", "build", "-o", bin, "appfactory/cmd/factory-shim").CombinedOutput(); err != nil {
+	// The package links factory-shim to factory-node (node-packaging-updates A1).
+	binDir := t.TempDir()
+	bin := filepath.Join(binDir, "factory-shim")
+	if out, err := exec.Command("go", "build", "-o", filepath.Join(binDir, "factory-node"), "appfactory/cmd/factory-node").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	if err := os.Symlink("factory-node", bin); err != nil {
+		t.Fatal(err)
 	}
 	rules := append(policies.HostUI().Spec.Rules, policies.Rule{Name: "push", Type: "access", Commands: []string{"git push *"}, Effect: "approval", Instruction: "Ask first."})
 	dir := t.TempDir()

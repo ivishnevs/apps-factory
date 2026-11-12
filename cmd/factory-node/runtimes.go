@@ -1,32 +1,26 @@
 package main
 
 import (
-	"archive/tar"
-	"bufio"
-	"compress/gzip"
-	"crypto/sha512"
-	"encoding/hex"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
+	"syscall"
 
-	"appfactory/internal/driver/codex"
 	"appfactory/internal/node"
+	pinned "appfactory/internal/node/runtimes"
 )
 
-// `factory-node runtimes update [claude|codex]` (node-packaging-updates 2.4) installs or updates the runtimes to the
-// versions this node supports, on request only: Claude Code from the package's claude-code/claude.lock (sha512
-// checked), Codex with npm into the node's codex directory. Logins are untouched.
+// `factory-node runtimes update [claude|codex]` (node-packaging-updates 2.4, 3.3) installs the runtimes the package
+// pins: Claude Code from claude-code/claude.lock (sha512) and the standalone Codex from codex/codex.lock (sha256), into
+// the package directory, on request (install.sh runs it; a node update fetches the new version's runtimes the same
+// way before it switches). Logins are untouched. -home names the package directory (default: the running one).
 func runtimes(args []string) (int, error) {
-	const use = "usage: factory-node runtimes update [claude|codex] [-config node.yaml]"
+	const use = "usage: factory-node runtimes update [claude|codex] [-config node.yaml] [-home DIR] [-prev DIR]"
 	if len(args) == 0 || args[0] != "update" {
 		return 2, errors.New(use)
 	}
@@ -40,6 +34,8 @@ func runtimes(args []string) (int, error) {
 	}
 	fs := flag.NewFlagSet("runtimes update", flag.ContinueOnError)
 	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+")")
+	homeFlag := fs.String("home", "", "the package directory (default: the one this executable is in)")
+	prev := fs.String("prev", "", "a package directory whose runtimes are reused when they have the same pin")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return 2, errors.New(use)
 	}
@@ -47,15 +43,25 @@ func runtimes(args []string) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	home := packageHome(c)
+	home := *homeFlag
+	if home == "" {
+		home = packageHome(c)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	in := pinned.Installer{}
 	failed := false
 	for _, rt := range which {
 		var msg string
 		switch rt {
 		case "claude":
-			msg, err = updateClaudeCode(home, linuxLibc(), &http.Client{})
+			msg, err = in.Claude(ctx, home, *prev, pinned.Libc())
 		case "codex":
-			msg, err = updateCodex(home, c.Drivers.Codex.Binary)
+			if own := ownCodex(home, c.Drivers.Codex.Binary); own != "" {
+				msg, err = "", fmt.Errorf("Codex is your own install (%s): the node keeps using it; remove drivers.codex.binary from node.yaml to use the pinned one", own)
+				break
+			}
+			msg, err = in.Codex(ctx, home, *prev, pinned.Platform())
 		}
 		if err != nil {
 			failed = true
@@ -71,7 +77,22 @@ func runtimes(args []string) (int, error) {
 	return 0, nil
 }
 
-// packageHome is the installed package's directory (the parent of bin).
+// ownCodex is drivers.codex.binary when it is a Codex outside the node's package (the person's own install).
+func ownCodex(home, binary string) string {
+	if binary == "" {
+		return ""
+	}
+	b := node.ExpandHome(binary)
+	for _, base := range []string{home, filepath.Dir(filepath.Dir(home))} { // versions/<v>, and the node's home
+		if strings.HasPrefix(b, base+string(filepath.Separator)) {
+			return ""
+		}
+	}
+	return binary
+}
+
+// packageHome is the installed package's directory (the parent of bin), resolved through the links of the versioned
+// layout (<home>/bin -> current/bin -> versions/<v>/bin).
 func packageHome(c node.Config) string {
 	binDir := c.BinDir
 	if binDir == "" {
@@ -79,121 +100,8 @@ func packageHome(c node.Config) string {
 			binDir = filepath.Dir(exe)
 		}
 	}
+	if real, err := filepath.EvalSymlinks(binDir); err == nil {
+		binDir = real
+	}
 	return filepath.Dir(binDir)
-}
-
-func linuxLibc() string {
-	if runtime.GOOS != "linux" {
-		return "any"
-	}
-	if m, _ := filepath.Glob("/lib/ld-musl-*"); len(m) > 0 {
-		return "musl"
-	}
-	return "glibc"
-}
-
-// updateClaudeCode downloads the Claude Code build pinned for this platform and libc in home/claude-code/claude.lock,
-// checks its sha512 and replaces home/claude-code/claude atomically (running agents keep the old file).
-func updateClaudeCode(home, libc string, client *http.Client) (string, error) {
-	dir := filepath.Join(home, "claude-code")
-	f, err := os.Open(filepath.Join(dir, "claude.lock"))
-	if err != nil {
-		return "", fmt.Errorf("this node's package has no claude-code/claude.lock: reinstall the node with install.sh")
-	}
-	defer f.Close()
-	var url, want string
-	for sc := bufio.NewScanner(f); sc.Scan(); {
-		if p := strings.Fields(sc.Text()); len(p) == 3 && p[0] == libc {
-			url, want = p[1], p[2]
-		}
-	}
-	if url == "" {
-		return "", fmt.Errorf("claude.lock has no build for %s", libc)
-	}
-	client.Timeout = 10 * time.Minute
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download %s: %s", url, resp.Status)
-	}
-	tmp, err := os.CreateTemp(dir, "claude-*.tgz")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	h := sha512.New()
-	if _, err = io.Copy(io.MultiWriter(tmp, h), resp.Body); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	tmp.Close()
-	if got := hex.EncodeToString(h.Sum(nil)); got != want {
-		return "", errors.New("the download does not match its sha512 in claude.lock; nothing changed")
-	}
-	next := filepath.Join(dir, "claude.next")
-	if err = extractEntry(tmp.Name(), "package/claude", next); err != nil {
-		return "", err
-	}
-	if err = os.Rename(next, filepath.Join(dir, "claude")); err != nil {
-		return "", err
-	}
-	out, _ := exec.Command(filepath.Join(dir, "claude"), "--version").Output()
-	return "Claude Code " + strings.TrimSpace(string(out)) + " in " + dir, nil
-}
-
-// extractEntry writes the tar.gz entry name of archive to dest (mode 0755).
-func extractEntry(archive, name, dest string) error {
-	f, err := os.Open(archive)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	tr := tar.NewReader(gz)
-	for {
-		hd, err := tr.Next()
-		if err == io.EOF {
-			return fmt.Errorf("%s not in the download", name)
-		}
-		if err != nil {
-			return err
-		}
-		if hd.Name != name {
-			continue
-		}
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return err
-		}
-		if _, err = io.Copy(out, tr); err != nil {
-			out.Close()
-			return err
-		}
-		return out.Close()
-	}
-}
-
-// updateCodex installs the supported Codex next to the node with npm; a Codex installed elsewhere is the person's
-// own and only gets the command to run.
-func updateCodex(home, binary string) (string, error) {
-	version := strings.TrimPrefix(codex.SupportedVersion, "codex-cli ")
-	prefix := filepath.Join(home, "codex")
-	if binary != "" && !strings.HasPrefix(node.ExpandHome(binary), prefix+string(filepath.Separator)) {
-		return "", fmt.Errorf("Codex is your own install (%s): run npm install -g @openai/codex@%s", binary, version)
-	}
-	if _, err := exec.LookPath("npm"); err != nil {
-		return "", fmt.Errorf("npm is required for Codex: install Node.js, or install codex-cli %s yourself", version)
-	}
-	cmd := exec.Command("npm", "install", "--prefix", prefix, "--no-audit", "--no-fund", "--no-update-notifier", "--loglevel=error", "@openai/codex@"+version)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return "codex-cli " + version + " in " + prefix, nil
 }

@@ -91,6 +91,10 @@ type NodeRegistration struct {
 	// DetectedLabels are what the node found it can do (macos or linux, arm64 or amd64, xcode, ios-sim, headless,
 	// gpu: node-packaging-updates 3.6); they select runs like Labels, which the owner sets.
 	DetectedLabels []string `json:"detected_labels,omitempty"`
+	// Platform is the package platform the node runs (darwin-arm64, ...): Core offers it that package (node-packaging-updates
+	// 3.4). Update is the node's update report; absent from nodes older than updates from the web.
+	Platform string                     `json:"platform,omitempty"`
+	Update   *protocol.NodeUpdateStatus `json:"update,omitempty"`
 }
 
 // FeatureContextWindow: the node's drivers apply runtime option context_window (work-and-conversation-runs); older
@@ -117,6 +121,11 @@ type Node struct {
 	MinVersion     string `json:"min_version,omitempty"`
 	// Config is the node's settings from the web: desired, the node's report and each setting's state.
 	Config NodeConfigView `json:"config"`
+	// UpdateApproved is the release approved for the node (at UpdateApprovedAt, the attempt); UpdateNow the release the
+	// owner wants installed at once (node-packaging-updates 3.4).
+	UpdateApproved   string `json:"update_approved,omitempty"`
+	UpdateApprovedAt int64  `json:"update_approved_at,omitempty"`
+	UpdateNow        string `json:"update_now,omitempty"`
 }
 
 // Incarnation is this database's identity. Store.Open creates it, and replaces it when the database
@@ -179,6 +188,8 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 		return out, inputError("reason start or reregister required")
 	case len(r.Version) > 64:
 		return out, inputError("version: at most 64 characters")
+	case r.Platform != "" && !nodePlatform.MatchString(r.Platform):
+		return out, inputError("platform: os-arch such as darwin-arm64 required")
 	}
 	if err := validDetected(r.DetectedLabels); err != nil {
 		return out, err
@@ -199,7 +210,8 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	defer tx.Rollback()
 	var epoch int64
 	var before []byte
-	err = tx.QueryRowContext(ctx, "SELECT epoch,drivers FROM nodes WHERE company_id=? AND id=?", company, r.NodeID).Scan(&epoch, &before)
+	var priorVersion string
+	err = tx.QueryRowContext(ctx, "SELECT epoch,drivers,version FROM nodes WHERE company_id=? AND id=?", company, r.NodeID).Scan(&epoch, &before, &priorVersion)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return out, err
 	}
@@ -218,15 +230,22 @@ func (s *Store) RegisterNode(ctx context.Context, company string, r NodeRegistra
 	features, _ := json.Marshal(nonNil(r.Features))
 	detected, _ := json.Marshal(nonNil(r.DetectedLabels))
 	now := tx.now().Unix()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees,conversation_slots,features,version,detected_labels)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
+	if _, err = tx.ExecContext(ctx, `INSERT INTO nodes(company_id,id,name,epoch,protocol_version,slots,drivers,resources,labels,registered_at,last_seen,online,worktrees,conversation_slots,features,version,detected_labels,platform)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?) ON CONFLICT(company_id,id) DO UPDATE SET name=excluded.name,epoch=excluded.epoch,
  protocol_version=excluded.protocol_version,slots=excluded.slots,drivers=excluded.drivers,resources=excluded.resources,
  labels=excluded.labels,health='{}',registered_at=excluded.registered_at,last_seen=excluded.last_seen,online=1,worktrees=excluded.worktrees,conversation_slots=excluded.conversation_slots,features=excluded.features,
- version=excluded.version,detected_labels=excluded.detected_labels`,
-		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees, r.ConversationSlots, features, r.Version, detected); err != nil {
+ version=excluded.version,detected_labels=excluded.detected_labels,platform=excluded.platform`,
+		company, r.NodeID, r.Name, r.Epoch, r.ProtocolVersion, r.Slots, drivers, resources, labels, now, now, r.Worktrees, r.ConversationSlots, features, r.Version, detected, r.Platform); err != nil {
 		return out, err
 	}
 	if err = nodeVersionChecked(ctx, tx, r); err != nil {
+		return out, err
+	}
+	// node-packaging-updates 3.4: the version it runs now and what it reports of its update.
+	if err = nodeVersionChanged(ctx, tx, r, priorVersion); err != nil {
+		return out, err
+	}
+	if err = applyUpdateReport(ctx, tx, r.NodeID, r.Name, r.Update); err != nil {
 		return out, err
 	}
 	if err = nodeRegistered(ctx, tx, r, prior); err != nil {
@@ -844,6 +863,8 @@ type NodeHeartbeat struct {
 	Capacity *NodeCapacity `json:"capacity,omitempty"`
 	// Config is the node's report of the settings from the web it applied; absent from older nodes.
 	Config *protocol.NodeConfigReport `json:"config,omitempty"`
+	// Update is the node's update report (node-packaging-updates 3.4); nil: none in progress and none failed.
+	Update *protocol.NodeUpdateStatus `json:"update,omitempty"`
 }
 
 // NodeCapacity is what a node takes on now: its slots and labels after the settings from the web.
@@ -941,6 +962,9 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		return out, err
 	}
 	if out.ConfigVersion, err = applyNodeReport(ctx, tx, node, name, hb.Capacity, hb.Config); err != nil {
+		return out, err
+	}
+	if err = applyUpdateReport(ctx, tx, node, name, hb.Update); err != nil {
 		return out, err
 	}
 	if out.Checks, err = projectChecks(ctx, tx, node); err != nil {
@@ -1194,7 +1218,7 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 // Nodes lists the registered nodes.
 func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT n.id,n.name,n.epoch,n.protocol_version,n.slots,n.conversation_slots,n.drivers,n.resources,n.labels,n.health,n.registered_at,n.last_seen,n.online,n.worktrees,
- n.version,n.detected_labels,n.config_report,coalesce(c.version,0),coalesce(c.config,'{}'::jsonb),coalesce(c.updated_by,''),coalesce(c.updated_at,0)
+ n.version,n.detected_labels,n.config_report,n.platform,n.update_report,n.update_approved,n.update_approved_at,n.update_now,coalesce(c.version,0),coalesce(c.config,'{}'::jsonb),coalesce(c.updated_by,''),coalesce(c.updated_at,0)
  FROM nodes n LEFT JOIN node_configs c ON c.company_id=n.company_id AND c.node_id=n.id WHERE n.company_id=? ORDER BY n.name,n.id`, company)
 	if err != nil {
 		return nil, err
@@ -1203,9 +1227,9 @@ func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 	out := []Node{}
 	for rows.Next() {
 		var n Node
-		var drivers, resources, labels, health, detected, report, desired []byte
+		var drivers, resources, labels, health, detected, report, desired, update []byte
 		if err = rows.Scan(&n.NodeID, &n.Name, &n.Epoch, &n.ProtocolVersion, &n.Slots, &n.ConversationSlots, &drivers, &resources, &labels, &health, &n.RegisteredAt, &n.LastSeen, &n.Online, &n.Worktrees,
-			&n.Version, &detected, &report, &n.Config.Version, &desired, &n.Config.UpdatedBy, &n.Config.UpdatedAt); err != nil {
+			&n.Version, &detected, &report, &n.Platform, &update, &n.UpdateApproved, &n.UpdateApprovedAt, &n.UpdateNow, &n.Config.Version, &desired, &n.Config.UpdatedBy, &n.Config.UpdatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(drivers, &n.Drivers)
@@ -1215,6 +1239,7 @@ func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 		n.Health = json.RawMessage(health)
 		n.UpdateRequired, n.MinVersion = s.updateRequired(n.Version) != "", s.MinNodeVersion
 		n.Config.fill(desired, report)
+		scanNodeUpdate(&n, update)
 		out = append(out, n)
 	}
 	return out, rows.Err()

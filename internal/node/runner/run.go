@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"appfactory/internal/driver"
@@ -38,13 +39,7 @@ func buildDrivers(c node.Config, getenv func(string) string, on bool) []driver.D
 	var r []driver.Driver
 	allowed := func(rt string) bool { return len(c.Policy.Runtimes) == 0 || slices.Contains(c.Policy.Runtimes, rt) } // connector-trust: policy.runtimes
 	if c.Drivers.Codex.On() == on && allowed("codex") {
-		bin := c.Drivers.Codex.Binary
-		if bin == "" {
-			bin = getenv("CODEX_BIN")
-		}
-		if bin == "" {
-			bin = "codex"
-		}
+		bin := node.CodexBinary(c, getenv)
 		r = append(r, codex.Driver{Binary: bin, Home: node.ExpandHome(c.Drivers.Codex.Home), AccountsDir: node.AccountsDir(c.StateDir), Sandbox: c.Sandbox, FullAccess: c.Policy.FullAccess, Net: node.SystemNetwork()})
 	}
 	if cc := c.Drivers.Claude; cc.On() == on && allowed("claude") {
@@ -57,9 +52,9 @@ func buildDrivers(c node.Config, getenv func(string) string, on bool) []driver.D
 	return r
 }
 
-// Main checks the environment (the node's keys from enrollment, FACTORY_URL) and runs the node until ctx ends; Run
+// Main checks the environment (update: the version updates, nil: none) (the node's keys from enrollment, FACTORY_URL) and runs the node until ctx ends; Run
 // checks the drivers.
-func Main(ctx context.Context, c node.Config, getenv func(string) string) error {
+func Main(ctx context.Context, c node.Config, getenv func(string) string, update *Updater) error {
 	env := func(k, d string) string {
 		if v := getenv(k); v != "" {
 			return v
@@ -86,7 +81,7 @@ func Main(ctx context.Context, c node.Config, getenv func(string) string) error 
 		return node.ErrNoKeys
 	}
 	slog.Info("signing requests to Core", "fingerprint", keys.Fingerprint())
-	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Optional: OptionalDrivers(c, getenv), Host: node.LocalHost(runtime.GOOS), Box: keys.Box, Net: node.SystemNetwork()})
+	return Run(ctx, Node{Config: c, API: api, Drivers: drivers, Optional: OptionalDrivers(c, getenv), Host: node.LocalHost(runtime.GOOS), Box: keys.Box, Net: node.SystemNetwork(), Update: update})
 }
 
 // SkillStoreMaxAge is how long a stored skill stays unused before the GC removes it.
@@ -110,6 +105,8 @@ type Node struct {
 	Version  string
 	// Net runs the self-checks' network check of the forge (net.forge, setup-assistant 4.1); nil skips it.
 	Net *node.Network
+	// Update updates the node to the release Core offers (node-packaging-updates 3.4); nil: no updates.
+	Update *Updater
 
 	health *driverHealth  // set by Run
 	remote *remoteConfig  // set by Run
@@ -236,11 +233,25 @@ func Run(ctx context.Context, n Node) error {
 		defer done()
 		jan.RunStopped(hookCtx, spec.ID, spec.TaskID, worktree)
 	}
+	// Version updates (node-packaging-updates 3.4): a switch or a rollback stops the node with ErrRestart; a new
+	// version's health check passes once it registered here with a usable driver (checked above).
+	var restarting atomic.Bool
+	healthy := make(chan struct{})
+	if n.Update != nil {
+		n.Update.start()
+		n.Update.base = n.API.URL
+		n.Update.restart = func() { restarting.Store(true); stop() }
+		go n.Update.healthCheck(ctx, healthy)
+	}
 	var s *session
 	var checks *selfChecks
 	if s, err = newSession(ctx, n, trees); err != nil {
+		if restarting.Load() {
+			return ErrRestart
+		}
 		return err
 	}
+	close(healthy)
 	if s.company != "" && s.company != company {
 		// The node would fetch commands no Core of its key's company ever sends.
 		return fmt.Errorf("this node enrolled in company %s, but Core says its key belongs to company %s: enroll it again", company, s.company)
@@ -340,9 +351,13 @@ func Run(ctx context.Context, n Node) error {
 	done := make(chan struct{})
 	if s != nil {
 		local, localWork := pool.Claimable, pool.WorkClaimable
-		pool.Claimable = func() bool { return s.claimable() && local() && !checks.blocked() }
+		// A node draining for an update claims nothing (node-packaging-updates 3.4).
+		pool.Claimable = func() bool { return s.claimable() && local() && !checks.blocked() && !n.Update.Draining() }
 		pool.WorkClaimable = func() bool { return s.workClaimable() && (localWork == nil || localWork()) }
 		s.busy = func() int { return busySlots(pool) }
+		if n.Update != nil {
+			n.Update.busy, n.Update.kick = s.busy, s.driversChanged
+		}
 		go func() {
 			defer close(done)
 			if failed = s.run(ctx); failed != nil {
@@ -360,6 +375,9 @@ func Run(ctx context.Context, n Node) error {
 	err = pool.Run(ctx)
 	stop()
 	<-done
+	if restarting.Load() {
+		return ErrRestart
+	}
 	if failed != nil {
 		return failed
 	}

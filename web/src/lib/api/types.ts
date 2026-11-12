@@ -120,8 +120,15 @@ export interface FactoryNode {
   // (macos/linux, arm64/amd64, xcode, ios-sim, headless, gpu) next to the owner's; the settings from the web.
   version?: string; update_required?: boolean; min_version?: string; detected_labels?: string[] | null;
   config?: NodeConfigView;
+  // node-packaging-updates 3.4: the package platform, the node's update report, the release approved for it (attempt
+  // at update_approved_at) and the release the owner wants installed at once.
+  platform?: string; update?: NodeUpdateStatus; update_approved?: string; update_approved_at?: number; update_now?: string;
   [k: string]: unknown;
 }
+// protocol.NodeUpdateStatus: downloading, testing, draining (runs: live runs it waits for), switching, failed (reason).
+export interface NodeUpdateStatus { state: "downloading" | "testing" | "draining" | "switching" | "failed"; version: string; from?: string; reason?: string; runs?: number; attempt?: number; at?: number }
+// GET /settings/node-updates: the company's node update policy and the release this Core hands out.
+export interface NodeUpdateSettings { policy: "auto" | "approve"; release?: string }
 // protocol.NodeSettings: the settings from the web (an absent one keeps node.yaml's).
 export interface NodeSettings {
   slots?: number; conversation_slots?: number; labels?: string[];

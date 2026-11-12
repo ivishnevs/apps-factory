@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -282,9 +283,14 @@ func TestFakeDriverCancellation(t *testing.T) {
 
 // A scripted tool call goes through the real factory-mcp adapter with the run credential.
 func TestFakeDriverToolCall(t *testing.T) {
-	mcp := filepath.Join(t.TempDir(), "factory-mcp")
-	if out, err := exec.Command("go", "build", "-o", mcp, "appfactory/cmd/factory-mcp").CombinedOutput(); err != nil {
+	// The package links factory-mcp to factory-node (node-packaging-updates A1).
+	dir := t.TempDir()
+	mcp := filepath.Join(dir, "factory-mcp")
+	if out, err := exec.Command("go", "build", "-o", filepath.Join(dir, "factory-node"), "appfactory/cmd/factory-node").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	if err := os.Symlink("factory-node", mcp); err != nil {
+		t.Fatal(err)
 	}
 	sc, err := fake.Load(filepath.Join("testdata", "fake", "tool_call.json"))
 	if err != nil {
