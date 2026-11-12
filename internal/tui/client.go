@@ -83,8 +83,11 @@ type Overview struct {
 	LiveRuns  map[string]storage.Run `json:"live_runs,omitempty"`
 	Inbox     []messaging.Message    `json:"inbox"`
 	Approvals []approvals.Approval   `json:"approvals"`
-	At        time.Time              `json:"at"`
-	Errors    map[string]string      `json:"errors,omitempty"`
+	// Throughput are the causes of queued work while node capacity is idle or unusable (GET /throughput,
+	// throughput-signals): the board's Bottlenecks.
+	Throughput []storage.Bottleneck `json:"throughput,omitempty"`
+	At         time.Time            `json:"at"`
+	Errors     map[string]string    `json:"errors,omitempty"`
 }
 
 // TaskDetail is one task's detail pane.
@@ -388,6 +391,7 @@ func (c *HTTPClient) Overview(ctx context.Context) (Overview, error) {
 	part("nodes", c.get(ctx, "/nodes", &o.Nodes))
 	part("inbox", c.get(ctx, "/inbox", &o.Inbox))
 	part("approvals", c.get(ctx, "/approvals", &o.Approvals))
+	part("throughput", c.get(ctx, "/throughput", &o.Throughput))
 	midnight := startOfDay(o.At)
 	part("costs", c.get(ctx, fmt.Sprintf("/costs?by=agent&since=%d", midnight.Unix()), &o.Costs))
 	part("task_costs", c.get(ctx, "/costs?by=task", &o.TaskCosts))

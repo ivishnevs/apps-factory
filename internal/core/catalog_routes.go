@@ -71,7 +71,7 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	required, reviewer := a.Review()
 	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
 		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
-		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
+		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, MaxRunsFromRole: a.LimitFromRole, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
 	}
@@ -99,7 +99,9 @@ type TeamMember struct {
 	ReviewPaths    []string `json:"review_paths,omitempty"`
 	// Run kinds (work-and-conversation-runs), resolved: the work limit, the conversation cap (0: none), whether
 	// conversations share the work limit, and the context window per kind ("" keeps the runtime default).
-	MaxRuns             int                  `json:"max_concurrent_runs"`
+	MaxRuns int `json:"max_concurrent_runs"`
+	// MaxRunsFromRole: the work limit is the role's default from company.yaml concurrency (throughput-signals).
+	MaxRunsFromRole     bool                 `json:"max_runs_from_role,omitempty"`
 	ConversationMaxRuns int                  `json:"conversation_max_runs,omitempty"`
 	ShareWorkLimit      bool                 `json:"share_work_limit,omitempty"`
 	ContextWindow       config.ContextWindow `json:"context_window,omitzero"`

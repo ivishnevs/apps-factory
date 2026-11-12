@@ -555,6 +555,31 @@ Once a minute Core's tick checks every released, non-terminal task (reliable-rec
 - `no_progress` — the task's runs have made no progress (Failure, retry and cancellation) for 8 hours since
   the first run after its last progress: one attention event `task.alert.no_progress` per episode, cleared
   (`task.alert_cleared.no_progress`) and re-armed by progress or authority input.
+- `throughput` — work waits while node capacity is idle or unusable (throughput-signals, below).
+
+### Throughput signals
+
+The stall sweep compares, per project, queued work with idle capacity (free work slots on online nodes that are
+neither paused by the owner nor at a critical disk). Its causes come only from what Core already computes: the
+reason of every QUEUED run (`GET /runs/{id}/why`: owner or quota pause, the agent's limit, a work or session tie,
+and each node's answer: owner pause, critical disk (`node_disk_critical`), offline, driver, labels, readiness,
+slots, resources), the capacity waits of tasks that have no run yet (the agent's limit, the project workspace, a
+busy tied node, full nodes) and the dependency graph. Runs and tasks are grouped by reason and subject (the agent,
+node, pause or project that holds them), so a reason added to the queued reasons is picked up unchanged. A reason
+that only means the capacity is in use (all slots held, a resource held, the agent's limit, a tie to an active node)
+counts only while some slot is idle; every other reason counts as it is. A gate is an open task that at least 3
+released tasks wait on directly; the cause names them and everything behind it.
+
+A cause seen by a sweep starts an episode (`throughput_causes`, migration 0035) that ends when a sweep no longer sees
+it. Past the company's threshold (`throughput_after_minutes`, default 30, 5..1440; `GET|PUT
+/settings/company/stalls`) Core raises one owner alert `throughput` on the first affected task (attention event
+`task.alert.throughput`, cleared with `task.alert_cleared.throughput`) and sends the project's lead one notification
+from `factory` per sweep listing the causes that became due, each with what would release it, e.g. "network-dev: 4
+queued, limit 1, 4 free slots: raise the agent's limit … or reassign …", "1 run wait for hetzner-hel1: paused
+(critical disk), disk critical, 4.9 GiB free (critical 5 GiB); released by itself at 14:30 UTC: free disk on
+hetzner-hel1 …, or Release now its tied runs", "7 tasks wait behind MS-4 "QA verification" (READY, game-qa): …
+drop or move the dependency …". The sweep never changes anything else. `GET /throughput[?project=]` lists the
+current causes with `since` and `due`; the board shows them as Bottlenecks.
 
 An escalation (reliable-recovery D5, migration 0017) is a park of kind `escalation` on the task (`why` shows
 `parked:escalation` and who answers) plus a question from `factory` with the allowed answers as one

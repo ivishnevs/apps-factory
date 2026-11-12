@@ -5,7 +5,7 @@ import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import type { FactoryNode, QueuedReason, Run, Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAction, needsOwner, queuedLine, showWhy, since } from "./model";
+import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAction, needsOwner, queuedLabel, queuedLine, showWhy, since } from "./model";
 import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
 import { usePrefetchTask } from "@/lib/api/client";
@@ -78,6 +78,8 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
   const dup = task.possible_duplicates?.length ?? 0;
   const node = run?.node_id ? nodes?.find((n) => n.node_id === run.node_id)?.name ?? run.node_id.slice(0, 8) : "";
   const live = run && run.status !== "QUEUED" && run.started_at > 0;
+  // throughput-signals: a queued run (not held back) is In progress with its reason, never under To do.
+  const waits = !held && queued && !live ? `queued: ${queuedLabel(queued)}` : "";
   // node-ties: a task tied to a node by its unsaved work runs only there; the card names that node.
   const pinnedTo = !live && !["DONE", "CANCELLED"].includes(task.status) ? nodes?.find((n) => (n.tied?.work ?? n.tied?.pinned)?.includes(task.id)) : undefined;
   return (
@@ -107,6 +109,10 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
       {held ? (
         <p className="mt-1.5 flex min-w-0 items-start gap-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
           <Clock aria-hidden className="mt-[3px] size-3.5 shrink-0" /><span className="min-w-0 wrap-anywhere font-medium">{held}</span>
+        </p>
+      ) : waits ? (
+        <p className="mt-1.5 flex min-w-0 items-start gap-1.5 text-xs leading-5 text-muted-foreground" title={queued?.detail}>
+          <Clock aria-hidden className="mt-[3px] size-3.5 shrink-0" /><span className="min-w-0 wrap-anywhere"><span className="font-medium">{waits}</span>{queued?.detail ? <span className="text-muted-foreground/80">{" · "}{queued.detail}</span> : null}</span>
         </p>
       ) : showWhy(task) && <WhyLine task={task} look={look} now={now} compact className={action ? "mt-0.5" : "mt-1.5"} />}
       {live && (

@@ -101,6 +101,7 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return ok && !moved(ref).After(at) && now.Sub(at) < backlogAfter
 	}
 	stalled, idle, noReady := []storage.EscalationWant{}, []storage.Alert{}, []storage.Alert{}
+	var waits []storage.TaskWait
 	for _, s := range snaps {
 		t := s.Task
 		if t.Status == "BACKLOG" || t.Kind == tasks.KindConversation { // a conversation waits for input by design
@@ -135,6 +136,9 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 			}
 		}
 		v := c.evaluateIn(company, s)
+		if w := taskWait(t, v); w != nil {
+			waits = append(waits, *w)
+		}
 		if v.Reason == tasks.ReasonIdle && t.Assignee != "" && now.Sub(time.Unix(t.UpdatedAt, 0)) >= idleAlertAfter {
 			idle = append(idle, storage.Alert{TaskID: t.ID, Summary: fmt.Sprintf("idle for %s: %s; %s: %s", now.Sub(time.Unix(t.UpdatedAt, 0)).Round(time.Hour), v.Detail, v.Clearer.Who, v.Clearer.Action)})
 		}
@@ -185,6 +189,11 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 		return err
 	}
 	if err = c.Store.SyncAlerts(ctx, company, "no_progress", noProgress); err != nil {
+		return err
+	}
+	// throughput-signals: queued work while capacity is idle or unusable, from the queued reasons and the
+	// dependency graph; a notice to the project's manager and an owner alert per episode past the threshold.
+	if _, err = c.Store.SweepThroughput(ctx, company, waits); err != nil {
 		return err
 	}
 	return c.sweepComments(ctx, company)
@@ -285,4 +294,30 @@ func titled(title string) string {
 // hoursOf is a duration in whole hours ("26h").
 func hoursOf(d time.Duration) string {
 	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+// taskWait is the task's capacity wait for the throughput sweep (nil when it does not wait for capacity).
+func taskWait(t tasks.Task, v tasks.Verdict) *storage.TaskWait {
+	if v.Reason != tasks.ReasonCapacity || v.Wait == nil || t.Kind == tasks.KindConversation {
+		return nil
+	}
+	return &storage.TaskWait{Project: t.ProjectID, TaskID: t.ID, Wait: *v.Wait, Detail: v.Detail}
+}
+
+// taskWaits are the company's capacity waits (taskWait of every released open task).
+func (c *Core) taskWaits(ctx context.Context, company string) ([]storage.TaskWait, error) {
+	snaps, err := c.Store.TaskSnapshots(ctx, company, "")
+	if err != nil {
+		return nil, err
+	}
+	var out []storage.TaskWait
+	for _, s := range snaps {
+		if s.Task.Status == "BACKLOG" {
+			continue
+		}
+		if w := taskWait(s.Task, c.evaluateIn(company, s)); w != nil {
+			out = append(out, *w)
+		}
+	}
+	return out, nil
 }

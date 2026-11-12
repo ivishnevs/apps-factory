@@ -117,6 +117,8 @@ func (fc *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(ov.Inbox)
 	case p == "/approvals":
 		reply(ov.Approvals)
+	case p == "/throughput":
+		reply(ov.Throughput)
 	case p == "/costs":
 		// The Costs screen and the recorder read the ledger (older than today's and the 24 h reads).
 		q := r.URL.Query()

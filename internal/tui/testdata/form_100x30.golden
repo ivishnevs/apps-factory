@@ -1,25 +1,25 @@
  ◆ APP FACTORY   ● all   ● project-1   ● project-2   ● project-3   ✗ project-4   ◌ project-5  14:30
   1 Dash  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs  … 1 │ ▶ running │ ⚠ 7
  23 tasks  · z shows cancelled                                                                more ▶
-╭───────── ● Backlog 3 ─────────╮╭──────── ● To do 6 +3 ─────────╮╭─────── ● In progress 2 ────────╮
+╭───────── ● Backlog 3 ─────────╮╭──────── ● To do 5 +2 ─────────╮╭─────── ● In progress 3 ────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
-│ ┃ ● ⚠ Task 4                ┃ ││ │ ◷ Task 9                  │ ││ │ ● Task 2                   │ │
+│ ┃ ● ⚠ Task 4                ┃ ││ │ ● Task 1                  │ ││ │ ● Task 2                   │ │
 │ ┃ P╭─────────────────────────────────────── New task ───────────────────────────────────────╮8 │ │
 │ ┃ ●│   Project       project-1                                                              │m │ │
 │ ┃ ↳│ ▸ Title         what needs doing                                                       │  │ │
 │ ┗━━│   Description   details, acceptance criteria (ctrl+e opens $EDITOR)                    │──╯ │
 │ ╭──│                                                                                        │──╮ │
 │ │ ●│                                                                                        │  │ │
-│ │ P│                                                                                        │7 │ │
+│ │ P│                                                                                        │8 │ │
 │ │ ●│   Assignee      unassigned                                                             │m │ │
 │ │ ○│   Reviewer      you                                                                    │… │ │
 │ ╰──│   Priority      5          -1000..1000, higher runs first                              │──╯ │
-│ ╭──│   Depends on    ☐ P1-1  ☐ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9                 │    │
-│ │ ●│   Ready now     ● yes — released to the board                                          │    │
-│ │ P│                                                                                        │    │
-│ │ ●│                 Create task                                                            │    │
-│ │ ○│ ────────────────────────────────────────────────────────────────────────────────────── │    │
-│ ╰──│ tab next ←→ choose space toggle ctrl+e $EDITOR ctrl+s create esc cancel                │    │
+│ ╭──│   Depends on    ☐ P1-1  ☐ P1-3  ☐ P1-4  ☐ P1-5  ☐ P1-6  ☐ P1-7  ☐ P1-9                 │──╮ │
+│ │ ●│   Ready now     ● yes — released to the board                                          │  │ │
+│ │ P│                                                                                        │7 │ │
+│ │ ●│                 Create task                                                            │m │ │
+│ │ ○│ ────────────────────────────────────────────────────────────────────────────────────── │… │ │
+│ ╰──│ tab next ←→ choose space toggle ctrl+e $EDITOR ctrl+s create esc cancel                │──╯ │
 │    ╰────────────────────────────────────────────────────────────────────────────────────────╯    │
 │                               ││                               ││                                │
 │                               ││                               ││                                │

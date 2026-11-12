@@ -301,7 +301,7 @@ func (s *Store) NodesInUse(ctx context.Context, company string) (map[string]Node
 				continue // a conversation slot holds no resource classes
 			}
 		}
-		for k, v := range AgentResources(spec.ConfigSnapshot) {
+		for k, v := range RunResources(spec) {
 			u.Resources[k] += v
 		}
 		out[id] = u

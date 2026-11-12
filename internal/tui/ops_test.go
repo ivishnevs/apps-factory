@@ -84,12 +84,12 @@ func TestExplainConflict(t *testing.T) {
 	}
 }
 
-// TestQueuedCause (owner-ui 6.1): a QUEUED run shows Core's cause on its card (in Ready, not Running), in its
+// TestQueuedCause (owner-ui 6.1): a QUEUED run shows Core's cause on its card (In progress, throughput-signals), in its
 // task's why, on its agent's row and in the run view, with the hold-off end in local time; each cause has a
 // label, and without Core's reason the run waits for a node.
 func TestQueuedCause(t *testing.T) {
 	m, _ := demoModel(t, 140, 40)
-	if col := m.columnOf(mustTask(t, m, "P1-9")); col != "ready" {
+	if col := m.columnOf(mustTask(t, m, "P1-9")); col != "running" {
 		t.Fatal(col)
 	}
 	why := m.whyLine(mustTask(t, m, "P1-9"))

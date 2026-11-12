@@ -71,7 +71,7 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 			got[c.key] = append(got[c.key], tk.ID)
 		}
 	}
-	want := map[string]string{"backlog": "P2-4 P3-4 P1-6", "running": "P3-2 P1-3", "review": "P2-1 P3-6", "done": "P1-2 P1-8 P2-6 P3-1"}
+	want := map[string]string{"backlog": "P2-4 P3-4 P1-6", "running": "P3-2 P1-9 P1-3", "review": "P2-1 P3-6", "done": "P1-2 P1-8 P2-6 P3-1"}
 	for k, v := range want {
 		if strings.Join(got[k], " ") != v {
 			t.Errorf("%s: %v, want %s", k, got[k], v)
@@ -86,7 +86,7 @@ func TestBoardColumnsAndNavigation(t *testing.T) {
 		t.Fatal("cancelled column not shown")
 	}
 	// Arrows move between columns and cards.
-	press(m, "right", "right", "down")
+	press(m, "right", "right", "down", "down")
 	if tk, _ := m.board.selected(m); tk.ID != "P1-3" {
 		t.Fatal(tk.ID)
 	}

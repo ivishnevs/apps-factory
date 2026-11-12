@@ -1,36 +1,36 @@
  ◆ APP FACTORY  [ ● all 17% ] [ ● project-1 22% ] [ ● project-2 16% ] [ ● project-3 16% ] [ ✗ project-4 0% ] [ ◌ project-5 ]                              14:30
   1 Dashboard  2 Board  3 Flow  4 Feed  5 Inbox 6  6 Chat •1  7 Nodes ⚠2  8 Costs                                  ● fixture demo │ Company 1 │ ▶ running │ ⚠ 7
  23 tasks  · z shows cancelled                                                                                                                            more ▶
-╭──────── ● Backlog 3 ─────────╮╭──────── ● To do 6 +1 ────────╮╭────── ● In progress 2 ───────╮╭──────── ● Blocked 5 ─────────╮╭─────── ● In review 2 ────────╮
+╭──────── ● Backlog 3 ─────────╮╭───────── ● To do 5 ──────────╮╭────── ● In progress 3 ───────╮╭─ ● Blocked 5 · 4 need you … ─╮╭─────── ● In review 2 ────────╮
 │ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ │
-│ ┃ ● ⚠ Task 4               ┃ ││ │ ◷ Task 9                 │ ││ │ ● Task 2                 │ ││ │ ● ⚠ Task 3               │ ││ │ ● Task 1                 │ │
-│ ┃ P2-4  project-2       ▽3 ┃ ││ │ P1-9  project-1       ▲8 │ ││ │ P3-2  project-3    ✗1 ▲8 │ ││ │ P2-3  project-2       ▲9 │ ││ │ P2-1  project-2       △6 │ │
-│ ┃ ● designer            3h ┃ ││ │ ● qa                 10m │ ││ │ ● developer-2         7m │ ││ │ ● lead       $0.13 · 30m │ ││ │ ● reviewer    $1.27 · 4m │ │
-│ ┃ ↳ you: release it to th… ┃ ││ │ ◷ queued: driver disabl… │ ││ │ ⠋ ✎ Edit: src/module_2.… │ ││ │ ↳ you: answer m-esc-1 (… │ ││ │ ⠋ › Testing Task 1 on a… │ │
+│ ┃ ● ⚠ Task 4               ┃ ││ │ ● Task 1                 │ ││ │ ● Task 2                 │ ││ │ ● ⚠ Task 3               │ ││ │ ● Task 1                 │ │
+│ ┃ P2-4  project-2       ▽3 ┃ ││ │ P4-1  project-4       ▲8 │ ││ │ P3-2  project-3    ✗1 ▲8 │ ││ │ P2-3  project-2       ▲9 │ ││ │ P2-1  project-2       △6 │ │
+│ ┃ ● designer            3h ┃ ││ │ ● developer-1        18m │ ││ │ ● developer-2         7m │ ││ │ ● lead       $0.13 · 30m │ ││ │ ● reviewer    $1.27 · 4m │ │
+│ ┃ ↳ you: release it to th… ┃ ││ │ ↳ backoff: the retry st… │ ││ │ ⠋ ✎ Edit: src/module_2.… │ ││ │ ↳ you: answer m-esc-1 (… │ ││ │ ⠋ › Testing Task 1 on a… │ │
 │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ │
 │ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ │
-│ │ ● Task 4                 │ ││ │ ● Task 1                 │ ││ │ ● Task 3                 │ ││ │ ● ⚠ Task 1               │ ││ │ ● Task 6                 │ │
-│ │ P3-4  project-3       ▽3 │ ││ │ P4-1  project-4       ▲8 │ ││ │ P1-3  project-1    ✗3 △7 │ ││ │ P1-1  project-1       ▲9 │ ││ │ P3-6  project-3       △5 │ │
-│ │ ● developer-2         1h │ ││ │ ● developer-1        18m │ ││ │ ● developer… $2.44 · 12m │ ││ │ ● pm         $0.05 · 40m │ ││ │ ● reviewer           15m │ │
-│ │ ○ not released           │ ││ │ ↳ backoff: the retry st… │ ││ │ ⠋ ▸ go test ./src/... -… │ ││ │ ↳ you: wait for P1-3, P… │ ││ │ ◎ review by reviewer     │ │
+│ │ ● Task 4                 │ ││ │ ● Task 2                 │ ││ │ ◷ Task 9                 │ ││ │ ● ⚠ Task 1               │ ││ │ ● Task 6                 │ │
+│ │ P3-4  project-3       ▽3 │ ││ │ P2-2  project-2       △7 │ ││ │ P1-9  project-1       ▲8 │ ││ │ P1-1  project-1       ▲9 │ ││ │ P3-6  project-3       △5 │ │
+│ │ ● developer-2         1h │ ││ │ ● developer… $0.87 · 45m │ ││ │ ● qa                 10m │ ││ │ ● pm         $0.05 · 40m │ ││ │ ● reviewer           15m │ │
+│ │ ○ not released           │ ││ │ ↳ backoff: retry at 14:… │ ││ │ ◷ queued: driver disabl… │ ││ │ ↳ you: wait for P1-3, P… │ ││ │ ◎ review by reviewer     │ │
 │ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ │
-│ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
-│ │ ● Task 6                 │ ││ │ ● Task 2                 │ ││                              ││ │ ● ⚠ Task 5               │ ││                              │
-│ │ P1-6  project-1       ▽2 │ ││ │ P2-2  project-2       △7 │ ││                              ││ │ P1-5  project-1       ▲8 │ ││                              │
-│ │ ● designer            2h │ ││ │ ● developer… $0.87 · 45m │ ││                              ││ │ ● pm          $0.07 · 1h │ ││                              │
-│ │ ○ not released           │ ││ │ ↳ backoff: retry at 14:… │ ││                              ││ │ ↳ you: answer m-ask-1 i… │ ││                              │
-│ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││                              ││ ╰──────────────────────────╯ ││                              │
+│ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││ ╭──────────────────────────╮ ││                              │
+│ │ ● Task 6                 │ ││ │ ● Task 2                 │ ││ │ ● Task 3                 │ ││ │ ● ⚠ Task 5               │ ││                              │
+│ │ P1-6  project-1       ▽2 │ ││ │ P4-2  project-4       △6 │ ││ │ P1-3  project-1    ✗3 △7 │ ││ │ P1-5  project-1       ▲8 │ ││                              │
+│ │ ● designer            2h │ ││ │ ● qa                 31m │ ││ │ ● developer… $2.44 · 12m │ ││ │ ● pm          $0.07 · 1h │ ││                              │
+│ │ ○ not released           │ ││ │ ↳ waits for the reposit… │ ││ │ ⠋ ▸ go test ./src/... -… │ ││ │ ↳ you: answer m-ask-1 i… │ ││                              │
+│ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││ ╰──────────────────────────╯ ││                              │
 │                              ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
-│                              ││ │ ● Task 2                 │ ││                              ││ │ ● Task 5                 │ ││                              │
-│                              ││ │ P4-2  project-4       △6 │ ││                              ││ │ P3-5  project-3       △6 │ ││                              │
-│                              ││ │ ● qa                 31m │ ││                              ││ │ ● developer-2        50m │ ││                              │
-│                              ││ │ ↳ waits for the reposit… │ ││                              ││ │ ↳ block · waits on lead… │ ││                              │
+│                              ││ │ ● Task 3                 │ ││                              ││ │ ● Task 5                 │ ││                              │
+│                              ││ │ P3-3  project-3       △5 │ ││                              ││ │ P3-5  project-3       △6 │ ││                              │
+│                              ││ │ ● reviewer            1h │ ││                              ││ │ ● developer-2        50m │ ││                              │
+│                              ││ │ ↳ queued: busy with P2-1 │ ││                              ││ │ ↳ block · waits on lead… │ ││                              │
 │                              ││ ╰──────────────────────────╯ ││                              ││ ╰──────────────────────────╯ ││                              │
 │                              ││ ╭──────────────────────────╮ ││                              ││ ╭──────────────────────────╮ ││                              │
-│                              ││ │ ● Task 3                 │ ││                              ││ │ ● Task 4                 │ ││                              │
-│                              ││ │ P3-3  project-3       △5 │ ││                              ││ │ P1-4  project-1       △6 │ ││                              │
-│                              ││ │ ● reviewer            1h │ ││                              ││ │ ● qa                  4h │ ││                              │
-│                              ││ │ ↳ queued: busy with P2-1 │ ││                              ││ │ ↳ blocked by: P1-3 (dev… │ ││                              │
+│                              ││ │ ● Task 7                 │ ││                              ││ │ ● Task 4                 │ ││                              │
+│                              ││ │ P1-7  project-1       △5 │ ││                              ││ │ P1-4  project-1       △6 │ ││                              │
+│                              ││ │ ● developer-1         3h │ ││                              ││ │ ● qa                  4h │ ││                              │
+│                              ││ │ ↳ queued: busy with P1-3 │ ││                              ││ │ ↳ blocked by: P1-3 (dev… │ ││                              │
 │                              ││ ╰──────────────────────────╯ ││                              ││ ╰──────────────────────────╯ ││                              │
 │                              ││                              ││                              ││                              ││                              │
 │                              ││                              ││                              ││                              ││                              │

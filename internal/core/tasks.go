@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -105,19 +106,51 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 	})
 	// How long a planned BACKLOG dependency may stay unchanged before its waiting task escalates as stalled
 	// (dependency-wait-escalations 1.1).
+	// throughput_after_minutes: how long work may wait while capacity is idle or unusable before the throughput
+	// notice and alert (throughput-signals, default 30).
 	m.HandleFunc("GET /settings/company/stalls", func(w http.ResponseWriter, r *http.Request) {
 		d, err := c.Store.StallBacklogAfter(r.Context(), c.companyFrom(r))
-		reply(w, map[string]any{"backlog_after_minutes": int64(d / time.Minute)}, err)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		tp, err := c.Store.ThroughputAfter(r.Context(), c.companyFrom(r))
+		reply(w, map[string]any{"backlog_after_minutes": int64(d / time.Minute), "throughput_after_minutes": int64(tp / time.Minute)}, err)
 	})
 	m.HandleFunc("PUT /settings/company/stalls", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
-			BacklogAfterMinutes int64 `json:"backlog_after_minutes"`
+			BacklogAfterMinutes    int64 `json:"backlog_after_minutes,omitempty"`
+			ThroughputAfterMinutes int64 `json:"throughput_after_minutes,omitempty"`
 		}
 		if !decode(w, r, &p) {
 			return
 		}
-		err := c.Store.SetStallBacklogAfter(r.Context(), c.companyFrom(r), time.Duration(p.BacklogAfterMinutes)*time.Minute)
-		reply(w, map[string]any{"backlog_after_minutes": p.BacklogAfterMinutes}, err)
+		var err error
+		if p.BacklogAfterMinutes != 0 || p.ThroughputAfterMinutes == 0 {
+			err = c.Store.SetStallBacklogAfter(r.Context(), c.companyFrom(r), time.Duration(p.BacklogAfterMinutes)*time.Minute)
+		}
+		if err == nil && p.ThroughputAfterMinutes != 0 {
+			err = c.Store.SetThroughputAfter(r.Context(), c.companyFrom(r), time.Duration(p.ThroughputAfterMinutes)*time.Minute)
+		}
+		reply(w, p, err)
+	})
+	// throughput-signals: the current causes of queued work while capacity is idle or unusable (the board's
+	// Bottlenecks), with since and due; ?project= filters.
+	m.HandleFunc("GET /throughput", func(w http.ResponseWriter, r *http.Request) {
+		company := c.companyFrom(r)
+		waits, err := c.taskWaits(r.Context(), company)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		bs, err := c.Store.Bottlenecks(r.Context(), company, waits)
+		out := []storage.Bottleneck{}
+		for _, b := range bs {
+			if p := r.URL.Query().Get("project"); p == "" || b.Project == p {
+				out = append(out, b)
+			}
+		}
+		reply(w, out, err)
 	})
 	// The company's time zone sets the day of the daily retry budget (reliable-recovery D2).
 	m.HandleFunc("GET /settings/company/time_zone", func(w http.ResponseWriter, r *http.Request) {
@@ -512,6 +545,17 @@ type taskView struct {
 func (c *Core) needs(company string, snap *tasks.Snapshot) {
 	if a, ok := c.cat(company).Agents[snap.Task.Assignee]; ok {
 		snap.Needs = tasks.NodeNeeds{Provider: a.Spec.Runtime.Provider, Labels: a.Spec.Labels, Resources: a.Spec.Resources}
+		if len(snap.Task.Resources) > 0 && snap.Task.Kind != tasks.KindConversation {
+			// throughput-signals: the task's node resources are added to the agent's.
+			need := maps.Clone(a.Spec.Resources)
+			if need == nil {
+				need = map[string]int{}
+			}
+			for k, v := range snap.Task.Resources {
+				need[k] += v
+			}
+			snap.Needs.Resources = need
+		}
 	}
 }
 

@@ -147,6 +147,10 @@ type Task struct {
 	// SideEffects marks a task whose runs act outside the workspace (publish, deploy): an unclear
 	// outcome parks it for inspection instead of retrying.
 	SideEffects bool `json:"side_effects,omitempty"`
+	// Resources are node resources the task's runs need on top of their agent's spec.resources (throughput-signals):
+	// Core enforces them at claim like the agent's, so an exclusive class (mac-build: 1) makes such tasks take turns,
+	// and a waiting run's queued reason resource_busy names the task holding it.
+	Resources map[string]int `json:"resources,omitempty"`
 	// Implementer submitted the task (factory_exit_submit); Reviewer is the agent asked to review it and is
 	// its assignee while the task is IN_REVIEW.
 	// CreatedByPerson is the person behind created_by owner (people-attribution).
@@ -303,6 +307,8 @@ type Create struct {
 	ReviewBy string `json:"review_by,omitempty"`
 	// SideEffects: the task's runs act outside the workspace; failures are inspected, not retried.
 	SideEffects bool `json:"side_effects,omitempty"`
+	// Resources are node resources the task's runs need (Task.Resources).
+	Resources map[string]int `json:"resources,omitempty"`
 	// Covers are the work keys the task covers (Task.Covers); empty: Core infers them.
 	Covers []string `json:"covers,omitempty"`
 	// Replaces cancels these open tasks for this one when the actor may cancel them (Task.Replaces).
@@ -326,6 +332,8 @@ type Update struct {
 	Kind         *string   `json:"kind,omitempty"`
 	Dependencies *[]string `json:"dependencies,omitempty"`
 	SideEffects  *bool     `json:"side_effects,omitempty"`
+	// Resources replaces the task's node resources (Task.Resources); {} clears them.
+	Resources *map[string]int `json:"resources,omitempty"`
 	// ReviewBy sets the task's reviewer; Core refuses clearing it outside the backlog.
 	ReviewBy *string `json:"review_by,omitempty"`
 	// Model sets the task's model override ("" clears it); only an authority over the task may set it.
@@ -346,7 +354,7 @@ type Update struct {
 // OnlyNotDuplicate reports whether the update only marks pairs as not duplicates.
 func (u Update) OnlyNotDuplicate() bool {
 	return len(u.NotDuplicateOf) > 0 && u.RequiredArtifacts == nil && u.Title == nil && u.Description == nil && u.Priority == nil &&
-		u.Assignee == nil && u.OpenSpecChange == nil && u.Kind == nil && u.Dependencies == nil && u.SideEffects == nil &&
+		u.Assignee == nil && u.OpenSpecChange == nil && u.Kind == nil && u.Dependencies == nil && u.SideEffects == nil && u.Resources == nil &&
 		u.ReviewBy == nil && u.Model == nil && u.Covers == nil && len(u.Replaces) == 0
 }
 

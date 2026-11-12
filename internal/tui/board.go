@@ -119,7 +119,7 @@ func (m *Model) columnOf(t Task) string {
 	case t.Status == "IN_REVIEW":
 		return "review"
 	case m.isQueued(t.ID):
-		return "ready" // its run waits for a node: it does not run yet
+		return "running" // throughput-signals: dispatched, its run is queued; the card says why (never under To do)
 	case m.isLive(t.ID) || t.Status == "IN_PROGRESS":
 		return "running"
 	case t.Status == "BLOCKED" || strings.HasPrefix(t.Reason, "parked:") || strings.HasPrefix(t.Reason, "paused:") || t.Reason == "dependencies" ||
@@ -571,6 +571,7 @@ func (m *Model) boardLines(w, h int) []string {
 		head = append(head, info)
 	}
 	head = append(head, m.projectSetupLines(w)...)
+	head = append(head, m.bottleneckLines(w)...)
 	colH := h - len(head)
 	n := len(cols)
 	visible := max(min(n, w/30), 1)
@@ -626,6 +627,16 @@ func (m *Model) boardLines(w, h int) []string {
 			return nil
 		}})
 		title := columnColor(c.key).Render("● ") + lipgloss.NewStyle().Foreground(theme.text).Bold(focused).Render(c.name) + stFaint.Render(fmt.Sprintf(" %d", len(c.tasks))) + more
+		if c.key == "waiting" && len(c.tasks) > 0 {
+			// throughput-signals: Blocked splits what needs you from what waits its turn.
+			you := 0
+			for _, t := range c.tasks {
+				if m.needsOwner(t) || t.Status == "BLOCKED" {
+					you++
+				}
+			}
+			title += stFaint.Render(fmt.Sprintf(" · %d need you · %d their turn", you, len(c.tasks)-you))
+		}
 		blocks = append(blocks, frame(title, lines, width, colH, theme.faint, focused, false))
 	}
 	if s.offset > 0 {
@@ -965,6 +976,22 @@ func activeParks(events []storage.FeedItem) []string {
 		if active[k] {
 			out = append(out, k)
 		}
+	}
+	return out
+}
+
+// bottleneckLines are the board's Bottlenecks (throughput-signals): the sweep's top causes of queued work while
+// capacity is idle or unusable, for the filtered project, at most three.
+func (m *Model) bottleneckLines(w int) []string {
+	var out []string
+	for _, b := range m.ov.Throughput {
+		if len(out) == 3 {
+			break
+		}
+		if f := parseTaskFilter(m.board.filter); f.project != "" && f.project != b.Project {
+			continue
+		}
+		out = append(out, cut(" "+stYellow.Render("⚑ ")+stFaint.Render(b.Summary), w))
 	}
 	return out
 }

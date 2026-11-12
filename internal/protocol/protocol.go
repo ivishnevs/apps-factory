@@ -37,7 +37,9 @@ type RunSpec struct {
 	Attempt           int                      `json:"attempt,omitempty"`
 	ConfigHash        string                   `json:"config_hash,omitempty"`
 	ConfigSnapshot    json.RawMessage          `json:"config_snapshot,omitempty"`
-	Skills            []string                 `json:"skills,omitempty"`
+	// Resources are the task's node resources (throughput-signals), needed on top of the agent's spec.resources.
+	Resources map[string]int `json:"resources,omitempty"`
+	Skills    []string       `json:"skills,omitempty"`
 
 	ID             string          `json:"id"`
 	Project        string          `json:"project"`

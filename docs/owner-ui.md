@@ -120,8 +120,11 @@ you), id, project chip and priority marker (`▲` ≥ 8, `△` ≥ 5, `▽`), as
 task and its age, and one live line: the run's current step with a spinner, what it waits on, `↳ you: …`,
 or `✓ done 3h ago`. Arrows/`hjkl` move between columns and cards; columns scroll horizontally when they do
 not fit (`◀ more` / `more ▶`). `/` filters (`a:AGENT s:STATUS ! open words`), `!` keeps what waits on you,
-`n` creates a task (below). A task whose run is QUEUED stays in To do with `◷ queued: …` — why no node claims
-it yet (below).
+`n` creates a task (below). A task whose run is QUEUED is In progress with `◷ queued: …` — why no node claims
+it yet (below), never under To do (throughput-signals). The Blocked title splits `N need you · M their turn`, and
+above the columns up to three `⚑` lines are the Bottlenecks: the throughput sweep's causes of work waiting while
+capacity is idle or unusable (`GET /throughput`; the web board shows the same strip, and splits its Blocked column
+into "need you" and "waiting their turn").
 
 `enter` opens the card as a modal: state, origin (who created it from which task and run), why it waits and
 who clears it, the queued run's cause with each node's answer, pending triggers, Core's active parks (kind,
