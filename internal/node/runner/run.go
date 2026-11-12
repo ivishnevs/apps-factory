@@ -257,6 +257,7 @@ func Run(ctx context.Context, n Node) error {
 		return fmt.Errorf("this node enrolled in company %s, but Core says its key belongs to company %s: enroll it again", company, s.company)
 	}
 	s.cleanup = jan.Cleanup
+	s.removeWorktree, s.invCompany = jan.RemoveWorktree, company
 	s.reset = func(ctx context.Context, task string) error {
 		resetCtx, cancel := context.WithTimeout(ctx, time.Minute) // a run holding the worktree: retried later
 		defer cancel()

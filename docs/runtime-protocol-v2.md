@@ -199,6 +199,11 @@ not started in its window ends as "not started" (§10). `session_id` keeps arriv
   it until a heartbeat is delivered, which is one `node.heartbeat_stalled` event.
 - `hooks`/`hooks_hash`: the `NodeHooks` document the node uses and the hash it applied; when the catalog's document
   hashes differently, the answer carries `hooks` again.
+- `worktrees`/`worktrees_hash` (nodes with feature `worktree_inventory`, worktree-inventory-cleanup): the task
+  worktrees the node holds, `[{"task", "project", "sealed_head", "unpushed", "last_used", "bytes", "busy", "error"}]`
+  (at most 500, most recently used first). The full list goes when its hash changed, when Core answered
+  `worktrees_resend` and at least every 10 minutes; otherwise only `worktrees_hash`. `unpushed`: the last seal left
+  work no remote has; `error`: why the last removal Core answered failed.
 
 Renews the leases of every listed run. `elapsed_ms` is measured on
 the sleep-excluding clock. A run stays listed until Core acknowledged its end (its terminal event was applied).
@@ -334,7 +339,15 @@ What Core does where the sections above leave room (`internal/storage/nodes.go`,
   `critical` (a heartbeat without `health.disk` keeps the last answer); `pause` while the owner paused the node. `stop` reason `idle_timeout`: the run had no applied event for 30 minutes (runtime-protocol.md,
   Idle stop). `timed_out` is judged on the entry's `elapsed_ms` (the node's sleep-excluding clock since the
   claim), never on Core's wall clock. `cleanup` lists closed tasks (DONE/CANCELLED) with a worktree reported by this node, each in at
-  most 30 answers (the node retries a busy worktree from the next listing).
+  most 30 answers (the node retries a busy worktree from the next listing). A node with feature `worktree_inventory` gets no `cleanup` (heartbeat or poll):
+  the heartbeat answer's `removals` (`[{"task", "project", "reason"}]`) list every worktree it reports that must go —
+  `closed` (task DONE/CANCELLED, whichever node Core recorded for its workspace), `unknown_task` (no such task, unused
+  for 24 h), `stale_copy` (open task whose workspace another node or no node owns, nothing unpushed, unused for 24 h,
+  or 1 h while `health.disk` is low) — repeated while the node reports the worktree. Only `closed` runs
+  `on_task_closed`; the others are kept when the seal finds work no remote has or the worktree was used within the
+  last hour. A removal still reported after 1 h, or an open task's worktree with unpushed work on a node that does
+  not own its workspace, raises one `node.worktree_stuck` (attention); each removal ends in `node.worktree_removed`.
+  `worktrees_resend: true`: Core has no list for the hash sent.
 - **Lost runs** (§10.2): a new epoch, an offline node (no heartbeat or claim for 60 s of continuous ticking)
   or an expired lease end the node's unstarted runs `lost` (`lost: not started (…)`), and started runs `lost`
   (`lost: …`; released for a new epoch, whose node killed the old process groups

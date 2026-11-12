@@ -245,8 +245,12 @@ func (s *Store) NodeWork(ctx context.Context, company, node string, epoch int64)
 	if out.Reset, err = s.strings(ctx, "SELECT task_id FROM workspaces WHERE company_id=? AND node_id=? AND reset_pending=1 ORDER BY task_id LIMIT 64", company, node); err != nil {
 		return out, err
 	}
+	// A worktree_inventory node gets its removals only with the heartbeat answer (worktree-inventory-cleanup): a
+	// removal repeats while the worktree is reported, and a busy one would end every poll at once.
 	out.Cleanup, err = s.strings(ctx, `SELECT w.task_id FROM workspaces w JOIN tasks t ON t.company_id=w.company_id AND t.id=w.task_id
- WHERE w.company_id=? AND w.node_id=? AND w.mode='worktree' AND t.status IN ('DONE','CANCELLED') AND w.cleanup_listed<? ORDER BY w.updated_at LIMIT 64`, company, node, cleanupListings)
+ JOIN nodes n ON n.company_id=w.company_id AND n.id=w.node_id
+ WHERE w.company_id=? AND w.node_id=? AND w.mode='worktree' AND t.status IN ('DONE','CANCELLED') AND w.cleanup_listed<?
+ AND NOT n.features @> jsonb_build_array(?::text) ORDER BY w.updated_at LIMIT 64`, company, node, cleanupListings, protocol.FeatureWorktreeInventory)
 	if err != nil {
 		return out, err
 	}

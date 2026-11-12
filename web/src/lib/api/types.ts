@@ -123,6 +123,8 @@ export interface FactoryNode {
   // node-packaging-updates 3.4: the package platform, the node's update report, the release approved for it (attempt
   // at update_approved_at) and the release the owner wants installed at once.
   platform?: string; update?: NodeUpdateStatus; update_approved?: string; update_approved_at?: number; update_now?: string;
+  /** Task worktrees the node last reported (worktree-inventory-cleanup). */
+  worktree_summary?: { count: number; bytes: number; removing: number; removing_since?: number; stuck: number };
   [k: string]: unknown;
 }
 // protocol.NodeUpdateStatus: downloading, testing, draining (runs: live runs it waits for), switching, failed (reason).

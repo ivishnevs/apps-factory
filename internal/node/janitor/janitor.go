@@ -197,6 +197,54 @@ func (j *Janitor) closeTask(ctx context.Context, task string) bool {
 	return ok
 }
 
+// StaleMinIdle: a stale_copy or unknown_task removal keeps a worktree used more recently than this (a run came
+// back to the task on this node since Core judged it).
+var StaleMinIdle = time.Hour
+
+// RemoveWorktree removes one worktree Core answered under removals (worktree-inventory-cleanup). A closed task's
+// worktree goes as under cleanup (on_task_closed hooks, seal, removal); a stale copy or an unknown task's worktree
+// runs no hooks and is kept when its seal finds work no remote has or it was used recently. A busy or recently
+// used worktree is not an error: Core answers the removal again while the node reports it.
+func (j *Janitor) RemoveWorktree(ctx context.Context, rm protocol.WorktreeRemoval) error {
+	if j.Worktrees == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.closed == nil {
+		j.closed = map[string]time.Time{}
+	}
+	wait := j.LockWait
+	if wait <= 0 {
+		wait = time.Second
+	}
+	r := workspace.Request{Company: j.Company, Project: rm.Project, Task: rm.Task}
+	var res workspace.SealResult
+	var err error
+	if rm.Reason == protocol.RemovalClosed {
+		res, err = j.Worktrees.Remove(ctx, r, wait, func(path string) {
+			if _, ok := j.closed[rm.Task]; ok {
+				return
+			}
+			for _, h := range j.hooks().OnTaskClosed {
+				j.hook(ctx, "on_task_closed", h, "FACTORY_TASK_ID="+rm.Task, "FACTORY_WORKTREE="+path)
+			}
+			j.closed[rm.Task] = time.Now()
+		})
+	} else {
+		res, err = j.Worktrees.RemoveStale(ctx, r, wait, StaleMinIdle)
+	}
+	switch {
+	case errors.Is(err, workspace.ErrBusy), errors.Is(err, workspace.ErrRecentlyUsed):
+		return nil
+	case err != nil:
+		j.log().Warn("janitor: worktree kept", "task", rm.Task, "project", rm.Project, "reason", rm.Reason, "error", err)
+		return err
+	}
+	j.log().Info("janitor: worktree removed", "task", rm.Task, "project", rm.Project, "reason", rm.Reason, "sealed_head", res.SealedHead, "wip_sha", res.WIPSHA)
+	return nil
+}
+
 // Prune runs the prune commands; aggressive (below the low watermark) passes older_than = 0.
 func (j *Janitor) Prune(ctx context.Context, aggressive bool) {
 	j.mu.Lock()

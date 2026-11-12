@@ -65,8 +65,13 @@ For each reported entry, against `tasks` and `workspaces`:
 | open | other node or none | `unpushed=false`, unused ≥ 24 h or node disk `low` | `remove` (reason `stale_copy`) |
 | open | other node | `unpushed=true` | keep, `node.worktree_stuck` (reason `unpushed_elsewhere`) |
 
-`remove` items go out in the existing `cleanup` field as objects `{task, project, reason}`; old nodes keep getting
-plain task IDs from the current query (D6).
+`remove` items go out in a new heartbeat answer field `removals` as `{task, project, reason}`; old nodes keep getting
+plain task IDs in `cleanup` from the current query (D6). Removals are not in the poll answer: they repeat while the
+worktree is reported, and a busy one would end every long poll at once.
+
+Implementation note: a `stale_copy` also needs the copy unused for 1 h when the disk is low (never removed while a
+run that just came back to the task might still use it), and the node itself keeps a stale or unknown worktree used
+within the last hour (`janitor.StaleMinIdle`), since Core judges from the inventory of up to a minute ago.
 
 `stale_copy` is safe because a later run on this node either reuses the directory after the existing
 workspace_diverged reset or recreates it from the remote branch; the remote branch already holds everything that was
@@ -84,9 +89,8 @@ removal error the node reported in `worktrees[].error`) and clears it when the e
 
 ### D5. Hooks and seal stay where they are
 
-`on_task_closed` hooks run only for reason `closed`, once per node per task (as today, but keyed on the removal, not
-on an in-memory map: a hook marker file `.factory/closed_hooks_done` inside the worktree survives a node restart and
-goes with the worktree). The seal before removal stays; a seal that finds unpushed work turns the removal into
+`on_task_closed` hooks run only for reason `closed`, once per node process per task (the janitor's existing map; a
+restart between the hooks and the removal runs them again, as today). The seal before removal stays; a seal that finds unpushed work turns the removal into
 `unpushed_elsewhere` reported back instead of deleting.
 
 ### D6. Compatibility and rollout

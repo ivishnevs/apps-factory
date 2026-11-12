@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { core } from "@/lib/api/client";
 import { useState } from "react";
 
-import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin } from "lucide-react";
+import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin, FolderGit2 } from "lucide-react";
 import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
@@ -252,6 +252,17 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manag
                 {gib(h.free_disk_bytes)} free
               </p>
               {!!h.disk_low_bytes && <p className="truncate text-[11px] text-muted-foreground">low {gib(h.disk_low_bytes)} · critical {gib(h.disk_critical_bytes)}</p>}
+            </div>
+          )}
+          {n.worktree_summary && (
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><FolderGit2 className="size-3.5" />Worktrees</p>
+              <p className="mt-0.5 tabular-nums">{n.worktree_summary.count} <span className="text-muted-foreground">· {gib(n.worktree_summary.bytes)}</span></p>
+              {n.worktree_summary.removing > 0 && (
+                <p className={cn("truncate text-[11px]", n.worktree_summary.stuck > 0 ? "font-medium text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>
+                  {n.worktree_summary.removing} being removed{n.worktree_summary.removing_since ? ` · oldest asked ${ago(n.worktree_summary.removing_since)}` : ""}
+                </p>
+              )}
             </div>
           )}
           {!!h.cpus && (

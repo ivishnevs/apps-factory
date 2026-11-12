@@ -35,6 +35,12 @@ func (w *Worktrees) Find(company, task string) ([]Request, error) {
 // the WIP ref stay in the repository. Nothing is removed when the seal fails; ErrBusy when a run holds the
 // lock for wait.
 func (w *Worktrees) Remove(ctx context.Context, r Request, wait time.Duration, hook func(path string)) (SealResult, error) {
+	return w.remove(ctx, r, wait, hook, nil)
+}
+
+// remove is Remove; guard, when set, judges the worktree after the seal (its state before the seal, with the saved WIP
+// after it) and keeps it by returning an error, and the task's saved WIP on origin is not deleted.
+func (w *Worktrees) remove(ctx context.Context, r Request, wait time.Duration, hook func(path string), guard func(path string, before worktreeState, res SealResult) error) (SealResult, error) {
 	dir, err := w.project(r)
 	if err != nil {
 		return SealResult{}, err
@@ -54,6 +60,7 @@ func (w *Worktrees) Remove(ctx context.Context, r Request, wait time.Duration, h
 		return SealResult{}, err
 	}
 	var res SealResult
+	before, _ := readState(path)
 	if _, err = os.Stat(filepath.Join(path, ".factory", "state")); err == nil {
 		if res, err = w.Seal(ctx, r); err != nil {
 			return SealResult{}, fmt.Errorf("workspace: seal before removal: %w", err)
@@ -61,8 +68,15 @@ func (w *Worktrees) Remove(ctx context.Context, r Request, wait time.Duration, h
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return SealResult{}, err
 	}
-	// A closed task's saved WIP is not continued anywhere: its service ref goes (node-ties 2.4).
-	if st, err := readState(path); err == nil && st.SavedWIP != "" {
+	if guard != nil {
+		if after, err := readState(path); err == nil {
+			before.SavedWIP = after.SavedWIP
+		}
+		if err = guard(path, before, res); err != nil {
+			return res, err
+		}
+	} else if st, err := readState(path); err == nil && st.SavedWIP != "" {
+		// A closed task's saved WIP is not continued anywhere: its service ref goes (node-ties 2.4).
 		deleteRemoteWIP(ctx, path, r.Task)
 	}
 	// A directory without state is a half-created worktree: nothing of a run to seal.

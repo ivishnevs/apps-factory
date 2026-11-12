@@ -105,6 +105,10 @@ type Heartbeat struct {
 	Config   *protocol.NodeConfigReport `json:"config,omitempty"`
 	// Update is the node's update report (downloading, testing, draining, switching, failed).
 	Update *protocol.NodeUpdateStatus `json:"update,omitempty"`
+	// Worktrees is the full worktree inventory (worktree-inventory-cleanup), sent when it changed, at least every
+	// 10 minutes and when Core asked for it; otherwise only WorktreesHash.
+	Worktrees     *[]protocol.WorktreeEntry `json:"worktrees,omitempty"`
+	WorktreesHash string                    `json:"worktrees_hash,omitempty"`
 }
 
 type Health struct {
@@ -156,6 +160,10 @@ type HeartbeatAnswer struct {
 	ConfigVersion int64 `json:"config_version,omitempty"`
 	// Update is the release Core offers this node (none: no update due, or one in progress is withdrawn).
 	Update *protocol.NodeUpdate `json:"update,omitempty"`
+	// Removals: worktrees to remove (worktree-inventory-cleanup), answered while the node reports them.
+	Removals []protocol.WorktreeRemoval `json:"removals,omitempty"`
+	// WorktreesResend: Core has no inventory for the hash sent; the next heartbeat carries the full list.
+	WorktreesResend bool `json:"worktrees_resend,omitempty"`
 }
 
 // ErrStaleEpoch: Core knows a newer epoch of this node_id, so another process uses this state_dir's identity.
@@ -165,17 +173,22 @@ const defaultHeartbeat = 10 * time.Second
 
 // session is a registered v2 node.
 type session struct {
-	api      worker.API
-	cfg      node.Config
-	host     node.Host
-	gate     *node.DiskGate // watermarks for health.disk
-	trees    *workspace.Worktrees
-	cleanup  func(ctx context.Context, tasks []string) []string // node janitor, when set
-	drivers  *driverHealth
-	inv      *node.Inventory
-	busy     func() int
-	interval time.Duration
-	retryMax time.Duration // longest pause between register attempts
+	api     worker.API
+	cfg     node.Config
+	host    node.Host
+	gate    *node.DiskGate // watermarks for health.disk
+	trees   *workspace.Worktrees
+	cleanup func(ctx context.Context, tasks []string) []string // node janitor, when set
+	// removeWorktree removes one worktree Core answered under removals (janitor.RemoveWorktree); inv2 is the
+	// worktree inventory (worktree-inventory-cleanup), listed for invCompany (the session's company when empty).
+	removeWorktree func(ctx context.Context, rm protocol.WorktreeRemoval) error
+	inv2           *treeInventory
+	invCompany     string
+	drivers        *driverHealth
+	inv            *node.Inventory
+	busy           func() int
+	interval       time.Duration
+	retryMax       time.Duration // longest pause between register attempts
 
 	incarnation string
 	company     string      // from the register answer; empty from a Core that does not send it
@@ -242,7 +255,7 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 		gate = node.NewDiskGate(n.Host, c.Disk)
 	}
 	s := &session{api: n.API, cfg: c, host: n.Host, gate: gate, trees: trees, inv: node.NewInventory(id, epoch),
-		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{},
+		drivers: h, busy: func() int { return 0 }, retryMax: 30 * time.Second, kick: make(chan struct{}, 1), inv2: newTreeInventory(), cleanups: make(chan string, 64), cleaned: map[string]bool{}, resets: make(chan string, 64), resetting: map[string]bool{},
 		remote: n.remote, cap: capacity{slots: c.Slots, conversation: c.ConversationSlots, labels: c.Labels, detected: n.Detected}, version: n.Version, update: n.Update}
 	if n.Host.Run != nil {
 		s.ready = newProjectChecks(n.Host.Run, s.driversChanged) // a finished check pass is reported at once
@@ -265,7 +278,11 @@ func (s *session) readiness() []protocol.ProjectReadiness {
 // unreachable; a refusal is final.
 func (s *session) register(ctx context.Context, reason string) error {
 	cp := s.capacity()
-	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: cp.slots, ConversationSlots: cp.conversation, Features: []string{"context_window"},
+	features := []string{"context_window"}
+	if s.trees != nil {
+		features = append(features, protocol.FeatureWorktreeInventory)
+	}
+	req := Register{NodeID: s.inv.NodeID, Name: s.cfg.Name, Epoch: s.inv.Epoch(), ProtocolVersion: 2, Slots: cp.slots, ConversationSlots: cp.conversation, Features: features,
 		Drivers: s.drivers.infos(), Resources: s.cfg.Resources, Labels: cp.labels, Worktrees: s.trees != nil, Hooks: s.cfg.Hooks, Reason: reason,
 		Version: s.version, DetectedLabels: cp.detected, Update: s.update.Status()}
 	if s.update != nil {
@@ -326,6 +343,10 @@ func (s *session) workClaimable() bool { return !s.pausedWork.Load() }
 func (s *session) run(ctx context.Context) error {
 	go s.janitor(ctx)
 	go s.resetter(ctx)
+	if s.inventoryOn() {
+		go s.inventoryLoop(ctx)
+		go s.remover(ctx)
+	}
 	if s.ready != nil {
 		go s.ready.loop(ctx)
 	}
@@ -415,6 +436,15 @@ func (s *session) beat(ctx context.Context) error {
 		hb.Config = s.remote.reported()
 	}
 	hb.Update = s.update.Status()
+	var treesHash string
+	var treesFull bool
+	if s.inventoryOn() {
+		var entries []protocol.WorktreeEntry
+		if entries, treesHash, treesFull = s.worktreesForBeat(); treesFull {
+			hb.Worktrees = &entries
+		}
+		hb.WorktreesHash = treesHash
+	}
 	err := s.api.Do(ctx, "POST", "/nodes/"+s.inv.NodeID+"/heartbeat", hb, &a)
 	if err == nil {
 		s.lastBeat = time.Now()
@@ -441,6 +471,10 @@ func (s *session) beat(ctx context.Context) error {
 		}
 		s.resetMu.Unlock()
 	}
+	if treesHash != "" {
+		s.worktreesDelivered(treesHash, treesFull, a.WorktreesResend)
+	}
+	s.queueRemovals(a.Removals)
 	s.queueResets(a.Reset)
 	if s.ready != nil && a.Checks != nil {
 		s.ready.set(a.Checks)

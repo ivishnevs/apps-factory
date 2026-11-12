@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"appfactory/internal/configfile"
+	"appfactory/internal/protocol"
 	"appfactory/internal/workspace"
 )
 
@@ -174,5 +175,58 @@ func TestConfig(t *testing.T) {
 		if bad.Validate() == nil {
 			t.Errorf("accepted %+v", bad)
 		}
+	}
+}
+
+// RemoveWorktree (worktree-inventory-cleanup): a closed task's worktree goes with its on_task_closed hooks; a stale
+// copy runs no hook and is kept while it holds work no remote has; busy or recently used is not an error.
+func TestRemoveWorktreeByReason(t *testing.T) {
+	w, base := trees(t)
+	ctx := context.Background()
+	log := filepath.Join(t.TempDir(), "hooks.log")
+	paths := map[string]string{}
+	for _, task := range []string{"closed", "stale", "local"} {
+		r := base
+		r.Task = task
+		wt, err := w.Acquire(ctx, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task == "local" {
+			write(t, filepath.Join(wt.Path, "wip.txt"), "only here\n")
+		}
+		if _, err = w.Seal(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		_ = wt.Release()
+		paths[task] = wt.Path
+	}
+	j := &Janitor{Worktrees: w, Company: "default", LockWait: 50 * time.Millisecond, Config: Config{OnTaskClosed: []string{`echo "$FACTORY_TASK_ID" >> ` + log}}}
+	old := StaleMinIdle
+	StaleMinIdle = time.Hour
+	defer func() { StaleMinIdle = old }()
+	if err := j.RemoveWorktree(ctx, protocol.WorktreeRemoval{Task: "stale", Project: "app", Reason: protocol.RemovalStaleCopy}); err != nil {
+		t.Fatal("recently used stale copy:", err)
+	}
+	if _, err := os.Stat(paths["stale"]); err != nil {
+		t.Fatal("recently used stale copy removed")
+	}
+	StaleMinIdle = 0
+	for task, reason := range map[string]string{"closed": protocol.RemovalClosed, "stale": protocol.RemovalStaleCopy} {
+		if err := j.RemoveWorktree(ctx, protocol.WorktreeRemoval{Task: task, Project: "app", Reason: reason}); err != nil {
+			t.Fatal(task, err)
+		}
+		if _, err := os.Stat(paths[task]); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(task, "left", err)
+		}
+	}
+	if err := j.RemoveWorktree(ctx, protocol.WorktreeRemoval{Task: "local", Project: "app", Reason: protocol.RemovalUnknownTask}); !errors.Is(err, workspace.ErrLocalWork) {
+		t.Fatal("local work:", err)
+	}
+	if _, err := os.Stat(paths["local"]); err != nil {
+		t.Fatal("worktree with local work removed")
+	}
+	if b, _ := os.ReadFile(log); string(b) != "closed\n" {
+		t.Fatalf("hooks %q", b)
 	}
 }

@@ -126,6 +126,18 @@ type Node struct {
 	UpdateApproved   string `json:"update_approved,omitempty"`
 	UpdateApprovedAt int64  `json:"update_approved_at,omitempty"`
 	UpdateNow        string `json:"update_now,omitempty"`
+	// Worktrees summarizes the task worktrees the node last reported (worktree-inventory-cleanup); nil: none reported.
+	WorktreeSummary *WorktreeSummary `json:"worktree_summary,omitempty"`
+}
+
+// WorktreeSummary is what a node holds of task worktrees: how many and how big, how many Core asked it to remove
+// (since when, the oldest) and how many raised node.worktree_stuck.
+type WorktreeSummary struct {
+	Count         int   `json:"count"`
+	Bytes         int64 `json:"bytes"`
+	Removing      int   `json:"removing"`
+	RemovingSince int64 `json:"removing_since,omitempty"`
+	Stuck         int   `json:"stuck"`
 }
 
 // Incarnation is this database's identity. Store.Open creates it, and replaces it when the database
@@ -865,6 +877,10 @@ type NodeHeartbeat struct {
 	Config *protocol.NodeConfigReport `json:"config,omitempty"`
 	// Update is the node's update report (node-packaging-updates 3.4); nil: none in progress and none failed.
 	Update *protocol.NodeUpdateStatus `json:"update,omitempty"`
+	// Worktrees is the node's full worktree inventory (worktree-inventory-cleanup), sent when it changed and at least
+	// every 10 minutes; nil: only WorktreesHash was sent. Nodes without the worktree_inventory feature send neither.
+	Worktrees     *[]protocol.WorktreeEntry `json:"worktrees,omitempty"`
+	WorktreesHash string                    `json:"worktrees_hash,omitempty"`
 }
 
 // NodeCapacity is what a node takes on now: its slots and labels after the settings from the web.
@@ -899,6 +915,11 @@ type HeartbeatAnswer struct {
 	// ConfigVersion is the version of the node's settings from the web (0: none); a node that applied another
 	// fetches GET /nodes/{id}/config (node-packaging-updates B; the poll answer carries it too).
 	ConfigVersion int64 `json:"config_version,omitempty"`
+	// Removals are the worktrees a worktree_inventory node must remove (worktree-inventory-cleanup); such a node
+	// gets no cleanup. Answered on every heartbeat while the node still reports the worktree.
+	Removals []protocol.WorktreeRemoval `json:"removals,omitempty"`
+	// WorktreesResend: Core has no inventory for the hash the node sent; the next heartbeat carries the full list.
+	WorktreesResend bool `json:"worktrees_resend,omitempty"`
 }
 
 // NodeHeartbeat renews the leases of every listed run, judges the node's runs against its inventory and
@@ -924,9 +945,10 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	}
 	defer tx.Rollback()
 	var epoch int64
-	var name string
+	var name, treesHash string
 	var before []byte
-	err = tx.QueryRowContext(ctx, "SELECT epoch,name,drivers FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&epoch, &name, &before)
+	var inventory bool
+	err = tx.QueryRowContext(ctx, "SELECT epoch,name,drivers,features @> jsonb_build_array(?::text),worktrees_hash FROM nodes WHERE company_id=? AND id=?", protocol.FeatureWorktreeInventory, company, node).Scan(&epoch, &name, &before, &inventory, &treesHash)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && hb.Epoch > epoch {
 		return out, ErrUnknownNode
 	}
@@ -1115,6 +1137,16 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 		return out, err
 	}
 	rrows.Close()
+	if inventory {
+		// worktree-inventory-cleanup: removals are judged from what the node reports it holds.
+		if out.WorktreesResend, err = applyWorktreeInventory(ctx, tx, node, treesHash, hb.Worktrees, hb.WorktreesHash); err != nil {
+			return out, err
+		}
+		if out.Removals, err = worktreeRemovals(ctx, tx, node, name, nodeDiskLow(health)); err != nil {
+			return out, err
+		}
+		return out, tx.Commit()
+	}
 	// Closed tasks' worktrees on this node, listed a bounded number of times (the node retries busy ones).
 	crow, err := tx.QueryContext(ctx, `SELECT w.task_id FROM workspaces w JOIN tasks t ON t.id=w.task_id
  WHERE w.company_id=? AND w.node_id=? AND w.mode='worktree' AND t.status IN ('DONE','CANCELLED') AND w.cleanup_listed<? ORDER BY w.updated_at LIMIT 64`, company, node, cleanupListings)
@@ -1218,8 +1250,13 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 // Nodes lists the registered nodes.
 func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT n.id,n.name,n.epoch,n.protocol_version,n.slots,n.conversation_slots,n.drivers,n.resources,n.labels,n.health,n.registered_at,n.last_seen,n.online,n.worktrees,
- n.version,n.detected_labels,n.config_report,n.platform,n.update_report,n.update_approved,n.update_approved_at,n.update_now,coalesce(c.version,0),coalesce(c.config,'{}'::jsonb),coalesce(c.updated_by,''),coalesce(c.updated_at,0)
- FROM nodes n LEFT JOIN node_configs c ON c.company_id=n.company_id AND c.node_id=n.id WHERE n.company_id=? ORDER BY n.name,n.id`, company)
+ n.version,n.detected_labels,n.config_report,n.platform,n.update_report,n.update_approved,n.update_approved_at,n.update_now,coalesce(c.version,0),coalesce(c.config,'{}'::jsonb),coalesce(c.updated_by,''),coalesce(c.updated_at,0),
+ coalesce(w.n,0),coalesce(w.bytes,0),coalesce(w.removing,0),coalesce(w.since,0),coalesce(w.stuck,0)
+ FROM nodes n LEFT JOIN node_configs c ON c.company_id=n.company_id AND c.node_id=n.id
+ LEFT JOIN (SELECT node_id,count(*) AS n,sum(bytes) AS bytes,count(*) FILTER (WHERE remove_reason<>'') AS removing,
+  min(remove_since) FILTER (WHERE remove_since>0) AS since,count(*) FILTER (WHERE stuck_raised=1) AS stuck
+  FROM node_worktrees WHERE company_id=? GROUP BY node_id) w ON w.node_id=n.id
+ WHERE n.company_id=? ORDER BY n.name,n.id`, company, company)
 	if err != nil {
 		return nil, err
 	}
@@ -1228,9 +1265,14 @@ func (s *Store) Nodes(ctx context.Context, company string) ([]Node, error) {
 	for rows.Next() {
 		var n Node
 		var drivers, resources, labels, health, detected, report, desired, update []byte
+		var ws WorktreeSummary
 		if err = rows.Scan(&n.NodeID, &n.Name, &n.Epoch, &n.ProtocolVersion, &n.Slots, &n.ConversationSlots, &drivers, &resources, &labels, &health, &n.RegisteredAt, &n.LastSeen, &n.Online, &n.Worktrees,
-			&n.Version, &detected, &report, &n.Platform, &update, &n.UpdateApproved, &n.UpdateApprovedAt, &n.UpdateNow, &n.Config.Version, &desired, &n.Config.UpdatedBy, &n.Config.UpdatedAt); err != nil {
+			&n.Version, &detected, &report, &n.Platform, &update, &n.UpdateApproved, &n.UpdateApprovedAt, &n.UpdateNow, &n.Config.Version, &desired, &n.Config.UpdatedBy, &n.Config.UpdatedAt,
+			&ws.Count, &ws.Bytes, &ws.Removing, &ws.RemovingSince, &ws.Stuck); err != nil {
 			return nil, err
+		}
+		if ws.Count > 0 {
+			n.WorktreeSummary = &ws
 		}
 		_ = json.Unmarshal(drivers, &n.Drivers)
 		_ = json.Unmarshal(resources, &n.Resources)
@@ -1329,6 +1371,9 @@ func (s *Store) dropNode(ctx context.Context, company, node string, online bool,
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM node_keys WHERE company_id=? AND node_id=?", company, node); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM node_worktrees WHERE company_id=? AND node_id=?", company, node); err != nil {
 		return err
 	}
 	if known {
