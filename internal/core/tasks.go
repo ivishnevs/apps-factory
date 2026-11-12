@@ -349,6 +349,47 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		v, err := c.Store.CommentTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
 		reply(w, v, err)
 	})
+	// owner-comments-handled: a closed task takes no comment; the owner reopens it with the comment, or asks the
+	// project lead about it.
+	m.HandleFunc("POST /tasks/{id}/reopen", func(w http.ResponseWriter, r *http.Request) {
+		var p tasks.Comment
+		if !decode(w, r, &p) {
+			return
+		}
+		if p.Actor != "" {
+			http.Error(w, "only the owner reopens a closed task", 403)
+			return
+		}
+		v, err := c.Store.ReopenTask(r.Context(), c.companyFrom(r), r.PathValue("id"), p)
+		reply(w, v, err)
+	})
+	m.HandleFunc("POST /tasks/{id}/ask-lead", func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Text      string `json:"text"`
+			RequestID string `json:"request_id"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		company := c.companyFrom(r)
+		t, err := c.Store.Task(r.Context(), company, r.PathValue("id"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if strings.TrimSpace(p.Text) == "" {
+			http.Error(w, "text required", 400)
+			return
+		}
+		lead := c.teamLead(r.Context(), company, t.ProjectID, "")
+		if lead == "" {
+			http.Error(w, "the project has no lead to ask", 409)
+			return
+		}
+		body := fmt.Sprintf("About task %s (%s, %s, assignee %s): %s", t.ID, t.Title, t.Status, t.Assignee, p.Text)
+		v, err := c.ownerMessageTo(r.Context(), company, t.ProjectID, lead, body, "question", p.RequestID)
+		reply(w, v, err)
+	})
 	m.HandleFunc("POST /tasks/{id}/actions", func(w http.ResponseWriter, r *http.Request) {
 		var p tasks.Action
 		if !decode(w, r, &p) {

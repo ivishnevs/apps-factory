@@ -89,6 +89,13 @@ A manager that cannot decide a question asks its own manager (factory_exit_ask f
 factory_question_forward); the owner's answer to that reaches it as a message on its conversation, and it
 then answers the originator.
 
+Board (owner) comments on tasks are handled, not just read ([task lifecycle](task-lifecycle.md#board-comments-owner-comments-handled)):
+every exit carries an outcome per comment shown to the run, `factory_comment_forward {comment_id, note}` passes a
+comment that is not the agent's to do up the chain (a `board_comment` trigger on the manager's conversation, the
+comment verbatim with the task link), and the project lead reads every board comment of its project in its
+conversation brief without being woken, except for a decline, a stall past the team's limit or a locked category.
+"Ask the lead about it" on a closed task (`POST /tasks/{id}/ask-lead`) is an owner question to the project lead.
+
 ## Owner API and CLI
 
 All routes below require the owner/service FACTORY_TOKEN, never a run token. Owner sender identity

@@ -8,6 +8,8 @@ export type BoardTask = Task & { kind?: string; paused_by?: string };
 export function describe(a: Action): string {
   switch (a.Kind) {
     case "comment": return `Comment on ${a.TaskID}: ${a.Text}`;
+    case "reopen": return `Reopen ${a.TaskID} with comment: ${a.Text}`;
+    case "ask_lead": return `Ask the lead about ${a.TaskID}: ${a.Text}`;
     case "direct": return `Directive to ${a.TaskID}${a.Urgent ? " (urgent)" : ""}: ${a.Text}`;
     case "reassign": return `Reassign ${a.TaskID} to ${a.Assignee}`;
     case "reprioritize": return `Reprioritize ${a.TaskID} to ${a.Priority}`;

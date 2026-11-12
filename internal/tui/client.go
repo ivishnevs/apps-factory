@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -134,7 +135,7 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string         // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
+	Kind       string         // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
 	TaskID     string         // task actions
 	Project    string         // say, create
 	Title      string         // create (Text is the description)
@@ -164,6 +165,10 @@ func (a Action) Describe() string {
 	switch a.Kind {
 	case "comment":
 		return "comment on " + a.TaskID + ": " + a.Text
+	case "reopen":
+		return "reopen " + a.TaskID + " with comment: " + a.Text
+	case "ask_lead":
+		return "ask the lead about " + a.TaskID + ": " + a.Text
 	case "direct":
 		u := ""
 		if a.Urgent {
@@ -611,6 +616,11 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		err = c.API.Do(ctx, "POST", task+"/actions", body, &result)
 	case "comment":
 		err = c.API.Do(ctx, "POST", task+"/comments", map[string]any{"text": a.Text, "request_id": rid}, &result)
+	case "reopen":
+		// owner-comments-handled: a closed task takes no comment; it is reopened with it, or the lead is asked.
+		err = c.API.Do(ctx, "POST", task+"/reopen", map[string]any{"text": a.Text, "request_id": rid}, &result)
+	case "ask_lead":
+		err = c.API.Do(ctx, "POST", task+"/ask-lead", map[string]any{"text": a.Text, "request_id": rid}, &result)
 	case "direct":
 		err = c.API.Do(ctx, "POST", task+"/directives", map[string]any{"text": a.Text, "urgent": a.Urgent, "request_id": rid}, &result)
 	case "answer":
@@ -683,6 +693,14 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 // changed since the UI read it. The UI refreshes after every action, so the owner sees the new state.
 func explainConflict(a Action, err error) error {
 	he, ok := err.(*worker.HTTPError)
+	var closed struct {
+		Reason string `json:"reason"`
+		Error  string `json:"error"`
+	}
+	if ok && he.Status == 409 && json.Unmarshal([]byte(he.Message), &closed) == nil && closed.Reason == "task_closed" {
+		// A comment on a closed task (owner-comments-handled): Core names the two ways on.
+		return errors.New(closed.Error)
+	}
 	if !ok || he.Status != 409 || !strings.Contains(he.Message, storage.ErrConflict.Error()) {
 		return err
 	}

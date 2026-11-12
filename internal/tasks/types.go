@@ -344,6 +344,9 @@ type Comment struct {
 	Text      string `json:"text"`
 	RequestID string `json:"request_id,omitempty"`
 	Actor     string `json:"actor,omitempty"`
+	// Category is a locked category the owner names for the comment (release, money, deletion, legal); Core also
+	// detects one in the text. A locked comment wakes the project lead at once (owner-comments-handled).
+	Category string `json:"category,omitempty"`
 	// Authority is set by Core (never decoded): the owner or an agent with authority over the task.
 	Authority bool `json:"-"`
 }

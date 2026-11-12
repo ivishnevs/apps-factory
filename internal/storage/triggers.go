@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"appfactory/internal/approvals"
+	"appfactory/internal/config"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
@@ -352,14 +353,31 @@ func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Co
 		if actor == "" {
 			actor = "owner"
 		}
-		if err = comment(ctx, tx, t.ID, actor, in.Text); err != nil {
+		if t.Status == "DONE" || t.Status == "CANCELLED" {
+			// Nobody runs a closed task again (owner-comments-handled): reopen it with the comment or ask the lead.
+			return t, closedTaskError(ctx, tx, t)
+		}
+		category := ""
+		if isOwner(actor) {
+			if category = in.Category; !config.LockedCategory(category) {
+				category = config.LockedCategoryOf(in.Text)
+			}
+		}
+		cid, err := commentWith(ctx, tx, t.ID, actor, in.Text, category)
+		if err != nil {
 			return t, err
 		}
+		if isOwner(actor) {
+			// The board's word: the task's runs owe it an outcome; a locked category wakes the lead at once.
+			if err = boardComment(ctx, tx, t, cid, category); err != nil {
+				return t, err
+			}
+		}
 		authority := in.Authority || isOwner(actor)
-		if t.Status == "DONE" || t.Status == "CANCELLED" || actor == t.Assignee || !authority {
+		if actor == t.Assignee || !authority {
 			return t, feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.commented", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Actor: actor, Status: t.Status, Summary: in.Text})
 		}
-		return t, addTrigger(ctx, tx, &t, "owner_comment", true, actor, "", in.Text)
+		return t, addTrigger(ctx, tx, &t, "owner_comment", true, actor, cid, in.Text)
 	})
 }
 

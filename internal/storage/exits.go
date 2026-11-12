@@ -92,6 +92,8 @@ type ExitRefusal struct {
 	Reason string          `json:"reason"`
 	Unseen []UnseenTrigger `json:"unseen,omitempty"`
 	Hint   string          `json:"hint,omitempty"`
+	// Comments are the board comments without an outcome (comments_unhandled, owner-comments-handled).
+	Comments []UnhandledComment `json:"comments,omitempty"`
 }
 
 func (r *ExitRefusal) Error() string { return "exit refused: " + r.Reason + " " + r.Hint }
@@ -225,8 +227,19 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 			return out, refuse("needs_approval", "the pull request head changed after its approval (project policy review_after_conflicts: required): submit again for review before merging")
 		}
 	}
+	// Every board comment shown to the run needs an outcome before any exit (owner-comments-handled).
+	given, r, err := checkComments(ctx, tx, t, req.Arguments)
+	if err != nil {
+		return out, err
+	}
+	if r != nil {
+		return out, r
+	}
 	if req.Preflight {
 		return ExitResult{Exit: req.Kind, Task: exitTask(t), AckSeq: req.AckSeq}, nil
+	}
+	if err = recordComments(ctx, tx, t, agent, given); err != nil {
+		return out, err
 	}
 	out, err = applyExit(ctx, tx, runID, agent, t, req)
 	if err != nil {

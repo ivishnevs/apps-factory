@@ -154,7 +154,9 @@ export interface Approval {
   audience?: string; delegate?: string; setting?: string; escalated?: boolean; decided_by?: string; cites?: string[];
 }
 
-export interface Comment { id: string; author: string; text: string; created_at: number; person?: string }
+// A board comment's handling (owner-comments-handled): one entry per agent that got it; status open is "not handled yet".
+export interface CommentOutcome { agent: string; reason: string; status: "open" | "done" | "forwarded" | "declined"; note?: string; to?: string; task?: string; at?: number }
+export interface Comment { id: string; author: string; text: string; created_at: number; person?: string; category?: string; outcomes?: CommentOutcome[] }
 export interface PRFacts { number: number; state: string; head_sha: string; url?: string }
 export interface ExitFacts { head: string; dirty: boolean; branch: string; default_branch: string; ahead_of_default: number; pushed: boolean; pr?: PRFacts }
 export interface TaskExit { run_id: string; kind: string; facts?: ExitFacts; created_at: number }
@@ -172,7 +174,7 @@ export interface TaskDetail {
 }
 
 // An owner action (internal/tui.Action; Go field names, no json tags). Kind is one of: pause, resume, retry,
-// run, cancel, reassign, reprioritize, comment, direct, answer, approve, reject, stop, start, say, create,
+// run, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create,
 // create_project (NewProject is the POST /projects body), hold, release, read.
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;

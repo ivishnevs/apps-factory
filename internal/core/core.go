@@ -294,6 +294,12 @@ func reply(w http.ResponseWriter, v any, err error) {
 				"artifact_id": archived.ID, "version": archived.Version, "latest_version": archived.Latest})
 			return
 		}
+		var closed *storage.ClosedTaskError
+		if errors.As(err, &closed) {
+			// owner-comments-handled: a comment on a closed task is refused with the two ways on.
+			jsonStatus(w, 409, map[string]any{"reason": "task_closed", "error": closed.Error(), "status": closed.Status, "lead": closed.Lead, "options": closed.Options()})
+			return
+		}
 		var answered *storage.AnsweredError
 		if errors.As(err, &answered) {
 			// First answer wins (hierarchy D3): a later answer gets 409 with the recorded one.

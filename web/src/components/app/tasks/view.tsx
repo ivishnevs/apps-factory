@@ -70,7 +70,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           {task.submission && <Submission sub={task.submission} look={look} />}
           {task.status !== "DONE" && <TaskMaterials taskId={task.id} featured={false} now={now} />}
           <ReviewNotes task={task} look={look} />
-          <Comments taskId={task.id} comments={d.comments ?? []} now={now} look={look} />
+          <Comments taskId={task.id} comments={d.comments ?? []} now={now} look={look} closed={isTerminal(task.status)} />
         </div>
         <aside className="grid min-w-0 grid-cols-1 gap-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <DetailsList task={task} parent={parent} cost={d.costs?.total?.cost_usd ?? 0} now={now} look={look} />

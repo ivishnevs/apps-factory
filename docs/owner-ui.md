@@ -127,7 +127,7 @@ it yet (below).
 who clears it, the queued run's cause with each node's answer, pending triggers, Core's active parks (kind,
 reason, what it waits on, who clears it, since when; from `GET /tasks/{id}/parks`, an older Core's from the
 feed events), dependencies, children, the body, every run with outcome,
-exit and cost, comments and recent events — with the actions: `p` pause · `u` resume · `r` retry · `n` run
+exit and cost, comments (a board comment with its outcome, `→ forwarded to manager by demo` or `not handled yet`) and recent events — with the actions: `p` pause · `u` resume · `r` retry · `n` run
 · `x` cancel (cascading to open children) · `a` reassign · `P` priority · `c` comment · `d` directive
 (`!text` is urgent and stops the live run) · `L` live run · `t` transcript · `o` open the PR · `f` flow.
 
@@ -578,6 +578,11 @@ are shown in plain words; IDs appear only where a person needs them.
   (or opened with `?project=`) is remembered per company in the browser (`localStorage`
   `factory.tasks.project.<company>`, tasks-project-memory): Tasks opened without `?project=` shows it again; All
   projects is remembered too; an archived or removed project is forgotten.
+- **Task page** comments (owner-comments-handled): under each of the owner's comments its outcome — "done by …",
+  "forwarded to … by …", "declined by …: why" or "not handled yet". A DONE or CANCELLED task has no comment box:
+  its text box offers **Reopen with comment** (the task goes back to its assignee with the comment) and **Ask the
+  lead about it** (a question to the project lead naming the task); Core refuses a plain comment there (409
+  `task_closed`), so the TUI, CLI and Telegram behave the same.
 - **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
   page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
   button while it runs (project-pause-visible). Nodes & control still lists every pause.
