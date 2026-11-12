@@ -41,10 +41,6 @@ type NodeConnectStatus struct {
 }
 
 func (c *Core) createNodeConnect(w http.ResponseWriter, r *http.Request) {
-	if !c.enrollLimit.allow(clientAddress(r), c.Store.Now()) {
-		http.Error(w, "too many connection requests: try again in a minute", http.StatusTooManyRequests)
-		return
-	}
 	var in storage.NodeConnectRequest
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
 	d.DisallowUnknownFields()

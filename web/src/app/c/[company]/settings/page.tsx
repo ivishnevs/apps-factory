@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ChevronRight, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, ScrollText, Timer, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, ChevronRight, Clock, Copy, Database, FolderGit2, KeyRound, LifeBuoy, LogOut, MessageCircle, ScrollText, Timer, Trash2, UserRound, Users } from "lucide-react";
 import Link from "@/components/app/link";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -10,6 +10,7 @@ import { failWithBilling, PlanLimitLink, useBilling } from "@/components/app/bil
 import { useConfirm } from "@/components/app/confirm";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
 import { CompanyRules } from "@/components/app/settings/company-rules";
+import { AccountData, CompanyData } from "@/components/app/settings/data";
 import { SessionSettings } from "@/components/app/settings/sessions";
 import { TelegramSettings } from "@/components/app/settings/telegram";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +100,9 @@ function General({ role }: { role: Role }) {
       <Section title="Sessions" icon={Timer} description="How long runs wait for the machine that holds their agent's session.">
         <SessionSettings manage={manage} />
       </Section>
+      {owner && <Section title="Company data" icon={Database} description="Download everything, or delete the company.">
+        <CompanyData company={info.data.id} name={info.data.name} />
+      </Section>}
     </div>
   );
 }
@@ -303,14 +307,27 @@ function Tokens() {
   );
 }
 
+function Support({ email }: { email?: string }) {
+  if (!email) return null;
+  return (
+    <Section title="Support" icon={LifeBuoy}>
+      <p className="text-sm text-muted-foreground">Questions, problems or a request about your data: write to <a href={`mailto:${email}`} className="font-medium text-foreground underline-offset-4 hover:underline">{email}</a>.</p>
+    </Section>
+  );
+}
+
 function Account() {
   const me = useMe();
-  if (me.data?.kind !== "session") return <Section title="Account" icon={UserRound}><p className="text-sm text-muted-foreground">You are using an access token, not a personal sign-in.</p></Section>;
+  if (me.data?.kind !== "session") return <div className="space-y-4"><Section title="Account" icon={UserRound}><p className="text-sm text-muted-foreground">You are using an access token, not a personal sign-in.</p></Section><Support email={me.data?.support_email} /></div>;
   return (
-    <Section title="Account" icon={UserRound}>
-      <p className="text-sm">{me.data.user?.name && <span className="font-medium">{me.data.user.name} · </span>}<span className="text-muted-foreground">{me.data.user?.email}</span></p>
-      <Button variant="outline" className="mt-4 h-10" onClick={signOut}><LogOut className="size-4" />Sign out</Button>
-    </Section>
+    <div className="space-y-4">
+      <Section title="Account" icon={UserRound}>
+        <p className="text-sm">{me.data.user?.name && <span className="font-medium">{me.data.user.name} · </span>}<span className="text-muted-foreground">{me.data.user?.email}</span></p>
+        <Button variant="outline" className="mt-4 h-10" onClick={signOut}><LogOut className="size-4" />Sign out</Button>
+        {me.data.user?.email && <AccountData email={me.data.user.email} />}
+      </Section>
+      <Support email={me.data.support_email} />
+    </div>
   );
 }
 

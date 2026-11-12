@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, CreditCard, FolderOpen, Home, Inbox, KanbanSquare, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users, FolderGit2 } from "lucide-react";
+import { Activity, Bot, Building2, KeyRound, Plus, Sparkles, ChevronsUpDown, CircleDollarSign, CreditCard, FolderOpen, Home, Inbox, KanbanSquare, LifeBuoy, LogOut, MessageSquare, MoreHorizontal, Server, Settings, Users, FolderGit2 } from "lucide-react";
 import Link, { useAppPath } from "@/components/app/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
@@ -82,6 +82,7 @@ function CompanyMenu({ compact }: { compact?: boolean }) {
         )}
         <DropdownMenuItem asChild><Link href="/settings"><Settings className="size-4" />Settings</Link></DropdownMenuItem>
         {billing.data?.enabled && <DropdownMenuItem asChild><Link href="/billing"><CreditCard className="size-4" />Billing</Link></DropdownMenuItem>}
+        {me.data?.support_email && <DropdownMenuItem asChild><a href={`mailto:${me.data.support_email}`}><LifeBuoy className="size-4" />Contact support</a></DropdownMenuItem>}
         {session && <DropdownMenuItem onSelect={signOut}><LogOut className="size-4" />Sign out</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -122,6 +123,13 @@ function NewCompanyDialog({ open, onClose }: { open: boolean; onClose: () => voi
   );
 }
 
+// StatusNote is the operator's note during an incident or maintenance (saas-release-readiness 2.4).
+function StatusNote() {
+  const note = useMe().data?.status_note;
+  if (!note) return null;
+  return <div role="status" className="bg-amber-500 px-4 py-1.5 text-center text-sm font-medium text-black">{note}</div>;
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = useAppPath();
   const { data } = useOverview();
@@ -155,6 +163,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="sticky top-0 z-30 border-b bg-background/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur md:hidden"><div className="py-2"><CompanyMenu compact /></div></div>
           {stopped && <div className="bg-red-500 px-4 py-1.5 text-center text-sm font-medium text-white">Company stopped: no new runs start</div>}
+          <StatusNote />
           <TrialBanner />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-5 md:px-8 md:pb-10 md:pt-8">{children}</main>
         </div>

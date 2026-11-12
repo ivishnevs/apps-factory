@@ -287,6 +287,8 @@ func run() error {
 		return err
 	}
 	c.MultiCompany, c.SignupTemplate = os.Getenv("FACTORY_MULTI_COMPANY") == "1", os.Getenv("FACTORY_SIGNUP_TEMPLATE")
+	// saas-release-readiness 4.3: the support address the landing and the app show; unset shows none.
+	c.SupportEmail = strings.TrimSpace(os.Getenv("FACTORY_SUPPORT_EMAIL"))
 	// node-install: the connection page, Core's address for nodes and the node packages.
 	c.PublicURL = env("FACTORY_PUBLIC_URL", "http://127.0.0.1:3000")
 	c.NodeURL, c.NodeDownloads = os.Getenv("FACTORY_CORE_URL"), os.Getenv("FACTORY_NODE_DOWNLOADS")

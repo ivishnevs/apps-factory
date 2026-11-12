@@ -60,6 +60,21 @@ func TestRoundTripAndCompanyIsolation(t *testing.T) {
 			if err = s.Delete(ctx, "acme", sha); err != nil {
 				t.Fatal("second delete", err)
 			}
+			// saas-release-readiness 4.2: DeleteCompany removes one company's blobs only.
+			a, _, _ := s.Put(ctx, "acme", strings.NewReader("a"))
+			o, _, _ := s.Put(ctx, "other", strings.NewReader("o"))
+			if err = s.DeleteCompany(ctx, "acme"); err != nil {
+				t.Fatal(err)
+			}
+			if ok, _ := s.Exists(ctx, "acme", a); ok {
+				t.Fatal("company blob kept")
+			}
+			if ok, _ := s.Exists(ctx, "other", o); !ok {
+				t.Fatal("another company's blob deleted")
+			}
+			if err = s.DeleteCompany(ctx, "../acme"); err == nil {
+				t.Fatal("invalid company accepted")
+			}
 		})
 	}
 }

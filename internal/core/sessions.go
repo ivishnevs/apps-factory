@@ -109,7 +109,7 @@ func requiredRole(method, path string) string {
 	read := method == http.MethodGet || method == http.MethodHead
 	under := func(prefix string) bool { return path == prefix || strings.HasPrefix(path, prefix+"/") }
 	switch {
-	case path == "/company" && !read, under("/memberships") && !read, under("/invitations"), under("/billing"):
+	case path == "/company" && !read, path == "/company/export", under("/memberships") && !read, under("/invitations"), under("/billing"):
 		return storage.RoleOwner
 	case under("/owner-tokens"), under("/node-enrollments"), under("/node-keys"), under("/node-connects"):
 		return storage.RoleAdmin
@@ -171,6 +171,13 @@ func (c *Core) sessionGateway(w http.ResponseWriter, r *http.Request, m *http.Se
 	p := principal{Kind: "session", User: sess.User}
 	ctx := context.WithValue(r.Context(), principalKey{}, p)
 	switch {
+	// The person's own data (saas-release-readiness 4.2): an export, and deleting the account.
+	case r.URL.Path == "/me/export" && r.Method == http.MethodGet:
+		c.exportAccount(w, r.WithContext(ctx), sess.User)
+		return
+	case r.URL.Path == "/me" && r.Method == http.MethodDelete:
+		c.deleteAccount(w, r.WithContext(ctx), sess.User)
+		return
 	case r.URL.Path == "/me":
 		c.me(w, r.WithContext(ctx))
 		return
@@ -310,11 +317,14 @@ type Me struct {
 	Companies    []storage.Membership `json:"companies"`
 	LastCompany  string               `json:"last_company,omitempty"`
 	MultiCompany bool                 `json:"multi_company"`
+	// SupportEmail and StatusNote: the support address and the operator's status note (saas-release-readiness).
+	SupportEmail string `json:"support_email,omitempty"`
+	StatusNote   string `json:"status_note,omitempty"`
 }
 
 func (c *Core) me(w http.ResponseWriter, r *http.Request) {
 	p := principalOf(r)
-	out := Me{Kind: p.Kind, MultiCompany: c.MultiCompany, Companies: []storage.Membership{}}
+	out := Me{Kind: p.Kind, MultiCompany: c.MultiCompany, Companies: []storage.Membership{}, SupportEmail: c.SupportEmail, StatusNote: c.statusNote(r)}
 	if out.Kind == "" && operator(r) {
 		out.Kind = "operator"
 	}
@@ -370,7 +380,15 @@ func (c *Core) authRoutes(w http.ResponseWriter, r *http.Request) {
 		if c.Auth != nil {
 			providers = c.Auth.Providers()
 		}
-		write(w, map[string]any{"providers": providers, "multi_company": c.MultiCompany})
+		out := map[string]any{"providers": providers, "multi_company": c.MultiCompany}
+		// saas-release-readiness 2.4, 4.3: the landing and the sign-in show these before anyone signs in.
+		if c.SupportEmail != "" {
+			out["support_email"] = c.SupportEmail
+		}
+		if note := c.statusNote(r); note != "" {
+			out["status_note"] = note
+		}
+		write(w, out)
 	case r.URL.Path == "/auth/login" && r.Method == http.MethodGet:
 		if c.Auth == nil {
 			http.Error(w, "sign-in is not configured (FACTORY_OIDC_ISSUER)", 404)

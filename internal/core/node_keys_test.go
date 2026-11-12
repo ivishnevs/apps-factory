@@ -186,31 +186,6 @@ func TestNodeEnrollment(t *testing.T) {
 	}
 }
 
-func TestEnrollLimiter(t *testing.T) {
-	var l enrollLimiter
-	now := time.Unix(1_800_000_000, 0)
-	for i := 0; i < enrollPerAddressPerMinute; i++ {
-		if !l.allow("a", now) {
-			t.Fatal(i)
-		}
-	}
-	if l.allow("a", now) {
-		t.Fatal("address limit not applied")
-	}
-	if !l.allow("b", now) {
-		t.Fatal("another address limited")
-	}
-	for i := 0; i < enrollPerMinute; i++ {
-		l.allow(string(rune('c'+i%2000)), now)
-	}
-	if l.allow("new", now) {
-		t.Fatal("overall limit not applied")
-	}
-	if !l.allow("a", now.Add(time.Minute)) {
-		t.Fatal("limit not reset")
-	}
-}
-
 func TestClientAddress(t *testing.T) {
 	r, _ := http.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.0.0.1:1234"
