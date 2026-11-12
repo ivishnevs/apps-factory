@@ -585,6 +585,9 @@ A task that waits for something inside Factory parks on it instead of a timer, w
 
 ## Stall detection and escalations
 
+Core's escalations reach people with Core's brief (what stopped, what each answer does, the cause) and share a topic
+per agent and reason, so several of one broken agent are answered at once ([people-topics.md](people-topics.md)).
+
 Once a minute Core's tick checks every released, non-terminal task (reliable-recovery D8):
 
 - `stalled` — the task depends on a task that has no assignee or was cancelled (a cancelled dependency never

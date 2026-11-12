@@ -176,6 +176,11 @@ download. `factory_artifact_get` adds an `archived` note naming the latest versi
 required by a new task or submitted for approval (400, naming the latest version). Uploading the same content under
 the same id and version again restores it.
 
+## People topics
+
+An approval that reaches people (directly, or escalated by its delegate) carries a brief and joins a topic by its
+version line; a composite declares `includes`. See [people-topics.md](people-topics.md).
+
 ## Who approves (approval-delegation)
 
 A team (`spec.approvals` of its team document) or a project (`approvals`, edited on the project page, overriding its

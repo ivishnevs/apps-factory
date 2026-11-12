@@ -59,6 +59,12 @@ All mutations require a nonempty stable `request_id`; edits/actions/submit/revie
 arguments/key; a reused key with changed input returns 409. Neither MCP adapter nor Worker retries
 a mutation automatically. A 409 is a state/version conflict, not permission to repeat side effects.
 
+### Briefs for people
+
+The tools that can reach people take `brief` (and `note`, `topic`); Core requires them only when the item goes to
+people and refuses with `brief_required` naming the missing fields. `factory_people_brief` completes a topic. See
+[people-topics.md](people-topics.md).
+
 ## Explicit exits
 
 A run ends its turn with exactly one accepted `factory_exit_*` call ([contract](explicit-exits-contract.md)).

@@ -1,5 +1,8 @@
 # Action approvals
 
+> What people read about an approval is its brief (title, why), with Core's question and what the call does;
+> see [people-topics.md](people-topics.md). A request from an agent without a brief is refused with `brief_required`.
+
 Core stores an approval of one exact Factory MCP call: the tool name, all arguments (including the entity
 version and `request_id`), the project, the agent and the current task. A task's approval applies when that task's
 run continues; for a run without a task the scope is the agent/project and the exact call. Another agent or task
