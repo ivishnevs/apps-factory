@@ -112,7 +112,11 @@ activity feed gets `worktree.removed {task, node, reason, bytes}`.
   aborts on unpushed commits (D5); `stale_copy` also requires 24 h without use.
 - Core redeploy loses nothing: inventory is re-sent within 10 minutes and the verdict is recomputed.
 
+## Decisions by the owner
+
+- 2026-11-12: no manual "remove now" button on the Nodes page; the system cleans worktrees itself. A stuck
+  worktree is only surfaced by the `node.worktree_stuck` attention event, and the fix goes into the system.
+
 ## Open Questions
 
 - 24 h for `stale_copy` and `unknown_task`: fine as defaults, or make them company settings?
-- Should the Nodes page offer a "remove now" button for a stuck worktree, or only the attention event?

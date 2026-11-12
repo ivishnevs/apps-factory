@@ -39,7 +39,7 @@ is on its disk.
 - **Unsafe cases are surfaced, never deleted.** A worktree with unpushed commits on a node that does not own the task's
   workspace, or one that fails removal for 1 h, raises one `node.worktree_stuck` attention event with the reason.
 - **Visibility.** The Nodes page shows each node's worktree count, total size and the oldest closed one still on
-  disk.
+  disk; read-only, no manual removal button (owner, 2026-11-12: the system cleans itself).
 - Nodes without the new feature keep the current `workspaces.node_id` listing; it stays as the fallback until all
   nodes report inventory.
 
