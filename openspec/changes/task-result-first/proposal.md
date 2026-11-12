@@ -1,5 +1,8 @@
-Status: proposed 2026-11-12 by the owner ("why didn't I see the final screenshots in the task as the result?"). Nothing
-implemented.
+Status: proposed 2026-11-12 by the owner ("why didn't I see the final screenshots in the task as the result?");
+implemented 2026-11-12. Implementation decisions: `factory_exit_done` gained an optional `artifacts` argument (before,
+only submit could name a result); the result is the last submit or done exit that names any artifacts (a done exit
+naming none keeps the submission's); pull requests stay visible next to the result, not under "Earlier versions";
+without a result only an artifact's older versions fold away.
 
 ## Why
 

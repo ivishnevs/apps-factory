@@ -55,8 +55,11 @@ type Material struct {
 	// ContentURL then, its metadata stays.
 	ArchivedAt     int64  `json:"archived_at,omitempty"`
 	ArchivedReason string `json:"archived_reason,omitempty"`
-
-	artifactID string
+	// ArtifactID is the artifact an artifact version (or an image inside its archive) belongs to; Version is its
+	// version. Result marks the task's delivered result (task-result-first): the artifacts the task's last submit
+	// or done exit named, and the images inside them.
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Result     bool   `json:"result,omitempty"`
 }
 
 // MaterialVersion is an older version of a Library artifact.
@@ -136,7 +139,7 @@ func fromReport(r reports.Report) []Material {
 // fromArtifact is an artifact version: uploaded content, or an external link.
 func fromArtifact(project string, a tasks.Artifact, source, task, run, author string, at int64) Material {
 	name := cmpOr(a.Name, path.Base(a.URI), a.ID)
-	m := Material{ID: "artifact:" + project + ":" + a.ID + ":" + a.Version, artifactID: a.ID, Source: source, Name: name, Version: a.Version, Size: a.Size, SHA256: a.SHA256,
+	m := Material{ID: "artifact:" + project + ":" + a.ID + ":" + a.Version, ArtifactID: a.ID, Source: source, Name: name, Version: a.Version, Size: a.Size, SHA256: a.SHA256,
 		ProjectID: project, TaskID: task, RunID: run, Author: author, CreatedAt: at}
 	switch {
 	case a.SHA256 != "":
@@ -171,8 +174,8 @@ func collect(project string, reps []reports.Report, records []artifacts.Record, 
 			return
 		}
 		seen[m.ID] = true
-		if m.artifactID != "" || m.Source == "archive" {
-			if a, ok := archived[m.artifactID+"\x00"+m.Version]; ok {
+		if m.ArtifactID != "" || m.Source == "archive" {
+			if a, ok := archived[m.ArtifactID+"\x00"+m.Version]; ok {
 				m.ArchivedAt, m.ArchivedReason, m.ContentURL = a.ArchivedAt, a.ArchivedReason, ""
 			}
 		}
@@ -183,7 +186,7 @@ func collect(project string, reps []reports.Report, records []artifacts.Record, 
 		add(m)
 		for _, e := range r.ArchiveImages {
 			name := path.Base(e.Path)
-			add(Material{ID: m.ID + "#" + e.Path, artifactID: r.ID, Kind: "image", Source: "archive", Name: name, Path: e.Path, Version: r.Version, Size: e.Size,
+			add(Material{ID: m.ID + "#" + e.Path, ArtifactID: r.ID, Kind: "image", Source: "archive", Name: name, Path: e.Path, Version: r.Version, Size: e.Size,
 				ContentURL: "/api/artifacts/" + url.PathEscape(project) + "/" + url.PathEscape(r.ID) + "/" + url.PathEscape(r.Version) + "/entry?" + url.Values{"path": {e.Path}, "name": {name}}.Encode(),
 				ProjectID:  project, TaskID: r.TaskID, RunID: r.RunID, Author: r.CreatedBy, CreatedAt: r.CreatedAt, Archive: m.Name + " " + r.Version})
 		}
@@ -269,16 +272,68 @@ func taskMaterials(ctx context.Context, c tui.Client, d tui.TaskDetail) ([]Mater
 	}
 	ms := collect(t.ProjectID, reps, records, []tui.Task{t}, map[string][]storage.TaskExit{t.ID: d.Exits}, archivedOf(all))
 	for i, m := range ms {
-		if m.artifactID == "" {
+		if m.ArtifactID == "" {
 			continue
 		}
-		if a, err := c.ArtifactApproval(ctx, t.ProjectID, m.artifactID, m.Version); err == nil && a != nil {
+		if a, err := c.ArtifactApproval(ctx, t.ProjectID, m.ArtifactID, m.Version); err == nil && a != nil {
 			ms[i].Approval = &MaterialApproval{ID: a.ID, Status: a.Status, DecidedAt: a.DecidedAt, Reason: a.DecisionReason}
 		}
 	}
 	titles(ms, []tui.Task{t})
 	newestFirst(ms)
+	resultFirst(ms, resultOf(t, d.Exits))
 	return ms, nil
+}
+
+// resultOf is a task's delivered result (task-result-first): the artifacts its last submit or done exit named,
+// in the order named, by "<id>\x00<version>". A task submitted outside explicit exits has its submission's.
+func resultOf(t tui.Task, exits []storage.TaskExit) map[string]int {
+	named := []tasks.Artifact{}
+	for i := len(exits) - 1; i >= 0; i-- {
+		if e := exits[i]; (e.Kind == "submit" || e.Kind == "done") && len(e.Artifacts) > 0 {
+			named = e.Artifacts
+			break
+		}
+	}
+	if len(named) == 0 && t.Submission != nil {
+		named = t.Submission.Artifacts
+	}
+	out := map[string]int{}
+	for i, a := range named {
+		if _, ok := out[a.ID+"\x00"+a.Version]; !ok {
+			out[a.ID+"\x00"+a.Version] = i
+		}
+	}
+	return out
+}
+
+// resultFirst marks the result's materials and moves them to the front in the order the exit named them (an
+// archive's images right after it); the rest stay newest first. ms is newest first.
+func resultFirst(ms []Material, result map[string]int) {
+	rank := func(m Material) (int, bool) {
+		if m.ArtifactID == "" {
+			return 0, false
+		}
+		r, ok := result[m.ArtifactID+"\x00"+m.Version]
+		return r, ok
+	}
+	for i := range ms {
+		_, ms[i].Result = rank(ms[i])
+	}
+	sort.SliceStable(ms, func(i, j int) bool {
+		ri, oi := rank(ms[i])
+		rj, oj := rank(ms[j])
+		if oi != oj {
+			return oi
+		}
+		if oi && ri != rj {
+			return ri < rj
+		}
+		if oi { // the archive itself before the images inside it
+			return ms[i].Source != "archive" && ms[j].Source == "archive"
+		}
+		return false
+	})
 }
 
 // library reads every project's materials. The exits (pull requests) are read for the tasks that ended or
@@ -464,11 +519,11 @@ func oneCardPerArtifact(ms []Material) []Material {
 	out := make([]Material, 0, len(ms))
 	at := map[string]int{}
 	for _, m := range ms {
-		if m.artifactID == "" || m.Source != "artifact" {
+		if m.ArtifactID == "" || m.Source != "artifact" {
 			out = append(out, m)
 			continue
 		}
-		key := m.ProjectID + "\x00" + m.artifactID
+		key := m.ProjectID + "\x00" + m.ArtifactID
 		if i, ok := at[key]; ok {
 			out[i].Versions = append(out[i].Versions, MaterialVersion{Version: m.Version, CreatedAt: m.CreatedAt, ContentURL: m.ContentURL, URL: m.URL, Size: m.Size, ArchivedAt: m.ArchivedAt})
 			continue
