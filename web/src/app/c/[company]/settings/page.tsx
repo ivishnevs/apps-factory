@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ChevronRight, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, Timer, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, ChevronRight, Clock, Copy, FolderGit2, KeyRound, LogOut, MessageCircle, ScrollText, Timer, Trash2, UserRound, Users } from "lucide-react";
 import Link from "@/components/app/link";
 import { usePathname, useRouter as useNextRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/app/confirm";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
+import { CompanyRules } from "@/components/app/settings/company-rules";
 import { SessionSettings } from "@/components/app/settings/sessions";
 import { TelegramSettings } from "@/components/app/settings/telegram";
 import { Badge } from "@/components/ui/badge";
@@ -308,7 +309,7 @@ function Account() {
   );
 }
 
-const tabs = ["general", "members", "projects", "integrations", "tokens", "account"] as const;
+const tabs = ["general", "rules", "members", "projects", "integrations", "tokens", "account"] as const;
 type Tab = (typeof tabs)[number];
 
 function SettingsPage() {
@@ -322,7 +323,7 @@ function SettingsPage() {
   const role = info.data.role;
   const manage = canManage(role);
   const visible = tabs.filter((t) => t !== "tokens" || manage);
-  const words: Record<Tab, string> = { general: "General", members: "Members", projects: "Projects", integrations: "Integrations", tokens: "Tokens", account: "Account" };
+  const words: Record<Tab, string> = { general: "General", rules: "Company rules", members: "Members", projects: "Projects", integrations: "Integrations", tokens: "Tokens", account: "Account" };
   return (
     <>
       <PageHeader title="Settings" description={<>{info.data.name} · your role: <span className="font-medium capitalize">{role}</span> ({roleWords[role].toLowerCase()})</>} />
@@ -331,6 +332,11 @@ function SettingsPage() {
           {visible.map((t) => <TabsTrigger key={t} value={t}>{words[t]}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="general"><General role={role} /></TabsContent>
+        <TabsContent value="rules">
+          <Section title="Company rules" icon={ScrollText} description="Standing rules for every agent of the company: each agent's brief carries them in every run. A role's own work belongs in its prompt (Teams & agents); a project's facts in its rules on the project page.">
+            <CompanyRules manage={manage} />
+          </Section>
+        </TabsContent>
         <TabsContent value="members"><Members role={role} /></TabsContent>
         <TabsContent value="projects"><Projects /></TabsContent>
         <TabsContent value="integrations">
