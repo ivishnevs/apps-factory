@@ -75,7 +75,7 @@ services:
   # OIDC issuer for the website sign-in (deploy/dex/config.yaml): Google and GitHub when their OAuth apps are set,
   # the mock connector for local development (DEX_MOCK_CONNECTOR=1).
   dex:
-    image: ghcr.io/dexidp/dex:v2.43.1
+    image: ghcr.io/dexidp/dex:v2.46.1
     environment:
       DEX_ISSUER: ${FACTORY_OIDC_ISSUER:-http://127.0.0.1:5556/dex}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

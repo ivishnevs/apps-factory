@@ -43,8 +43,12 @@
   14 Low or informational items stay open, listed in the review (O1–O14); none is High or Medium.
 - [ ] 3.2 `connector-trust` done (runs confined, local policy, signed releases, Security page, pentest).
   Another change.
-- [ ] 3.3 Dependency update pass (Go, web, Claude worker, Dex image).
-  Not done here (a separate pass).
+- [x] 3.3 Dependency update pass (Go, web, Claude worker, Dex image).
+  Done 2026-11-12, `docs/dependency-updates-2026-11.md`: Go 1.26.11 and minor/patch module updates (govulncheck 61
+  reachable findings to none), next 15.5.29 with a postcss override, worker transitive fixes (`npm audit --omit=dev`
+  clean in both), Dex v2.46.1 (checked with Docker on Postgres, upgrade and mock sign-in). Majors deferred with
+  reasons (next 16, recharts 3, TypeScript 7). Open decision: the Node.js 22.18.0 of the Claude single executable
+  has six security releases since; recommended to move to 22.23.5 in its own change.
 
 ## 4. Legal and data
 
