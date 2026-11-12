@@ -898,6 +898,10 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 		section(fmt.Sprintf("Comments (%d)", len(d.Comments)))
 		for _, c := range d.Comments {
 			add("  " + stFaint.Render(time.Unix(c.CreatedAt, 0).In(m.opts.Location).Format("01-02 15:04")) + " " + lipgloss.NewStyle().Foreground(agentColor(c.Author)).Render(c.Author) + ": " + oneLine(c.Text))
+			if len(c.Outcomes) > 0 {
+				// owner-comments-handled: what became of the board's comment.
+				add(stFaint.Render("       → " + oneLine(storage.DescribeOutcomes(c.Outcomes))))
+			}
 		}
 	}
 	if len(d.Events) > 0 {

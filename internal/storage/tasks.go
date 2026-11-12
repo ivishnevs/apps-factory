@@ -961,6 +961,12 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if text == "" {
 		return nil
 	}
+	_, err := commentWith(ctx, tx, id, author, text, "")
+	return err
+}
+
+// commentWith adds a comment with its locked category (owner-comments-handled) and returns its id.
+func commentWith(ctx context.Context, tx *Tx, id, author, text, category string) (string, error) {
 	if author == "" {
 		author = "owner"
 	}
@@ -968,8 +974,9 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if author == "owner" {
 		person = personName(ctx)
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person) VALUES(?,?,?,?,?,?,?)", protocol.ID(), id, author, text, tx.now().Unix(), tx.company, person)
-	return err
+	cid := protocol.ID()
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person,category) VALUES(?,?,?,?,?,?,?,?)", cid, id, author, text, tx.now().Unix(), tx.company, person, category)
+	return cid, err
 }
 func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {
 	return listDocs[protocol.Envelope](ctx, s.DB, "SELECT body FROM entity_events WHERE company_id=? AND (?='' OR project_id=?) AND (?='' OR entity_id=?) ORDER BY seq", company, project, project, id, id)

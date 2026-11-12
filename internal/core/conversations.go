@@ -32,6 +32,12 @@ func (c *Core) hierarchyHooks() {
 	c.Store.ManagerOf = c.escalationTargetIn
 	c.Store.SubtreeOf = func(company, agent string) []string { return config.Subtree(c.cat(company).Agents, agent) }
 	c.Store.TeamOf = func(company, agent string) string { return c.cat(company).TeamOf(agent) }
+	c.Store.LeadOf = func(company, team string) string {
+		if lead := c.cat(company).Lead(team); lead != "" {
+			return lead
+		}
+		return c.defaultReport(company)
+	}
 	c.Store.EscalateAfterFor = func(company, agent, category string) time.Duration {
 		return c.cat(company).Agents[agent].EscalateAfter(category)
 	}

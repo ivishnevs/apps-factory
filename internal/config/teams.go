@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"appfactory/internal/configfile"
 )
@@ -30,6 +31,20 @@ type TeamSpec struct {
 	Profile       string `yaml:"profile" json:"profile,omitempty"`
 	// Approvals is who approves the team's artifacts and decisions (approval-delegation); projects may override it.
 	Approvals tasks.ApprovalModes `yaml:"approvals" json:"approvals,omitzero"`
+	// CommentOutcomeWithin is how long a board comment on an active task may go without the outcome done before
+	// the lead is woken for it (owner-comments-handled; a Go duration, default 1h).
+	CommentOutcomeWithin string `yaml:"comment_outcome_within" json:"comment_outcome_within,omitempty"`
+}
+
+// DefaultCommentOutcomeWithin is the default of TeamSpec.CommentOutcomeWithin.
+const DefaultCommentOutcomeWithin = time.Hour
+
+// CommentLimit is how long a board comment may go without the outcome done before the lead is woken.
+func (t Team) CommentLimit() time.Duration {
+	if d, err := time.ParseDuration(t.Spec.CommentOutcomeWithin); err == nil && d > 0 {
+		return d
+	}
+	return DefaultCommentOutcomeWithin
 }
 
 // Auditor is the team's onboarding audit assignee.
@@ -122,6 +137,11 @@ func validTeams(teams map[string]Team, agents map[string]Agent) error {
 	}
 	for _, team := range sortedKeys(teams) {
 		t := teams[team]
+		if v := t.Spec.CommentOutcomeWithin; v != "" {
+			if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+				return fmt.Errorf("team %s: comment_outcome_within must be a positive duration such as 1h or 30m", team)
+			}
+		}
 		for field, agent := range map[string]string{"lead": t.Spec.Lead, "audit_assignee": t.Auditor()} {
 			if agent == "" {
 				return fmt.Errorf("team %s: %s required", team, field)

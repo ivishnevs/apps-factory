@@ -153,6 +153,13 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			fmt.Fprintf(&b, "Comment by %s: %s\n", cm.Author, briefExcerpt(cm.Text, 2*1024))
 		}
 	}
+	// owner-comments-handled: the board comments this run owes an outcome for; the lead's quiet copy.
+	if err = commentsBrief(ctx, tx, &b, t, spec.Agent); err != nil {
+		return "", err
+	}
+	if err = leadCopy(ctx, tx, &b, t, spec.Agent, since); err != nil {
+		return "", err
+	}
 	created, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (body->>'origin_task')=? ORDER BY created_at,id", tx.company, t.ID)
 	if err != nil {
 		return "", err
@@ -269,6 +276,10 @@ func briefClaim(ctx context.Context, tx *Tx, id string, spec *protocol.RunSpec, 
 	}
 	b, err := json.Marshal(spec)
 	if err != nil {
+		return err
+	}
+	// The open board comments of the task are shown to this run (owner-comments-handled).
+	if _, err = tx.ExecContext(ctx, "UPDATE comment_outcomes SET shown_run=? WHERE company_id=? AND task_id=? AND status='open'", id, tx.company, t.ID); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE runs SET spec=?,brief_from=?,brief_to=? WHERE company_id=? AND id=?", b, from, to, tx.company, id)

@@ -422,6 +422,41 @@ children and UNKNOWN-run blocks are still stored.
 - The migration backfills a `ready` trigger for READY tasks and parks for existing manual/OpenSpec blocks,
   unanswered blocking questions and UNKNOWN current runs.
 
+## Board comments (owner-comments-handled)
+
+The owner's comment on a task is the board's word: Core enforces its handling instead of relying on prompts
+(migration 0034, `comment_outcomes`; with explicit exits; a conversation task takes the owner's chat as messages).
+
+- **Every board comment gets an outcome.** An owner comment on an open, assigned task is owed by the task's runs
+  (whoever runs it next, also after a reassignment): `done`, `forwarded` (to whom, with a note) or `declined` (with a
+  reason the owner reads). The brief lists the open ones ("Board comments that need your outcome", with their ids);
+  every exit (`submit`, `handoff`, `done`, `ask`, `block`, `wait`) carries `comments: [{comment_id, outcome, reason?,
+  task_id?}]` and is refused with 409 `comments_unhandled` (the list and how to record each) while one has none. A
+  run that ends without an exit (a crash, a timeout, no exit; a stop by the owner or Core does not count) leaves the
+  comment open for the next run; after two such runs the stall sweep raises the owner alert `comment_unhandled`,
+  which clears with the outcome.
+- **Forwards go up the chain.** `factory_comment_forward {comment_id, note}` records `forwarded` and gives the comment
+  verbatim, with the task link and the note, to the agent's manager: an open row on the manager's conversation task
+  and one `board_comment` trigger. A manager that cannot act forwards it on, so a release comment on a developer's
+  task reaches the lead without a parallel copy. A manager's (and the lead's) `done` names `task_id`, the task it
+  created or changed for the comment.
+- **The project lead sees every board comment, quietly.** The lead's conversation brief lists the project's board
+  comments since its last run with their outcomes ("forwarded to manager by demo", "not handled yet by demo"); this
+  wakes nothing, so a simple comment costs only the assignee's run. The lead (the project team's lead) is woken —
+  the comment given to it on its conversation task — only when the outcome is `declined` (it confirms with its own
+  decline or overrides with `done` and a task), when no outcome is `done` while the task is active past the team's
+  `comment_outcome_within` (default `1h`; the stall sweep, once per comment), or at once when the comment is in a
+  locked category (release, money, deletion, legal: named with the comment as `category`, or detected in its text
+  by a fixed word list). A forward to a manager who is the lead and the lead's copy are one message. The lead cannot
+  forward (the board wrote the comment): it records `done` with a task or `declined`; like everyone it cannot exit
+  while a comment it was given has no outcome.
+- **No comments on closed tasks.** Core refuses a comment on a DONE or CANCELLED task with 409
+  `{"reason": "task_closed", "options": [reopen, ask_lead]}`. `POST /tasks/{id}/reopen {text, request_id}` reopens it
+  READY for its assignee with the comment as its board comment (an authority `owner_comment` trigger);
+  `POST /tasks/{id}/ask-lead {text, request_id}` sends the owner's question to the project lead with the task named.
+- `GET /tasks/{id}/comments` carries each board comment's `category` and `outcomes` (`agent`, `reason`: assignee,
+  forward, declined, stalled or locked, `status`: open, done, forwarded or declined, `note`, `to`, `task`, `at`).
+
 ## Owner console v0
 
 - `factory status [PROJECT]` (`GET /status`): per project the task counts by status, active runs (including

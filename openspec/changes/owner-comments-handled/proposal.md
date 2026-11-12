@@ -1,5 +1,5 @@
-Status: proposed 2026-11-12 by the owner ("I left a comment to upload to TestFlight and it was ignored; comments on a
-done task are ignored too, the UI should just hide sending a comment there"). Nothing implemented.
+Status: implemented 2026-11-12; proposed 2026-11-12 by the owner ("I left a comment to upload to TestFlight and it was ignored; comments on a
+done task are ignored too, the UI should just hide sending a comment there").
 
 ## Why
 

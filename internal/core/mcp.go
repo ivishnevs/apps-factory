@@ -233,6 +233,13 @@ func (c *Core) dispatchTool(w http.ResponseWriter, r *http.Request, routes http.
 		c.directiveCall(w, r, p, run, current)
 		return
 	}
+	if p.Name == "factory_comment_forward" {
+		id, _ := p.Arguments["comment_id"].(string)
+		note, _ := p.Arguments["note"].(string)
+		v, err := c.Store.ForwardComment(r.Context(), c.companyFrom(r), run.Spec.ID, id, note)
+		reply(w, v, err)
+		return
+	}
 	if approvalMeta(p.Name) {
 		if p.Name == "factory_artifact_request_approval" {
 			c.artifactTool(w, r, p, run, snapshot, current)

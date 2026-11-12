@@ -42,6 +42,19 @@ func ExitDefinitions() []Tool {
 		map[string]any{"on": arr, "on_children": map[string]any{"type": "boolean"}, "reason": s()}, "reason")
 	add(ExitPrefix+"wait", "task.exit.wait", "Stop until an event or a time. Waiting for a pending decision of this project: give decision_id; you run again only once it is recorded (approved, rejected) or withdrawn, with the outcome in your brief — never poll a decision with a timed wait. Waiting for a message from an agent or the owner (your manager's \"your turn\", promised details): give from (agent name or owner) and optionally topic; the next message from them to this task or to you in this project wakes you with it in your brief. An event wait has no timer; its optional deadline (RFC 3339, at most 14 days ahead) only escalates. Waiting for the outside world (a build being processed, an external review): wake_at (RFC 3339) or after (e.g. 30m, 2h), at least the minimum wait (15 minutes unless policy says otherwise), and a deadline (required, at most 14 days ahead) after which your manager decides; you run again at the wake time with wait_ended in your brief: check the outside world yourself and continue or wait again; consecutive waits cannot pass the first deadline."+finish,
 		map[string]any{"reason": s(), "decision_id": s(), "from": s(), "topic": s(), "wake_at": s(), "after": s(), "deadline": s()}, "reason")
+	// owner-comments-handled: every exit carries one outcome per board comment shown to the run.
+	outcome := map[string]any{"type": "object", "properties": map[string]any{
+		"comment_id": s(),
+		"outcome":    map[string]any{"type": "string", "enum": []string{"done", "declined"}},
+		"reason":     s(),
+		"task_id":    s(),
+	}, "required": []string{"comment_id", "outcome"}, "additionalProperties": false}
+	for i := range out {
+		props := out[i].InputSchema["properties"].(map[string]any)
+		props["comments"] = map[string]any{"type": "array", "items": outcome, "description": "One outcome per board comment your brief lists: done (you did what it asks; a manager or the lead names task_id, the task created or changed for it) or declined with a reason the owner reads. Every exit is refused while one has none."}
+	}
+	add("factory_comment_forward", "comment.forward", "Forward a board (owner) comment of your current task that is not yours to do (another role, a release, money) to your manager: it gets the comment verbatim with the task link and must handle it in turn; records your outcome forwarded. The project lead cannot forward: it acts through a task or declines.",
+		map[string]any{"comment_id": s(), "note": s()}, "comment_id", "note")
 	add("factory_task_direct", "task.direct", "Give a directive to a task of this project (managers). An urgent directive stops its running run; the next run starts with it.",
 		map[string]any{"task_id": s(), "text": s(), "urgent": map[string]any{"type": "boolean"}, "request_id": s()}, "task_id", "text", "request_id")
 	return out
