@@ -87,15 +87,18 @@ Who decides an approval that moved: the approval setting decides where an approv
 that the approval moves along the hierarchy, and the agent it is assigned to now (not escalated) decides it, whatever
 agent the setting names today. Core reads the current mode at each decision: under people only (`owner`) no agent
 decides, the holder only escalates (or hands it on, under strict delegation); a strict agent's approval that reaches
-its manager under people only says so in its setting ("its manager brings it to them"). In lead mode the holder's
-approval still needs `cites`.
+its manager under people only says so in its setting ("its manager brings it to them"). In every delegated mode the
+holder's approval (choosing an option; for one version, approving it) needs `cites` Core checks
+(artifact-choice-approvals).
 
 ## Surfaces
 
 - Web Inbox: one card per open topic (brief, items with their notes, previews, buttons, approve all); the chat of the
   topic's lead shows its card and thread.
-- Telegram: each item that waits is one message (brief, images as an album, buttons); an approval is approved with
-  its button and rejected by replying with the reason; a replaced version's message loses its buttons.
+- Telegram: each item that waits is one message (brief, images as an album, buttons); an artifact approval has a
+  button per option (Approve for one version) plus Changes… and Reject, a reply asks for changes and "reject:
+  <reason>" rejects it (artifact-choice-approvals); a tool call's approval is approved with its button and rejected
+  by replying with the reason; a replaced version's message loses its buttons.
 - People never see ids, hashes or JSON: messages to people carry `text`, their body without technical lines.
 
 ## HTTP

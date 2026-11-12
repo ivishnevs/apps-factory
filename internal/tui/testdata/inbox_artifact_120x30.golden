@@ -10,7 +10,7 @@
 │ ● approval  designer                  8m ago ││ reason   the wording the release 1.2 announcement uses               │
 │   P2-4 · Approve the release notes v2 for P… ││ expires  in 2d                                                       │
 │                                              ││                                                                      │
-│ ● notification  pm                   14m ago ││  v  preview    y  approve    n  reject                               │
+│ ● notification  pm                   14m ago ││  v  preview    y  approve    c  changes    n  reject                 │
 │   - · Module 1 offline store is merged. Wha… ││                                                                      │
 │                                              ││                                                                      │
 │ ● escalation  factory                30m ago ││                                                                      │

@@ -68,14 +68,14 @@ type ApprovalRequest struct {
 	Note   *messaging.ItemNote `json:"note,omitempty"`
 	Topic  string              `json:"topic,omitempty"`
 	Strict bool                `json:"-"`
-	// Options make a choice approval (artifact-choice-approvals): 2–6 registered versions people choose one of,
-	// instead of ArtifactID/ArtifactVersion; one option is the yes/no approval of that version. Recommended names the
-	// requester's recommendation: the option's number (from 1), label, id@version or artifact id.
+	// Options are the 1–6 registered versions people choose one of (artifact-choice-approvals: every artifact
+	// approval is one model); ArtifactID/ArtifactVersion instead is the same as one option without a label.
+	// Recommended names the requester's recommendation: the option's number (from 1), label, id@version or artifact id.
 	Options     []ChoiceOption `json:"options,omitempty"`
 	Recommended any            `json:"recommended,omitempty"`
 }
 
-// ChoiceOption is one option of a choice approval request.
+// ChoiceOption is one option of an artifact approval request.
 type ChoiceOption struct {
 	ArtifactID      string `json:"artifact_id"`
 	ArtifactVersion string `json:"artifact_version"`

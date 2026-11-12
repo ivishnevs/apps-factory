@@ -82,7 +82,8 @@ func TestDelegatedApprovalDecideReturns(t *testing.T) {
 		t.Fatal(err)
 	}
 	modes := tasks.ApprovalModes{InternalArtifacts: tasks.ApprovalMode{Mode: tasks.ApproveAgent, Agent: "reviewer"}}
-	if _, err = h.s.UpdateProject(ctx, co, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Approvals: &modes}); err != nil {
+	rules := "Concepts follow the brief."
+	if _, err = h.s.UpdateProject(ctx, co, "notes", tasks.ProjectUpdate{Version: p.Version, Name: p.Name, Approvals: &modes, Rules: &rules}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = h.s.CreateTask(ctx, co, tasks.Create{ID: "draw", ProjectID: "notes", Title: "draw", Assignee: "demo", RequestID: "draw"}); err != nil {
@@ -104,7 +105,7 @@ func TestDelegatedApprovalDecideReturns(t *testing.T) {
 	r := h.start("judge")
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		done <- h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_approval_decide", Arguments: map[string]any{"approval_id": a.ID, "action": "approve", "reason": "matches the brief", "request_id": "d1"}}, nil)
+		done <- h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_approval_decide", Arguments: map[string]any{"approval_id": a.ID, "action": "approve", "reason": "matches the brief", "cites": []any{"project rules: concepts follow the brief"}, "request_id": "d1"}}, nil)
 	}()
 	select {
 	case w := <-done:

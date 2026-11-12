@@ -1,9 +1,9 @@
 Status: proposed 2026-11-12 by the owner ("can we extend approvals beyond yes/no?"), approved by the owner the same day with two additions: a delegate may drop weak options and escalate the rest, and a delegate choice may cite people-written company or project rules.
 Implemented 2026-11-12. Implementation decisions: options are numbered from 1; `recommended`, `choice`, `options`
 and `drop[].option` take the number, the label or `id@version` (an artifact id when only one option has it); labels
-are required, one line up to 60 characters, unique per approval (notes one line up to 300). One option is turned
-into the yes/no approval of that version (the spec's rule; tasks.md's "fewer than 2" applies to zero options or
-`options` given together with `artifact_id`). A version already pending or approved refuses the choice (409, naming
+are required among several options, one line up to 60 characters, unique per approval (notes one line up to 300).
+Every artifact approval is options (see "One approval model" below and its implementation decisions); zero options,
+more than 6, or `options` together with `artifact_id` are refused. A version already pending or approved refuses the choice (409, naming
 the option); a not chosen option may be asked for again. The versions a choice offers live in a new table
 `approval_options` (migration 0043); on choosing, the approval's `artifact` and artifact columns become the chosen
 version, so gating, retention and Library lookups treat it as an approved version and its siblings as `NOT_CHOSEN`;
@@ -11,11 +11,11 @@ pending options are kept from retention. Asking for changes ends the approval as
 owner, is a board comment on the task like a rejection. A choice is not an artifact version line in people topics:
 it joins its task's topic; a new choice supersedes pending yes/no requests of other versions of its artifacts.
 Delegate cites: a 32-hex message id people wrote (or a question people answered), an approved decision id, or
-`company rules: <quote>` / `project rules: <quote>` whose quote is in those rules (case and spacing ignored); the
-check applies to choices only (yes/no lead approvals keep the non-empty check). Under the people-only mode an agent
-reached by strict delegation may only escalate a choice. Telegram: one button per option plus "Changes…" and
-"Reject"; a reply asks for changes, a reply starting with "reject" rejects all with the rest as the reason.
-`factory_artifact_get` adds `version_status` for an option of a choice.
+`company rules: <quote>` / `project rules: <quote>` whose quote is in those rules (case and spacing ignored); since
+the one approval model the check applies to every artifact approval. Under the people-only mode an agent reached by
+strict delegation may only escalate. Telegram: one button per option plus "Changes…" and "Reject"; a reply asks for
+changes, a reply starting with "reject" rejects all with the rest as the reason. `factory_artifact_get` adds
+`version_status` for an option.
 
 ## One approval model (added 2026-11-12)
 
@@ -25,6 +25,25 @@ approval with one option; approving it is choosing that option. Decisions (choos
 delegate rules (a delegate approves only with checked cites of what people said; changes and reject need a reason)
 and owner surfaces are the same whatever the number of options. This also closes the gap where yes/no approvals in
 `lead` mode only checked that cites were non-empty, and gives single-version approvals "ask for changes".
+
+Implemented 2026-11-13. Implementation decisions: there is one request path (`RequestArtifactApproval`) and one
+decision path (`decideChoice`) for every artifact approval; the yes/no artifact path is removed. `artifact_id` /
+`artifact_version` stay as the request's shorthand for one option (its label may be empty; people and agents then
+see `id@version`). A one-option approval has its `artifact` and version columns set from the request (the only
+candidate), plus its `approval_options` row like any other, so required-version gating, retention, composites and
+people-topic version lines treat it as before; with several options they stay empty until one is chosen. A
+one-version approval is still an artifact version line in people topics; several options join the task's topic.
+`approve` is accepted on a one-option approval as choosing option 1 (owner API, CLI `factory approve`, topics,
+Telegram, delegates), and refused on several options; topics list `choose`/`changes`/`reject` for every artifact
+approval and the web's "Approve all" chooses each single-version approval's only option. Choosing takes an optional
+comment for one option too. The delegate rules are one code path: approving (choosing) needs cites checked by
+`checkCites` in `agent` and `lead` mode alike (before, a yes/no approval in `agent` mode needed no cite at all);
+changes and reject need a reason and no cite; `drop` is refused on one option (escalate it whole). The requester's
+text for one option keeps the familiar form ("artifact approval … of lens@2 approved by the owner: …", "Approval …
+CHANGES_REQUESTED: …"). Telegram: one version shows Approve, Changes… and Reject, and a reply now asks for changes
+("reject: <reason>" rejects) instead of rejecting. Tool-call approvals (`factory_owner_request_approval`, command
+guards) are a different kind and stay approve/reject; they are never delegated. No migration: the schema already
+had `approval_options` and the artifact columns.
 
 ## Why
 
@@ -53,7 +72,8 @@ What went wrong is the shape of the approval, not the agents:
 
 - **Choice approvals.** An agent can request one approval over 2–6 options. Each option is an artifact version
   already registered in the project (`id@version`) with a short label ("V1 Mascot") and an optional one-line note.
-  The request may name the agent's recommendation. A request with one option stays the existing yes/no approval.
+  The request may name the agent's recommendation. A request for one version is an approval with one option (see
+  "One approval model").
 - **Decisions on a choice.** The decider either **chooses** one option (optional comment), **asks for changes**
   (required text: what to change, optionally on which options), or **rejects all** (required reason). Choosing
   records the chosen version as approved and the others as not chosen (not rejected: they stay usable later).

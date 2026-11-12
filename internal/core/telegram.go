@@ -678,10 +678,11 @@ func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key
 	if t.Question != "" {
 		if m, err := b.c.Store.Message(ctx, b.company, t.Question); err == nil && m.ApprovalID != "" {
 			if a, err := b.c.Store.Approval(ctx, b.company, m.ApprovalID); err == nil && a.Choice() {
-				// A reply to a choice asks for changes, or rejects all (artifact-choice-approvals).
+				// A reply to an artifact approval asks for changes, or rejects with "reject: <reason>"
+				// (artifact-choice-approvals: the same for one option or several).
 				return b.choice(ctx, a, -1, text, key)
 			}
-			// A reply to an approval rejects it with the reply as the reason (people-topics D10).
+			// A reply to a tool call's approval rejects it with the reply as the reason (people-topics D10).
 			return b.approval(ctx, m, "reject", text, key)
 		} else if err == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
 			return b.answer(ctx, t.Question, -1, text, key)

@@ -268,7 +268,8 @@ approval moves along the hierarchy, and the agent it is assigned to now (`delega
 - The ceiling is read at each decision from the current mode: people only (`owner`) refuses approve, reject, choose
   and changes from any agent; escalate (or a hand-up under strict delegation) stays allowed.
 - A mode changed from one agent mode to another after the request leaves the approval with its holder, who still
-  decides; lead mode keeps its `cites` rule for approve.
+  decides; lead mode keeps its `cites` rule for approve (since artifact-choice-approvals §5 every delegated mode has
+  it: approving or choosing needs cites Core checks).
 - A strict agent's approval that reaches its manager under people only says so in its setting: the manager brings it
   to people.
 

@@ -41,6 +41,13 @@ func (m *Model) promptLine(w int) string {
 			text = fmt.Sprintf("%s wants to %s — approve?", msg.Sender, projectCreateBrief(ap.Call.Arguments))
 		}
 		keys = "[Y/N]"
+		switch {
+		case ap.Single():
+			text = fmt.Sprintf("%s asks to approve %s — approve?", msg.Sender, ap.OptionName(1))
+		case ap.Choice():
+			// A choice of several versions is chosen in the inbox (artifact-choice-approvals).
+			text, keys = fmt.Sprintf("%s asks you to choose one of %d versions", msg.Sender, len(ap.Options)), "[inbox]"
+		}
 	} else if !answerable(msg) {
 		// A notification or report: it takes no answer (POST answer would be refused).
 		text = msg.Sender + " says: " + oneLine(msg.Body)
@@ -78,6 +85,25 @@ func (m *Model) promptKey(key string) (tea.Cmd, bool) {
 	ap, isApproval := m.approvalOf(msg)
 	isApproval = isApproval || msg.ApprovalID != ""
 	switch {
+	case isApproval && ap.Choice() && (key == "Y" || key == "N"):
+		if !ap.Single() {
+			m.setToast("a choice of several versions: open the inbox to choose one, ask for changes or reject all", true)
+			return nil, true
+		}
+		// A one-version approval: Y approves (choosing its only option, the comment optional), N rejects.
+		if key == "Y" {
+			return m.openInput("Approve "+ap.OptionName(1)+" for "+msg.Sender+" — comment (optional)", "", Action{Kind: "approve", ApprovalID: ap.ID, Version: max(ap.Version, 1)}, func(a *Action, text string) error {
+				a.Text = text
+				return nil
+			}), true
+		}
+		return m.openInput("Reject "+ap.OptionName(1)+" for "+msg.Sender+" — reason", "", Action{Kind: "reject", ApprovalID: ap.ID, Version: max(ap.Version, 1)}, func(a *Action, text string) error {
+			if text == "" {
+				return fmt.Errorf("a reason is required")
+			}
+			a.Text = text
+			return nil
+		}), true
 	case isApproval && (key == "Y" || key == "N"):
 		kind, initial := "approve", "approved by owner"
 		if key == "N" {

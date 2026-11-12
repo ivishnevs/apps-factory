@@ -12,8 +12,7 @@ import { repoModeWords } from "@/lib/project-setup";
 import { cleanBody, peopleText } from "@/lib/people-text";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ArtifactPreview } from "./artifact-preview";
-import { ChoiceApproval, isChoice } from "./choice-approval";
+import { ChoiceApproval, isChoice, isSingle, optionName } from "./choice-approval";
 import { Countdown } from "./countdown";
 import type { DecideKind } from "./decide";
 
@@ -23,7 +22,8 @@ export interface InboxHandlers {
   read: (msg: Message) => void;
   // details: "I'll send details" (promised, with an optional note) or withdraw that promise (inbox-badge-parity).
   details: (msg: Message, kind: "promised" | "withdrawn", note: string) => void;
-  // approve or reject; on a choice approval choose (option from 1), changes or reject (artifact-choice-approvals).
+  // A tool call's approval: approve or reject; an artifact approval: choose (option from 1; approving a single
+  // version is choosing it), changes or reject (artifact-choice-approvals).
   decide: (kind: DecideKind, ap: Approval, msg: Message | undefined, reason: string, option?: number) => void;
   busy: boolean;
 }
@@ -247,11 +247,11 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
   const [reason, setReason] = useState("");
   const [needReason, setNeedReason] = useState(false);
   const args = Object.entries(ap.call?.arguments ?? {});
-  const artifact = ap.kind === "artifact" || !!ap.artifact;
   if (isChoice(ap)) {
+    // Every artifact approval is one card: its options, one shown compactly (artifact-choice-approvals).
     return (
       <Shell kind="approval" blocking={msg?.blocking} from={ap.agent} project={projectName ?? ap.project_id} taskId={ap.task_id} at={ap.created_at} due={ap.expires_at} dueVerb="Expires">
-        <Markdown text={(msg && peopleText(msg)) || `Choose one of ${ap.options!.length} versions`} className="font-medium" />
+        <Markdown text={(msg && peopleText(msg)) || (isSingle(ap) ? `Approve ${optionName(ap, 1)}?` : `Choose one of ${ap.options!.length} versions`)} className="font-medium" />
         {ap.reason && <p className="mt-1.5 text-sm text-muted-foreground">{cleanBody(ap.reason)}</p>}
         <div className="mt-4"><ChoiceApproval ap={ap} busy={h.busy} decide={(kind, reason, option) => h.decide(kind, ap, msg, reason, option)} /></div>
         {ap.run_id && <Link href={`/runs/${ap.run_id}`} className="mt-2 inline-flex h-10 items-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">View the run</Link>}
@@ -260,11 +260,11 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
   }
   return (
     <Shell kind="approval" blocking={msg?.blocking} from={ap.agent} project={projectName ?? ap.project_id} taskId={ap.task_id} at={ap.created_at} due={ap.expires_at} dueVerb="Expires">
-      <Markdown text={(msg && peopleText(msg)) || (artifact ? `Approve ${ap.artifact?.name ?? ap.artifact?.id}?` : `Approve ${ap.call.name}?`)} className="font-medium" />
+      <Markdown text={(msg && peopleText(msg)) || `Approve ${ap.call.name}?`} className="font-medium" />
       {ap.reason && <p className="mt-1.5 text-sm text-muted-foreground">{cleanBody(ap.reason)}</p>}
 
       <div className="mt-4">
-        {artifact && ap.artifact ? <ArtifactPreview project={ap.project_id} artifact={ap.artifact} /> : ap.call?.name === "factory_project_create" ? (
+        {ap.call?.name === "factory_project_create" ? (
           <ProjectRequest args={ap.call.arguments ?? {}} />
         ) : ap.call?.name === "factory_catalog_change" ? (
           <CatalogChangeRequest args={ap.call.arguments ?? {}} />

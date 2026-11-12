@@ -71,17 +71,41 @@ func TestHandedUpApprovalDecide(t *testing.T) {
 	}
 	decide := func(id string, args map[string]any) (int, string) {
 		t.Helper()
-		args["approval_id"], args["request_id"] = id, "d-"+id+"-"+args["action"].(string)
+		args["approval_id"] = id
+		if _, ok := args["request_id"]; !ok {
+			args["request_id"] = "d-" + id + "-" + args["action"].(string)
+		}
 		if _, ok := args["reason"]; !ok {
 			args["reason"] = "fits the brief"
 		}
 		return h.callCode(boss, "factory_approval_decide", args)
 	}
 
-	// Handed up, the manager decides: approve, reject, choose.
-	for _, c := range []struct{ action, status string }{{"approve", "APPROVED"}, {"reject", "REJECTED"}} {
-		id := ask(nil)
-		if code, body := decide(id, map[string]any{"action": c.action}); code != 200 {
+	// Handed up, the manager decides: approve (with cites Core checks, like any choice), reject, choose.
+	rules := []any{"project rules: dark theme only"}
+	single := ask(nil)
+	for i, cites := range [][]any{nil, {"the owner liked it"}} {
+		args := map[string]any{"action": "approve", "request_id": "no-basis-" + string(rune('a'+i))}
+		if cites != nil {
+			args["cites"] = cites
+		}
+		if code, body := decide(single, args); code != 400 || !strings.Contains(body, "people said") && !strings.Contains(body, "names no answer") {
+			t.Fatalf("approved with cites %v: %d %s", cites, code, body)
+		}
+	}
+	for _, c := range []struct {
+		action, status string
+		cites          []any
+	}{{"approve", "APPROVED", rules}, {"reject", "REJECTED", nil}} {
+		id := single
+		if c.action != "approve" {
+			id = ask(nil)
+		}
+		args := map[string]any{"action": c.action}
+		if c.cites != nil {
+			args["cites"] = c.cites
+		}
+		if code, body := decide(id, args); code != 200 {
 			t.Fatal(c.action, code, body)
 		}
 		if got := h.approvalOf(id); got.Status != c.status || got.DecidedBy != manager {
@@ -99,7 +123,7 @@ func TestHandedUpApprovalDecide(t *testing.T) {
 	// The setting moves from one agent to another: the holder still decides.
 	id = ask(nil)
 	setMode(tasks.ApprovalMode{Mode: tasks.ApproveAgent, Agent: "reviewer"})
-	if code, body := decide(id, map[string]any{"action": "approve"}); code != 200 {
+	if code, body := decide(id, map[string]any{"action": "approve", "cites": rules}); code != 200 {
 		t.Fatal(code, body)
 	}
 	setMode(tasks.ApprovalMode{Mode: tasks.ApproveAgent, Agent: "demo"})

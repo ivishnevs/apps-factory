@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"appfactory/internal/approvals"
 	"appfactory/internal/config"
 	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
@@ -149,41 +148,13 @@ func (c *Core) approvalDecideTool(w http.ResponseWriter, r *http.Request, p fact
 		http.Error(w, "reason required", 400)
 		return
 	}
-	if a.Choice() {
-		c.choiceDecideTool(w, r, p, run, a, action, reason, cites)
+	if a.Kind != "artifact" {
+		// Only artifact approvals are delegated; tool-call approvals are people's.
+		http.Error(w, "this approval is not yours to decide: it waits for people", 403)
 		return
 	}
-	if action == "escalate" {
-		// Strict delegation (people-topics D17): an agent that may not bring items to people hands it one level up.
-		if ag, ok := c.cat(company).Agents[run.Spec.Agent]; ok && !ownerAllowed(ag) {
-			m := c.escalationTargetIn(company, run.Spec.Agent)
-			if m == "" || m == "owner" {
-				http.Error(w, "you may not bring items to people (owner is not in your can_message): decide it", 403)
-				return
-			}
-			v, err := c.Store.HandUpApproval(r.Context(), company, id, run.Spec.Agent, m, reason)
-			reply(w, v, err)
-			return
-		}
-	}
-	switch action {
-	case "escalate":
-		v, err := c.Store.EscalateApproval(r.Context(), company, id, run.Spec.Agent, reason, storage.EscalatePeople{Brief: brief, Note: note, Topic: topic, Strict: true})
-		reply(w, v, err)
-		return
-	case "approve", "reject":
-	default:
-		http.Error(w, "action must be approve, reject or escalate", 400)
-		return
-	}
-	if mode.Mode == tasks.ApproveLead && action == "approve" && len(cites) == 0 {
-		http.Error(w, "as the lead you approve only what the owner's earlier answers or recorded decisions cover: name them in cites, or escalate", 400)
-		return
-	}
-	key, _ := p.Arguments["request_id"].(string)
-	// /agent/call already holds approvalMu (a second Lock here deadlocked every agent call: security-review-2026-11 F3).
-	v, err := c.Store.DecideApproval(r.Context(), company, id, approvals.Decision{Version: a.Version, Action: action, Reason: reason, RequestID: run.Spec.Agent + ":" + key, DecidedBy: run.Spec.Agent, Cites: cites})
-	reply(w, v, err)
+	// Every artifact approval is one model (artifact-choice-approvals): the same rules for one option or several.
+	c.choiceDecideTool(w, r, p, run, a, action, reason, cites)
 }
 
 // decisionDelegation says whether agent may record a decision of category in project without a policy rule: the

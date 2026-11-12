@@ -155,8 +155,9 @@ func (s *Store) PeopleTopic(ctx context.Context, company, id string) (TopicView,
 			iv.Waits = a.Status == "PENDING" && it.State == "open"
 			if iv.Waits {
 				iv.Actions = []string{"approve", "reject"}
-				if a.Choice() {
-					// A choice is never approved without choosing (artifact-choice-approvals).
+				if a.Kind == "artifact" {
+					// Every artifact approval is chosen (approving one option is choosing it), sent back for changes or
+					// rejected (artifact-choice-approvals).
 					iv.Actions = []string{approvals.ActionChoose, approvals.ActionChanges, approvals.ActionReject}
 				}
 			}

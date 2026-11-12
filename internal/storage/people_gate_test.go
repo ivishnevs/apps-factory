@@ -222,7 +222,7 @@ func TestTopicDecideAndComposites(t *testing.T) {
 	a1, _ := s.Approval(ctx, co, ids["kf1"])
 	topic := topicOf(t, s, a1.MessageID)
 	v, err := s.PeopleTopic(ctx, co, topic)
-	if err != nil || v.Waiting != 3 || len(v.Items) != 3 || v.Items[0].Actions[0] != "approve" || len(v.Tasks) != 1 {
+	if err != nil || v.Waiting != 3 || len(v.Items) != 3 || v.Items[0].Actions[0] != "choose" || len(v.Tasks) != 1 {
 		t.Fatalf("view %+v %v", v, err)
 	}
 
