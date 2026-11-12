@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -108,29 +107,10 @@ func escalationBrief(lang, reason, agent, title, summary string, answers []strin
 	return b
 }
 
-var (
-	idRe      = regexp.MustCompile(`\b[0-9a-f]{32}\b`)
-	exactLine = regexp.MustCompile(`(?m)^(Exact artifact version|Exact call): .*$`)
-	prefixRe  = regexp.MustCompile(`^(Artifact approval|Approval) [0-9a-f]{32}: `)
-	escRe     = regexp.MustCompile(`^Escalation [a-z_]+ on (task|quota key) [^\n:]*?: `)
-)
+// PeopleText is a message body for people (people-topics D7): see messaging.PeopleText.
+func PeopleText(body string) string { return messaging.PeopleText(body) }
 
-// humanCause is a summary without ids.
-func humanCause(s string) string {
-	s = idRe.ReplaceAllStringFunc(s, func(id string) string { return id[:8] })
-	return strings.TrimSpace(s)
-}
-
-// PeopleText is a message body for people: without the exact JSON lines, approval prefixes and full ids (people-topics
-// D7).
-func PeopleText(body string) string {
-	s := exactLine.ReplaceAllString(body, "")
-	s = prefixRe.ReplaceAllString(s, "")
-	s = escRe.ReplaceAllString(s, "")
-	s = idRe.ReplaceAllStringFunc(s, func(id string) string { return id[:8] })
-	s = regexp.MustCompile(`\n{3,}`).ReplaceAllString(s, "\n\n")
-	return strings.TrimSpace(s)
-}
+func humanCause(s string) string { return messaging.ShortIDs(s) }
 
 // callBrief completes a call approval's brief with what Core knows of the call (people-topics D7): the question and
 // what the call does, so the requester writes only the title and why.

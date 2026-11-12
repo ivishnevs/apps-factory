@@ -254,9 +254,24 @@ func toPeople(ctx context.Context, tx *Tx, it gateItem) (string, error) {
 	lineage := ""
 	if it.ref.Lineage != "" {
 		lineage = it.project + "/" + it.ref.Lineage
-		// The earlier versions of the line in this topic are replaced by this one: their rows show it, their buttons go.
+		// The earlier versions of the line in this topic are replaced by this one: their rows show it, their buttons go
+		// (people-topics D10: their chat and Telegram messages are retired).
+		old, err := topicIDs(ctx, tx, `SELECT CASE WHEN i.kind='approval' THEN coalesce((SELECT message_id FROM approvals a WHERE a.company_id=i.company_id AND a.id=i.ref_id),'') ELSE i.ref_id END
+			FROM people_topic_items i WHERE i.company_id=? AND i.topic_id=? AND i.lineage=? AND i.version<>? AND i.state='open'`, tx.company, topic.ID, lineage, it.ref.Version)
+		if err != nil {
+			return "", err
+		}
 		if _, err = tx.ExecContext(ctx, "UPDATE people_topic_items SET state='replaced' WHERE company_id=? AND topic_id=? AND lineage=? AND version<>? AND state='open'", tx.company, topic.ID, lineage, it.ref.Version); err != nil {
 			return "", err
+		}
+		for _, m := range old {
+			if m == "" {
+				continue
+			}
+			if err = feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "topic.item_replaced", EntityID: topic.ID, ProjectID: it.project, CreatedAt: now, TaskID: it.task, Actor: it.bringer, Attention: true,
+				Summary: it.ref.Lineage + " " + it.ref.Version, Ref: m}); err != nil {
+				return "", err
+			}
 		}
 	}
 	state := "open"
@@ -268,8 +283,9 @@ func toPeople(ctx context.Context, tx *Tx, it gateItem) (string, error) {
 		tx.company, topic.ID, kind, ref, lineage, it.ref.Version, string(nb), it.bringer, state, now.Unix()); err != nil {
 		return "", err
 	}
+	// An item that waits for people is an attention row: Telegram sends it (people-topics D10).
 	return topic.ID, feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "topic.item_added", EntityID: topic.ID, ProjectID: it.project, CreatedAt: now, TaskID: it.task, Agent: it.bringer, Actor: it.bringer,
-		Summary: kind + " " + ref + " → people topic " + topic.ID + " (" + topic.Key + ")", Ref: ref})
+		Summary: kind + " " + ref + " → people topic " + topic.ID + " (" + topic.Key + ")", Ref: ref, Attention: kind != "update"})
 }
 
 // topicKey is the key a new topic opens under (people-topics D4).

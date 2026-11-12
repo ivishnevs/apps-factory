@@ -129,6 +129,15 @@ func (a API) Send(ctx context.Context, chat int64, text string, buttons []Button
 	return m.MessageID, err
 }
 
+// EditButtons replaces a sent message's buttons; none removes them (people-topics D10: a replaced version).
+func (a API) EditButtons(ctx context.Context, chat, message int64, buttons []Button) error {
+	rows := [][]Button{}
+	for _, b := range buttons {
+		rows = append(rows, []Button{b})
+	}
+	return a.call(ctx, "editMessageReplyMarkup", map[string]any{"chat_id": chat, "message_id": message, "reply_markup": map[string]any{"inline_keyboard": rows}}, nil)
+}
+
 // Photo is an image sent to a chat (inbox-visual-previews): its file name, caption and content.
 type Photo struct {
 	Name    string

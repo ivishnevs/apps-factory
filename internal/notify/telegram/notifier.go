@@ -45,6 +45,10 @@ type Item struct {
 	Options []string
 	// OwnersOnly: questions to the owner; other items (connectors, pauses, reports) go to owners and admins.
 	OwnersOnly bool
+	// Retire is a question replaced by a newer version (people-topics D10): its sent messages lose their buttons and
+	// say what replaced them (RetireNote); nothing new is sent.
+	Retire     string
+	RetireNote string
 }
 
 // Question is a question waiting for an owner (reminders, /inbox).
@@ -566,9 +570,12 @@ func (n *Notifier) outbound(ctx context.Context, st *State) error {
 			return err
 		}
 		for _, it := range items {
+			if it.Retire != "" {
+				n.retire(ctx, p, it.Retire, it.RetireNote)
+			}
 			if it.Text != "" && (role == RoleOwner || !it.OwnersOnly && role == RoleAdmin) {
 				text := it.Text + n.album(ctx, p, it.Target)
-				if it.Target.Question != "" {
+				if it.Target.Question != "" && !strings.Contains(text, "Reply to this message") {
 					text += "\n\nReply to this message to answer."
 				}
 				if err = n.send(ctx, p, text, it.Target, it.Options); err != nil {
@@ -697,4 +704,22 @@ func optionLabel(o string) string {
 		return "It writes the spec: run without the check"
 	}
 	return o
+}
+
+// retire takes the buttons off the messages sent about question and answers them with what replaced it
+// (people-topics D10); a failure is logged, the person can still not decide it (Core refuses a replaced version).
+func (n *Notifier) retire(ctx context.Context, p *Person, question, note string) {
+	for k, t := range p.Sent {
+		if t.Question != question {
+			continue
+		}
+		id, _ := strconv.ParseInt(k, 10, 64)
+		if err := n.API.EditButtons(ctx, p.ChatID, id, nil); err != nil {
+			slog.Warn("telegram buttons not removed", "message", id, "error", err)
+		}
+		if err := n.say(ctx, p.ChatID, "↪ "+note, id); err != nil {
+			slog.Warn("telegram retire note not sent", "message", id, "error", err)
+		}
+		delete(p.Sent, k)
+	}
 }

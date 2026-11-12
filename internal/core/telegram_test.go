@@ -27,6 +27,8 @@ type fakeBot struct {
 	next    int64
 	// webhook is the URL setWebhook set ("" after deleteWebhook).
 	webhook string
+	// edits are editMessageReplyMarkup calls (people-topics D10: replaced versions lose their buttons).
+	edits []map[string]any
 }
 
 func (b *fakeBot) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +58,8 @@ func (b *fakeBot) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		b.webhook = in["url"].(string)
 	case "deleteWebhook":
 		b.webhook = ""
+	case "editMessageReplyMarkup":
+		b.edits = append(b.edits, in)
 	case "sendMessage":
 		b.next++
 		in["message_id"] = b.next

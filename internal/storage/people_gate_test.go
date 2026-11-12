@@ -258,3 +258,85 @@ func TestTopicDecideAndComposites(t *testing.T) {
 		t.Fatalf("a partial brief merged into a full one: %v", err)
 	}
 }
+
+// TestPeopleTopicsReplay (people-topics 5.2): the 2026-11-12 cases with fakes. Four retries_exhausted of the producer
+// are one topic answered with "retry all"; the Nakama architecture approval and the owner's questions about it are
+// one topic; an approval the lead rejected once and escalates on the second round opens its topic then.
+func TestPeopleTopicsReplay(t *testing.T) {
+	s := engineStore(t)
+	if s.Blobs == nil {
+		s.Blobs = &blobstore.Memory{}
+	}
+	ctx := context.Background()
+	co := DefaultCompany
+	mk := func(id, assignee string) {
+		t.Helper()
+		if _, err := s.CreateTask(ctx, co, tasks.Create{ID: id, ProjectID: "p", Title: id, Assignee: assignee, RequestID: id, Ready: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Retry all.
+	var want []EscalationWant
+	for _, id := range []string{"c1", "c2", "c3", "c4"} {
+		mk(id, "producer")
+		want = append(want, EscalationWant{TaskID: id, Summary: "last run setup_failed: invalid agent snapshot"})
+	}
+	if err := s.SyncEscalations(ctx, co, "retries_exhausted", want); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := s.Escalations(ctx, co, true)
+	topic := topicOf(t, s, open[0].MessageID)
+	v, _ := s.PeopleTopic(ctx, co, topic)
+	if v.Waiting != 4 {
+		t.Fatalf("waiting %d", v.Waiting)
+	}
+	var all []TopicDecision
+	for _, it := range v.Items {
+		all = append(all, TopicDecision{Kind: it.Kind, Ref: it.Ref, Version: it.Message.Version, Action: "retry"})
+	}
+	if _, err := s.DecideTopic(ctx, co, topic, "retry-all", all); err != nil {
+		t.Fatal(err)
+	}
+	if open, _ = s.Escalations(ctx, co, true); len(open) != 0 {
+		t.Fatalf("still open: %+v", open)
+	}
+
+	// Nakama: the architecture approval and the owner's questions on the same task share a topic.
+	mk("nakama", "network-dev")
+	blob, _ := s.PutBlob(ctx, co, bytes.NewReader([]byte("doc")), 1<<20)
+	if _, err := s.RegisterArtifact(ctx, co, "p", artifacts.Register{Artifact: tasks.Artifact{ID: "arch", Version: "1", URI: UploadURI("arch", "1"), SHA256: blob.SHA256, Name: "nakama.md"}, TaskID: "nakama", Actor: "owner", RequestID: "arch"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.RequestArtifactApproval(ctx, co, "p", artifacts.ApprovalRequest{ArtifactID: "arch", ArtifactVersion: "1", Agent: "network-dev", TaskID: "nakama", Reason: "architecture", RequestID: "arch-a", Strict: true, Brief: fullBrief("Nakama backend for 3.0")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := s.SendMessage(ctx, co, messaging.Send{ProjectID: "p", TaskID: "nakama", Sender: "network-dev", Recipient: "owner", MessageType: "question", Body: "Off-site backups?", RequestID: "q3", Strict: true,
+		Questions: []messaging.Question{{ID: "choice", Type: "single_choice", Question: "Off-site backups?", Options: []string{"€1-2/mo", "€4/mo", "none"}}}})
+	if err != nil || q.TopicID != topicOf(t, s, a.MessageID) {
+		t.Fatalf("question topic %q, approval topic %q: %v", q.TopicID, topicOf(t, s, a.MessageID), err)
+	}
+
+	// Second review round: the lead rejected v1 itself; v2 escalated opens the topic (people never saw v1).
+	mk("zones", "ui-dev")
+	for _, ver := range []string{"v1", "v2"} {
+		b, _ := s.PutBlob(ctx, co, bytes.NewReader([]byte("zones"+ver)), 1<<20)
+		if _, err := s.RegisterArtifact(ctx, co, "p", artifacts.Register{Artifact: tasks.Artifact{ID: "zones", Version: ver, URI: UploadURI("zones", ver), SHA256: b.SHA256, Name: "zones.png"}, TaskID: "zones", Actor: "owner", RequestID: "z" + ver}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	z1, _ := s.RequestArtifactApproval(ctx, co, "p", artifacts.ApprovalRequest{ArtifactID: "zones", ArtifactVersion: "v1", Agent: "ui-dev", TaskID: "zones", Reason: "v1", RequestID: "z1", Delegate: "producer"})
+	if _, err = s.DecideApproval(ctx, co, z1.ID, approvals.Decision{Version: z1.Version, Action: "reject", Reason: "melee zones too thin", RequestID: "z1r", DecidedBy: "producer"}); err != nil {
+		t.Fatal(err)
+	}
+	if topicOf(t, s, z1.MessageID) != "" {
+		t.Fatal("the lead's own review reached people")
+	}
+	z2, _ := s.RequestArtifactApproval(ctx, co, "p", artifacts.ApprovalRequest{ArtifactID: "zones", ArtifactVersion: "v2", Agent: "ui-dev", TaskID: "zones", Reason: "v2", RequestID: "z2", Delegate: "producer"})
+	if _, err = s.EscalateApproval(ctx, co, z2.ID, "producer", "changes the game's look", EscalatePeople{Strict: true, Brief: fullBrief("Aim zones: visual language")}); err != nil {
+		t.Fatalf("second round escalation: %v", err)
+	}
+	if tp := topicOf(t, s, z2.MessageID); tp == "" {
+		t.Fatal("no topic")
+	}
+}

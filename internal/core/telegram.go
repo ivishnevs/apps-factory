@@ -525,6 +525,19 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 			out = append(out, telegram.Item{Seq: f.Sequence})
 			continue
 		}
+		switch f.Type {
+		case "topic.item_added":
+			// People topics (people-topics D10): one message per item that waits, with its images and buttons.
+			out = append(out, b.topicItem(ctx, f))
+			continue
+		case "approval.requested", "approval.escalated":
+			// An approval reaches people as its topic item (people-topics D10); this row says nothing more.
+			out = append(out, telegram.Item{Seq: f.Sequence})
+			continue
+		case "topic.item_replaced":
+			out = append(out, telegram.Item{Seq: f.Sequence, Retire: f.Ref, RetireNote: "replaced by " + f.Summary + ": decide the new version"})
+			continue
+		}
 		where := strings.Trim(f.ProjectID+"/"+f.TaskID, "/")
 		it := telegram.Item{Seq: f.Sequence, Text: fmt.Sprintf("⚠ %s %s: %s", where, f.Type, f.Summary)}
 		if node, ok := strings.CutPrefix(f.EntityID, "node:"); ok && f.Type == "node_update_available" {
@@ -535,7 +548,7 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 			out = append(out, it)
 			continue
 		}
-		if d, m, ok := b.proposalOf(ctx, f); ok {
+		if d, m, ok := b.proposalOf(ctx, f); ok && m.TopicID == "" {
 			it.Text = fmt.Sprintf("🗳 %s\n%s\nDecision: %s\n\n%s", b.label(m.Sender), m.ProjectID, d.Topic, m.Body)
 			it.Target = telegram.Target{Question: m.ID, Agent: m.Sender, Project: m.ProjectID, Label: b.label(m.Sender)}
 			it.Options = append([]string{d.Value}, d.Alternatives...)
@@ -544,7 +557,7 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 			continue
 		}
 		if m, ok := b.questionOf(ctx, f); ok {
-			if asked[m.ID] { // one message per question (its message and escalation rows); no text sends nothing
+			if asked[m.ID] || m.TopicID != "" { // a topic's question goes as its topic item // one message per question (its message and escalation rows); no text sends nothing
 				out = append(out, telegram.Item{Seq: f.Sequence})
 				continue
 			}
@@ -581,6 +594,8 @@ func (b telegramBackend) Choose(ctx context.Context, id string, choice int, key 
 	}
 	if m, err := b.c.Store.Message(ctx, b.company, id); err == nil && m.DecisionID != "" && m.MessageType == "review_request" {
 		return b.decide(ctx, m, choice, key)
+	} else if err == nil && m.ApprovalID != "" {
+		return b.approval(ctx, m, "approve", "", key)
 	}
 	return b.answer(ctx, id, choice, "", key)
 }
@@ -658,7 +673,10 @@ func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key
 		return "", fmt.Errorf("approve the node's update with the button, or on the Nodes page")
 	}
 	if t.Question != "" {
-		if m, err := b.c.Store.Message(ctx, b.company, t.Question); err == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
+		if m, err := b.c.Store.Message(ctx, b.company, t.Question); err == nil && m.ApprovalID != "" {
+			// A reply to an approval rejects it with the reply as the reason (people-topics D10).
+			return b.approval(ctx, m, "reject", text, key)
+		} else if err == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
 			return b.answer(ctx, t.Question, -1, text, key)
 		}
 	}

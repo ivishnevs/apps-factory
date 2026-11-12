@@ -92,6 +92,9 @@ func (s *Store) presentMessages(ctx context.Context, company, query string, args
 // presentMessage flags an open question whose asking task changed since it was asked (new triggers or another
 // assignee) as possibly outdated (hierarchy D3), so the answerer looks at the task first.
 func presentMessage(ctx context.Context, q querier, company string, m *messaging.Message) error {
+	if m.Recipient == "owner" {
+		m.Text = messaging.PeopleText(m.Body) // what people read of it (people-topics D7)
+	}
 	if m.MessageType != "question" || m.TaskID == "" || m.TaskWakeSeq == 0 && m.TaskAssignee == "" || m.Status != "PENDING" && m.Status != "ESCALATED" {
 		return nil
 	}

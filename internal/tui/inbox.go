@@ -222,7 +222,7 @@ func (m *Model) inboxLines(w, h int) []string {
 		kind, ks := inboxKind(msg)
 		head := ks.Render("● "+kind) + "  " + lipgloss.NewStyle().Foreground(agentColor(msg.Sender)).Render(msg.Sender)
 		head = rightAlign(head, stFaint.Render(ago(now, time.Unix(msg.CreatedAt, 0))+" ago"), listW-4)
-		body := "  " + stFaint.Render(cut(dash(msg.TaskID)+" · "+oneLine(msg.Body), listW-6))
+		body := "  " + stFaint.Render(cut(dash(msg.TaskID)+" · "+oneLine(msg.Headline()), listW-6))
 		if i == s.cursor {
 			bg := lipgloss.NewStyle().Background(theme.surfaceHi)
 			head, body = bg.Render(fit(head, listW-4)), bg.Render(fit(body, listW-4))
@@ -255,7 +255,22 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 		lines = append(lines, stYellow.Render(p))
 	}
 	lines = append(lines, "")
-	for _, l := range wrap(msg.Body, w-2) {
+	// What people read (people-topics D7): the brief when the item has one, then its text without ids or JSON.
+	if b := msg.Brief; b != nil && !b.Empty() {
+		for _, f := range []struct{ label, v string }{{"", b.Title}, {"decide: ", b.Ask}, {"advice: ", b.Recommendation}, {"after: ", b.After}, {"changed: ", b.Changes}, {"not decided here: ", b.Scope}} {
+			if strings.TrimSpace(f.v) == "" {
+				continue
+			}
+			for i, l := range wrap(f.label+f.v, w-2) {
+				if i == 0 && f.label == "" {
+					l = stBold.Render(l)
+				}
+				lines = append(lines, l)
+			}
+		}
+		lines = append(lines, "")
+	}
+	for _, l := range wrap(messaging.PeopleText(msg.Body), w-2) {
 		lines = append(lines, stBold.Render(l))
 	}
 	lines = append(lines, visualLines(msg, w)...)
