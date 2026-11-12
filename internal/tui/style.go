@@ -79,6 +79,10 @@ func agentChip(name string) string {
 	if name == "" {
 		return stDim.Render("○ unassigned")
 	}
+	if user, ok := strings.CutPrefix(name, "member:"); ok {
+		// A person's task (people-assignees): the person, not an agent.
+		return lipgloss.NewStyle().Foreground(agentColor(name)).Render("◆ @" + user)
+	}
 	return lipgloss.NewStyle().Foreground(agentColor(name)).Render("● " + name)
 }
 

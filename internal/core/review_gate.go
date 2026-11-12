@@ -52,6 +52,9 @@ func (c *Core) checkReviewBy(ctx context.Context, company, assignee, by string) 
 		}
 		for _, m := range members {
 			if m.User == user {
+				if by == assignee {
+					return fmt.Errorf("review_by %s is the assignee; a task is reviewed by someone else", by)
+				}
 				return nil
 			}
 		}

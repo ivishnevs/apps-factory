@@ -270,6 +270,9 @@ func dependencyDone(ctx context.Context, tx *Tx, done tasks.Task) error {
 		if err = addTrigger(ctx, tx, &t, "dependency_done", false, "system", done.ID, "last open dependency "+done.ID+" is DONE"); err != nil {
 			return err
 		}
+		if err = personTaskReady(ctx, tx, t, done); err != nil {
+			return err
+		}
 	}
 	return nil
 }

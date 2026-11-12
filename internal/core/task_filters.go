@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"appfactory/internal/storage"
@@ -15,8 +16,10 @@ import (
 type taskFilter struct {
 	open                     bool
 	assignee, change, covers string
-	words                    []string
-	compact                  bool
+	// assignees is the assignee resolved by Core (people-assignees: me); nil matches assignee as given.
+	assignees []string
+	words     []string
+	compact   bool
 }
 
 func taskFilterOf(q url.Values) (taskFilter, error) {
@@ -35,7 +38,7 @@ func taskFilterOf(q url.Values) (taskFilter, error) {
 func (f taskFilter) apply(list []tasks.Task) []tasks.Task {
 	out := list[:0:0]
 	for _, t := range list {
-		if f.open && (t.Status == "DONE" || t.Status == "CANCELLED") || f.assignee != "" && t.Assignee != f.assignee ||
+		if f.open && (t.Status == "DONE" || t.Status == "CANCELLED") || (f.assignees != nil && !slices.Contains(f.assignees, t.Assignee) || f.assignees == nil && f.assignee != "" && t.Assignee != f.assignee) ||
 			f.change != "" && t.OpenSpecChange != f.change || f.covers != "" && !tasks.CoversMatch(t.Covers, f.covers) {
 			continue
 		}

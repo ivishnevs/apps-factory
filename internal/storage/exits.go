@@ -462,6 +462,13 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			if err != nil {
 				return out, err
 			}
+			if tasks.IsPerson(t.Implementer) {
+				// A person's submission (people-assignees): the approval names the pull request they submitted.
+				if err = personApproval(ctx, tx, t, agent); err != nil {
+					return out, err
+				}
+				pr = 0
+			}
 			if pr != 0 {
 				if _, err := tx.ExecContext(ctx, "INSERT INTO pr_approvals(company_id,task_id,pr_number,approved_head,approver,run_id,created_at) VALUES(?,?,?,?,?,?,?)", tx.company, t.ID, pr, head, agent, runID, now.Unix()); err != nil {
 					return out, err

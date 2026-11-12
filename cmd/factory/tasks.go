@@ -12,12 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 )
 
 func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: projects create ID [ABS_WORKSPACE] [DESCRIPTION] [--team TEAM] [--repo-mode local|github|existing] [--repo URL] [--branch B] [--audit] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
+		return fmt.Errorf("usage: projects create ID [ABS_WORKSPACE] [DESCRIPTION] [--team TEAM] [--repo-mode local|github|existing] [--repo URL] [--branch B] [--audit] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] [--assignee me|member:USER|AGENT] | tasks start ID VERSION | tasks submit-pr ID VERSION PR SUMMARY | tasks done ID VERSION [--merged] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
 	}
 	if args[0] == "tasks" && args[1] == "why" {
 		return whyCommand(ctx, api, args[2:])
@@ -99,10 +100,18 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	} else {
 		switch args[1] {
 		case "list":
-			if len(args) > 4 {
-				return fmt.Errorf("tasks list [PROJECT] [STATUS]")
-			}
 			q := url.Values{}
+			// --assignee me|member:USER|AGENT (people-assignees): me is the signed-in person, the owners for a token.
+			for i := 2; i < len(args); i++ {
+				if args[i] == "--assignee" && i+1 < len(args) {
+					q.Set("assignee", args[i+1])
+					args = append(args[:i:i], args[i+2:]...)
+					break
+				}
+			}
+			if len(args) > 4 {
+				return fmt.Errorf("tasks list [PROJECT] [STATUS] [--assignee me|member:USER|AGENT]")
+			}
 			if len(args) >= 3 {
 				q.Set("project", args[2])
 			}
@@ -178,6 +187,27 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 			}
 			if cascade {
 				p["cascade"] = true
+			}
+			body = p
+		case "start", "done", "submit-pr":
+			// A person's task (people-assignees): start ID VERSION, submit-pr ID VERSION PR SUMMARY, done ID VERSION
+			// --merged (the approved pull request is merged).
+			merged := args[1] == "done" && args[len(args)-1] == "--merged"
+			if merged {
+				args = args[:len(args)-1]
+			}
+			if args[1] == "submit-pr" && len(args) != 6 || args[1] != "submit-pr" && len(args) != 4 {
+				return fmt.Errorf("tasks start ID VERSION | tasks submit-pr ID VERSION PR SUMMARY | tasks done ID VERSION [--merged]")
+			}
+			version, e := strconv.Atoi(args[3])
+			if e != nil {
+				return e
+			}
+			method = "POST"
+			path = idPath(args[2]) + "/actions"
+			p := map[string]any{"version": version, "action": strings.TrimSuffix(args[1], "-pr"), "request_id": protocol.ID(), "merged": merged}
+			if args[1] == "submit-pr" {
+				p["pull_request"], p["summary"] = args[4], args[5]
 			}
 			body = p
 		case "pause", "resume", "reassign", "reprioritize":
