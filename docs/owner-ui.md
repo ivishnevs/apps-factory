@@ -594,7 +594,8 @@ are shown in plain words; IDs appear only where a person needs them.
   machine without a browser, what the machine needs, manual downloads), the connectors with their runtimes, pauses
   and the kill switch. `/connect/<id>` approves a connector's sign-in request for one of the person's companies
   (owners and admins), showing the code the terminal printed.
-- **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Members (everyone reads;
+- **Settings** `/c/{company}/settings?tab=…`: General (name — owners; time zone — admins), Company rules (the standing
+  rules every agent's brief carries, up to 8 KB; owners and admins edit, everyone reads; company-rules-web), Members (everyone reads;
   owners change roles and remove; the last owner stays), Projects (name, repository, branch, team), Integrations
   (Telegram: the company's bot from a @BotFather token — owners and admins; Connect Telegram for one's own chat with
   a t.me link, the daily digest switch, Disconnect; see [messaging](messaging.md#telegram)), Access tokens

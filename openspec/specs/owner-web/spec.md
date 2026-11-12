@@ -85,3 +85,10 @@ A finished task's page SHALL lead with the materials the agent named as the resu
 #### Scenario: Screenshots task with samples
 - **WHEN** the owner opens a done screenshots task whose last submission named the final gallery, and that produced two approved samples and a storyboard
 - **THEN** the final gallery SHALL be the lead card and the samples and the storyboard SHALL be under "Earlier versions" with the board's approval comments
+
+### Requirement: Company rules in Settings
+The web Settings SHALL show the company rules every agent's brief carries, let owners and admins edit and save them within the 8 KB limit, and show them read-only to members.
+
+#### Scenario: Owner edits the rules
+- **WHEN** an owner opens Settings → Company rules, changes the text and saves
+- **THEN** the next brief of every agent SHALL carry the new text
