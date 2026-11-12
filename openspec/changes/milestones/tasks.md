@@ -1,3 +1,8 @@
+## 0. Decide
+
+- [ ] 0.1 Owner accepts or changes D1–D9 in proposal.md; update the spec to the chosen options (it still allows
+      BACKLOG for outside work and has no Ongoing milestone).
+
 ## 1. Core
 
 - [ ] 1.1 Milestones table and API (project, title, goal, done_when, order, status, changes); task milestone link
