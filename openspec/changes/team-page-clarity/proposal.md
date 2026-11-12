@@ -27,6 +27,10 @@ the page look broken.
   to whom.
 - Let owners change the lead and the onboarding agent from the page with a short explanation of the effect.
 - Use the same wording in the team wizard, docs and the agent cards.
+- Communication on the team page (owner, 2026-11-12, after assign-by-hierarchy): "Who does what" also shows whom
+  each agent may message and give tasks to (Core enforces both). They are edited on the agent's card with real
+  controls instead of comma-separated text and YAML: may message (agents and the owner, multi-select) and gives
+  tasks to (no one / direct reports / whole subtree / chosen agents).
 
 ## Impact
 

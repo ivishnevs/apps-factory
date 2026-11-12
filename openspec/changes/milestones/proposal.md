@@ -64,6 +64,19 @@ With these, the four recommendations stand: one active milestone per project (ow
 allowed with `off_milestone` and a reason (only while one is active), Core as the source of truth, ETA "≈" from the
 last 3 days. Waiting for the owner's yes.
 
+Follow-up (owner, 2026-11-12): mandatory with a default milestone per project, or optional? Mandatory makes agents
+always work with milestones, so new ones do not get missed; optional keeps small projects and owner-created tasks
+simple. Options:
+
+- **A. Optional, the agent chooses.** Simplest, but an agent can forget to put a task in the running milestone.
+- **B. Mandatory, a visible default milestone in every project.** Agents always pick one; every project and every
+  task form shows milestones even where nobody wants them.
+- **C. Every task has a milestone, Core fills it in (recommended).** Each project has a built-in default milestone
+  ("Ongoing"), hidden while it is the only one, so a support project looks as today. A task created without a
+  milestone goes to the active milestone if there is one, else to "Ongoing": Core decides, not the agent, so an agent
+  cannot forget, and the owner never has to pick. Putting a task elsewhere while a milestone is active is explicit
+  (`off_milestone` with a reason). The first real milestone appears in the UI only when someone creates it.
+
 ## Impact
 
 Core: milestones table and API, task and change links, lead tools (`milestone_create`, `milestone_update`,

@@ -1,5 +1,8 @@
 # Implementation run 2026-11-12: what is left and why
 
+The owner confirmed this classification on 2026-11-12 ("globally yes") and asked for an explanation of the node and
+Claude setup (now, target, what is in the way); milestones and the team page went back to design (see their proposals).
+
 The owner asked to implement every OpenSpec change that was ready (no open questions, no blockers). This lists what
 could not be finished and what it waits on. Each item is also noted in its change's `tasks.md` and proposal.
 
