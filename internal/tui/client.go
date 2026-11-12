@@ -142,7 +142,7 @@ type RunEvent struct {
 
 // Action is an owner action the UI sends.
 type Action struct {
-	Kind       string   // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create, create_project, hold, release, read
+	Kind       string   // pause, resume, retry, run, accept, rework, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, choose, changes, stop, start, say, create, create_project, hold, release, read
 	TaskID     string   // task actions
 	Project    string   // say, create
 	Title      string   // create (Text is the description)
@@ -164,9 +164,13 @@ type Action struct {
 	MessageID   string         // answer
 	Details     string         // answer: promised ("I'll send details") or withdrawn (inbox-badge-parity)
 	Answers     map[string]any // answer: structured answers
-	ApprovalID  string         // approve, reject
-	Scope       string         // hold, release: project, agent, quota_key or node (the company is the kill switch)
-	Target      string         // hold, release: the project ID, agent name, quota key or node ID
+	ApprovalID  string         // approve, reject, choose, changes
+	// Option is the option (from 1) choose chooses on a choice approval; Options the options changes names
+	// (artifact-choice-approvals).
+	Option  int
+	Options []int
+	Scope   string // hold, release: project, agent, quota_key or node (the company is the kill switch)
+	Target  string // hold, release: the project ID, agent name, quota key or node ID
 	// NewProject is create_project's POST /projects body; its request_id is set per submit (one is made when empty).
 	NewProject *tasks.ProjectCreate
 }
@@ -223,6 +227,14 @@ func (a Action) Describe() string {
 		return "send " + a.TaskID + " back for rework: " + a.Text
 	case "approve", "reject":
 		return a.Kind + " " + a.ApprovalID + ": " + a.Text
+	case "choose":
+		d := fmt.Sprintf("choose option %d of %s", a.Option, a.ApprovalID)
+		if a.Text != "" {
+			d += ": " + a.Text
+		}
+		return d
+	case "changes":
+		return "ask for changes on " + a.ApprovalID + ": " + a.Text
 	case "say":
 		return "message in " + a.Project + ": " + a.Text
 	case "create":
@@ -675,8 +687,15 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 			body["feedback"] = a.Text
 		}
 		err = c.API.Do(ctx, "POST", task+"/review", body, &result)
-	case "approve", "reject":
-		err = c.API.Do(ctx, "POST", "/approvals/"+url.PathEscape(a.ApprovalID)+"/decision", map[string]any{"version": a.Version, "action": a.Kind, "reason": a.Text, "request_id": rid}, &result)
+	case "approve", "reject", "choose", "changes":
+		body := map[string]any{"version": a.Version, "action": a.Kind, "reason": a.Text, "request_id": rid}
+		if a.Kind == "choose" {
+			body["option"] = a.Option
+		}
+		if a.Kind == "changes" && len(a.Options) > 0 {
+			body["options"] = a.Options
+		}
+		err = c.API.Do(ctx, "POST", "/approvals/"+url.PathEscape(a.ApprovalID)+"/decision", body, &result)
 	case "say":
 		// POST /messages: to owner.default_report, or the direct report a leading @name addresses.
 		err = c.API.Do(ctx, "POST", "/messages", map[string]any{"project_id": a.Project, "body": a.Text, "request_id": rid}, &result)
@@ -749,7 +768,7 @@ func explainConflict(a Action, err error) error {
 		what = "message " + a.MessageID + " was answered, withdrawn or changed meanwhile (or it takes no answer)"
 	case "read":
 		what = "message " + a.MessageID + " was already read or changed meanwhile"
-	case "approve", "reject":
+	case "approve", "reject", "choose", "changes":
 		what = "approval " + a.ApprovalID + " was decided, expired or changed meanwhile"
 	case "say", "create", "create_project", "stop", "start", "hold", "release":
 		return err

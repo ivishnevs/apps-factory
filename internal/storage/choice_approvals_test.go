@@ -215,8 +215,19 @@ func TestChoiceApprovalDrops(t *testing.T) {
 	if !strings.Contains(m.Body, "lead dropped option 2 V2 (concept@v2): off-brief palette") {
 		t.Fatal(m.Body)
 	}
-	// People choose a dropped option all the same.
-	if got, err = s.DecideApproval(ctx, co, a.ID, approvals.Decision{Version: got.Version, Action: "choose", Option: 4, RequestID: "pick-dropped"}); err != nil || got.Chosen != 4 || got.Status != "APPROVED" {
+	// In the people topic it is chosen, sent back or rejected, never approved as is; people choose a dropped option
+	// all the same.
+	topic, err := s.PeopleTopic(ctx, co, m.TopicID)
+	if err != nil || len(topic.Items) != 1 || strings.Join(topic.Items[0].Actions, ",") != "choose,changes,reject" {
+		t.Fatalf("%+v %v", topic, err)
+	}
+	if _, err = s.DecideTopic(ctx, co, m.TopicID, "approve-all", []TopicDecision{{Kind: "approval", Ref: a.ID, Version: got.Version, Action: "approve"}}); !errors.Is(err, ErrInput) {
+		t.Fatal("a choice approved from its topic", err)
+	}
+	if _, err = s.DecideTopic(ctx, co, m.TopicID, "pick", []TopicDecision{{Kind: "approval", Ref: a.ID, Version: got.Version, Action: "choose", Option: 4}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.Approval(ctx, co, a.ID); err != nil || got.Chosen != 4 || got.Status != "APPROVED" {
 		t.Fatalf("%+v %v", got, err)
 	}
 }

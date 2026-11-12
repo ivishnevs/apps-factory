@@ -235,7 +235,10 @@ The **feed** (`GET /feed/stream`, the last 3000 rows) with an icon per event, ag
 attention rows highlighted; `!` keeps only them, `/` filters, scrolling up pauses it and `G` returns to
 the newest. The **inbox** lists questions, escalations and approvals (`GET /inbox`, `GET /approvals`) beside
 the selected item: its body, its attachments as links (inbox-visual-previews), the approval's call and arguments with `y approve` / `n reject`, or the
-question's options as pills (`←`/`→`, `enter`), `a` for free text. A notification or report has no answer:
+question's options as pills (`←`/`→`, `enter`), `a` for free text. A choice approval (artifact-choice-approvals)
+lists its options (number, label, version, note, `★ recommended`), the ones its delegate dropped below under
+"dropped by … (still choosable)" with the reasons; `←`/`→` focus an option, `v` previews it, `enter` chooses it (an
+optional comment), `c` asks for changes (text), `n` rejects all (reason); `y` only says how. A notification or report has no answer:
 `r` (or `enter`) replies — in the Chat tab to a direct report, with a directive on the task to any other
 agent — and `m` marks it read. A refused action says what happened instead of Core's bare `state or version
 conflict`: the question was answered or withdrawn meanwhile, the task changed (its version is stale), the
@@ -614,7 +617,14 @@ are shown in plain words; IDs appear only where a person needs them.
   that no chat shows (an agent that is not a direct report asks the owner, so it lands in an escalation thread
   `chain-…`) appears in the owner's chat with the project's lead (the team's lead, else the default report) as a card
   under the newest message: "App Release asks", the task, the question with one button per option plus "Something
-  else…" for free text, or the approval with Approve and Reject; the chat counts it in "asks you". A task's page shows
+  else…" for free text, or the approval with Approve and Reject; the chat counts it in "asks you". A choice approval
+  (artifact-choice-approvals) shows its options as cards instead — label, note, Recommended, a preview of each version
+  (images inline, a prototype in a frame and in a new tab), a link to its Library card, the options the delegate
+  dropped collapsed with its reasons and still choosable — with Choose <option>, Ask for changes (text) and Reject all
+  (reason); the same card in the Inbox, in a people topic, on the task page and in the lead chat. Decided, it shows
+  Chosen / Not chosen per option. The task's materials and the file viewer say "Option “V1” of a choice; “V2” was
+  chosen", with the Not chosen badge. Telegram sends a choice with one button per option plus Changes… and Reject;
+  a reply asks for changes, "reject: <reason>" rejects all. A task's page shows
   its open question or approval the same way under Waiting for your answer ("Open in inbox" stays in the status).
   The cards are the Inbox's (`GET /inbox` through the overview); an answer from the chat, the task, the Inbox or
   Telegram answers the same message, so the item closes everywhere and the asking agent wakes with the answer.

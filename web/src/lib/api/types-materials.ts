@@ -37,7 +37,8 @@ export interface Material {
   author?: string;
   created_at: number;
   report?: { id: string; kind: string; summary: string; result?: string };
-  approval?: { id: string; status: string; decided_at?: number; reason?: string; comment?: ApprovalComment };
+  // option/chosen: this version's label in a choice approval and the chosen one's (artifact-choice-approvals).
+  approval?: { id: string; status: string; decided_at?: number; reason?: string; comment?: ApprovalComment; option?: string; chosen?: string };
   pr?: PRFacts;
 }
 

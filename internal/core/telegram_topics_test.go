@@ -64,3 +64,58 @@ func TestTelegramTopicApprovals(t *testing.T) {
 		t.Fatal("no retire note", got)
 	}
 }
+
+// TestTelegramChoiceApproval (artifact-choice-approvals 3.3): a choice approval reaches Telegram with one button per
+// option plus "Changes…" and "Reject"; an option's button chooses it; a reply asks for changes, "reject: <reason>"
+// rejects all.
+func TestTelegramChoiceApproval(t *testing.T) {
+	th := newTelegramHarness(t)
+	ctx := context.Background()
+	th.create("var", "notes", "demo")
+	r := th.start("var")
+	var options []any
+	for i, v := range []string{"v1", "v2", "v3", "v4", "v5", "v6"} {
+		th.mcp(r, "factory_artifact_register", map[string]any{"artifact": tasks.Artifact{ID: "paywall", Version: v, URI: "https://example.com/paywall-" + v + ".png"}, "request_id": "reg-" + v})
+		options = append(options, map[string]any{"artifact_id": "paywall", "artifact_version": v, "label": []string{"Mascot", "Editorial", "Dark", "Mascot 2", "Editorial 2", "Dark 2"}[i]})
+	}
+	ask := func(key string, opts []any) (int64, []telegram.Button) {
+		t.Helper()
+		th.mcp(r, "factory_artifact_request_approval", map[string]any{"options": opts, "recommended": "2", "reason": "three paywall variations", "request_id": key, "brief": testBrief()})
+		th.tick()
+		markup, _ := json.Marshal(th.bot.last()["reply_markup"])
+		var kb struct {
+			Rows [][]telegram.Button `json:"inline_keyboard"`
+		}
+		_ = json.Unmarshal(markup, &kb)
+		var buttons []telegram.Button
+		for _, row := range kb.Rows {
+			buttons = append(buttons, row...)
+		}
+		return th.bot.last()["message_id"].(int64), buttons
+	}
+	sent, buttons := ask("c1", options[:3])
+	text := th.bot.texts()[len(th.bot.texts())-1]
+	if len(buttons) != 5 || buttons[0].Text != "Mascot" || buttons[3].Text != "Changes…" || buttons[4].Text != "Reject" || !strings.Contains(text, "👉 2. Editorial") {
+		t.Fatalf("%q %+v", text, buttons)
+	}
+	th.bot.push(telegram.Update{UpdateID: 41, Callback: &telegram.CallbackQuery{ID: "cb", Data: buttons[1].Data, Message: &telegram.Message{MessageID: sent, Chat: telegram.Chat{ID: ownerChat}}}})
+	th.tick()
+	list, _ := th.s.Approvals(ctx, storage.DefaultCompany, "notes")
+	if len(list) != 1 || list[0].Status != "APPROVED" || list[0].Chosen != 2 {
+		t.Fatalf("%+v", list)
+	}
+	// A reply asks for changes; "reject: …" rejects all.
+	for i, c := range []struct{ reply, status, reason string }{{"mix the mascot with the dark palette", "CHANGES_REQUESTED", "mix the mascot with the dark palette"}, {"Reject: none fits the brand", "REJECTED", "none fits the brand"}} {
+		opts := options[3:5]
+		if i == 1 {
+			opts = []any{options[0], options[5]}
+		}
+		sent, _ = ask("c"+string(rune('2'+i)), opts)
+		th.bot.push(telegram.Update{UpdateID: int64(42 + i), Message: &telegram.Message{MessageID: int64(3042 + i), Chat: telegram.Chat{ID: ownerChat}, Text: c.reply, ReplyTo: &telegram.Message{MessageID: sent}}})
+		th.tick()
+		list, _ = th.s.Approvals(ctx, storage.DefaultCompany, "notes")
+		if got := list[len(list)-1]; got.Status != c.status || got.DecisionReason != c.reason {
+			t.Fatalf("%s: %+v", c.reply, got)
+		}
+	}
+}

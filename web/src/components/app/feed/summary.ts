@@ -44,6 +44,7 @@ function prose(text: string, title: (id: string) => string | undefined): string 
   // Approval answers: "Approval <id> APPROVED: approved by owner" → "Approved".
   s = s.replace(reHex("Approval HEX (APPROVED|REJECTED)(?::\\s*(?:approved|rejected) by (?:the )?owner)?"), (_, st: string) => (st === "APPROVED" ? "Approved" : "Rejected"));
   s = s.replace(reHex("Artifact approval HEX:\\s*"), "Approval request: ");
+  s = s.replace(reHex("Artifact choice approval HEX:\\s*"), "Choice request: ");
   s = titled(s);
   // "(approval <id>)", "(<id>)": a parenthesised reference adds nothing.
   s = s.replace(reHex("\\s*\\((?:approval |node |run )?HEX\\)"), "");

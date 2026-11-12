@@ -11,6 +11,7 @@ import { ApprovalCommentOutcome } from "@/components/app/approval-comment";
 import { DecisionCard } from "@/components/app/decision-card";
 import { ApprovalBadge } from "@/components/app/materials/kinds";
 import { AlertCard, ApprovalCard, MessageCard, type InboxHandlers } from "@/components/app/inbox/cards";
+import { approvalDecision } from "@/components/app/inbox/decide";
 import { useInbox } from "@/components/app/inbox/model";
 import { TopicCard } from "@/components/app/inbox/topic-card";
 import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/app/page";
@@ -68,13 +69,10 @@ export default function InboxPage() {
     read: (msg) =>
       run(keyOf(msg), { Kind: "read", MessageID: msg.id, Version: msg.version },
         { title: "Mark as read?", description: peopleText(msg).slice(0, 200), confirm: "Mark read" }, "Marked as read"),
-    decide: (kind, ap, msg, reason) =>
-      run(keyOf(msg, ap), { Kind: kind, ApprovalID: ap.id, Version: Math.max(ap.version, 1), Text: reason },
-        {
-          title: `${kind === "approve" ? "Approve" : "Reject"} ${ap.artifact ? ap.artifact.name || ap.artifact.id : ap.call.name}?`,
-          description: `${ap.agent} asked${ap.task_id ? ` on ${ap.task_id}` : ""}.\nNote: ${reason}`,
-          confirm: kind === "approve" ? "Approve" : "Reject", destructive: kind === "reject",
-        }, kind === "approve" ? "Approved" : "Rejected"),
+    decide: (kind, ap, msg, reason, option) => {
+      const d = approvalDecision(kind, ap, reason, option);
+      return run(keyOf(msg, ap), d.action, d.ask, d.done);
+    },
   };
 
   const review = (t: Task, accept: boolean, feedback?: string) =>

@@ -89,6 +89,22 @@ type MaterialApproval struct {
 	Reason    string `json:"reason,omitempty"`
 	// Comment is what became of the decision's comment (approval-comments-handled).
 	Comment *approvals.CommentState `json:"comment,omitempty"`
+	// Option is this version's label in a choice approval and Chosen the chosen option's label
+	// (artifact-choice-approvals); Status is NOT_CHOSEN for an option that was not chosen.
+	Option string `json:"option,omitempty"`
+	Chosen string `json:"chosen,omitempty"`
+}
+
+// materialApproval is a's state for the artifact version id@version.
+func materialApproval(a approvals.Approval, id, version string) *MaterialApproval {
+	out := &MaterialApproval{ID: a.ID, Status: a.StatusOf(id, version), DecidedAt: a.DecidedAt, Reason: a.DecisionReason, Comment: a.Comment}
+	if n := a.OptionOf(id, version); n > 0 {
+		out.Option = a.Options[n-1].Label
+	}
+	if a.Chosen > 0 && a.Chosen <= len(a.Options) {
+		out.Chosen = a.Options[a.Chosen-1].Label
+	}
+	return out
 }
 
 // MaterialPage is a page of the Library, newest first; NextBefore continues it.
@@ -279,7 +295,7 @@ func taskMaterials(ctx context.Context, c tui.Client, d tui.TaskDetail) ([]Mater
 			continue
 		}
 		if a, err := c.ArtifactApproval(ctx, t.ProjectID, m.ArtifactID, m.Version); err == nil && a != nil {
-			ms[i].Approval = &MaterialApproval{ID: a.ID, Status: a.Status, DecidedAt: a.DecidedAt, Reason: a.DecisionReason, Comment: a.Comment}
+			ms[i].Approval = materialApproval(*a, m.ArtifactID, m.Version)
 		}
 	}
 	titles(ms, []tui.Task{t})

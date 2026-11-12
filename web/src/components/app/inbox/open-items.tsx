@@ -6,6 +6,7 @@ import { peopleText } from "@/lib/people-text";
 import { useOverview } from "@/lib/api/client";
 import type { Approval, Message, Overview } from "@/lib/api/types";
 import { ApprovalCard, answerable, MessageCard, type InboxHandlers } from "./cards";
+import { approvalDecision } from "./decide";
 
 // agent-questions-in-chat: the open questions and approvals of the Inbox, answerable where they matter too — in the
 // owner's chat with the project's lead and on the asking task. An answer anywhere closes the item everywhere (the
@@ -51,13 +52,10 @@ export function useOpenItemHandlers(): InboxHandlers {
           : { title: "Withdraw your promise?", description: `${msg.sender} stops waiting for your details and continues without them.`, confirm: "Withdraw" },
         kind === "promised" ? `${msg.sender} waits for your details` : `${msg.sender} continues without the details`),
     read: (msg) => void run({ Kind: "read", MessageID: msg.id, Version: msg.version }, { title: "Mark as read?", description: peopleText(msg).slice(0, 200), confirm: "Mark read" }, "Marked as read"),
-    decide: (kind, ap, _msg, reason) =>
-      void run({ Kind: kind, ApprovalID: ap.id, Version: Math.max(ap.version, 1), Text: reason },
-        {
-          title: `${kind === "approve" ? "Approve" : "Reject"} ${ap.artifact ? ap.artifact.name || ap.artifact.id : ap.call.name}?`,
-          description: `${ap.agent} asked${ap.task_id ? ` on ${ap.task_id}` : ""}.\nNote: ${reason}`,
-          confirm: kind === "approve" ? "Approve" : "Reject", destructive: kind === "reject",
-        }, kind === "approve" ? "Approved" : "Rejected"),
+    decide: (kind, ap, _msg, reason, option) => {
+      const d = approvalDecision(kind, ap, reason, option);
+      void run(d.action, d.ask, d.done);
+    },
   };
 }
 

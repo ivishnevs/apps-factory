@@ -116,6 +116,7 @@ function About({ m, showTask, library }: { m: Material; showTask: boolean; libra
           </Link>
         )}
         {m.approval && <ApprovalBadge status={m.approval.status} />}
+        {m.approval?.option && <span className="text-sm text-muted-foreground">Option “{m.approval.option}” of a choice{m.approval.chosen && m.approval.chosen !== m.approval.option ? `; “${m.approval.chosen}” was chosen` : ""}</span>}
         {!!m.archived_at && <ArchivedBadge at={m.archived_at} reason={m.archived_reason} />}
         {m.approval?.status === "PENDING" && <Link href="/inbox" className="text-sm font-medium underline-offset-4 hover:underline">Review in the inbox</Link>}
         {m.redacted && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="size-3.5" />Secrets were removed from this file</span>}

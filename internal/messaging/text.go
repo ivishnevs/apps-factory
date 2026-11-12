@@ -8,9 +8,12 @@ import (
 var (
 	idRe      = regexp.MustCompile(`\b[0-9a-f]{32}\b`)
 	exactLine = regexp.MustCompile(`(?m)^(Exact artifact version|Exact call): .*$`)
-	prefixRe  = regexp.MustCompile(`^(Artifact approval|Approval) [0-9a-f]{32}: `)
+	prefixRe  = regexp.MustCompile(`^(Artifact approval|Artifact choice approval|Approval) [0-9a-f]{32}: `)
 	escRe     = regexp.MustCompile(`^Escalation [a-z_]+ on (task|quota key) [^\n:]*?: `)
 	blankRe   = regexp.MustCompile(`\n{3,}`)
+	// optionRe is the options list of a choice approval's request (artifact-choice-approvals): people see the options
+	// themselves (cards, the inbox list, Telegram lines), not the agents' list.
+	optionRe = regexp.MustCompile(`(?m)^(Options:|\d+\. .*\([A-Za-z0-9][A-Za-z0-9_-]*@[^)\s]+\).*)$`)
 )
 
 // ShortIDs shortens full ids to their first 8 characters.
@@ -22,6 +25,9 @@ func ShortIDs(s string) string {
 // prefixes and full ids.
 func PeopleText(body string) string {
 	s := exactLine.ReplaceAllString(body, "")
+	if strings.HasPrefix(s, "Artifact choice approval ") {
+		s = optionRe.ReplaceAllString(s, "")
+	}
 	s = prefixRe.ReplaceAllString(s, "")
 	s = escRe.ReplaceAllString(s, "")
 	s = blankRe.ReplaceAllString(ShortIDs(s), "\n\n")

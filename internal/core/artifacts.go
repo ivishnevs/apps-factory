@@ -84,6 +84,11 @@ func (c *Core) artifactView(w http.ResponseWriter, r *http.Request, project, id,
 		approval = a
 	}
 	out := map[string]any{"artifact": record, "approval": approval}
+	if err == nil && a.Choice() {
+		// The version's own state in a choice (artifact-choice-approvals): an approved choice approves only the
+		// chosen option; the others are NOT_CHOSEN.
+		out["version_status"] = a.StatusOf(id, version)
+	}
 	if record.ArchivedAt > 0 {
 		// artifact-retention: the agent learns the content is gone and which version to use instead.
 		out["archived"] = c.Store.ArchivedNote(r.Context(), c.companyFrom(r), project, record)

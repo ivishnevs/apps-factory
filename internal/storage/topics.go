@@ -155,6 +155,10 @@ func (s *Store) PeopleTopic(ctx context.Context, company, id string) (TopicView,
 			iv.Waits = a.Status == "PENDING" && it.State == "open"
 			if iv.Waits {
 				iv.Actions = []string{"approve", "reject"}
+				if a.Choice() {
+					// A choice is never approved without choosing (artifact-choice-approvals).
+					iv.Actions = []string{approvals.ActionChoose, approvals.ActionChanges, approvals.ActionReject}
+				}
 			}
 			if m, err := s.Message(ctx, company, a.MessageID); err == nil {
 				m.Text = PeopleText(m.Body)
@@ -235,6 +239,10 @@ type TopicDecision struct {
 	Action  string         `json:"action"`
 	Reason  string         `json:"reason,omitempty"`
 	Answers map[string]any `json:"answers,omitempty"`
+	// Option and Options decide a choice approval (artifact-choice-approvals): choose takes the option (from 1),
+	// changes may name the options it is about.
+	Option  int   `json:"option,omitempty"`
+	Options []int `json:"options,omitempty"`
 }
 
 // DecideTopic decides several items of a topic in one transaction: all or none (people-topics D5: "approve all",
@@ -259,12 +267,14 @@ func (s *Store) DecideTopic(ctx context.Context, company, topic, key string, ite
 			case "approval":
 				reason := strings.TrimSpace(d.Reason)
 				if reason == "" {
-					if d.Action == "reject" {
-						return done, inputError("a rejection needs its reason (" + d.Ref + ")")
+					switch d.Action {
+					case "reject", approvals.ActionChanges:
+						return done, inputError("a rejection or a request for changes needs its text (" + d.Ref + ")")
+					case "approve":
+						reason = "approved by owner"
 					}
-					reason = "approved by owner"
 				}
-				if _, err := decideApprovalTx(ctx, tx, d.Ref, approvals.Decision{Version: d.Version, Action: d.Action, Reason: reason, RequestID: rk}); err != nil {
+				if _, err := decideApprovalTx(ctx, tx, d.Ref, approvals.Decision{Version: d.Version, Action: d.Action, Reason: reason, RequestID: rk, Option: d.Option, Options: d.Options}); err != nil {
 					return done, err
 				}
 			case "question", "escalation":

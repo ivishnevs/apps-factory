@@ -102,7 +102,7 @@ func (c *FixtureClient) Artifacts(_ context.Context, project string) ([]artifact
 // ArtifactApproval finds the version's approval among the overview's approvals.
 func (c *FixtureClient) ArtifactApproval(_ context.Context, project, artifact, version string) (*approvals.Approval, error) {
 	for _, a := range c.F.Overview.Approvals {
-		if a.ProjectID == project && a.Artifact != nil && a.Artifact.ID == artifact && a.Artifact.Version == version {
+		if a.ProjectID == project && (a.Artifact != nil && a.Artifact.ID == artifact && a.Artifact.Version == version || a.OptionOf(artifact, version) > 0) {
 			return &a, nil
 		}
 	}

@@ -50,6 +50,10 @@ const approvalWords: Record<string, { label: string; tone: string }> = {
   APPROVED: { label: "Approved", tone: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
   REJECTED: { label: "Rejected", tone: "bg-red-500/15 text-red-700 dark:text-red-300" },
   EXPIRED: { label: "Approval expired", tone: "bg-muted text-muted-foreground" },
+  // artifact-choice-approvals: an option of a choice that was not chosen (not rejected: usable later), and a choice
+  // sent back with changes.
+  NOT_CHOSEN: { label: "Not chosen", tone: "bg-muted text-muted-foreground" },
+  CHANGES_REQUESTED: { label: "Changes requested", tone: "bg-amber-500/15 text-amber-800 dark:text-amber-200" },
 };
 
 export function ApprovalBadge({ status, className }: { status: string; className?: string }) {

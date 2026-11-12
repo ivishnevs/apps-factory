@@ -222,7 +222,12 @@ export interface Approval {
   audience?: string; delegate?: string; setting?: string; escalated?: boolean; decided_by?: string; cites?: string[];
   // approval-comments-handled: the board comment the decision reason became, and what became of it.
   comment_id?: string; comment?: ApprovalComment;
+  // artifact-choice-approvals: a choice over options (numbered from 1); artifact is the chosen one once chosen.
+  options?: ApprovalOption[]; recommended?: number; chosen?: number; changes_on?: number[];
 }
+
+// One artifact version of a choice approval; dropped is the delegate's reason for leaving it out (still choosable).
+export interface ApprovalOption { artifact: Artifact; label: string; note?: string; dropped?: string; dropped_by?: string }
 
 // A board comment's handling (owner-comments-handled): one entry per agent that got it; status open is "not handled yet".
 export interface CommentOutcome { agent: string; reason: string; status: "open" | "done" | "forwarded" | "declined"; note?: string; to?: string; task?: string; at?: number }
@@ -247,7 +252,7 @@ export interface TaskDetail {
 }
 
 // An owner action (internal/tui.Action; Go field names, no json tags). Kind is one of: pause, resume, retry,
-// run, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, stop, start, say, create,
+// run, cancel, reassign, reprioritize, comment, reopen, ask_lead, direct, answer, approve, reject, choose, changes, stop, start, say, create,
 // create_project (NewProject is the POST /projects body), hold, release, read.
 export interface Action {
   Kind: string; TaskID?: string; Project?: string; Title?: string; Deps?: string[]; Ready?: boolean; Version?: number;
@@ -255,6 +260,8 @@ export interface Action {
   Answers?: Record<string, unknown>; ApprovalID?: string; Scope?: string; Target?: string; PullRequest?: string; Merged?: boolean;
   NewProject?: ProjectCreate; DecisionID?: string; Status?: string; Value?: string;
   Details?: "promised" | "withdrawn"; // answer: promise the details, or withdraw that promise (inbox-badge-parity)
+  // choose: the chosen option (from 1); changes: the options the changes are about (artifact-choice-approvals).
+  Option?: number; Options?: number[];
 }
 
 // How Core provisions a new project's repository (project-creation).

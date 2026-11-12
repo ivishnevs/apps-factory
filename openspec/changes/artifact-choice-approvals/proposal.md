@@ -1,4 +1,21 @@
 Status: proposed 2026-11-12 by the owner ("can we extend approvals beyond yes/no?"), approved by the owner the same day with two additions: a delegate may drop weak options and escalate the rest, and a delegate choice may cite people-written company or project rules.
+Implemented 2026-11-12. Implementation decisions: options are numbered from 1; `recommended`, `choice`, `options`
+and `drop[].option` take the number, the label or `id@version` (an artifact id when only one option has it); labels
+are required, one line up to 60 characters, unique per approval (notes one line up to 300). One option is turned
+into the yes/no approval of that version (the spec's rule; tasks.md's "fewer than 2" applies to zero options or
+`options` given together with `artifact_id`). A version already pending or approved refuses the choice (409, naming
+the option); a not chosen option may be asked for again. The versions a choice offers live in a new table
+`approval_options` (migration 0043); on choosing, the approval's `artifact` and artifact columns become the chosen
+version, so gating, retention and Library lookups treat it as an approved version and its siblings as `NOT_CHOSEN`;
+pending options are kept from retention. Asking for changes ends the approval as `CHANGES_REQUESTED` and, from the
+owner, is a board comment on the task like a rejection. A choice is not an artifact version line in people topics:
+it joins its task's topic; a new choice supersedes pending yes/no requests of other versions of its artifacts.
+Delegate cites: a 32-hex message id people wrote (or a question people answered), an approved decision id, or
+`company rules: <quote>` / `project rules: <quote>` whose quote is in those rules (case and spacing ignored); the
+check applies to choices only (yes/no lead approvals keep the non-empty check). Under the people-only mode an agent
+reached by strict delegation may only escalate a choice. Telegram: one button per option plus "Changes…" and
+"Reject"; a reply asks for changes, a reply starting with "reject" rejects all with the rest as the reason.
+`factory_artifact_get` adds `version_status` for an option of a choice.
 
 ## Why
 

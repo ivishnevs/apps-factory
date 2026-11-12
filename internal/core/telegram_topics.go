@@ -85,6 +85,12 @@ func (b telegramBackend) topicItem(ctx context.Context, f storage.FeedItem) tele
 	it.OwnersOnly = true
 	switch x.Kind {
 	case "approval":
+		if x.Approval != nil && x.Approval.Choice() {
+			// A choice (artifact-choice-approvals): one button per option, then changes and reject.
+			it.Text += "\n\n" + choiceText(*x.Approval)
+			it.Options = choiceButtons(*x.Approval)
+			break
+		}
 		it.Options = []string{"Approve"}
 		it.Text += "\n\nReply to this message to reject it with your reason."
 	case "question", "escalation", "decision":
@@ -114,6 +120,9 @@ func (b telegramBackend) approval(ctx context.Context, m messaging.Message, acti
 	if err != nil {
 		return "", err
 	}
+	if a.Choice() && a.Status == "PENDING" {
+		return "", errors.New("this is a choice: use its buttons, or reply with the changes you want")
+	}
 	if a.Status != "PENDING" {
 		why := strings.ToLower(a.Status)
 		if a.Status == "SUPERSEDED" {
@@ -142,4 +151,94 @@ func (b telegramBackend) approval(ctx context.Context, m messaging.Message, acti
 		return "Approved.", nil
 	}
 	return "Rejected: " + reason, nil
+}
+
+// Choice approvals in Telegram (artifact-choice-approvals): the options as lines, a button per option, then
+// "Changes…" and "Reject". A reply asks for changes with its text; a reply starting with "reject" rejects all with
+// the rest as the reason.
+const (
+	choiceChanges = "Changes…"
+	choiceReject  = "Reject"
+)
+
+func choiceText(a approvals.Approval) string {
+	var sb strings.Builder
+	for i, o := range a.Options {
+		mark := "▫️"
+		if a.Recommended == i+1 {
+			mark = "👉"
+		}
+		fmt.Fprintf(&sb, "%s %d. %s", mark, i+1, o.Label)
+		if o.Note != "" {
+			sb.WriteString(" — " + o.Note)
+		}
+		if o.Dropped != "" {
+			fmt.Fprintf(&sb, " (dropped by %s: %s)", o.DroppedBy, o.Dropped)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nTap an option to choose it. Reply to this message with the changes you want, or with \"reject: <reason>\" to reject all.")
+	return sb.String()
+}
+
+func choiceButtons(a approvals.Approval) []string {
+	out := make([]string, 0, len(a.Options)+2)
+	for _, o := range a.Options {
+		out = append(out, o.Label)
+	}
+	return append(out, choiceChanges, choiceReject)
+}
+
+// choice decides a choice approval from Telegram: button choice is an option, "Changes…" or "Reject" (both ask for a
+// reply); a reply (choice < 0) asks for changes, or rejects all when it starts with "reject".
+func (b telegramBackend) choice(ctx context.Context, a approvals.Approval, choice int, text, key string) (string, error) {
+	if a.Status != "PENDING" {
+		return "This approval is already " + strings.ToLower(strings.ReplaceAll(a.Status, "_", " ")) + ".", nil
+	}
+	in := approvals.Decision{Version: a.Version, RequestID: key}
+	switch n := len(a.Options); {
+	case choice >= 0 && choice < n:
+		in.Action, in.Option = approvals.ActionChoose, choice+1
+	case choice == n:
+		return "Reply to the approval's message with the changes you want.", nil
+	case choice == n+1:
+		return "Reply to the approval's message with \"reject: <reason>\" to reject all options.", nil
+	case choice >= 0:
+		return "", fmt.Errorf("choose one of the options")
+	default:
+		t := strings.TrimSpace(text)
+		if rest, ok := cutPrefixFold(t, "reject"); ok {
+			in.Action, in.Reason = approvals.ActionReject, strings.TrimSpace(strings.TrimLeft(rest, ":—- "))
+			if in.Reason == "" {
+				return "", errors.New("rejecting all needs the reason: reply \"reject: <reason>\"")
+			}
+		} else if t == "" {
+			return "", errors.New("reply with the changes you want")
+		} else {
+			in.Action, in.Reason = approvals.ActionChanges, t
+		}
+	}
+	b.c.approvalMu.Lock()
+	defer b.c.approvalMu.Unlock()
+	got, err := b.c.Store.DecideApproval(ctx, b.company, a.ID, in)
+	if err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			return "This approval changed meanwhile (replaced or decided): see the App Factory inbox.", nil
+		}
+		return "", err
+	}
+	switch in.Action {
+	case approvals.ActionChoose:
+		return "Chosen: " + got.Options[in.Option-1].Label + ".", nil
+	case approvals.ActionReject:
+		return "Rejected all: " + in.Reason, nil
+	}
+	return "Changes requested: " + in.Reason, nil
+}
+
+func cutPrefixFold(s, prefix string) (string, bool) {
+	if len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix) {
+		return s[len(prefix):], true
+	}
+	return s, false
 }

@@ -595,6 +595,9 @@ func (b telegramBackend) Choose(ctx context.Context, id string, choice int, key 
 	if m, err := b.c.Store.Message(ctx, b.company, id); err == nil && m.DecisionID != "" && m.MessageType == "review_request" {
 		return b.decide(ctx, m, choice, key)
 	} else if err == nil && m.ApprovalID != "" {
+		if a, err := b.c.Store.Approval(ctx, b.company, m.ApprovalID); err == nil && a.Choice() {
+			return b.choice(ctx, a, choice, "", key)
+		}
 		return b.approval(ctx, m, "approve", "", key)
 	}
 	return b.answer(ctx, id, choice, "", key)
@@ -674,6 +677,10 @@ func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key
 	}
 	if t.Question != "" {
 		if m, err := b.c.Store.Message(ctx, b.company, t.Question); err == nil && m.ApprovalID != "" {
+			if a, err := b.c.Store.Approval(ctx, b.company, m.ApprovalID); err == nil && a.Choice() {
+				// A reply to a choice asks for changes, or rejects all (artifact-choice-approvals).
+				return b.choice(ctx, a, -1, text, key)
+			}
 			// A reply to an approval rejects it with the reply as the reason (people-topics D10).
 			return b.approval(ctx, m, "reject", text, key)
 		} else if err == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {

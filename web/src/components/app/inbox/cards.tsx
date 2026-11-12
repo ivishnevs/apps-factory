@@ -13,7 +13,9 @@ import { cleanBody, peopleText } from "@/lib/people-text";
 import { ago, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ArtifactPreview } from "./artifact-preview";
+import { ChoiceApproval, isChoice } from "./choice-approval";
 import { Countdown } from "./countdown";
+import type { DecideKind } from "./decide";
 
 // What the inbox does with an item; the page confirms and sends it.
 export interface InboxHandlers {
@@ -21,7 +23,8 @@ export interface InboxHandlers {
   read: (msg: Message) => void;
   // details: "I'll send details" (promised, with an optional note) or withdraw that promise (inbox-badge-parity).
   details: (msg: Message, kind: "promised" | "withdrawn", note: string) => void;
-  decide: (kind: "approve" | "reject", ap: Approval, msg: Message | undefined, reason: string) => void;
+  // approve or reject; on a choice approval choose (option from 1), changes or reject (artifact-choice-approvals).
+  decide: (kind: DecideKind, ap: Approval, msg: Message | undefined, reason: string, option?: number) => void;
   busy: boolean;
 }
 
@@ -245,6 +248,16 @@ export function ApprovalCard({ ap, msg, projectName, h }: { ap: Approval; msg?: 
   const [needReason, setNeedReason] = useState(false);
   const args = Object.entries(ap.call?.arguments ?? {});
   const artifact = ap.kind === "artifact" || !!ap.artifact;
+  if (isChoice(ap)) {
+    return (
+      <Shell kind="approval" blocking={msg?.blocking} from={ap.agent} project={projectName ?? ap.project_id} taskId={ap.task_id} at={ap.created_at} due={ap.expires_at} dueVerb="Expires">
+        <Markdown text={(msg && peopleText(msg)) || `Choose one of ${ap.options!.length} versions`} className="font-medium" />
+        {ap.reason && <p className="mt-1.5 text-sm text-muted-foreground">{cleanBody(ap.reason)}</p>}
+        <div className="mt-4"><ChoiceApproval ap={ap} busy={h.busy} decide={(kind, reason, option) => h.decide(kind, ap, msg, reason, option)} /></div>
+        {ap.run_id && <Link href={`/runs/${ap.run_id}`} className="mt-2 inline-flex h-10 items-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">View the run</Link>}
+      </Shell>
+    );
+  }
   return (
     <Shell kind="approval" blocking={msg?.blocking} from={ap.agent} project={projectName ?? ap.project_id} taskId={ap.task_id} at={ap.created_at} due={ap.expires_at} dueVerb="Expires">
       <Markdown text={(msg && peopleText(msg)) || (artifact ? `Approve ${ap.artifact?.name ?? ap.artifact?.id}?` : `Approve ${ap.call.name}?`)} className="font-medium" />

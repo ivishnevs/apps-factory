@@ -19,6 +19,8 @@ import { peopleText } from "@/lib/people-text";
 import { cn } from "@/lib/utils";
 import { ArtifactPreview } from "./artifact-preview";
 import { CatalogChangeRequest, optionLabel, ProjectRequest } from "./cards";
+import { ChoiceApproval, isChoice } from "./choice-approval";
+import { approvalDecision } from "./decide";
 
 // TopicCard (people-topics D5, D6, D9, D10): one open topic as people read it — its brief (what you decide, the
 // recommendation, what happens after, what you do not decide, the context), who waits, then its items, each with its
@@ -246,10 +248,18 @@ function ItemRow({ topic, row, busy, send, act, compact }: { topic: TopicView; r
       {it.message?.questions && it.message.questions.length > 1 && (
         <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm">{it.message.questions.map((q) => <li key={q.id}>{q.question}</li>)}</ul>
       )}
-      <ItemVisuals it={it} compact={compact} />
+      {ap && isChoice(ap) ? (
+        // A choice approval (artifact-choice-approvals): its options are its preview and its buttons.
+        <div className="mt-3">
+          <ChoiceApproval ap={ap} compact={compact || !it.waits} busy={busy} decide={it.waits ? (kind, reason, option) => {
+            const d = approvalDecision(kind, ap, reason, option);
+            void send([{ kind: "approval", ref: it.ref, version: Math.max(ap.version, 1), action: kind, reason, option }], d.ask, d.done);
+          } : undefined} />
+        </div>
+      ) : <ItemVisuals it={it} compact={compact} />}
       {row.history.length > 0 && <HistoryList items={row.history} current={it} />}
       {replaced && <p className="mt-2 text-xs text-muted-foreground">{ap?.status === "SUPERSEDED" && ap.decision_reason ? `Withdrawn: ${ap.decision_reason}` : "Replaced by a newer version"}</p>}
-      {it.waits && <ItemActions topic={topic} it={it} busy={busy} send={send} act={act} />}
+      {it.waits && !(ap && isChoice(ap)) && <ItemActions topic={topic} it={it} busy={busy} send={send} act={act} />}
     </div>
   );
 }

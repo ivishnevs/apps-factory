@@ -115,6 +115,11 @@ func (s *inboxState) key(m *Model, key string) tea.Cmd {
 	if msg.ApprovalID != "" {
 		isApproval = true
 	}
+	if isApproval && ap.Choice() {
+		if cmd, ok := s.choiceKey(m, ap, key); ok {
+			return cmd
+		}
+	}
 	switch key {
 	case "j", "down":
 		s.cursor, s.option = min(s.cursor+1, len(items)-1), 0
@@ -292,7 +297,9 @@ func (m *Model) inboxItemLines(msg messaging.Message, w int) []string {
 		lines = append(lines, stBold.Render(l))
 	}
 	lines = append(lines, visualLines(msg, w)...)
-	if ap, ok := m.approvalOf(msg); ok && ap.Artifact != nil {
+	if ap, ok := m.approvalOf(msg); ok && ap.Choice() {
+		lines = append(lines, m.choiceLines(ap, w)...)
+	} else if ap, ok := m.approvalOf(msg); ok && ap.Artifact != nil {
 		a := ap.Artifact
 		lines = append(lines, "", stFaint.Render("artifact ")+stMagenta.Bold(true).Render(a.ID)+" "+stBold.Render(a.Version)+stFaint.Render(" · "+dash(a.Name)))
 		if a.Size > 0 {
