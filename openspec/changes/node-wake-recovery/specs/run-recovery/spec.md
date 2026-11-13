@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Ended runs release lost runs
-When a node's heartbeat lists a run as ended and Core holds that run lost and unreleased, Core SHALL release the run (its task retries after the usual backoff) and ack it so the node forgets it, whether or not its terminal event was applied. Late terminal evidence SHALL still replace the lost outcome.
+When a node's heartbeat lists a run as ended and Core holds that run lost and unreleased, Core SHALL release the run (its task retries after the usual backoff unless the run has an accepted exit) and ack it so the node forgets it, whether or not its terminal event was applied. Late terminal evidence SHALL still replace the lost outcome.
 
 #### Scenario: Terminal event never arrives
 - **WHEN** Core marked a run lost while its node was unreachable, the node ended the run, and its terminal event was lost
