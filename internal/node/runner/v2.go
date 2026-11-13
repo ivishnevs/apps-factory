@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -130,6 +131,9 @@ type Health struct {
 	StalledSeconds int64 `json:"stalled_seconds,omitempty"`
 	// Security is what the machine's person set for agents here (connector-trust), shown on the Nodes page.
 	Security *node.Security `json:"security,omitempty"`
+	// Caches are the runtimes' directories outside the worktrees (node-runtime-caches), measured every
+	// cacheScan; absent until the first measurement.
+	Caches []node.RuntimeCache `json:"caches,omitempty"`
 }
 
 // StallReport is how long heartbeats must fail before the node reports node.heartbeat_stalled (node-agent D7).
@@ -220,6 +224,8 @@ type session struct {
 	lastBeat time.Time
 	// ready runs the project readiness checks Core asks for (node-readiness); nil when the host cannot run commands.
 	ready *projectChecks
+	// caches: the last measurement of the runtime caches (cacheLoop).
+	caches atomic.Pointer[[]node.RuntimeCache]
 	// remote: the settings from the web (nil: node.yaml alone); cap: slots and labels now; version: the package's.
 	remote  *remoteConfig
 	capMu   sync.Mutex
@@ -343,6 +349,7 @@ func (s *session) workClaimable() bool { return !s.pausedWork.Load() }
 func (s *session) run(ctx context.Context) error {
 	go s.janitor(ctx)
 	go s.resetter(ctx)
+	go s.cacheLoop(ctx)
 	if s.inventoryOn() {
 		go s.inventoryLoop(ctx)
 		go s.remover(ctx)
@@ -415,7 +422,28 @@ func (s *session) health() Health {
 			h.DiskConversationFloorBytes = &floor
 		}
 	}
+	if c := s.caches.Load(); c != nil {
+		h.Caches = *c
+	}
 	return h
+}
+
+// cacheScan: how often the runtime caches are measured (a walk of whole trees, off the heartbeat path).
+var cacheScan = 10 * time.Minute
+
+// cacheLoop measures the runtime caches now and every cacheScan.
+func (s *session) cacheLoop(ctx context.Context) {
+	t := time.NewTicker(cacheScan)
+	defer t.Stop()
+	for {
+		c := node.RuntimeCaches(s.cfg, os.Getenv)
+		s.caches.Store(&c)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // beat sends one heartbeat and applies the answer.

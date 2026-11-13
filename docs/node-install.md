@@ -143,6 +143,13 @@ page shows each node's version and "<release> available" when Core hands out a n
 `release`). Core gives no work to a node below `min_node_version` (`FACTORY_MIN_NODE_VERSION`, else the code's
 minimum, none yet; a dotted version): its card says "update required" until it is reinstalled.
 
+Besides the worktrees, the node card shows the runtime caches (health `caches`, measured every 10 minutes):
+Claude Code's temp directory `/tmp/claude-<uid>` (or `$CLAUDE_CODE_TMPDIR/claude-<uid>`: task output and the
+`TMPDIR` of sandboxed commands, so build and import caches land there), with the part of the node's own sessions
+(directories named after a working directory under `state_dir` or `projects_root`; the rest is the machine's own
+Claude sessions and sandboxed commands' files), and the node's own Claude (`config_dir`) and Codex (`home`) data.
+Nothing is removed automatically yet.
+
 ## Settings from the web
 
 Owners and admins change a node's work slots, conversation slots, labels, each driver on or off and the disk

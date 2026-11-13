@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { core } from "@/lib/api/client";
 import { useState } from "react";
 
-import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin, FolderGit2 } from "lucide-react";
+import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin, FolderGit2, Database } from "lucide-react";
 import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
@@ -16,6 +16,9 @@ import { NodeUpdate, behind } from "@/components/app/nodes/node-update";
 import { cn } from "@/lib/utils";
 
 export const gib = (b?: number) => `${((b ?? 0) / 2 ** 30).toFixed(1)} GiB`;
+
+// node-runtime-caches: what each runtime directory outside the worktrees is.
+const cacheLabel: Record<string, string> = { claude_tmp: "Claude temp", claude_data: "Claude data", codex_data: "Codex data" };
 
 // diskFull (disk-pause-conversations): a critical disk below the conversation floor takes no conversation either; an
 // older node without a floor stops everything at critical.
@@ -269,6 +272,17 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manag
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Cpu className="size-3.5" />Load</p>
               <p className="mt-0.5 tabular-nums">{(h.load1 ?? 0).toFixed(1)} <span className="text-muted-foreground">on {h.cpus} CPUs</span></p>
+            </div>
+          )}
+          {!!h.caches?.length && (
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Database className="size-3.5" />Runtime caches</p>
+              <p className="mt-0.5 tabular-nums">{gib(h.caches.reduce((s, c) => s + c.bytes, 0))}</p>
+              {h.caches.map((c) => (
+                <p key={c.name} className="truncate text-[11px] tabular-nums text-muted-foreground" title={c.path}>
+                  {cacheLabel[c.name] ?? c.name} {gib(c.bytes)}{c.agent_bytes !== undefined && c.agent_bytes !== c.bytes ? ` · agents' sessions ${gib(c.agent_bytes)}` : ""}
+                </p>
+              ))}
             </div>
           )}
         </div>
