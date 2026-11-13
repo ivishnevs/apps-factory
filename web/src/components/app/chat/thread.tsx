@@ -54,7 +54,7 @@ function Questions({ msg, agent }: { msg: Message; agent: string }) {
                 {q.options.map((o) => (
                   <Button key={o} type="button" size="sm" variant={chosen === o ? "default" : "outline"} disabled={!open || pending}
                     onClick={() => answer(q, o)}
-                    className={cn("h-10 rounded-full px-4 disabled:opacity-100", !open && chosen !== o && "opacity-50")}>
+                    className={cn("h-auto min-h-10 max-w-full whitespace-normal rounded-2xl px-4 py-2 text-left [overflow-wrap:anywhere] disabled:opacity-100", !open && chosen !== o && "opacity-50")}>
                     {o}
                   </Button>
                 ))}
@@ -192,18 +192,20 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
             </p>
           </div>
         )}
-        {items.map((x, i) => {
+        {/* One block per day: its date label sticks only while the day is on screen, so labels do not pile up. */}
+        {days(items, at).map((day) => (
+          <div key={day[0]}>
+            <div className="sticky top-0 z-10 flex justify-center pb-1 pt-4">
+              <span className="rounded-full border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">{dayLabel(at(items[day[0]]))}</span>
+            </div>
+            {day.map((i) => {
+          const x = items[i];
           const prev = items[i - 1], next = items[i + 1];
-          const newDay = !prev || dayKey(at(prev)) !== dayKey(at(x));
+          const newDay = i === day[0];
           const first = newDay || !prev || sender(prev) !== sender(x) || at(x) - at(prev) > 300;
           const last = !next || sender(next) !== sender(x) || at(next) - at(x) > 300 || dayKey(at(next)) !== dayKey(at(x));
           return (
             <Fragment key={"id" in x ? x.id : x.key}>
-              {newDay && (
-                <div className="sticky top-0 z-10 flex justify-center pb-1 pt-4">
-                  <span className="rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur">{dayLabel(at(x))}</span>
-                </div>
-              )}
               {"id" in x ? <><Bubble msg={x} agent={chat.agent} first={first} last={last} />{cardAfter.get(x.id)?.map(card)}</> : (
                 <div className={cn("flex flex-col items-end", first ? "mt-4" : "mt-1")}>
                   <div className={cn("max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-primary-foreground md:max-w-[70%]", !x.failed && "opacity-60")}>
@@ -214,7 +216,9 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
               )}
             </Fragment>
           );
-        })}
+            })}
+          </div>
+        ))}
         {chat.pending && mine.length === 0 && (
           <p className="mt-1 px-1 text-right text-[11px] text-muted-foreground" aria-live="polite">{chat.agent}: {chat.pending}</p>
         )}
@@ -281,6 +285,16 @@ function CreatedTasks({ body }: { body: string }) {
       })}
     </ul>
   );
+}
+
+// days splits items (in time order) into runs of indexes of one calendar day.
+function days<T>(items: T[], at: (x: T) => number): number[][] {
+  const out: number[][] = [];
+  items.forEach((x, i) => {
+    if (i === 0 || dayKey(at(items[i - 1])) !== dayKey(at(x))) out.push([i]);
+    else out[out.length - 1].push(i);
+  });
+  return out;
 }
 
 // TeamQuestions (agent-questions-in-chat): what the project's other agents ask people, open now, as cards answerable

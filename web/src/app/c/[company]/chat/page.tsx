@@ -75,10 +75,12 @@ function ChatScreen() {
 
   return (
     <div className={cn(
-      // The chat fills the screen between the shell's paddings: full-bleed on a phone, a card on desktop.
-      "-mx-4 -mt-5 md:mx-0 md:mt-0",
-      selected ? "-mb-28 h-[calc(100dvh-3.5rem-env(safe-area-inset-bottom))]" : "min-h-[50vh]",
-      "md:-mb-0 md:grid md:h-[calc(100dvh-4.5rem)] md:grid-cols-[minmax(18rem,22rem)_1fr] md:overflow-hidden md:rounded-2xl md:border md:bg-card md:shadow-xs",
+      // Desktop: a card between the shell's paddings. Phone: the list in the page; an open thread takes the whole
+      // screen above the shell's top bar and bottom nav (like a messenger, back button in its header), so the
+      // composer is never under the fixed bottom nav.
+      selected ? "fixed inset-0 z-50 flex flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] md:static md:z-auto md:p-0" : "-mx-4 -mt-5 min-h-[50vh] md:mx-0 md:mt-0",
+      // minmax(0,1fr): a long word in a message or card wraps instead of widening the thread past the screen.
+      "md:grid md:h-[calc(100dvh-4.5rem)] md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] md:overflow-hidden md:rounded-2xl md:border md:bg-card md:shadow-xs",
     )}>
       <section aria-label="Conversations" className={cn("flex min-h-0 flex-col md:border-r", selected && "hidden md:flex")}>
         <div className="flex items-end justify-between gap-3 px-4 pb-3 pt-5 md:px-4 md:pt-5">
@@ -123,7 +125,7 @@ function ChatScreen() {
         </div>
       </section>
 
-      <section aria-label="Thread" className={cn("min-h-0 md:flex md:flex-col", selected ? "flex h-full flex-col" : "hidden")}>
+      <section aria-label="Thread" className={cn("min-h-0 min-w-0 md:flex md:flex-col", selected ? "flex flex-1 flex-col md:h-full" : "hidden")}>
         {active ? (
           <Thread chat={active} outgoing={outgoing} onSend={send} onBack="/chat" />
         ) : (

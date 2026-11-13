@@ -123,7 +123,7 @@ function inline(text: string, key = ""): ReactNode[] {
     const at = m.index ?? 0;
     if (at > last) out.push(text.slice(last, at));
     const k = `${key}.${n++}`;
-    if (m[2] !== undefined) out.push(<code key={k} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.85em] break-words">{m[2]}</code>);
+    if (m[2] !== undefined) out.push(<code key={k} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.85em] [overflow-wrap:anywhere]">{m[2]}</code>);
     else if (m[3] !== undefined || m[4] !== undefined) out.push(<strong key={k} className="font-semibold">{inline(m[3] ?? m[4], k)}</strong>);
     else if (m[5] !== undefined || m[6] !== undefined) out.push(<em key={k}>{inline(m[5] ?? m[6], k)}</em>);
     else if (m[7] !== undefined) out.push(<s key={k} className="text-muted-foreground">{inline(m[7], k)}</s>);
@@ -183,7 +183,7 @@ export function Markdown({ text, className, variant = "compact" }: { text: strin
   const blocks = parse(text);
   const doc = variant === "document";
   return (
-    <div className={cn(doc ? "space-y-4 text-[15px] leading-7 break-words" : "space-y-3 text-[15px] leading-relaxed break-words md:text-sm", className)}>
+    <div className={cn(doc ? "space-y-4 text-[15px] leading-7 break-words" : "space-y-3 text-[15px] leading-relaxed [overflow-wrap:anywhere] md:text-sm", className)}>
       {blocks.map((b, i) => {
         const k = String(i);
         switch (b.t) {
