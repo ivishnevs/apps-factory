@@ -576,6 +576,11 @@ A task that waits for something inside Factory parks on it instead of a timer, w
   the task's assignee, in the task's project, clears it — so does that sender's comment on the task — with a
   `message_received` trigger carrying the message into the brief. `Store.ParkOnMessage` parks a task this way from
   Core (a question answered with "I'll send details", inbox-badge-parity).
+- `factory_exit_wait {reason, approval_id}` (approval-gates-merge) parks on an open approval of an artifact version
+  the task produced (`parked:awaiting_approval`, cleared by people or the delegate holding it). Its decision moves the
+  task ([artifact approvals](artifact-approvals.md#the-approval-holds-the-producing-task-approval-gates-merge));
+  authority input does not override it, and it takes no deadline (the approval has its own expiry). An approved
+  review of a task so held parks it the same way.
 - Neither has a timer, an episode or `max_waits`. An optional `deadline` (at most 14 days ahead) never wakes the
   task: past it, the tick opens one `event_wait_deadline` escalation — to the owner for a decision or a message from
   the owner, else to the assignee's manager — with the answers `keep_waiting` (the park stays), `continue` (the park

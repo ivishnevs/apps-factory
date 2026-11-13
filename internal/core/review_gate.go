@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"appfactory/internal/config"
@@ -17,25 +18,24 @@ import (
 // ErrReviewerRequired is the people-facing refusal text; the web shows it as is.
 const ErrReviewerRequired = "Reviewer is required"
 
-// suggestReviewer is whom the review policy would choose for assignee's work: the policy's reviewer, else the
-// team's lead (when the assignee is not the lead), else the owner.
+// suggestReviewer is the default reviewer of assignee's work (approval-gates-merge, config.Catalog.DefaultReviewer):
+// its review policy's reviewer, else the team's default reviewer, else its manager, else the team's lead, else the
+// owner; never the assignee.
 func (c *Core) suggestReviewer(company, assignee string) string {
-	cat := c.cat(company)
-	a, ok := cat.Agents[assignee]
-	if !ok {
-		return "owner"
+	return c.cat(company).DefaultReviewer(assignee)
+}
+
+// mayChangeReviewer tells whether actor may change t's reviewer (approval-gates-merge): people, the task's creator,
+// or a manager up the chain of the agent whose work it reviews (the implementer while it is in review).
+func (c *Core) mayChangeReviewer(company, actor string, t tasks.Task) bool {
+	if actor == "" || actor == config.Owner || !c.isAgent(company, actor) || actor == t.CreatedBy {
+		return true
 	}
-	if _, reviewer := a.Review(); reviewer != "" {
-		if name := config.ReviewerFor(cat.Agents, assignee, reviewer); name != "" {
-			return name
-		}
+	worker := t.Assignee
+	if t.Status == "IN_REVIEW" && t.Implementer != "" {
+		worker = t.Implementer
 	}
-	if lead := cat.Lead(a.Spec.Team); lead != "" && lead != assignee {
-		if _, ok := cat.Agents[lead]; ok {
-			return lead
-		}
-	}
-	return "owner"
+	return slices.Contains(config.Chain(c.cat(company).Agents, worker), actor)
 }
 
 // checkReviewBy validates a reviewer value: another agent of the catalog, "owner", or "member:USER" of the
@@ -109,6 +109,11 @@ func (c *Core) reviewGateUpdate(w http.ResponseWriter, r *http.Request, id strin
 	if p.Assignee != nil {
 		assignee = *p.Assignee
 	}
+	if p.ReviewBy != nil && by != t.ReviewBy && !c.mayChangeReviewer(company, p.Actor, t) {
+		// The task's reviewer is binding: changing it is an authority action, like reassigning.
+		http.Error(w, fmt.Sprintf("changing the reviewer of %s is for people, the task's creator or a manager of its assignee: its reviewer stays %s", t.ID, firstNonEmpty(t.ReviewBy, "unset")), 403)
+		return false
+	}
 	if p.ReviewBy != nil {
 		if err := c.checkReviewBy(r.Context(), company, assignee, by); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -132,18 +137,6 @@ func (c *Core) reviewGateReady(w http.ResponseWriter, r *http.Request, t tasks.T
 	}
 	c.reviewerRequired(w, c.companyFrom(r), t.Assignee)
 	return false
-}
-
-// reviewerOfSubmit is the reviewer a submit naming none goes to: the task's agent reviewer; ok is false when the
-// task names a person (the review goes to people) and the policy's default must not apply.
-func (c *Core) reviewerOfSubmit(company string, t tasks.Task, agent string) (name string, ok bool) {
-	if t.ReviewBy == "" {
-		return "", true
-	}
-	if _, isAgent := c.cat(company).Agents[t.ReviewBy]; isAgent && t.ReviewBy != agent {
-		return t.ReviewBy, true
-	}
-	return "", false
 }
 
 // reviewFill is the one-time migration of review-coverage 3.4: every open task outside the backlog without a

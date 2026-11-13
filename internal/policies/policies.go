@@ -118,7 +118,8 @@ func Validate(p Policy) error {
 		}
 		switch r.Type {
 		case "access":
-			if len(r.Operations)+len(r.Commands) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval") || r.Target != "" {
+			check := r.Effect == EffectCheck && len(r.Operations) == 0 && builtinName(p.Metadata.Name)
+			if len(r.Operations)+len(r.Commands) == 0 || (r.Effect != "allow" && r.Effect != "deny" && r.Effect != "approval" && !check) || r.Target != "" {
 				return fmt.Errorf("invalid access rule %s", r.Name)
 			}
 		case "escalation":

@@ -1330,8 +1330,45 @@ func ReviewerFor(agents map[string]Agent, agent, reviewer string) string {
 	return ""
 }
 
+// DefaultReviewer is who reviews assignee's work when its task names no reviewer (approval-gates-merge): the reviewer
+// of its review policy, else its team's default reviewer (spec.review.reviewer), else its manager (reports_to), else
+// its team's lead, else the owner; never the assignee. An unknown assignee (or a person) gets the owner.
+func (c *Catalog) DefaultReviewer(assignee string) string {
+	name, _ := c.defaultReviewer(assignee)
+	return name
+}
+
+// defaultReviewer is DefaultReviewer with the step that chose it, in words.
+func (c *Catalog) defaultReviewer(assignee string) (string, string) {
+	a, ok := c.Agents[assignee]
+	if !ok {
+		return Owner, "the owner"
+	}
+	if _, r := a.Review(); r != "" {
+		if name := ReviewerFor(c.Agents, assignee, r); name != "" {
+			return name, "its review rule's reviewer " + name
+		}
+	}
+	if r := c.Teams[a.Spec.Team].Spec.Review.Reviewer; r != "" {
+		if name := ReviewerFor(c.Agents, assignee, r); name != "" {
+			return name, "the team's default reviewer " + name
+		}
+	}
+	if m := Manager(c.Agents, assignee); m != Owner && m != assignee {
+		if _, ok := c.Agents[m]; ok {
+			return m, "its manager " + m
+		}
+	}
+	if lead := c.Lead(a.Spec.Team); lead != "" && lead != assignee {
+		if _, ok := c.Agents[lead]; ok {
+			return lead, "the lead " + lead
+		}
+	}
+	return Owner, "the owner"
+}
+
 // ReviewCoverage lists agents no review rule gives an agent reviewer (review-coverage 2.1), with whom their
-// tasks default to: the team's lead, or the owner for the lead itself and teams without a lead.
+// tasks default to (DefaultReviewer).
 func ReviewCoverage(c *Catalog) []string {
 	var out []string
 	for _, name := range Names(c.Agents) {
@@ -1339,11 +1376,8 @@ func ReviewCoverage(c *Catalog) []string {
 		if _, reviewer := a.Review(); reviewer != "" && ReviewerFor(c.Agents, name, reviewer) != "" {
 			continue
 		}
-		if lead := c.Lead(a.Spec.Team); lead != "" && lead != name {
-			out = append(out, fmt.Sprintf("agent %s has no review rule: its tasks default to review by the lead %s", name, lead))
-			continue
-		}
-		out = append(out, fmt.Sprintf("agent %s has no review rule: its tasks default to review by the owner", name))
+		_, words := c.defaultReviewer(name)
+		out = append(out, fmt.Sprintf("agent %s has no review rule: its tasks default to review by %s", name, words))
 	}
 	return out
 }

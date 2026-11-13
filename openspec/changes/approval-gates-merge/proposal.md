@@ -1,5 +1,28 @@
 Status: approved by the owner 2026-11-13. The owner chose the assignee's manager (`reports_to`) as the default
 reviewer and asked for a team-level default reviewer (e.g. a QA agent).
+Sections 1, 3 and 4 implemented 2026-11-13. Implementation decisions: an approval "waits" while it is `PENDING` and
+unexpired, also when a delegate holds it (its decision moves the task the same way); the task's versions are those
+whose `task_id` is the task (registered from its runs or an exit). `awaiting_approval` is a park kind (reason
+`parked:awaiting_approval`, migration 0044 widens the kind check), not a task status: set by an approved verdict while
+a hold exists, or by `factory_exit_wait approval_id`; authority input does not override it. The decision moves
+submitted work only (in review, or reviewed); a task before its first submit just gets the decision, and a live run
+is not moved (it sees the decision as authority input). Changes requested: READY to the implementer with the request
+as `review_feedback`, its PR approvals dropped. Rejected: `abandon_branch` set, PR approvals dropped. A superseded or
+expired approval releases a parked task (an expired one does not hold: the version is not approved and the agent
+asks again). An approved verdict is refused while the latest approval of a submitted version asked for changes or
+rejected it (`artifact_decided_against`). The merge guard is a new builtin mandatory policy `task-merge` with a
+builtin-only effect `check` on `gh pr merge*`, `gh * pr merge*`, `git push*`, `git * push*`: the PATH shim asks Core,
+which parses `gh … pr merge` and a push whose refspec targets the default branch (project `default_branch`, else the
+task's last exit facts, else `main`/`master`; `--all`, `--mirror`); a plain `git push`, merges through `gh api` and
+nodes older than this release are not checked (done is still refused). The binding reviewer is resolved in storage
+(Core passes the default): a named reviewer passes when it is the task's or a path rule's reviewer for the PR's
+files; a task without one (or whose reviewer is the submitting agent) records the default. The team setting is
+`spec.review.reviewer` (an agent of the team or `role:<role>`), edited with `reviewer` on `PUT /catalog/teams/{name}`
+and on the team page. Changing `review_by` is allowed to people, the creator and the managers of the implementer
+(in review) or assignee. A reviewer's handoff without a verdict hands the review on (the task stays IN_REVIEW). The
+verdict field is `artifact_checks: [{id, version, checked, note}]` (`id@version` accepted), stored as the task's
+`review_checks` (latest approved verdict; cleared on a new submit, changes or rejection); a submission without
+artifacts needs none, and people's own accept records none. Telegram's `/status` lists awaiting-approval tasks.
 
 ## Why
 

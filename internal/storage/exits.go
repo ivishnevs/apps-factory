@@ -60,6 +60,13 @@ type ExitRequest struct {
 	// ReviewPaths are the agent's path rules with resolved reviewers (company-self-service 5.3): a pull
 	// request changing a matching file needs an approval by that reviewer.
 	ReviewPaths []ReviewPath `json:"-"`
+	// DefaultReviewer is Core's default reviewer for the submitting agent (approval-gates-merge: its review policy's
+	// reviewer, the team's default reviewer, its manager, the team's lead, the owner): a submit of a task without a
+	// reviewer goes to it.
+	DefaultReviewer string `json:"-"`
+	// reviewer and reviewBy are the submit's resolved reviewer (an agent reviewing in its own run, or "" for people)
+	// and the task's reviewer to record.
+	reviewer, reviewBy string
 }
 
 type ExitTask struct {
@@ -153,6 +160,21 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err = validExit(req, t, agent); err != nil {
 		return out, err
 	}
+	if req.Kind == "submit" {
+		// The task's reviewer is binding (approval-gates-merge).
+		var r *ExitRefusal
+		if req.reviewer, req.reviewBy, r = submitReviewer(req, t, agent); r != nil {
+			return out, r
+		}
+	}
+	if req.Kind == "handoff" && str(req.Arguments, "verdict") == "approved" && t.Submission != nil {
+		// An approved verdict does not pass over the decider's changes or rejection of a submitted artifact.
+		if why, err := decidedAgainst(ctx, tx, t.ProjectID, t.Submission.Artifacts); err != nil {
+			return out, err
+		} else if why != "" {
+			return out, refuse("artifact_decided_against", why)
+		}
+	}
 	if req.Kind == "wait" {
 		if eventWaitKind(req.Arguments) == "" {
 			if err = checkWait(ctx, tx, runID, t, req.Arguments); err != nil {
@@ -194,6 +216,16 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	}
 	if r := checkFacts(req, p.RepoURL != "" && t.Kind != tasks.KindConversation, abandoned); r != nil {
 		return out, r
+	}
+	if req.Kind == "done" && t.Kind != tasks.KindConversation {
+		// An artifact version the task produced waits for a decision: the task does not finish (approval-gates-merge).
+		holds, err := approvalHolds(ctx, tx, company, t.ID, tx.now().Unix())
+		if err != nil {
+			return out, err
+		}
+		if len(holds) > 0 {
+			return out, refuse("awaiting_approval", holdHint(holds))
+		}
 	}
 	if req.Kind == "done" && req.ReviewRequired && p.RepoURL != "" && t.Kind != tasks.KindConversation && !abandoned && req.Facts != nil && (req.Facts.PR != nil || req.Facts.AheadOfDefault > 0) {
 		// A required review (company-self-service D3): the pull request must carry an approved verdict.
@@ -336,6 +368,12 @@ func validExit(req ExitRequest, t tasks.Task, agent string) error {
 			if verdict == "changes_requested" && str(a, "feedback") == "" {
 				return refuse("invalid_exit", "changes_requested needs feedback")
 			}
+			if verdict == "approved" {
+				// Approved covers every artifact of the submission (approval-gates-merge).
+				if _, r := checkArtifactChecks(t, a); r != nil {
+					return r
+				}
+			}
 		default:
 			return refuse("invalid_exit", "verdict must be approved or changes_requested")
 		}
@@ -449,8 +487,11 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		if err := registerExitArtifacts(ctx, tx, runID, agent, t, sub.Artifacts); err != nil {
 			return out, err
 		}
-		t.Submission, t.Status, t.Result, t.Implementer = &sub, "IN_REVIEW", sub.Summary, agent
-		t.Reviewer = str(a, "reviewer")
+		t.Submission, t.Status, t.Result, t.Implementer, t.ReviewChecks = &sub, "IN_REVIEW", sub.Summary, agent, nil
+		t.Reviewer = req.reviewer
+		if req.reviewBy != "" {
+			t.ReviewBy = req.reviewBy
+		}
 		if t.Reviewer != "" {
 			t.Assignee = t.Reviewer
 		}
@@ -474,11 +515,22 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 					return out, err
 				}
 			}
+			checks, _ := checkArtifactChecks(t, a) // checked by validExit
+			if len(checks) > 0 {
+				t.ReviewChecks = &tasks.ReviewChecks{Reviewer: agent, At: now.Unix(), Artifacts: checks}
+			}
 			t.Assignee, t.Status, t.ReviewFeedback, t.Reviewer = t.Implementer, "READY", "", ""
 		case "changes_requested":
 			t.Assignee, t.Status, t.ReviewFeedback, t.Reviewer = t.Implementer, "READY", str(a, "feedback"), ""
 		default:
-			if to := str(a, "to"); to != t.Assignee {
+			to := str(a, "to")
+			if t.Status == "IN_REVIEW" && t.Implementer != "" && t.Assignee == agent && to != t.Implementer {
+				// The reviewer hands the review on (approval-gates-merge: to someone who can check it): the task stays
+				// in review with the new reviewer.
+				t.Assignee, t.Reviewer, t.AttemptsNoProgress, t.FailStreak = to, to, 0, 0
+				break
+			}
+			if to != t.Assignee {
 				t.Assignee, t.AttemptsNoProgress, t.FailStreak = to, 0, 0
 			}
 			t.Status = "READY"
@@ -563,9 +615,64 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 			return out, err
 		}
 	}
+	if req.Kind == "handoff" && str(a, "verdict") == "approved" && t.Kind != tasks.KindConversation {
+		// After its approved review the task waits for the decision on its artifacts (awaiting_approval).
+		holds, err := approvalHolds(ctx, tx, tx.company, t.ID, now.Unix())
+		if err != nil {
+			return out, err
+		}
+		if err = parkOnApproval(ctx, tx, t, holds, "reviewed by "+agent+"; merge after the decision"); err != nil {
+			return out, err
+		}
+	}
 	t, err := taskTx(ctx, tx, t.ID)
 	out.Task = exitTask(t)
 	return out, err
+}
+
+// submitReviewer is whom a submit goes to (approval-gates-merge): the task's reviewer (review_by), or Core's default
+// for a task without one (or whose reviewer is the submitting agent itself). An agent reviews in its own run
+// (reviewer); a person (owner, member:USER) reviews from the Inbox (reviewer ""). A submit naming another reviewer is
+// refused, unless a review path rule requires that reviewer for files the pull request changes (checked in addition).
+// by is the task's reviewer to record.
+func submitReviewer(req ExitRequest, t tasks.Task, agent string) (reviewer, by string, refusal *ExitRefusal) {
+	known := func(name string) bool { return req.Known == nil || req.Known(name) }
+	person := func(name string) bool { return name == "owner" || tasks.IsPerson(name) }
+	by = t.ReviewBy
+	if by == agent || by != "" && !person(by) && !known(by) {
+		by = ""
+	}
+	if by == "" {
+		by = req.DefaultReviewer
+	}
+	named := str(req.Arguments, "reviewer")
+	path := false
+	if named != "" && req.Facts != nil && req.Facts.PR != nil {
+		for _, rp := range req.ReviewPaths {
+			if rp.Reviewer == named && len(rp.Matching(req.Facts.PR.Files)) > 0 {
+				path = true
+			}
+		}
+	}
+	switch {
+	case named == "" || named == by:
+	case path:
+		return named, by, nil
+	case by == "":
+		// No default was given (a store without Core's catalog): the named reviewer.
+		by = named
+	default:
+		who := by
+		if who == "owner" {
+			who = "the owner"
+		}
+		return "", "", refuse("reviewer_not_task_reviewer", "this task's reviewer is "+who+": submit without reviewer and it goes to "+who+
+			". Only an authority changes a task's reviewer: the assignee's manager, the task's creator or people. A reviewer a review path rule requires for files your pull request changes may be named in addition.")
+	}
+	if by != "" && !person(by) {
+		return by, by, nil
+	}
+	return "", by, nil
 }
 
 // exitAsk asks the owner (the manager chain after hierarchy) a blocking question for the task.

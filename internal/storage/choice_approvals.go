@@ -282,6 +282,10 @@ func supersedeOlderVersions(ctx context.Context, tx *Tx, project, id string, kee
 		if err = saveApproval(ctx, tx, &o, "approval.superseded"); err != nil {
 			return err
 		}
+		// A task parked on it waits no longer for it (approval-gates-merge).
+		if err = releaseApprovalParks(ctx, tx, o, approvalWhat(o)+" was superseded by "+by+": the newer version is under review; a task that produced it waits for that decision before it finishes or merges"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

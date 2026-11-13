@@ -238,6 +238,12 @@ func (s *Store) ExpireApprovals(ctx context.Context, company string) error {
 		if err = saveApproval(ctx, tx, &a, "approval.expired"); err != nil {
 			return err
 		}
+		if a.Kind == "artifact" {
+			// A task parked on it waits no longer (approval-gates-merge): the version stays unapproved.
+			if err = releaseApprovalParks(ctx, tx, a, approvalWhat(a)+" expired without a decision: the version is not approved; request its approval again (factory_artifact_request_approval) or ask your manager"); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit()
 }

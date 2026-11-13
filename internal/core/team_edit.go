@@ -92,10 +92,13 @@ func teamSettings(cat *config.Catalog, team string) TeamSettings {
 // TeamEdit changes a team on top of catalog version Base: its lead, its onboarding agent ("" for the lead) and its
 // settings (the team profile). Omitted parts stay as they are.
 type TeamEdit struct {
-	Base          int64             `json:"base"`
-	Lead          string            `json:"lead,omitempty"`
-	AuditAssignee *string           `json:"audit_assignee,omitempty"`
-	Settings      *TeamSettingsEdit `json:"settings,omitempty"`
+	Base          int64   `json:"base"`
+	Lead          string  `json:"lead,omitempty"`
+	AuditAssignee *string `json:"audit_assignee,omitempty"`
+	// Reviewer sets the team's default reviewer (approval-gates-merge): an agent of the team or role:<role>; "" removes
+	// it (managers review their reports' work).
+	Reviewer *string           `json:"reviewer,omitempty"`
+	Settings *TeamSettingsEdit `json:"settings,omitempty"`
 }
 
 // TeamSettingsEdit are the profile fields the page edits; empty removes the field (it inherits again).
@@ -127,6 +130,9 @@ func teamEditNote(team string, p TeamEdit) string {
 	}
 	if p.AuditAssignee != nil {
 		parts = append(parts, "onboarding "+firstNonEmpty(*p.AuditAssignee, "the lead"))
+	}
+	if p.Reviewer != nil {
+		parts = append(parts, "default reviewer "+firstNonEmpty(*p.Reviewer, "the managers"))
 	}
 	if p.Settings != nil {
 		parts = append(parts, "settings")
@@ -281,6 +287,27 @@ func editTeam(cat *config.Catalog, company string, docs map[string]string, team 
 			v = "" // the default: the lead, whoever leads later
 		}
 		setOrDelete(td.spec(), "audit_assignee", v)
+	}
+	if p.Reviewer != nil {
+		v := strings.TrimSpace(*p.Reviewer)
+		if role, isRole := strings.CutPrefix(v, "role:"); isRole {
+			found := false
+			for _, n := range cat.TeamAgents(team) {
+				found = found || cat.Agents[n].Spec.Role == role
+			}
+			if !found {
+				return nil, fieldErr("reviewer", "no agent of team "+team+" has role "+role)
+			}
+		} else if v != "" {
+			if err = inTeam("reviewer", v); err != nil {
+				return nil, err
+			}
+		}
+		review := sub(td.spec(), "review")
+		setOrDelete(review, "reviewer", v)
+		if len(review) == 0 {
+			delete(td.spec(), "review")
+		}
 	}
 	if s := p.Settings; s != nil {
 		if s.Provider != "" && !slices.Contains([]string{"claude", "codex"}, s.Provider) {

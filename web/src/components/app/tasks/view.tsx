@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { TaskOpenItems } from "@/components/app/inbox/open-items";
 import { TaskMaterials } from "@/components/app/materials/task-materials";
 import { EmptyState, ErrorState } from "@/components/app/page";
-import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, PossibleDuplicates, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
+import { Attempts, Children, Comments, Description, DetailsList, Header, Parks, PossibleDuplicates, ReviewChecks, ReviewNotes, Submission, Timeline, Why } from "@/components/app/tasks/detail";
 import { columnOf, isTerminal, runsByTask, useClock, useHydrated, useOverviewData } from "@/components/app/tasks/model";
 import { TaskActions } from "@/components/app/tasks/task-actions";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -70,6 +70,7 @@ export function TaskView({ taskId }: { taskId: string }) {
           {task.status === "DONE" && <TaskMaterials taskId={task.id} featured now={now} />}
           <Description text={task.description} />
           {task.submission && <Submission sub={task.submission} look={look} />}
+          {task.review_checks && <ReviewChecks checks={task.review_checks} now={now} />}
           {task.status !== "DONE" && <TaskMaterials taskId={task.id} featured={false} now={now} />}
           <PossibleDuplicates task={task} look={look} />
           <ReviewNotes task={task} look={look} />

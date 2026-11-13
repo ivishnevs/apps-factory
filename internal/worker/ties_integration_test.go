@@ -276,7 +276,10 @@ func TestReplay85622aeb(t *testing.T) {
 	h := newTiesHarness(t)
 	ctx := context.Background()
 	co := storage.DefaultCompany
-	h.create(t, "cls", "dev")
+	// The task is reviewed by qa (a task's reviewer is binding, approval-gates-merge).
+	if _, err := h.s.CreateTask(ctx, co, tasks.Create{ID: "cls", ProjectID: "app", Title: "cls", Assignee: "dev", ReviewBy: "qa", Ready: true, RequestID: "c-cls"}); err != nil {
+		t.Fatal(err)
+	}
 	r1 := h.next(t, "cls")
 	if r1.ReviewCopy {
 		t.Fatal("the implementer's run is a review copy")

@@ -269,6 +269,20 @@ func dash(s string) string {
 	return s
 }
 
+// reviewerOf is who actually reviews the task (approval-gates-merge): the agent reviewing it now, else the task's
+// reviewer (an agent, owner or member:USER), "-" when none is set; in review without either, the owner.
+func reviewerOf(t Task) string {
+	switch {
+	case t.Reviewer != "":
+		return t.Reviewer
+	case t.ReviewBy != "":
+		return t.ReviewBy
+	case t.Status == "IN_REVIEW":
+		return "owner"
+	}
+	return "-"
+}
+
 func ansiStrip(s string) string { return ansi.Strip(s) }
 
 func ansiWidth(s string) int { return ansi.StringWidth(s) }

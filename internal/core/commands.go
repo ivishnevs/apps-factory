@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"appfactory/internal/config"
@@ -68,6 +69,18 @@ func (c *Core) commandCheck(w http.ResponseWriter, r *http.Request, run storage.
 		return
 	}
 	ctx, company := r.Context(), c.companyFrom(r)
+	if why, err := c.mergeGuard(r, run, p.Argv); err != nil {
+		reply(w, nil, err)
+		return
+	} else if why != "" {
+		// approval-gates-merge: the task's pull request is not merged before its artifacts are decided.
+		if err := c.Store.RecordCommandRefusal(ctx, company, run.Spec.ID, p.Argv, "deny", policies.MergeGuardRule); err != nil {
+			reply(w, nil, err)
+			return
+		}
+		writeStatus(w, http.StatusConflict, commandAnswer{Effect: "deny", Rule: policies.MergeGuardRule, Instruction: why})
+		return
+	}
 	d := commandDecision(p.Argv, snapshot, current)
 	refuse := func(status int, a commandAnswer) {
 		if err := c.Store.RecordCommandRefusal(ctx, company, run.Spec.ID, p.Argv, a.Effect, a.Rule); err != nil {
@@ -94,6 +107,75 @@ func (c *Core) commandCheck(w http.ResponseWriter, r *http.Request, run storage.
 	default:
 		writeStatus(w, http.StatusOK, commandAnswer{Effect: "allow"})
 	}
+}
+
+// mergeGuard says why argv must not run now ("" when it may): a merge of the run's task's pull request (gh pr merge,
+// a push to its default branch) while an artifact version the task produced waits for a decision, or after people
+// rejected one (approval-gates-merge). Whatever is not a merge is not Core's to refuse here.
+func (c *Core) mergeGuard(r *http.Request, run storage.Run, argv []string) (string, error) {
+	if run.Spec.TaskID == "" || len(argv) == 0 || argv[0] != "gh" && argv[0] != "git" {
+		return "", nil
+	}
+	why, branches, err := c.Store.MergeGuard(r.Context(), c.companyFrom(r), run.Spec.TaskID)
+	if err != nil || why == "" || !mergeCommand(argv, branches) {
+		return "", err
+	}
+	return strings.Join(argv, " ") + " is refused: " + why, nil
+}
+
+// mergeCommand tells whether argv merges into a default branch: gh pr merge, or git push of a default branch (a
+// refspec whose destination is one of branches, --all or --mirror). A push without a refspec pushes the current
+// branch's upstream, the task's own branch, and is not seen as one.
+func mergeCommand(argv []string, branches []string) bool {
+	switch argv[0] {
+	case "gh":
+		for i := 1; i+1 < len(argv); i++ {
+			if argv[i] == "pr" && argv[i+1] == "merge" {
+				return true
+			}
+		}
+		return false
+	case "git":
+	default:
+		return false
+	}
+	// git [global options] push [options] [remote [refspec...]]
+	i := 1
+	for ; i < len(argv) && strings.HasPrefix(argv[i], "-"); i++ {
+		if argv[i] == "-C" || argv[i] == "-c" || argv[i] == "--git-dir" || argv[i] == "--work-tree" || argv[i] == "--namespace" {
+			i++ // the option's value
+		}
+	}
+	if i >= len(argv) || argv[i] != "push" {
+		return false
+	}
+	var positional []string
+	for i++; i < len(argv); i++ {
+		a := argv[i]
+		switch {
+		case a == "--all" || a == "--mirror" || a == "--branches":
+			return true
+		case a == "-o" || a == "--push-option" || a == "--repo" || a == "--receive-pack" || a == "--exec":
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			positional = append(positional, a)
+		}
+	}
+	if len(positional) < 2 {
+		return false
+	}
+	for _, spec := range positional[1:] {
+		spec = strings.TrimPrefix(spec, "+")
+		if _, dst, ok := strings.Cut(spec, ":"); ok {
+			spec = dst
+		}
+		spec = strings.TrimPrefix(spec, "refs/heads/")
+		if slices.Contains(branches, spec) {
+			return true
+		}
+	}
+	return false
 }
 
 // commandApprovalCall validates call {"name":"command","arguments":{"argv":[...]}} for a grant request;

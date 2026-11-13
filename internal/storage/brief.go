@@ -226,6 +226,10 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	if review {
 		s, _ := json.Marshal(t.Submission)
 		fmt.Fprintf(&b, "You review this task, submitted by %s: %s\nInspect the changes (the branch and its pull request), then end with factory_exit_handoff to %s with verdict approved, or changes_requested with feedback.\n", t.Implementer, s, t.Implementer)
+		if t.Submission != nil && len(t.Submission.Artifacts) > 0 {
+			// approval-gates-merge: approved covers every submitted artifact.
+			b.WriteString("Approved covers every artifact of the submission: open each one (run a prototype) and list it in artifact_checks as {id, version, checked: true, note: what you checked}. If you cannot check one, give changes_requested, or hand the review to an agent who can check it (factory_exit_handoff to that agent, without a verdict); approved with an artifact missing or not checked is refused.\n")
+		}
 	}
 	if t.Kind == tasks.KindConversation {
 		b.WriteString("This is your conversation task: it stays open. Handle the input above, then end with factory_exit_done (handled; summarize what you did). Do not poll or wait within a turn.\n")

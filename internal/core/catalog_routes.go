@@ -29,14 +29,16 @@ type CatalogChange struct {
 
 // TeamView is one team of the resolved catalog.
 type TeamView struct {
-	Name          string       `json:"name"`
-	Title         string       `json:"title,omitempty"`
-	Description   string       `json:"description,omitempty"`
-	Lead          string       `json:"lead"`
-	AuditAssignee string       `json:"audit_assignee"`
-	Profile       string       `json:"profile,omitempty"`
-	Agents        []TeamMember `json:"agents"`
-	Projects      []string     `json:"projects"`
+	Name          string `json:"name"`
+	Title         string `json:"title,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Lead          string `json:"lead"`
+	AuditAssignee string `json:"audit_assignee"`
+	// Reviewer is the team's default reviewer (approval-gates-merge; spec.review.reviewer): an agent or role:<role>.
+	Reviewer string       `json:"reviewer,omitempty"`
+	Profile  string       `json:"profile,omitempty"`
+	Agents   []TeamMember `json:"agents"`
+	Projects []string     `json:"projects"`
 	// Approvals are the team's approval modes (approval-delegation); empty modes use the defaults.
 	Approvals tasks.ApprovalModes `json:"approvals,omitzero"`
 	// Settings are the team profile in readable form (team-page-clarity).
@@ -49,7 +51,7 @@ func (c *Core) teamViews(company string, projects []tasks.Project) []TeamView {
 	out := []TeamView{}
 	for _, name := range cat.TeamNames() {
 		t := cat.Teams[name]
-		v := TeamView{Name: name, Title: t.Metadata.Title, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals, Settings: teamSettings(cat, name)}
+		v := TeamView{Name: name, Title: t.Metadata.Title, Description: t.Metadata.Description, Lead: t.Spec.Lead, AuditAssignee: t.Auditor(), Reviewer: t.Spec.Review.Reviewer, Profile: t.Spec.Profile, Agents: []TeamMember{}, Projects: []string{}, Approvals: t.Spec.Approvals, Settings: teamSettings(cat, name)}
 		for _, agent := range cat.TeamAgents(name) {
 			m := teamMember(cat.Agents, agent)
 			if dir, err := config.CompanyDir(company); err == nil {

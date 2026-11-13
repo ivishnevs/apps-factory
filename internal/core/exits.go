@@ -114,40 +114,19 @@ func (c *Core) exitRoute(w http.ResponseWriter, r *http.Request, run storage.Run
 func (c *Core) serveExit(w http.ResponseWriter, r *http.Request, run storage.Run, p storage.ExitRequest) {
 	cat := c.cat(c.companyFrom(r))
 	p.Known = func(agent string) bool { _, ok := cat.Agents[agent]; return ok }
-	// Review policy (company-self-service D3) from the run's captured configuration: required before done,
-	// and the default reviewer of a submit that names none.
-	usePolicy := true
-	// The task's own reviewer comes before the policy's default (review-coverage); a person as reviewer
-	// sends the review to people.
-	if named, _ := p.Arguments["reviewer"].(string); p.Kind == "submit" && named == "" && run.Spec.TaskID != "" {
-		if t, err := c.Store.Task(r.Context(), c.companyFrom(r), run.Spec.TaskID); err == nil {
-			name, policy := c.reviewerOfSubmit(c.companyFrom(r), t, run.Spec.Agent)
-			if name != "" {
-				if p.Arguments == nil {
-					p.Arguments = map[string]any{}
-				}
-				p.Arguments["reviewer"] = name
-			}
-			usePolicy = policy
-		}
+	// Review policy (company-self-service D3) from the run's captured configuration: required before done, and the
+	// path rules checked in addition. A submit goes to the task's reviewer, which is binding; a task without one takes
+	// the default reviewer of the submitting agent (approval-gates-merge; storage.submitReviewer).
+	if p.Kind == "submit" {
+		p.DefaultReviewer = cat.DefaultReviewer(run.Spec.Agent)
 	}
 	var snapshot config.Agent
 	if len(run.Spec.ConfigSnapshot) > 0 && json.Unmarshal(run.Spec.ConfigSnapshot, &snapshot) == nil {
-		required, reviewer := snapshot.Review()
+		required, _ := snapshot.Review()
 		p.ReviewRequired = required
 		for _, pr := range snapshot.ReviewPaths() {
 			if name := config.ReviewerFor(cat.Agents, run.Spec.Agent, pr.Reviewer); name != "" {
 				p.ReviewPaths = append(p.ReviewPaths, storage.ReviewPath{Match: pr.Match, Reviewer: name})
-			}
-		}
-		if p.Kind == "submit" && reviewer != "" && usePolicy {
-			if named, _ := p.Arguments["reviewer"].(string); named == "" {
-				if name := config.ReviewerFor(cat.Agents, run.Spec.Agent, reviewer); name != "" {
-					if p.Arguments == nil {
-						p.Arguments = map[string]any{}
-					}
-					p.Arguments["reviewer"] = name
-				}
 			}
 		}
 	}

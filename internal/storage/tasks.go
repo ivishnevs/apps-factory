@@ -938,8 +938,14 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 			if err != nil {
 				return t, err
 			}
-			if !in.Accept || p.RepoURL != "" {
-				if in.Accept {
+			// An artifact version the task produced waits for a decision (approval-gates-merge): an accepted task does not
+			// end here; it returns to its implementer and waits as awaiting_approval.
+			holds, err := approvalHolds(ctx, tx, tx.company, t.ID, tx.now().Unix())
+			if err != nil {
+				return t, err
+			}
+			if !in.Accept || p.RepoURL != "" || len(holds) > 0 {
+				if in.Accept && p.RepoURL != "" {
 					// A person's submission (people-assignees): done needs this approval.
 					if err = personApproval(ctx, tx, t, in.Actor); err != nil {
 						return t, err
@@ -950,8 +956,11 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 					t.ReviewFeedback = "" // feedback marks changes requested on a person's task (the comment keeps it)
 				}
 				text := "approved: merge your pull request, then end with factory_exit_done"
-				if !in.Accept {
+				switch {
+				case !in.Accept:
 					text = "changes requested: " + in.Feedback
+				case len(holds) > 0:
+					text = "approved by the review; " + holdsWords(holds) + ": the task waits for that decision, then merges its pull request (if it has one) and ends with factory_exit_done"
 				}
 				if err = comment(ctx, tx, id, in.Actor, in.Feedback); err != nil {
 					return t, err
@@ -959,7 +968,10 @@ func (s *Store) ReviewTask(ctx context.Context, company, id string, in tasks.Rev
 				if err = saveTask(ctx, tx, &t, "task.reviewed"); err != nil {
 					return t, err
 				}
-				return t, addTrigger(ctx, tx, &t, "review_result", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", text)
+				if err = addTrigger(ctx, tx, &t, "review_result", hasAuthorityTx(ctx, tx, t, in.Actor), in.Actor, "", text); err != nil || !in.Accept {
+					return t, err
+				}
+				return t, parkOnApproval(ctx, tx, t, holds, "reviewed by "+cmp.Or(in.Actor, "owner")+"; merge after the decision")
 			}
 		}
 		if in.Accept {

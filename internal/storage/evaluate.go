@@ -166,7 +166,7 @@ func snapshotTx(ctx context.Context, tx *Tx, t tasks.Task) (tasks.Snapshot, erro
 	if snap.Tie, err = taskTie(ctx, tx, t, snap.CurrentRun); err != nil {
 		return snap, err
 	}
-	parks, err := tx.QueryContext(ctx, "SELECT p.id,p.kind,p.ref_id,p.reason,coalesce(m.recipient,'') FROM task_parks p LEFT JOIN messages m ON p.kind IN ('ask','escalation') AND m.id=p.ref_id WHERE p.company_id=? AND p.task_id=? AND p.status='active' ORDER BY p.created_at,p.id", tx.company, t.ID)
+	parks, err := tx.QueryContext(ctx, "SELECT p.id,p.kind,p.ref_id,p.reason,"+parkRecipient+" FROM task_parks p "+parkJoins+" WHERE p.company_id=? AND p.task_id=? AND p.status='active' ORDER BY p.created_at,p.id", tx.company, t.ID)
 	if err != nil {
 		return snap, err
 	}

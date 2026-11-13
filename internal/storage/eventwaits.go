@@ -20,7 +20,9 @@ import (
 // to the task or its agent in the project. No timer wakes either: the event clears the park and adds a trigger
 // whose text (the outcome, the message) is in the next brief. An optional deadline only escalates, once: to the
 // decision's addressee (the owner), or for a message to the assignee's manager. Authority input (a directive, an
-// authority comment, an escalation answer) overrides the park like any interruptible park.
+// authority comment, an escalation answer) overrides the park like any interruptible park. With approval_id
+// (approval-gates-merge) the task parks as awaiting_approval on an open approval of a version it produced: only that
+// approval's decision (or its leaving pending) wakes it; authority input does not override it.
 
 // EventDeadlineReason is the escalation of an event wait past its deadline: keep_waiting leaves the park, continue
 // overrides it and runs the task now, cancel cancels it.
@@ -33,6 +35,8 @@ func init() {
 // eventWaitKind is the park kind of a wait exit: decision, message, or "" for a timed wait.
 func eventWaitKind(a map[string]any) string {
 	switch {
+	case str(a, "approval_id") != "":
+		return tasks.ParkApproval
 	case str(a, "decision_id") != "":
 		return tasks.ParkDecision
 	case str(a, "from") != "":
@@ -87,13 +91,13 @@ var hexRef = regexp.MustCompile(`\b[0-9a-f]{8,32}\b`)
 func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a map[string]any, known func(string) bool) error {
 	timed := str(a, "wake_at") != "" || str(a, "after") != ""
 	n := 0
-	for _, set := range []bool{timed, str(a, "decision_id") != "", str(a, "from") != ""} {
+	for _, set := range []bool{timed, str(a, "decision_id") != "", str(a, "from") != "", str(a, "approval_id") != ""} {
 		if set {
 			n++
 		}
 	}
 	if n > 1 {
-		return refuse("invalid_exit", "wait on one thing: a time (wake_at or after), a decision (decision_id) or a message (from)")
+		return refuse("invalid_exit", "wait on one thing: a time (wake_at or after), a decision (decision_id), a message (from) or an approval holding the task (approval_id)")
 	}
 	if len(str(a, "topic")) > 256 {
 		return refuse("invalid_exit", "topic up to 256 bytes")
@@ -130,6 +134,11 @@ func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a m
 		if from == agent || from != "owner" && (known == nil || !known(from)) {
 			return refuse("invalid_exit", "from must be owner or a configured agent other than you")
 		}
+	case tasks.ParkApproval:
+		if _, err := approvalHold(ctx, tx, t, str(a, "approval_id")); err != nil {
+			return err
+		}
+		return nil // the approval has its own expiry: no deadline
 	}
 	_, r := eventDeadline(a, tx.now())
 	if r != nil {
@@ -142,6 +151,13 @@ func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a m
 func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any) error {
 	deadline, _ := eventDeadline(a, tx.now())
 	t.Status = "READY"
+	if eventWaitKind(a) == tasks.ParkApproval {
+		h, err := approvalHold(ctx, tx, *t, str(a, "approval_id"))
+		if err != nil {
+			return err
+		}
+		return parkOnApproval(ctx, tx, *t, []ApprovalHold{h}, str(a, "reason"))
+	}
 	if eventWaitKind(a) == tasks.ParkMessage {
 		return parkOnMessageTx(ctx, tx, *t, str(a, "from"), str(a, "topic"), str(a, "reason"), deadline)
 	}

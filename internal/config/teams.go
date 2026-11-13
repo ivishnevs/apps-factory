@@ -34,6 +34,14 @@ type TeamSpec struct {
 	// CommentOutcomeWithin is how long a board comment on an active task may go without the outcome done before
 	// the lead is woken for it (owner-comments-handled; a Go duration, default 1h).
 	CommentOutcomeWithin string `yaml:"comment_outcome_within" json:"comment_outcome_within,omitempty"`
+	// Review is the team's review setting (approval-gates-merge).
+	Review TeamReview `yaml:"review" json:"review,omitzero"`
+}
+
+// TeamReview: Reviewer (an agent of the team, or role:<role>) reviews the work of the team's agents whose own review
+// policy names no reviewer, e.g. a QA agent; before their managers (Catalog.DefaultReviewer).
+type TeamReview struct {
+	Reviewer string `yaml:"reviewer" json:"reviewer,omitempty"`
 }
 
 // DefaultCommentOutcomeWithin is the default of TeamSpec.CommentOutcomeWithin.
@@ -152,6 +160,19 @@ func validTeams(teams map[string]Team, agents map[string]Agent) error {
 		}
 		if Manager(agents, t.Spec.Lead) != Owner {
 			return fmt.Errorf("team %s: lead %s must report to the owner", team, t.Spec.Lead)
+		}
+		if r := t.Spec.Review.Reviewer; r != "" {
+			if role, isRole := strings.CutPrefix(r, "role:"); isRole {
+				found := false
+				for _, name := range Names(agents) {
+					found = found || agents[name].Spec.Team == team && agents[name].Spec.Role == role
+				}
+				if !found {
+					return fmt.Errorf("team %s: review.reviewer %s: no agent of the team has role %s", team, r, role)
+				}
+			} else if a, ok := agents[r]; !ok || a.Spec.Team != team {
+				return fmt.Errorf("team %s: review.reviewer %s is not an agent of the team (an agent name or role:<role>)", team, r)
+			}
 		}
 	}
 	return nil

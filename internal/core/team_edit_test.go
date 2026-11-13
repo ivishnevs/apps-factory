@@ -99,6 +99,25 @@ func TestTeamPageEdits(t *testing.T) {
 		t.Fatal(code, out)
 	}
 
+	// The team's default reviewer (approval-gates-merge): an agent of the team or a role it has; it reviews the work
+	// of agents whose own rule names none, before their managers; "" gives the review back to the managers.
+	base = c.catalogVersion("acme")
+	for _, bad := range []string{"nobody", "role:astronaut"} {
+		if code, out := do("PUT", "/catalog/teams/product", TeamEdit{Base: base, Reviewer: &bad}); code != 400 || !strings.Contains(out, `"field":"reviewer"`) {
+			t.Fatal(bad, code, out)
+		}
+	}
+	if code, out := do("PUT", "/catalog/teams/product", TeamEdit{Base: base, Reviewer: &qa}); code != 200 || view().Reviewer != "qa" {
+		t.Fatal(code, out)
+	}
+	if _, rule := c.cat("acme").Agents["designer"].Review(); rule == "" && c.cat("acme").DefaultReviewer("designer") != "qa" {
+		t.Fatal("the team's default reviewer", c.cat("acme").DefaultReviewer("designer"))
+	}
+	base = c.catalogVersion("acme")
+	if code, out := do("PUT", "/catalog/teams/product", TeamEdit{Base: base, Reviewer: &lead}); code != 200 || view().Reviewer != "" {
+		t.Fatal(code, out)
+	}
+
 	// Settings: Core refuses a bad run time and a subscription of another runtime; a valid change reaches the agents.
 	base = c.catalogVersion("acme")
 	if code, out := do("PUT", "/catalog/teams/product", TeamEdit{Base: base, Settings: &TeamSettingsEdit{Provider: "codex", Timeout: "forever"}}); code != 400 || !strings.Contains(out, `"field":"timeout"`) {

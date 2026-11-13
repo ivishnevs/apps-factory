@@ -24,7 +24,7 @@ export interface TeamSettings {
   profile?: string; provider?: string; model?: string; quota_key?: string; max_concurrent_runs?: number; role_limits: Record<string, number>; timeout?: string;
   quota_keys: QuotaKeyView[]; overrides: string[];
 }
-export interface TeamView { name: string; title?: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes; settings?: TeamSettings }
+export interface TeamView { name: string; title?: string; description?: string; lead: string; audit_assignee: string; reviewer?: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes; settings?: TeamSettings }
 // A runtime an agent may run on (GET /catalog/runtimes): the efforts it accepts (none: no effort) and the models
 // the agent form offers; any other model name is still valid.
 export interface RuntimeView { provider: string; efforts: string[]; models: string[] }

@@ -484,7 +484,7 @@ func (m *Model) whyLine(t Task) string {
 	case t.Reason == "dependencies":
 		return "↳ blocked by: " + strings.Join(t.Dependencies, ", ") + " (" + t.Clearer.Who + ")"
 	case strings.HasPrefix(t.Reason, "parked:"):
-		return "↳ " + strings.TrimPrefix(t.Reason, "parked:") + " · waits on " + who + ": " + t.Clearer.Action
+		return "↳ " + strings.ReplaceAll(strings.TrimPrefix(t.Reason, "parked:"), "_", " ") + " · waits on " + who + ": " + t.Clearer.Action
 	case t.Reason == "capacity":
 		return "↳ queued: " + t.Clearer.Action
 	case t.Reason == tasks.ReasonProjectSetup:

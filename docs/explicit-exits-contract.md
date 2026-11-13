@@ -24,12 +24,12 @@ All take the run's identity from the run token; none takes a task id (an exit is
 
 | Tool | Arguments | Accepted effect |
 |---|---|---|
-| `factory_exit_submit` | `summary` (req.), `checks: [string]`, `artifacts: [{id, version, uri}]`, `reviewer?` | IN_REVIEW; assignee := reviewer (default: the project policy, else a `manager` agent, else owner); implementer recorded; submission stored |
-| `factory_exit_handoff` | `to` (req.), `note` (req.), `verdict?: approved\|changes_requested`, `feedback?`, `merge_failed?` | assignee := `to` (may be the same agent), `assignment` trigger. With `verdict` from IN_REVIEW: `approved` → implementer, IN_PROGRESS, approval bound to `{pr_number, approved_head}` from the facts; `changes_requested` (needs `feedback`) → REWORK to the implementer. `merge_failed` (the implementer of an approved task, `to` itself, no verdict): a failed merge, counted as an attempt with backoff; the third in a row → FAILED and `retries_exhausted` (task-worktrees D7) |
+| `factory_exit_submit` | `summary` (req.), `checks: [string]`, `artifacts: [{id, version, uri}]`, `reviewer?` | IN_REVIEW; assignee := the task's reviewer (`review_by`, binding; a task without one takes the default: review rule reviewer, team default reviewer, manager, lead, owner, and records it; a person reviews from the Inbox). `reviewer` may only repeat it or name a path rule's reviewer for the PR's files, else `409 reviewer_not_task_reviewer` (approval-gates-merge); implementer recorded; submission stored |
+| `factory_exit_handoff` | `to` (req.), `note` (req.), `verdict?: approved\|changes_requested`, `feedback?`, `merge_failed?`, `artifact_checks?: [{id, version, checked, note}]` | assignee := `to` (may be the same agent), `assignment` trigger; from the reviewer of a task in review without a verdict, the review is handed on (stays IN_REVIEW, reviewer := `to`). With `verdict` from IN_REVIEW: `approved` → implementer, IN_PROGRESS, approval bound to `{pr_number, approved_head}` from the facts; it needs every submitted artifact in `artifact_checks`, checked with a note (`409 review_incomplete`, `409 artifact_not_checked`), stored as the task's `review_checks`; with an artifact the task produced still waiting for an approval decision, the task then parks `awaiting_approval`. `changes_requested` (needs `feedback`) → REWORK to the implementer. `merge_failed` (the implementer of an approved task, `to` itself, no verdict): a failed merge, counted as an attempt with backoff; the third in a row → FAILED and `retries_exhausted` (task-worktrees D7) |
 | `factory_exit_done` | `summary` (req.), `artifacts: [{id, version, uri}]` | DONE (§6); the artifacts are registered with the run. The artifacts of the last submit or done exit that names any are the task's result, shown first on its page (task-result-first) |
 | `factory_exit_ask` | `question` (req.), `options?: [string]`, `category?`, `evidence?` | `ask` park; a question to the owner (after `hierarchy`: the manager chain) |
 | `factory_exit_block` | `on?: [task id]`, `on_children?: bool`, `reason` (req.) | `block` park on open tasks without a cycle, or `children` park with ≥ 1 open child; otherwise accepted as `ask` (the response says so) |
-| `factory_exit_wait` | `reason` (req.) and one of: `decision_id`; `from` (+ `topic`); `wake_at` (RFC 3339) or `after` (duration) with `deadline` (RFC 3339, req. for a timed wait, optional for an event wait) | `decision` park until the decision is recorded or withdrawn (`decision_recorded`), `message` park until the next message from `from` (`message_received`), or `wait` park until the wake time, then `wait_ended` (limits and escalations: task-lifecycle.md, Waits) |
+| `factory_exit_wait` | `reason` (req.) and one of: `decision_id`; `approval_id` (an open approval of a version this task produced: `awaiting_approval` park until its decision, no deadline); `from` (+ `topic`); `wake_at` (RFC 3339) or `after` (duration) with `deadline` (RFC 3339, req. for a timed wait, optional for an event wait) | `decision` park until the decision is recorded or withdrawn (`decision_recorded`), `message` park until the next message from `from` (`message_received`), or `wait` park until the wake time, then `wait_ended` (limits and escalations: task-lifecycle.md, Waits) |
 
 `factory_task_submit`, `factory_task_accept` and `factory_task_reject` leave the agent list when the switch is on;
 the owner's `factory tasks review` maps to a verdict handoff. Managers get `factory_task_direct {task, text, urgent?}`
@@ -106,6 +106,10 @@ build, merge) when `facts.ahead_of_default > 0` and `facts.pr.state != "merged"`
 `abandon_branch` for the task. When the project requires review, `done` also needs an approval bound to
 `facts.pr.number`; with `review_after_conflicts: required` and `facts.pr.head_sha` different from the approved
 head, `409 needs_approval` (submit again before merging). Squash and rebase merges pass (no ancestry check).
+While an artifact version the task produced has an open approval, `done` is refused with `409 awaiting_approval`
+(approval-gates-merge, [artifact approvals](artifact-approvals.md#the-approval-holds-the-producing-task-approval-gates-merge));
+Core's command guard refuses `gh pr merge` and pushes to the default branch then. A rejected artifact abandons the
+branch: `done` passes without a merge.
 Scratch projects (no remote) have no PR: `done` is accepted with a clean tree. A company review policy ([policies](policies.md#review-rules)) adds `409 review_required`:
 without an approved verdict bound to the PR, or, for a PR changing files of a path rule, without that path's
 reviewer's approval.
@@ -173,9 +177,11 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
   conversation run owns no branch or PR: its adapter (`FACTORY_CONVERSATION=1`) collects no facts and Core
   requires (and reads) none, whatever the project's repository.
 - `/agent/exit*` on a stopped run answers 410 (the credential is checked first, then the run's state).
-- Default reviewer is the owner (`factory tasks review`, mapped to a verdict: approve returns a repository task
-  to its implementer to merge, otherwise ends it; reject returns it with the feedback). A `reviewer` agent gets
-  its own review run while the task stays IN_REVIEW. The manager as default reviewer arrives with the hierarchy.
+- A task's reviewer is binding (approval-gates-merge, [policies](policies.md#the-tasks-reviewer-review-coverage));
+  the default is the review rule's reviewer, else the team's default reviewer, else the manager, else the team's
+  lead, else the owner. The owner or a member reviews with `factory tasks review` (mapped to a verdict: approve
+  returns a repository task to its implementer to merge, otherwise ends it; reject returns it with the feedback).
+  An agent reviewer gets its own review run while the task stays IN_REVIEW.
 - `block on` adds the named tasks as dependencies (the scheduler and the `stalled` escalation already handle
   them); `on_children` blocks until the last child closes; impossible blocks become an ask. `wait` sets
   `not_before` and a wait park that the tick turns into a `wake` trigger; `deadline` is stored, not enforced yet.

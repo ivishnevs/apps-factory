@@ -509,6 +509,9 @@ func supersedeComposites(ctx context.Context, tx *Tx, project, id, version, keep
 		if err = saveApproval(ctx, tx, &o, "approval.superseded"); err != nil {
 			return err
 		}
+		if err = releaseApprovalParks(ctx, tx, o, approvalWhat(o)+" was superseded: "+why); err != nil {
+			return err
+		}
 		if _, err = tx.ExecContext(ctx, "UPDATE people_topic_items SET state='replaced' WHERE company_id=? AND kind='approval' AND ref_id=?", tx.company, o.ID); err != nil {
 			return err
 		}

@@ -165,6 +165,41 @@ function PickOnboarding({ team, base, open, onClose }: { team: TeamView; base: n
   );
 }
 
+// PickReviewer sets the team's default reviewer (approval-gates-merge): it reviews the work of agents whose own review
+// rule names no reviewer, before their managers.
+function PickReviewer({ team, base, open, onClose }: { team: TeamView; base: number; open: boolean; onClose: () => void }) {
+  const [to, setTo] = useState(team.reviewer || "_");
+  const { error, busy, save, setError } = useTeamEdit(team.name, base);
+  const submit = async () => {
+    const v = to === "_" ? "" : to;
+    if (await save({ reviewer: v }, v ? `${v} reviews the team's work by default` : "Managers review their reports' work")) onClose();
+  };
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setError(null); } }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Who reviews by default</DialogTitle>
+          <DialogDescription>Reviews the work of every agent whose own review rule names no reviewer, for example a QA agent. Without one, each agent&apos;s manager reviews its work. A task&apos;s reviewer is fixed when the task is made; agents cannot pick another.</DialogDescription>
+        </DialogHeader>
+        <Field label="Reviewer" error={fieldError(error, "reviewer")}>
+          <Select value={to} onValueChange={setTo}>
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_">Each agent&apos;s manager</SelectItem>
+              {team.agents.map((a) => <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+        {otherError(error, ["reviewer"]) && <p className="text-sm text-red-600 dark:text-red-400">{otherError(error, ["reviewer"])}</p>}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" className="h-10" onClick={onClose}>Cancel</Button>
+          <Button className="h-10" disabled={busy} onClick={submit}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const settingsFields = ["provider", "model", "quota_key", "max_concurrent_runs", "timeout", "settings"];
 
 function EditSettings({ team, base, open, onClose }: { team: TeamView; base: number; open: boolean; onClose: () => void }) {
@@ -233,7 +268,7 @@ function EditSettings({ team, base, open, onClose }: { team: TeamView; base: num
 
 // HowTeamRuns: the three things that decide how work flows; only the lead is required.
 export function HowTeamRuns({ team, base, manage, owner }: { team: TeamView; base: number; manage: boolean; owner: boolean }) {
-  const [dialog, setDialog] = useState<"" | "lead" | "onboarding" | "settings">("");
+  const [dialog, setDialog] = useState<"" | "lead" | "onboarding" | "settings" | "reviewer">("");
   const s = team.settings;
   const overrides = s?.overrides ?? [];
   return (
@@ -262,17 +297,20 @@ export function HowTeamRuns({ team, base, manage, owner }: { team: TeamView; bas
               <dt className="text-muted-foreground">Tasks at once</dt><dd>{tasksAtOnce(s, team.agents)}</dd>
               <dt className="text-muted-foreground">Run time limit</dt><dd>{duration(s.timeout)}</dd>
               <dt className="text-muted-foreground">Code review</dt><dd>{codeReview(team.agents)}</dd>
+              <dt className="text-muted-foreground">Reviews by default</dt><dd>{team.reviewer || "Each agent's manager"}</dd>
             </dl>
           )}
           <p className="mt-2 text-sm text-muted-foreground" title={overrides.join(", ")}>
             An agent can override any of these on its own card. {overrides.length === 0 ? "None does." : overrides.length === 1 ? `1 agent does (${overrides[0]}).` : `${overrides.length} agents do (${overrides.join(", ")}).`}
           </p>
           {manage && s && <Button variant="outline" className="mt-3 h-10 self-start" onClick={() => setDialog("settings")}>Edit team settings</Button>}
+          {manage && <Button variant="outline" className="mt-2 h-10 self-start" onClick={() => setDialog("reviewer")}>Change default reviewer</Button>}
         </Card>
       </div>
       {manage && dialog === "lead" && <ChangeLead team={team} base={base} open onClose={() => setDialog("")} />}
       {manage && dialog === "onboarding" && <PickOnboarding team={team} base={base} open onClose={() => setDialog("")} />}
       {manage && dialog === "settings" && s && <EditSettings team={team} base={base} open onClose={() => setDialog("")} />}
+      {manage && dialog === "reviewer" && <PickReviewer team={team} base={base} open onClose={() => setDialog("")} />}
     </section>
   );
 }

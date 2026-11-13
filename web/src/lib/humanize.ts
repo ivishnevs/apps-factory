@@ -223,6 +223,12 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
         return out({ headline: w.headline, label: base.you ? "Waits for your decision" : "Waits for a decision", brief: base.you ? "Decide in the inbox" : undefined, detail: note, who: w.who,
           next: base.you ? "Approve or reject the decision; it runs once with your answer." : "It runs once the decision is recorded." });
       }
+      case "awaiting_approval":
+        // approval-gates-merge: reviewed, it waits for the decision on an artifact it produced; the decision moves it.
+        return out({ headline: base.you ? "Awaiting your approval" : `Awaiting approval${p ? ` by ${p.label}` : ""}`, label: "Awaiting approval",
+          brief: base.you ? "Decide in the inbox" : undefined, detail: note,
+          next: base.you ? "Approve, ask for changes or reject its artifact in your inbox: approved, it is merged and finished; changes, it goes back to its agent; rejected, its pull request is closed unmerged."
+            : "It is merged and finished once its artifact is approved." });
       case "message": {
         const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: "Waits for a message", who: p, you: base.you };
         return out({ headline: w.headline, label: "Waits for a message", brief: base.you ? "Write to its agent" : undefined, detail: note, who: w.who,

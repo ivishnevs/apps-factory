@@ -34,7 +34,7 @@ func TestReviewKeepsImplementerSession(t *testing.T) {
 			t.Fatal(kind, w.Code, w.Body.String())
 		}
 	}
-	h.create("s", "code", "claude-demo")
+	h.createReviewedBy("s", "code", "claude-demo", "demo")
 	dev := h.start("s")
 	if run, _ := h.s.Get(ctx, storage.DefaultCompany, dev.id); run.Spec.SessionID != "" {
 		t.Fatalf("first run resumes %q", run.Spec.SessionID)

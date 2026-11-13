@@ -109,6 +109,22 @@ type Submission struct {
 	// PullRequest is the pull request a person submitted their task with (people-assignees).
 	PullRequest *PullRequest `json:"pull_request,omitempty"`
 }
+
+// ReviewChecks is a reviewer's account of a submission's artifacts with its approved verdict (approval-gates-merge).
+type ReviewChecks struct {
+	Reviewer  string          `json:"reviewer"`
+	At        int64           `json:"at"`
+	Artifacts []ArtifactCheck `json:"artifacts"`
+}
+
+// ArtifactCheck says whether the reviewer checked one submitted artifact version and what it checked (or why not).
+type ArtifactCheck struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	Checked bool   `json:"checked"`
+	Note    string `json:"note"`
+}
+
 type Task struct {
 	RequiredArtifacts []Artifact  `json:"required_artifacts,omitempty"`
 	WaitMessageID     string      `json:"wait_message_id,omitempty"`
@@ -162,6 +178,9 @@ type Task struct {
 	// ReviewBy is who reviews the task's work (review-coverage): an agent, "owner" or "member:USER". Required on
 	// every task outside the backlog (Core refuses ready without it); a submit naming no reviewer goes to it.
 	ReviewBy string `json:"review_by,omitempty"`
+	// ReviewChecks is the latest approved verdict's account of the submission's artifacts (approval-gates-merge):
+	// each checked (what was checked) or not; Core accepts approved only when every artifact is checked.
+	ReviewChecks *ReviewChecks `json:"review_checks,omitempty"`
 	// FreshSession: the next run starts a new runtime session (reset_workspace moved the task off its node).
 	FreshSession bool `json:"fresh_session,omitempty"`
 	// BlockedOn are the dependencies a factory_exit_block added (explicit-exits-authority D1): authority input

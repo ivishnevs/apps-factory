@@ -21,6 +21,7 @@ import (
 	"appfactory/internal/notify/telegram"
 	"appfactory/internal/secrets"
 	"appfactory/internal/storage"
+	"appfactory/internal/tasks"
 )
 
 // Telegram per company (telegram-per-company; before it waits-events-cost-cli D4): every company may have its own
@@ -767,7 +768,18 @@ func (b telegramBackend) Status(ctx context.Context) (string, error) {
 	}
 	var s strings.Builder
 	for _, p := range projects {
-		fmt.Fprintf(&s, "%s: %d running, %d runnable, %d waiting, inbox %d\n", p.Project.ID, len(p.Runs), p.Runnable, len(p.Waiting), p.Inbox)
+		fmt.Fprintf(&s, "%s: %d running, %d runnable, %d waiting", p.Project.ID, len(p.Runs), p.Runnable, len(p.Waiting))
+		// approval-gates-merge: reviewed tasks that wait for an artifact decision before they merge.
+		var held []string
+		for _, v := range p.Waiting {
+			if v.Reason == tasks.ReasonParked+tasks.ParkApproval {
+				held = append(held, v.TaskID)
+			}
+		}
+		if len(held) > 0 {
+			fmt.Fprintf(&s, " (awaiting approval: %s)", strings.Join(held, ", "))
+		}
+		fmt.Fprintf(&s, ", inbox %d\n", p.Inbox)
 	}
 	pending, err := b.c.Store.PendingCounts(ctx, b.company)
 	if err != nil {

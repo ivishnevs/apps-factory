@@ -80,12 +80,9 @@ func TestReviewGate(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 
-	// The submit's reviewer: the task's agent; a person keeps the policy's default out.
-	if name, policy := c.reviewerOfSubmit(storage.DefaultCompany, ready, "demo"); name != "reviewer" || !policy {
-		t.Fatal(name, policy)
-	}
-	if name, policy := c.reviewerOfSubmit(storage.DefaultCompany, later, "demo"); name != "" || policy {
-		t.Fatal(name, policy)
+	// The suggestion follows the hierarchy (approval-gates-merge): demo has no review rule, so its manager.
+	if got := c.suggestReviewer(storage.DefaultCompany, "demo"); got != config.Manager(catalog.Agents, "demo") {
+		t.Fatal("suggestion", got)
 	}
 
 	// Fill: an open task without a reviewer (made ready in storage, as before the gate) gets the suggestion.

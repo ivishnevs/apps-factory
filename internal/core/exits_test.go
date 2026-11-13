@@ -109,9 +109,21 @@ func (h *exitHarness) task(id string) tasks.Task {
 	return v
 }
 
+// create makes a ready task; its reviewer is the harness's reviewer agent (binding at submit, approval-gates-merge),
+// or for the reviewer's own task the default (its manager).
 func (h *exitHarness) create(id, project, assignee string) {
 	h.t.Helper()
-	if _, err := h.s.CreateTask(context.Background(), storage.DefaultCompany, tasks.Create{ID: id, ProjectID: project, Title: id, Assignee: assignee, Ready: true, RequestID: "create-" + id}); err != nil {
+	by := "reviewer"
+	if assignee == by {
+		by = ""
+	}
+	h.createReviewedBy(id, project, assignee, by)
+}
+
+// createReviewedBy makes a ready task reviewed by by (an agent, owner or member:USER; "" for Core's default).
+func (h *exitHarness) createReviewedBy(id, project, assignee, by string) {
+	h.t.Helper()
+	if _, err := h.s.CreateTask(context.Background(), storage.DefaultCompany, tasks.Create{ID: id, ProjectID: project, Title: id, Assignee: assignee, ReviewBy: by, Ready: true, RequestID: "create-" + id}); err != nil {
 		h.t.Fatal(err)
 	}
 }

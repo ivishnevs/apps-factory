@@ -246,3 +246,57 @@ func TestDecideMode(t *testing.T) {
 		t.Fatal(code)
 	}
 }
+
+// TestShimCheck (approval-gates-merge): a builtin check rule asks Core with the argv that runs and obeys its answer
+// (no grant); Core unreachable refuses; a whole-line decision (Line) leaves it to the PATH shim.
+func TestShimCheck(t *testing.T) {
+	checkRules := policies.TaskMerge().Spec.Rules
+	dir, bin := t.TempDir(), t.TempDir()
+	if names, err := Install(dir, "/x/factory-shim", checkRules); err != nil || strings.Join(names, ",") != "gh,git" {
+		t.Fatal(names, err)
+	}
+	real := executable(t, bin, "gh")
+	refuse := map[string]bool{}
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p struct {
+			Argv []string `json:"argv"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		line := strings.Join(p.Argv, " ")
+		seen = append(seen, line)
+		if refuse[line] {
+			w.WriteHeader(409)
+			_ = json.NewEncoder(w).Encode(Check{Effect: "deny", Rule: policies.MergeGuardRule, Instruction: "artifact waits for a decision"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Check{Effect: "allow"})
+	}))
+	defer server.Close()
+	vars := map[string]string{EnvDir: dir, "PATH": dir + ":" + bin, "FACTORY_URL": server.URL, "FACTORY_RUN_TOKEN": "run.tok"}
+	run := func(args ...string) (int, string, []string) {
+		var stderr bytes.Buffer
+		var execd []string
+		s := Shim{Getenv: func(k string) string { return vars[k] }, Stderr: &stderr, Environ: func() []string { return nil },
+			Exec: func(path string, argv, env []string) error { execd = append([]string{path}, argv...); return nil }}
+		return s.Main(context.Background(), args), stderr.String(), execd
+	}
+	if code, _, execd := run("gh", "pr", "merge", "7"); code != 0 || strings.Join(execd, " ") != real+" gh pr merge 7" || len(seen) != 1 {
+		t.Fatal("allowed check", code, execd, seen)
+	}
+	refuse["gh pr merge 7"] = true
+	if code, msg, execd := run("gh", "pr", "merge", "7"); code != Refused || execd != nil || !strings.Contains(msg, "artifact waits for a decision") {
+		t.Fatal("refused check", code, msg, execd)
+	}
+	if code, _, _ := run("gh", "pr", "view", "7"); code != 0 || len(seen) != 2 {
+		t.Fatal("unchecked arguments must pass without Core", code, seen)
+	}
+	vars["FACTORY_URL"] = "http://127.0.0.1:1"
+	if code, msg, _ := run("gh", "pr", "merge", "8"); code != Refused || !strings.Contains(msg, "check failed") {
+		t.Fatal("Core unreachable must refuse", code, msg)
+	}
+	g := &Guard{Rules: checkRules, URL: server.URL, Token: "run.tok"}
+	if ok, note := g.Line(context.Background(), "gh pr merge 7 && git push origin HEAD:main"); !ok {
+		t.Fatal("Line decides checks at the PATH shim", note)
+	}
+}

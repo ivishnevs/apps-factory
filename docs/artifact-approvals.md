@@ -85,6 +85,36 @@ rights for both `factory.task.submit` and `factory.artifact.register`; the impli
 policy deny. An approval request requires the right to write to the owner and needs no approval of itself. A deny
 for this tool applies.
 
+### The approval holds the producing task (approval-gates-merge)
+
+While an artifact version a task produced (registered from its runs, `task_id` of the version) has an open
+approval (`PENDING`: waiting for people, or for the delegate holding it), the task does not finish and its pull
+request is not merged:
+
+- `factory_exit_done` is refused with `409 awaiting_approval`; the hint names the version and the approval and
+  says to finish the turn with `factory_exit_wait approval_id A` (no timer; only the decision wakes it).
+- `gh pr merge` and a push to the default branch are refused by Core's command guard (the builtin `task-merge`
+  policy, [policies](policies.md#command-guards)); other pushes run.
+- After its approved review the task waits as `awaiting_approval` (park kind `awaiting_approval`, reason
+  `parked:awaiting_approval`; the web shows "Awaiting your approval", the TUI and Telegram `/status` "awaiting
+  approval"). Authority input does not override this park.
+
+The decision moves the task, whoever decides (people, or the delegate holding it, people-topics D18), with the
+`approval_decided` trigger saying what to do next:
+
+- approved or chosen: the task wakes; its agent merges the pull request and exits `done` (while another of its
+  approvals is still open it keeps waiting, now on that one);
+- changes requested: the task goes back to its implementer on the same branch (`review_feedback` holds the
+  request; the PR approval no longer counts), which reworks, asks approval of the new version and submits again;
+- rejected: the branch is abandoned (as `abandon_branch`): the agent closes the pull request unmerged and exits
+  `done`, which needs no merge; the guard refuses a merge.
+
+A task still working before its first submit only gets the decision (done and the merge stay refused while one is
+open). An approval that leaves pending undecided (superseded by a newer request, expired) releases a task waiting
+on it with what to do: it waits on another open approval of its own if one exists. Approvals of other tasks'
+versions, and tool-call (action, command) approvals, do not hold the task. An expired approval does not hold it:
+the version is simply not approved, and the agent asks again.
+
 `factory_artifact_list` lists the project registry; `factory_artifact_get` takes `artifact_id` and
 `artifact_version` and returns the record and the latest decision. All agents of the project can read an
 artifact's approval through `factory_approval_get` if policy allows the tool. Grants for specific actions stay

@@ -9,7 +9,32 @@ import (
 )
 
 // Builtins are the reserved mandatory policies: YAML cannot replace them and agents cannot drop them.
-func Builtins() []Policy { return []Policy{System(), HostUI(), OwnerCLI(), NodeKeys()} }
+func Builtins() []Policy { return []Policy{System(), HostUI(), OwnerCLI(), NodeKeys(), TaskMerge()} }
+
+// EffectCheck is a builtin access effect: the shim asks Core, which decides from the run's task state (no owner
+// grant); YAML policies cannot use it.
+const EffectCheck = "check"
+
+// MergeGuardRule is the rule of TaskMerge.
+const MergeGuardRule = "task-merge"
+
+// TaskMerge has Core check merges of the task's pull request (approval-gates-merge): gh pr merge and pushes, which
+// Core parses for a push to the default branch, are refused while an artifact version the task produced waits for
+// a decision, or after people rejected it. Anything else runs.
+func TaskMerge() Policy {
+	return builtin("task-merge", Rule{Name: MergeGuardRule, Type: "access", Commands: []string{"gh pr merge*", "gh * pr merge*", "git push*", "git * push*"}, Effect: EffectCheck,
+		Instruction: "Merging the task's pull request (gh pr merge, a push to the default branch) waits until the artifacts the task produced are decided; Core refuses it before then and after a rejection."})
+}
+
+// builtinName tells whether name is a builtin policy (YAML cannot use it).
+func builtinName(name string) bool {
+	for _, p := range Builtins() {
+		if p.Metadata.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
 // HostUI denies host-input tools (node-agent D6): agents test apps without driving the owner's screen.
 func HostUI() Policy {
@@ -97,10 +122,10 @@ type CommandDecision struct {
 	Instruction string `json:"instruction,omitempty"`
 }
 
-// Command decides argv with the access rules: deny > approval > allow; no matching rule allows.
+// Command decides argv with the access rules: deny > approval > check > allow; no matching rule allows.
 // The first matching rule of the winning effect supplies the instruction.
 func Command(rules []Rule, argv []string) CommandDecision {
-	rank := map[string]int{"allow": 0, "approval": 1, "deny": 2}
+	rank := map[string]int{"allow": 0, EffectCheck: 1, "approval": 2, "deny": 3}
 	d := CommandDecision{Effect: "allow"}
 	for _, r := range rules {
 		if r.Type != "access" {

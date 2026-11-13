@@ -326,17 +326,26 @@ func artifactApproved(ctx context.Context, tx *Tx, project string, a tasks.Artif
 // The trigger is the decider's (approval-attribution): the owner's decision is the owner's input (rank 0); the
 // decision of the agent the approval was delegated to (approval-delegation) is that agent's, under its own name
 // and rank, and its text names the delegation. An urgent artifact approval stops the task's live run as in
-// artifactApproved.
+// artifactApproved. An artifact approval also moves the open tasks it held (approval-gates-merge, moveHeldTask): the
+// tasks that produced its options' versions get the same trigger with what to do next, whoever decided (people or
+// the delegate holding it, people-topics D18).
 func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent bool) error {
-	if a.TaskID == "" {
-		return nil
+	targets := []string{}
+	if a.TaskID != "" {
+		targets = append(targets, a.TaskID)
 	}
-	t, err := taskTx(ctx, tx, a.TaskID)
-	if errors.Is(err, ErrNotFound) || err == nil && (t.Status == "DONE" || t.Status == "CANCELLED") {
-		return nil
-	}
-	if err != nil {
-		return err
+	held := map[string]bool{}
+	if a.Kind == "artifact" {
+		ids, err := heldTasks(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			held[id] = true
+			if !slices.Contains(targets, id) {
+				targets = append(targets, id)
+			}
+		}
 	}
 	text := approvalWhat(a) + " " + strings.ToLower(a.Status) + " " + approvalDecidedBy(a) + ": " + a.DecisionReason
 	switch {
@@ -347,11 +356,30 @@ func approvalDecided(ctx context.Context, tx *Tx, a approvals.Approval, urgent b
 		// The decision, the chosen option or the requested changes, and who decided (artifact-choice-approvals).
 		text = approvalWhat(a) + ": " + choiceDecision(a)
 	}
-	if err = addTrigger(ctx, tx, &t, "approval_decided", true, approvalDecider(a), a.ID, text); err != nil {
-		return err
-	}
-	if urgent && a.Kind == "artifact" && a.Status == "APPROVED" {
-		return stopUrgently(ctx, tx, t, "artifact_approved")
+	for _, id := range targets {
+		t, err := taskTx(ctx, tx, id)
+		if errors.Is(err, ErrNotFound) || err == nil && (t.Status == "DONE" || t.Status == "CANCELLED") {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		body := text
+		if held[id] {
+			next, err := moveHeldTask(ctx, tx, &t, a)
+			if err != nil {
+				return err
+			}
+			body += next
+		}
+		if err = addTrigger(ctx, tx, &t, "approval_decided", true, approvalDecider(a), a.ID, body); err != nil {
+			return err
+		}
+		if urgent && a.Kind == "artifact" && a.Status == "APPROVED" && id == a.TaskID {
+			if err = stopUrgently(ctx, tx, t, "artifact_approved"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

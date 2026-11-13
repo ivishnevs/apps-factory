@@ -27,8 +27,8 @@ func (s *Store) TaskParks(ctx context.Context, company, task string, all bool) (
 	if _, err = taskTx(ctx, tx, task); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT p.id,p.kind,p.ref_id,p.reason,p.status,p.run_id,p.created_at,p.cleared_at,coalesce(m.recipient,'')
- FROM task_parks p LEFT JOIN messages m ON p.kind IN ('ask','escalation') AND m.id=p.ref_id
+	rows, err := tx.QueryContext(ctx, `SELECT p.id,p.kind,p.ref_id,p.reason,p.status,p.run_id,p.created_at,p.cleared_at,`+parkRecipient+`
+ FROM task_parks p `+parkJoins+`
  WHERE p.company_id=? AND p.task_id=? AND (?=1 OR p.status='active') ORDER BY p.created_at,p.seq`, tx.company, task, map[bool]int{true: 1}[all])
 	if err != nil {
 		return nil, err

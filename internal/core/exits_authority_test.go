@@ -167,7 +167,7 @@ func TestVerdictsHandoffsAndOwnerReview(t *testing.T) {
 			t.Fatalf("%+v", got)
 		}
 	}
-	h.create("o", "code", "demo")
+	h.createReviewedBy("o", "code", "demo", "owner")
 	submit("o", "code")
 	if got = review("o", false, "rename the screen"); got.Status != "READY" || got.Assignee != "demo" || got.ReviewFeedback != "rename the screen" {
 		t.Fatalf("%+v", got)
@@ -183,7 +183,7 @@ func TestVerdictsHandoffsAndOwnerReview(t *testing.T) {
 		t.Fatalf("%+v", tr)
 	}
 	h.cancel("o")
-	h.create("s", "notes", "demo")
+	h.createReviewedBy("s", "notes", "demo", "owner")
 	submit("s", "notes")
 	if got = review("s", true, ""); got.Status != "DONE" {
 		t.Fatalf("%+v", got)

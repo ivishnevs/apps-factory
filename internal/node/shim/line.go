@@ -71,6 +71,7 @@ func (g *Guard) Line(ctx context.Context, command string) (ok bool, note string)
 		case "approval":
 			gated = append(gated, c)
 		}
+		// A check (policies.EffectCheck) passes here: the PATH shim asks Core with the argv that actually runs.
 	}
 	for _, c := range gated {
 		if c.Unexpanded {

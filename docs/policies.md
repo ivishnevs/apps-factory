@@ -84,13 +84,21 @@ A pattern matches the basename of argv[0] or the command line (that basename and
 joined by single spaces); `*` matches any text including spaces and slashes, `?` one character.
 The first word must be a literal command name (no glob, no path): it names the shim. Commands are
 only valid on access rules and resolve per agent like operations (roles/agents filters, mandatory
-policies, deny > approval > allow; no matching rule allows).
+policies, deny > approval > check > allow; no matching rule allows).
 
 Reserved mandatory policies, defined in code like `system` (YAML cannot replace them):
 - `host-ui` denies `cliclick`, `osascript`, `osacompile` and `xdotool`: use debug launch arguments,
   deep links or UI tests by accessibility identifier. Mobile agents get the concrete iOS/Android recipes from
   the shared [`mobile-app-testing` skill](skills.md#mobile-app-testing).
 - `owner-cli` denies the `factory` owner CLI: use the Factory MCP tools.
+- `task-merge` (approval-gates-merge) has Core check merges of the run's task: `gh pr merge` and `git push` (the
+  patterns `gh pr merge*`, `gh * pr merge*`, `git push*`, `git * push*`) use the builtin effect `check`, which YAML
+  cannot use. The shim asks Core with the argv that runs; Core refuses (`409`, effect `deny`, rule `task-merge`) a
+  `gh pr merge` or a push whose refspec targets the default branch (the project's `default_branch`, else the task's
+  last exit facts, else `main`/`master`; `--all` and `--mirror` count) while an artifact version the task produced
+  waits for an approval decision, or after people rejected one (the branch is abandoned); everything else runs. A
+  plain `git push` (the task's own branch upstream) is not seen as one. Nodes older than this policy run checked
+  commands without asking; `factory_exit_done` is refused there all the same.
 
 The executor reads the rules captured in the run's agent snapshot and, when any deny/approval rule
 names a command, creates a per-run directory first on the runtime PATH (`FACTORY_SHIM_DIR`) with
@@ -98,6 +106,9 @@ names a command, creates a per-run directory first on the runtime PATH (`FACTORY
 (argv[0] reduced to its basename):
 - allow: exec the real binary, found on PATH without the shim directory (127 when missing);
 - deny: print the rule's instruction, report to Core (best effort), exit 126;
+- check (builtin rules only): `POST /agent/command` with the exact argv; Core decides from the run's task state
+  without a grant; anything but 200 allow exits 126 with Core's instruction (Core unreachable refuses). The
+  whole-line decision (`shim.Guard`) leaves checks to this PATH shim, which sees the expanded argv;
 - approval: `POST /agent/command` with the run token and exact argv; Core consumes one APPROVED
   single-use `command` grant and answers 200, otherwise the shim exits 126 and tells the agent to
   request `factory_owner_request_approval` with
@@ -166,7 +177,7 @@ review before it is done and who reviews it:
       type: review
       roles: [developer]
       required: true          # done of a repository task refuses review_required without an approved verdict
-      reviewer: reviewer      # an agent, or role:<role>; the default reviewer of factory_exit_submit
+      reviewer: reviewer      # an agent, or role:<role>; the default reviewer of the covered agents' tasks
       instruction: Code changes are reviewed before they are merged.
     - name: requirements-review
       type: review
@@ -190,10 +201,28 @@ that team. Without review rules the agent's prompt decides whether work goes to 
 Every task outside the backlog names its reviewer in `review_by`: another agent, `owner`, or `member:USER`.
 Core refuses to create a task ready, to release it (`tasks ready`, Run now, Retry) or to clear `review_by` outside
 the backlog without one: `400 Reviewer is required: set review_by …; the review policy suggests review_by "NAME"`.
-The suggestion (`GET /tasks/review-suggestion?assignee=AGENT`, which prefills the web forms) is the agent's review
-rule reviewer, else its team's lead, else the owner. A submit that names no reviewer goes to the task's agent
-reviewer; a person as reviewer sends the review to people (the task shows "Waiting for your review", the Inbox lists
-it under "Reviews for you" and Telegram tells the owner), and the policy's default reviewer is not applied.
+The default reviewer (approval-gates-merge; `GET /tasks/review-suggestion?assignee=AGENT`, which prefills the web
+forms) is the agent's review rule reviewer, else the team's default reviewer (`spec.review.reviewer` of the team:
+an agent of the team or `role:<role>`, for example a QA agent; set on the team page under "Reviews by default"),
+else the agent's manager (`reports_to`), else the team's lead, else the owner; never the assignee itself.
+
+The task's reviewer is binding. A submit goes to it; a submit naming another reviewer is refused
+(`409 reviewer_not_task_reviewer`, the hint names the task's reviewer), except a reviewer a path rule requires for
+files the pull request changes (checked in addition, see above). A task without a reviewer takes the default of
+the submitting agent at submit, which is recorded on the task. Changing a task's reviewer (`review_by` on
+`PATCH /tasks/{id}` or `factory_task_update`) is an authority action, like reassigning: people, the task's creator,
+or a manager up the chain of the agent whose work it reviews (`403` for anyone else, the assignee included). A
+reviewer who cannot check the work hands the review on (`factory_exit_handoff` to an agent, without a verdict): the
+task stays in review with that reviewer. A person as reviewer sends the review to people (the task shows "Waiting
+for your review", the Inbox lists it under "Reviews for you" and Telegram tells the owner).
+
+An approved verdict covers the submission: it lists each submitted artifact in `artifact_checks` as
+`{id, version, checked: true, note: what was checked}`. Core refuses `approved` while an artifact is missing
+(`409 review_incomplete`) or marked not checked (`409 artifact_not_checked`, with why): the reviewer checks it, asks
+for changes or hands the review on. The checks are stored on the task (`review_checks`, with the reviewer and the
+time) and shown on its page ("Checked in review") and in the TUI. Core cannot verify that an agent looked; the claim
+is explicit, recorded and attributable. An approved verdict is also refused while the decider asked for changes on
+or rejected a submitted artifact version (`409 artifact_decided_against`).
 Saving the catalog returns `warnings` for agents no review rule covers, with whom their tasks default to.
 `POST /tasks/review-fill` (admins; `{"dry_run": true}` lists only) gives open tasks without a reviewer the
 suggestion once.

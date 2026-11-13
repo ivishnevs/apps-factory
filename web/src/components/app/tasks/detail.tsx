@@ -7,7 +7,7 @@ import { useState } from "react";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { Comment, CommentOutcome, FeedItem, PRFacts, QueuedReason, Run, Submission as Sub, Task, TaskPark, Verdict } from "@/lib/api/types";
+import type { Comment, CommentOutcome, FeedItem, PRFacts, QueuedReason, ReviewChecks as Checks, Run, Submission as Sub, Task, TaskPark, Verdict } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -227,6 +227,25 @@ export function Submission({ sub, look }: { sub: Sub; look?: Lookup }) {
             {sub.checks?.map((c) => <span key={c} className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1 font-mono text-xs text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-3.5" />{c}</span>)}
           </div>
         )}
+      </div>
+    </Block>
+  );
+}
+
+// ReviewChecks: what the reviewer says it checked in each submitted artifact with its approval (approval-gates-merge).
+export function ReviewChecks({ checks, now }: { checks: Checks; now: number }) {
+  return (
+    <Block title="Checked in review">
+      <div className="rounded-xl border bg-card p-4">
+        <p className="text-sm text-muted-foreground">Approved by {reviewerName(checks.reviewer)} <span title={stamp(checks.at)}>{since(checks.at, now)} ago</span></p>
+        <ul className="mt-3 space-y-2">
+          {checks.artifacts.map((a) => (
+            <li key={`${a.id}@${a.version}`} className="flex items-start gap-2 text-sm">
+              {a.checked ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" /> : <OctagonAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />}
+              <span className="min-w-0 wrap-anywhere"><span className="font-mono text-xs">{a.id}@{a.version}</span>{a.checked ? " checked: " : " not checked: "}{a.note}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </Block>
   );

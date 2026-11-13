@@ -249,6 +249,16 @@ func (s Shim) Main(ctx context.Context, args []string) int {
 			}
 			return fail("%s refused (%s, rule %s). %s", name, c.Effect, d.Rule, hint)
 		}
+	case policies.EffectCheck:
+		// Core decides from the run's task state (a merge while the task's artifacts wait for a decision); there is
+		// no grant to take. It fails closed like an approval check.
+		c, status, err := ask()
+		if err != nil {
+			return fail("%s is checked by Core (rule %s) and the check failed: %v", name, d.Rule, err)
+		}
+		if status != http.StatusOK || c.Effect != "allow" {
+			return fail("%s refused (rule %s). %s", strings.Join(argv, " "), d.Rule, c.Instruction)
+		}
 	}
 	real, err := LookPath(name, s.Getenv("PATH"), dir)
 	if err != nil {

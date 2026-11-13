@@ -632,6 +632,13 @@ are shown in plain words; IDs appear only where a person needs them.
   button per option plus Changes… and Reject (Approve, Changes… and Reject for one version); a reply asks for
   changes, "reject: <reason>" rejects (all). A tool call's approval keeps Approve, and a reply rejects it. A task's page shows
   its open question or approval the same way under Waiting for your answer ("Open in inbox" stays in the status).
+  A reviewed task whose artifact waits for the decision shows "Awaiting your approval" (approval-gates-merge:
+  `parked:awaiting_approval`; it is merged and finished once approved, goes back to its agent on changes, and its
+  pull request is closed unmerged on a rejection); the TUI says "awaiting approval" and Telegram's `/status` lists
+  such tasks per project. The task's Details show the reviewer who actually reviews (the agent reviewing it now,
+  else its `review_by`), and "Checked in review" lists what the reviewer checked in each submitted artifact with its
+  approval, under the reviewer's name (the TUI's task detail too). The team page's settings card shows and changes
+  "Reviews by default" (the team's default reviewer; without one each agent's manager).
   The cards are the Inbox's (`GET /inbox` through the overview); an answer from the chat, the task, the Inbox or
   Telegram answers the same message, so the item closes everywhere and the asking agent wakes with the answer.
 - **Connectors** `/c/{company}/nodes`: Add a connector (the install command for this Core, or a one-time code for a

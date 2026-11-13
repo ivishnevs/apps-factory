@@ -30,6 +30,9 @@ export interface Submission { summary: string; commit?: string; checks?: string[
 
 export type TaskStatus = "BACKLOG" | "READY" | "IN_PROGRESS" | "IN_REVIEW" | "REWORK" | "BLOCKED" | "DONE" | "CANCELLED";
 
+export interface ArtifactCheck { id: string; version: string; checked: boolean; note: string }
+export interface ReviewChecks { reviewer: string; at: number; artifacts: ArtifactCheck[] }
+
 export interface Task {
   id: string; project_id: string; title: string; description: string; status: TaskStatus; priority: number;
   assignee: string; created_by: string; parent_task_id?: string; openspec_change?: string; dependencies: string[];
@@ -37,6 +40,8 @@ export interface Task {
   submission?: Submission; review_feedback?: string; block_reason?: string; cancel_requested: boolean;
   origin_task?: string; origin_run?: string; attempts_no_progress?: number; fail_streak?: number; not_before?: number;
   progress_at?: number; implementer?: string; reviewer?: string; review_by?: string; created_by_person?: string; blocked_on?: string[]; model?: string;
+  // approval-gates-merge: the latest approved verdict's account of each submitted artifact, with the reviewer's name.
+  review_checks?: ReviewChecks;
   required_artifacts?: Artifact[]; wait_message_id?: string; kind?: string; paused_by?: string;
   // task-duplicate-warnings: the work it covers (inferred from its text when it named none), the tasks it replaces
   // or was replaced by, and the unanswered duplicate warnings with another open task.

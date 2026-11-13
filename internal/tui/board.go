@@ -540,7 +540,7 @@ func (m *Model) cardLines(t Task, w int, col string, selected bool) []string {
 	case col == "backlog":
 		line4 = stDim.Render("○ not released")
 	case col == "review":
-		line4 = stCyan.Render("◎ ") + stFaint.Render("review by "+dash(t.Reviewer))
+		line4 = stCyan.Render("◎ ") + stFaint.Render("review by "+reviewerOf(t))
 	default:
 		if why := m.whyLine(t); why != "" {
 			line4 = stYellow.Render(cut(why, w))
@@ -722,10 +722,20 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 	if t.Implementer != "" {
 		origin += " · implementer " + t.Implementer
 	}
-	if t.Reviewer != "" {
-		origin += " · reviewer " + t.Reviewer
+	if r := reviewerOf(t); r != "-" {
+		origin += " · reviewer " + r
 	}
 	add(stFaint.Render("origin  ") + origin + stFaint.Render(" · "+ago(now, time.Unix(t.CreatedAt, 0))+" ago"))
+	if rc := t.ReviewChecks; rc != nil {
+		// approval-gates-merge: what the reviewer checked in each submitted artifact with its approval.
+		for _, a := range rc.Artifacts {
+			mark := stGreen.Render("✓ ")
+			if !a.Checked {
+				mark = stYellow.Render("! ")
+			}
+			add(stFaint.Render("checked ") + mark + a.ID + "@" + a.Version + stFaint.Render(" by "+rc.Reviewer+": ") + a.Note)
+		}
+	}
 	if pr := taskPR(d); pr != nil {
 		st := stGreen
 		switch pr.State {

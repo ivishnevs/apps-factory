@@ -51,11 +51,15 @@ const (
 	// (ref: an agent or owner); neither has a timer (decision-waits).
 	ParkDecision = "decision"
 	ParkMessage  = "message"
+	// ParkApproval holds a reviewed task while an artifact version it produced waits for people's decision (ref: the
+	// approval's id; approval-gates-merge): the task waits as awaiting_approval and the decision moves it. Authority
+	// input does not override it; only the decision (or the approval leaving pending) clears it.
+	ParkApproval = "awaiting_approval"
 	// ParkRefResetWorkspace is the ref of the block park that waits for the node to reset a diverged worktree.
 	ParkRefResetWorkspace = "reset_workspace"
 )
 
-var parkOrder = []string{ParkEscalation, ParkInspect, ParkWait, ParkAsk, ParkDecision, ParkMessage, ParkBlock, ParkChildren}
+var parkOrder = []string{ParkEscalation, ParkInspect, ParkWait, ParkAsk, ParkDecision, ParkApproval, ParkMessage, ParkBlock, ParkChildren}
 
 // Run is the state of a run relevant to scheduling.
 type Run struct {
@@ -579,6 +583,8 @@ func park(s Snapshot, kind string) (Verdict, bool) {
 			return hold(p.Reason, p.Who, "decide decision "+p.RefID+" (Inbox, or factory decisions record "+p.RefID+"); the task wakes with the outcome")
 		case ParkMessage:
 			return hold(p.Reason, p.Who, "the next message from "+p.RefID+" to "+t.ID+" or its agent wakes it; a directive or authority comment wakes it now")
+		case ParkApproval:
+			return hold(p.Reason, p.Who, "decide approval "+p.RefID+" (Inbox): approved or chosen, its agent merges and finishes; changes requested, it reworks on the same branch; rejected, its pull request is closed unmerged")
 		default:
 			return hold(p.Reason, p.Who, "clear the "+kind+" park")
 		}
