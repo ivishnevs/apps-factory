@@ -1015,11 +1015,11 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	listed := map[string]bool{}
 	for _, x := range hb.Inventory {
 		listed[x.RunID] = true
-		var status, rnode, stopReason string
+		var status, rnode, stopReason, outcome string
 		var repoch, started, startedAt, endApplied int64
-		var revoked bool
+		var revoked, unreleased bool
 		var b []byte
-		err = tx.QueryRowContext(ctx, "SELECT status,node_id,epoch,run_started,started_at,end_applied,revoked,spec,stop_reason FROM runs WHERE company_id=? AND id=?", company, x.RunID).Scan(&status, &rnode, &repoch, &started, &startedAt, &endApplied, &revoked, &b, &stopReason)
+		err = tx.QueryRowContext(ctx, "SELECT status,node_id,epoch,run_started,started_at,end_applied,revoked,spec,stop_reason,outcome,unreleased FROM runs WHERE company_id=? AND id=?", company, x.RunID).Scan(&status, &rnode, &repoch, &started, &startedAt, &endApplied, &revoked, &b, &stopReason, &outcome, &unreleased)
 		if errors.Is(err, sql.ErrNoRows) || err == nil && (rnode != node || repoch != hb.Epoch) {
 			out.Stop = append(out.Stop, Stop{x.RunID, "unknown_run"})
 			continue
@@ -1028,7 +1028,16 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 			return out, err
 		}
 		if x.State == "ended_unacked" {
-			if endApplied == 1 {
+			switch {
+			case endApplied == 1:
+				out.Acked = append(out.Acked, x.RunID)
+			case status == "ENDED" && unreleased && (outcome == "lost" || outcome == "timed_out"):
+				// The node ended a run Core already judged lost: its runtime is gone even if the terminal event
+				// never arrives (a refused delivery), so the run is released and acked (node-wake-recovery).
+				// Late terminal evidence still replaces the outcome (Apply).
+				if err = releaseLost(ctx, tx, x.RunID); err != nil {
+					return out, err
+				}
 				out.Acked = append(out.Acked, x.RunID)
 			}
 			continue

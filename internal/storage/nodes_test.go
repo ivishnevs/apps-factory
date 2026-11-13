@@ -385,6 +385,69 @@ func TestLostRuns(t *testing.T) {
 	}
 }
 
+// TestEndedRunReleasesLostRun: Core judged a started run lost while its node was silent (unreleased: the
+// runtime may still run); the node then ended the run but its terminal event never arrived, so it lists the run
+// ended_unacked. That proves the runtime gone: the run is released, acked, and its task retries
+// (node-wake-recovery: no deadlock between the node waiting for the ack and Core waiting for the run to vanish).
+func TestEndedRunReleasesLostRun(t *testing.T) {
+	s := engineStore(t)
+	fake := clock.NewFake(time.Unix(1_800_000_000, 0))
+	s.Clock = fake
+	ctx := context.Background()
+	register(t, s, "n1", 1)
+	task := readyEngineTask(t, s, createEngineTask(t, s, "t1"))
+	spec := dispatchEngineTask(t, s, task, "r1")
+	c, err := claimV2(s, spec.ID, "n1", 1, "1-0-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.StartRun(ctx, DefaultCompany, spec.ID, c.Lease); err != nil {
+		t.Fatal(err)
+	}
+	fake.Advance(NodeOffline + time.Second)
+	if err = s.Expire(ctx, DefaultCompany); err != nil {
+		t.Fatal(err)
+	}
+	var unreleased int64
+	if err = s.DB.QueryRow("SELECT unreleased FROM runs WHERE id=?", spec.ID).Scan(&unreleased); err != nil || unreleased != 1 {
+		t.Fatal("want an unreleased lost run", unreleased, err)
+	}
+	if got, _ := s.Task(ctx, DefaultCompany, "t1"); got.Status != "IN_PROGRESS" {
+		t.Fatal("the task must wait for its node while the run is unreleased:", got.Status)
+	}
+	// The node is back; the run ended there and its terminal event was dropped.
+	a, err := s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Inventory: []InventoryRun{{RunID: spec.ID, State: "ended_unacked"}}})
+	if err != nil || len(a.Acked) != 1 || a.Acked[0] != spec.ID || len(a.Stop) != 0 {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if err = s.DB.QueryRow("SELECT unreleased FROM runs WHERE id=?", spec.ID).Scan(&unreleased); err != nil || unreleased != 0 {
+		t.Fatal("run not released", unreleased, err)
+	}
+	if got, _ := s.Task(ctx, DefaultCompany, "t1"); got.Status != "READY" {
+		t.Fatal("task did not go back to retry:", got.Status)
+	}
+	// Late terminal evidence still replaces the lost outcome after the release.
+	if err = end(t, s, spec.ID, c.Lease, protocol.Event{Status: "ENDED", Outcome: "failed", Result: "late evidence"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := outcomeOf(t, s, spec.ID); st != "ENDED" || out != "failed" {
+		t.Fatal("late evidence ignored:", st, out)
+	}
+	// A run whose end Core has not judged lost is not acked before its terminal event.
+	task2 := readyEngineTask(t, s, createEngineTask(t, s, "t2"))
+	spec2 := dispatchEngineTask(t, s, task2, "r2")
+	c2, err := claimV2(s, spec2.ID, "n1", 1, "1-0-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.StartRun(ctx, DefaultCompany, spec2.ID, c2.Lease); err != nil {
+		t.Fatal(err)
+	}
+	if a, err = s.NodeHeartbeat(ctx, DefaultCompany, "n1", NodeHeartbeat{Epoch: 1, Inventory: []InventoryRun{{RunID: spec2.ID, State: "ended_unacked"}}}); err != nil || len(a.Acked) != 0 {
+		t.Fatalf("live run acked before its terminal event: %+v %v", a, err)
+	}
+}
+
 // TestCleanupListsClosedWorktrees: a closed task's worktree on the node is listed for removal a bounded
 // number of times; open tasks and other nodes' worktrees are not.
 func TestCleanupListsClosedWorktrees(t *testing.T) {

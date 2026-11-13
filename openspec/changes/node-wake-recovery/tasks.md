@@ -28,10 +28,10 @@
 
 ## 3. Ended runs release lost runs
 
-- [ ] 3.1 Core heartbeat: a listed `ended_unacked` run that is lost and unreleased is released and acked; its task
+- [x] 3.1 Core heartbeat: a listed `ended_unacked` run that is lost and unreleased is released and acked; its task
       retries after the backoff unless it has an accepted exit; tests (fixture: lost unreleased run, node lists it
       ended, terminal event never sent).
-- [ ] 3.2 Late terminal evidence after the release still replaces the outcome; test.
+- [x] 3.2 Late terminal evidence after the release still replaces the outcome; test.
 
 ## 4. Clock skew after wake (owner decisions 1 and 2)
 
