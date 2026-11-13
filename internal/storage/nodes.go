@@ -1309,7 +1309,8 @@ var PinTimeout = 30 * time.Minute
 // offline longer than PinTimeout, or unable to run the assignee); the stalled-sweep escalates them. fill,
 // when set, adds what Core knows from the catalog (the assignee's needs) to each snapshot.
 func (s *Store) PinnedUnavailable(ctx context.Context, company string, fill func(*tasks.Snapshot)) ([]EscalationWant, error) {
-	snaps, err := s.TaskSnapshots(ctx, company, "")
+	// A view: the escalations are synced in their own transaction, so the company lock here would only queue.
+	snaps, err := s.ViewSnapshots(ctx, company, "")
 	if err != nil {
 		return nil, err
 	}

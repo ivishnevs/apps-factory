@@ -69,7 +69,8 @@ func (c *Core) sweepStallsOf(ctx context.Context, company string, now time.Time)
 	if _, err := c.Store.AutoForward(ctx, company); err != nil {
 		return err
 	}
-	snaps, err := c.Store.TaskSnapshots(ctx, company, "")
+	// A view: what the sweep raises it writes in their own transactions, so the company lock here would only queue.
+	snaps, err := c.Store.ViewSnapshots(ctx, company, "")
 	if err != nil {
 		return err
 	}
