@@ -674,7 +674,13 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			launch.Env = setEnv(launch.Env, "FACTORY_WORKDIR", cwd)
 			launch.Env = setEnv(launch.Env, "FACTORY_DEFAULT_BRANCH", spec.DefaultBranch)
 			launch.Env = setEnv(launch.Env, "FACTORY_REDACT_FILE", redactFile)
-			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH", "FACTORY_REDACT_FILE"}
+			// A runtime that gives the MCP server only the named variables (Codex) must still give factory-mcp the
+			// PATH its git runs from and, with command guards, the shim directory: the shim refuses git without it
+			// and the exit's git facts are missing.
+			vars := []string{"FACTORY_RUN_TOKEN", "FACTORY_URL", "FACTORY_EXIT_FILE", "FACTORY_WORKDIR", "FACTORY_DEFAULT_BRANCH", "FACTORY_REDACT_FILE", "PATH"}
+			if shimDir != "" {
+				vars = append(vars, shim.EnvDir)
+			}
 			if spec.OpenSpecChange != "" {
 				// The adapter reports the linked change's state with the exit facts (openspec-in-git D3).
 				launch.Env = setEnv(launch.Env, "FACTORY_OPENSPEC_CHANGE", spec.OpenSpecChange)

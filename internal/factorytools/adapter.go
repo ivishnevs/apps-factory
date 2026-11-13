@@ -381,7 +381,15 @@ func (a *Adapter) Facts(ctx context.Context) (*Facts, error) {
 	// Only the workspace's own repository counts: a scratch workspace inside another checkout (for example
 	// under a factory checkout's .cache) has no facts of its own.
 	top, err := a.git(ctx, "rev-parse", "--show-toplevel")
-	if err != nil || !sameDir(top, a.Workdir) {
+	if err != nil {
+		// A checkout whose git does not run (no git on PATH, a command shim refusing it) is not scratch work: an
+		// exit without its facts would be refused by Core as if the adapter were out of date.
+		if _, statErr := os.Lstat(filepath.Join(a.Workdir, ".git")); statErr == nil {
+			return nil, fmt.Errorf("git facts of %s unavailable: %w", a.Workdir, err)
+		}
+		return nil, nil
+	}
+	if !sameDir(top, a.Workdir) {
 		return nil, nil
 	}
 	head, err := a.git(ctx, "rev-parse", "--verify", "HEAD")

@@ -3,6 +3,7 @@ package factorytools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -309,5 +310,26 @@ func TestAdapterFactsOutsideARepository(t *testing.T) {
 	}
 	if f, err := conv.Facts(context.Background()); err != nil || f != nil {
 		t.Fatal("facts of a conversation run", f, err)
+	}
+}
+
+// TestAdapterFactsGitUnavailable: in a checkout whose git does not run (here a command shim that refuses it, as
+// when the runtime does not pass FACTORY_SHIM_DIR), the exit fails with the git error instead of going out without
+// facts, which Core would refuse as facts_required.
+func TestAdapterFactsGitUnavailable(t *testing.T) {
+	work, _ := repo(t)
+	refuse := func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("git rev-parse --show-toplevel: exit 126: factory-shim: FACTORY_SHIM_DIR is unset; refusing git")
+	}
+	f, err := (&Adapter{Workdir: work, Exec: refuse}).Facts(context.Background())
+	if f != nil || err == nil || !strings.Contains(err.Error(), "FACTORY_SHIM_DIR") {
+		t.Fatal(f, err)
+	}
+	if _, err = (&Adapter{Workdir: work, Exec: refuse}).Exit(context.Background(), "submit", map[string]any{"summary": "s"}); err == nil || !strings.Contains(err.Error(), "git facts") {
+		t.Fatal("exit without facts", err)
+	}
+	// Scratch work (no .git) still has no facts and no error.
+	if f, err = (&Adapter{Workdir: t.TempDir(), Exec: refuse}).Facts(context.Background()); f != nil || err != nil {
+		t.Fatal(f, err)
 	}
 }

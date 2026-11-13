@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,5 +86,26 @@ func TestCommandGuards(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatal("shim directory left after the run", err)
+	}
+}
+
+// TestShimEnvReachesMCP: a runtime that gives the Factory MCP server only the variables named in MCP.EnvVars
+// (Codex) still gives it the shim PATH and FACTORY_SHIM_DIR, so git run by the adapter for the exit's facts passes
+// the shim instead of being refused.
+func TestShimEnvReachesMCP(t *testing.T) {
+	snapshot, _ := json.Marshal(map[string]any{"rules": policies.HostUI().Spec.Rules})
+	d := &fake.Driver{Script: fake.Script{Status: "COMPLETED", Text: "done"}, MCP: true}
+	r, _ := runDriver(t, Worker{Driver: d, ShimBinary: buildShim(t), MCPBinary: fakeMCP(t)}, false, stored(func(s *protocol.RunSpec) { s.ConfigSnapshot = snapshot }))
+	if r.Outcome != "succeeded" {
+		t.Fatalf("%+v", r)
+	}
+	l := d.Launches()[0]
+	if l.MCP == nil {
+		t.Fatal("no Factory MCP server")
+	}
+	for _, name := range []string{"PATH", shim.EnvDir} {
+		if !slices.Contains(l.MCP.EnvVars, name) {
+			t.Errorf("%s not passed to the MCP server: %v", name, l.MCP.EnvVars)
+		}
 	}
 }
