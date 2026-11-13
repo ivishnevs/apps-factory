@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"appfactory/internal/delivery"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
@@ -23,6 +24,10 @@ type eventsCore struct {
 	lease   string
 	applied map[string][]storage.SeqEvent
 	posts   int
+	// refuse answers every post with this status and reason while refuseLeft > 0 (an auth refusal).
+	refuseStatus int
+	refuseReason string
+	refuseLeft   int
 }
 
 func (c *eventsCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +36,13 @@ func (c *eventsCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.posts++
 	if c.down {
 		http.Error(w, "unavailable", 503)
+		return
+	}
+	if c.refuseLeft > 0 {
+		c.refuseLeft--
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(c.refuseStatus)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized", "reason": c.refuseReason})
 		return
 	}
 	var b struct {
@@ -170,6 +182,52 @@ func TestEventsSpool(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "r3", "events.jsonl")); !os.IsNotExist(err) {
 		t.Fatal("refused spool file kept", err)
+	}
+}
+
+// TestEventsAuthRefusals (node-wake-recovery): a temporary auth refusal (a signature outside the time window right
+// after a wake) keeps the spool, terminal event included, and resends it; a permanent one (the lease changed)
+// drops it; a spool undelivered past the horizon fails a self-check instead of being dropped.
+func TestEventsAuthRefusals(t *testing.T) {
+	core := &eventsCore{lease: "L", applied: map[string][]storage.SeqEvent{}, refuseStatus: 401, refuseReason: "signature_window", refuseLeft: 3}
+	srv := httptest.NewServer(core)
+	defer srv.Close()
+	ev := &Events{API: API{URL: srv.URL}, Dir: t.TempDir()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_ = ev.Append(ctx, "w", "L", event("w", "L", true), true)
+	if len(core.seqs("w")) != 0 || ev.Pending() != 1 {
+		t.Fatal("a temporary refusal dropped the spool")
+	}
+	go ev.Run(ctx, 20*time.Millisecond)
+	waitFor(t, "terminal event resent after the refusals", func() bool { return len(core.seqs("w")) == 1 })
+	waitFor(t, "spool removed after the terminal event", func() bool { return ev.Pending() == 0 })
+
+	core.mu.Lock()
+	core.refuseStatus, core.refuseReason, core.refuseLeft = 401, "lease_changed", 1000
+	core.mu.Unlock()
+	_ = ev.Append(ctx, "p", "L", event("p", "L", true), true)
+	if ev.Pending() != 0 {
+		t.Fatal("a permanent refusal kept the spool")
+	}
+
+	core.mu.Lock()
+	core.refuseReason = "signature_window"
+	core.mu.Unlock()
+	_ = ev.Append(ctx, "o", "L", event("o", "L", false), false)
+	if got := ev.Overdue(); got != nil {
+		t.Fatal("overdue before the horizon", got)
+	}
+	r, _ := ev.open("o", "L")
+	r.mu.Lock()
+	r.failingSince = time.Now().Add(-delivery.Horizon - time.Minute)
+	r.mu.Unlock()
+	got := ev.Overdue()
+	if len(got) != 1 || got[0].Check != OverdueCheck || !strings.Contains(got[0].Detail, "o (") {
+		t.Fatalf("%+v", got)
+	}
+	if ev.Pending() == 0 {
+		t.Fatal("an overdue spool was dropped")
 	}
 }
 

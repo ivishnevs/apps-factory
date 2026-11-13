@@ -190,16 +190,18 @@ func nodeRoute(r *http.Request) bool {
 // nodeGateway serves a request signed by a node (node-identity D4): only with its active key, once per nonce, only
 // the routes a node calls and only for that node, in the company of its key.
 func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.ServeMux) {
-	unauthorized := func() { http.Error(w, "unauthorized", http.StatusUnauthorized) }
+	// Every refusal names its reason: the node retries a temporary one (signature_*) and drops what a
+	// permanent one (node_key_*) refuses (node-wake-recovery).
+	unauthorized := func(reason string) { refuseWith(w, http.StatusUnauthorized, reason, "unauthorized", nil) }
 	id, err := nodesig.KeyID(r)
 	if err != nil {
-		unauthorized()
+		unauthorized("signature_invalid")
 		return
 	}
 	key, err := c.Store.NodeKeyOf(r.Context(), id)
 	if errors.Is(err, storage.ErrNotFound) {
 		slog.Warn("request signed by an unknown node key", "node_id", id)
-		unauthorized()
+		unauthorized("node_key_unknown")
 		return
 	}
 	if err != nil {
@@ -207,8 +209,12 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 		return
 	}
 	pub, err := hex.DecodeString(key.SignPub)
-	if err != nil || key.Status != storage.NodeKeyActive {
-		unauthorized()
+	if err != nil {
+		unauthorized("node_key_invalid")
+		return
+	}
+	if key.Status != storage.NodeKeyActive {
+		unauthorized("node_key_revoked")
 		return
 	}
 	limit := int64(maxSignedBody)
@@ -221,26 +227,30 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	refuse := func(reason string) {
-		if c.signatures.refusalDue(id, c.Store.Now()) {
+	now := c.Store.Now()
+	refuse := func(code, reason string, extra map[string]any) {
+		if c.signatures.refusalDue(id, now) {
 			if err := c.Store.RecordNodeSignatureRefused(r.Context(), key.Company, id, reason); err != nil {
 				slog.Error("record refused signature", "node_id", id, "error", err)
 			}
 		}
-		unauthorized()
+		refuseWith(w, http.StatusUnauthorized, code, "unauthorized", extra)
 	}
-	now := c.Store.Now()
 	v, err := nodesig.Verify(r, ed25519.PublicKey(pub), body, now)
 	switch {
+	case errors.Is(err, nodesig.ErrWindow):
+		// Core's time lets the node correct its signing clock and retry at once (node-wake-recovery).
+		refuse("signature_window", err.Error(), map[string]any{"core_time_ms": now.UnixMilli()})
+		return
 	case err != nil:
-		refuse(err.Error())
+		refuse("signature_invalid", err.Error(), nil)
 		return
 	case v.Created.Before(c.signatures.started(now)):
 		// Nonces live in memory, so what was signed before this Core started cannot be told from a replay.
-		refuse("created before Core started")
+		refuse("signature_before_start", "created before Core started", nil)
 		return
 	case !c.signatures.firstUse(id, v.Nonce, now):
-		refuse("replay")
+		refuse("signature_replay", "replay", nil)
 		return
 	}
 	r = r.WithContext(context.WithValue(context.WithValue(r.Context(), companyKey{}, key.Company), nodeKey{}, id))
@@ -384,6 +394,16 @@ func nodeReply(w http.ResponseWriter, v any, err error) {
 	default:
 		reply(w, v, err)
 	}
+}
+
+// refuseWith answers a refusal of a node or run-credential route with a machine-readable reason, which the node's
+// delivery classifier reads (node-wake-recovery); extra adds fields such as Core's time.
+func refuseWith(w http.ResponseWriter, status int, reason, msg string, extra map[string]any) {
+	v := map[string]any{"error": msg, "reason": reason}
+	for k, x := range extra {
+		v[k] = x
+	}
+	jsonStatus(w, status, v)
 }
 
 func jsonStatus(w http.ResponseWriter, status int, v any) {

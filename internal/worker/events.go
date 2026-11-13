@@ -10,9 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"appfactory/internal/delivery"
+	"appfactory/internal/node"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
@@ -42,6 +46,10 @@ type runEvents struct {
 	terminal bool // the terminal event was appended
 	retryAt  time.Time
 	backoff  time.Duration
+	// failingSince is when the current streak of refused or failed sends began (zero after a delivery); past
+	// delivery.Horizon the node reports it in its health instead of dropping the events (node-wake-recovery).
+	failingSince time.Time
+	lastErr      string
 
 	send sync.Mutex // one send of the run at a time, in order
 }
@@ -228,13 +236,19 @@ func (e *Events) flush(ctx context.Context, r *runEvents) error {
 				return e.drop(r, fmt.Sprintf("Core expects seq %d, the spool starts at %d", refusal.ExpectedSeq, batch[0].Seq))
 			}
 			r.delivered(refusal.ExpectedSeq - 1)
-		case errors.As(err, &h) && h.Status >= 400 && h.Status < 500 && h.Status != 408 && h.Status != 429:
-			// Another node's or an unknown run, invalid events: they never apply.
+		case errors.As(err, &h) && delivery.Classify(h.Status, delivery.Reason(h.Message)) == delivery.Final:
+			// Another node's or an unknown run, invalid events, a permanent auth refusal: they never apply.
 			return e.drop(r, "refused: "+err.Error())
 		default:
+			// Core unreachable or busy, or a temporary refusal (a signature outside the time window right after a
+			// wake): the spool stays and is resent; a fresh request is signed anew.
 			r.mu.Lock()
 			r.backoff = min(max(2*r.backoff, time.Second), 30*time.Second)
 			r.retryAt = time.Now().Add(r.backoff)
+			if r.failingSince.IsZero() {
+				r.failingSince = time.Now()
+			}
+			r.lastErr = err.Error()
 			r.mu.Unlock()
 			return err
 		}
@@ -263,6 +277,7 @@ func (r *runEvents) delivered(seq int64) {
 	}
 	r.pending = r.pending[i:]
 	r.retryAt, r.backoff = time.Time{}, 0
+	r.failingSince, r.lastErr = time.Time{}, ""
 }
 
 // finish removes the spool of a run whose terminal event Core applied.
@@ -295,6 +310,35 @@ func (e *Events) forget(r *runEvents) error {
 		_ = os.Remove(filepath.Dir(r.path)) // the directory goes when nothing else is in it
 	}
 	return nil
+}
+
+// OverdueCheck is the node self-check that fails while a run's events stay undelivered past delivery.Horizon.
+const OverdueCheck = "delivery.events"
+
+// Overdue reports the runs whose events Core has refused or not answered for longer than delivery.Horizon, as a
+// failing self-check (node.check_failed on Core) naming them; nil when none is. The events stay spooled.
+func (e *Events) Overdue() []node.CheckResult {
+	e.mu.Lock()
+	runs := make([]*runEvents, 0, len(e.runs))
+	for _, r := range e.runs {
+		runs = append(runs, r)
+	}
+	e.mu.Unlock()
+	var late []string
+	for _, r := range runs {
+		r.mu.Lock()
+		if !r.failingSince.IsZero() && time.Since(r.failingSince) > delivery.Horizon {
+			late = append(late, r.run+" ("+r.lastErr+")")
+		}
+		r.mu.Unlock()
+	}
+	if len(late) == 0 {
+		return nil
+	}
+	sort.Strings(late)
+	return []node.CheckResult{{Check: OverdueCheck, Status: node.Fail,
+		Detail: fmt.Sprintf("%d run(s) with events undelivered for over %s: %s", len(late), delivery.Horizon, strings.Join(late, "; ")),
+		Hint:   "Core keeps refusing or not answering; check the node's connection, clock and key"}}
 }
 
 // Pending reports how many runs have spooled events Core has not applied yet.

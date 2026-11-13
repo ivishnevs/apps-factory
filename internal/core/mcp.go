@@ -43,8 +43,15 @@ func (c *Core) credential(w http.ResponseWriter, r *http.Request) {
 	var until int64
 	company := c.companyFrom(r)
 	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT lease,status,lease_until FROM runs WHERE company_id=? AND id=?", company, r.PathValue("id")).Scan(&lease, &status, &until)
-	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1 || !liveRun(status) || !c.Store.LeaseLive(until) {
-		http.Error(w, "active run lease required", 403)
+	switch {
+	case err != nil || lease == "":
+		refuseWith(w, 403, "unknown_run", "active run lease required", nil)
+		return
+	case subtle.ConstantTimeCompare([]byte(p.Lease), []byte(lease)) != 1:
+		refuseWith(w, 403, "lease_changed", "active run lease required", nil)
+		return
+	case !liveRun(status) || !c.Store.LeaseLive(until):
+		refuseWith(w, 403, "run_not_live", "active run lease required", nil)
 		return
 	}
 	run, err := c.Store.Get(r.Context(), c.companyFrom(r), r.PathValue("id"))
@@ -63,7 +70,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	parts := strings.Split(token, ".")
 	if c.Token == "" || len(parts) != 3 || parts[0] != "run" {
-		http.Error(w, "run credential required", 401)
+		refuseWith(w, 401, "credential_missing", "run credential required", nil)
 		return
 	}
 	var company, lease, status string
@@ -71,8 +78,13 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	// The run names its company (one Core serves many, company-self-service D4); the token's HMAC covers the
 	// company, so a token minted for another company's run fails it.
 	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT company_id,lease,status,lease_until FROM runs WHERE id=? ORDER BY company_id LIMIT 1", parts[1]).Scan(&company, &lease, &status, &until)
-	if err != nil || lease == "" || subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
-		http.Error(w, "run credential expired or invalid", 401)
+	if err != nil || lease == "" {
+		refuseWith(w, 401, "unknown_run", "run credential expired or invalid", nil)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(token), []byte(c.runToken(company, parts[1], lease))) != 1 {
+		// The token is an HMAC of the lease: after a new claim it never passes again.
+		refuseWith(w, 401, "lease_changed", "run credential expired or invalid", nil)
 		return
 	}
 	if !liveRun(status) || !c.Store.LeaseLive(until) {
@@ -81,7 +93,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 			jsonStatus(w, http.StatusGone, map[string]string{"reason": "not_current_run", "hint": "this run was stopped or replaced; finish the turn"})
 			return
 		}
-		http.Error(w, "run credential expired or invalid", 401)
+		refuseWith(w, 401, "run_not_live", "run credential expired or invalid", nil)
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), companyKey{}, company))
@@ -93,7 +105,7 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 	r = r.WithContext(context.WithValue(r.Context(), runKey{}, run.Spec))
 	current, ok := c.cat(company).Agents[run.Spec.Agent]
 	if !ok {
-		http.Error(w, "agent unavailable", 403)
+		refuseWith(w, 403, "agent_unavailable", "agent unavailable", nil)
 		return
 	}
 	var snapshot config.Agent

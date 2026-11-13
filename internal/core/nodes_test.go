@@ -155,23 +155,23 @@ func TestNodeGateway(t *testing.T) {
 		t.Fatal("first use", code)
 	}
 	for _, tc := range []struct {
-		name, reason string
-		r            func() *http.Request
+		name, reason, code string // code: the machine-readable reason in the answer (node-wake-recovery)
+		r                  func() *http.Request
 	}{
-		{"bad signature", "bad signature", func() *http.Request { return request(b.Key, beat, fake.Now()) }},
-		{"tampered body", "body digest", func() *http.Request {
+		{"bad signature", "bad signature", "signature_invalid", func() *http.Request { return request(b.Key, beat, fake.Now()) }},
+		{"tampered body", "body digest", "signature_invalid", func() *http.Request {
 			r := request(a.Key, beat, fake.Now())
 			r.Body = io.NopCloser(strings.NewReader(`{"epoch":2}`))
 			return r
 		}},
-		{"tampered path", "bad signature", func() *http.Request {
+		{"tampered path", "bad signature", "signature_invalid", func() *http.Request {
 			r := request(a.Key, beat, fake.Now())
 			r.URL.Path = "/nodes/" + a.ID + "/keys"
 			return r
 		}},
-		{"stale", "window", func() *http.Request { return request(a.Key, beat, fake.Now().Add(-nodesig.Window-time.Second)) }},
-		{"from the future", "window", func() *http.Request { return request(a.Key, beat, fake.Now().Add(nodesig.Window+time.Second)) }},
-		{"replayed", "replay", func() *http.Request {
+		{"stale", "window", "signature_window", func() *http.Request { return request(a.Key, beat, fake.Now().Add(-nodesig.Window-time.Second)) }},
+		{"from the future", "window", "signature_window", func() *http.Request { return request(a.Key, beat, fake.Now().Add(nodesig.Window+time.Second)) }},
+		{"replayed", "replay", "signature_replay", func() *http.Request {
 			// Inside the window, later than the first use by less than a nonce's life.
 			r := request(a.Key, beat, fake.Now())
 			if code := serve(c, r.Clone(ctx)); code != 200 {
@@ -183,8 +183,21 @@ func TestNodeGateway(t *testing.T) {
 	} {
 		fake.Advance(time.Minute + time.Second)
 		before := len(refusals())
-		if code := serve(c, tc.r()); code != 401 {
-			t.Fatalf("%s: %d", tc.name, code)
+		w := httptest.NewRecorder()
+		c.Handler().ServeHTTP(w, tc.r())
+		if w.Code != 401 {
+			t.Fatalf("%s: %d", tc.name, w.Code)
+		}
+		var answer struct {
+			Reason     string `json:"reason"`
+			CoreTimeMS int64  `json:"core_time_ms"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &answer)
+		if answer.Reason != tc.code {
+			t.Fatalf("%s: reason %q, want %q", tc.name, answer.Reason, tc.code)
+		}
+		if tc.code == "signature_window" && answer.CoreTimeMS != fake.Now().UnixMilli() {
+			t.Fatalf("%s: core time %d, want %d", tc.name, answer.CoreTimeMS, fake.Now().UnixMilli())
 		}
 		got := refusals()
 		if len(got) != before+1 || !strings.Contains(got[len(got)-1], tc.reason) {

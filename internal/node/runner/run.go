@@ -269,7 +269,16 @@ func Run(ctx context.Context, n Node) error {
 	checks = newSelfChecks(n.Host, union(c.Labels, n.Detected))
 	checks.doctor.Net = n.Net
 	checks.doctor.Scanner = scanner(c.Worktrees)
-	s.checks = checks.failed
+	// Run events are spooled under state_dir/runs and sent in order (http-node-transport D5); spools a previous
+	// process left are sent first.
+	events := &worker.Events{API: n.API}
+	if c.StateDir != "" {
+		events.Dir = filepath.Join(c.StateDir, "runs")
+	}
+	s.checks = func() []node.CheckResult {
+		// Events undelivered past the retry horizon fail a self-check instead of being dropped (node-wake-recovery).
+		return append(checks.failed(), events.Overdue()...)
+	}
 	s.onHooks = func(d protocol.NodeHooksDelivery) {
 		jan.SetCatalog(d.Spec)
 		checks.setStack(d.Spec.Checks)
@@ -281,12 +290,6 @@ func Run(ctx context.Context, n Node) error {
 		s.onHooks(*s.hooks)
 	}
 	go checks.run(ctx, c.Probes.Interval)
-	// Run events are spooled under state_dir/runs and sent in order (http-node-transport D5); spools a previous
-	// process left are sent first.
-	events := &worker.Events{API: n.API}
-	if c.StateDir != "" {
-		events.Dir = filepath.Join(c.StateDir, "runs")
-	}
 	go events.Run(ctx, time.Second)
 	pool := &Pool{Slots: c.Slots, ConversationSlots: c.ConversationSlots, StateDir: c.StateDir}
 	names := []string{}

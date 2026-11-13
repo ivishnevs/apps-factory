@@ -26,6 +26,10 @@ const components = `"@method" "@path" "@query" "content-digest"`
 // ErrSignature: the request is unsigned or its signature does not hold. Reasons are in the wrapped text.
 var ErrSignature = errors.New("invalid node signature")
 
+// ErrWindow: the signature holds but was created outside Window from the verifier's clock (a clock apart, often
+// right after the host of Core or the node woke up). It wraps with ErrSignature; a fresh signature can pass.
+var ErrWindow = errors.New("created outside the allowed window")
+
 var signatureInput = regexp.MustCompile(`^sig1=\(` + regexp.QuoteMeta(components) + `\);created=([0-9]{1,19});nonce="([0-9a-f]{32})";keyid="([0-9a-f]{32})";alg="ed25519"$`)
 
 func digest(body []byte) string {
@@ -103,7 +107,7 @@ func Verify(r *http.Request, key ed25519.PublicKey, body []byte, now time.Time) 
 	}
 	at := time.Unix(created, 0)
 	if at.Before(now.Add(-Window)) || at.After(now.Add(Window)) {
-		return v, fmt.Errorf("%w: created outside the allowed window: check the node's clock", ErrSignature)
+		return v, fmt.Errorf("%w: %w: check the node's clock", ErrSignature, ErrWindow)
 	}
 	return Verified{Node: m[3], Nonce: m[2], Created: at}, nil
 }
