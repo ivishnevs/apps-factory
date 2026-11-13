@@ -2,7 +2,8 @@
 # It serves pages only; Core proxies them (FACTORY_WEB_UPSTREAM) and serves /api and /auth itself.
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
-COPY web/package.json web/package-lock.json ./
+COPY web/package.json web/package-lock.json web/.npmrc ./
+# .npmrc (legacy-peer-deps) must be here: without it npm ci checks peers strictly and rejects the lock.
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
