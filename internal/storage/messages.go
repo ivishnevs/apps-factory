@@ -257,12 +257,14 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		if t.Status != "IN_PROGRESS" || t.CurrentRunID != in.RunID || t.Assignee != in.Sender || waiting != "" || t.CancelRequested {
 			return m, ErrConflict
 		}
-		var status, agent, project string
+		var status, agent, project, outcome string
 		var until int64
-		if err = tx.QueryRowContext(ctx, "SELECT status,agent,project,lease_until FROM runs WHERE company_id=? AND id=?", tx.company, in.RunID).Scan(&status, &agent, &project, &until); err != nil {
+		var unreleased bool
+		if err = tx.QueryRowContext(ctx, "SELECT status,agent,project,lease_until,outcome,unreleased FROM runs WHERE company_id=? AND id=?", tx.company, in.RunID).Scan(&status, &agent, &project, &until, &outcome, &unreleased); err != nil {
 			return m, err
 		}
-		if status != "CLAIMED" && status != "RUNNING" || agent != in.Sender || project != in.ProjectID || !tx.store.LeaseLive(until) {
+		live := (status == "CLAIMED" || status == "RUNNING") && tx.store.LeaseLive(until)
+		if !live && !lateExitRun(status, outcome, unreleased) || agent != in.Sender || project != in.ProjectID {
 			return m, ErrConflict
 		}
 		// The ask park is the wait (no stored wait_message_id); it remembers the run that asked.

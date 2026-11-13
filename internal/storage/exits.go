@@ -109,6 +109,12 @@ func refuse(reason, hint string) *ExitRefusal {
 	return &ExitRefusal{Status: 409, Reason: reason, Hint: hint}
 }
 
+// lateExitRun: Core judged the run lost or timed out while its node was unreachable, and the run still holds its
+// task (unreleased): its finished exit is still accepted (node-wake-recovery).
+func lateExitRun(status, outcome string, unreleased bool) bool {
+	return status == "ENDED" && unreleased && (outcome == "lost" || outcome == "timed_out")
+}
+
 var exitKinds = map[string]bool{"submit": true, "handoff": true, "done": true, "ask": true, "block": true, "wait": true}
 
 // Exit checks and (unless preflight) applies the run's exit.
@@ -125,8 +131,10 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 		return out, err
 	}
 	defer tx.Rollback()
-	var status, agent, taskID string
-	err = tx.QueryRowContext(ctx, "SELECT status,agent,coalesce(task_id,'') FROM runs WHERE company_id=? AND id=?", company, runID).Scan(&status, &agent, &taskID)
+	var status, agent, taskID, outcome string
+	var unreleased bool
+	// FOR UPDATE: a late exit and the release of its lost run (releaseLost) must not interleave.
+	err = tx.QueryRowContext(ctx, "SELECT status,agent,coalesce(task_id,''),outcome,unreleased FROM runs WHERE company_id=? AND id=? FOR UPDATE", company, runID).Scan(&status, &agent, &taskID, &outcome, &unreleased)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, &ExitRefusal{Status: 410, Reason: "not_current_run"}
 	}
@@ -154,7 +162,11 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if err != nil {
 		return out, err
 	}
-	if status != "CLAIMED" && status != "RUNNING" || t.CurrentRunID != runID {
+	// late: Core judged the run lost or timed out while its node was unreachable, and the run still holds its task
+	// (unreleased); its node now delivers the finished exit, which Core accepts (node-wake-recovery). After the
+	// release the task may run again, so the exit is refused.
+	late := lateExitRun(status, outcome, unreleased) && !req.Preflight
+	if status != "CLAIMED" && status != "RUNNING" && !late || t.CurrentRunID != runID {
 		return out, &ExitRefusal{Status: 410, Reason: "not_current_run", Hint: "this run was stopped or replaced; finish the turn"}
 	}
 	if err = validExit(req, t, agent); err != nil {
@@ -304,6 +316,19 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	// node-ties: a review copy's head (a reviewer's local merge) is not the task's handed-over work.
 	if exitSHA != "" {
 		if _, err = tx.ExecContext(ctx, "UPDATE workspaces SET exit_sha=?,updated_at=? WHERE company_id=? AND task_id=? AND NOT EXISTS (SELECT 1 FROM runs WHERE company_id=? AND id=? AND spec->>'review_copy'='true')", exitSHA, tx.now().Unix(), company, t.ID, company, runID); err != nil {
+			return out, err
+		}
+	}
+	if late {
+		// The finished work is accepted: the run ends succeeded and releases its task, which moves on by the exit
+		// instead of retrying (node-wake-recovery). The node's terminal event, when it comes, changes nothing.
+		if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome='succeeded',unreleased=0,result=? WHERE id=?", "late exit "+req.Kind+" accepted after the run was judged "+outcome, runID); err != nil {
+			return out, err
+		}
+		if err = syncTaskStatus(ctx, tx, runID); err != nil {
+			return out, err
+		}
+		if err = recoverTask(ctx, tx, runID); err != nil {
 			return out, err
 		}
 	}

@@ -18,12 +18,12 @@
 - [x] 2.1 Node: on `stop`, stop the runtime, deliver an undelivered exit (exit file or pending file) with
       `context.WithoutCancel` plus a timeout, then send the terminal event; tests for exit-before-stop and
       stop-before-exit.
-- [ ] 2.2 Core gateway: `/agent/exit` only, for an ENDED lost or timed_out unreleased run; other tools and the
+- [x] 2.2 Core gateway: `/agent/exit` only, for an ENDED lost or timed_out unreleased run; other tools and the
       credential endpoint still refuse; tests.
-- [ ] 2.3 `Store.Exit`: in the same transaction require ENDED, lost or timed_out, `unreleased=1`,
+- [x] 2.3 `Store.Exit`: in the same transaction require ENDED, lost or timed_out, `unreleased=1`,
       `task.current_run_id == run`; otherwise 410; tests (accepted; already released: 410; race between release and
       exit; timed_out; conversation run: no exit applied).
-- [ ] 2.4 An accepted late exit closes the run (`succeeded`, `unreleased=0`, no retry); `releaseLost` schedules no
+- [x] 2.4 An accepted late exit closes the run (`succeeded`, `unreleased=0`, no retry); `releaseLost` schedules no
       retry for a run with an accepted exit; test (lost unreleased run, exit accepted, task moves on without a retry).
 
 ## 3. Ended runs release lost runs

@@ -732,3 +732,116 @@ func TestUnansweredQuestionMovesUp(t *testing.T) {
 		t.Fatal("moved past the owner")
 	}
 }
+
+// TestLateExitOfLostRun (node-wake-recovery): Core judged a started run lost while its node was unreachable; the
+// run still holds its task (unreleased). Its node then delivers the finished exit: Core accepts it, the run ends
+// succeeded and released, and the task moves on by the exit without a retry. After the release the exit is
+// refused with 410; other agent routes stay closed to the lost run.
+func TestLateExitOfLostRun(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	acks := map[string]int64{}
+	lose := func(task string) exitRun {
+		t.Helper()
+		h.create(task, "notes", "demo")
+		r := h.start(task)
+		if _, err := h.s.StartRun(ctx, storage.DefaultCompany, r.id, r.lease); err != nil {
+			t.Fatal(err)
+		}
+		acks[r.id] = h.brief(r) // the runtime read its brief before the node went silent
+		h.fake.Advance(time.Hour)
+		if err := h.s.Expire(ctx, storage.DefaultCompany); err != nil {
+			t.Fatal(err)
+		}
+		run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id)
+		var unreleased int64
+		_ = h.s.DB.QueryRow("SELECT unreleased FROM runs WHERE id=?", r.id).Scan(&unreleased)
+		if run.Outcome != "lost" || unreleased != 1 || h.task(task).Status != "IN_PROGRESS" {
+			t.Fatalf("want a lost unreleased run holding its task: %s %d %s", run.Outcome, unreleased, h.task(task).Status)
+		}
+		return r
+	}
+	// endedOnNode: the claiming node lists the run ended (its terminal event never arrived).
+	endedOnNode := func(r exitRun) {
+		t.Helper()
+		if _, err := h.s.DB.Exec("UPDATE runs SET node_id=$1 WHERE id=$2", testnode.ClaimNodeID, r.id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.s.NodeHeartbeat(ctx, storage.DefaultCompany, testnode.ClaimNodeID, storage.NodeHeartbeat{Epoch: 1, Inventory: []storage.InventoryRun{{RunID: r.id, State: "ended_unacked"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask := func(ack int64) map[string]any {
+		return map[string]any{"kind": "ask", "arguments": map[string]any{"question": "Which database?", "options": []any{"sqlite", "postgres"}}, "ack_seq": ack}
+	}
+
+	r := lose("late")
+	if w := h.do(r.token, "POST", "/agent/call", factorytools.Call{Name: "factory_comment", Arguments: map[string]any{"body": "x"}}, nil); w.Code == 200 {
+		t.Fatal("a lost run used another agent route", w.Code)
+	}
+	if w := h.do(r.token, "POST", "/agent/exit", ask(acks[r.id]), nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	run, _ := h.s.Get(ctx, storage.DefaultCompany, r.id)
+	var unreleased int64
+	_ = h.s.DB.QueryRow("SELECT unreleased FROM runs WHERE id=?", r.id).Scan(&unreleased)
+	got := h.task("late")
+	if run.Outcome != "succeeded" || unreleased != 0 || got.Status != "BLOCKED" || got.WaitMessageID == "" || got.FailStreak != 0 {
+		t.Fatalf("late exit not applied: run %s unreleased %d task %+v", run.Outcome, unreleased, got)
+	}
+	// The node's terminal event, when it comes, changes nothing.
+	h.end(r, "revoked", "accepted")
+	if run, _ = h.s.Get(ctx, storage.DefaultCompany, r.id); run.Outcome != "succeeded" || h.task("late").Status != "BLOCKED" {
+		t.Fatalf("terminal event after the late exit: %s %s", run.Outcome, h.task("late").Status)
+	}
+
+	// Timed out (the node stopped it past its timeout while Core could not hear it): the same.
+	r = lose("timed")
+	if _, err := h.s.DB.Exec("UPDATE runs SET outcome='timed_out' WHERE id=$1", r.id); err != nil {
+		t.Fatal(err)
+	}
+	if w := h.do(r.token, "POST", "/agent/exit", ask(acks[r.id]), nil); w.Code != 200 || h.task("timed").Status != "BLOCKED" {
+		t.Fatal("late exit of a timed-out run", w.Code, w.Body.String(), h.task("timed").Status)
+	}
+
+	// Released first (the node listed it ended): the task may run again, the old exit is refused.
+	r = lose("released")
+	endedOnNode(r)
+	if h.task("released").Status != "READY" {
+		t.Fatal("not released", h.task("released").Status)
+	}
+	if w := h.do(r.token, "POST", "/agent/exit", ask(acks[r.id]), nil); w.Code != 410 {
+		t.Fatal("exit after the release", w.Code, w.Body.String())
+	}
+
+	// An exit accepted before the run was judged lost: the release ends it succeeded, without a retry.
+	h.create("early", "notes", "demo")
+	r = h.start("early")
+	if _, err := h.s.StartRun(ctx, storage.DefaultCompany, r.id, r.lease); err != nil {
+		t.Fatal(err)
+	}
+	if w := h.do(r.token, "POST", "/agent/exit", ask(h.brief(r)), nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	h.fake.Advance(time.Hour)
+	if err := h.s.Expire(ctx, storage.DefaultCompany); err != nil {
+		t.Fatal(err)
+	}
+	endedOnNode(r)
+	if run, _ = h.s.Get(ctx, storage.DefaultCompany, r.id); run.Outcome != "succeeded" || h.task("early").Status != "BLOCKED" {
+		t.Fatalf("an accepted exit was retried: %s %s", run.Outcome, h.task("early").Status)
+	}
+}
+
+// brief reads the run's brief and returns its ack_seq.
+func (h *exitHarness) brief(r exitRun) int64 {
+	h.t.Helper()
+	var b struct {
+		AckSeq int64 `json:"ack_seq"`
+	}
+	w := h.do(r.token, "GET", "/agent/brief", nil, nil)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &b) != nil {
+		h.t.Fatal(w.Code, w.Body.String())
+	}
+	return b.AckSeq
+}

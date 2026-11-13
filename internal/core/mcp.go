@@ -73,11 +73,12 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		refuseWith(w, 401, "credential_missing", "run credential required", nil)
 		return
 	}
-	var company, lease, status string
+	var company, lease, status, outcome string
 	var until int64
+	var unreleased bool
 	// The run names its company (one Core serves many, company-self-service D4); the token's HMAC covers the
 	// company, so a token minted for another company's run fails it.
-	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT company_id,lease,status,lease_until FROM runs WHERE id=? ORDER BY company_id LIMIT 1", parts[1]).Scan(&company, &lease, &status, &until)
+	err := c.Store.DB.QueryRowContext(r.Context(), "SELECT company_id,lease,status,lease_until,outcome,unreleased FROM runs WHERE id=? ORDER BY company_id LIMIT 1", parts[1]).Scan(&company, &lease, &status, &until, &outcome, &unreleased)
 	if err != nil || lease == "" {
 		refuseWith(w, 401, "unknown_run", "run credential expired or invalid", nil)
 		return
@@ -87,7 +88,10 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		refuseWith(w, 401, "lease_changed", "run credential expired or invalid", nil)
 		return
 	}
-	if !liveRun(status) || !c.Store.LeaseLive(until) {
+	// A late exit: Core judged the run lost while its node was unreachable, the run still holds its task, and its
+	// node delivers the finished exit. Only /agent/exit passes; Store.Exit decides it (node-wake-recovery).
+	late := r.URL.Path == "/agent/exit" && status == "ENDED" && unreleased && (outcome == "lost" || outcome == "timed_out")
+	if !late && (!liveRun(status) || !c.Store.LeaseLive(until)) {
 		if exitPath(r.URL.Path) && r.URL.Path != "/agent/brief" {
 			// The credential is genuine but its run was stopped or ended: the agent must stop (410).
 			jsonStatus(w, http.StatusGone, map[string]string{"reason": "not_current_run", "hint": "this run was stopped or replaced; finish the turn"})

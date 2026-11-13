@@ -457,6 +457,22 @@ func releaseLost(ctx context.Context, tx *Tx, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil
 	}
+	// A run whose exit Core accepted before it was judged lost did its work: it ends succeeded and its task
+	// moves on by the exit instead of retrying (node-wake-recovery).
+	if hasExit, err := runHasExit(ctx, tx, id); err != nil {
+		return err
+	} else if hasExit {
+		res, err := tx.ExecContext(ctx, "UPDATE runs SET outcome='succeeded' WHERE id=? AND outcome IN ('lost','timed_out')", id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			// The task status follows the succeeded end as at a normal end (an ask now waits for its answer).
+			if err = syncTaskStatus(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+	}
 	return recoverTask(ctx, tx, id)
 }
 
