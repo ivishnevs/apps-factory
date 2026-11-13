@@ -43,8 +43,9 @@ type Core struct {
 	limits publicLimits
 	// signatures is the node gateway's memory (node-identity D4).
 	signatures signatureState
-	// lastStallSweep is touched only by the tick goroutine.
+	// lastStallSweep and lastCycleSweep are touched only by the tick goroutine.
 	lastStallSweep time.Time
+	lastCycleSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
 	lastUnmergedCheck time.Time
 	// Prices is the price table (configs/prices.yaml) for runs whose runtime reported no cost.
@@ -463,6 +464,9 @@ func (c *Core) maintain(ctx context.Context) error {
 		return err
 	}
 	if err := c.sweepStalls(ctx); err != nil {
+		return err
+	}
+	if err := c.sweepWaitCycles(ctx); err != nil {
 		return err
 	}
 	for _, company := range c.companies() {

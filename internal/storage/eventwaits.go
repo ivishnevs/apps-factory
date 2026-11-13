@@ -134,8 +134,20 @@ func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a m
 		if from == agent || from != "owner" && (known == nil || !known(from)) {
 			return refuse("invalid_exit", "from must be owner or a configured agent other than you")
 		}
+		// A wait that closes a cycle, or on an agent that was never asked, sleeps for good (wait-deadlock-detection).
+		if err := checkWaitCycle(ctx, tx, t.ProjectID, agent, from); err != nil {
+			return err
+		}
+		unprompted, _ := a["expects_unprompted"].(bool)
+		if err := checkWaitAsked(ctx, tx, t.ProjectID, agent, from, unprompted); err != nil {
+			return err
+		}
 	case tasks.ParkApproval:
-		if _, err := approvalHold(ctx, tx, t, str(a, "approval_id")); err != nil {
+		h, err := approvalHold(ctx, tx, t, str(a, "approval_id"))
+		if err != nil {
+			return err
+		}
+		if err = checkWaitCycle(ctx, tx, t.ProjectID, agent, h.Delegate); err != nil {
 			return err
 		}
 		return nil // the approval has its own expiry: no deadline
@@ -159,7 +171,11 @@ func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any
 		return parkOnApproval(ctx, tx, *t, []ApprovalHold{h}, str(a, "reason"))
 	}
 	if eventWaitKind(a) == tasks.ParkMessage {
-		return parkOnMessageTx(ctx, tx, *t, str(a, "from"), str(a, "topic"), str(a, "reason"), deadline)
+		reason := str(a, "reason")
+		if unprompted, _ := a["expects_unprompted"].(bool); unprompted {
+			reason = strings.TrimSpace(reason + " (expects it unprompted)")
+		}
+		return parkOnMessageTx(ctx, tx, *t, str(a, "from"), str(a, "topic"), reason, deadline)
 	}
 	d, err := projectDecision(ctx, tx, t.ProjectID, str(a, "decision_id"))
 	if err != nil {
@@ -283,16 +299,22 @@ func activeEventParks(ctx context.Context, tx *Tx, kind, ref string) ([]string, 
 }
 
 // messageArrived wakes the open tasks of project parked on a message from sender that this message reaches: it is
-// about the task (task: only that task), or, about no task, addressed to the task's assignee (recipient): "your turn"
-// to one of six parked tasks wakes that one. The park clears and a message_received
-// trigger carries the message (ref, its id; "" for a comment) into the next brief.
+// about the task (task: only that task), or addressed to the task's assignee (recipient) and about no task of the
+// recipient's: "your turn" to one of six parked tasks wakes that one, and a review request filed under the sender's
+// own task wakes the recipient's tasks waiting on the sender (wait-deadlock-detection D3). The park clears and a
+// message_received trigger carries the message (ref, its id; "" for a comment) into the next brief. A task held as
+// awaiting_approval hears the approval's delegate side (heldTaskHears).
 func messageArrived(ctx context.Context, tx *Tx, project, task, recipient, sender, ref, body string) error {
 	if sender == "" || sender == "factory" || sender == "system" || project == "" || task == "" && !isAgent(recipient) {
 		return nil
 	}
+	if err := heldTaskHears(ctx, tx, task, recipient, sender, ref, body); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT p.task_id FROM task_parks p JOIN tasks t ON t.company_id=p.company_id AND t.id=p.task_id
  WHERE p.company_id=? AND p.kind=? AND p.ref_id=? AND p.status='active' AND t.project_id=? AND t.status NOT IN ('DONE','CANCELLED')
- AND t.assignee!=? AND (p.task_id=? OR (?='' AND t.assignee=?)) ORDER BY p.seq`, tx.company, tasks.ParkMessage, sender, project, sender, task, task, recipient)
+ AND t.assignee!=? AND (p.task_id=? OR (t.assignee=? AND NOT EXISTS (SELECT 1 FROM tasks x WHERE x.company_id=p.company_id AND x.id=? AND x.assignee=?)))
+ ORDER BY p.seq`, tx.company, tasks.ParkMessage, sender, project, sender, task, recipient, task, recipient)
 	if err != nil {
 		return err
 	}

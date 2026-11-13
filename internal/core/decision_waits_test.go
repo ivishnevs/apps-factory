@@ -245,7 +245,8 @@ func TestMessageWaitYourTurn(t *testing.T) {
 	for _, id := range []string{"t1", "t2", "t3"} {
 		h.create(id, "notes", "demo")
 		r := h.start(id)
-		if code, ref := h.wait(r, map[string]any{"reason": "the producer releases us in turn", "from": "manager", "topic": "your turn"}); code != 200 {
+		// The manager said it releases the tasks in turn: a wait on it without a request of ours is expected.
+		if code, ref := h.wait(r, map[string]any{"reason": "the producer releases us in turn", "from": "manager", "topic": "your turn", "expects_unprompted": true}); code != 200 {
 			t.Fatal(code, ref)
 		}
 		h.end(r, "succeeded", "accepted")

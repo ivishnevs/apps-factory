@@ -241,6 +241,9 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 	if handled, err := eventDeadlineAnswer(ctx, tx, t, e, answer, actor); handled || err != nil {
 		return err
 	}
+	if handled, err := waitCycleAnswer(ctx, tx, t, e, answer, actor); handled || err != nil {
+		return err
+	}
 	if e.Reason == "inspect" && answer != "cancel" {
 		return inspectAnswer(ctx, tx, t, e, answer, actor)
 	}

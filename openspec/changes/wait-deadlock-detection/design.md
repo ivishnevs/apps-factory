@@ -44,9 +44,9 @@ message to it. It does not know you wait. Send your request (factory_message_sen
 id) and then wait; if ui-designer said it will write unprompted, exit again with expects_unprompted: true.
 ```
 
-"Pending from A" means: the newest message between A and X in the project (either direction, any task) was sent by A,
-or a message from A to X is unread. The override is per exit and recorded on the park (`unprompted`), so the sweep and
-the board can show it.
+"Pending from A" means: the newest message between A and X in the project (either direction, any task) was sent by
+A. Read status is not used: agents act on messages without marking them read, so most stay unread. The override is per
+exit and recorded in the park's reason ("expects it unprompted"), which the board shows.
 
 ### D3. Message wake routing
 
@@ -58,8 +58,9 @@ own task wakes only that task, which keeps the "your turn to one of six parked t
 
 An `awaiting_approval` park stays non-interruptible for authority input (the decision is the clearer), but a message
 filed under the held task from the approval's delegate, or from an agent the delegate messaged about that task, adds a
-`message_received` trigger and runs one turn. Exits other than wait on the approval, submit (rework on the same branch)
-and messaging are refused during that turn with the existing hold hint. A delegate that waits on the requester, or asks
+`message_received` trigger and runs one turn. The hold itself is unchanged: done and the merge are refused while the
+approval is pending, and the trigger says to wait on the approval again. The decision's own reply to the approval's
+question does not count as such a message (the decision moves the task). A delegate that waits on the requester, or asks
 it a question, while the approval is pending gets `wait_cycle` with the hint "decide changes requested with what is
 missing".
 

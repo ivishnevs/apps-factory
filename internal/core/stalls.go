@@ -37,6 +37,23 @@ func (c *Core) sweepStalls(ctx context.Context) error {
 	return nil
 }
 
+// waitCycleSweepEvery is how often Core looks for agents asleep on each other (wait-deadlock-detection D5).
+const waitCycleSweepEvery = 10 * time.Minute
+
+func (c *Core) sweepWaitCycles(ctx context.Context) error {
+	now := c.Store.Now()
+	if !c.lastCycleSweep.IsZero() && now.Sub(c.lastCycleSweep) < waitCycleSweepEvery {
+		return nil
+	}
+	c.lastCycleSweep = now
+	for _, company := range c.companies() {
+		if err := c.isolate(ctx, company, "wait cycle sweep", c.Store.SweepWaitCycles(ctx, company)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // isolate keeps one company's failing background step from stopping Core (dependency-wait-escalations 0.2): the
 // error is logged with the company and step and the tick goes on. Only a lost storage stays fatal.
 func (c *Core) isolate(ctx context.Context, company, step string, err error) error {
