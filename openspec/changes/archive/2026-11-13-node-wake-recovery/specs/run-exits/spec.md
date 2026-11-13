@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Exit only from the current live run
-Core SHALL refuse an exit with 410 and no state change when the calling run is not the task's current live run, except a late exit: a run that is ENDED with outcome `lost` or `timed_out`, still unreleased, and still the task's current run SHALL have its exit applied. Core SHALL check these conditions in the same transaction that applies the exit. An accepted late exit SHALL end the run `succeeded`, release it and schedule no retry. Only the exit path SHALL be open to such a run; other tools and the run credential endpoint SHALL refuse it.
+Core SHALL return 410 without state changes unless the caller is the task's current live run or its ENDED, `lost`/`timed_out`, unreleased run. The late-exit check and exit SHALL be transactional. An accepted late exit SHALL mark the run `succeeded`, release it and prevent retries. Only `/agent/exit` SHALL permit that late run; all other tools and the credential endpoint SHALL refuse it.
 
 #### Scenario: Exit after urgent stop
 - **WHEN** a revoked run calls `factory_exit_done`
@@ -16,7 +16,7 @@ Core SHALL refuse an exit with 410 and no state change when the calling run is n
 - **THEN** Core SHALL answer 410 and the task SHALL be unchanged
 
 ### Requirement: Exit delivery when Core is unreachable
-The adapter SHALL write a pending exit file before it sends an exit and remove it after Core's answer. When Core is unreachable, an exit tool SHALL tell the runtime the exit is queued and to stop working, and the adapter and then the node SHALL retry the exit with the same key until it is accepted, finally refused (Node delivery refusals), or the retry horizon passes. When Core stops a run whose exit is undelivered, the node SHALL stop the runtime, deliver the exit with a bounded context of its own, and only then send the terminal event. A process that ends with an undelivered exit SHALL make the run `lost`; one whose retried exit was refused with 409 SHALL make it `no_exit`.
+The adapter SHALL persist a pending exit before POST and remove it after Core answers. On outage it SHALL tell the runtime "queued; stop". The adapter, then node, SHALL retry the same key until acceptance, final refusal or retry horizon. On stop, the node SHALL stop the runtime, deliver the exit with a separate bounded context, then send the terminal event. An undelivered exit SHALL end the run `lost`; a retried exit refused with 409 SHALL end it `no_exit`.
 
 #### Scenario: Directive arrives while the exit is queued
 - **WHEN** the adapter retries a queued exit after the process ended and Core refuses it with 409 because of a new directive
