@@ -5,3 +5,9 @@ darwin-arm64 https://github.com/openai/codex/releases/download/rust-v0.162.1/cod
 darwin-amd64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-apple-darwin.tar.gz d68e39d8f62639f33f7d00656554cb9c3ef7809e664a3827e62ab3ace3c21b21 codex-x86_64-apple-darwin
 linux-arm64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-aarch64-unknown-linux-musl.tar.gz bf3ca2719f1143b1440fbd85c149379e696c782c50ad7991f8bfcec60b2600c1 codex-aarch64-unknown-linux-musl
 linux-amd64 https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-unknown-linux-musl.tar.gz 86f268d81b898f3e144c5ecff2ad2fda2c5802e042d6195b72538fe0fa125057 codex-x86_64-unknown-linux-musl
+# Codex starts its code-mode host from the file next to its own executable (codex-rs/install-context,
+# code_mode_host_program); the standalone release ships it as a separate archive, installed beside codex/codex.
+darwin-arm64/codex-code-mode-host https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-code-mode-host-aarch64-apple-darwin.tar.gz 1f464a2894adbc916e431b6bf19bef2cb485cf7e13e636d42578c581962b3727 codex-code-mode-host-aarch64-apple-darwin
+darwin-amd64/codex-code-mode-host https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-code-mode-host-x86_64-apple-darwin.tar.gz cd52af8a6884b18239aaf36d0c99bc990e7dcf75b0917155474ffde88a111d37 codex-code-mode-host-x86_64-apple-darwin
+linux-arm64/codex-code-mode-host https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-code-mode-host-aarch64-unknown-linux-musl.tar.gz 1395ce9367f8acd280674dff083edf25bf221d908b8351d5bd4f3fdde9181e9a codex-code-mode-host-aarch64-unknown-linux-musl
+linux-amd64/codex-code-mode-host https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz 458239ea45c1fc508d89695f180ab352f2834709a8a46929a4466f4f04399ada codex-code-mode-host-x86_64-unknown-linux-musl

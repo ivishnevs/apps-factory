@@ -57,44 +57,63 @@ func write(t *testing.T, path, s string) {
 	}
 }
 
-// TestCodexFromLock (node-packaging-updates 3.3): the standalone Codex of codex.lock is downloaded from the release,
-// checked against its sha256 and installed as codex/codex; a mismatch installs nothing; a second package with the same
-// pin reuses the first one's file without a download; a platform without a pin is ErrNoPin.
+// TestCodexFromLock (node-packaging-updates 3.3): the standalone Codex of codex.lock and its code-mode host are
+// downloaded from the release, checked against their sha256 and installed as codex/codex and
+// codex/codex-code-mode-host; a mismatch installs nothing; a second package with the same pins reuses the first one's
+// files without a download; a platform without a pin, or a lock without the host's pin, is ErrNoPin.
 func TestCodexFromLock(t *testing.T) {
 	archive := tgz(t, "codex-aarch64-apple-darwin", []byte("#!/bin/sh\necho 'codex-cli 0.162.1'\n"))
-	srv, downloads := release(t, map[string][]byte{"/rust-v0.162.1/codex-aarch64-apple-darwin.tar.gz": archive})
+	helper := tgz(t, "codex-code-mode-host-aarch64-apple-darwin", []byte("host"))
+	srv, downloads := release(t, map[string][]byte{
+		"/rust-v0.162.1/codex-aarch64-apple-darwin.tar.gz":                archive,
+		"/rust-v0.162.1/codex-code-mode-host-aarch64-apple-darwin.tar.gz": helper,
+	})
 	sum := sha256.Sum256(archive)
-	lock := func(home, hexsum string) {
-		write(t, filepath.Join(home, CodexDir, CodexLock), "# pinned\ndarwin-arm64 "+srv.URL+"/rust-v0.162.1/codex-aarch64-apple-darwin.tar.gz "+hexsum+" codex-aarch64-apple-darwin\n")
+	hsum := sha256.Sum256(helper)
+	hline := "darwin-arm64/codex-code-mode-host " + srv.URL + "/rust-v0.162.1/codex-code-mode-host-aarch64-apple-darwin.tar.gz " +
+		hex.EncodeToString(hsum[:]) + " codex-code-mode-host-aarch64-apple-darwin\n"
+	lock := func(home, hexsum, extra string) {
+		write(t, filepath.Join(home, CodexDir, CodexLock), "# pinned\ndarwin-arm64 "+srv.URL+"/rust-v0.162.1/codex-aarch64-apple-darwin.tar.gz "+hexsum+" codex-aarch64-apple-darwin\n"+extra)
 	}
 	ctx := context.Background()
 	in := Installer{Client: srv.Client()}
 
 	v1 := filepath.Join(t.TempDir(), "versions", "1")
-	lock(v1, strings.Repeat("0", 64))
+	lock(v1, hex.EncodeToString(sum[:]), "")
+	if _, err := in.Codex(ctx, v1, "", "darwin-arm64"); err == nil || !strings.Contains(err.Error(), CodexHelper) || !strings.Contains(err.Error(), ErrNoPin.Error()) {
+		t.Fatal("a lock without the code-mode host was accepted:", err)
+	}
+	lock(v1, strings.Repeat("0", 64), hline)
 	if _, err := in.Codex(ctx, v1, "", "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatal("a mismatching download was accepted:", err)
 	}
 	if Binary(v1, CodexBin) != "" {
 		t.Fatal("a mismatching download was installed")
 	}
-	lock(v1, hex.EncodeToString(sum[:]))
+	lock(v1, hex.EncodeToString(sum[:]), hline)
 	msg, err := in.Codex(ctx, v1, "", "darwin-arm64")
 	if err != nil || !strings.Contains(msg, "codex-cli 0.162.1") {
 		t.Fatal(msg, err)
 	}
-	if Binary(v1, CodexBin) == "" || downloads.Load() != 2 {
+	if b, err := os.ReadFile(filepath.Join(v1, CodexDir, CodexHelper)); err != nil || string(b) != "host" {
+		t.Fatal("the code-mode host is not beside codex:", err)
+	}
+	// Downloads: host + mismatching codex, then codex (the host was already installed from its pin).
+	if Binary(v1, CodexBin) == "" || downloads.Load() != 3 {
 		t.Fatalf("installed %q after %d downloads", Binary(v1, CodexBin), downloads.Load())
 	}
-	// Again: already installed from this pin.
-	if _, err = in.Codex(ctx, v1, "", "darwin-arm64"); err != nil || downloads.Load() != 2 {
+	// Again: already installed from these pins.
+	if _, err = in.Codex(ctx, v1, "", "darwin-arm64"); err != nil || downloads.Load() != 3 {
 		t.Fatal("an installed pin was downloaded again", err, downloads.Load())
 	}
-	// The next version pins the same build: reused from the previous version.
+	// The next version pins the same builds: reused from the previous version.
 	v2 := filepath.Join(filepath.Dir(v1), "2")
-	lock(v2, hex.EncodeToString(sum[:]))
-	if _, err = in.Codex(ctx, v2, v1, "darwin-arm64"); err != nil || downloads.Load() != 2 || Binary(v2, CodexBin) == "" {
+	lock(v2, hex.EncodeToString(sum[:]), hline)
+	if _, err = in.Codex(ctx, v2, v1, "darwin-arm64"); err != nil || downloads.Load() != 3 || Binary(v2, CodexBin) == "" {
 		t.Fatal("the previous version's runtime was not reused", err, downloads.Load())
+	}
+	if _, err = os.Stat(filepath.Join(v2, CodexDir, CodexHelper)); err != nil {
+		t.Fatal("the previous version's code-mode host was not reused", err)
 	}
 	if _, err = in.Codex(ctx, v2, v1, "linux-arm64"); err == nil || !strings.Contains(err.Error(), ErrNoPin.Error()) {
 		t.Fatal("a platform without a pin:", err)

@@ -3,7 +3,10 @@ package codex
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"appfactory/internal/node"
@@ -52,5 +55,50 @@ func TestProbeClassifiesTransient(t *testing.T) {
 		if fail == nil || fail.Check != c.check || fail.Transient != c.transient {
 			t.Errorf("%s: %+v", c.name, fail)
 		}
+	}
+}
+
+// TestProbeCodeModeHost: a Codex installed from codex.lock (.codex.pin beside it) without codex-code-mode-host beside
+// it fails the probe although `codex --version` passes (every run would fail at start); with the host it passes; a
+// Codex the person installed is not checked for it.
+func TestProbeCodeModeHost(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	for _, f := range []string{bin, filepath.Join(dir, ".codex.pin")} {
+		if err := os.WriteFile(f, []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := node.Host{
+		LookPath: func(string) (string, error) { return bin, nil },
+		Stat:     func(p string) (fs.FileInfo, error) { return os.Stat(p) },
+		Run: func(_ context.Context, _ string, args ...string) (string, string, error) {
+			if len(args) == 1 && args[0] == "--version" {
+				return SupportedVersion + "\n", "", nil
+			}
+			return "Logged in using ChatGPT\n", "", nil
+		},
+	}
+	status := func() node.Status {
+		for _, r := range (Driver{Host: &h}).Probe(context.Background()) {
+			if r.Check == "codex.code_mode_host" {
+				return r.Status
+			}
+		}
+		return ""
+	}
+	if s := status(); s != node.Fail {
+		t.Fatal("a pinned Codex without its code-mode host:", s)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "codex-code-mode-host"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if s := status(); s != node.Pass {
+		t.Fatal("a pinned Codex with its code-mode host:", s)
+	}
+	_ = os.Remove(filepath.Join(dir, ".codex.pin"))
+	_ = os.Remove(filepath.Join(dir, "codex-code-mode-host"))
+	if s := status(); s != "" {
+		t.Fatal("the person's own Codex was checked for the host:", s)
 	}
 }

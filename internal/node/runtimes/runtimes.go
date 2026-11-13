@@ -34,6 +34,9 @@ const (
 	CodexDir   = "codex"
 	CodexLock  = "codex.lock"
 	CodexBin   = "codex"
+	// CodexHelper is the code-mode host Codex runs from the file next to its executable; codex.lock pins it per
+	// platform under the key "<platform>/codex-code-mode-host". A Codex without it fails at the start of every run.
+	CodexHelper = "codex-code-mode-host"
 	// pinFile records the lock line a runtime file was installed from (<dir>/.<binary>.pin).
 	pinSuffix = ".pin"
 )
@@ -119,13 +122,22 @@ func (in Installer) Claude(ctx context.Context, home, prev, libc string) (string
 	return "Claude Code " + version(ctx, filepath.Join(dir, ClaudeBin)) + " in " + dir, nil
 }
 
-// Codex installs the standalone Codex pinned for platform into home/codex/codex (sha256), reusing prev's when it has
-// the same pin.
+// Codex installs the standalone Codex pinned for platform into home/codex/codex and its code-mode host beside it
+// (home/codex/codex-code-mode-host, both sha256), reusing prev's files when they have the same pin. A lock without the
+// host's pin is an error: that Codex would fail at the start of every run.
 func (in Installer) Codex(ctx context.Context, home, prev, platform string) (string, error) {
 	dir := filepath.Join(home, CodexDir)
-	pin, err := ReadLock(filepath.Join(dir, CodexLock), platform)
+	lock := filepath.Join(dir, CodexLock)
+	pin, err := ReadLock(lock, platform)
 	if err != nil {
 		return "", err
+	}
+	helper, err := ReadLock(lock, platform+"/"+CodexHelper)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", CodexHelper, err)
+	}
+	if err = in.install(ctx, dir, CodexHelper, helper, sha256.New, prevDir(prev, CodexDir)); err != nil {
+		return "", fmt.Errorf("%s: %w", CodexHelper, err)
 	}
 	if err = in.install(ctx, dir, CodexBin, pin, sha256.New, prevDir(prev, CodexDir)); err != nil {
 		return "", err
