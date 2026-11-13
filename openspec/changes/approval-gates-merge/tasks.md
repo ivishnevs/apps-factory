@@ -8,8 +8,8 @@
 
 ## 2. Interactive artifact preview
 
-- [ ] 2.1 Viewer and inbox preview iframes use `sandbox="allow-scripts"`; raw artifact content is served with `Content-Security-Policy: sandbox allow-scripts`
-- [ ] 2.2 Test that the served page cannot reach same-origin state (header and attribute checks)
+- [x] 2.1 Viewer and inbox preview iframes use `sandbox="allow-scripts"`; raw artifact content is served with `Content-Security-Policy: sandbox allow-scripts`
+- [x] 2.2 Test that the served page cannot reach same-origin state (header and attribute checks)
 
 ## 3. Binding reviewer, manager by default
 

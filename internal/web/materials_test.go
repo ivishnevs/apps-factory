@@ -162,7 +162,7 @@ func TestPageArtifact(t *testing.T) {
 	}
 }
 
-// TestBlob: a report attachment is served raw, typed by its file name, sandboxed; download names the file.
+// TestBlob: a report attachment is served raw, typed by its file name, sandboxed without scripts; download names the file.
 func TestBlob(t *testing.T) {
 	srv, _ := demo(t)
 	var ms []Material

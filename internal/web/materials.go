@@ -526,16 +526,26 @@ func (c *contentWriter) done(err error) {
 	}
 }
 
-// contentHeaders types raw content by name (or its first bytes) and sandboxes it (no scripts, no same
-// origin); ?download=1 makes it a download named after the file.
+// contentHeaders types raw content by name (or its first bytes) and sandboxes it in an opaque origin (no
+// same-origin state, forms, popups or top navigation); an HTML page may run its scripts so a prototype renders
+// (approval-gates-merge 2.1), anything else runs none. ?download=1 makes it a download named after the file.
 func contentHeaders(w http.ResponseWriter, r *http.Request, name string, b []byte) {
-	w.Header().Set("Content-Type", contentType(name, b))
-	w.Header().Set("Content-Security-Policy", "sandbox")
+	t := contentType(name, b)
+	w.Header().Set("Content-Type", t)
+	w.Header().Set("Content-Security-Policy", contentPolicy(t))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": cmpOr(path.Base(name), "download")}))
 	}
+}
+
+// contentPolicy is the sandbox CSP for content of type t: scripts only for HTML, never allow-same-origin.
+func contentPolicy(t string) string {
+	if mt, _, _ := strings.Cut(t, ";"); mt == "text/html" {
+		return "sandbox allow-scripts"
+	}
+	return "sandbox"
 }
 
 // oneCardPerArtifact keeps an artifact's newest version in the Library and lists the older ones on it

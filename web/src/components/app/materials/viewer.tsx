@@ -39,8 +39,8 @@ function asOf(m: Material, type: string): Body["as"] {
 }
 
 // MaterialViewer is a material full screen on a phone and a wide side sheet on a desktop: the file rendered
-// (markdown as a document, images inline, JSON pretty, CSV as a table, HTML and PDF in a sandboxed frame,
-// other text as code) under its name, who made it, the report it came with and a download button.
+// (markdown as a document, images inline, JSON pretty, CSV as a table, HTML and PDF in a sandboxed frame where
+// only HTML scripts run, in an opaque origin without same-origin state, other text as code) under its name, who made it, the report it came with and a download button.
 // libraryLink (artifact-links): an artifact opened from a message links to its Library card.
 export function MaterialViewer({ material, onClose, now, showTask = true, libraryLink = false }: { material: Material | null; onClose: () => void; now: number; showTask?: boolean; libraryLink?: boolean }) {
   return (
@@ -160,7 +160,7 @@ function Content({ m, url }: { m: Material; url: string }) {
       </div>
     );
   }
-  if (frame) return <iframe src={url} title={m.name} sandbox="" className="block h-[calc(100dvh-10rem)] min-h-96 w-full rounded-xl border bg-white" />;
+  if (frame) return <iframe src={url} title={m.name} sandbox={m.kind === "web" ? "allow-scripts" : ""} className="block h-[calc(100dvh-10rem)] min-h-96 w-full rounded-xl border bg-white" />;
   if (tooBig) return <NoPreview m={m} url={url} why="This file is too large to show here." />;
   if (q.error) return <ErrorState error={q.error} />;
   if (!q.data) return <div className="space-y-3 py-2"><Skeleton className="h-7 w-2/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" /><Skeleton className="h-4 w-3/4" /></div>;

@@ -28,7 +28,7 @@ function kindOf(name: string | undefined, type: string): Kind {
 export const byteSize = (n?: number) => (!n ? "" : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MiB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${n} B`);
 
 // ArtifactPreview shows an artifact version: images inline, markdown/json/text rendered, HTML in a sandboxed
-// frame (no scripts, no same-origin), anything else as a download link.
+// frame (scripts run in an opaque origin, no same-origin state; PDF with no scripts), anything else as a download link.
 export function ArtifactPreview({ project, artifact }: { project: string; artifact: Artifact & ArtifactMeta }) {
   const url = `/api/artifacts/${encodeURIComponent(project)}/${encodeURIComponent(artifact.id)}/${encodeURIComponent(artifact.version)}`;
   const [open, setOpen] = useState(false);
@@ -67,7 +67,7 @@ export function ArtifactPreview({ project, artifact }: { project: string; artifa
             // eslint-disable-next-line @next/next/no-img-element
             <img src={url} alt={artifact.name || artifact.id} className="mx-auto block max-h-[32rem] w-auto max-w-full bg-[repeating-conic-gradient(#8881_0_25%,transparent_0_50%)] bg-[length:16px_16px]" />
           ) : q.data.kind === "html" || q.data.kind === "pdf" ? (
-            <iframe src={url} title={artifact.name || artifact.id} sandbox="" className="block h-96 w-full bg-white" />
+            <iframe src={url} title={artifact.name || artifact.id} sandbox={q.data.kind === "html" ? "allow-scripts" : ""} className="block h-96 w-full bg-white" />
           ) : q.data.kind === "markdown" ? (
             <div className="p-4"><Markdown text={q.data.text} /></div>
           ) : q.data.kind === "json" ? (
