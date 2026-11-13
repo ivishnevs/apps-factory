@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"appfactory/internal/delivery"
 )
 
 // PendingExit is an exit queued while Core was unreachable, written beside the exit file (PendingExitFile) so the
@@ -62,7 +65,8 @@ func ReadPendingExit(exitFile string) (PendingExit, bool) {
 }
 
 // DeliverPendingExit posts p to Core as the run (token) once. It returns the settled state, accepted or refused (a
-// 409 or 410: new input arrived or the run ended), or "" when Core did not answer (unreachable, 5xx).
+// final refusal by delivery.Classify: 409 new input, 410 the run ended or was released, a permanent auth refusal),
+// or "" when a later attempt can pass (unreachable, 5xx, a temporary refusal).
 func DeliverPendingExit(ctx context.Context, client *http.Client, coreURL, token string, p PendingExit) string {
 	b, err := json.Marshal(p.Body)
 	if err != nil {
@@ -83,12 +87,13 @@ func DeliverPendingExit(ctx context.Context, client *http.Client, coreURL, token
 	if err != nil {
 		return ""
 	}
+	b, _ = io.ReadAll(io.LimitReader(res.Body, 64<<10))
 	res.Body.Close()
 	switch {
-	case res.StatusCode >= 500:
-		return ""
 	case res.StatusCode == 200:
 		return "accepted"
+	case delivery.Classify(res.StatusCode, delivery.Reason(string(b))) == delivery.Retry:
+		return "" // unreachable, busy, or a temporary refusal: deliver again (node-wake-recovery)
 	}
 	return "refused"
 }

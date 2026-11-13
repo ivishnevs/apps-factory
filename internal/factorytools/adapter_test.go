@@ -291,6 +291,61 @@ func TestAdapterQueuedExitRefused(t *testing.T) {
 	}
 }
 
+// TestAdapterExitDeliveryRules (node-wake-recovery): the exit's body is beside the exit file before the request
+// (a factory-mcp killed mid-request leaves it for the node) and goes after Core's answer; a temporary auth refusal
+// queues the exit, a permanent one ends it.
+func TestAdapterExitDeliveryRules(t *testing.T) {
+	t.Run("pending body written before the request", func(t *testing.T) {
+		f, srv := newFakeCore(t)
+		exitFile := filepath.Join(t.TempDir(), "exit.json")
+		var during bool
+		f.handlers["/agent/exit"] = func(int) (int, string, string) {
+			_, during = ReadPendingExit(exitFile)
+			return 200, `{"exit":"done"}`, ""
+		}
+		a := &Adapter{URL: srv.URL, Token: "run.tok", ExitFile: exitFile}
+		if _, err := a.Call(context.Background(), Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "s"}}); err != nil {
+			t.Fatal(err)
+		}
+		if !during {
+			t.Fatal("no pending body while the exit was in flight")
+		}
+		if _, ok := ReadPendingExit(exitFile); ok {
+			t.Fatal("pending body kept after acceptance")
+		}
+	})
+	for name, c := range map[string]struct {
+		status        int
+		reason, state string
+	}{
+		"temporary refusal queues": {401, "signature_window", "accepted"},
+		"lease changed ends":       {401, "lease_changed", "none"},
+		"agent deleted ends":       {403, "agent_unavailable", "none"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, srv := newFakeCore(t)
+			f.handlers["/agent/exit"] = func(n int) (int, string, string) {
+				if n < 2 {
+					return c.status, `{"reason":"` + c.reason + `"}`, ""
+				}
+				return 200, `{"exit":"done"}`, ""
+			}
+			exitFile := filepath.Join(t.TempDir(), "exit.json")
+			a := &Adapter{URL: srv.URL, Token: "run.tok", ExitFile: exitFile, RetryBase: 10 * time.Millisecond}
+			_, _ = a.Call(context.Background(), Call{Name: "factory_exit_done", Arguments: map[string]any{"summary": "s"}})
+			a.Wait()
+			st := ExitState{State: "none"}
+			_ = json.Unmarshal(must(os.ReadFile(exitFile)), &st)
+			if st.State != c.state {
+				t.Fatalf("exit state %q, want %q", st.State, c.state)
+			}
+			if _, ok := ReadPendingExit(exitFile); ok {
+				t.Fatal("pending body left")
+			}
+		})
+	}
+}
+
 func must(b []byte, _ error) []byte { return b }
 
 // TestAdapterFactsOutsideARepository: scratch work has no facts, also inside another repository's tree.

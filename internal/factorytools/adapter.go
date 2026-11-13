@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"appfactory/internal/delivery"
 	"appfactory/internal/openspec"
 )
 
@@ -257,10 +258,18 @@ func (a *Adapter) send(ctx context.Context, path, kind string, args map[string]a
 		a.head = facts.Head
 		a.mu.Unlock()
 	}
-	status, b, _, err := a.do(ctx, "POST", path, body)
 	preflight := strings.HasSuffix(path, "/preflight")
+	if !preflight {
+		// Written before the request, so an exit whose process group is killed mid-request is still delivered by
+		// the node; removed once Core answers (node-wake-recovery).
+		a.writePending(body)
+	}
+	status, b, _, err := a.do(ctx, "POST", path, body)
+	if err != nil {
+		status = 0
+	}
 	switch {
-	case err != nil || status >= 500:
+	case delivery.Classify(status, delivery.Reason(string(b))) == delivery.Retry && status != 200:
 		if preflight {
 			return nil, fmt.Errorf("Core unreachable for the exit check (%v %s); try the exit again shortly", err, bytes.TrimSpace(b)), true
 		}
@@ -271,10 +280,15 @@ func (a *Adapter) send(ctx context.Context, path, kind string, args map[string]a
 			return nil, nil, false
 		}
 		a.record("accepted", kind)
+		a.clearPending()
 		var v any
 		_ = json.Unmarshal(b, &v)
 		return map[string]any{"accepted": v, "next": "the exit is accepted: finish the turn now"}, nil, true
-	case status == 410:
+	}
+	if !preflight {
+		a.clearPending() // a final answer: nothing left to deliver
+	}
+	if status == 410 {
 		return nil, errors.New("this run was stopped or replaced: stop working and finish the turn"), true
 	}
 	var r exitRefusal
@@ -307,14 +321,17 @@ func (a *Adapter) queue(body map[string]any, kind string) {
 		for {
 			time.Sleep(wait)
 			wait = min(2*wait, time.Minute)
-			status, _, _, err := a.do(context.Background(), "POST", "/agent/exit", body)
+			status, b, _, err := a.do(context.Background(), "POST", "/agent/exit", body)
+			if err != nil {
+				status = 0
+			}
 			switch {
-			case err != nil || status >= 500:
-				continue
 			case status == 200:
 				a.record("accepted", kind)
+			case delivery.Classify(status, delivery.Reason(string(b))) == delivery.Retry:
+				continue // Core unreachable or busy, or a temporary refusal
 			default:
-				a.record("refused", kind) // 409 (new input) or 410 (the run ended)
+				a.record("refused", kind) // 409 (new input), 410 (the run ended), a permanent refusal
 			}
 			a.clearPending()
 			a.mu.Lock()

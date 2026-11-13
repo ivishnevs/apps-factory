@@ -348,9 +348,12 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return
 		}
 		awaited = true
-		if awaitExitDelivery(ctx, spec.ID, exitFile, session.ProcessGroup(), mcpName) == "pending" && runToken != "" {
-			// factory-mcp is gone or out of time with the exit undelivered: the node delivers it before the
-			// terminal event, so a finished run is not ended as lost while Core was unreachable.
+		state := awaitExitDelivery(ctx, spec.ID, exitFile, session.ProcessGroup(), mcpName)
+		if runToken != "" && exitUndelivered(exitFile, state) {
+			// factory-mcp is gone, out of time, or was killed mid-request with the exit undelivered: the node
+			// delivers it before the terminal event, so a finished run is not ended as lost while Core was
+			// unreachable. Also when Core stopped the run (ctx done): Core then decides it as a late exit of a
+			// lost run (node-wake-recovery).
 			redeliverExit(ctx, spec.ID, exitFile, w.API.URL, runToken)
 		}
 	}
@@ -1380,12 +1383,25 @@ func redeliverExit(ctx context.Context, run, path, coreURL, token string) {
 	slog.Info("delivering the run's pending exit from the node", "run", run, "wait", ExitRedeliverWait)
 	client := &http.Client{}
 	deadline := time.Now().Add(ExitRedeliverWait)
+	// A stopped run (ctx done: Core's stop, a revoke, the node shutting down) still delivers its finished exit,
+	// within StopExitDeliveryWait, on a context of its own (node-wake-recovery).
+	stopped := ctx.Done()
+	send := context.WithoutCancel(ctx)
+	shorten := func() {
+		stopped = nil
+		if d := time.Now().Add(StopExitDeliveryWait); d.Before(deadline) {
+			deadline = d
+		}
+	}
+	if ctx.Err() != nil {
+		shorten()
+	}
 	wait := exitRedeliverBase
 	for {
-		if readExitState(path).State != "pending" {
+		if st := readExitState(path).State; st == "accepted" || st == "refused" {
 			return // the adapter's own delivery settled it
 		}
-		if state := factorytools.DeliverPendingExit(ctx, client, coreURL, token, p); state != "" {
+		if state := factorytools.DeliverPendingExit(send, client, coreURL, token, p); state != "" {
 			factorytools.SettleExitFile(path, state)
 			_ = os.Remove(factorytools.PendingExitFile(path))
 			slog.Info("pending exit delivered by the node", "run", run, "exit_state", state)
@@ -1396,13 +1412,29 @@ func redeliverExit(ctx context.Context, run, path, coreURL, token string) {
 			return
 		}
 		select {
-		case <-ctx.Done():
-			slog.Warn("run stopped while the node delivered its pending exit", "run", run)
-			return
+		case <-stopped:
+			slog.Warn("run stopped while the node delivered its pending exit; delivering within the stop wait", "run", run, "wait", StopExitDeliveryWait)
+			shorten()
 		case <-time.After(wait):
 		}
 		wait = min(2*wait, time.Minute)
 	}
+}
+
+// StopExitDeliveryWait bounds the node's delivery of a stopped run's undelivered exit before its terminal event.
+var StopExitDeliveryWait = 2 * time.Minute
+
+// exitUndelivered reports whether the run's exit still has to reach Core: the exit file says pending, or factory-mcp
+// wrote the pending file and was killed before it recorded an answer.
+func exitUndelivered(exitFile, state string) bool {
+	if state == "pending" {
+		return true
+	}
+	if state == "accepted" || state == "refused" {
+		return false
+	}
+	_, ok := factorytools.ReadPendingExit(exitFile)
+	return ok
 }
 
 // mcpRunning reports whether a process whose command line names the executable mcp is in process

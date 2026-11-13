@@ -207,3 +207,89 @@ func TestRedeliverExit(t *testing.T) {
 		t.Fatal("settled without a delivery")
 	}
 }
+
+// TestRedeliverExitRules (node-wake-recovery): the node classifies refusals of a pending exit by reason; a stopped
+// run still delivers its exit (bounded by StopExitDeliveryWait); a pending body left by a factory-mcp killed
+// mid-request is delivered although the exit file never said pending.
+func TestRedeliverExitRules(t *testing.T) {
+	defer func(w, b, s time.Duration) { ExitRedeliverWait, exitRedeliverBase, StopExitDeliveryWait = w, b, s }(ExitRedeliverWait, exitRedeliverBase, StopExitDeliveryWait)
+	exitRedeliverBase = 10 * time.Millisecond
+	type answer struct {
+		status int
+		reason string
+	}
+	setup := func(t *testing.T, state string, answers []answer) (string, string, *int) {
+		t.Helper()
+		calls := new(int)
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			a := answers[min(*calls, len(answers)-1)]
+			*calls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(a.status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"reason": a.reason})
+		}))
+		t.Cleanup(srv.Close)
+		file := filepath.Join(t.TempDir(), "exit.json")
+		if state != "" {
+			_ = os.WriteFile(file, []byte(`{"state":"`+state+`","kind":"done"}`), 0o600)
+		}
+		if err := os.WriteFile(factorytools.PendingExitFile(file), []byte(`{"body":{"kind":"done"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return file, srv.URL, calls
+	}
+	for name, c := range map[string]struct {
+		answers []answer
+		want    string
+	}{
+		"temporary 401 retried":   {[]answer{{401, "signature_window"}, {401, "signature_window"}, {200, ""}}, "accepted"},
+		"lease changed is final":  {[]answer{{401, "lease_changed"}, {200, ""}}, "refused"},
+		"agent deleted is final":  {[]answer{{403, "agent_unavailable"}, {200, ""}}, "refused"},
+		"busy then accepted":      {[]answer{{429, ""}, {200, ""}}, "accepted"},
+		"released run: 410 final": {[]answer{{410, "not_current_run"}, {200, ""}}, "refused"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ExitRedeliverWait = time.Minute
+			file, url, _ := setup(t, "pending", c.answers)
+			redeliverExit(context.Background(), "r", file, url, "run.tok")
+			if got := readExitState(file).State; got != c.want {
+				t.Fatalf("exit %s, want %s", got, c.want)
+			}
+		})
+	}
+	t.Run("stopped run still delivers", func(t *testing.T) {
+		ExitRedeliverWait, StopExitDeliveryWait = time.Minute, time.Minute
+		file, url, calls := setup(t, "pending", []answer{{503, ""}, {200, ""}})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Core's stop reached the node first
+		redeliverExit(ctx, "r", file, url, "run.tok")
+		if got := readExitState(file).State; got != "accepted" || *calls != 2 {
+			t.Fatalf("exit %s after %d deliveries", got, *calls)
+		}
+	})
+	t.Run("stopped run is bounded", func(t *testing.T) {
+		ExitRedeliverWait, StopExitDeliveryWait = time.Minute, 100*time.Millisecond
+		file, url, _ := setup(t, "pending", []answer{{503, ""}})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		start := time.Now()
+		redeliverExit(ctx, "r", file, url, "run.tok")
+		if el := time.Since(start); el > 10*time.Second || readExitState(file).State != "pending" {
+			t.Fatalf("took %s, state %s", el, readExitState(file).State)
+		}
+	})
+	t.Run("killed mid-request", func(t *testing.T) {
+		ExitRedeliverWait = time.Minute
+		file, url, _ := setup(t, "", []answer{{200, ""}})
+		if !exitUndelivered(file, readExitState(file).State) {
+			t.Fatal("a pending body without an answer is not undelivered")
+		}
+		redeliverExit(context.Background(), "r", file, url, "run.tok")
+		if got := readExitState(file).State; got != "accepted" {
+			t.Fatal(got)
+		}
+		if exitUndelivered(file, readExitState(file).State) {
+			t.Fatal("still undelivered after acceptance")
+		}
+	})
+}

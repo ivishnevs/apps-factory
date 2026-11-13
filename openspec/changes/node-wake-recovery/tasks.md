@@ -2,20 +2,20 @@
 
 - [x] 1.1 Core: machine-readable reasons on every 401/403/410 of node and run-credential routes (`signature_window`,
       `lease_changed`, `node_key_revoked`, `agent_unavailable`, `not_current_run`, ...); tests.
-- [ ] 1.2 One refusal classifier (retry / final) by reason and status, shared by the event spool, the node's exit
+- [x] 1.2 One refusal classifier (retry / final) by reason and status, shared by the event spool, the node's exit
       redelivery and the adapter; table tests.
 - [x] 1.3 Event spool: keep and retry on retry-class refusals, drop only on final ones; tests with a fake Core answering
       a temporary 401 then 200, and a permanent 401 (lease changed) that is not retried forever.
-- [ ] 1.4 Exit delivery (`factorytools/pending.go`, worker redelivery): the same classifier; tests.
+- [x] 1.4 Exit delivery (`factorytools/pending.go`, worker redelivery): the same classifier; tests.
 - [x] 1.5 Retry horizon: past it a node health event names the run and what is undelivered; nothing is dropped
       silently; tests.
-- [ ] 1.6 Adapter writes the pending file before `POST /agent/exit` and removes it after Core's answer; test killing
+- [x] 1.6 Adapter writes the pending file before `POST /agent/exit` and removes it after Core's answer; test killing
       the process group mid-request.
-- [ ] 1.7 Redelivery idempotence: an exit and an event batch delivered twice apply once; tests.
+- [x] 1.7 Redelivery idempotence: an exit and an event batch delivered twice apply once; tests.
 
 ## 2. Late exits of lost runs
 
-- [ ] 2.1 Node: on `stop`, stop the runtime, deliver an undelivered exit (exit file or pending file) with
+- [x] 2.1 Node: on `stop`, stop the runtime, deliver an undelivered exit (exit file or pending file) with
       `context.WithoutCancel` plus a timeout, then send the terminal event; tests for exit-before-stop and
       stop-before-exit.
 - [ ] 2.2 Core gateway: `/agent/exit` only, for an ENDED lost or timed_out unreleased run; other tools and the
