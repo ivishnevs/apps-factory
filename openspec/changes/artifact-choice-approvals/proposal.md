@@ -41,7 +41,7 @@ comment for one option too. The delegate rules are one code path: approving (cho
 changes and reject need a reason and no cite; `drop` is refused on one option (escalate it whole). The requester's
 text for one option keeps the familiar form ("artifact approval … of lens@2 approved by the owner: …", "Approval …
 CHANGES_REQUESTED: …"). Telegram: one version shows Approve, Changes… and Reject, and a reply now asks for changes
-("reject: <reason>" rejects) instead of rejecting. Tool-call approvals (`factory_owner_request_approval`, command
+("reject: <reason>" rejects) instead of rejecting (confirmed by the owner 2026-11-13). Tool-call approvals (`factory_owner_request_approval`, command
 guards) are a different kind and stay approve/reject; they are never delegated. No migration: the schema already
 had `approval_options` and the artifact columns.
 
