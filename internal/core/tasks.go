@@ -243,7 +243,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			write(w, compactTasks(list))
 			return
 		}
-		snaps, err := c.Store.TaskSnapshots(ctx, company, project)
+		snaps, err := c.Store.ViewSnapshots(ctx, company, project)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -266,7 +266,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		snap, err := c.Store.TaskSnapshot(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		snap, err := c.Store.ViewSnapshot(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -279,7 +279,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		if !c.taskPermit(w, r, r.URL.Query().Get("actor"), "factory.task.get", false, false) {
 			return
 		}
-		snap, err := c.Store.TaskSnapshot(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		snap, err := c.Store.ViewSnapshot(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -314,7 +314,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		snaps, err := c.Store.TaskSnapshots(r.Context(), c.companyFrom(r), r.PathValue("id"))
+		snaps, err := c.Store.ViewSnapshots(r.Context(), c.companyFrom(r), r.PathValue("id"))
 		if err != nil {
 			reply(w, nil, err)
 			return

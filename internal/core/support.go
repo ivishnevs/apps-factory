@@ -149,7 +149,7 @@ func (c *Core) CompanyDoctor(ctx context.Context, company string, since time.Dur
 	for _, r := range runs {
 		in.FailedRuns = append(in.FailedRuns, support.FailedRun{ID: r.ID, TaskID: r.TaskID, Agent: r.Agent, NodeID: r.NodeID, Outcome: r.Outcome, NodeFault: r.NodeFault, Result: r.Result})
 	}
-	snaps, err := c.Store.TaskSnapshots(ctx, company, "")
+	snaps, err := c.Store.ViewSnapshots(ctx, company, "")
 	if err != nil {
 		return support.CompanyDoctor{}, err
 	}

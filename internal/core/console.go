@@ -88,7 +88,7 @@ func (c *Core) status(r *http.Request, only string) ([]ProjectStatus, error) {
 		for _, t := range all {
 			st.Tasks[t.Status]++
 		}
-		snaps, err := c.Store.TaskSnapshots(ctx, company, p.ID)
+		snaps, err := c.Store.ViewSnapshots(ctx, company, p.ID)
 		if err != nil {
 			return nil, err
 		}

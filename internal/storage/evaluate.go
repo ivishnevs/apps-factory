@@ -19,6 +19,22 @@ func (s *Store) TaskSnapshot(ctx context.Context, company, id string) (tasks.Sna
 		return tasks.Snapshot{}, err
 	}
 	defer tx.Rollback()
+	return taskSnapshotTx(ctx, tx, id)
+}
+
+// ViewSnapshot is TaskSnapshot for a view (a task page, why): a read-only snapshot without the company lock, so
+// the views neither wait for nor hold up the deciding transactions. Decisions (dispatch) use TaskSnapshot.
+func (s *Store) ViewSnapshot(ctx context.Context, company, id string) (tasks.Snapshot, error) {
+	tx, err := s.read(ctx, company)
+	if err != nil {
+		return tasks.Snapshot{}, err
+	}
+	defer tx.Rollback()
+	return taskSnapshotTx(ctx, tx, id)
+}
+
+func taskSnapshotTx(ctx context.Context, tx *Tx, id string) (tasks.Snapshot, error) {
+	company := tx.company
 	t, err := taskTx(ctx, tx, id)
 	if err != nil {
 		return tasks.Snapshot{}, err
@@ -45,6 +61,21 @@ func (s *Store) TaskSnapshots(ctx context.Context, company, project string) ([]t
 		return nil, err
 	}
 	defer tx.Rollback()
+	return taskSnapshotsTx(ctx, tx, project)
+}
+
+// ViewSnapshots is TaskSnapshots for a view (the board, status, throughput): see ViewSnapshot.
+func (s *Store) ViewSnapshots(ctx context.Context, company, project string) ([]tasks.Snapshot, error) {
+	tx, err := s.read(ctx, company)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	return taskSnapshotsTx(ctx, tx, project)
+}
+
+func taskSnapshotsTx(ctx context.Context, tx *Tx, project string) ([]tasks.Snapshot, error) {
+	company := tx.company
 	ts, err := listDocs[tasks.Task](ctx, tx, "SELECT body FROM tasks WHERE company_id=? AND (?='' OR project_id=?) AND status NOT IN ('DONE','CANCELLED') ORDER BY priority DESC,created_at,id", company, project, project)
 	if err != nil {
 		return nil, err

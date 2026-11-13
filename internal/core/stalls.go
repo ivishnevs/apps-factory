@@ -330,7 +330,7 @@ func taskWait(t tasks.Task, v tasks.Verdict) *storage.TaskWait {
 
 // taskWaits are the company's capacity waits (taskWait of every released open task).
 func (c *Core) taskWaits(ctx context.Context, company string) ([]storage.TaskWait, error) {
-	snaps, err := c.Store.TaskSnapshots(ctx, company, "")
+	snaps, err := c.Store.ViewSnapshots(ctx, company, "")
 	if err != nil {
 		return nil, err
 	}

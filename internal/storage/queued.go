@@ -79,7 +79,7 @@ type QueuedNode struct {
 
 // QueuedWhy is why the run waits; nil when it is not QUEUED (or revoked).
 func (s *Store) QueuedWhy(ctx context.Context, company, id string) (*QueuedReason, error) {
-	tx, err := s.begin(ctx, company)
+	tx, err := s.read(ctx, company)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (s *Store) QueuedWhyAll(ctx context.Context, company string, ids []string) 
 	if len(ids) == 0 {
 		return out, nil
 	}
-	tx, err := s.begin(ctx, company)
+	tx, err := s.read(ctx, company)
 	if err != nil {
 		return nil, err
 	}

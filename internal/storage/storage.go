@@ -202,8 +202,23 @@ func (s *Store) begin(ctx context.Context, company string) (*Tx, error) {
 		tx.Rollback()
 		return nil, err
 	}
-	return &Tx{Tx: tx, company: company, store: s}, nil
+	return &Tx{Tx: tx, company: company, store: s, locked: time.Now(), caller: callerName(2)}, nil
 }
+
+// read starts a read-only snapshot transaction of company without the company lock: a view that decides nothing
+// (the board, a task's page and why, status, throughput) sees one consistent moment without queueing behind every
+// deciding transaction, and they do not queue behind it. Anything it writes fails (read only).
+func (s *Store) read(ctx context.Context, company string) (*Tx, error) {
+	if company == "" {
+		return nil, inputError("company required")
+	}
+	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	return &Tx{Tx: tx, company: company, store: s, readOnly: true}, nil
+}
+
 func (s *Store) Create(ctx context.Context, company string, r protocol.RunSpec) error {
 	tx, err := s.begin(ctx, company)
 	if err != nil {

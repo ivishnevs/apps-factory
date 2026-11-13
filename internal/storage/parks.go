@@ -19,7 +19,7 @@ type TaskPark struct {
 
 // TaskParks lists a task's parks, oldest first: the active ones, or all of them with all.
 func (s *Store) TaskParks(ctx context.Context, company, task string, all bool) ([]TaskPark, error) {
-	tx, err := s.begin(ctx, company)
+	tx, err := s.read(ctx, company)
 	if err != nil {
 		return nil, err
 	}

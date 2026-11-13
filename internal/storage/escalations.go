@@ -351,7 +351,7 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 
 // Escalations lists escalations, the open ones when open is set.
 func (s *Store) Escalations(ctx context.Context, company string, open bool) ([]Escalation, error) {
-	tx, err := s.begin(ctx, company)
+	tx, err := s.read(ctx, company)
 	if err != nil {
 		return nil, err
 	}

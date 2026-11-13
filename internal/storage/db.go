@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
@@ -45,6 +48,45 @@ type Tx struct {
 	// wake: the transaction queued a run or changed what a node must do (a stop, a reset, a pause lifted); its
 	// commit wakes the company's waiting node polls (Store.Wake, http-node-transport D6).
 	wake bool
+	// readOnly: a snapshot read without the company lock (Store.read); side effects of shared helpers are skipped.
+	readOnly bool
+	// locked and caller: when the company lock was taken and by which function (Store.begin); a longer hold than
+	// SlowLockHold is logged at its end, naming what kept every other deciding transaction of the company waiting.
+	locked time.Time
+	caller string
+	ended  bool
+}
+
+// SlowLockHold is the company lock hold that is logged (slow_company_lock).
+var SlowLockHold = time.Second
+
+func (tx *Tx) held() {
+	if tx.locked.IsZero() || tx.ended {
+		return
+	}
+	tx.ended = true
+	if d := time.Since(tx.locked); d >= SlowLockHold {
+		slog.Warn("slow_company_lock", "company", tx.company, "caller", tx.caller, "held_ms", d.Milliseconds())
+	}
+}
+
+// Rollback ends the transaction; a deferred Rollback after Commit is a no-op as in database/sql.
+func (tx *Tx) Rollback() error {
+	tx.held()
+	return tx.Tx.Rollback()
+}
+
+// callerName names the function that called the function calling it (begin's caller).
+func callerName(skip int) string {
+	pc, _, _, ok := runtime.Caller(skip)
+	if !ok {
+		return ""
+	}
+	if f := runtime.FuncForPC(pc); f != nil {
+		name := f.Name()
+		return name[strings.LastIndex(name, "/")+1:]
+	}
+	return ""
 }
 
 // wakeNodes asks for the company's node polls to be woken once the transaction commits.
@@ -52,6 +94,7 @@ func (tx *Tx) wakeNodes() { tx.wake = true }
 
 // Commit commits and then wakes the company's node polls when the transaction asked for it.
 func (tx *Tx) Commit() error {
+	tx.held()
 	if err := tx.Tx.Commit(); err != nil {
 		return err
 	}

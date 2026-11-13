@@ -44,6 +44,15 @@ type affinityQuerier interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+// affinityExec keeps the session lock's state; a snapshot read (Store.read) only computes it: the claim and the
+// deciding sweeps keep it.
+func affinityExec(ctx context.Context, q affinityQuerier, query string, args ...any) (sql.Result, error) {
+	if tx, ok := q.(*Tx); ok && tx.readOnly {
+		return nil, nil
+	}
+	return q.ExecContext(ctx, query, args...)
+}
+
 // sessionAffinity is the lock that keeps node from taking run id (spec): nil when the run has no session to
 // continue, node holds it, the holder is active elsewhere... (non-nil) or the lock is released (nil). It keeps
 // the inactivity timer in session_locks.
@@ -59,7 +68,7 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 		return nil, nil
 	}
 	if holder == node {
-		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
+		_, err = affinityExec(ctx, q, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
 		return nil, err
 	}
 	// A conversation waits for its session's node at most the company's conversation wait from when it was
@@ -78,7 +87,7 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 		return nil, err
 	}
 	if inactive == "" {
-		_, err = q.ExecContext(ctx, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
+		_, err = affinityExec(ctx, q, "DELETE FROM session_locks WHERE company_id=? AND session_id=?", company, spec.SessionID)
 		return &Affinity{Holder: holder, Release: deadline}, err
 	}
 	var started int64
@@ -88,7 +97,7 @@ func sessionAffinity(ctx context.Context, q affinityQuerier, company, id string,
 		if since > 0 && since < started {
 			started = since
 		}
-		_, err = q.ExecContext(ctx, "INSERT INTO session_locks(company_id,session_id,node_id,inactive_since) VALUES(?,?,?,?) ON CONFLICT(company_id,session_id) DO UPDATE SET node_id=excluded.node_id, inactive_since=excluded.inactive_since", company, spec.SessionID, holder, started)
+		_, err = affinityExec(ctx, q, "INSERT INTO session_locks(company_id,session_id,node_id,inactive_since) VALUES(?,?,?,?) ON CONFLICT(company_id,session_id) DO UPDATE SET node_id=excluded.node_id, inactive_since=excluded.inactive_since", company, spec.SessionID, holder, started)
 	}
 	if err != nil {
 		return nil, err

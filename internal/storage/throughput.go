@@ -135,7 +135,7 @@ func (s *Store) SetThroughputAfter(ctx context.Context, company string, d time.D
 // Bottlenecks are the company's current causes with when each was first seen (read only; the stall sweep records
 // them).
 func (s *Store) Bottlenecks(ctx context.Context, company string, waits []TaskWait) ([]Bottleneck, error) {
-	tx, err := s.begin(ctx, company)
+	tx, err := s.read(ctx, company)
 	if err != nil {
 		return nil, err
 	}

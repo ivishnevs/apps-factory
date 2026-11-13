@@ -202,7 +202,7 @@ type ProjectContext struct {
 
 func (s *Store) ProjectContext(ctx context.Context, company, project string) (ProjectContext, error) {
 	var out ProjectContext
-	tx, err := s.begin(ctx, company)
+	tx, err := s.read(ctx, company)
 	if err != nil {
 		return out, err
 	}
