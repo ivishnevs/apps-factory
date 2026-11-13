@@ -1,4 +1,4 @@
-Status: proposed 2026-11-13 after the owner found three tasks of one project asleep on each other.
+Status: accepted 2026-11-13 (owner decisions below) after the owner found three tasks of one project asleep on each other.
 
 ## Why
 
@@ -57,9 +57,10 @@ timers, decisions and dependencies are not part of it.
 Out of scope: why the delegate kept the approval pending (prompt guidance, done by hand for the affected company), and
 reports that need an owner action reaching the Inbox (a separate change).
 
-## Owner decisions
+## Owner decisions (2026-11-13)
 
-1. `wait_unasked` as a refusal with an explicit override (`expects_unprompted`), or only as a warning in the exit
-   answer? Recommended: refusal with override; warnings at exit are read after the run has ended.
-2. The sweep wakes both sides of a cycle once, then escalates on repeat. Accept, or escalate on the first cycle?
-3. Waking `awaiting_approval` on messages from the delegate's side (one turn, hold kept) — accept?
+1. `wait_unasked` is a refusal with an explicit override (`expects_unprompted`), not a warning: a warning in the exit
+   answer is read after the run has ended.
+2. The sweep wakes both sides of a cycle once and escalates only when the same cycle forms again within 24 h.
+3. Both: a held approval wakes for one turn on messages from the delegate's side (hold kept), and a delegate that waits
+   on the requester is refused with `wait_cycle` and the hint to decide changes requested.
