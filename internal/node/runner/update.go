@@ -326,7 +326,7 @@ func (u *Updater) prepare(ctx context.Context, up protocol.NodeUpdate) error {
 	}
 	fetch := u.Runtimes
 	if fetch == nil {
-		fetch = fetchRuntimes
+		fetch = FetchRuntimes
 	}
 	if err = fetch(ctx, dir, selfupdate.Dir(u.Home, u.Version)); err != nil {
 		return err
@@ -361,9 +361,11 @@ func (u *Updater) packageURL(raw string) (string, error) {
 	return ref.String(), nil
 }
 
-// fetchRuntimes installs the runtimes the new version's locks pin. A runtime the running version has must install;
-// one it lacks (no pin for this machine, never installed) stays off as before.
-func fetchRuntimes(ctx context.Context, dir, prev string) error {
+// FetchRuntimes installs the runtimes the new version's locks pin. A runtime the running version has must install;
+// one it lacks (no pin for this machine, never installed) stays off as before. The running version calls it after
+// unpacking, and the new version's selftest calls it again with its own code: a lock may pin a file the running
+// version does not know (codex-code-mode-host), which only the new version installs.
+func FetchRuntimes(ctx context.Context, dir, prev string) error {
 	in := runtimes.Installer{}
 	for _, rt := range []struct {
 		bin     string

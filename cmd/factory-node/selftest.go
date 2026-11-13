@@ -13,12 +13,17 @@ import (
 	"time"
 
 	"appfactory/internal/node"
+	"appfactory/internal/node/runner"
+	"appfactory/internal/node/selfupdate"
 )
 
 // selftest is the check a new version passes before the node switches to it (node-packaging-updates C, step 2): run
 // from versions/<v>/bin, it proves the binary starts on this machine, reads node.yaml (with the settings from the
 // web), reaches Core with the node's keys and runs the probes of the enabled drivers against the runtimes of its own
 // package directory, without a model call. -json prints the results for the updater; exit 1 when one fails.
+// In the versioned layout it first installs its package's runtimes with its own code (runner.FetchRuntimes, reusing
+// the current version's): the running version fetched them already, but its code may not know every file the new
+// locks pin, as the old updaters do not know codex-code-mode-host.
 func selftest(args []string) (int, error) {
 	fs := flag.NewFlagSet("selftest", flag.ContinueOnError)
 	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+")")
@@ -63,9 +68,20 @@ func selftest(args []string) (int, error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var results []node.CheckResult
+	if home, v, ok := selfupdate.Locate(filepath.Join(binDir, "factory-node")); ok {
+		prev := ""
+		if cur := selfupdate.Current(home); cur != "" && cur != v {
+			prev = selfupdate.Dir(home, cur)
+		}
+		if err := runner.FetchRuntimes(ctx, selfupdate.Dir(home, v), prev); err != nil {
+			results = append(results, node.CheckResult{Check: "runtimes", Status: node.Fail, Detail: err.Error(),
+				Hint: "factory-node runtimes update -home " + selfupdate.Dir(home, v)})
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	results := d.SelfTest(ctx)
+	results = append(results, d.SelfTest(ctx)...)
 	if *asJSON {
 		err = json.NewEncoder(os.Stdout).Encode(results)
 	} else {
