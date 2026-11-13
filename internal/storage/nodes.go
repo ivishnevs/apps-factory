@@ -1183,6 +1183,41 @@ func (s *Store) NodeHeartbeat(ctx context.Context, company, node string, hb Node
 	return out, tx.Commit()
 }
 
+// NodeClockRefused records that Core refused a heartbeat of an online node only because its signature fell outside
+// the time window (node-wake-recovery): the node is alive, its clock is just apart from Core's, and its next
+// heartbeat signed with the corrected time will land. Core credits the refusal as contact, but never later than
+// one NodeOffline past the last accepted heartbeat: the node and its runs stay for at most one more TTL, and
+// refusals alone never keep a node alive past it. An offline node is not revived.
+func (s *Store) NodeClockRefused(ctx context.Context, company, node string) error {
+	tx, err := s.begin(ctx, company)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var lastSeen, clockSeen int64
+	var online bool
+	err = tx.QueryRowContext(ctx, "SELECT last_seen,clock_seen,online FROM nodes WHERE company_id=? AND id=?", company, node).Scan(&lastSeen, &clockSeen, &online)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	seen := min(tx.now().Unix(), lastSeen+int64(NodeOffline.Seconds()))
+	if !online || seen <= max(lastSeen, clockSeen) {
+		return nil
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE nodes SET clock_seen=? WHERE company_id=? AND id=?", seen, company, node); err != nil {
+		return err
+	}
+	// The node's live runs keep their leases as a heartbeat would renew them at seen.
+	until := seen + int64(NodeOffline.Seconds())
+	if _, err = tx.ExecContext(ctx, "UPDATE runs SET lease_until=GREATEST(lease_until,?),start_by=CASE WHEN run_started=0 THEN GREATEST(start_by,?) ELSE start_by END WHERE company_id=? AND node_id=? AND status IN ('CLAIMED','RUNNING','CANCELLING')", until, until, company, node); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ExpireNodes marks nodes silent for NodeOffline offline (judged like leases, after one window of
 // continuous ticking) and ends their unended runs as lost; CLAIMED runs past start_by end lost.
 func (s *Store) ExpireNodes(ctx context.Context, company string) error {
@@ -1220,7 +1255,9 @@ func (s *Store) ExpireNodes(ctx context.Context, company string) error {
 			return err
 		}
 	}
-	nrows, err := tx.QueryContext(ctx, "SELECT id FROM nodes WHERE company_id=? AND online=1 AND last_seen<? ORDER BY id", company, cutoff-int64(NodeOffline.Seconds()))
+	// clock_seen: heartbeats refused only for the signature window count, for at most one more NodeOffline
+	// (NodeClockRefused).
+	nrows, err := tx.QueryContext(ctx, "SELECT id FROM nodes WHERE company_id=? AND online=1 AND GREATEST(last_seen,clock_seen)<? ORDER BY id", company, cutoff-int64(NodeOffline.Seconds()))
 	if err != nil {
 		return err
 	}

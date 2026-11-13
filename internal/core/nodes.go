@@ -239,7 +239,15 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 	v, err := nodesig.Verify(r, ed25519.PublicKey(pub), body, now)
 	switch {
 	case errors.Is(err, nodesig.ErrWindow):
-		// Core's time lets the node correct its signing clock and retry at once (node-wake-recovery).
+		// Core's time (body and Date header) lets the node correct its signing clock and retry at once
+		// (node-wake-recovery). A heartbeat refused only for the window still proves the node alive: it keeps the
+		// node and its runs for at most one more NodeOffline, so the corrected heartbeat can land.
+		if r.Method == http.MethodPost && r.URL.Path == "/nodes/"+id+"/heartbeat" {
+			if err := c.Store.NodeClockRefused(r.Context(), key.Company, id); err != nil {
+				slog.Error("record clock-refused heartbeat", "node_id", id, "error", err)
+			}
+		}
+		w.Header().Set("Date", now.UTC().Format(http.TimeFormat))
 		refuse("signature_window", err.Error(), map[string]any{"core_time_ms": now.UnixMilli()})
 		return
 	case err != nil:
@@ -254,7 +262,9 @@ func (c *Core) nodeGateway(w http.ResponseWriter, r *http.Request, m *http.Serve
 		return
 	}
 	r = r.WithContext(context.WithValue(context.WithValue(r.Context(), companyKey{}, key.Company), nodeKey{}, id))
-	forbid := func(why string) { http.Error(w, "node: "+why, http.StatusForbidden) }
+	forbid := func(why string) {
+		refuseWith(w, http.StatusForbidden, "node_forbidden", "node: "+why, nil)
+	}
 	// bodyNode is the body's node_id.
 	bodyNode := func() string {
 		var p struct {

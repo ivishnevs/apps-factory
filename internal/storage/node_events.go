@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"appfactory/internal/nodesig"
 	"appfactory/internal/protocol"
 )
 
@@ -30,6 +31,9 @@ import (
 //	node.check_failed     a self-check started failing; ref is the check name (attention)
 //	node.check_passed     a failing self-check passes again; ref is the check name
 //	node.heartbeat_stalled the node had no successful heartbeat for 5 min and reported it on reconnect (attention)
+//	node.clock_skew       the node signs with an offset to Core's clock above the signature window
+//	                      (health.clock_offset_ms); re-armed when it is back within the window (attention)
+//	node.clock_ok         the offset is back within the window after node.clock_skew
 
 const (
 	// RestartLoopWindow and RestartLoopCount: that many process restarts of a node within the window raise
@@ -61,6 +65,9 @@ type nodeHealthReport struct {
 	Checks *[]NodeCheck `json:"checks"`
 	// StalledSeconds > 0: the node had no successful heartbeat for that long (sent once, on reconnect).
 	StalledSeconds int64 `json:"stalled_seconds"`
+	// ClockOffsetMS is Core's clock minus the node's as the node learned it from a signature_window refusal
+	// (node-wake-recovery); absent or 0 when the clocks agree.
+	ClockOffsetMS int64 `json:"clock_offset_ms"`
 }
 
 func nodeLabel(name, id string) string {
@@ -156,8 +163,8 @@ func markNodeSeen(ctx context.Context, tx *Tx, id string) error {
 func nodeHealthEvents(ctx context.Context, tx *Tx, id string, health json.RawMessage) (bool, error) {
 	var name, failedJSON string
 	var diskAlerts int
-	var paused bool
-	if err := tx.QueryRowContext(ctx, "SELECT name,disk_alerts,core_paused,failed_checks FROM nodes WHERE company_id=? AND id=?", tx.company, id).Scan(&name, &diskAlerts, &paused, &failedJSON); err != nil {
+	var paused, skewAlerted bool
+	if err := tx.QueryRowContext(ctx, "SELECT name,disk_alerts,core_paused,failed_checks,clock_skew_alerted FROM nodes WHERE company_id=? AND id=?", tx.company, id).Scan(&name, &diskAlerts, &paused, &failedJSON, &skewAlerted); err != nil {
 		return false, err
 	}
 	var h nodeHealthReport
@@ -233,8 +240,25 @@ func nodeHealthEvents(ctx context.Context, tx *Tx, id string, health json.RawMes
 			return false, err
 		}
 	}
+	// The node signs with the corrected time, so its requests pass; the owner still learns once per episode that the
+	// clocks are apart (often Core's VM after its host slept).
+	offset := time.Duration(h.ClockOffsetMS) * time.Millisecond
+	skew := offset.Abs() > nodesig.Window
+	switch {
+	case skew && !skewAlerted:
+		dir := "behind"
+		if offset > 0 {
+			dir = "ahead of"
+		}
+		err = ev("node.clock_skew", fmt.Sprintf("Core's clock is %s %s the node's; the node signs with the corrected time. Check the clocks of Core's host (or VM) and of this machine", offset.Abs().Round(time.Second), dir), "", true)
+	case !skew && skewAlerted:
+		err = ev("node.clock_ok", "the node's clock agrees with Core's again", "", false)
+	}
+	if err != nil {
+		return false, err
+	}
 	b, _ := json.Marshal(failed)
-	_, err = tx.ExecContext(ctx, "UPDATE nodes SET disk_alerts=?,core_paused=?,failed_checks=? WHERE company_id=? AND id=?", diskAlerts, pause, string(b), tx.company, id)
+	_, err = tx.ExecContext(ctx, "UPDATE nodes SET disk_alerts=?,core_paused=?,failed_checks=?,clock_skew_alerted=? WHERE company_id=? AND id=?", diskAlerts, pause, string(b), skew, tx.company, id)
 	return pause, err
 }
 

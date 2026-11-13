@@ -35,14 +35,14 @@
 
 ## 4. Clock skew after wake (owner decisions 1 and 2)
 
-- [ ] 4.1 Core: a clock-window refusal carries Core's time and the `signature_window` reason; test.
-- [ ] 4.2 Node: learn the offset from the refusal, sign with the corrected time (bounded ±1 h), retry at once, report
+- [x] 4.1 Core: a clock-window refusal carries Core's time and the `signature_window` reason; test.
+- [x] 4.2 Node: learn the offset from the refusal, sign with the corrected time (bounded ±1 h), retry at once, report
       the offset in the heartbeat; tests with a fake clock 5 min behind.
-- [ ] 4.3 Core: `node.clock_skew` health event once per episode; Nodes page shows the skew.
-- [ ] 4.4 Core liveness: clock-refused heartbeats keep the node online for at most one more TTL; test (wake replay: no
+- [x] 4.3 Core: `node.clock_skew` health event once per episode; Nodes page shows the skew.
+- [x] 4.4 Core liveness: clock-refused heartbeats keep the node online for at most one more TTL; test (wake replay: no
       run lost when the corrected heartbeat lands within the TTL).
 
 ## 5. Docs
 
-- [ ] 5.1 Node troubleshooting and explicit-exits docs: sleeping hosts, clock skew, delivery rule, late exits, what
+- [x] 5.1 Node troubleshooting and explicit-exits docs: sleeping hosts, clock skew, delivery rule, late exits, what
       the owner sees.

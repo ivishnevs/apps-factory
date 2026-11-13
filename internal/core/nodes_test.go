@@ -82,8 +82,17 @@ func TestNodeGateway(t *testing.T) {
 	a, b := testnode.Enroll(t, s, co), testnode.Enroll(t, s, co)
 	expect := func(want int, n testnode.Node, method, path string, body any) {
 		t.Helper()
-		if code, out := signedCall(t, c, n, method, path, body); code != want {
+		code, out := signedCall(t, c, n, method, path, body)
+		if code != want {
 			t.Fatalf("%s %s: %d %s, want %d", method, path, code, out, want)
+		}
+		if want == http.StatusForbidden {
+			var answer struct {
+				Reason string `json:"reason"`
+			}
+			if err := json.Unmarshal([]byte(out), &answer); err != nil || answer.Reason != "node_forbidden" {
+				t.Fatalf("%s %s: permanent node refusal lacks reason: %s", method, path, out)
+			}
 		}
 	}
 	serve := func(c *Core, r *http.Request) int {
@@ -198,6 +207,9 @@ func TestNodeGateway(t *testing.T) {
 		}
 		if tc.code == "signature_window" && answer.CoreTimeMS != fake.Now().UnixMilli() {
 			t.Fatalf("%s: core time %d, want %d", tc.name, answer.CoreTimeMS, fake.Now().UnixMilli())
+		}
+		if date := w.Header().Get("Date"); tc.code == "signature_window" && date != fake.Now().UTC().Format(http.TimeFormat) {
+			t.Fatalf("%s: Date %q, want Core's time %s", tc.name, date, fake.Now().UTC().Format(http.TimeFormat))
 		}
 		got := refusals()
 		if len(got) != before+1 || !strings.Contains(got[len(got)-1], tc.reason) {

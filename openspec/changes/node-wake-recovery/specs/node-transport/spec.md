@@ -30,3 +30,7 @@ The node SHALL classify every refusal of run events and exits with one rule by r
 #### Scenario: Clock window
 - **WHEN** a run's events are refused with 401 `signature_window`
 - **THEN** the node SHALL keep and resend them
+
+#### Scenario: Another node or a forbidden route
+- **WHEN** a signed node request names another node or calls a route not open to nodes
+- **THEN** Core SHALL answer 403 `node_forbidden` and the node SHALL classify the refusal as final

@@ -82,7 +82,7 @@ func feedRow(e protocol.Envelope, project, id string, state map[string]json.RawM
 // with needs_owner_action, owner pauses, parks waiting on the owner.
 var AttentionKinds = map[string]bool{
 	"node.low_disk": true, "node.disk_critical": true, "node.restart_loop": true, "node.check_failed": true,
-	"node.heartbeat_stalled": true, "driver_unsupported": true, "quota.paused": true,
+	"node.heartbeat_stalled": true, "node.clock_skew": true, "driver_unsupported": true, "quota.paused": true,
 	"task.alert.no_progress": true, "task.alert.idle": true, "task.alert.sweep_failed": true, "approval.requested": true, "task.unmerged_branch": true,
 	"node.worktree_stuck": true,
 }

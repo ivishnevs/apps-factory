@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { core } from "@/lib/api/client";
 import { useState } from "react";
 
-import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin, FolderGit2, Database } from "lucide-react";
+import { CircleAlert, HardDrive, Pause, Play, Cpu, Pin, FolderGit2, Database, Clock } from "lucide-react";
 import Link from "@/components/app/link";
 import { Button } from "@/components/ui/button";
 import type { FactoryNode, Pause as PauseT } from "@/lib/api/types";
@@ -23,6 +23,16 @@ const cacheLabel: Record<string, string> = { claude_tmp: "Claude temp", claude_d
 // diskFull (disk-pause-conversations): a critical disk below the conversation floor takes no conversation either; an
 // older node without a floor stops everything at critical.
 const diskFull = (h: NodeHealth) => h.disk === "critical" && (h.disk_conversation_floor_bytes === undefined || (h.free_disk_bytes ?? 0) < h.disk_conversation_floor_bytes);
+
+// clockSkew (node-wake-recovery): Core's clock against the node's, "" when they agree within a second. The node signs
+// with the offset; above the 120 s signature window Core raised node.clock_skew.
+const signatureWindowMs = 120_000;
+function clockSkew(ms?: number) {
+  if (!ms || Math.abs(ms) < 1000) return "";
+  const s = Math.round(Math.abs(ms) / 1000);
+  const span = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+  return `Core ${span} ${ms < 0 ? "behind" : "ahead"}`;
+}
 
 // care: what of a node needs the owner (internal/tui nodeCare), "" when nothing.
 export function nodeCare(n: FactoryNode) {
@@ -272,6 +282,15 @@ export function NodeCard({ node, pause, onPause, onResume, onRevoke, busy, manag
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Cpu className="size-3.5" />Load</p>
               <p className="mt-0.5 tabular-nums">{(h.load1 ?? 0).toFixed(1)} <span className="text-muted-foreground">on {h.cpus} CPUs</span></p>
+            </div>
+          )}
+          {!!clockSkew(h.clock_offset_ms) && (
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Clock className="size-3.5" />Clock</p>
+              <p className={cn("mt-0.5 tabular-nums", Math.abs(h.clock_offset_ms ?? 0) > signatureWindowMs && "font-medium text-amber-700 dark:text-amber-300")}>
+                {clockSkew(h.clock_offset_ms)}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">the node signs with Core&apos;s time</p>
             </div>
           )}
           {!!h.caches?.length && (

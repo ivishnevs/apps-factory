@@ -46,6 +46,9 @@ type API struct {
 	CurrentKey func() ed25519.PrivateKey
 	// Now is the clock of signatures; nil is the system clock.
 	Now func() time.Time
+	// Clock corrects the signing time by the offset to Core's clock learned from signature_window refusals
+	// (node-wake-recovery); nil signs with Now. Copies of the API share it.
+	Clock *Clock
 }
 
 // authorize presents the client's credentials on req; body is its whole body. Each attempt signs anew, because Core
@@ -61,31 +64,17 @@ func (a API) authorize(req *http.Request, body []byte) error {
 	if key == nil {
 		return nil
 	}
-	now := time.Now
-	if a.Now != nil {
-		now = a.Now
-	}
-	return nodesig.Sign(req, a.Node, key, body, now())
+	return nodesig.Sign(req, a.Node, key, body, a.now().Add(a.Clock.Offset()))
 }
 
 func (a API) Do(ctx context.Context, method, path string, body, result any) error {
-	var data io.Reader
 	var raw []byte
 	if body != nil {
 		var err error
 		if raw, err = json.Marshal(body); err != nil {
 			return err
 		}
-		data = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.URL, "/")+path, data)
-	if err != nil {
-		return err
-	}
-	if err = a.authorize(req, raw); err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
 	client := a.Client
 	if client == nil {
 		client = defaultClient
@@ -93,15 +82,21 @@ func (a API) Do(ctx context.Context, method, path string, body, result any) erro
 			client = deadlineClient // the context bounds the request: a node's long poll waits up to 25 s
 		}
 	}
-	res, err := client.Do(req)
+	res, err := a.send(func() (*http.Request, error) {
+		var data io.Reader
+		if body != nil {
+			data = bytes.NewReader(raw)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.URL, "/")+path, data)
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req, err
+	}, raw, client)
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	if res.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return &HTTPError{res.StatusCode, string(b)}
-	}
 	if result != nil {
 		return json.NewDecoder(res.Body).Decode(result)
 	}
@@ -118,39 +113,25 @@ var (
 
 // PostRaw posts a raw body (a packed source tree) and discards the answer.
 func (a API) PostRaw(ctx context.Context, path, contentType string, body []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.URL, "/")+path, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	if err = a.authorize(req, body); err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", contentType)
 	client := a.Client
 	if client == nil {
 		client = deadlineClient
 	}
-	res, err := client.Do(req)
+	res, err := a.send(func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.URL, "/")+path, bytes.NewReader(body))
+		if err == nil {
+			req.Header.Set("Content-Type", contentType)
+		}
+		return req, err
+	}, body, client)
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
-	if res.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return &HTTPError{res.StatusCode, string(b)}
-	}
-	return nil
+	return res.Body.Close()
 }
 
 // Get fetches path's raw body (a skill's packed content, a blob); the caller closes it.
 func (a API) Get(ctx context.Context, path string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.URL, "/")+path, nil)
-	if err != nil {
-		return nil, err
-	}
-	if err = a.authorize(req, nil); err != nil {
-		return nil, err
-	}
 	client := a.Client
 	if client == nil {
 		client = defaultClient
@@ -158,14 +139,11 @@ func (a API) Get(ctx context.Context, path string) (io.ReadCloser, error) {
 			client = deadlineClient
 		}
 	}
-	res, err := client.Do(req)
+	res, err := a.send(func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.URL, "/")+path, nil)
+	}, nil, client)
 	if err != nil {
 		return nil, err
-	}
-	if res.StatusCode >= 300 {
-		defer res.Body.Close()
-		b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return nil, &HTTPError{res.StatusCode, string(b)}
 	}
 	return res.Body, nil
 }

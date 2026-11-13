@@ -45,6 +45,7 @@ var permanent = map[string]bool{
 	"node_key_revoked":   true,
 	"node_key_unknown":   true,
 	"node_key_invalid":   true,
+	"node_forbidden":     true, // another node's data or a route not open to nodes
 	"agent_unavailable":  true, // the agent was deleted
 	"unknown_run":        true,
 	"run_not_live":       true,

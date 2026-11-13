@@ -16,6 +16,9 @@ export interface NodeHealth {
   // disk-pause-conversations: below it the node takes no conversation either (absent from older nodes).
   disk_conversation_floor_bytes?: number;
   stalled_seconds?: number;
+  // node-wake-recovery: Core's clock minus the node's, learned from a signature_window refusal; the node signs with
+  // it (up to 1 h). Absent when the clocks agree; above 120 s Core raises node.clock_skew.
+  clock_offset_ms?: number;
   // node-runtime-caches: the runtimes' directories outside the worktrees, measured every 10 minutes (absent from
   // older nodes). agent_bytes: of a directory the machine's own sessions share, the part of the node's runs.
   caches?: { name: string; path: string; bytes: number; agent_bytes?: number }[];

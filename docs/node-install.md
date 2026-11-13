@@ -219,6 +219,11 @@ interrupted like at a restart and queued again, with their work in progress save
 nodes installed before the versioned layout, run by hand, or built from the checkout (`dev`) say why they do not
 update and need `install.sh` once.
 
+## Sleep, clocks and troubleshooting
+
+A node on a laptop that sleeps, clocks apart after a wake, and what happens to run events and exits Core refuses:
+[node-troubleshooting.md](node-troubleshooting.md).
+
 ## Not yet
 
 A desktop app, Homebrew, signed and notarized binaries (connector-trust 2.2), release channels, Windows, Claude without

@@ -96,6 +96,7 @@ func TestAttentionTable(t *testing.T) {
 		"node.low_disk": true, "node.disk_critical": true, "node.restart_loop": true, "node.check_failed": true,
 		"node.heartbeat_stalled": true, "driver_unsupported": true, "quota.paused": true, "task.alert.no_progress": true,
 		"task.alert.idle": true, "task.alert.sweep_failed": true, "approval.requested": true, "task.unmerged_branch": true, "node.worktree_stuck": true,
+		"node.clock_skew": true, "node.clock_ok": false,
 		"node.registered": false, "node.online": false, "node.disk_ok": false, "task.exit.submitted": false, "task.exit.done": false,
 		"task.exit.handoff": false, "task.retry": false, "task.trigger.wait_ended": false, "report.missing": false, "owner.resumed": false,
 	}

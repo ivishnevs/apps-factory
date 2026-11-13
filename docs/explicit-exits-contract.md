@@ -64,7 +64,8 @@ Answers (always JSON):
 | 410 | `{"reason": "not_current_run"}` | tells the agent to stop; ends delivery retries |
 | 5xx / network | — | "queued — stop working" to the runtime; retries the same exit with backoff (§5) |
 
-Checks, in order: 410 when the run is not the task's current live run (revoked, ended, superseded);
+Checks, in order: 410 when the run is not the task's current live run (revoked, ended, superseded), except the late
+exit of a lost run (§13);
 `invalid_exit` for bad arguments or a block that cannot apply; `unseen_input` when an authority trigger is above
 `ack_seq` (for `done` also any trigger above it); `dirty_tree` for `submit`/`handoff`/`done` with `facts.dirty`;
 `secret_found` with `facts.scan.ok == false` (the adapter's scan; Core records a report item); for `done`
@@ -214,3 +215,22 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
   `ExitGuardRetries` (2) times, and both stop as soon as the exit file says accepted or pending.
 - §10 decided: one `/agent/brief` call at adapter start; results are wrapped only while input is unseen; `gh` is the
   only forge; the exit file lives in its own temp dir (not the shim dir, which exists only with guards).
+
+## 13. Delivery rule and late exits (node-wake-recovery)
+
+Details, the event spool and what the owner sees: [node-troubleshooting.md](node-troubleshooting.md).
+
+- **One delivery rule** (`internal/delivery.Classify`) for factory-mcp's exit, the node's exit redelivery and the
+  event spool. Retry: network errors, 5xx, 408, 429 and temporary auth refusals (`signature_*`, and a 401/403
+  without a known reason). Final: 400, 404, 409, 410, 422 and permanent auth refusals (`lease_changed`,
+  `node_key_*`, `agent_unavailable`, `unknown_run`, `run_not_live`, `credential_missing`). A final refusal records
+  the exit `refused`; retries stop at `ExitRedeliverWait` (30 min), after which the terminal event says `pending`
+  and Core records the run `lost`.
+- **Pending file first.** The adapter writes `<exit file>.pending` before it sends an exit and removes it after
+  Core's answer, so killing the process group mid-request leaves the exit for the node to redeliver.
+- **Late exits of lost runs.** On `stop` the node stops the runtime, delivers an undelivered exit with its own
+  bounded context (`StopExitDeliveryWait`, 2 min), then sends the terminal event. The run-credential gateway lets
+  `/agent/exit` (only) through for a run ENDED `lost` or `timed_out` with `unreleased=1`; `Store.Exit` accepts it
+  only while, in the same transaction, the run is still unreleased and the task's `current_run_id`. Accepted: the
+  run becomes `succeeded`, released, no retry. Otherwise 410 `not_current_run`, final. Conversation runs apply no
+  exits.

@@ -134,6 +134,9 @@ type Health struct {
 	// Caches are the runtimes' directories outside the worktrees (node-runtime-caches), measured every
 	// cacheScan; absent until the first measurement.
 	Caches []node.RuntimeCache `json:"caches,omitempty"`
+	// ClockOffsetMS is Core's clock minus this node's, learned from a signature_window refusal (node-wake-recovery):
+	// the node signs with it when it is within worker.MaxClockOffset; Core raises node.clock_skew above the window.
+	ClockOffsetMS int64 `json:"clock_offset_ms,omitempty"`
 }
 
 // StallReport is how long heartbeats must fail before the node reports node.heartbeat_stalled (node-agent D7).
@@ -425,6 +428,7 @@ func (s *session) health() Health {
 	if c := s.caches.Load(); c != nil {
 		h.Caches = *c
 	}
+	h.ClockOffsetMS = s.api.Clock.Observed().Milliseconds()
 	return h
 }
 

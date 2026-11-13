@@ -137,6 +137,11 @@ func Run(ctx context.Context, n Node) error {
 	n.remote = newRemoteConfig(nodeYAML)
 	c = n.remote.effective()
 	n.Config = c // the session registers what is in effect
+	if n.API.Clock == nil {
+		// One offset to Core's clock for every request of this node: heartbeats, polls, events, exits
+		// (node-wake-recovery).
+		n.API.Clock = new(worker.Clock)
+	}
 	all := append(append([]driver.Driver{}, n.Drivers...), n.Optional...)
 	listed := map[string]bool{}
 	for _, d := range n.Drivers {

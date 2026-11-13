@@ -22,6 +22,7 @@ func TestClassify(t *testing.T) {
 		{401, "unknown_run", Final},
 		{401, "run_not_live", Final},
 		{403, "agent_unavailable", Final},
+		{403, "node_forbidden", Final},
 		{403, "lease_changed", Final},
 		{400, "", Final},
 		{404, "", Final},

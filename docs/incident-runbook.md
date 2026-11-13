@@ -99,6 +99,8 @@ installer and node downloads (30, 600). A refusal is `429` with `Retry-After: 60
   nodes report `429`, see rate limits.
 - Connected nodes take no work: check the company is not stopped (Settings shows "Company stopped"), the plan's
   node limit (`plan_limit` in the queued reason, `docs/billing.md`), and Core's log for claim errors.
+- Nodes went offline or runs were lost after a host slept, `node.signature_refused` or `node.clock_skew` in the
+  feed, or events stuck (`delivery.events` check failing): see [node-troubleshooting.md](node-troubleshooting.md).
 
 ### Telegram is silent
 
