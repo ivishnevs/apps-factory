@@ -3,6 +3,9 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"appfactory/internal/driver/fake"
+	"appfactory/internal/factorytools"
 	"appfactory/internal/procgroup"
 	"appfactory/internal/protocol"
 )
@@ -143,5 +147,63 @@ func TestPendingExitDelivered(t *testing.T) {
 				t.Fatalf("run took %s, want [%s, %s]", el, c.min, c.max)
 			}
 		})
+	}
+}
+
+// TestRedeliverExit (exit-redelivery): the node delivers the exit factory-mcp left pending, as the run, with its
+// ack_seq, until Core answers; the answer settles the exit file and the pending body goes. Core unreachable for longer
+// than ExitRedeliverWait leaves it pending.
+func TestRedeliverExit(t *testing.T) {
+	defer func(w, b time.Duration) { ExitRedeliverWait, exitRedeliverBase = w, b }(ExitRedeliverWait, exitRedeliverBase)
+	exitRedeliverBase = 10 * time.Millisecond
+	for name, c := range map[string]struct {
+		answers []int // status per delivery; the last repeats
+		wait    time.Duration
+		want    string
+	}{
+		"accepted after an outage": {[]int{503, 502, 200}, time.Minute, "accepted"},
+		"refused":                  {[]int{409}, time.Minute, "refused"},
+		"run ended":                {[]int{410}, time.Minute, "refused"},
+		"still unreachable":        {[]int{503}, 200 * time.Millisecond, "pending"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ExitRedeliverWait = c.wait
+			var calls int
+			var auth, ack, kind string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				auth, ack, kind = r.Header.Get("Authorization"), r.Header.Get("X-Factory-Ack-Seq"), fmt.Sprint(body["kind"])
+				w.WriteHeader(c.answers[min(calls, len(c.answers)-1)])
+				calls++
+			}))
+			defer srv.Close()
+			file := filepath.Join(t.TempDir(), "exit.json")
+			if err := os.WriteFile(file, []byte(`{"state":"pending","kind":"done","exit_sha":"abc"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(factorytools.PendingExitFile(file), []byte(`{"body":{"kind":"done","arguments":{"summary":"s"}},"ack_seq":7}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			redeliverExit(context.Background(), "r", file, srv.URL, "run.tok")
+			rec := readExitRecord(file)
+			if rec.State != c.want || rec.Kind != "done" || rec.ExitSHA != "abc" {
+				t.Fatalf("exit file %+v, want %s", rec, c.want)
+			}
+			if auth != "Bearer run.tok" || ack != "7" || kind != "done" {
+				t.Fatalf("delivery auth %q ack %q kind %q", auth, ack, kind)
+			}
+			_, kept := factorytools.ReadPendingExit(file)
+			if kept != (c.want == "pending") {
+				t.Fatalf("pending body kept %v", kept)
+			}
+		})
+	}
+	// Nothing pending beside the exit file: no delivery.
+	file := filepath.Join(t.TempDir(), "exit.json")
+	_ = os.WriteFile(file, []byte(`{"state":"pending","kind":"done"}`), 0o600)
+	redeliverExit(context.Background(), "r", file, "http://127.0.0.1:1", "tok")
+	if readExitState(file).State != "pending" {
+		t.Fatal("settled without a delivery")
 	}
 }

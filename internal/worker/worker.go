@@ -338,6 +338,8 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	// mcpName is the Factory MCP adapter's executable name; a pending exit holds the runtime while a
 	// process of that name is in its group (awaitExitDelivery).
 	var mcpName string
+	// runToken is the run credential: the node delivers an exit factory-mcp left pending (redeliverExit).
+	var runToken string
 	awaited := false
 	// awaitDelivery runs once, before the runtime's group is killed and before the exit file is read for
 	// the terminal event: an exit still pending delivery to Core gets up to ExitDeliveryWait.
@@ -346,7 +348,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return
 		}
 		awaited = true
-		awaitExitDelivery(ctx, spec.ID, exitFile, session.ProcessGroup(), mcpName)
+		if awaitExitDelivery(ctx, spec.ID, exitFile, session.ProcessGroup(), mcpName) == "pending" && runToken != "" {
+			// factory-mcp is gone or out of time with the exit undelivered: the node delivers it before the
+			// terminal event, so a finished run is not ended as lost while Core was unreachable.
+			redeliverExit(ctx, spec.ID, exitFile, w.API.URL, runToken)
+		}
 	}
 	finished := false
 	var exitEnd exitRecord
@@ -650,6 +656,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 			return setupFailed(fmt.Errorf("missing run credential"))
 		}
 		rlog.secret(credential.Token)
+		runToken = credential.Token
 		launch.Env = runEnvironment(os.Environ(), w.EnvAllow, w.API.URL, credential.Token)
 		if withMCP {
 			mcp, e := sibling(w.MCPBinary, "factory-mcp")
@@ -1352,6 +1359,49 @@ func awaitExitDelivery(ctx context.Context, run, path string, group int, mcp str
 				return state
 			}
 		}
+	}
+}
+
+// ExitRedeliverWait bounds how long the node keeps delivering an exit factory-mcp left pending (Core unreachable)
+// before it gives up and sends the terminal event (Core then ends the run as lost). The run keeps its slot meanwhile.
+var ExitRedeliverWait = 30 * time.Minute
+
+// exitRedeliverBase is the first wait between the node's deliveries of a pending exit (doubling up to 1 min).
+var exitRedeliverBase = 2 * time.Second
+
+// redeliverExit delivers the pending exit beside path (factorytools.PendingExitFile) until Core answers, ctx ends or
+// ExitRedeliverWait passes, and records the answer in the exit file. Core keys exits by run: a delivery the adapter
+// also made counts once.
+func redeliverExit(ctx context.Context, run, path, coreURL, token string) {
+	p, ok := factorytools.ReadPendingExit(path)
+	if !ok {
+		return
+	}
+	slog.Info("delivering the run's pending exit from the node", "run", run, "wait", ExitRedeliverWait)
+	client := &http.Client{}
+	deadline := time.Now().Add(ExitRedeliverWait)
+	wait := exitRedeliverBase
+	for {
+		if readExitState(path).State != "pending" {
+			return // the adapter's own delivery settled it
+		}
+		if state := factorytools.DeliverPendingExit(ctx, client, coreURL, token, p); state != "" {
+			factorytools.SettleExitFile(path, state)
+			_ = os.Remove(factorytools.PendingExitFile(path))
+			slog.Info("pending exit delivered by the node", "run", run, "exit_state", state)
+			return
+		}
+		if time.Now().Add(wait).After(deadline) {
+			slog.Warn("pending exit not delivered; Core unreachable", "run", run, "waited", ExitRedeliverWait)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			slog.Warn("run stopped while the node delivered its pending exit", "run", run)
+			return
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, time.Minute)
 	}
 }
 

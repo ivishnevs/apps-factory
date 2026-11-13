@@ -187,8 +187,8 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
 - Budget: every budget outcome (`succeeded` and all of the above except `revoked`, `paused_out`, `stale`,
   `unclaimed`, and losses caused by a node restart) counts in `task_budget` per task and company-local day
   (`factory time-zone ZONE`, an IANA name; UTC by default).
-- Three attempts in a row without progress open a `retries_exhausted` escalation, 30 budget runs in a day a
-  `budget_exhausted` escalation; the task stays READY behind the escalation's park. Answers `retry` (counters,
+- Three attempts in a row without progress open a `retries_exhausted` escalation, 30 budget runs in a day (120 for a
+  conversation task, which runs once per message or report it handles) a `budget_exhausted` escalation; the task stays READY behind the escalation's park. Answers `retry` (counters,
   backoff and today's budget reset, the task runs now) or `cancel`. Releasing the task (`factory tasks ready`)
   has the same effect as `retry` and clears the escalation; reassigning it resets the counters for the new
   assignee. Authority input that arrived after the failing run was briefed (above its brief and the task's

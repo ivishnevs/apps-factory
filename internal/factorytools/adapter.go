@@ -295,6 +295,7 @@ func (a *Adapter) queue(body map[string]any, kind string) {
 	a.mu.Lock()
 	a.queued = true
 	a.mu.Unlock()
+	a.writePending(body) // before "pending": the node reads the body once it sees that state
 	a.record("pending", kind)
 	a.wg.Add(1)
 	go func() {
@@ -315,6 +316,7 @@ func (a *Adapter) queue(body map[string]any, kind string) {
 			default:
 				a.record("refused", kind) // 409 (new input) or 410 (the run ended)
 			}
+			a.clearPending()
 			a.mu.Lock()
 			a.queued = false
 			a.mu.Unlock()

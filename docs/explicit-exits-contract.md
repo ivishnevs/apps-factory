@@ -202,6 +202,10 @@ Implemented (`internal/storage/exits.go`, `internal/core/exits.go`, migration 00
   scan refusals on the node, preflight → `git push -u origin HEAD:refs/heads/<branch>` → `gh pr create --fill`
   for submit and handoff, then the exit. Core unreachable: "queued — stop working", retries with the same body
   (2 s doubling to 1 min), a second exit meanwhile is refused; the process waits for the delivery at exit.
+  The queued body (with its `ack_seq`) is also written beside the exit file (`<exit file>.pending`, removed once
+  Core answers): when factory-mcp is gone or out of time with the exit still pending, the worker delivers it itself
+  with the run token (2 s doubling to 1 min, up to `ExitRedeliverWait`, 30 min) before the terminal event, so a run
+  that finished while Core was unreachable ends with its exit instead of `lost` (exit-redelivery).
 - Worker: `FACTORY_EXIT_FILE` (a per-run temp dir), `FACTORY_WORKDIR`, `FACTORY_DEFAULT_BRANCH` and, in a worktree,
   `FACTORY_SCAN_COMMAND` (JSON array, the node's scanner) reach factory-mcp; the terminal event carries
   `exit_state`; a runtime still running 30 s (`ExitGrace`) after an accepted exit is stopped (the exit stands).

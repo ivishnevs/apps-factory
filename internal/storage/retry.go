@@ -28,6 +28,9 @@ const (
 	RetryAttempts = 3
 	// DailyBudget is the number of budget-counted runs per task and day that escalates.
 	DailyBudget = 30
+	// ConversationDailyBudget is DailyBudget for a conversation task: an agent's conversation (with the owner, its
+	// manager or its reports) runs once per message or report it handles, many short runs on a normal day.
+	ConversationDailyBudget = 120
 )
 
 // backoffSteps are the waits after 1, 2, 3+ backoff outcomes in a row.
@@ -61,6 +64,14 @@ func budgetDay(ctx context.Context, tx *Tx) (string, error) {
 		loc = time.UTC
 	}
 	return tx.now().In(loc).Format("2006-01-02"), nil
+}
+
+// dailyBudget is the runs per day after which a task's failed run escalates budget_exhausted.
+func dailyBudget(t tasks.Task) int {
+	if t.Kind == tasks.KindConversation {
+		return ConversationDailyBudget
+	}
+	return DailyBudget
 }
 
 // CompanyTimeZone returns the company's time zone (an IANA name; UTC by default).
@@ -287,8 +298,8 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		reason, summary = "no_exit", "the agent's run ended without a factory_exit_* call (for review: the agent did not finish): "+excerpt512(result)
 	case t.AttemptsNoProgress >= RetryAttempts:
 		reason, summary = "retries_exhausted", fmt.Sprintf("%d attempts in a row without progress; last run %s: %s", t.AttemptsNoProgress, outcome, excerpt512(result))
-	case used >= DailyBudget:
-		reason, summary = "budget_exhausted", fmt.Sprintf("%d runs today (budget %d); last run %s: %s", used, DailyBudget, outcome, excerpt512(result))
+	case used >= dailyBudget(t):
+		reason, summary = "budget_exhausted", fmt.Sprintf("%d runs today (budget %d); last run %s: %s", used, dailyBudget(t), outcome, excerpt512(result))
 		if nodeFault != "" {
 			// node-readiness: the question names the node and the fix, not only the task's last result.
 			why, err := nodeNotReady(ctx, tx, tx.company, runNode, t.ProjectID)

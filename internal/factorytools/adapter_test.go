@@ -236,6 +236,10 @@ func TestAdapterQueuesExitWhileCoreIsDown(t *testing.T) {
 	if st.State != "pending" {
 		t.Fatal(st)
 	}
+	// exit-redelivery: the queued body is beside the exit file for the node, should factory-mcp die first.
+	if p, ok := ReadPendingExit(exitFile); !ok || p.Body["kind"] != "done" {
+		t.Fatalf("pending exit for the node %+v %v", p, ok)
+	}
 	if _, err = a.Call(context.Background(), Call{Name: "factory_exit_ask", Arguments: map[string]any{"question": "q"}}); err == nil {
 		t.Fatal("a second exit while one is queued")
 	}
@@ -243,6 +247,9 @@ func TestAdapterQueuesExitWhileCoreIsDown(t *testing.T) {
 	_ = json.Unmarshal(must(os.ReadFile(exitFile)), &st)
 	if st.State != "accepted" {
 		t.Fatal(st)
+	}
+	if _, ok := ReadPendingExit(exitFile); ok {
+		t.Fatal("pending exit left after the delivery")
 	}
 	f.mu.Lock()
 	bodies := f.bodies["/agent/exit"]

@@ -304,3 +304,13 @@ func TestInspectEscalation(t *testing.T) {
 		t.Fatal(got.Status)
 	}
 }
+
+// TestDailyBudgetByKind: a conversation task (one run per message or report it handles) has its own, larger budget.
+func TestDailyBudgetByKind(t *testing.T) {
+	if got := dailyBudget(tasks.Task{Kind: tasks.KindConversation}); got != ConversationDailyBudget || got <= DailyBudget {
+		t.Fatal(got)
+	}
+	if got := dailyBudget(tasks.Task{}); got != DailyBudget {
+		t.Fatal(got)
+	}
+}
