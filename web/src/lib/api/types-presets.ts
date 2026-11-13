@@ -20,7 +20,7 @@ export interface ContextWindow { work?: string; conversation?: string }
 // The agent document as config.Agent's JSON: the fields the form edits.
 export interface AgentSpec {
   extends?: string; team?: string; role?: string; reports_to?: string;
-  runtime?: { provider?: string; model?: string; quota_key?: string; context_window?: ContextWindow };
+  runtime?: { provider?: string; model?: string; effort?: string; quota_key?: string; context_window?: ContextWindow };
   // work-and-conversation-runs: max_concurrent_runs limits work runs; conversation.max_concurrent_runs conversation runs (0: no cap).
   execution?: { timeout?: string; max_concurrent_runs?: number; max_concurrent_runs_per_project?: number; max_retries?: number; conversation?: { max_concurrent_runs?: number; share_work_limit?: boolean } };
   prompt?: { file?: string };

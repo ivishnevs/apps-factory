@@ -38,6 +38,35 @@ func TestRuntimeOptions(t *testing.T) {
 	}
 }
 
+// TestRuntimeModelsAndEfforts (agent-effort-in-web): every runtime offers a model list led by "default" whose
+// entries its validation accepts, and the efforts its driver reads (none for a runtime without the effort option).
+func TestRuntimeModelsAndEfforts(t *testing.T) {
+	for p := range RuntimeOptions {
+		models := RuntimeModels[p]
+		if len(models) < 2 || models[0] != "default" {
+			t.Fatal(p, "models:", models)
+		}
+		for _, m := range models {
+			if err := ValidateRuntimeOptions(p, map[string]any{"model": m}); err != nil {
+				t.Fatal(p, m, err)
+			}
+		}
+		for _, e := range RuntimeEfforts(p) {
+			if err := ValidateRuntimeOptions(p, map[string]any{"model": "default", "effort": e}); err != nil {
+				t.Fatal(p, e, err)
+			}
+		}
+	}
+	if len(RuntimeEfforts(protocol.RuntimeClaude)) != len(Efforts) || len(RuntimeEfforts(protocol.RuntimeCodex)) != len(Efforts) {
+		t.Fatal("claude and codex read effort")
+	}
+	RuntimeOptions["imaginary"] = []string{"model"}
+	defer delete(RuntimeOptions, "imaginary")
+	if e := RuntimeEfforts("imaginary"); e == nil || len(e) != 0 {
+		t.Fatal("a runtime without the effort option offers efforts:", e)
+	}
+}
+
 // TestModelFits: a task's model override must fit the assignee's runtime provider (runtime-drivers 2.7).
 func TestModelFits(t *testing.T) {
 	for _, c := range []struct {

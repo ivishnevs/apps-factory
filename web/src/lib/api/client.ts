@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Action, AgentRuns, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
-import type { CatalogDocument, CatalogListing, CatalogVersion, Company, Teams } from "./types-catalog";
+import type { CatalogDocument, CatalogListing, CatalogVersion, Company, RuntimeView, Teams } from "./types-catalog";
 import type { CompanyInfo, Me } from "./types-account";
 import type { AgentDoc, AgentPreset, Setup, TeamPreset } from "./types-presets";
 import type { TopicDecision, TopicView } from "./types-topics";
@@ -183,6 +183,8 @@ export const useAgentPresets = () => useQuery({ queryKey: ["presets", "agents"],
 export const useTeamPresets = () => useQuery({ queryKey: ["presets", "teams"], queryFn: () => core<TeamPreset[]>("/presets/teams"), staleTime: Infinity });
 export const useAgentDoc = (name: string | null) =>
   useQuery({ queryKey: ["catalog", "agent", name], queryFn: () => core<AgentDoc>(`/catalog/agents/${encodeURIComponent(name ?? "")}`), enabled: !!name });
+// agent-effort-in-web: the runtimes with their efforts and offered models (static per Core build).
+export const useRuntimes = () => useQuery({ queryKey: ["catalog", "runtimes"], queryFn: () => core<RuntimeView[]>("/catalog/runtimes"), staleTime: Infinity });
 export const useSetup = () => useQuery({ queryKey: ["catalog", "setup"], queryFn: () => core<Setup>("/setup"), refetchInterval: 15_000 });
 
 // signOut ends the session and goes to the sign-in page.

@@ -72,7 +72,7 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	a := agents[name]
 	required, reviewer := a.Review()
 	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
-		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), AssignScope: config.AssignScopeOf(agents, name).Mode, CanMessage: append([]string{}, a.Spec.Communication.CanMessage...), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
+		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, Effort: a.Spec.Runtime.Effort, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), AssignScope: config.AssignScopeOf(agents, name).Mode, CanMessage: append([]string{}, a.Spec.Communication.CanMessage...), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
 		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, MaxRunsFromRole: a.LimitFromRole, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
@@ -80,20 +80,38 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	return m
 }
 
+// RuntimeView is one runtime as the agent form offers it.
+type RuntimeView struct {
+	Provider string   `json:"provider"`
+	Efforts  []string `json:"efforts"`
+	Models   []string `json:"models"`
+}
+
+func runtimeViews() []RuntimeView {
+	out := []RuntimeView{}
+	for p := range config.RuntimeOptions {
+		out = append(out, RuntimeView{Provider: string(p), Efforts: config.RuntimeEfforts(p), Models: append([]string{}, config.RuntimeModels[p]...)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Provider < out[j].Provider })
+	return out
+}
+
 // TeamMember is one agent of the resolved catalog.
 type TeamMember struct {
 	Name string `json:"name"`
 	Team string `json:"team,omitempty"`
 	// Document is the agent's catalog document; Skills its own spec.skills.include (the skill picker edits both).
-	Document     string   `json:"document,omitempty"`
-	Skills       []string `json:"skills"`
-	Description  string   `json:"description,omitempty"`
-	Role         string   `json:"role"`
-	ReportsTo    string   `json:"reports_to"`
-	Prompt       string   `json:"prompt"`
-	Provider     string   `json:"provider"`
-	Model        string   `json:"model,omitempty"`
-	CreatesTasks bool     `json:"creates_tasks,omitempty"`
+	Document    string   `json:"document,omitempty"`
+	Skills      []string `json:"skills"`
+	Description string   `json:"description,omitempty"`
+	Role        string   `json:"role"`
+	ReportsTo   string   `json:"reports_to"`
+	Prompt      string   `json:"prompt"`
+	Provider    string   `json:"provider"`
+	Model       string   `json:"model,omitempty"`
+	// Effort is the agent's reasoning effort (spec.runtime.effort, with its profile's); "" keeps the runtime default.
+	Effort       string `json:"effort,omitempty"`
+	CreatesTasks bool   `json:"creates_tasks,omitempty"`
 	// AssignsTo are the agents it may give tasks to (assign-by-hierarchy).
 	AssignsTo []string `json:"assigns_to,omitempty"`
 	// AssignScope is its effective assignment scope (none, direct_reports, subtree or list); CanMessage whom it may
@@ -193,6 +211,11 @@ func (c *Core) catalogRoutes(m *http.ServeMux) {
 			return
 		}
 		write(w, catalogView(company, cat))
+	})
+	// The runtimes an agent may run on (agent-effort-in-web): the efforts each accepts (none when its driver reads no
+	// effort) and the models the agent form offers; any other model name is still valid.
+	m.HandleFunc("GET /catalog/runtimes", func(w http.ResponseWriter, r *http.Request) {
+		write(w, runtimeViews())
 	})
 	// The teams as the catalog resolves them (company-teams 3.2): each team's lead, audit assignee, profile,
 	// agents (who does what and reports to whom) and projects.

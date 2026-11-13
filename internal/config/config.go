@@ -885,6 +885,22 @@ var RuntimeOptions = map[protocol.RuntimeProvider][]string{
 // Efforts are the reasoning efforts an agent may set (spec.runtime.effort), common to both runtimes.
 var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
+// RuntimeModels are the models the web offers per runtime (agent-effort-in-web): "default" leaves the choice to the
+// runtime, the rest are the runtime's current models (Claude's model table, Codex's models catalog). The list is a
+// pick-list only: any other model name stays valid, so update it when a runtime ships or retires a model.
+var RuntimeModels = map[protocol.RuntimeProvider][]string{
+	protocol.RuntimeClaude: {"default", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"},
+	protocol.RuntimeCodex:  {"default", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"},
+}
+
+// RuntimeEfforts are the efforts provider accepts: Efforts when its driver reads the effort option, none otherwise.
+func RuntimeEfforts(p protocol.RuntimeProvider) []string {
+	if slices.Contains(RuntimeOptions[p], "effort") {
+		return append([]string{}, Efforts...)
+	}
+	return []string{}
+}
+
 // RuntimeOptions are the run's runtime_options derived from the agent's runtime section: model always,
 // effort and max_turns when set.
 func (a Agent) RuntimeOptions() map[string]any {

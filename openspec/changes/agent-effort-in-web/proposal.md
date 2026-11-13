@@ -1,4 +1,10 @@
-Status: approved by the owner 2026-11-13.
+Status: approved by the owner 2026-11-13. Implemented 2026-11-13: Core had no model list, so `config.RuntimeModels` (per runtime, led by
+"default"; a pick-list only, any model name stays valid) and `config.RuntimeEfforts` (Efforts when the driver reads
+the effort option) are served by `GET /catalog/runtimes`; the team member payload gained `effort` (resolved with the
+profile); the run payload already carried `spec.runtime_options` (model, effort), so the run page reads it unchanged.
+The agent edit form has Effort (Default = the profile's or the runtime's) and the Model pick-list with "Custom…"; the
+add-agent form got the Model pick-list only (preset overrides have no effort field: set it in the edit form after
+adding). A refused effort maps to the form's Effort field.
 
 ## Why
 

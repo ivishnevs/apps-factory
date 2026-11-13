@@ -60,8 +60,10 @@ profile gets `<team>-agent`). A new lead takes the old lead's place: it reports 
 reports and the old lead report to it. "Who does what" lists each agent's job, manager, reviewer, whom it may
 message and give tasks to, and what it is doing now; the agent's form edits `can_message` (agents of other teams;
 its own team and the owner are always allowed) and `can_assign_tasks` (no one, direct reports, everyone below it or
-chosen agents) as a catalog change. `GET /catalog/teams` carries `settings` per team and `assign_scope` and
-`can_message` per agent.
+chosen agents) as a catalog change. `GET /catalog/teams` carries `settings` per team and `assign_scope`,
+`can_message` and `effort` per agent. `GET /catalog/runtimes` lists each runtime with the efforts it accepts and the
+models the agent form offers (`config.RuntimeModels`, a pick-list: any model name stays valid); the form's Effort
+writes `spec.runtime.effort` (empty keeps the profile's or the runtime's default).
 
 Agents read the catalog with `factory_catalog_get` and propose changes with `factory_catalog_change`
 `{base, put, delete, note, request_id}`: it always needs the owner's approval of that exact call

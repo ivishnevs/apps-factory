@@ -7,6 +7,8 @@ export interface CatalogDocument { version: number; path: string; size: number; 
 
 export interface TeamMember {
   name: string; team?: string; document?: string; skills?: string[]; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
+  // agent-effort-in-web: the reasoning effort (its own or its profile's); empty keeps the runtime default.
+  effort?: string;
   creates_tasks?: boolean; assigns_to?: string[];
   // team-page-clarity: the effective assignment scope and whom it may message as Core enforces it.
   assign_scope?: "none" | "direct_reports" | "subtree" | "list"; can_message?: string[]; review_required?: boolean; reviewer?: string; review_paths?: string[];
@@ -23,6 +25,9 @@ export interface TeamSettings {
   quota_keys: QuotaKeyView[]; overrides: string[];
 }
 export interface TeamView { name: string; title?: string; description?: string; lead: string; audit_assignee: string; profile?: string; agents: TeamMember[]; projects: string[]; approvals?: ApprovalModes; settings?: TeamSettings }
+// A runtime an agent may run on (GET /catalog/runtimes): the efforts it accepts (none: no effort) and the models
+// the agent form offers; any other model name is still valid.
+export interface RuntimeView { provider: string; efforts: string[]; models: string[] }
 export interface Teams { company: string; version: number; teams: TeamView[] }
 
 export interface CatalogChange { base: number; put?: Record<string, string>; delete?: string[]; note?: string; dry_run?: boolean }

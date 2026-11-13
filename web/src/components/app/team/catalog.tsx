@@ -42,6 +42,12 @@ function RunKinds({ m, runs }: { m: TeamMember; runs?: AgentRuns }) {
   );
 }
 
+// runtimeDetail is "(model · effort)" for the member card (agent-effort-in-web); the runtime defaults are left out.
+const runtimeDetail = (m: TeamMember) => {
+  const parts = [m.model && m.model !== "default" ? m.model : "", m.effort ?? ""].filter(Boolean);
+  return parts.length ? ` (${parts.join(" · ")})` : "";
+};
+
 export function MemberCard({ m, onOpen, onSkills, onEdit, runs }: { m: TeamMember; onOpen: (path: string) => void; onSkills?: () => void; onEdit?: () => void; runs?: AgentRuns }) {
   return (
     <li className="rounded-xl border bg-card p-4">
@@ -56,7 +62,7 @@ export function MemberCard({ m, onOpen, onSkills, onEdit, runs }: { m: TeamMembe
           {m.description && <p className="mt-0.5 text-sm text-muted-foreground">{m.description}</p>}
           <p className="mt-2 text-xs text-muted-foreground">
             Reports to <span className="font-medium text-foreground">{m.reports_to === "owner" ? "you" : m.reports_to}</span>
-            {(m.assigns_to?.length ?? 0) > 0 && <> · assigns work to <span className="text-foreground">{m.assigns_to!.join(", ")}</span></>} · runs on {m.provider === "claude" ? "Claude" : m.provider === "codex" ? "Codex" : m.provider}{m.model && m.model !== "default" ? ` (${m.model})` : ""}
+            {(m.assigns_to?.length ?? 0) > 0 && <> · assigns work to <span className="text-foreground">{m.assigns_to!.join(", ")}</span></>} · runs on {m.provider === "claude" ? "Claude" : m.provider === "codex" ? "Codex" : m.provider}{runtimeDetail(m)}
           </p>
           {(m.review_required || m.reviewer || (m.review_paths?.length ?? 0) > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">

@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, core, useAgentDoc, useAgentPresets, useCatalog, useSetup, useTeamPresets, useTeams } from "@/lib/api/client";
+import { ApiError, core, useAgentDoc, useAgentPresets, useCatalog, useRuntimes, useSetup, useTeamPresets, useTeams } from "@/lib/api/client";
 import type { TeamView } from "@/lib/api/types-catalog";
 import type { AgentDoc, AgentOverrides, AgentPreset, AgentSpec, Setup } from "@/lib/api/types-presets";
 import { runsError, windowError } from "@/lib/run-kinds";
@@ -123,6 +123,48 @@ export function NewTeamSheet({ open, onClose, initialPreset }: { open: boolean; 
 
 const providers = [{ v: "", l: "Team default" }, { v: "claude", l: "Claude" }, { v: "codex", l: "Codex" }];
 
+// ModelField (agent-effort-in-web): the runtime's known models (Core's GET /catalog/runtimes) to pick from, or a custom
+// name; an unknown runtime (or one Core lists no models for) keeps the free text field. Empty means "default".
+function ModelField({ provider, value, onChange, error }: { provider?: string; value?: string; onChange: (v: string) => void; error?: string | null }) {
+  const known = useRuntimes().data?.find((r) => r.provider === provider)?.models ?? [];
+  const [customMode, setCustomMode] = useState(false);
+  const current = value || "default";
+  const custom = !known.length || customMode || !known.includes(current);
+  return (
+    <Field group label="Model" error={error}>
+      {known.length > 0 && (
+        <Select value={custom ? "_custom" : current} onValueChange={(v) => { setCustomMode(v === "_custom"); if (v !== "_custom") onChange(v); }}>
+          <SelectTrigger className="w-full" aria-label="Model"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {known.map((m) => <SelectItem key={m} value={m}>{m === "default" ? "Runtime default" : m}</SelectItem>)}
+            <SelectItem value="_custom">Custom…</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+      {custom && <Input value={value ?? ""} placeholder={known.length ? "Model name" : "default"} aria-label="Model name" onChange={(e) => onChange(e.target.value)} />}
+    </Field>
+  );
+}
+
+// EffortField (agent-effort-in-web): the efforts the runtime accepts; empty keeps the profile's or the runtime's
+// default. A runtime without effort shows nothing (unless a value is set, so it can be cleared).
+function EffortField({ provider, value, onChange, error }: { provider?: string; value?: string; onChange: (v: string) => void; error?: string | null }) {
+  const efforts = useRuntimes().data?.find((r) => r.provider === provider)?.efforts ?? [];
+  if (!efforts.length && !value) return null;
+  const options = !value || efforts.includes(value) ? efforts : [value, ...efforts];
+  return (
+    <Field label="Effort" error={error} hint="Reasoning effort; default keeps the profile's or the runtime's">
+      <Select value={value || "_"} onValueChange={(v) => onChange(v === "_" ? "" : v)}>
+        <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_">Default</SelectItem>
+          {options.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
 function OverridesFields({ value, onChange, team, error, presetPrompt }: { value: AgentOverrides; onChange: (v: AgentOverrides) => void; team: TeamView; error: unknown; presetPrompt?: string }) {
   const managers = ["owner", ...team.agents.map((a) => a.name)];
   const teams = useTeams().data?.teams ?? [team];
@@ -147,7 +189,7 @@ function OverridesFields({ value, onChange, team, error, presetPrompt }: { value
             <SelectContent>{providers.map((p) => <SelectItem key={p.l} value={p.v || "_"}>{p.l}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
-        <Field label="Model" error={fieldError(error, "model")}><Input value={value.model ?? ""} onChange={(e) => onChange({ ...value, model: e.target.value })} placeholder="default" /></Field>
+        <ModelField provider={value.provider || team.settings?.provider} value={value.model} onChange={(model) => onChange({ ...value, model })} error={fieldError(error, "model")} />
         <Field label="Quota key" error={fieldError(error, "quota_key")}><Input value={value.quota_key ?? ""} onChange={(e) => onChange({ ...value, quota_key: e.target.value })} placeholder="claude-subscription" /></Field>
       </div>
       <Field label="Prompt" error={fieldError(error, "prompt")} hint="Markdown; empty keeps the preset's prompt">
@@ -319,6 +361,7 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [runs, setRuns] = useState<RunKindInputs>(runKindInputs());
+  const runtimes = useRuntimes().data;
   useEffect(() => { setDraft(doc.data ?? null); setRuns(runKindInputs(doc.data?.agent.spec)); setError(null); }, [doc.data]);
   if (!name) return null;
   const set = (f: (d: AgentDoc) => void) => setDraft((d) => { if (!d) return d; const c = structuredClone(d); f(c); return c; });
@@ -352,6 +395,8 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
   };
   const spec = draft?.agent.spec;
   const managers = ["owner", ...team.agents.map((a) => a.name).filter((a) => a !== name)];
+  // The runtime the agent runs on: its own, else the team profile's (or what the catalog resolved for it).
+  const provider = spec?.runtime?.provider || team.settings?.provider || team.agents.find((a) => a.name === name)?.provider;
   return (
     <Sheet open={!!name} onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
@@ -405,14 +450,23 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                   <span className="mt-0.5 block text-xs text-muted-foreground">Off: its questions and approvals go to its manager instead of to you.</span>
                 </label>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Runtime" error={fieldError(error, "provider")}>
-                  <Select value={spec.runtime?.provider || "_"} onValueChange={(v) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, provider: v === "_" ? undefined : v }; })}>
+                  <Select value={spec.runtime?.provider || "_"} onValueChange={(v) => set((d) => {
+                    const rt = { ...d.agent.spec.runtime, provider: v === "_" ? undefined : v };
+                    // A runtime that takes no effort drops it (Core would refuse it).
+                    const next = rt.provider || team.settings?.provider;
+                    if (rt.effort && runtimes && !runtimes.find((r) => r.provider === next)?.efforts.includes(rt.effort)) delete rt.effort;
+                    d.agent.spec.runtime = rt;
+                  })}>
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>{providers.map((p) => <SelectItem key={p.l} value={p.v || "_"}>{p.l}</SelectItem>)}</SelectContent>
                   </Select>
                 </Field>
-                <Field label="Model" error={fieldError(error, "model")}><Input value={spec.runtime?.model ?? ""} placeholder="default" onChange={(e) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, model: e.target.value }; })} /></Field>
+                <ModelField provider={provider} value={spec.runtime?.model} error={fieldError(error, "model")}
+                  onChange={(model) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, model }; })} />
+                <EffortField provider={provider} value={spec.runtime?.effort} error={fieldError(error, "effort")}
+                  onChange={(effort) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, effort: effort || undefined }; })} />
                 <Field label="Quota key" error={fieldError(error, "quota_key")}><Input value={spec.runtime?.quota_key ?? ""} onChange={(e) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, quota_key: e.target.value }; })} /></Field>
               </div>
               <RunKindFields value={runs} onChange={setRuns} error={error} />

@@ -125,6 +125,11 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
   const hasCost = usage.some((u) => u.cost_usd != null);
   const cost = usage.reduce((s, u) => s + (u.cost_usd ?? 0), 0);
   const models = [...new Set(usage.map((u) => u.model).filter(Boolean))];
+  // agent-effort-in-web: the model and effort the run was started with (its runtime options); usage names the model
+  // the runtime reported once it ran.
+  const options = run.spec.runtime_options ?? {};
+  const requestedModel = typeof options.model === "string" && options.model !== "default" ? options.model : "";
+  const effort = typeof options.effort === "string" ? options.effort : "";
   const end = run.finished_at || (live ? now / 1000 : 0);
   const elapsed = run.started_at && end ? duration(end - run.started_at) : "—";
   const taskId = run.spec.task_id;
@@ -166,7 +171,7 @@ function Header({ run, live, connected, taskTitle, taskVersion, errors }: {
         <Stat icon={Clock} label="Elapsed" value={elapsed} className="border-r border-b sm:border-b-0" />
         <Stat icon={Hash} label="Tokens" value={usage.length ? `${tokens(input)} in · ${tokens(output)} out` : "—"} sub={cache && input ? `${Math.floor((cache / input) * 100)}% from cache` : undefined} className="border-b sm:border-r sm:border-b-0" />
         <Stat icon={Coins} label="Cost" value={hasCost ? usd(cost) : "—"} sub={hasCost ? undefined : "not reported"} className="border-r" />
-        <Stat icon={Cpu} label="Model" value={models.join(", ") || "—"} sub={run.spec.provider || undefined} />
+        <Stat icon={Cpu} label="Model" value={[models.join(", ") || requestedModel, effort].filter(Boolean).join(" · ") || "—"} sub={run.spec.provider || undefined} />
       </dl>
 
       {errors > 0 && (
