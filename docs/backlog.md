@@ -22,6 +22,25 @@
   - *Work when picked up.* Point the frontend at Core's routes, move the aggregates into Core, delete `internal/web`
     and the allowlist. It touches the whole frontend: give it its own OpenSpec change.
 
+- **Project readiness does not check the project's toolchain, recorded 2026-11-13, not planned.**
+  - *What happened.* In tvorog a reviewer run of advent-gift (a Go backend next to the iOS app) went to node mac2,
+    which had no Go. The reviewer approved TVO-647 without building or testing ("there is no `go` in the review
+    environment").
+  - *Why it is a problem.* A node is "ready for a project" when it can read the repository; nobody checks the tools
+    the project needs. Core routes by node labels (`macos`, `xcode`, …) and readiness, so it sends work to a node that
+    cannot build or test it, and nothing tells people which tool to install.
+  - *Direction.* The readiness check detects what the repository needs (`go.mod` → Go, `package.json` → Node,
+    `*.xcodeproj` → Xcode, and so on for common ecosystems), with an optional explicit list in the project for unusual
+    cases; a node missing a tool is not ready for that project, with the reason ("no go"), so work goes to another
+    node and the node's status says what to install. Give it its own OpenSpec change when picked up.
+- **A reviewer can approve without re-running the submission's checks, recorded 2026-11-13, not planned.**
+  - *What happened.* The same review accepted `go build` and `go test` "from the implementer's report".
+  - *Owner's decision on the rule (2026-11-13).* Accepting a check from the report is allowed, but the verdict must
+    say so per check with the reason, and people see it on the task. Not re-running because the environment lacks a
+    tool is covered by the readiness issue above (the review should run on a node that can).
+  - *Relation.* `approval-gates-merge` §4 makes an `approved` verdict cover every submitted artifact; checks
+    (build, tests) are not covered there yet.
+
 The NATS company-isolation issue (a node's NATS login could damage other companies' streams, and a
 revoked node kept its login) is closed by `http-node-transport`: NATS is removed and nodes reach Core only through
 signed HTTPS requests, checked per company and per node.
