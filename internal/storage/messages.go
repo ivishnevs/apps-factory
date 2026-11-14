@@ -242,6 +242,11 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 			m.TaskAssignee = t.Assignee
 		}
 	}
+	if m.MessageType == "question" {
+		if err = checkQuestionChain(ctx, tx, m); err != nil {
+			return m, err
+		}
+	}
 	if in.Blocking {
 		if in.TaskID == "" || in.RunID == "" {
 			return m, inputError("blocking requires current task/run")
@@ -277,17 +282,6 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		}
 		if _, err = tx.ExecContext(ctx, "UPDATE task_parks SET run_id=? WHERE company_id=? AND task_id=? AND kind=? AND ref_id=? AND status='active'", in.RunID, tx.company, t.ID, tasks.ParkAsk, m.ID); err != nil {
 			return m, err
-		}
-	}
-	if m.MessageType == "question" && m.Sender != "owner" && m.Sender != "factory" {
-		var count int
-		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM messages WHERE (conversation_id=? OR (?!='' AND task_id=?)) AND message_type='question' AND sender NOT IN ('owner','factory')", m.ConversationID, m.TaskID, m.TaskID).Scan(&count); err != nil {
-			return m, err
-		}
-		if count >= 8 {
-			m.Status = "ESCALATED"
-			m.DeliveryStatus = "NONE"
-			m.EscalationReason = "automatic clarification limit (8) reached"
 		}
 	}
 	if m.Recipient == "owner" {
@@ -451,7 +445,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	if in.Sender != m.Recipient && in.Sender != "owner" && !delegate {
 		return m, inputError("only recipient or owner can answer")
 	}
-	if (m.Status == "ESCALATED" || m.Deadline <= tx.now().Unix()) && in.Sender != "owner" && !delegate {
+	if (m.Status == "ESCALATED" && m.EscalationReason != oldChainLimitReason || m.Deadline <= tx.now().Unix()) && in.Sender != "owner" && !delegate {
 		return m, ErrConflict
 	}
 	switch in.Details {

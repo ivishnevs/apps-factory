@@ -34,7 +34,7 @@ and .cache/messaging-smoke-output.json. No messages were sent to external accoun
 - Reply before turn completion, waiting/restart/continuation, same task thread and writer exclusion.
 - UNKNOWN/FAILED/CANCELLED never automatically resumed by an answer.
 - Stable-key reply replay, stale versions, malformed forms/options and duplicate questions.
-- Eight automatic clarification limit, persisted deadlines and owner escalation.
+- Question chain limit (question-chain-limit): at most eight questions between one pair of agents about one task within 24 hours and since the owner last wrote on it; the ninth is refused with `question_limit` (nothing sent). Questions to or from people do not count. Persisted deadlines and owner escalation.
 - Separate recipient contexts, persistent owner session and recipient/thread mismatch protection.
 - Manager escalation → owner answer → manager continuation → originating task resume.
 - Owner notification inbox acknowledgment.

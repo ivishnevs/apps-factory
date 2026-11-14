@@ -151,12 +151,16 @@ func TestQuestionLoopGuardTimeoutAndTransactionalOutbox(t *testing.T) {
 	}
 	for i := 0; i < 9; i++ {
 		input := messaging.Send{ProjectID: "p", Sender: "demo", Recipient: "manager", ConversationID: conv.ID, MessageType: "question", Body: fmt.Sprintf("Question %d", i), RequestID: fmt.Sprintf("send-%d", i)}
-		m, err := s.SendMessage(ctx, DefaultCompany, input)
+		_, err := s.SendMessage(ctx, DefaultCompany, input)
+		if i == 8 {
+			// question-chain-limit: the ninth question of a pair is refused, not escalated.
+			if !refusedAs(err, "question_limit") {
+				t.Fatal("unbounded chain", err)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
-		}
-		if i == 8 && m.Status != "ESCALATED" {
-			t.Fatal("unbounded chain", m)
 		}
 		if i == 0 {
 			input.RequestID = "duplicate"
@@ -185,7 +189,7 @@ func TestQuestionLoopGuardTimeoutAndTransactionalOutbox(t *testing.T) {
 		t.Fatal(m)
 	}
 	var count int
-	if err = s.DB.QueryRow("SELECT count(*) FROM entity_events WHERE body->>'type'='message.created'").Scan(&count); err != nil || count != 10 {
+	if err = s.DB.QueryRow("SELECT count(*) FROM entity_events WHERE body->>'type'='message.created'").Scan(&count); err != nil || count != 9 {
 		t.Fatal(count, err)
 	}
 }

@@ -326,6 +326,12 @@ func reply(w http.ResponseWriter, v any, err error) {
 		if planLimitReply(w, err) {
 			return
 		}
+		var refusal *storage.ExitRefusal
+		if errors.As(err, &refusal) {
+			// A gate's refusal (question-chain-limit): its reason and hint, as an exit answers them.
+			jsonStatus(w, refusal.Status, refusal)
+			return
+		}
 		var archived *storage.ArchivedError
 		if errors.As(err, &archived) {
 			// An archived artifact version (artifact-retention): its metadata stays, its content is gone.
