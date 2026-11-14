@@ -60,12 +60,28 @@ func check(c, sha string) error {
 // place, so a reader never sees a partial blob.
 type LocalFS struct{ Root string }
 
+// smallPut is the largest content Put hashes in memory before writing.
+const smallPut = 1 << 20
+
 func (l LocalFS) path(c, sha string) string { return filepath.Join(l.Root, c, sha[:2], sha) }
 
 func (l LocalFS) Put(ctx context.Context, c string, r io.Reader) (string, int64, error) {
 	if err := check(c, ""); err != nil {
 		return "", 0, err
 	}
+	// Small content is hashed in memory first: content the store already has is not written again, so storing
+	// it again (Core re-indexing its built-in skills at every start) works on a full volume.
+	head, err := io.ReadAll(io.LimitReader(r, smallPut+1))
+	if err != nil {
+		return "", 0, err
+	}
+	if len(head) <= smallPut {
+		sha := Digest(head)
+		if _, err := os.Stat(l.path(c, sha)); err == nil {
+			return sha, int64(len(head)), nil
+		}
+	}
+	r = io.MultiReader(bytes.NewReader(head), r)
 	dir := filepath.Join(l.Root, c)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", 0, err

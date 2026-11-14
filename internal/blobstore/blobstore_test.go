@@ -95,3 +95,30 @@ func TestLocalFSLeavesNoPartialBlob(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("broken") }
+
+// TestLocalFSRepeatedPutWritesNothing: storing small content the store already has writes nothing, so it succeeds
+// on a volume that has no room left (here: a company directory that cannot be written); new content still fails.
+func TestLocalFSRepeatedPutWritesNothing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	root := t.TempDir()
+	s := LocalFS{Root: root}
+	ctx := context.Background()
+	sha, _, err := s.Put(ctx, "acme", strings.NewReader("skill body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "acme")
+	if err = os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	again, n, err := s.Put(ctx, "acme", strings.NewReader("skill body"))
+	if err != nil || again != sha || n != int64(len("skill body")) {
+		t.Fatal(again, n, err)
+	}
+	if _, _, err = s.Put(ctx, "acme", strings.NewReader("new body")); err == nil {
+		t.Fatal("new content was stored in a directory that cannot be written")
+	}
+}
