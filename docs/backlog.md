@@ -33,6 +33,20 @@
     `*.xcodeproj` → Xcode, and so on for common ecosystems), with an optional explicit list in the project for unusual
     cases; a node missing a tool is not ready for that project, with the reason ("no go"), so work goes to another
     node and the node's status says what to install. Give it its own OpenSpec change when picked up.
+  - *Seen again 2026-11-15: a Linux node joins a company of mixed iOS/Android projects.* tvorog added
+    `factory-android-1` (Linux, Android SDK, no Xcode) for Android work. No project has `requires` and no agent has
+    `labels`, so Core treats the Linux node like the Macs and could give it an iOS task (stashy, tracely, the iOS side
+    of advent-gift and hermes-ai). The node was paused at setup for that reason.
+    - Per project `requires` does not fit mixed projects: `xcodebuild` keeps Android work off the Linux node, and
+      without it the project's iOS tasks can land there.
+    - Agent `labels` (`spec.labels`, node-agent D3) route per agent, not per task. Doable today by catalog only: label
+      the iOS agents `macos` (developer, developer-lite, reviewer, app-release, product-designer, launch-creative), add
+      an `android-developer` agent labelled `android`, reassign open Android tasks to it, and state the split in the
+      agents' `capabilities` so leads assign by them (capabilities are text for planning, they do not route). Limits:
+      the split relies on leads assigning by capabilities (a mistake sends an Android task to a Mac, which is safe),
+      and reviews of Android tasks still run on Macs. Not applied yet (owner, 2026-11-15).
+    - The general fix stays the per-task toolchain check above: a run needs the tools of what it touches, and a node
+      without them does not claim it. Note: `app-release` already has `labels: [play]`, which only tvorog-mac carries.
 - **A reviewer can approve without re-running the submission's checks, recorded 2026-11-13, not planned.**
   - *What happened.* The same review accepted `go build` and `go test` "from the implementer's report".
   - *Owner's decision on the rule (2026-11-13).* Accepting a check from the report is allowed, but the verdict must
