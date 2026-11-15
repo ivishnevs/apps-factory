@@ -1,4 +1,4 @@
-Status: draft 2026-11-15, for the owner's review. Raised by the owner from the tvorog Unsealed onboarding the same day
+Status: accepted 2026-11-15 by the owner. Raised by the owner from the tvorog Unsealed onboarding the same day
 ("three questions about the same problem — isn't this a design error?").
 
 ## Why
