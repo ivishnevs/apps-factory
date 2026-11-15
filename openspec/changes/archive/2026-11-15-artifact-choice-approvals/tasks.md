@@ -24,7 +24,7 @@
 
 - [x] 4.1 Storage and Core tests: request validation, owner choose/changes/reject, delegate with and without cites, people-only refusal, required-version gating
 - [x] 4.2 TUI and web tests with fakes (no live runs)
-- [ ] 4.3 Spec deltas merged into `openspec/specs` on archive
+- [x] 4.3 Spec deltas merged into `openspec/specs` on archive
 
 ## 5. One approval model (owner, 2026-11-12: "a choice approval and a regular approval are the same thing")
 
