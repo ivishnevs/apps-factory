@@ -47,12 +47,21 @@ func communicationCommand(ctx context.Context, api worker.API, args []string) er
 			body, err = jsonBody(args[3])
 		case "say":
 			// To the owner's default direct report, or "@name ..." to another (hierarchy D5).
-			if len(args) != 4 {
-				return fmt.Errorf("conversations say PROJECT TEXT")
+			rest, files := splitAttach(args)
+			if len(rest) != 4 {
+				return fmt.Errorf("conversations say PROJECT TEXT [--attach IMAGE...]")
 			}
 			method = "POST"
 			path = "/messages"
-			body = map[string]any{"project_id": args[2], "body": args[3], "request_id": protocol.ID()}
+			m := map[string]any{"project_id": rest[2], "body": rest[3], "request_id": protocol.ID()}
+			if len(files) > 0 {
+				atts, err := uploadImages(ctx, api, files)
+				if err != nil {
+					return err
+				}
+				m["attachments"] = atts
+			}
+			body = m
 		default:
 			return fmt.Errorf("unknown conversations command")
 		}

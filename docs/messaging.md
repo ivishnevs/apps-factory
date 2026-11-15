@@ -221,6 +221,26 @@ A message to the owner (or a decision proposal) whose text names image or video 
 `.webp`, `.gif`, `.mp4`) without attachments or materials is sent, and the tool answer carries
 `warnings: [{code: "visual_without_attachment", message}]` so the agent can send it again with them.
 
+### People's images (people-attachments)
+
+People attach images too: in the web chat (any conversation, the attach button, paste or drop), in task comments
+(and reopen, ask-lead), in inbox answers, from the CLI (`factory tasks comment ID TEXT --attach IMAGE…`,
+`factory conversations say PROJECT TEXT --attach IMAGE…`) and in Telegram (a photo, or an image sent as a file, as a
+reply or a message; its caption is the text). Each file is uploaded first: `POST /uploads?name=<file>` with the file as
+the body (PNG, JPEG, GIF or WebP, up to 20 MB, counted against the company's storage) answers
+`{path, sha256, size, preview}`; a message, comment or answer then names up to 10 of them in `attachments`
+(`[{sha256, caption}]`, a repeated name gets a number). An upload nobody names within a day is deleted; a named one
+lives as long as its message or comment. A message, comment or answer with images and no words reads
+"(an image attached)".
+
+The agent sees them without a tool: before every run the node places in the working directory the images of the
+run's task (its comments and the people's messages and answers filed under it) or, for a conversation run, of the
+latest 20 people's messages to its agent in the project, at `.factory/inputs/msg-<id>/<n>/<name>` or
+`.factory/inputs/cmt-<id>/<n>/<name>`; the brief lists each path and caption next to its message or comment. Core
+keeps the originals, so a retry on another node gets them again. Board comments of other tasks a run owes an outcome
+for bring their images too. Only people attach images to comments and answers; agents attach theirs to messages as
+above.
+
 ## Reliability and limits
 
 Question deadlines default to 24h; timeout_seconds accepts 1..604800 (0 uses default). Expired or

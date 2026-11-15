@@ -427,7 +427,10 @@ func validAnswers(qs []messaging.Question, answers map[string]any) error {
 	return nil
 }
 func (s *Store) ReplyMessage(ctx context.Context, company, id string, in messaging.Reply) (messaging.Message, error) {
+	with := in
+	with.Attachments = s.withPersonPreviews(ctx, company, in.Attachments)
 	return mutate(ctx, s, company, "message.reply:"+id, in.RequestID, in, func(tx *Tx) (messaging.Message, error) {
+		in := with
 		var count int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM approvals WHERE company_id=? AND message_id=?", company, id).Scan(&count); err != nil {
 			return messaging.Message{}, err
@@ -481,6 +484,19 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 	default:
 		return m, inputError("details must be promised or withdrawn")
 	}
+	var atts []messaging.Attachment
+	if len(in.Attachments) > 0 {
+		// people-attachments: only a person attaches images to an answer.
+		if in.Sender != "owner" {
+			return m, inputError("only people attach images to answers")
+		}
+		if atts, err = personAttachmentsTx(ctx, tx, in.Attachments); err != nil {
+			return m, err
+		}
+		if strings.TrimSpace(in.Body) == "" {
+			in.Body = imagesOnlyBody(len(atts))
+		}
+	}
 	if in.RequestID == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id and answer body up to 16 KiB required")
 	}
@@ -498,7 +514,7 @@ func replyMessageTx(ctx context.Context, tx *Tx, id string, in messaging.Reply) 
 			return m, err
 		}
 	}
-	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE", TopicID: m.TopicID}
+	answer := messaging.Message{ID: protocol.ID(), ProjectID: m.ProjectID, TaskID: m.TaskID, Sender: in.Sender, Recipient: m.Sender, ConversationID: m.ConversationID, MessageType: "answer", Body: in.Body, Answers: in.Answers, InReplyTo: m.ID, Status: "READ", Version: 1, CreatedAt: tx.now().Unix(), DeliveryStatus: "NONE", TopicID: m.TopicID, Attachments: atts}
 	if in.Sender == "owner" {
 		if p := PersonFrom(ctx); p.ID != "" || p.Name != "" {
 			answer.Person, answer.PersonID, answer.Channel = personName(ctx), p.ID, p.Channel

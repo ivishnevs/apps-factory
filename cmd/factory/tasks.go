@@ -18,7 +18,7 @@ import (
 
 func engineCommand(ctx context.Context, api worker.API, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: projects create ID [ABS_WORKSPACE] [DESCRIPTION] [--team TEAM] [--repo-mode local|github|existing] [--repo URL] [--branch B] [--audit] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] [--assignee me|member:USER|AGENT] | tasks start ID VERSION | tasks submit-pr ID VERSION PR SUMMARY | tasks done ID VERSION [--merged] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT")
+		return fmt.Errorf("usage: projects create ID [ABS_WORKSPACE] [DESCRIPTION] [--team TEAM] [--repo-mode local|github|existing] [--repo URL] [--branch B] [--audit] | projects list/get/events/update | tasks create JSON_FILE | tasks list [PROJECT] [STATUS] [--assignee me|member:USER|AGENT] | tasks start ID VERSION | tasks submit-pr ID VERSION PR SUMMARY | tasks done ID VERSION [--merged] | tasks get/attempts/events/comments ID | tasks update/submit ID JSON_FILE | tasks model ID VERSION MODEL|- | tasks ready/block/cancel ID VERSION [REASON] [--cascade] | tasks pause/resume ID VERSION [REASON] | tasks reassign ID VERSION AGENT [REASON] | tasks reprioritize ID VERSION PRIORITY |tasks review ID VERSION accept|reject [FEEDBACK] | tasks why ID|--project PROJECT [--json] | tasks comment ID TEXT [--attach IMAGE...]")
 	}
 	if args[0] == "tasks" && args[1] == "why" {
 		return whyCommand(ctx, api, args[2:])
@@ -161,12 +161,21 @@ func engineCommand(ctx context.Context, api worker.API, args []string) error {
 			path = idPath(args[2])
 			body = map[string]any{"version": version, "model": model, "request_id": protocol.ID()}
 		case "comment":
-			if len(args) != 4 {
-				return fmt.Errorf("tasks comment ID TEXT")
+			rest, files := splitAttach(args)
+			if len(rest) != 4 {
+				return fmt.Errorf("tasks comment ID TEXT [--attach IMAGE...]")
 			}
 			method = "POST"
-			path = idPath(args[2]) + "/comments"
-			body = map[string]any{"text": args[3], "request_id": protocol.ID()}
+			path = idPath(rest[2]) + "/comments"
+			c := map[string]any{"text": rest[3], "request_id": protocol.ID()}
+			if len(files) > 0 {
+				atts, err := uploadImages(ctx, api, files)
+				if err != nil {
+					return err
+				}
+				c["attachments"] = atts
+			}
+			body = c
 		case "ready", "block", "cancel":
 			cascade := args[1] == "cancel" && args[len(args)-1] == "--cascade"
 			if cascade {

@@ -133,7 +133,9 @@ and of the current epoch; node has the agent's driver and labels; resource capac
   CLAIMED. The RunSpec (with the brief built now) replaces `GET /runs/{id}`. Retrying the same
   `(node_id, epoch, claim_id)` returns the same answer; Core does not order claim ids. The RunSpec's
   `materialize` (not stored) lists the project data the node places in the worktree before the runtime starts:
-  `{"files": [{"path", "sha256", "size"}]}`, the pinned approved artifact inputs under `.factory/inputs/`. Also not
+  `{"files": [{"path", "sha256", "size"}]}`, the pinned approved artifact inputs under `.factory/inputs/`, and the
+  people's images of the task or conversation (people-attachments) under `.factory/inputs/msg-<id>/<n>/<name>` and
+  `.factory/inputs/cmt-<id>/<n>/<name>`, again for every run on whichever node claims it. Also not
   stored (node-ties): `restore_wip`, the task's work saved to `refs/factory/wip/<task>` that the node restores as
   files when its worktree does not hold it, and `workspace_node`, the node of the task's last workspace report (a
   different node means this node's earlier saved leftovers are not continued). Stored: `review_copy` (the run's

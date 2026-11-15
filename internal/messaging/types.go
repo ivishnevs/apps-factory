@@ -169,6 +169,8 @@ type Reply struct {
 	Body      string         `json:"body"`
 	Answers   map[string]any `json:"answers,omitempty"`
 	RequestID string         `json:"request_id"`
+	// Attachments are images a person uploaded (POST /uploads) and attaches to the answer (people-attachments).
+	Attachments []Attachment `json:"attachments,omitempty"`
 	// Delegate: Core answers an approval's question for the agent the approval was delegated to, which decided
 	// it (approval-attribution); Sender is that agent. Never set from a request.
 	Delegate bool `json:"-"`

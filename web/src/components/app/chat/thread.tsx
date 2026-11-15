@@ -5,11 +5,12 @@ import { MessageVisuals } from "@/components/app/materials/visuals";
 import { usePerson } from "@/lib/person";
 import { ArrowLeft, ArrowUp, CircleHelp, Hash, Radio, Star, X } from "lucide-react";
 import { toast } from "sonner";
+import { AttachButton, AttachmentTray, useAttachments } from "@/components/app/attachments/use-attachments";
 import Link from "@/components/app/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Message, Question } from "@/lib/api/types";
+import type { Message, MessageAttachment, Question } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { ErrorState } from "@/components/app/page";
 import { useOverview, useTopic, useTopics, useTopicWrite } from "@/lib/api/client";
@@ -111,7 +112,7 @@ function Typing({ agent }: { agent: string }) {
 }
 
 export function Thread({ chat, outgoing, onSend, onBack }: {
-  chat: Chat; outgoing: Outgoing[]; onSend: (text: string) => Promise<boolean>; onBack: string;
+  chat: Chat; outgoing: Outgoing[]; onSend: (text: string, attachments?: MessageAttachment[]) => Promise<boolean>; onBack: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
@@ -127,15 +128,21 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.id, count]);
-  useEffect(() => { setText(""); setTopic(null); }, [chat.id]);
+  // people-attachments: images the person adds (button, paste, drop) go with the message.
+  const att = useAttachments();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- clear the composer when the conversation changes
+  useEffect(() => { setText(""); setTopic(null); att.clear(); }, [chat.id]);
 
+  const canSend = (!!text.trim() || att.ready.length > 0) && !att.uploading && !busy;
   const send = async () => {
     const t = text.trim();
-    if (!t || busy) return;
+    const images = att.ready;
+    if (!canSend) return;
     setBusy(true);
     setText("");
-    const ok = topic ? await reply.mutateAsync({ topic: topic.id, body: t }).then(() => true, (e: Error) => { toast.error(e.message); return false; }) : await onSend(t);
+    const ok = topic ? await reply.mutateAsync({ topic: topic.id, body: t, attachments: images }).then(() => true, (e: Error) => { toast.error(e.message); return false; }) : await onSend(t, images);
     if (!ok) setText(t); // nothing is lost
+    else att.clear();
     setBusy(false);
   };
 
@@ -235,7 +242,9 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
             <button type="button" onClick={() => setTopic(null)} aria-label="Write to the chat, not the topic" className="-my-2 ml-auto flex size-9 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-foreground"><X className="size-3.5" /></button>
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-3xl border bg-card py-1 pl-4 pr-1 shadow-xs transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
+        <AttachmentTray a={att} className="mb-2 px-2" />
+        <div {...att.handlers} className="flex items-end gap-2 rounded-3xl border bg-card py-1 pl-1 pr-1 shadow-xs transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
+          <AttachButton a={att} />
           <label htmlFor="chat-composer" className="sr-only">Message {chat.agent}</label>
           <textarea id="chat-composer" rows={1} value={text} onChange={(e) => setText(e.target.value)}
             placeholder={topic ? `Ask ${chat.agent} about this topic…` : `Message ${chat.agent}…`} maxLength={16384}
@@ -247,12 +256,12 @@ export function Thread({ chat, outgoing, onSend, onBack }: {
               }
             }}
             className="max-h-40 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-base outline-none [field-sizing:content] placeholder:text-muted-foreground md:text-sm" />
-          <Button type="submit" size="icon-lg" disabled={!text.trim() || busy} aria-label="Send" className="shrink-0 rounded-full">
+          <Button type="submit" size="icon-lg" disabled={!canSend} aria-label="Send" className="shrink-0 rounded-full">
             <ArrowUp className="size-5" />
           </Button>
         </div>
         <p className="mt-1.5 hidden px-4 text-[11px] text-muted-foreground md:block">
-          Enter sends · Shift+Enter for a new line · start with @name to write to another report
+          Enter sends · Shift+Enter for a new line · paste or drop images to attach · start with @name to write to another report
         </p>
       </form>
     </div>

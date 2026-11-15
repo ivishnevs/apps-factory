@@ -161,10 +161,13 @@ type Action struct {
 	// PullRequest and Merged: a person's work_submit ("#200" or its URL) and work_done (people-assignees).
 	PullRequest string
 	Merged      bool
-	MessageID   string         // answer
-	Details     string         // answer: promised ("I'll send details") or withdrawn (inbox-badge-parity)
-	Answers     map[string]any // answer: structured answers
-	ApprovalID  string         // approve, reject, choose, changes
+	MessageID   string // answer
+	// Attachments are images the person uploaded (POST /uploads) for say, comment, reopen and ask_lead
+	// (people-attachments).
+	Attachments []messaging.Attachment `json:",omitempty"`
+	Details     string                 // answer: promised ("I'll send details") or withdrawn (inbox-badge-parity)
+	Answers     map[string]any         // answer: structured answers
+	ApprovalID  string                 // approve, reject, choose, changes
 	// Option is the option (from 1) choose chooses on a choice approval; Options the options changes names
 	// (artifact-choice-approvals).
 	Option  int
@@ -666,12 +669,12 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		}
 		err = c.API.Do(ctx, "POST", task+"/actions", body, &result)
 	case "comment":
-		err = c.API.Do(ctx, "POST", task+"/comments", map[string]any{"text": a.Text, "request_id": rid}, &result)
+		err = c.API.Do(ctx, "POST", task+"/comments", withAttachments(map[string]any{"text": a.Text, "request_id": rid}, a.Attachments), &result)
 	case "reopen":
 		// owner-comments-handled: a closed task takes no comment; it is reopened with it, or the lead is asked.
-		err = c.API.Do(ctx, "POST", task+"/reopen", map[string]any{"text": a.Text, "request_id": rid}, &result)
+		err = c.API.Do(ctx, "POST", task+"/reopen", withAttachments(map[string]any{"text": a.Text, "request_id": rid}, a.Attachments), &result)
 	case "ask_lead":
-		err = c.API.Do(ctx, "POST", task+"/ask-lead", map[string]any{"text": a.Text, "request_id": rid}, &result)
+		err = c.API.Do(ctx, "POST", task+"/ask-lead", withAttachments(map[string]any{"text": a.Text, "request_id": rid}, a.Attachments), &result)
 	case "direct":
 		err = c.API.Do(ctx, "POST", task+"/directives", map[string]any{"text": a.Text, "urgent": a.Urgent, "request_id": rid}, &result)
 	case "answer":
@@ -701,7 +704,7 @@ func (c *HTTPClient) Do(ctx context.Context, a Action) (string, error) {
 		err = c.API.Do(ctx, "POST", "/approvals/"+url.PathEscape(a.ApprovalID)+"/decision", body, &result)
 	case "say":
 		// POST /messages: to owner.default_report, or the direct report a leading @name addresses.
-		err = c.API.Do(ctx, "POST", "/messages", map[string]any{"project_id": a.Project, "body": a.Text, "request_id": rid}, &result)
+		err = c.API.Do(ctx, "POST", "/messages", withAttachments(map[string]any{"project_id": a.Project, "body": a.Text, "request_id": rid}, a.Attachments), &result)
 	case "create":
 		deps := a.Deps
 		if deps == nil {
@@ -902,4 +905,12 @@ func (c *HTTPClient) CatalogPost(ctx context.Context, path string, body any) (js
 	}
 	var v json.RawMessage
 	return v, c.API.Do(ctx, "POST", path, body, &v)
+}
+
+// withAttachments adds a person's uploaded images to a request body (people-attachments).
+func withAttachments(body map[string]any, atts []messaging.Attachment) map[string]any {
+	if len(atts) > 0 {
+		body["attachments"] = atts
+	}
+	return body
 }

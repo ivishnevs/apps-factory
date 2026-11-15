@@ -238,7 +238,11 @@ export interface ApprovalOption { artifact: Artifact; label: string; note?: stri
 
 // A board comment's handling (owner-comments-handled): one entry per agent that got it; status open is "not handled yet".
 export interface CommentOutcome { agent: string; reason: string; status: "open" | "done" | "forwarded" | "declined"; note?: string; to?: string; task?: string; at?: number }
-export interface Comment { id: string; author: string; text: string; created_at: number; person?: string; category?: string; approval_id?: string; outcomes?: CommentOutcome[] }
+export interface Comment {
+  id: string; author: string; text: string; created_at: number; person?: string; category?: string; approval_id?: string; outcomes?: CommentOutcome[];
+  // people-attachments: the person's images on the comment.
+  attachments?: MessageAttachment[];
+}
 // What became of a decision's comment (approval-comments-handled): status open is "not handled yet".
 export interface ApprovalComment { id: string; status: "open" | "done" | "forwarded" | "declined"; outcome: string }
 export interface PRFacts { number: number; state: string; head_sha: string; url?: string }
@@ -269,6 +273,8 @@ export interface Action {
   Details?: "promised" | "withdrawn"; // answer: promise the details, or withdraw that promise (inbox-badge-parity)
   // choose: the chosen option (from 1); changes: the options the changes are about (artifact-choice-approvals).
   Option?: number; Options?: number[];
+  // say, comment, reopen, ask_lead: images the person uploaded (people-attachments).
+  Attachments?: MessageAttachment[];
 }
 
 // How Core provisions a new project's repository (project-creation).

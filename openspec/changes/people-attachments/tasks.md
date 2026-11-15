@@ -27,16 +27,19 @@
 
 ## 3. Surfaces
 
-- [ ] 3.1 Web chat composer: attach button, paste, drag-and-drop, thumbnails with remove, upload progress; send
+- [x] 3.1 Web chat composer: attach button, paste, drag-and-drop, thumbnails with remove, upload progress; send
       disabled while uploading; works for every conversation.
-- [ ] 3.2 Web task comments (and reopen, ask-lead): the same attach control; comments show attachments with
+- [x] 3.2 Web task comments (and reopen, ask-lead): the same attach control; comments show attachments with
       `MessageVisuals`.
-- [ ] 3.3 Telegram (D3): a photo or image document sent as a reply is uploaded and attached to the answer, caption as
+- [x] 3.3 Telegram (D3): a photo or image document sent as a reply is uploaded and attached to the answer, caption as
       text; tests with a fake Bot API.
-- [ ] 3.4 CLI: `factory tasks comment ID TEXT --attach FILE…` and the chat command's `--attach`.
-- [ ] 3.5 TUI: comment attachments shown as file lines like message attachments.
+- [x] 3.4 CLI: `factory tasks comment ID TEXT --attach FILE…` and the chat command's `--attach`.
+- [x] 3.5 TUI: comment attachments shown as file lines like message attachments.
 
 ## 4. Tests and docs
 
-- [ ] 4.1 Web tsc, lint and component tests with fakes (no live runs); Go tests.
-- [ ] 4.2 Docs: messaging, owner comments, runtime protocol (manifest inputs).
+- [x] 4.1 Web tsc, lint and component tests with fakes (no live runs); Go tests.
+- [x] 4.2 Docs: messaging, owner comments, runtime protocol (manifest inputs).
+      Done 2026-11-15: surfaces 3.1–3.5 (web chat and comments, Telegram photos and image files, CLI `--attach`,
+      TUI file lines); answers carry images (web inbox answer UI not changed: the chat covers it). The web has no
+      component test runner: tsc and eslint; Go tests cover Core, the TUI client, Telegram with a fake Bot API.

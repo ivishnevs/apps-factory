@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"appfactory/internal/artifacts"
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/reports"
 	"appfactory/internal/storage"
@@ -350,6 +351,9 @@ func TestHTTPClientActions(t *testing.T) {
 		{Action{Kind: "reassign", TaskID: "T-1", Version: 6, Assignee: "developer-2"}, "/tasks/T-1/reassign", map[string]any{"assignee": "developer-2", "version": 6.0}},
 		{Action{Kind: "reprioritize", TaskID: "T-1", Version: 7, Priority: 9}, "/tasks/T-1/reprioritize", map[string]any{"priority": 9.0}},
 		{Action{Kind: "comment", TaskID: "T-1", Text: "looks good"}, "/tasks/T-1/comments", map[string]any{"text": "looks good"}},
+		// people-attachments: a person's images go with comments, reopen, ask-lead and messages.
+		{Action{Kind: "reopen", TaskID: "T-9", Text: "see", Attachments: []messaging.Attachment{{Path: "a.png", SHA256: "ab"}}}, "/tasks/T-9/reopen", map[string]any{"attachments": "[map[path:a.png sha256:ab size:0]]"}},
+		{Action{Kind: "say", Project: "p", Text: "look", Attachments: []messaging.Attachment{{Path: "b.png", SHA256: "cd"}}}, "/messages", map[string]any{"attachments": "[map[path:b.png sha256:cd size:0]]"}},
 		{Action{Kind: "reopen", TaskID: "T-1", Text: "check it on the simulator"}, "/tasks/T-1/reopen", map[string]any{"text": "check it on the simulator"}},
 		{Action{Kind: "ask_lead", TaskID: "T-1", Text: "why no simulator?"}, "/tasks/T-1/ask-lead", map[string]any{"text": "why no simulator?"}},
 		{Action{Kind: "direct", TaskID: "T-1", Text: "stop now", Urgent: true}, "/tasks/T-1/directives", map[string]any{"text": "stop now", "urgent": true}},

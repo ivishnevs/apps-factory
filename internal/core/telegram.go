@@ -2,6 +2,7 @@ package core
 
 import (
 	"appfactory/internal/decisions"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -640,7 +641,7 @@ func (b telegramBackend) decide(ctx context.Context, m messaging.Message, choice
 }
 
 // answer answers a waiting question with option index choice, or with text when choice < 0.
-func (b telegramBackend) answer(ctx context.Context, id string, choice int, text, key string) (string, error) {
+func (b telegramBackend) answer(ctx context.Context, id string, choice int, text, key string, atts ...messaging.Attachment) (string, error) {
 	m, err := b.c.Store.Message(ctx, b.company, id)
 	if err != nil {
 		return "", err
@@ -648,7 +649,7 @@ func (b telegramBackend) answer(ctx context.Context, id string, choice int, text
 	if m.Status != "PENDING" && m.Status != "ESCALATED" {
 		return "This question is already " + strings.ToLower(m.Status) + ".", nil
 	}
-	in := messaging.Reply{Version: m.Version, Sender: "owner", Body: text, RequestID: key}
+	in := messaging.Reply{Version: m.Version, Sender: "owner", Body: text, RequestID: key, Attachments: atts}
 	switch {
 	case m.Details == messaging.DetailsPromised && choice < 0 && strings.TrimSpace(text) != "":
 		// The promised details, in the owner's words, whatever the form (inbox-badge-parity).
@@ -663,7 +664,7 @@ func (b telegramBackend) answer(ctx context.Context, id string, choice int, text
 		in.Answers, in.Body = map[string]any{q.ID: q.Options[choice]}, q.Options[choice]
 	case len(m.Questions) > 0:
 		return "", fmt.Errorf("this question has a form: answer it in the Inbox on the website")
-	case strings.TrimSpace(text) == "":
+	case strings.TrimSpace(text) == "" && len(atts) == 0:
 		return "", fmt.Errorf("an answer needs text")
 	}
 	if _, err = b.c.Store.ReplyMessage(ctx, b.company, id, in); err != nil {
@@ -672,12 +673,19 @@ func (b telegramBackend) answer(ctx context.Context, id string, choice int, text
 	return "Answered " + b.label(m.Sender) + ": " + in.Body, nil
 }
 
-func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key string) (string, error) {
+func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key string, images ...telegram.Image) (string, error) {
 	if strings.HasPrefix(t.Question, nodeUpdateQuestion) {
 		return "", fmt.Errorf("approve the node's update with the button, or on the Nodes page")
 	}
+	atts, err := b.upload(ctx, images)
+	if err != nil {
+		return "", err
+	}
 	if t.Question != "" {
 		if m, err := b.c.Store.Message(ctx, b.company, t.Question); err == nil && m.ApprovalID != "" {
+			if len(atts) > 0 {
+				return "", fmt.Errorf("an approval takes no pictures: decide it, then send the picture to the lead")
+			}
 			if a, err := b.c.Store.Approval(ctx, b.company, m.ApprovalID); err == nil && a.Choice() {
 				// A reply to an artifact approval asks for changes, or rejects with "reject: <reason>"
 				// (artifact-choice-approvals: the same for one option or several).
@@ -686,7 +694,7 @@ func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key
 			// A reply to a tool call's approval rejects it with the reply as the reason (people-topics D10).
 			return b.approval(ctx, m, "reject", text, key)
 		} else if err == nil && (m.Status == "PENDING" || m.Status == "ESCALATED") {
-			return b.answer(ctx, t.Question, -1, text, key)
+			return b.answer(ctx, t.Question, -1, text, key, atts...)
 		}
 	}
 	// The owner talks to a team through its lead: a message from another agent (or from Core itself, like a
@@ -700,7 +708,7 @@ func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key
 			agent = b.c.teamLead(ctx, b.company, t.Project, "")
 		}
 	}
-	out, err := b.Message(ctx, agent, t.Project, text, key)
+	out, err := b.message(ctx, agent, t.Project, text, key, atts)
 	if err == nil && t.Agent != "" && agent != t.Agent {
 		out += " (you answered " + t.Agent + ")"
 	}
@@ -709,8 +717,29 @@ func (b telegramBackend) Reply(ctx context.Context, t telegram.Target, text, key
 
 // Message sends an owner message to agent, one of the owner's direct reports ("" with only one of them), on the
 // owner conversation in project.
-func (b telegramBackend) Message(ctx context.Context, agent, project, text, key string) (string, error) {
-	if strings.TrimSpace(text) == "" {
+func (b telegramBackend) Message(ctx context.Context, agent, project, text, key string, images ...telegram.Image) (string, error) {
+	atts, err := b.upload(ctx, images)
+	if err != nil {
+		return "", err
+	}
+	return b.message(ctx, agent, project, text, key, atts)
+}
+
+// upload stores the pictures a person sent as their uploads (people-attachments).
+func (b telegramBackend) upload(ctx context.Context, images []telegram.Image) ([]messaging.Attachment, error) {
+	var out []messaging.Attachment
+	for _, im := range images {
+		a, err := b.c.Store.PutUpload(ctx, b.company, "", im.Name, bytes.NewReader(im.Data))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+func (b telegramBackend) message(ctx context.Context, agent, project, text, key string, atts []messaging.Attachment) (string, error) {
+	if strings.TrimSpace(text) == "" && len(atts) == 0 {
 		return "", fmt.Errorf("empty message")
 	}
 	leads := config.DirectReports(b.c.cat(b.company).Agents, config.Owner)
@@ -726,7 +755,7 @@ func (b telegramBackend) Message(ctx context.Context, agent, project, text, key 
 	if err != nil {
 		return "", err
 	}
-	if _, err = b.c.ownerMessageTo(ctx, b.company, project, agent, text, "question", key); err != nil {
+	if _, err = b.c.ownerMessageTo(ctx, b.company, project, agent, text, "question", key, atts...); err != nil {
 		return "", err
 	}
 	return "→ " + b.label(agent), nil

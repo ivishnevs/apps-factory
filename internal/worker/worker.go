@@ -130,6 +130,26 @@ func (a API) PostRaw(ctx context.Context, path, contentType string, body []byte)
 	return res.Body.Close()
 }
 
+// Upload posts a raw body (a person's image: people-attachments) and decodes the JSON answer into result.
+func (a API) Upload(ctx context.Context, path, contentType string, body []byte, result any) error {
+	client := a.Client
+	if client == nil {
+		client = deadlineClient
+	}
+	res, err := a.send(func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.URL, "/")+path, bytes.NewReader(body))
+		if err == nil {
+			req.Header.Set("Content-Type", contentType)
+		}
+		return req, err
+	}, body, client)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	return json.NewDecoder(res.Body).Decode(result)
+}
+
 // Get fetches path's raw body (a skill's packed content, a blob); the caller closes it.
 func (a API) Get(ctx context.Context, path string) (io.ReadCloser, error) {
 	client := a.Client

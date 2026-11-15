@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Action, AgentRuns, CostView, FeedItem, Meta, Message, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
+import type { Action, AgentRuns, CostView, FeedItem, Meta, Message, MessageAttachment, Overview, Page, Run, RunEvent, TaskDetail, ToolCall } from "./types";
 import type { Material, MaterialPage } from "./types-materials";
 import type { CatalogDocument, CatalogListing, CatalogVersion, Company, RuntimeView, Teams } from "./types-catalog";
 import type { CompanyInfo, Me } from "./types-account";
@@ -42,6 +42,12 @@ export function core<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (write) { headers.set("X-Factory-Web", "1"); if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); }
   return api<T>(`/core${path}`, { ...init, headers });
+}
+
+// uploadImage uploads an image a person attaches to a message or comment (people-attachments): the answer is the
+// attachment to name when sending.
+export function uploadImage(file: File): Promise<MessageAttachment> {
+  return core<MessageAttachment>(`/uploads?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
 }
 
 const qs = (p: Record<string, string | number | boolean | undefined>) => {
@@ -169,8 +175,8 @@ export function useTopicWrite() {
     onSettled: refresh,
   });
   const reply = useMutation({
-    mutationFn: ({ topic, body }: { topic: string; body: string }) =>
-      core<Message>(`/topics/${encodeURIComponent(topic)}/messages`, { method: "POST", body: JSON.stringify({ body, request_id: requestId() }) }),
+    mutationFn: ({ topic, body, attachments }: { topic: string; body: string; attachments?: MessageAttachment[] }) =>
+      core<Message>(`/topics/${encodeURIComponent(topic)}/messages`, { method: "POST", body: JSON.stringify({ body, attachments, request_id: requestId() }) }),
     onSettled: refresh,
   });
   return { decide, reply };

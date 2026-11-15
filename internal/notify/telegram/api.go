@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -40,6 +41,77 @@ type Message struct {
 	From      *User    `json:"from,omitempty"`
 	Text      string   `json:"text,omitempty"`
 	ReplyTo   *Message `json:"reply_to_message,omitempty"`
+	// Caption, Photo and Document: a picture the person sent (people-attachments); Photo lists its sizes,
+	// smallest first; an image sent as a file is a Document with an image MIME type.
+	Caption  string      `json:"caption,omitempty"`
+	Photo    []PhotoSize `json:"photo,omitempty"`
+	Document *Document   `json:"document,omitempty"`
+}
+
+// PhotoSize is one size of a photo a person sent.
+type PhotoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size,omitempty"`
+}
+
+// Document is a file a person sent.
+type Document struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+}
+
+// Image is a picture a person sent, downloaded (people-attachments).
+type Image struct {
+	Name string
+	Data []byte
+}
+
+// MaxImage bounds a downloaded picture (the Bot API serves files up to 20 MB).
+const MaxImage = 20 << 20
+
+// Download fetches a file a person sent (getFile, then the file URL); the error never carries the token.
+func (a API) Download(ctx context.Context, fileID string) ([]byte, error) {
+	var f struct {
+		FilePath string `json:"file_path"`
+		FileSize int64  `json:"file_size"`
+	}
+	if err := a.call(ctx, "getFile", map[string]any{"file_id": fileID}, &f); err != nil {
+		return nil, err
+	}
+	if f.FilePath == "" || f.FileSize > MaxImage {
+		return nil, fmt.Errorf("telegram getFile: the file is missing or over %d MB", MaxImage>>20)
+	}
+	base := a.BaseURL
+	if base == "" {
+		base = "https://api.telegram.org"
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", base+"/file/bot"+a.Token+"/"+f.FilePath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("telegram file: invalid request")
+	}
+	client := a.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 60 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, fmt.Errorf("telegram file: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("telegram file: HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxImage+1))
+	if err == nil && len(b) > MaxImage {
+		err = fmt.Errorf("telegram file: over %d MB", MaxImage>>20)
+	}
+	return b, err
 }
 
 type CallbackQuery struct {

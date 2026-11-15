@@ -34,6 +34,11 @@ type fakeBot struct {
 func (b *fakeBot) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if r.URL.Path == "/file/botTEST-TOKEN/photos/p.jpg" {
+		// people-attachments: the file a person sent.
+		_, _ = w.Write(append([]byte("\xff\xd8\xff\xe0"), []byte("a photo")...))
+		return
+	}
 	var in map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
@@ -54,6 +59,8 @@ func (b *fakeBot) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result = out
 	case "getMe":
 		result = telegram.User{ID: 1, Username: "factory_bot"}
+	case "getFile":
+		result = map[string]any{"file_path": "photos/p.jpg", "file_size": 11}
 	case "setWebhook":
 		b.webhook = in["url"].(string)
 	case "deleteWebhook":
@@ -514,5 +521,23 @@ func TestTelegramRouting(t *testing.T) {
 	th.tick()
 	if got := th.bot.texts(); !strings.HasPrefix(got[len(got)-1], "→ manager") {
 		t.Fatal(got)
+	}
+}
+
+// TestTelegramPhoto (people-attachments 3.3): a photo sent to the bot goes to the lead its caption names, with the
+// caption as the text.
+func TestTelegramPhoto(t *testing.T) {
+	th := newTelegramHarness(t)
+	ctx := context.Background()
+	th.bot.push(telegram.Update{UpdateID: 20, Message: &telegram.Message{MessageID: 1020, Chat: telegram.Chat{ID: ownerChat}, Caption: "@manager like this",
+		Photo: []telegram.PhotoSize{{FileID: "small"}, {FileID: "large"}}}})
+	th.tick()
+	ms, err := th.s.Messages(ctx, storage.DefaultCompany, "owner-manager-notes")
+	if err != nil || len(ms) == 0 {
+		t.Fatal(ms, err, th.bot.texts())
+	}
+	m := ms[len(ms)-1]
+	if m.Body != "like this" || len(m.Attachments) != 1 || m.Attachments[0].Path != "photo.jpg" {
+		t.Fatalf("%+v %v", m, th.bot.texts())
 	}
 }

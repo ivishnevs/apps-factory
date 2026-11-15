@@ -110,9 +110,11 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 			continue
 		}
 		answer, err := getDoc[struct {
-			Sender  string         `json:"sender"`
-			Body    string         `json:"body"`
-			Answers map[string]any `json:"answers,omitempty"`
+			ID          string                 `json:"id"`
+			Sender      string                 `json:"sender"`
+			Body        string                 `json:"body"`
+			Answers     map[string]any         `json:"answers,omitempty"`
+			Attachments []messaging.Attachment `json:"attachments,omitempty"`
 		}](ctx, tx, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND (body->>'in_reply_to')=? ORDER BY seq DESC LIMIT 1", tx.company, g.ref)
 		if errors.Is(err, ErrNotFound) {
 			continue
@@ -120,8 +122,13 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 		if err != nil {
 			return "", err
 		}
-		a, _ := json.Marshal(answer)
+		a, _ := json.Marshal(struct {
+			Sender  string         `json:"sender"`
+			Body    string         `json:"body"`
+			Answers map[string]any `json:"answers,omitempty"`
+		}{answer.Sender, answer.Body, answer.Answers})
 		fmt.Fprintf(&b, "Answer to your blocking question %s: %s\nContinue the original task using this explicit answer. Do not ask the same question again.\n", g.ref, a)
+		b.WriteString(attachmentLines("msg", answer.ID, answer.Attachments))
 	}
 	// Messages addressed to the agent (conversation task triggers, hierarchy D5).
 	var messages []string

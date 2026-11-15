@@ -925,6 +925,14 @@ func (m *Model) detailLines(d TaskDetail, w int) []string {
 				on = stFaint.Render(" on approval " + c.ApprovalID)
 			}
 			add("  " + stFaint.Render(time.Unix(c.CreatedAt, 0).In(m.opts.Location).Format("01-02 15:04")) + " " + lipgloss.NewStyle().Foreground(agentColor(c.Author)).Render(c.Author) + on + ": " + oneLine(c.Text))
+			// people-attachments: the comment's images as links (the web shows them inline).
+			for _, a := range c.Attachments {
+				label := a.Path
+				if a.Caption != "" {
+					label = a.Caption + " · " + a.Path
+				}
+				add(stFaint.Render("       attached ") + label + stFaint.Render("  "+byteSize(a.Size)+"  /blobs/"+a.SHA256))
+			}
 			if len(c.Outcomes) > 0 || c.ApprovalID != "" {
 				// owner-comments-handled: what became of the board's comment.
 				add(stFaint.Render("       → " + oneLine(storage.DescribeOutcomes(c.Outcomes))))

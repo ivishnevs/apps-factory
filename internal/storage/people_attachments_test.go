@@ -159,3 +159,41 @@ func TestConversationRunGetsPeopleImages(t *testing.T) {
 		t.Fatal(atts, err)
 	}
 }
+
+// TestAnswerWithImage (people-attachments 1.2, 3.3): a person answers an agent's question with an image; the
+// answer carries it and the asking task's next run gets it.
+func TestAnswerWithImage(t *testing.T) {
+	s := engineStore(t)
+	ctx := context.Background()
+	co := DefaultCompany
+	if _, err := s.CreateTask(ctx, co, tasks.Create{ID: "ask", ProjectID: "p", Title: "pick a color", Assignee: "demo", RequestID: "ask"}); err != nil {
+		t.Fatal(err)
+	}
+	q, err := s.SendMessage(ctx, co, messaging.Send{ProjectID: "p", TaskID: "ask", Sender: "demo", Recipient: "owner", MessageType: "question", Body: "which color?", RequestID: "q"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := s.PutUpload(ctx, co, "", "palette.png", bytes.NewReader(pngBytes("palette")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "demo", Body: "x", RequestID: "agent", Attachments: []messaging.Attachment{{SHA256: img.SHA256}}}); err == nil {
+		t.Fatal("an agent attached to an answer")
+	}
+	if _, err = s.ReplyMessage(ctx, co, q.ID, messaging.Reply{Version: q.Version, Sender: "owner", RequestID: "a", Attachments: []messaging.Attachment{{SHA256: img.SHA256}}}); err != nil {
+		t.Fatal(err)
+	}
+	ans, err := getDoc[messaging.Message](ctx, s.DB, "SELECT body FROM messages WHERE company_id=? AND message_type='answer' AND (body->>'in_reply_to')=?", co, q.ID)
+	if err != nil || len(ans.Attachments) != 1 || ans.Body != "(an image attached)" {
+		t.Fatal(ans, err)
+	}
+	tx, err := s.begin(ctx, co)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	man, err := runManifest(ctx, tx, protocol.RunSpec{Project: "p", TaskID: "ask"})
+	if err != nil || len(man.Files) != 1 || man.Files[0].Path != AttachmentPath("msg", ans.ID, 1, "palette.png") {
+		t.Fatal(man, err)
+	}
+}

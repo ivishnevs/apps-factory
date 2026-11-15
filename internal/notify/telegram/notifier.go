@@ -142,10 +142,11 @@ type Backend interface {
 	PendingQuestions(ctx context.Context) ([]Question, error)
 	// Choose answers a question with option index choice (a button). key makes a repeated update apply once.
 	Choose(ctx context.Context, question string, choice int, key string) (string, error)
-	// Reply sends text to what target is about: the question while it waits, else its sender's conversation.
-	Reply(ctx context.Context, target Target, text, key string) (string, error)
-	// Message sends text to agent ("" for the only team lead), in project when given.
-	Message(ctx context.Context, agent, project, text, key string) (string, error)
+	// Reply sends text to what target is about: the question while it waits, else its sender's conversation;
+	// images go along (people-attachments).
+	Reply(ctx context.Context, target Target, text, key string, images ...Image) (string, error)
+	// Message sends text to agent ("" for the only team lead), in project when given, with images.
+	Message(ctx context.Context, agent, project, text, key string, images ...Image) (string, error)
 	Status(ctx context.Context) (string, error)
 	Stop(ctx context.Context) (string, error)
 	Digest(ctx context.Context, now time.Time) (string, error)
@@ -383,6 +384,9 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		return nil
 	}
 	text := strings.TrimSpace(m.Text)
+	if text == "" {
+		text = strings.TrimSpace(m.Caption) // a picture's caption is its text
+	}
 	if code, ok := strings.CutPrefix(text, "/start"); ok {
 		return n.bind(ctx, st, m.Chat.ID, strings.TrimSpace(code))
 	}
@@ -406,6 +410,11 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 			out = prefix + err.Error()
 		}
 		return n.say(ctx, p.ChatID, out, m.MessageID)
+	}
+	// people-attachments: a photo, or an image sent as a file, goes with the text.
+	images, err := n.images(ctx, m)
+	if err != nil {
+		return reply("", err, "picture not received: ")
 	}
 	switch {
 	case text == "/help":
@@ -437,11 +446,11 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		return err
 	case text == "/stop confirm":
 		return n.stop(ctx, who, p, m.MessageID)
-	case text == "" || strings.HasPrefix(text, "/"):
+	case text == "" && len(images) == 0 || strings.HasPrefix(text, "/"):
 		return n.say(ctx, p.ChatID, help, m.MessageID)
 	case m.ReplyTo != nil && p.Sent[strconv.FormatInt(m.ReplyTo.MessageID, 10)] != (Target{}):
 		t := p.Sent[strconv.FormatInt(m.ReplyTo.MessageID, 10)]
-		out, err := n.Backend.Reply(ctx, t, text, key)
+		out, err := n.Backend.Reply(ctx, t, text, key, images...)
 		return reply(out, err, "not delivered: ")
 	case strings.HasPrefix(text, "@"):
 		name, body, _ := strings.Cut(text[1:], " ")
@@ -449,14 +458,33 @@ func (n *Notifier) apply(ctx context.Context, st *State, u Update) error {
 		if p.Last != nil {
 			project = p.Last.Project
 		}
-		out, err := n.Backend.Message(ctx, strings.TrimRight(name, ",:"), project, strings.TrimSpace(body), key)
+		out, err := n.Backend.Message(ctx, strings.TrimRight(name, ",:"), project, strings.TrimSpace(body), key, images...)
 		return reply(out, err, "not delivered: ")
 	case p.Last != nil:
-		out, err := n.Backend.Reply(ctx, *p.Last, text, key)
+		out, err := n.Backend.Reply(ctx, *p.Last, text, key, images...)
 		return reply(out, err, "not delivered: ")
 	}
-	out, err := n.Backend.Message(ctx, "", "", text, key)
+	out, err := n.Backend.Message(ctx, "", "", text, key, images...)
 	return reply(out, err, "not delivered: ")
+}
+
+// images downloads the picture of a message: the largest size of a photo, or an image sent as a file.
+func (n *Notifier) images(ctx context.Context, m *Message) ([]Image, error) {
+	switch {
+	case len(m.Photo) > 0:
+		b, err := n.API.Download(ctx, m.Photo[len(m.Photo)-1].FileID)
+		if err != nil {
+			return nil, err
+		}
+		return []Image{{Name: "photo.jpg", Data: b}}, nil
+	case m.Document != nil && strings.HasPrefix(m.Document.MimeType, "image/"):
+		b, err := n.API.Download(ctx, m.Document.FileID)
+		if err != nil {
+			return nil, err
+		}
+		return []Image{{Name: m.Document.FileName, Data: b}}, nil
+	}
+	return nil, nil
 }
 
 // bind connects the chat with a one-time code from Settings (or factory telegram bind).

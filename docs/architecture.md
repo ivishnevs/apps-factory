@@ -172,7 +172,8 @@ clones or forge credentials; code and OpenSpec specs stay in the project's git r
 Everything else a project produces lives in Core: Postgres for metadata (`blobs`, artifact versions with
 `sha256`/`size`, `report_attachments`, `run_logs`) and a content-addressed blob store per company
 (`internal/blobstore`: `LocalFS` on the `core-blobs` volume, `FACTORY_BLOB_DIR`; S3-compatible later). The
-claim answer carries a manifest of the run's pinned approved artifact inputs;
+claim answer carries a manifest of the run's pinned approved artifact inputs and of the people's images of its
+task or conversation (people-attachments);
 the node downloads it with the run's lease (digest cache per node) into the worktree before the runtime
 starts, and a missing blob ends the run `setup_failed`. Writes come back only through the API with
 content digests: the MCP adapter uploads `factory_artifact_upload` files (approval binds to their digest) and

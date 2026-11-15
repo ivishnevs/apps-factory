@@ -21,6 +21,8 @@ import { AgentAvatar, PriorityMark } from "./parts";
 import { useOwnerAction } from "./use-owner-action";
 import { reviewerName } from "./reviewer";
 import { usePerson } from "@/lib/person";
+import { AttachButton, AttachmentTray, useAttachments } from "@/components/app/attachments/use-attachments";
+import { MessageVisuals } from "@/components/app/materials/visuals";
 
 const stamp = (t?: number | string) => {
   if (!t) return "";
@@ -339,23 +341,27 @@ function Outcomes({ outcomes, look }: { outcomes: CommentOutcome[]; look?: Looku
   );
 }
 
-export function Comments({ taskId, comments, now, look, closed }: { taskId: string; comments: Comment[]; now: number; look?: Lookup; closed?: boolean }) {
+export function Comments({ taskId, projectId, comments, now, look, closed }: { taskId: string; projectId: string; comments: Comment[]; now: number; look?: Lookup; closed?: boolean }) {
   const person = usePerson();
   const [text, setText] = useState("");
   const { run, pending } = useOwnerAction();
+  // people-attachments: images go with the comment (button, paste, drop).
+  const att = useAttachments();
+  const images = att.ready.length ? att.ready : undefined;
+  const ready = (!!text.trim() || att.ready.length > 0) && !att.uploading && !pending;
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
-    const res = await run({ Kind: "comment", TaskID: taskId, Text: text.trim() }, { title: "Post this comment?", confirm: "Comment" });
-    if (res !== null) setText("");
+    if (!ready) return;
+    const res = await run({ Kind: "comment", TaskID: taskId, Text: text.trim(), Attachments: images }, { title: "Post this comment?", confirm: "Comment" });
+    if (res !== null) { setText(""); att.clear(); }
   };
   // A closed task runs no more: no comment box; the owner reopens it with the comment or asks the lead.
   const closedAction = async (kind: "reopen" | "ask_lead") => {
-    if (!text.trim()) return;
-    const res = await run({ Kind: kind, TaskID: taskId, Text: text.trim() }, kind === "reopen"
+    if (!ready) return;
+    const res = await run({ Kind: kind, TaskID: taskId, Text: text.trim(), Attachments: images }, kind === "reopen"
       ? { title: "Reopen this task with your comment?", confirm: "Reopen" }
       : { title: "Ask the project lead about this task?", confirm: "Ask the lead" });
-    if (res !== null) setText("");
+    if (res !== null) { setText(""); att.clear(); }
   };
   return (
     <Block title={`Comments${comments.length ? ` · ${comments.length}` : ""}`}>
@@ -367,6 +373,7 @@ export function Comments({ taskId, comments, now, look, closed }: { taskId: stri
               <div className={cn("min-w-0 flex-1 rounded-xl rounded-tl-sm px-3.5 py-2.5", c.author === "owner" ? "bg-foreground/[0.06]" : "bg-muted/60")}>
                 <p className="flex min-w-0 items-baseline gap-2 text-xs"><span className="min-w-0 truncate font-semibold">{c.author === "owner" ? person(c.person, undefined, "You") : c.author}</span>{c.approval_id && <span className="shrink-0 text-muted-foreground">on approval {displayId(c.approval_id)}</span>}<span className="text-muted-foreground" title={stamp(c.created_at)}>{since(c.created_at, now)}</span></p>
                 <p className="mt-0.5 text-sm whitespace-pre-wrap wrap-anywhere">{cleanText(c.text, look)}</p>
+                {(c.attachments ?? []).length > 0 && <MessageVisuals project={projectId} at={c.created_at} author={c.author} attachments={c.attachments} className="mt-2" />}
                 {(c.outcomes ?? []).length > 0 && <Outcomes outcomes={c.outcomes ?? []} look={look} />}
               </div>
             </li>
@@ -377,19 +384,25 @@ export function Comments({ taskId, comments, now, look, closed }: { taskId: stri
         <div className="space-y-2">
           <label htmlFor="closed-comment" className="text-xs text-muted-foreground">This task is closed and runs no more. Reopen it with your comment, or ask the project lead about it.</label>
           <Textarea id="closed-comment" value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="What should happen, or what do you want to know…"
-            className="max-h-40 min-h-11 resize-none text-base md:min-h-10 md:text-sm" />
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" disabled={!text.trim() || pending} onClick={() => closedAction("reopen")}>Reopen with comment</Button>
-            <Button type="button" size="sm" variant="outline" disabled={!text.trim() || pending} onClick={() => closedAction("ask_lead")}>Ask the lead about it</Button>
+            {...att.handlers} className="max-h-40 min-h-11 resize-none text-base md:min-h-10 md:text-sm" />
+          <AttachmentTray a={att} />
+          <div className="flex flex-wrap items-center gap-2">
+            <AttachButton a={att} className="size-9" />
+            <Button type="button" size="sm" disabled={!ready} onClick={() => closedAction("reopen")}>Reopen with comment</Button>
+            <Button type="button" size="sm" variant="outline" disabled={!ready} onClick={() => closedAction("ask_lead")}>Ask the lead about it</Button>
           </div>
         </div>
       ) : (
-        <form onSubmit={send} className="flex items-end gap-2">
-          <label htmlFor="comment" className="sr-only">Add a comment</label>
-          <Textarea id="comment" value={text} onChange={(e) => setText(e.target.value)} rows={1} placeholder="Add a comment for the team…"
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(e); }}
-            className="max-h-40 min-h-11 flex-1 resize-none text-base md:min-h-10 md:text-sm" />
-          <Button type="submit" size="icon" className="size-11 md:size-10" aria-label="Post comment" disabled={!text.trim() || pending}><Send /></Button>
+        <form onSubmit={send} className="space-y-2">
+          <AttachmentTray a={att} />
+          <div className="flex items-end gap-2" {...att.handlers}>
+            <AttachButton a={att} className="size-11 md:size-10" />
+            <label htmlFor="comment" className="sr-only">Add a comment</label>
+            <Textarea id="comment" value={text} onChange={(e) => setText(e.target.value)} rows={1} placeholder="Add a comment for the team… (paste or drop images)"
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(e); }}
+              className="max-h-40 min-h-11 flex-1 resize-none text-base md:min-h-10 md:text-sm" />
+            <Button type="submit" size="icon" className="size-11 md:size-10" aria-label="Post comment" disabled={!ready}><Send /></Button>
+          </div>
         </form>
       )}
     </Block>

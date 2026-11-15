@@ -13,6 +13,7 @@ import { useChats } from "@/components/app/chat/use-chats";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAction, useTeams } from "@/lib/api/client";
+import type { MessageAttachment } from "@/lib/api/types";
 import { addressee, ownerConversation } from "@/lib/api/types-ops";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +47,7 @@ function ChatScreen() {
     if (selected === active.id || matchMedia("(min-width: 768px)").matches) markSeen(active.id, at);
   }, [active, selected, markSeen]);
 
-  const send = async (text: string) => {
+  const send = async (text: string, attachments?: MessageAttachment[]) => {
     if (!active) return false;
     const body = text.startsWith("@") || active.agent === def ? text : `@${active.agent} ${text}`;
     const to = addressee(body, reports, def);
@@ -59,7 +60,7 @@ function ChatScreen() {
     setOutgoing((o) => [...o, { key, conv, text: body, at: Date.now() / 1000 }]);
     if (conv !== active.id) router.replace(`/chat?c=${encodeURIComponent(conv)}`, { scroll: false });
     try {
-      await action.mutateAsync({ Kind: "say", Project: active.project, Text: body });
+      await action.mutateAsync({ Kind: "say", Project: active.project, Text: body, Attachments: attachments?.length ? attachments : undefined });
       await qc.refetchQueries({ queryKey: ["messages", conv] });
       return true;
     } catch (e) {
