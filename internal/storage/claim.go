@@ -42,16 +42,56 @@ func recheckTask(ctx context.Context, tx *Tx, id string, spec protocol.RunSpec) 
 	case t.CancelRequested:
 		return "task cancel requested", nil
 	}
+	return unwantedTx(ctx, tx, t)
+}
+
+// unwantedTx says why task t would not want a new run now ("" when it would): the verdict the claim re-check
+// ends a queued run stale for. Dispatch asks it before queueing (run-storm-guard), so no caller queues a run the
+// claim ends at once.
+func unwantedTx(ctx context.Context, tx *Tx, t tasks.Task) (string, error) {
 	snap, err := snapshotTx(ctx, tx, t)
 	if err != nil {
 		return "", err
 	}
-	// The run being claimed is the task's live run; the assignee was a configured agent at dispatch.
+	// The run being claimed (or queued) is the task's live run; the assignee was a configured agent at dispatch.
 	snap.CurrentRun, snap.AgentConfigured = nil, true
 	if v := tasks.Evaluate(snap); StaleVerdict(v) {
 		return v.Reason + ": " + v.Detail, nil
 	}
 	return "", nil
+}
+
+// Run-storm guard (run-storm-guard): a task whose runs keep ending stale before they start (the dispatcher and
+// the claim disagree about it) gets no new run for the rest of the window, with one feed event saying so.
+var (
+	StaleRunWindow = 10 * time.Minute
+	StaleRunCap    = 3
+)
+
+// staleThrottled reports whether task t had StaleRunCap runs end stale within StaleRunWindow, recording the
+// feed event task.dispatch_throttled once per window.
+func staleThrottled(ctx context.Context, tx *Tx, t tasks.Task) (bool, error) {
+	since := tx.now().Add(-StaleRunWindow)
+	var n int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE company_id=? AND task_id=? AND outcome='stale' AND created_at>=?", tx.company, t.ID, since.Unix()).Scan(&n); err != nil {
+		return false, err
+	}
+	if n < StaleRunCap {
+		return false, nil
+	}
+	var seen int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feed_events WHERE company_id=? AND task_id=? AND kind='task.dispatch_throttled' AND at>=?", tx.company, t.ID, since.UTC().Format(time.RFC3339Nano)).Scan(&seen); err != nil {
+		return false, err
+	}
+	if seen > 0 {
+		return true, nil
+	}
+	var why string
+	if err := tx.QueryRowContext(ctx, "SELECT coalesce(result,'') FROM runs WHERE company_id=? AND task_id=? AND outcome='stale' ORDER BY created_at DESC, seq DESC LIMIT 1", tx.company, t.ID).Scan(&why); err != nil {
+		return false, err
+	}
+	return true, feed(ctx, tx, FeedItem{EventID: protocol.ID(), Type: "task.dispatch_throttled", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: tx.now(), TaskID: t.ID, Agent: t.Assignee, Actor: "system", Status: t.Status,
+		Summary: fmt.Sprintf("%d runs of task %s ended stale before they started within %s; no new run until the window passes (last: %s)", n, t.ID, StaleRunWindow, why)})
 }
 
 // endQueued ends a QUEUED task run that never started with outcome stale or unclaimed (neither counts as an

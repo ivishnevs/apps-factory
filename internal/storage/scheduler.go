@@ -34,6 +34,22 @@ func (s *Store) Dispatch(ctx context.Context, company, id string, version int, s
 	if t.Version != version || t.Status != "READY" && !review || t.Assignee == "" || spec.Agent != t.Assignee || spec.Project != t.ProjectID || spec.ID == "" {
 		return spec, ErrConflict
 	}
+	// run-storm-guard: a run the claim would end stale at once is not queued (parks, dependencies, a released
+	// task), and a task whose runs keep ending stale anyway waits out the window.
+	if why, err := unwantedTx(ctx, tx, t); err != nil || why != "" {
+		if err == nil {
+			err = ErrConflict
+		}
+		return spec, err
+	}
+	if throttled, err := staleThrottled(ctx, tx, t); err != nil || throttled {
+		if err == nil {
+			if err = tx.Commit(); err == nil {
+				err = ErrConflict
+			}
+		}
+		return spec, err
+	}
 	if paused, err := pausedFor(ctx, tx, t.ProjectID, t.Assignee, QuotaKey(spec.ConfigSnapshot, t.Assignee)); err != nil || len(paused) > 0 {
 		if err == nil {
 			err = ErrConflict
