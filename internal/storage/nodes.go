@@ -682,6 +682,11 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 		if err := tx.QueryRowContext(ctx, "SELECT wip_sha,node_id FROM workspaces WHERE company_id=? AND task_id=?", company, out.RunSpec.TaskID).Scan(&out.RunSpec.RestoreWIP, &out.RunSpec.WorkspaceNode); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return out, err
 		}
+	} else if out.RunSpec.TaskID != "" {
+		// A review copy's fallback when the task branch is gone: the implementer's last handed-over head.
+		if err := tx.QueryRowContext(ctx, "SELECT exit_sha FROM workspaces WHERE company_id=? AND task_id=?", company, out.RunSpec.TaskID).Scan(&out.RunSpec.ReviewHead); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return out, err
+		}
 	}
 	m, err := runManifest(ctx, tx, out.RunSpec)
 	out.RunSpec.Materialize = m

@@ -69,6 +69,9 @@ type Request struct {
 	// worktree saved remotely earlier and Core no longer names are not continued.
 	WIP   string
 	Moved bool
+	// ReviewHead is the implementer's last handed-over head: a review copy checks it out when the task branch is
+	// gone from the remote (deleted after its pull request merged).
+	ReviewHead string
 }
 
 type Worktree struct {

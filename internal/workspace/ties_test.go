@@ -283,6 +283,29 @@ func TestReviewCopy(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(impl, "qa-note.txt")); !os.IsNotExist(err) {
 		t.Fatal("reviewer file in the implementer's worktree")
 	}
+
+	// The pull request merged and the host deleted the branch; the head stays on the remote under the pull
+	// request's ref. The branch is checked first, then the handed-over head Core names.
+	run(t, f.remote, "update-ref", "refs/pull/1/head", pushed)
+	run(t, f.remote, "update-ref", "-d", "refs/heads/"+wt.Branch)
+	if _, err = a.ReviewCopy(ctx, f.req, nil); !errors.As(err, new(*NotReviewableError)) {
+		t.Fatal("deleted branch reviewable without a head:", err)
+	}
+	r := f.req
+	r.ReviewHead = pushed
+	rc, err = a.ReviewCopy(ctx, r, nil)
+	if err != nil {
+		t.Fatal("merged task not reviewable at its handed-over head:", err)
+	}
+	if head := run(t, rc.Path, "rev-parse", "HEAD"); head != pushed {
+		t.Fatalf("copy at %s, want the handed-over head %s", head, pushed)
+	}
+	rc.Release()
+	// A head the remote does not have is still not reviewable.
+	r.ReviewHead = strings.Repeat("d", 40)
+	if _, err = a.ReviewCopy(ctx, r, nil); !errors.As(err, new(*NotReviewableError)) {
+		t.Fatal("unknown head reviewable:", err)
+	}
 }
 
 func TestValidCarry(t *testing.T) {

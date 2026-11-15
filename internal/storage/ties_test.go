@@ -148,8 +148,8 @@ func TestReviewCopyRuns(t *testing.T) {
 		t.Fatalf("review run review_copy=%v carry=%v %v", rv.ReviewCopy, rv.ReviewCarry, err)
 	}
 	c, err = claimV2(s, rv.ID, "n2", 1, "c2")
-	if err != nil || c.RunSpec.RestoreWIP != "" {
-		t.Fatal(c.RunSpec.RestoreWIP, err)
+	if err != nil || c.RunSpec.RestoreWIP != "" || c.RunSpec.ReviewHead != head {
+		t.Fatal(c.RunSpec.RestoreWIP, c.RunSpec.ReviewHead, err)
 	}
 	merged := strings.Repeat("c", 40)
 	if _, err = s.ReportWorkspace(ctx, co, rv.ID, c.Lease, tasks.Workspace{Mode: "worktree", Branch: "af/t", NodeID: "n2", SealedHead: merged, Unpushed: true}); err != nil {

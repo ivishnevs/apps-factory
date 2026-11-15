@@ -1052,7 +1052,7 @@ func (w *Worker) worktreeRequest(spec protocol.RunSpec) (workspace.Request, bool
 		slog.Warn("worktree run in the project workspace", "run", spec.ID, "worktrees", w.Worktrees != nil, "task", spec.TaskID, "repo_url", spec.RepoURL != "")
 		return workspace.Request{}, false
 	}
-	r := workspace.Request{Company: w.company(), Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch, WIP: spec.RestoreWIP,
+	r := workspace.Request{Company: w.company(), Project: spec.Project, Task: spec.TaskID, RepoURL: spec.RepoURL, DefaultBranch: spec.DefaultBranch, WIP: spec.RestoreWIP, ReviewHead: spec.ReviewHead,
 		Moved: spec.WorkspaceNode != "" && w.NodeID != "" && spec.WorkspaceNode != w.NodeID}
 	if spec.WorkspaceMode == WorkspaceFreshFromDefault {
 		r.Fresh = true

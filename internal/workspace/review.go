@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"appfactory/internal/gitexclude"
@@ -19,13 +20,16 @@ import (
 // worktree, is never sealed, cannot push (owner 2026-11-10: "this is a review copy; your result is the
 // verdict") and is deleted after the run.
 
-// NotReviewableError: the task branch has no pushed head, so there is nothing to review (local commits on some
-// node are not the task's handed-over work).
+// NotReviewableError: the task branch has no pushed head and the remote does not have the task's last handed-over
+// head either, so there is nothing to review (local commits on some node are not the task's handed-over work).
 type NotReviewableError struct{ Branch string }
 
 func (e *NotReviewableError) Error() string {
 	return fmt.Sprintf("not reviewable: the task branch %s has no pushed head on the remote; the implementer must push it (its exit) before it can be reviewed", e.Branch)
 }
+
+// reviewHead is a full git object id (Core's recorded exit head).
+var reviewHead = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
 // ReviewRefusal is what the review copy's pre-push hook says.
 const ReviewRefusal = "factory: this is a review copy; your result is the verdict"
@@ -34,7 +38,8 @@ const ReviewRefusal = "factory: this is a review copy; your result is the verdic
 func ValidCarry(p string) error { return tasks.ValidReviewCarry(p) }
 
 // ReviewCopy creates the disposable worktree of a review run of r.Task: detached at origin/<task branch> as just
-// fetched, with no push URL and a pre-push hook that refuses, and the project's carry directories (ignored by
+// fetched or, when the branch is gone from the remote (deleted after its pull request merged), at r.ReviewHead
+// fetched by its id, with no push URL and a pre-push hook that refuses, and the project's carry directories (ignored by
 // git, e.g. build caches) copied from the task's worktree on this node when it has one. Release stops the run's
 // tracked process group and deletes the copy.
 func (w *Worktrees) ReviewCopy(ctx context.Context, r Request, carry []string) (Worktree, error) {
@@ -62,6 +67,13 @@ func (w *Worktrees) ReviewCopy(ctx context.Context, r Request, carry []string) (
 		return Worktree{}, err
 	}
 	head, err := git(ctx, repo, nil, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch+"^{commit}")
+	if (err != nil || head == "") && reviewHead.MatchString(r.ReviewHead) {
+		// The branch first; then the handed-over head itself, which the remote keeps after a merge (its pull
+		// request's refs) although the branch was deleted.
+		if _, ferr := git(ctx, repo, nil, "fetch", "--quiet", "origin", r.ReviewHead); ferr == nil {
+			head, err = git(ctx, repo, nil, "rev-parse", "--verify", "--quiet", r.ReviewHead+"^{commit}")
+		}
+	}
 	if err != nil || head == "" {
 		return Worktree{}, &NotReviewableError{Branch: branch}
 	}

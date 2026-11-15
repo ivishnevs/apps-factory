@@ -25,8 +25,10 @@ review copy checked out from the pushed head of the task branch, in its own dire
 may do anything there (merge `origin/main`, run the tests), but it cannot push (no push URL, and a pre-push hook
 that says "this is a review copy; your result is the verdict"), the node does not seal it, and Core ignores its
 workspace report: a review never changes the task's workspace record, never ties the task and never touches the
-implementer's worktree. A branch without a pushed head is not reviewable: the review run ends `setup_failed`
-saying so. A project may list ignored directories (build or import caches) to copy into the review copy from the
+implementer's worktree. When the branch is gone from the remote (the host deleted it after the pull request
+merged), the copy is checked out at the implementer's last handed-over head (the exit's head Core recorded), which
+the remote keeps under the pull request's refs. A task with neither is not reviewable: the review run ends
+`setup_failed` saying so. A project may list ignored directories (build or import caches) to copy into the review copy from the
 task's worktree on that node: `review_carry` (the project's `workspace.review_carry`, `PATCH /projects/{id}
 {"review_carry": [".cache"]}`), relative paths without `..`, empty by default; nothing else ignored by git (`.env`,
 keys, local config) is ever carried.

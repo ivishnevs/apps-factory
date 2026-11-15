@@ -138,7 +138,9 @@ and of the current epoch; node has the agent's driver and labels; resource capac
   `.factory/inputs/cmt-<id>/<n>/<name>`, again for every run on whichever node claims it. Also not
   stored (node-ties): `restore_wip`, the task's work saved to `refs/factory/wip/<task>` that the node restores as
   files when its worktree does not hold it, and `workspace_node`, the node of the task's last workspace report (a
-  different node means this node's earlier saved leftovers are not continued). Stored: `review_copy` (the run's
+  different node means this node's earlier saved leftovers are not continued), and for a review copy `review_head`,
+the implementer's last handed-over head, which the copy checks out when the task branch is gone from the remote.
+Stored: `review_copy` (the run's
   agent is not the task's implementer: a disposable review copy of the pushed branch) and `review_carry` (the
   project's ignored directories copied into it). Project data follows core-owned-project-data; OpenSpec is in the
   checkout, see [OpenSpec](openspec.md). The node fetches missing blobs with `GET /runs/{id}/blobs/{sha256}` and

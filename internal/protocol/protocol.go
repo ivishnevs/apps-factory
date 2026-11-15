@@ -67,6 +67,9 @@ type RunSpec struct {
 	// RestoreWIP is set in the claim answer, not stored (node-ties): the task's work saved to
 	// refs/factory/wip/<task>, whose files the node restores when its worktree does not hold them.
 	RestoreWIP string `json:"restore_wip,omitempty"`
+	// ReviewHead, also in the claim answer only, is the head of the implementer's last accepted exit: a review
+	// copy checks it out when the task branch is gone from the remote (deleted after its pull request merged).
+	ReviewHead string `json:"review_head,omitempty"`
 	// WorkspaceNode, also in the claim answer only, is the node of the task's last workspace report: when it is
 	// another node, this node's leftovers it saved remotely are not continued (node-ties).
 	WorkspaceNode string `json:"workspace_node,omitempty"`
