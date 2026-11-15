@@ -71,6 +71,9 @@ type Store struct {
 	// ArtifactRetentionMaxDays caps every project's artifact retention (artifact-retention,
 	// FACTORY_ARTIFACT_RETENTION_MAX_DAYS; the hosted cloud sets 30); 0 sets no ceiling.
 	ArtifactRetentionMaxDays int
+	// RunRetentionDays is how long an ended run keeps its events, log chunks and full spec (run-data-retention,
+	// FACTORY_RUN_RETENTION_DAYS, default DefaultRunRetentionDays); 0 keeps them forever.
+	RunRetentionDays int
 	// PlanLimits enforces each account's plan (saas-billing, FACTORY_BILLING): own nodes on approval and on claim,
 	// invitations. Off (self-hosted and dev Cores): no limits.
 	PlanLimits bool

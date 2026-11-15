@@ -48,6 +48,9 @@ type Core struct {
 	lastCycleSweep time.Time
 	// lastUnmergedCheck is the daily unmerged-branch check (tick goroutine only).
 	lastUnmergedCheck time.Time
+	// lastStorageCheck and lastStorageAlert pace the blob volume check and its daily feed alert (tick goroutine).
+	lastStorageCheck time.Time
+	lastStorageAlert string
 	// Prices is the price table (configs/prices.yaml) for runs whose runtime reported no cost.
 	Prices config.Prices
 	// Telegram routes owner messages from the Telegram channel (waits-events-cost-cli D4).
@@ -479,6 +482,9 @@ func (c *Core) maintain(ctx context.Context) error {
 		if _, err := c.Store.PriceRunCosts(ctx, company, c.Prices); c.isolate(ctx, company, "cost pricing", err) != nil {
 			return err
 		}
+	}
+	if err := c.checkStorage(ctx); err != nil {
+		return err
 	}
 	return c.checkUnmerged(ctx)
 }

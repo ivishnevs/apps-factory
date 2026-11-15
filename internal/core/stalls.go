@@ -286,6 +286,10 @@ func (c *Core) checkUnmerged(ctx context.Context) error {
 		if _, err := c.Store.ArchiveExpiredArtifacts(ctx, company); c.isolate(ctx, company, "artifact retention", err) != nil {
 			return err
 		}
+		// Events, log chunks and full specs of long-ended runs (run-data-retention).
+		if _, err := c.Store.PruneRunData(ctx, company, c.Store.RunRetentionDays); c.isolate(ctx, company, "run data retention", err) != nil {
+			return err
+		}
 	}
 	return nil
 }

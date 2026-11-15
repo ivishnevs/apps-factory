@@ -61,6 +61,13 @@ digest; back it up after the database, a blob newer than the dump is harmless); 
 directory (`FACTORY_DATA_DIR`, default `data`, the `core-data` volume) holds only `core.incarnation`. Core mounts
 no project workspace. Back up before upgrading; a downgrade requires restoring a compatible backup (an older Core refuses a newer schema).
 
+Storage growth (run-data-retention): once a day Core deletes the events and log chunks of runs that ended more than
+`FACTORY_RUN_RETENTION_DAYS` ago (default 14, 0 keeps them forever) and trims their stored spec; superseded artifact
+versions go after the project's `artifact_retention_days` (capped by `FACTORY_ARTIFACT_RETENTION_MAX_DAYS`). From 80 %
+blob volume use Core logs `blob volume nearly full` every hour and adds one attention item a day to each company's
+feed. Watch the Postgres volume at the provider: a full database volume stops Postgres, and freeing space inside it
+(UPDATE, VACUUM) itself needs free space for the write-ahead log.
+
 ```sh
 docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.dump   # online, consistent
 ```

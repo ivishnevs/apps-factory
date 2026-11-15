@@ -270,6 +270,13 @@ func run() error {
 			return fmt.Errorf("FACTORY_ARTIFACT_RETENTION_MAX_DAYS must be a number of days (0: no ceiling)")
 		}
 	}
+	// Run data retention (run-data-retention): events, log chunks and full specs of runs ended this many days ago.
+	s.RunRetentionDays = storage.DefaultRunRetentionDays
+	if v := os.Getenv("FACTORY_RUN_RETENTION_DAYS"); v != "" {
+		if s.RunRetentionDays, err = strconv.Atoi(v); err != nil || s.RunRetentionDays < 0 {
+			return fmt.Errorf("FACTORY_RUN_RETENTION_DAYS must be a number of days (0: keep forever)")
+		}
+	}
 	// node-packaging-updates C: nodes below this version get no work (the code's minimum unless the env raises it).
 	s.MinNodeVersion = env("FACTORY_MIN_NODE_VERSION", storage.MinNodeVersion)
 	if _, ok := protocol.CompareVersions(s.MinNodeVersion, s.MinNodeVersion); s.MinNodeVersion != "" && !ok {
