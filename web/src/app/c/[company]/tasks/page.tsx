@@ -1,6 +1,6 @@
 "use client";
 
-import { Gauge, Hand, PanelLeftClose, Search, X } from "lucide-react";
+import { Gauge, Hand, PanelLeftClose, RefreshCcw, Search, X } from "lucide-react";
 import { useParams, usePathname, useSearchParams } from "next/navigation";
 import Link, { useAppPath, useRouter } from "@/components/app/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 
 const ALL = "all";
 const MINE = "mine";
+const WAIT_CYCLE = "wait_cycle";
 type View = "open" | "you" | ColumnKey;
 const views: { key: View; name: string }[] = [
   { key: "open", name: "Open" }, { key: "you", name: "Needs you" }, { key: "running", name: "In progress" }, { key: "waiting", name: "Blocked" },
@@ -68,6 +69,8 @@ function Tasks() {
   const mine = useMine();
   const people = useMembers().data ?? [];
   const team = params.get("team") ?? ALL;
+  // wait-deadlock-detection 4.3: ?woken=wait_cycle keeps the tasks the stall sweep woke out of a wait cycle.
+  const woken = params.get("woken") === WAIT_CYCLE;
   const teams = useTeams().data?.teams ?? [];
   const view = (params.get("view") as View) ?? "open";
   const [q, setQ] = useState(params.get("q") ?? "");
@@ -118,20 +121,23 @@ function Tasks() {
       .filter((t) => project === ALL || t.project_id === project)
       .filter((t) => team === ALL || teamOf.get(t.project_id) === team)
       .filter((t) => assignee === ALL || t.assignee === (assignee === MINE ? mine : assignee))
+      .filter((t) => !woken || !!t.wait_cycle_at)
       .filter((t) => !needle || [t.id, t.title, t.description, t.assignee].some((f) => f?.toLowerCase().includes(needle)))
       .map((t) => ({ task: t, col: columnOf(t, runs) }))
       .sort((a, b) => order(a.task, b.task));
     const byCol = new Map<ColumnKey, Task[]>(columns.map((c) => [c.key, []]));
     for (const f of filtered) byCol.get(f.col)!.push(f.task);
     return { filtered, byCol };
-  }, [ov, runs, project, assignee, team, q, mine]);
+  }, [ov, runs, project, assignee, team, q, mine, woken]);
   // The columns as shown, for previous/next in the task panel (task-board-ux 2.4).
   useEffect(() => { publishBoard(columns.map((c) => ({ name: c.name, ids: (byCol.get(c.key) ?? []).map((t) => t.id) }))); }, [byCol]);
 
   const count = (v: View) => v === "open" ? filtered.filter((f) => f.col !== "done").length
     : v === "you" ? filtered.filter((f) => f.col !== "done" && needsOwner(f.task)).length : byCol.get(v)?.length ?? 0;
   const list = filtered.filter((f) => view === "open" ? f.col !== "done" : view === "you" ? f.col !== "done" && needsOwner(f.task) : f.col === view);
-  const filteredOut = project !== ALL || assignee !== ALL || team !== ALL || q.trim() !== "";
+  const filteredOut = project !== ALL || assignee !== ALL || team !== ALL || woken || q.trim() !== "";
+  // The wait-cycle filter is offered only while an open task was woken out of a cycle (or the filter is on).
+  const cycled = ((ov?.tasks ?? []) as BoardTask[]).filter((t) => !!t.wait_cycle_at && !isConversation(t) && (project === ALL || t.project_id === project)).length;
   const name = (id: string) => projectName(ov, id);
   const total = count("open"), forYou = count("you");
 
@@ -185,6 +191,15 @@ function Tasks() {
               {people.map((p) => <SelectItem key={p.user} value={PERSON + p.user}>{displayName(p)}</SelectItem>)}
             </SelectContent>
           </Select>
+          {(cycled > 0 || woken) && (
+            <button type="button" aria-pressed={woken} onClick={() => set("woken", woken ? "" : WAIT_CYCLE, "")}
+              title="Tasks the factory woke because their agents were waiting on each other"
+              className={cn("col-span-2 inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border px-3 text-sm transition-colors sm:col-span-1 sm:h-9",
+                woken ? "border-foreground bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground")}>
+              <RefreshCcw className="size-3.5" />Wait cycles
+              <span className={cn("tabular-nums text-xs", woken ? "text-background/70" : "text-muted-foreground")}>{cycled}</span>
+            </button>
+          )}
         </div>
       </div>
 

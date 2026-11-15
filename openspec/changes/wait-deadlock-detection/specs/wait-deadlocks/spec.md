@@ -46,3 +46,7 @@ Core SHALL periodically evaluate the cycle rule over active parks. Each task in 
 #### Scenario: Both parked before the gate could see it
 - **WHEN** two tasks became parked on each other's agents through exits that were each valid when made
 - **THEN** the next sweep SHALL wake both with `wait_cycle`, and a repeat within 24 hours SHALL escalate instead
+
+#### Scenario: Owner finds the woken tasks
+- **WHEN** the sweep woke an open task with `wait_cycle`
+- **THEN** task reads SHALL carry `wait_cycle_at` (the last such wake), the board SHALL offer a "Wait cycles" filter showing only those tasks, and the task view SHALL mark the task as woken from a wait cycle

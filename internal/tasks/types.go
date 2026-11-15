@@ -212,6 +212,9 @@ type Task struct {
 	// PossibleDuplicates are the unanswered strong duplicate warnings between this open task and another open
 	// one (either side warned); set on reads.
 	PossibleDuplicates []DuplicateWarning `json:"possible_duplicates,omitempty"`
+	// WaitCycleAt is when the stall sweep last woke this open task out of a wait cycle (a wait_cycle trigger,
+	// wait-deadlock-detection 4.3), 0 when it never did; set on reads.
+	WaitCycleAt int64 `json:"wait_cycle_at,omitempty"`
 	// Warnings and DuplicateHint are set only on a create or update answer: the duplicate check of this change.
 	Warnings      []DuplicateWarning `json:"warnings,omitempty"`
 	DuplicateHint string             `json:"duplicate_hint,omitempty"`

@@ -93,11 +93,22 @@ func taskSnapshotsTx(ctx context.Context, tx *Tx, project string) ([]tasks.Snaps
 		if err = conversationRunState(ctx, tx, &snap); err != nil {
 			return nil, err
 		}
-		if err = presentTask(ctx, tx, company, &snap.Task); err != nil {
+		if err = presentState(ctx, tx, company, &snap.Task); err != nil {
 			return nil, err
 		}
 		snap.Nodes = nodes
 		out = append(out, snap)
+	}
+	// The read-only parts of the presented view in one query each over all the tasks, not one per task.
+	ptrs := make([]*tasks.Task, len(out))
+	for i := range out {
+		ptrs[i] = &out[i].Task
+	}
+	if err = presentWaitCycles(ctx, tx, company, ptrs); err != nil {
+		return nil, err
+	}
+	if err = presentDuplicates(ctx, tx, company, ptrs); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

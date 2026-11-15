@@ -47,6 +47,8 @@ export interface Task {
   // or was replaced by, and the unanswered duplicate warnings with another open task.
   covers?: string[]; covers_inferred?: boolean; replaces?: string[]; replaced_by?: string[];
   not_duplicate_of?: string[]; possible_duplicates?: DuplicateWarning[];
+  // wait-deadlock-detection 4.3: when the stall sweep last woke this open task out of a wait cycle (Unix seconds).
+  wait_cycle_at?: number;
   // Added by the overview: the why reason, who clears it and the task's tie to a node.
   reason: string; clearer: Clearer; wait?: Wait; tie?: Tie; awaits?: Awaits;
 }

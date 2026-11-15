@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -43,7 +44,47 @@ func presentTask(ctx context.Context, q querier, company string, t *tasks.Task) 
 	if err := presentState(ctx, q, company, t); err != nil {
 		return err
 	}
+	if err := presentWaitCycles(ctx, q, company, []*tasks.Task{t}); err != nil {
+		return err
+	}
 	return presentDuplicates(ctx, q, company, []*tasks.Task{t})
+}
+
+// presentWaitCycles sets WaitCycleAt on the open tasks the stall sweep woke out of a wait cycle, in one query.
+func presentWaitCycles(ctx context.Context, q querier, company string, ts []*tasks.Task) error {
+	ids := []string{}
+	byID := map[string][]*tasks.Task{}
+	for _, t := range ts {
+		t.WaitCycleAt = 0
+		if t.Status == "DONE" || t.Status == "CANCELLED" {
+			continue
+		}
+		if _, ok := byID[t.ID]; !ok {
+			ids = append(ids, t.ID)
+		}
+		byID[t.ID] = append(byID[t.ID], t)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	list, _ := json.Marshal(ids)
+	rows, err := q.QueryContext(ctx, `SELECT task_id,max(created_at) FROM task_triggers
+ WHERE company_id=? AND kind=? AND task_id IN (SELECT jsonb_array_elements_text(?::jsonb)) GROUP BY task_id`, company, WaitCycleReason, string(list))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var at int64
+		if err = rows.Scan(&id, &at); err != nil {
+			return err
+		}
+		for _, t := range byID[id] {
+			t.WaitCycleAt = at
+		}
+	}
+	return rows.Err()
 }
 
 // presentState derives the presented status, block reason, open question and pause of a stored task.
@@ -100,6 +141,9 @@ func presentTasks(ctx context.Context, q querier, company string, ts []tasks.Tas
 			return err
 		}
 		ptrs[i] = &ts[i]
+	}
+	if err := presentWaitCycles(ctx, q, company, ptrs); err != nil {
+		return err
 	}
 	return presentDuplicates(ctx, q, company, ptrs)
 }

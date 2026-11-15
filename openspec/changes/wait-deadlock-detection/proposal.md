@@ -1,4 +1,5 @@
 Status: accepted 2026-11-13 (owner decisions below) after the owner found three tasks of one project asleep on each other.
+Implemented; 4.3 (board filter) done 2026-11-15.
 
 ## Why
 

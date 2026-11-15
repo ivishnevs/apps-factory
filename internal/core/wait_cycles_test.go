@@ -214,4 +214,31 @@ func TestWaitCycleSwept(t *testing.T) {
 		t.Fatal("swept while manager works")
 	}
 	h.end(rb, "succeeded", "accepted")
+	// 4.3: reads mark the woken tasks (the board filters on it); c, parked but never swept, stays unmarked.
+	if got, err := h.s.Task(ctx, storage.DefaultCompany, "b"); err != nil || got.WaitCycleAt == 0 {
+		t.Fatal("task read", got.WaitCycleAt, err)
+	}
+	list, err := h.s.Tasks(ctx, storage.DefaultCompany, "notes", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snaps, err := h.s.ViewSnapshots(ctx, storage.DefaultCompany, "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	marked := map[string]bool{}
+	for _, x := range list {
+		marked["list "+x.ID] = x.WaitCycleAt > 0
+	}
+	for _, s := range snaps {
+		marked["view "+s.Task.ID] = s.Task.WaitCycleAt > 0
+	}
+	for _, k := range []string{"list b", "list f", "view b", "view f"} {
+		if !marked[k] {
+			t.Fatal(k, "not marked", marked)
+		}
+	}
+	if marked["list c"] || marked["view c"] {
+		t.Fatal("unrelated task marked", marked)
+	}
 }

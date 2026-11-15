@@ -53,6 +53,12 @@ export function Header({ task, project, pr, now, actions, column }: { task: Boar
           ? <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass(col.tone))} title={`Status: ${task.status.replace(/_/g, " ").toLowerCase()}`}>{col.name.toLowerCase()}</span>
           : <StatusBadge value={task.status} />}
         {task.paused_by && <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("REWORK"))}>paused by {task.paused_by === "owner" ? "you" : task.paused_by}</span>}
+        {!!task.wait_cycle_at && !isTerminal(task.status) && (
+          <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("REWORK"))}
+            title="Its agent was waiting on an agent that was waiting on it; the factory woke both sides">
+            woken from a wait cycle {since(task.wait_cycle_at, now) === "now" ? "just now" : `${since(task.wait_cycle_at, now)} ago`}
+          </span>
+        )}
         {task.cancel_requested && !isTerminal(task.status) && <span className={cn("rounded-full px-2 text-xs font-medium leading-5", toneClass("BLOCKED"))}>cancelling</span>}
         <PriorityMark value={task.priority} className="ml-1" />
       </div>

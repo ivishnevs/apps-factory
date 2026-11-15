@@ -28,7 +28,9 @@
       item `task.wait_cycle`; test.
 - [x] 4.2 The same cycle within 24 h escalates once to the nearest common manager, else the project lead, else the
       owner, with `wake`, `reassign`, `cancel`; test.
-- [ ] 4.3 Board and task view: a filter for tasks woken by `wait_cycle` (the park reason already shows "expects it unprompted").
+- [x] 4.3 Board and task view: a filter for tasks woken by `wait_cycle` (the park reason already shows "expects it unprompted").
+      Task reads carry `wait_cycle_at` (one query per list); web board "Wait cycles" filter (`?woken=wait_cycle`) and a
+      task-view badge; test in `TestWaitCycleSwept`.
 
 ## 5. Docs
 
