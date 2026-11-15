@@ -44,7 +44,8 @@
       an `android-developer` agent labelled `android`, reassign open Android tasks to it, and state the split in the
       agents' `capabilities` so leads assign by them (capabilities are text for planning, they do not route). Limits:
       the split relies on leads assigning by capabilities (a mistake sends an Android task to a Mac, which is safe),
-      and reviews of Android tasks still run on Macs. Not applied yet (owner, 2026-11-15).
+      and reviews of Android tasks still run on Macs. Applied to tvorog on 2026-11-15 (catalog v28; hermes-ai's Android
+      tasks reassigned to android-developer) and the node unpaused.
     - The general fix stays the per-task toolchain check above: a run needs the tools of what it touches, and a node
       without them does not claim it. Note: `app-release` already has `labels: [play]`, which only tvorog-mac carries.
 - **A reviewer can approve without re-running the submission's checks, recorded 2026-11-13, not planned.**
