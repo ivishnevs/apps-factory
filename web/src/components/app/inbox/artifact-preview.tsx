@@ -29,7 +29,42 @@ export const byteSize = (n?: number) => (!n ? "" : n >= 1 << 20 ? `${(n / (1 << 
 
 // ArtifactPreview shows an artifact version: images inline, markdown/json/text rendered, HTML in a sandboxed
 // frame (scripts run in an opaque origin, no same-origin state; PDF with no scripts), anything else as a download link.
+// externalURL is the address of a version registered as an external reference (no content in Factory): a GitHub
+// file page opens as the raw file, so an image shows at once for someone signed in to GitHub.
+export function externalURL(uri?: string): string | undefined {
+  if (!uri || !/^https?:\/\//i.test(uri)) return undefined;
+  const gh = uri.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/blob\/(.+)$/);
+  return gh && kindOf(uri, "") === "image" ? `https://github.com/${gh[1]}/raw/${gh[2]}` : uri;
+}
+
 export function ArtifactPreview({ project, artifact }: { project: string; artifact: Artifact & ArtifactMeta }) {
+  const external = externalURL(artifact.uri);
+  if (external) return <ExternalArtifact artifact={artifact} href={external} />;
+  return <StoredArtifact project={project} artifact={artifact} />;
+}
+
+// ExternalArtifact: the version's content lives outside Factory (an agent registered a link); Factory cannot show
+// it, so the card says so and opens the link.
+function ExternalArtifact({ artifact, href }: { artifact: Artifact & ArtifactMeta; href: string }) {
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs">
+        <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate font-medium">{artifact.name || artifact.id}</span>
+        <span className="shrink-0 rounded bg-background px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{artifact.version}</span>
+      </div>
+      <div className="space-y-2 p-4 text-sm">
+        <p className="text-muted-foreground">This version is stored outside Factory, so it has no preview here.</p>
+        <a href={href} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-md border px-3 font-medium hover:bg-accent/50">
+          <ExternalLink className="size-4" /> Open {kindOf(artifact.uri, "") === "image" ? "the image" : "the link"}
+        </a>
+        <p className="break-all font-mono text-[11px] text-muted-foreground">{artifact.uri}</p>
+      </div>
+    </div>
+  );
+}
+
+function StoredArtifact({ project, artifact }: { project: string; artifact: Artifact & ArtifactMeta }) {
   const url = `/api/artifacts/${encodeURIComponent(project)}/${encodeURIComponent(artifact.id)}/${encodeURIComponent(artifact.version)}`;
   const [open, setOpen] = useState(false);
   const q = useQuery({
