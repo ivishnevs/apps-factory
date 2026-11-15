@@ -41,17 +41,6 @@
   - *Relation.* `approval-gates-merge` §4 makes an `approved` verdict cover every submitted artifact; checks
     (build, tests) are not covered there yet.
 
-- **A task waits for "a message from the owner" when it waits for a decision, recorded 2026-11-13, not planned.**
-  - *What happened.* In tvorog the product manager's task 553cc263 (stashy prototype v4) waited for the owner's
-    answer to the CEO's decision proposal `ac3f2bc2`, but the agent exited `wait` with `from: owner` instead of
-    `decision_id`. The board showed "Waits for a message from you · Write to its agent", sending the owner to write to
-    the agent instead of deciding the proposal in the Inbox.
-  - *Why it is a problem.* The wait kinds exist (`decision_id`, `from`), but nothing ties a wait to the open decision
-    or question it is really about, so the board points people to the wrong action and the task may wake on an
-    unrelated message.
-  - *Direction.* When a task waits on a person while a decision proposal or question it raised (or its manager raised
-    for it) is open, Core links the wait to that item, or refuses `from` with a hint to wait on the decision; the
-    board shows "Waits for your decision" with a link to it.
 - **"duplicate?" flags a parent and its own subtask, recorded 2026-11-13, not planned.**
   - *What happened.* The same task 553cc263 ("prototype v4 — add kangaroo states, onboarding and chat") was flagged
     "duplicate?" against d0daebb9 ("prototype v4 — onboarding, AI chat and all kangaroo states"), the designer's

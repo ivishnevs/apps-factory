@@ -134,6 +134,16 @@ func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a m
 		if from == agent || from != "owner" && (known == nil || !known(from)) {
 			return refuse("invalid_exit", "from must be owner or a configured agent other than you")
 		}
+		if from == "owner" {
+			// A wait on a person goes through an item they can answer (person-waits-on-items).
+			items, err := openOwnerItems(ctx, tx, t)
+			if err != nil {
+				return err
+			}
+			if items.empty() {
+				return refuse("wait_unanswerable", "the owner has nothing from this task to answer, so nothing in their Inbox would wake you: ask with factory_exit_ask (your question holds the task and its answer wakes it), or propose a decision with factory_decision_propose and wait on it with decision_id. A message from the owner wakes you anyway.")
+			}
+		}
 		// A wait that closes a cycle, or on an agent that was never asked, sleeps for good (wait-deadlock-detection).
 		if err := checkWaitCycle(ctx, tx, t.ProjectID, agent, from); err != nil {
 			return err
@@ -159,30 +169,94 @@ func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a m
 	return nil
 }
 
-// applyEventWait parks the task on its decision or message (the exit was checked).
-func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any) error {
+// applyEventWait parks the task on its decision or message (the exit was checked). A wait on the owner parks on the
+// owner's open items for the task (person-waits-on-items); note then says what it was linked to.
+func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any) (note string, err error) {
 	deadline, _ := eventDeadline(a, tx.now())
 	t.Status = "READY"
 	if eventWaitKind(a) == tasks.ParkApproval {
 		h, err := approvalHold(ctx, tx, *t, str(a, "approval_id"))
 		if err != nil {
-			return err
+			return "", err
 		}
-		return parkOnApproval(ctx, tx, *t, []ApprovalHold{h}, str(a, "reason"))
+		return "", parkOnApproval(ctx, tx, *t, []ApprovalHold{h}, str(a, "reason"))
 	}
 	if eventWaitKind(a) == tasks.ParkMessage {
 		reason := str(a, "reason")
+		if str(a, "from") == "owner" {
+			items, err := openOwnerItems(ctx, tx, *t)
+			if err != nil {
+				return "", err
+			}
+			switch {
+			case len(items.decisions) > 0:
+				var names []string
+				for _, d := range items.decisions {
+					why := "waiting for the owner's decision " + d.ID + " [" + d.Topic + "] (linked from a wait on the owner): " + reason
+					if err = parkEventTx(ctx, tx, *t, tasks.ParkDecision, d.ID, d.Topic, why, deadline, true); err != nil {
+						return "", err
+					}
+					names = append(names, d.ID+" ["+d.Topic+"]")
+				}
+				return "the owner's open decision for this task is what you wait for, so the task waits on it: " + strings.Join(names, ", ") + ". You run again once it is recorded, with the outcome in your brief.", nil
+			case len(items.holds) > 0:
+				return "an approval holds this task, so the task waits on it; you run again once it is decided.", parkOnApproval(ctx, tx, *t, items.holds, reason)
+			}
+			// Only a question: its answer is the owner's message about the task, which the message park hears.
+		}
 		if unprompted, _ := a["expects_unprompted"].(bool); unprompted {
 			reason = strings.TrimSpace(reason + " (expects it unprompted)")
 		}
-		return parkOnMessageTx(ctx, tx, *t, str(a, "from"), str(a, "topic"), reason, deadline)
+		return "", parkOnMessageTx(ctx, tx, *t, str(a, "from"), str(a, "topic"), reason, deadline)
 	}
 	d, err := projectDecision(ctx, tx, t.ProjectID, str(a, "decision_id"))
 	if err != nil {
-		return err
+		return "", err
 	}
 	reason := "waiting for decision " + d.ID + " [" + d.Topic + "]: " + str(a, "reason")
-	return parkEventTx(ctx, tx, *t, tasks.ParkDecision, d.ID, d.Topic, reason, deadline, true)
+	return "", parkEventTx(ctx, tx, *t, tasks.ParkDecision, d.ID, d.Topic, reason, deadline, true)
+}
+
+// ownerItems are the owner's open items for a task (person-waits-on-items): decisions proposed from the task, its
+// parent or its origin (a lead proposing for the task it delegated), approvals holding it, questions to the owner
+// about it.
+type ownerItems struct {
+	decisions []decisions.Decision
+	holds     []ApprovalHold
+	questions int
+}
+
+func (o ownerItems) empty() bool {
+	return len(o.decisions) == 0 && len(o.holds) == 0 && o.questions == 0
+}
+
+// taskLineage is the task and the tasks it comes from (parent, origin): a decision proposed from one of them is about it.
+func taskLineage(t tasks.Task) []string {
+	refs := []string{t.ID}
+	for _, r := range []string{t.ParentTaskID, t.OriginTask} {
+		if r != "" && r != t.ID {
+			refs = append(refs, r)
+		}
+	}
+	return refs
+}
+
+func openOwnerItems(ctx context.Context, tx *Tx, t tasks.Task) (ownerItems, error) {
+	var out ownerItems
+	ds, err := listDocs[decisions.Decision](ctx, tx, "SELECT body FROM decisions WHERE company_id=? AND project_id=? AND (body->>'task_id') = ANY(?) ORDER BY seq", tx.company, t.ProjectID, taskLineage(t))
+	if err != nil {
+		return out, err
+	}
+	for _, d := range ds {
+		if decisionOpen(d) {
+			out.decisions = append(out.decisions, d)
+		}
+	}
+	if out.holds, err = approvalHolds(ctx, tx, tx.company, t.ID, tx.now().Unix()); err != nil {
+		return out, err
+	}
+	err = tx.QueryRowContext(ctx, "SELECT count(*) FROM messages WHERE company_id=? AND task_id=? AND recipient='owner' AND message_type='question' AND status IN ('PENDING','UNREAD','ESCALATED')", tx.company, t.ID).Scan(&out.questions)
+	return out, err
 }
 
 // parkEventTx adds an event park with its topic and deadline.
@@ -258,7 +332,7 @@ func decisionRecorded(ctx context.Context, tx *Tx, d decisions.Decision) error {
 		return nil
 	}
 	ids, err := activeEventParks(ctx, tx, tasks.ParkDecision, d.ID)
-	if err != nil || len(ids) == 0 {
+	if err != nil {
 		return err
 	}
 	actor := d.RecordedBy
@@ -266,6 +340,7 @@ func decisionRecorded(ctx context.Context, tx *Tx, d decisions.Decision) error {
 		actor = "system"
 	}
 	outcome := decisionOutcome(d)
+	woken := map[string]bool{}
 	for _, id := range ids {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
@@ -273,6 +348,75 @@ func decisionRecorded(ctx context.Context, tx *Tx, d decisions.Decision) error {
 		}
 		if err = clearParks(ctx, tx, t, tasks.ParkDecision, d.ID, "cleared"); err != nil {
 			return err
+		}
+		if err = addTrigger(ctx, tx, &t, "decision_recorded", false, actor, d.ID, outcome); err != nil {
+			return err
+		}
+		woken[id] = true
+	}
+	return wakeOwnerWaiters(ctx, tx, d, actor, outcome, woken)
+}
+
+// wakeOwnerWaiters wakes the open tasks of the decision's project that come from its task (that task, or tasks whose
+// parent or origin it is) and wait on the owner for it: parked on a message from the owner or on another decision of
+// the same task (person-waits-on-items). Their owner and decision parks clear; tasks not waiting are not changed.
+func wakeOwnerWaiters(ctx context.Context, tx *Tx, d decisions.Decision, actor, outcome string, woken map[string]bool) error {
+	if d.TaskID == "" {
+		return nil
+	}
+	related, err := tx.QueryContext(ctx, "SELECT id FROM decisions WHERE company_id=? AND project_id=? AND (body->>'task_id')=?", tx.company, d.ProjectID, d.TaskID)
+	if err != nil {
+		return err
+	}
+	var siblings []string
+	for related.Next() {
+		var id string
+		if err = related.Scan(&id); err != nil {
+			related.Close()
+			return err
+		}
+		siblings = append(siblings, id)
+	}
+	related.Close()
+	if err = related.Err(); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT p.task_id FROM task_parks p JOIN tasks t ON t.company_id=p.company_id AND t.id=p.task_id
+ WHERE p.company_id=? AND p.status='active' AND t.project_id=? AND t.status NOT IN ('DONE','CANCELLED')
+ AND (t.id=? OR (t.body->>'parent_task_id')=? OR (t.body->>'origin_task')=?)
+ AND ((p.kind=? AND p.ref_id='owner') OR (p.kind=? AND p.ref_id = ANY(?)))`,
+		tx.company, d.ProjectID, d.TaskID, d.TaskID, d.TaskID, tasks.ParkMessage, tasks.ParkDecision, siblings)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		t, err := taskTx(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err = clearParks(ctx, tx, t, tasks.ParkMessage, "owner", "cleared"); err != nil {
+			return err
+		}
+		for _, sib := range siblings {
+			if err = clearParks(ctx, tx, t, tasks.ParkDecision, sib, "cleared"); err != nil {
+				return err
+			}
+		}
+		if woken[id] {
+			continue
 		}
 		if err = addTrigger(ctx, tx, &t, "decision_recorded", false, actor, d.ID, outcome); err != nil {
 			return err

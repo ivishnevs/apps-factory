@@ -610,8 +610,12 @@ func applyExit(ctx context.Context, tx *Tx, runID, agent string, t tasks.Task, r
 		out.Note = note
 	case "wait":
 		if eventWaitKind(a) != "" {
-			if err := applyEventWait(ctx, tx, &t, a); err != nil {
+			note, err := applyEventWait(ctx, tx, &t, a)
+			if err != nil {
 				return out, err
+			}
+			if note != "" {
+				out.Note = note
 			}
 		} else if err := applyWait(ctx, tx, runID, &t, a); err != nil {
 			return out, err

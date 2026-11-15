@@ -171,7 +171,7 @@ func TestEventWaitRefusals(t *testing.T) {
 		"from self":        {map[string]any{"reason": "x", "from": "demo"}, "invalid_exit", "other than you"},
 		"from stranger":    {map[string]any{"reason": "x", "from": "nobody"}, "invalid_exit", "configured agent"},
 		"past deadline":    {map[string]any{"reason": "x", "decision_id": open.ID, "deadline": h.at(-time.Hour)}, "invalid_exit", "future"},
-		"far deadline":     {map[string]any{"reason": "x", "from": "owner", "deadline": h.at(15 * 24 * time.Hour)}, "wait_too_long", "14 days"},
+		"far deadline":     {map[string]any{"reason": "x", "decision_id": open.ID, "deadline": h.at(15 * 24 * time.Hour)}, "wait_too_long", "14 days"},
 	} {
 		if code, ref := h.wait(r, c.args); code != 409 || ref.Reason != c.reason || !strings.Contains(ref.Hint, c.hint) {
 			t.Errorf("%s: %d %+v", name, code, ref)

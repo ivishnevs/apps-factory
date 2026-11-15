@@ -100,10 +100,11 @@ func TestWaitUnasked(t *testing.T) {
 	if v := h.why("p"); !strings.Contains(v.Detail, "expects it unprompted") {
 		t.Fatalf("%+v", v)
 	}
-	// The owner is a person: waits on the owner are not checked.
+	// The owner is a person: no "asked" check, but a wait on the owner needs an item they can answer
+	// (person-waits-on-items, TestWaitOnOwnerNeedsAnItem).
 	h.create("q", "notes", "demo")
 	rq := h.start("q")
-	if code, ref = h.wait(rq, map[string]any{"reason": "details", "from": "owner"}); code != 200 {
+	if code, ref = h.wait(rq, map[string]any{"reason": "details", "from": "owner"}); code != 409 || ref.Reason != "wait_unanswerable" {
 		t.Fatal(code, ref)
 	}
 }
