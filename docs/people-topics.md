@@ -77,6 +77,10 @@ when a question reached people after a timeout without anyone writing for them.
 sheet). Rejecting a part, or requesting approval of a newer version of a part, withdraws the composite's pending
 approval.
 
+An image people judge that shows several frames (a contact sheet, before / after, states, sizes) labels every frame
+on the image itself: the screen or element, the state, the device or size, before or after. People read the image
+without the agent's files; the brief's `ask` still names exactly what is approved.
+
 ## Strict delegation
 
 An agent reaches people only with `owner` in `spec.communication.can_message`. Without it, its question to the owner
