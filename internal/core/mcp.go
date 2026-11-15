@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -182,6 +183,10 @@ func (c *Core) agentGateway(w http.ResponseWriter, r *http.Request, routes http.
 		response.status = 200
 	}
 	c.withAuthorityInput(r, run, response)
+	// A refused forward, question or message is kept for the run's exit (forward-refusal-guard).
+	if err = c.Store.RecordToolResult(r.Context(), company, run.Spec.ID, p.Name, requestID, response.status, response.body.Bytes()); err != nil {
+		slog.Error("record tool result", "run", run.Spec.ID, "tool", p.Name, "error", err)
+	}
 	if _, err = c.Store.DB.ExecContext(r.Context(), "UPDATE tool_calls SET status=? WHERE id=?", response.status, auditID); err != nil {
 		reply(w, nil, err)
 		return

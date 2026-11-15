@@ -182,7 +182,11 @@ func syncTaskRun(ctx context.Context, tx *Tx, runID string) error {
 	if err := syncTaskStatus(ctx, tx, runID); err != nil {
 		return err
 	}
-	return recoverTask(ctx, tx, runID)
+	if err := recoverTask(ctx, tx, runID); err != nil {
+		return err
+	}
+	// A question the run did not act on keeps waking its recipient (forward-refusal-guard).
+	return rewakePendingQuestions(ctx, tx, runID)
 }
 
 func syncTaskStatus(ctx context.Context, tx *Tx, runID string) error {

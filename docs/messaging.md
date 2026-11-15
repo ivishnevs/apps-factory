@@ -236,6 +236,16 @@ The inbox is CLI/HTTP; no UI or external delivery service is included. Questions
 are communication, not approval grants or decision records. Reports and Decision Registry remain
 future stages. See [verification](messaging-verification.md).
 
+### Pending questions keep their recipient awake (forward-refusal-guard)
+
+A question addressed to an agent that is still pending (not answered, forwarded, withdrawn or expired) keeps waking
+it. When a conversation run of the recipient ends with its triggers handled but the question still pending (for
+example its forward was refused and the run exited anyway), Core adds a new `message` trigger from `factory` naming
+the question and the run's last refusal, so the agent runs again. A conversation parked on its own wait, ask or
+block is left alone. After `MaxQuestionRewakes` (3) such triggers the question stays pending and one attention item
+`message.question_stranded` names it in the feed. A crashed run needs none of this: it never marks its triggers
+handled, so the usual retry runs it again.
+
 ## Telegram
 
 Every company may have its own bot (telegram-per-company). An owner or admin creates it with @BotFather and adds

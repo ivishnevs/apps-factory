@@ -72,3 +72,45 @@ func includesSchema() map[string]any {
 	return map[string]any{"type": "array", "description": "For a composite (a contact sheet, a collage of other artifacts): the versions it shows, [{id, version}]. Rejecting or replacing any of them withdraws the composite's approval request; people see it as the overview of those versions, not as a separate item.",
 		"items": map[string]any{"type": "object", "properties": map[string]any{"id": s, "version": s}, "required": []string{"id", "version"}, "additionalProperties": false}}
 }
+
+// ManagerBriefTools are the tools whose item goes to the calling agent's manager.
+var ManagerBriefTools = []string{"factory_question_forward", ExitPrefix + "ask"}
+
+// WithBriefRequired returns tools with brief required on the named ones (forward-refusal-guard): for an agent whose
+// manager is a person, what it forwards or asks up always reaches people. Changed schemas are copies; the shared
+// definitions stay as they are.
+func WithBriefRequired(tools []Tool, names ...string) []Tool {
+	out := make([]Tool, len(tools))
+	copy(out, tools)
+	for i, t := range out {
+		if !slices.Contains(names, t.Name) {
+			continue
+		}
+		props, _ := t.InputSchema["properties"].(map[string]any)
+		if _, ok := props["brief"]; !ok {
+			continue
+		}
+		schema := make(map[string]any, len(t.InputSchema))
+		for k, v := range t.InputSchema {
+			schema[k] = v
+		}
+		var required []string
+		switch r := t.InputSchema["required"].(type) {
+		case []string:
+			required = append(required, r...)
+		case []any:
+			for _, x := range r {
+				if s, ok := x.(string); ok {
+					required = append(required, s)
+				}
+			}
+		}
+		if !slices.Contains(required, "brief") {
+			required = append(required, "brief")
+		}
+		schema["required"] = required
+		out[i].InputSchema = schema
+		out[i].Description = "Your manager is a person, so this reaches people: brief is required (title, ask, after, recommendation). " + t.Description
+	}
+	return out
+}

@@ -169,6 +169,11 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	if status != "CLAIMED" && status != "RUNNING" && !late || t.CurrentRunID != runID {
 		return out, &ExitRefusal{Status: 410, Reason: "not_current_run", Hint: "this run was stopped or replaced; finish the turn"}
 	}
+	// A fixable refusal of this run's forward, question or message holds the exit until it is fixed
+	// (forward-refusal-guard): what the call carried must not be stranded by "my work is done".
+	if err = exitRefusalHold(ctx, tx, runID, req.Kind); err != nil {
+		return out, err
+	}
 	if err = validExit(req, t, agent); err != nil {
 		return out, err
 	}
@@ -296,6 +301,9 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 		return out, err
 	}
 	if err = exitFeed(ctx, tx, runID, agent, t, req, out); err != nil {
+		return out, err
+	}
+	if err = noticeDecisionRefusals(ctx, tx, runID, agent, t, req.Kind); err != nil {
 		return out, err
 	}
 	argsJSON, _ := json.Marshal(req.Arguments)

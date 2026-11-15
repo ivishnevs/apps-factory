@@ -1,6 +1,7 @@
 package core
 
 import (
+	"appfactory/internal/tasks"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -45,6 +46,11 @@ func (c *Core) agentTools(company string, agent config.Agent, allowed func(facto
 			continue
 		}
 		out = append(out, t)
+	}
+	// What an agent managed by a person forwards or asks up always reaches people: brief is required in the schema
+	// (forward-refusal-guard); Core still refuses an item that reaches people without one.
+	if m := agent.Spec.ReportsTo; m == "" || m == "owner" || tasks.IsPerson(m) {
+		out = factorytools.WithBriefRequired(out, factorytools.ManagerBriefTools...)
 	}
 	return out
 }

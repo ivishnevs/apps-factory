@@ -234,3 +234,20 @@ Details, the event spool and what the owner sees: [node-troubleshooting.md](node
   only while, in the same transaction, the run is still unreleased and the task's `current_run_id`. Accepted: the
   run becomes `succeeded`, released, no retry. Otherwise 410 `not_current_run`, final. Conversation runs apply no
   exits.
+
+## 14. Refused calls and exits (forward-refusal-guard)
+
+Core records, per run, refusals of the tools that send or forward to someone (`factory_question_forward`,
+`factory_owner_ask`, `factory_message_ask`, `factory_message_send`, `factory_message_reply`, approval requests,
+`factory_decision_propose`) in `run_refusals`. A later success of the same call (same tool and `request_id`) clears it.
+
+- **Fixable** refusals (HTTP 400/422: `brief_required`, an invalid or too-long field) hold the run's `done`,
+  `handoff`, `submit` and `wait` exits: they are refused with 409 `unresolved_refusal`, naming the call and the fix.
+  `ask` and `block` stay allowed, so an agent that cannot fix the call hands the problem up. This catches a model
+  that batches a call and its exit in one turn: the exit cannot outrun the refusal.
+- **Decisions** (403, 404, 409 such as `question_limit`, 410) do not hold the exit: Core told the agent to decide or
+  stop. An accepted `done`/`handoff`/`submit`/`wait` after one is marked in the feed (`task.exit_after_refusal`) and
+  sent to the agent's manager: a `notification` message to a manager agent, an attention item (no inbox question)
+  when the manager is a person.
+- For an agent managed by a person (the owner or a member), `factory_question_forward` and `factory_exit_ask` list
+  `brief` as required in their schema. Core still refuses any item that reaches people without a brief.
