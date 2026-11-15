@@ -32,6 +32,9 @@ type Adapter struct {
 	Conversation bool
 	// DefaultBranch of the project; empty asks origin/HEAD, then "main".
 	DefaultBranch string
+	// ReviewBranch is the task branch of a review copy (FACTORY_REVIEW_BRANCH): the copy is detached, so its pull
+	// request is looked up by this name (also after a merge deleted the branch). The copy never pushes it.
+	ReviewBranch string
 	// OpenSpecChange is the task's linked change (FACTORY_OPENSPEC_CHANGE): its state is part of the facts.
 	OpenSpecChange string
 	// ScanCommand gets the revision range as its last argument and exits 1 on a finding (empty: no scan).
@@ -448,6 +451,8 @@ func (a *Adapter) Facts(ctx context.Context) (*Facts, error) {
 			f.Pushed = remote == head
 		}
 		f.PR = a.pr(ctx, f.Branch)
+	} else if f.Remote && f.Branch == "" && a.ReviewBranch != "" {
+		f.PR = a.pr(ctx, a.ReviewBranch)
 	}
 	if len(a.ScanCommand) > 0 && f.AheadOfDefault > 0 {
 		f.Scan = a.scan(ctx, base)
@@ -566,7 +571,7 @@ func (e *notFound) Error() string { return e.name + ": executable not found" }
 // AdapterFromEnv builds the adapter of factory-node mcp (factory-mcp) from the run environment.
 func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	a := &Adapter{URL: getenv("FACTORY_URL"), Token: getenv("FACTORY_RUN_TOKEN"), Workdir: getenv("FACTORY_WORKDIR"),
-		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), OpenSpecChange: getenv("FACTORY_OPENSPEC_CHANGE"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
+		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), OpenSpecChange: getenv("FACTORY_OPENSPEC_CHANGE"), ReviewBranch: getenv("FACTORY_REVIEW_BRANCH"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
 	if a.Token == "" || a.URL == "" {
 		return nil, errors.New("FACTORY_RUN_TOKEN and FACTORY_URL required")
 	}

@@ -395,3 +395,27 @@ func TestAdapterFactsGitUnavailable(t *testing.T) {
 		t.Fatal(f, err)
 	}
 }
+
+// TestAdapterReviewCopyFindsTaskPR: a review copy is detached; its facts carry the task branch's pull request
+// (looked up by FACTORY_REVIEW_BRANCH, also once a merge deleted the branch), and it never pushes.
+func TestAdapterReviewCopyFindsTaskPR(t *testing.T) {
+	work, ghLog := repo(t)
+	_ = os.WriteFile(filepath.Join(filepath.Dir(ghLog), "pr"), nil, 0o644)
+	gitT(t, work, "checkout", "-q", "--detach")
+	a := &Adapter{Workdir: work, DefaultBranch: "main"}
+	ctx := context.Background()
+	f, err := a.Facts(ctx)
+	if err != nil || f.Branch != "" || f.PR != nil {
+		t.Fatalf("detached without a review branch: %+v %v", f, err)
+	}
+	a.ReviewBranch = "af/t1"
+	if f, err = a.Facts(ctx); err != nil || f.Branch != "" || f.PR == nil || f.PR.Number != 42 {
+		t.Fatalf("review copy facts %+v %v", f, err)
+	}
+	if b, _ := os.ReadFile(ghLog); !strings.Contains(string(b), "pr view af/t1") {
+		t.Fatalf("gh calls %s", b)
+	}
+	if got := gitT(t, work, "ls-remote", "origin", "refs/heads/af/t1"); got != "" {
+		t.Fatal("review copy pushed the task branch", got)
+	}
+}

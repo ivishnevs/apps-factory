@@ -27,7 +27,9 @@ that says "this is a review copy; your result is the verdict"), the node does no
 workspace report: a review never changes the task's workspace record, never ties the task and never touches the
 implementer's worktree. When the branch is gone from the remote (the host deleted it after the pull request
 merged), the copy is checked out at the implementer's last handed-over head (the exit's head Core recorded), which
-the remote keeps under the pull request's refs. A task with neither is not reviewable: the review run ends
+the remote keeps under the pull request's refs. The copy is detached, so its exit facts carry the task branch's
+pull request looked up by the branch name (`FACTORY_REVIEW_BRANCH`): an accepting manager's done sees the merged
+pull request. A task with neither is not reviewable: the review run ends
 `setup_failed` saying so. A project may list ignored directories (build or import caches) to copy into the review copy from the
 task's worktree on that node: `review_carry` (the project's `workspace.review_carry`, `PATCH /projects/{id}
 {"review_carry": [".cache"]}`), relative paths without `..`, empty by default; nothing else ignored by git (`.env`,

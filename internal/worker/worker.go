@@ -694,6 +694,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				launch.Env = setEnv(launch.Env, "FACTORY_OPENSPEC_CHANGE", spec.OpenSpecChange)
 				vars = append(vars, "FACTORY_OPENSPEC_CHANGE")
 			}
+			if review && req.Branch != "" {
+				// A review copy is detached: the adapter finds the task's pull request by the branch name.
+				launch.Env = setEnv(launch.Env, "FACTORY_REVIEW_BRANCH", req.Branch)
+				vars = append(vars, "FACTORY_REVIEW_BRANCH")
+			}
 			if spec.Conversation {
 				// No git facts for a conversation run's exits: it owns no branch or PR.
 				launch.Env = setEnv(launch.Env, "FACTORY_CONVERSATION", "1")
