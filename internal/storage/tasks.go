@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"appfactory/internal/artifacts"
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 )
@@ -998,12 +999,12 @@ func comment(ctx context.Context, tx *Tx, id, author, text string) error {
 	if text == "" {
 		return nil
 	}
-	_, err := commentWith(ctx, tx, id, author, text, "")
+	_, err := commentWith(ctx, tx, id, author, text, "", nil)
 	return err
 }
 
 // commentWith adds a comment with its locked category (owner-comments-handled) and returns its id.
-func commentWith(ctx context.Context, tx *Tx, id, author, text, category string) (string, error) {
+func commentWith(ctx context.Context, tx *Tx, id, author, text, category string, atts []messaging.Attachment) (string, error) {
 	if author == "" {
 		author = "owner"
 	}
@@ -1012,7 +1013,11 @@ func commentWith(ctx context.Context, tx *Tx, id, author, text, category string)
 		person = personName(ctx)
 	}
 	cid := protocol.ID()
-	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person,category) VALUES(?,?,?,?,?,?,?,?)", cid, id, author, text, tx.now().Unix(), tx.company, person, category)
+	if atts == nil {
+		atts = []messaging.Attachment{}
+	}
+	b, _ := json.Marshal(atts)
+	_, err := tx.ExecContext(ctx, "INSERT INTO task_comments(id,task_id,author,text,created_at,company_id,person,category,attachments) VALUES(?,?,?,?,?,?,?,?,?)", cid, id, author, text, tx.now().Unix(), tx.company, person, category, string(b))
 	return cid, err
 }
 func (s *Store) EntityEvents(ctx context.Context, company, project, id string) ([]protocol.Envelope, error) {

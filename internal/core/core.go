@@ -135,6 +135,7 @@ func (c *Core) Handler() http.Handler {
 	c.artifactRoutes(m)
 	c.journalRoutes(m)
 	c.blobRoutes(m)
+	c.uploadRoutes(m)
 	c.consoleRoutes(m)
 	c.ownerRoutes(m)
 	c.nodeRoutes(m)

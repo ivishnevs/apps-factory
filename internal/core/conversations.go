@@ -116,11 +116,13 @@ func (c *Core) conversationRoutes(m *http.ServeMux) {
 			Body        string `json:"body"`
 			MessageType string `json:"message_type,omitempty"`
 			RequestID   string `json:"request_id"`
+			// Attachments are images the person uploaded (POST /uploads; people-attachments).
+			Attachments []messaging.Attachment `json:"attachments,omitempty"`
 		}
 		if !decode(w, r, &p) {
 			return
 		}
-		v, err := c.ownerMessage(r.Context(), c.companyFrom(r), p.ProjectID, p.Team, p.Body, p.MessageType, p.RequestID)
+		v, err := c.ownerMessage(r.Context(), c.companyFrom(r), p.ProjectID, p.Team, p.Body, p.MessageType, p.RequestID, p.Attachments...)
 		if errors.Is(err, errNoAddressee) {
 			http.Error(w, err.Error(), 400)
 			return
@@ -134,17 +136,17 @@ var errNoAddressee = errors.New("address a team lead with @name (the project tea
 // ownerMessage sends an owner message without a conversation (CLI, Telegram) to the default direct report or
 // @name, on the owner conversation with that agent in project; delivery is a trigger on the agent's
 // conversation task there.
-func (c *Core) ownerMessage(ctx context.Context, company, project, team, body, messageType, requestID string) (messaging.Message, error) {
+func (c *Core) ownerMessage(ctx context.Context, company, project, team, body, messageType, requestID string, atts ...messaging.Attachment) (messaging.Message, error) {
 	agent, ok := c.ownerAddressee(ctx, company, project, team, strings.TrimSpace(body))
 	if !ok {
 		return messaging.Message{}, errNoAddressee
 	}
-	return c.ownerMessageTo(ctx, company, project, agent, body, messageType, requestID)
+	return c.ownerMessageTo(ctx, company, project, agent, body, messageType, requestID, atts...)
 }
 
 // ownerMessageTo sends an owner message to agent on the owner conversation with it in project (Telegram routes
 // to an agent it already chose).
-func (c *Core) ownerMessageTo(ctx context.Context, company, project, agent, body, messageType, requestID string) (messaging.Message, error) {
+func (c *Core) ownerMessageTo(ctx context.Context, company, project, agent, body, messageType, requestID string, atts ...messaging.Attachment) (messaging.Message, error) {
 	conv, err := c.Store.CreateConversation(ctx, company, messaging.ConversationCreate{ID: "owner-" + agent + "-" + project, ProjectID: project, Agent: agent, Title: "Owner and " + agent, RequestID: "owner-conversation-" + agent + "-" + project})
 	if err != nil {
 		return messaging.Message{}, err
@@ -152,5 +154,5 @@ func (c *Core) ownerMessageTo(ctx context.Context, company, project, agent, body
 	if messageType == "" {
 		messageType = "question"
 	}
-	return c.Store.SendMessage(ctx, company, messaging.Send{ProjectID: project, Sender: "owner", Recipient: agent, ConversationID: conv.ID, MessageType: messageType, Body: body, RequestID: requestID})
+	return c.Store.SendMessage(ctx, company, messaging.Send{ProjectID: project, Sender: "owner", Recipient: agent, ConversationID: conv.ID, MessageType: messageType, Body: body, RequestID: requestID, Attachments: atts})
 }

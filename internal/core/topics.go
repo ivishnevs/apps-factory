@@ -57,6 +57,8 @@ func (c *Core) topicRoutes(m *http.ServeMux) {
 		var p struct {
 			Body      string `json:"body"`
 			RequestID string `json:"request_id"`
+			// Attachments are images the person uploaded (POST /uploads; people-attachments).
+			Attachments []messaging.Attachment `json:"attachments,omitempty"`
 		}
 		if !decode(w, r, &p) {
 			return
@@ -76,7 +78,7 @@ func (c *Core) topicRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		v, err := c.Store.SendMessage(r.Context(), company, messaging.Send{ProjectID: conv.ProjectID, Sender: "owner", Recipient: conv.Agent, ConversationID: conv.ID, MessageType: "question", Body: p.Body, RequestID: p.RequestID, Topic: t.ID})
+		v, err := c.Store.SendMessage(r.Context(), company, messaging.Send{ProjectID: conv.ProjectID, Sender: "owner", Recipient: conv.Agent, ConversationID: conv.ID, MessageType: "question", Body: p.Body, RequestID: p.RequestID, Topic: t.ID, Attachments: p.Attachments})
 		reply(w, v, err)
 	})
 	m.HandleFunc("GET /settings/company/people_language", func(w http.ResponseWriter, r *http.Request) {

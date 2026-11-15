@@ -26,7 +26,8 @@ words or put the file somewhere and paste a link the agent cannot open. The agen
   that already shows an agent's images shows a person's the same way: chat bubble, task comments, inbox, TUI (as a
   file line with a link to the web). Not redacted: the person chose to share it.
 - **The agent sees the image.** Before every run the node downloads from Core the attachments of the run's task (its
-  comments and the messages filed under it) or, for a conversation run, of the messages in the brief's history, and
+  comments and the messages filed under it) or, for a conversation run, of the latest 20 people's messages to its
+  agent in the project, and
   places them in the working directory under `.factory/inputs/` (the existing manifest the node already downloads
   with the run's lease and caches by digest). Core keeps the original; the working directory holds a copy per run, so
   a retry or a later run on another node gets the files again. The brief lists each one next to its text:
@@ -44,7 +45,8 @@ terminal is the CLI's job), editing or deleting a sent attachment, images in tas
 
 ## Decisions
 
-- **D1 File types.** (a) images only: PNG, JPEG, WebP, GIF, HEIC converted to JPEG on upload; (b) images and PDF;
+- **D1 File types.** (a) images only: PNG, JPEG, WebP, GIF (a HEIC photo is converted to JPEG by the browser or
+  Telegram before it reaches Core; Core itself does not decode HEIC); (b) images and PDF;
   (c) any file. **Recommendation: (a)** — what was asked, previews and every runtime handle it; PDF and other files
   are a follow-up once there is a case.
 - **D2 Limits.** Per file the blob limit (64 MB) is far above what a screenshot needs. **Recommendation:** at most 10

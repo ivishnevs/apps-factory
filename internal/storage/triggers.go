@@ -407,10 +407,24 @@ func approvalDecidedBy(a approvals.Approval) string {
 // task, decided by Core) wakes an open task with an authority trigger (explicit-exits-authority D8); other
 // comments are stored and listed in the next brief, and an agent's own comment never wakes its task.
 func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Comment) (tasks.Task, error) {
+	previews := s.withPersonPreviews(ctx, company, in.Attachments)
 	return mutate(ctx, s, company, "task.comment:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
+		}
+		var atts []messaging.Attachment
+		if len(previews) > 0 {
+			// people-attachments: only a person attaches images to a comment.
+			if !isOwner(in.Actor) {
+				return t, inputError("only people attach images to comments")
+			}
+			if atts, err = personAttachmentsTx(ctx, tx, previews); err != nil {
+				return t, err
+			}
+			if strings.TrimSpace(in.Text) == "" {
+				in.Text = imagesOnlyBody(len(atts))
+			}
 		}
 		if strings.TrimSpace(in.Text) == "" || len(in.Text) > 16*1024 {
 			return t, inputError("comment text up to 16 KiB required")
@@ -429,7 +443,7 @@ func (s *Store) CommentTask(ctx context.Context, company, id string, in tasks.Co
 				category = config.LockedCategoryOf(in.Text)
 			}
 		}
-		cid, err := commentWith(ctx, tx, t.ID, actor, in.Text, category)
+		cid, err := commentWith(ctx, tx, t.ID, actor, in.Text, category, atts)
 		if err != nil {
 			return t, err
 		}

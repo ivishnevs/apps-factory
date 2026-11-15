@@ -216,6 +216,12 @@ func commentsBrief(ctx context.Context, tx *Tx, b *strings.Builder, t tasks.Task
 			line += " [" + o.note + "]"
 		}
 		b.WriteString(line + ": " + briefExcerpt(o.text, 2*1024) + "\n")
+		// people-attachments: where the run finds the comment's images.
+		atts, err := commentAttachmentsTx(ctx, tx, o.comment)
+		if err != nil {
+			return err
+		}
+		b.WriteString(attachmentLines("cmt", o.comment, atts))
 		conversation = conversation || o.conversation
 		decision = decision || o.approval != ""
 	}
@@ -602,10 +608,18 @@ func (s *Store) CommentStalls(ctx context.Context, company string, limit func(te
 // ReopenTask reopens a DONE or CANCELLED task with an owner comment (the closed task's "Reopen with comment"):
 // the task goes back to its assignee READY, the comment is its board comment and wakes it.
 func (s *Store) ReopenTask(ctx context.Context, company, id string, in tasks.Comment) (tasks.Task, error) {
+	previews := s.withPersonPreviews(ctx, company, in.Attachments)
 	return mutate(ctx, s, company, "task.reopen:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {
 		t, err := taskTx(ctx, tx, id)
 		if err != nil {
 			return t, err
+		}
+		atts, err := personAttachmentsTx(ctx, tx, previews)
+		if err != nil {
+			return t, err
+		}
+		if strings.TrimSpace(in.Text) == "" && len(atts) > 0 {
+			in.Text = imagesOnlyBody(len(atts))
 		}
 		if strings.TrimSpace(in.Text) == "" || len(in.Text) > 16*1024 {
 			return t, inputError("comment text up to 16 KiB required")
@@ -628,7 +642,7 @@ func (s *Store) ReopenTask(ctx context.Context, company, id string, in tasks.Com
 		if !config.LockedCategory(category) {
 			category = config.LockedCategoryOf(in.Text)
 		}
-		cid, err := commentWith(ctx, tx, t.ID, "owner", in.Text, category)
+		cid, err := commentWith(ctx, tx, t.ID, "owner", in.Text, category, atts)
 		if err != nil {
 			return t, err
 		}

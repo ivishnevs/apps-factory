@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"appfactory/internal/config"
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 	"appfactory/internal/tasks"
@@ -436,6 +437,8 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		var p struct {
 			Text      string `json:"text"`
 			RequestID string `json:"request_id"`
+			// Attachments are images the person uploaded (POST /uploads; people-attachments).
+			Attachments []messaging.Attachment `json:"attachments,omitempty"`
 		}
 		if !decode(w, r, &p) {
 			return
@@ -446,7 +449,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			reply(w, nil, err)
 			return
 		}
-		if strings.TrimSpace(p.Text) == "" {
+		if strings.TrimSpace(p.Text) == "" && len(p.Attachments) == 0 {
 			http.Error(w, "text required", 400)
 			return
 		}
@@ -456,7 +459,7 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		body := fmt.Sprintf("About task %s (%s, %s, assignee %s): %s", t.ID, t.Title, t.Status, t.Assignee, p.Text)
-		v, err := c.ownerMessageTo(r.Context(), company, t.ProjectID, lead, body, "question", p.RequestID)
+		v, err := c.ownerMessageTo(r.Context(), company, t.ProjectID, lead, body, "question", p.RequestID, p.Attachments...)
 		reply(w, v, err)
 	})
 	m.HandleFunc("POST /tasks/{id}/actions", func(w http.ResponseWriter, r *http.Request) {

@@ -152,6 +152,7 @@ func briefTx(ctx context.Context, tx *Tx, t tasks.Task, spec protocol.RunSpec, f
 	for _, cm := range comments {
 		if cm.CreatedAt > prev.started && cm.Author != t.Assignee {
 			fmt.Fprintf(&b, "Comment by %s: %s\n", cm.Author, briefExcerpt(cm.Text, 2*1024))
+			b.WriteString(attachmentLines("cmt", cm.ID, cm.Attachments))
 		}
 	}
 	// owner-comments-handled: the board comments this run owes an outcome for; the lead's quiet copy.

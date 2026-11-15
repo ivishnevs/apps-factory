@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
 	"context"
@@ -331,6 +332,8 @@ type Comment struct {
 	// Outcomes is how a board comment was handled, one entry per agent that got it (owner-comments-handled);
 	// an entry with status open is "not handled yet". Empty for other comments.
 	Outcomes []CommentOutcome `json:"outcomes,omitempty"`
+	// Attachments are the person's images on the comment (people-attachments).
+	Attachments []messaging.Attachment `json:"attachments,omitempty"`
 }
 
 // Comments lists a task's comments; board comments carry their outcomes.
@@ -357,7 +360,7 @@ func listComments(ctx context.Context, tx *Tx, id string) ([]Comment, error) {
 func comments(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, company, id string) ([]Comment, error) {
-	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at,person,category,approval_id FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, id)
+	rows, err := q.QueryContext(ctx, "SELECT id,author,text,created_at,person,category,approval_id,attachments FROM task_comments WHERE company_id=? AND task_id=? ORDER BY created_at,seq", company, id)
 	if err != nil {
 		return nil, err
 	}
@@ -365,9 +368,11 @@ func comments(ctx context.Context, q interface {
 	out := []Comment{}
 	for rows.Next() {
 		var c Comment
-		if err = rows.Scan(&c.ID, &c.Author, &c.Text, &c.CreatedAt, &c.Person, &c.Category, &c.ApprovalID); err != nil {
+		var atts []byte
+		if err = rows.Scan(&c.ID, &c.Author, &c.Text, &c.CreatedAt, &c.Person, &c.Category, &c.ApprovalID, &atts); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal(atts, &c.Attachments)
 		out = append(out, c)
 	}
 	return out, rows.Err()

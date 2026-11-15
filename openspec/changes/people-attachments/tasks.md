@@ -5,21 +5,25 @@
 
 ## 1. Core
 
-- [ ] 1.1 `POST /uploads`: a person's upload (session or owner token) into the company blob store, type and size
+- [x] 1.1 `POST /uploads`: a person's upload (session or owner token) into the company blob store, type and size
       checks (D1, D2), quota; returns sha256, size, name, preview; unsent uploads deleted after 24 h (D5); tests.
-- [ ] 1.2 `attachments` on person messages (`POST /topics/{topic}/messages`, inbox answers), comments, reopen and
+- [x] 1.2 `attachments` on person messages (`POST /topics/{topic}/messages`, inbox answers), comments, reopen and
       ask-lead: each names an upload of this company; stored as `messaging.Attachment`; at most 10; tests for owner,
       member, a foreign upload refused, an already used upload reusable.
-- [ ] 1.3 Comment model and reads carry attachments; comment feed items name them.
-- [ ] 1.4 Run manifest: attachments of the run's task (its comments and messages filed under it) or, for a
+- [x] 1.3 Comment model and reads carry attachments; comment feed items name them.
+- [x] 1.4 Run manifest: attachments of the run's task (its comments and messages filed under it) or, for a
       conversation run, of the messages in the brief's history, as inputs under
       `.factory/inputs/msg-<id>/<n>/<name>` / `cmt-<id>/<n>/<name>`; `RunBlob` serves them with the run's lease;
       tests for a task run, a conversation run, and a retry on another node that gets the files again.
-- [ ] 1.5 Brief: each attachment listed with its path and caption next to its message or comment; tests.
+- [x] 1.5 Brief: each attachment listed with its path and caption next to its message or comment; tests.
+      Done 2026-11-15 (1.1–1.5, 2.1): `POST /uploads`, `uploads` table and daily sweep, person attachments on
+      messages (`/topics/{id}/messages`, `/messages`, ask-lead), comments and reopen; manifest and brief lines; a
+      conversation run gets the images of the latest 20 people's messages to its agent; open board comments of other
+      tasks bring theirs. Inbox answers carry attachments with Telegram (3.3).
 
 ## 2. Node
 
-- [ ] 2.1 Manifest path check accepts the attachment paths; materialization test with a message attachment.
+- [x] 2.1 Manifest path check accepts the attachment paths; materialization test with a message attachment.
 
 ## 3. Surfaces
 

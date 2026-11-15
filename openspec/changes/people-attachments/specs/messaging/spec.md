@@ -20,7 +20,8 @@ than 10 files or a file over 20 MB. A person's attachments SHALL be stored and s
 
 ### Requirement: Agents see what people attach
 Before every run the node SHALL download from Core the attachments of the run's task (its comments and the messages
-filed under it) or, for a conversation run, of the messages in the brief's history, into the working directory under
+filed under it) or, for a conversation run, of the latest 20 people's messages to its agent in the project, into the
+working directory under
 `.factory/inputs/` before the runtime starts, and the brief SHALL list each file's path and caption next to its
 message or comment. Core SHALL keep the originals; this SHALL hold for task runs and conversation runs, with or
 without a repository, on whichever node the run lands.

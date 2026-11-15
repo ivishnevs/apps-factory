@@ -154,6 +154,17 @@ func (s *Store) ProjectBlob(ctx context.Context, company, project, sha string) (
 		return nil, Blob{}, err
 	}
 	if refs == 0 {
+		// people-attachments: an image a person attached to a message or a comment of the project.
+		var attached bool
+		if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM messages m, json_array_elements(CASE WHEN json_typeof(m.body->'attachments')='array' THEN m.body->'attachments' ELSE '[]'::json END) a
+   WHERE m.company_id=? AND m.project_id=? AND a->>'sha256'=?)
+ OR EXISTS (SELECT 1 FROM task_comments c JOIN tasks t ON t.company_id=c.company_id AND t.id=c.task_id, jsonb_array_elements(c.attachments) a
+   WHERE c.company_id=? AND t.project_id=? AND a->>'sha256'=?)`, company, project, sha, company, project, sha).Scan(&attached); err != nil {
+			return nil, Blob{}, err
+		}
+		if attached {
+			return s.OpenBlob(ctx, company, sha)
+		}
 		return nil, Blob{}, fmt.Errorf("%w: blob of another project or unknown", ErrNotFound)
 	}
 	if live == 0 {

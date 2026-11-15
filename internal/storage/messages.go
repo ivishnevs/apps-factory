@@ -157,6 +157,9 @@ func (s *Store) SendMessage(ctx context.Context, company string, in messaging.Se
 	})
 }
 func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Message, error) {
+	if isOwner(in.Sender) && strings.TrimSpace(in.Body) == "" && len(in.Attachments) > 0 {
+		in.Body = imagesOnlyBody(len(in.Attachments)) // people-attachments: images without words
+	}
 	m := messaging.Message{ReportID: in.ReportID, DecisionID: in.DecisionID, ID: protocol.ID(), ProjectID: in.ProjectID, TaskID: in.TaskID, Sender: in.Sender, Recipient: in.Recipient, ConversationID: in.ConversationID, MessageType: in.MessageType, Body: in.Body, Questions: in.Questions, Blocking: in.Blocking, Status: "UNREAD", DeliveryStatus: "PENDING", Version: 1, CreatedAt: tx.now().Unix(), Category: in.Category, UpChain: in.UpChain, RoutedAt: tx.now().Unix()}
 	if in.RequestID == "" || in.Sender == "" || in.Recipient == "" || in.Sender == in.Recipient || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id, distinct sender/recipient and body up to 16 KiB required")
@@ -176,8 +179,19 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 		return m, inputError("timeout must be 1 second to 7 days (0 defaults to 24h)")
 	}
 	var err error
+	atts := in.Attachments
+	if isOwner(in.Sender) {
+		// people-attachments: a person names images they uploaded (POST /uploads), not files of a worktree.
+		if atts, err = personAttachmentsTx(ctx, tx, atts); err != nil {
+			return m, err
+		}
+		in.Attachments = nil
+	}
 	if m.Attachments, m.Materials, err = visualsTx(ctx, tx, in.ProjectID, in.Attachments, in.Materials); err != nil {
 		return m, err
+	}
+	if isOwner(in.Sender) {
+		m.Attachments = atts
 	}
 	if in.MessageType == "question" {
 		m.Status = "PENDING"

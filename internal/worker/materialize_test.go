@@ -101,6 +101,12 @@ func TestManifestPathsStayInside(t *testing.T) {
 	if !validManifestPath(".factory/inputs/a/v1/file.svg") {
 		t.Fatal("refused an input")
 	}
+	// people-attachments: the images of a message or a comment.
+	for _, p := range []string{".factory/inputs/msg-0123abcd/1/screen.png", ".factory/inputs/cmt-0123abcd/2/My-Screen-shot-2.png"} {
+		if !validManifestPath(p) {
+			t.Fatal("refused an attachment", p)
+		}
+	}
 	for _, a := range []tasks.Artifact{{ID: "a", Version: "../..", Name: "x/y"}, {ID: "a", Version: "..", Name: "."}} {
 		if got := protocol.InputPath(a); !validManifestPath(got) || strings.Contains(got, "/../") {
 			t.Fatal(got)

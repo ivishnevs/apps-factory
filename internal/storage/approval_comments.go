@@ -53,7 +53,7 @@ func approvalComment(ctx context.Context, tx *Tx, a *approvals.Approval, action,
 		return nil
 	}
 	category := config.LockedCategoryOf(reason)
-	cid, err := commentWith(ctx, tx, t.ID, "owner", reason, category)
+	cid, err := commentWith(ctx, tx, t.ID, "owner", reason, category, nil)
 	if err != nil {
 		return err
 	}

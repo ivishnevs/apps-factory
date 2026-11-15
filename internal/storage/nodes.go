@@ -709,6 +709,22 @@ func runManifest(ctx context.Context, tx *Tx, spec protocol.RunSpec) (*protocol.
 			m.Files = append(m.Files, protocol.ManifestFile{Path: protocol.InputPath(a), SHA256: a.SHA256, Size: a.Size})
 		}
 	}
+	// people-attachments: the people's images of the task or conversation, again for every run.
+	if spec.TaskID != "" && !spec.ReviewCopy {
+		t, err := taskTx(ctx, tx, spec.TaskID)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		if err == nil {
+			atts, err := runAttachmentsTx(ctx, tx, t)
+			if err != nil {
+				return nil, err
+			}
+			for _, a := range atts {
+				m.Files = append(m.Files, protocol.ManifestFile{Path: a.Path, SHA256: a.SHA256, Size: a.Size})
+			}
+		}
+	}
 	return m, nil
 }
 
