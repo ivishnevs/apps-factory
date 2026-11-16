@@ -239,6 +239,7 @@ By default a node's agents use the machine user's own Claude Code and Codex logi
 factory-node login claude            # Claude Code's /login against ~/.app-factory/runtimes/claude
 factory-node login codex             # codex login against ~/.app-factory/runtimes/codex
 factory-node login codex -copy-current   # or start from this user's current Codex login
+factory-node login codex -device-auth    # on a server without a browser: a link and a code for any browser
 ```
 
 Each writes `drivers.claude.config_dir` / `drivers.codex.home` to `node.yaml` (passed to every run as

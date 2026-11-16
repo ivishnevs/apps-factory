@@ -22,8 +22,9 @@ func runtimeLogin(runtime string, args []string) (int, error) {
 	fs := flag.NewFlagSet("login "+runtime, flag.ContinueOnError)
 	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+")")
 	copyCurrent := fs.Bool("copy-current", false, "start from this user's current login instead of a new one (Codex only)")
+	deviceAuth := fs.Bool("device-auth", false, "sign in with a code entered in any browser, for a machine without one (Codex only)")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		return 2, errors.New("usage: factory-node login claude|codex [-config node.yaml] [-copy-current]")
+		return 2, errors.New("usage: factory-node login claude|codex [-config node.yaml] [-copy-current] [-device-auth]")
 	}
 	cfgPath := node.ConfigPath(*path)
 	c, err := node.LoadConfig(cfgPath)
@@ -39,6 +40,9 @@ func runtimeLogin(runtime string, args []string) (int, error) {
 	var cmd *exec.Cmd
 	switch runtime {
 	case "claude":
+		if *deviceAuth || *copyCurrent {
+			return 2, errors.New("-device-auth and -copy-current are for codex: Claude Code's /login already prints a link and asks for the code")
+		}
 		dir, key = node.ExpandHome(c.Drivers.Claude.ConfigDir), "config_dir"
 		if dir == "" {
 			dir = filepath.Join(base, "claude")
@@ -67,6 +71,8 @@ func runtimeLogin(runtime string, args []string) (int, error) {
 				return 1, err
 			}
 			cmd = exec.Command(bin, "login", "status")
+		} else if *deviceAuth {
+			cmd = exec.Command(bin, "login", "--device-auth")
 		} else {
 			cmd = exec.Command(bin, "login")
 		}
