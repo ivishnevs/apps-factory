@@ -170,7 +170,8 @@ func checkEventWait(ctx context.Context, tx *Tx, t tasks.Task, agent string, a m
 }
 
 // applyEventWait parks the task on its decision or message (the exit was checked). A wait on the owner parks on the
-// owner's open items for the task (person-waits-on-items); note then says what it was linked to.
+// owner's open items for the task (person-waits-on-items); note then says what it was linked to. A wait on a message
+// the sender already sent wakes the task at once with it (unseenMessages).
 func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any) (note string, err error) {
 	deadline, _ := eventDeadline(a, tx.now())
 	t.Status = "READY"
@@ -204,10 +205,27 @@ func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any
 			}
 			// Only a question: its answer is the owner's message about the task, which the message park hears.
 		}
+		from := str(a, "from")
+		unseen, err := unseenMessages(ctx, tx, *t, from)
+		if err != nil {
+			return "", err
+		}
+		if len(unseen) > 0 {
+			// They came while the task was not parked (during or between runs) and reached only the agent's
+			// conversation: a park would wait for a message that already exists. The task runs again with them.
+			var ids []string
+			for _, m := range unseen {
+				if err = addTrigger(ctx, tx, t, "message_received", false, from, m.ID, "a message from "+from+" about this task that you had not seen when you chose to wait: "+shortText(m.Body, 2048)); err != nil {
+					return "", err
+				}
+				ids = append(ids, m.ID)
+			}
+			return from + " already sent " + strings.Join(ids, ", ") + " about this task, which you had not seen: you run again with it. If it is what you waited for, act on it; if you need something else from " + from + ", ask for it and wait again.", nil
+		}
 		if unprompted, _ := a["expects_unprompted"].(bool); unprompted {
 			reason = strings.TrimSpace(reason + " (expects it unprompted)")
 		}
-		return "", parkOnMessageTx(ctx, tx, *t, str(a, "from"), str(a, "topic"), reason, deadline)
+		return "", parkOnMessageTx(ctx, tx, *t, from, str(a, "topic"), reason, deadline)
 	}
 	d, err := projectDecision(ctx, tx, t.ProjectID, str(a, "decision_id"))
 	if err != nil {
@@ -215,6 +233,17 @@ func applyEventWait(ctx context.Context, tx *Tx, t *tasks.Task, a map[string]any
 	}
 	reason := "waiting for decision " + d.ID + " [" + d.Topic + "]: " + str(a, "reason")
 	return "", parkEventTx(ctx, tx, *t, tasks.ParkDecision, d.ID, d.Topic, reason, deadline, true)
+}
+
+// unseenMessages are the messages from `from` to the task's assignee about the task that no run of the task has seen,
+// oldest first (at most five, the newest): a message to a task that is not parked reaches only the recipient's
+// conversation. Seen is carried into a brief by a trigger; only messages after the last one seen count.
+func unseenMessages(ctx context.Context, tx *Tx, t tasks.Task, from string) ([]messaging.Message, error) {
+	ms, err := listDocs[messaging.Message](ctx, tx, `SELECT body FROM (SELECT body, seq FROM messages m WHERE m.company_id=? AND m.task_id=? AND m.sender=? AND m.recipient=?
+ AND m.seq > coalesce((SELECT max(x.seq) FROM messages x JOIN task_triggers g ON g.company_id=x.company_id AND g.task_id=x.task_id AND g.ref_id=x.id
+   WHERE x.company_id=m.company_id AND x.task_id=m.task_id AND x.sender=m.sender AND x.recipient=m.recipient), 0)
+ ORDER BY m.seq DESC LIMIT 5) u ORDER BY u.seq`, tx.company, t.ID, from, t.Assignee)
+	return ms, err
 }
 
 // ownerItems are the owner's open items for a task (person-waits-on-items): decisions proposed from the task, its

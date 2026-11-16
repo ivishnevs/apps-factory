@@ -290,6 +290,77 @@ func TestMessageWaitYourTurn(t *testing.T) {
 	}
 }
 
+// TestMessageWaitHeardWhileRunning: a message about the task from the awaited sender that came while the task was not
+// parked reached only the agent's conversation; a wait on that sender does not park on a message that already exists,
+// the task runs again with it in its brief, and a wait after that (the message seen) parks as usual.
+func TestMessageWaitHeardWhileRunning(t *testing.T) {
+	h := newExitHarness(t)
+	ctx := context.Background()
+	h.create("t1", "notes", "demo")
+	r := h.start("t1")
+	m, err := h.s.SendMessage(ctx, storage.DefaultCompany, messaging.Send{ProjectID: "notes", TaskID: "t1", Sender: "manager", Recipient: "demo", MessageType: "review_result", Body: "changes requested: hide the reticle", RequestID: "verdict-t1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another task's message from the same sender is not about this task.
+	h.backlog("t2")
+	if _, err = h.s.SendMessage(ctx, storage.DefaultCompany, messaging.Send{ProjectID: "notes", TaskID: "t2", Sender: "manager", Recipient: "demo", MessageType: "notification", Body: "other task", RequestID: "other-t2"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, ref := h.wait(r, map[string]any{"reason": "the design verdict", "from": "manager", "expects_unprompted": true}); code != 200 {
+		t.Fatal(code, ref)
+	}
+	h.end(r, "succeeded", "accepted")
+	if st := h.parkStatus("t1", tasks.ParkMessage); st != "" {
+		t.Fatal("parked on a message that already came:", st)
+	}
+	if got := h.triggers("t1"); count(got, "message_received") != 1 {
+		t.Fatal(got)
+	}
+	next := h.start("t1")
+	run, _ := h.s.Get(ctx, storage.DefaultCompany, next.id)
+	if !strings.Contains(run.Spec.Prompt, "hide the reticle") || !strings.Contains(run.Spec.Prompt, m.ID) {
+		t.Fatal(run.Spec.Prompt)
+	}
+	// The message is seen now: waiting on the sender again (for something else) parks.
+	if code, ref := h.wait(next, map[string]any{"reason": "the answer on the HUD veil", "from": "manager", "expects_unprompted": true}); code != 200 {
+		t.Fatal(code, ref)
+	}
+	h.end(next, "succeeded", "accepted")
+	if st := h.parkStatus("t1", tasks.ParkMessage); st != "active" {
+		t.Fatal("second wait did not park:", st)
+	}
+
+	// The PR #537 shape: the verdict came while the task was between runs, the task then ended a run some other way
+	// (here a timed wait) without seeing it, and a later run waits on the sender: it still runs again with it.
+	h.create("t3", "notes", "demo")
+	r = h.start("t3")
+	v, err := h.s.SendMessage(ctx, storage.DefaultCompany, messaging.Send{ProjectID: "notes", TaskID: "t3", Sender: "manager", Recipient: "demo", MessageType: "review_result", Body: "changes requested: dim the HUD", RequestID: "verdict-t3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, ref := h.wait(r, map[string]any{"reason": "ci", "after": "1h", "deadline": h.at(10 * time.Hour)}); code != 200 {
+		t.Fatal(code, ref)
+	}
+	h.end(r, "succeeded", "accepted")
+	if _, err = h.s.Directive(ctx, storage.DefaultCompany, "t3", "manager", "continue", false, "dir-t3"); err != nil {
+		t.Fatal(err)
+	}
+	r = h.start("t3")
+	if code, ref := h.wait(r, map[string]any{"reason": "the design verdict", "from": "manager", "expects_unprompted": true}); code != 200 {
+		t.Fatal(code, ref)
+	}
+	h.end(r, "succeeded", "accepted")
+	if st := h.parkStatus("t3", tasks.ParkMessage); st != "" {
+		t.Fatal("parked on a verdict that already came:", st)
+	}
+	r = h.start("t3")
+	run, _ = h.s.Get(ctx, storage.DefaultCompany, r.id)
+	if !strings.Contains(run.Spec.Prompt, "dim the HUD") || !strings.Contains(run.Spec.Prompt, v.ID) {
+		t.Fatal(run.Spec.Prompt)
+	}
+}
+
 // TestParkOnOwnerDetails: the storage function inbox-badge-parity uses for "I'll send details": the task parks on
 // the owner, counts as needing the owner, and the owner's next message to its agent in the project wakes it.
 func TestParkOnOwnerDetails(t *testing.T) {

@@ -579,7 +579,11 @@ A task that waits for something inside Factory parks on it instead of a timer, w
   cleared by that sender). A message from that sender about the task (`task_id`), or about no task and addressed to
   the task's assignee, in the task's project, clears it — so does that sender's comment on the task — with a
   `message_received` trigger carrying the message into the brief. `Store.ParkOnMessage` parks a task this way from
-  Core (a question answered with "I'll send details", inbox-badge-parity).
+  Core (a question answered with "I'll send details", inbox-badge-parity). A message from that sender to the assignee
+  about the task that came while the task was not parked reached only the agent's conversation: when no trigger has
+  carried it into a brief (and it is newer than the last one that did), the wait does not park; it adds the
+  `message_received` triggers (at most five, the newest) and the task runs again with them (the result's `note` says
+  so). Once a trigger carried them, a new wait on the sender parks as usual.
 - `factory_exit_wait {reason, approval_id}` (approval-gates-merge) parks on an open approval of an artifact version
   the task produced (`parked:awaiting_approval`, cleared by people or the delegate holding it). Its decision moves the
   task ([artifact approvals](artifact-approvals.md#the-approval-holds-the-producing-task-approval-gates-merge));
