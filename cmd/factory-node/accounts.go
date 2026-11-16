@@ -54,10 +54,7 @@ func runtimeLogin(runtime string, args []string) (int, error) {
 		if dir == "" {
 			dir = filepath.Join(base, "codex")
 		}
-		bin := c.Drivers.Codex.Binary
-		if bin == "" {
-			bin = "codex"
-		}
+		bin := node.CodexBinary(c, os.Getenv) // the Codex the node runs (its packaged one), not whatever is on PATH
 		if *copyCurrent {
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return 1, err
