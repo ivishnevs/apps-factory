@@ -2,6 +2,21 @@
 
 ## Known issues
 
+- **An HTML artifact that touches `localStorage` renders blank in the web UI, recorded 2026-11-17, not planned.**
+  - *What happened.* The approval card of a Stashy design task (artifact `stashy-home-design` v5-a/v5-b, 6 MiB
+    self-contained prototypes) showed only the page background and the phone frame. The prototype's script begins
+    with `const LS = window.localStorage;`.
+  - *Why.* HTML artifacts are served with `Content-Security-Policy: sandbox allow-scripts` (`contentPolicy`,
+    `internal/web/materials.go`) and framed with `sandbox="allow-scripts"`: an opaque origin, where reading
+    `window.localStorage` or `sessionStorage` throws `SecurityError`. The script stops and nothing JS-rendered appears,
+    in the inbox preview, the Library viewer and "open in a new tab" alike. The same file opened locally works.
+    Granting `allow-same-origin` is not an option: it would give agent-written JS the person's session and the API.
+  - *Fix when picked up.* (1) When serving `text/html` for viewing (not `download=1`), inject a small script at the
+    top of `<head>` that replaces unavailable `localStorage`/`sessionStorage` with in-memory stores; test it next to
+    `preview_sandbox_test.go`. (2) Catalog `app-design` skill: wrap storage access in `try/catch`, the page must work
+    without storage. (3) The inbox iframe is 384 px tall (`h-96`, `web/src/components/app/inbox/artifact-preview.tsx`)
+    while phone prototypes are ~876 px with a side column: make it taller or scale it. Needs an OpenSpec change.
+
 - **The web UI has its own API layer in front of Core's API (`internal/web`), architectural, recorded
   2026-11-07, not planned.**
   - *How it came about.* The web started as `factory web`, a local program on the owner's Mac that held the owner
