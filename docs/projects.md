@@ -27,6 +27,25 @@ continues where the last stopped (every step is idempotent).
 github setup never adopts a directory it did not create: `<projects_root>/<id>` must not exist or be empty (use
 `existing` with that path instead).
 
+### One copy of a project on a node
+
+With worktrees on (`worktrees.enabled`), a node holds a project's history once: in its project clone
+`<worktrees.root>/<company>/<project>/repo`, which every task worktree, review copy and the project workspace use.
+
+- **Partial clone.** The project clone holds the history of every file up to `worktrees.blob_limit` (default
+  `1m`), so `diff`, `log -p`, `blame` and reviews work offline as before. Older versions of larger files (images,
+  video, builds) are fetched from origin when a checkout or a command needs them. `blob_limit: 0` keeps full
+  clones, and a remote that does not serve partial clones gives a full one. A full clone an earlier node version
+  made becomes partial in the background while nothing uses it. What origin does not hold (unpushed commits, WIP
+  refs, staged files) is copied over, nothing else changes for the worktrees.
+- **Project workspace.** A workspace the node cloned from `repo_url` into `<projects_root>/<id>` (repo modes
+  `github` and `existing` without `workspace`) becomes a worktree of the project clone at the next run of the
+  project. Its files, index, branch, excludes and local branches stay. A branch the project clone holds with work of
+  its own keeps that work, and the workspace's branch goes to `refs/factory/workspace/…`. A workspace given as
+  `workspace` and a `local` project (no remote) are never changed. A workspace git cannot carry over safely (a
+  stash, a merge or rebase in progress, submodules, worktrees of its own, Git LFS, a shallow clone) keeps its own
+  repository and is tried again after 6 hours.
+
 ## Teams
 
 A project belongs to one team of the company's catalog (`team`, company-teams D4): required when the catalog has

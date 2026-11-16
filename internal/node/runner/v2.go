@@ -245,6 +245,8 @@ func newSession(ctx context.Context, n Node, trees *workspace.Worktrees) (*sessi
 		if err := trees.SealLeftovers(ctx); err != nil {
 			slog.Error("sealing worktrees of the previous epoch", "error", err)
 		}
+		// Full project clones become partial while no run uses them (node-repo-store).
+		trees.KeepCompacting(ctx, 30*time.Minute)
 	}
 	id, err := node.NodeID(c.StateDir)
 	if err != nil {

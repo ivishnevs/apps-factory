@@ -27,8 +27,11 @@ func TestConfigDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Slots != 2 || !c.Drivers.Codex.On() || c.Drivers.Claude.On() || c.Disk.LowGiB != 20 || c.Disk.CriticalGiB != 5 || c.Disk.Path != c.StateDir || c.Name == "" ||
-		c.Probes.Interval != 10*time.Minute || c.Probes.VersionInterval != time.Hour {
+		c.Probes.Interval != 10*time.Minute || c.Probes.VersionInterval != time.Hour || c.Worktrees.BlobLimit != DefaultBlobLimit {
 		t.Fatalf("%+v", c)
+	}
+	if c, err = LoadConfig(writeConfig(t, "worktrees: {enabled: true, blob_limit: '0'}")); err != nil || c.Worktrees.BlobLimit != "0" {
+		t.Fatal("blob_limit 0 keeps full clones", c.Worktrees.BlobLimit, err)
 	}
 }
 
@@ -65,6 +68,7 @@ func TestConfigValidation(t *testing.T) {
 		"slot: 2":                                                  "field slot not found",
 		"drivers: {codex: {enabled: true, binary: codex, model: gpt}}": "field model not found",
 		"worktrees: {enabled: true, scan_command: ['']}":               "empty executable",
+		"worktrees: {blob_limit: 1x}":                                  "worktrees.blob_limit",
 		"resources: {Simulator: 1}":                                    "resources.Simulator",
 		"resources: {simulator: -1}":                                   "resources.simulator",
 		"labels: ['a b']":                                              `label "a b"`,

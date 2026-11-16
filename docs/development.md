@@ -306,7 +306,7 @@ drivers:
   claude: {enabled: false}               # Go driver (internal/driver/claude); keys node, shim, executable, allow_api_key
 probes: {interval: 10m, version_interval: 1h, attempts: 3, retry_backoff: 5s, transient_failures: 3}  # driver check periods (at least 1m) and transient-failure handling (defaults)
 disk: {path: data/factory-node, low_watermark_gib: 20, critical_watermark_gib: 5, conversation_floor_gib: 1}  # path default: state_dir
-worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks]}  # root default: <state_dir>/worktrees
+worktrees: {enabled: false, root: data/factory-node/worktrees, scan_command: [gitleaks], blob_limit: 1m}  # root default: <state_dir>/worktrees; blob_limit: projects.md#one-copy-of-a-project-on-a-node
 poll: {wait_seconds: 25}      # how long Core may hold the poll open (1..25, default 25); lower behind a proxy that cuts requests sooner
 hooks: default               # NodeHooks document of the company catalog (protocol v2; default: default)
 janitor:                     # local override of the NodeHooks lists it sets; each command runs with /bin/sh -c

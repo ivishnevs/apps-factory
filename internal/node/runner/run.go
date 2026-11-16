@@ -182,7 +182,7 @@ func Run(ctx context.Context, n Node) error {
 	var trees *workspace.Worktrees
 	if c.Worktrees.Enabled {
 		var err error
-		if trees, err = workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: c.Worktrees.Root, ScanCommand: c.Worktrees.ScanCommand}); err != nil {
+		if trees, err = workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: c.Worktrees.Root, ScanCommand: c.Worktrees.ScanCommand, BlobLimit: c.Worktrees.BlobLimit}); err != nil {
 			return err
 		}
 	}

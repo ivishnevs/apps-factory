@@ -11,6 +11,7 @@ import (
 
 	"appfactory/internal/configfile"
 	"appfactory/internal/node/janitor"
+	"appfactory/internal/workspace"
 )
 
 // ConfigEnv names node.yaml when no -config flag is given; without either the node runs on defaults.
@@ -77,11 +78,17 @@ type Poll struct {
 // MaxPollWait is the longest poll wait Core grants.
 const MaxPollWait = 25
 
+// DefaultBlobLimit: files above it are not kept in the history of a node's project clones (node-repo-store).
+const DefaultBlobLimit = "1m"
+
 // Worktrees: Root defaults to <state_dir>/worktrees; ScanCommand (pre-push secret scan) to gitleaks.
 type Worktrees struct {
 	Enabled     bool     `yaml:"enabled"`
 	Root        string   `yaml:"root"`
 	ScanCommand []string `yaml:"scan_command"`
+	// BlobLimit: project clones are partial (node-repo-store); files above it are fetched from origin when
+	// needed. A git size (512k, 1m, 2g); "0" keeps full clones. Default 1m.
+	BlobLimit string `yaml:"blob_limit"`
 }
 
 type Drivers struct {
@@ -290,6 +297,11 @@ func (c *Config) Validate() error {
 	}
 	if c.ProjectsRoot == "" && c.StateDir != "" {
 		c.ProjectsRoot = filepath.Join(c.StateDir, "projects")
+	}
+	if c.Worktrees.BlobLimit == "" {
+		c.Worktrees.BlobLimit = DefaultBlobLimit
+	} else if !workspace.ValidBlobLimit(c.Worktrees.BlobLimit) {
+		errs = append(errs, fmt.Errorf("worktrees.blob_limit %q: a git size such as 1m, or 0 for full clones", c.Worktrees.BlobLimit))
 	}
 	if len(c.Worktrees.ScanCommand) > 0 && c.Worktrees.ScanCommand[0] == "" {
 		errs = append(errs, errors.New("worktrees.scan_command: empty executable"))

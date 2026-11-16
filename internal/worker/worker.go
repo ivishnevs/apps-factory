@@ -505,6 +505,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		}
 		spec.Workspace, spec.RepoURL, spec.DefaultBranch, spec.WorkspaceMode, spec.Materialize = a.Workspace, a.RepoURL, a.DefaultBranch, a.WorkspaceMode, a.Materialize
 	}
+	w.adoptWorkspace(ctx, spec)
 	var cwd string
 	if spec.Conversation {
 		// A conversation run reads the project workspace but never holds its writer slot (hierarchy D5): it

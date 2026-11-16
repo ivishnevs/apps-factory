@@ -500,7 +500,7 @@ func resetWorkspace(args []string) (int, error) {
 	}
 	j := &janitor.Janitor{Company: storage.DefaultCompany, Sessions: sessions.Open(c.StateDir)}
 	if c.Worktrees.Enabled {
-		if j.Worktrees, err = workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: c.Worktrees.Root, ScanCommand: c.Worktrees.ScanCommand}); err != nil {
+		if j.Worktrees, err = workspace.NewWorktrees(workspace.WorktreesConfig{Enabled: true, Root: c.Worktrees.Root, ScanCommand: c.Worktrees.ScanCommand, BlobLimit: c.Worktrees.BlobLimit}); err != nil {
 			return 1, err
 		}
 	}

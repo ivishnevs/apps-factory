@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"appfactory/internal/gitexclude"
@@ -26,11 +28,20 @@ type WorktreesConfig struct {
 	Root    string
 	// ScanCommand receives a git revision range (may contain spaces) as its last argument and exits 1 on a finding.
 	ScanCommand []string
+	// BlobLimit makes project clones partial (node-repo-store): files above it (a git size, e.g. 1m) are
+	// fetched from origin when needed. "" or "0": full clones.
+	BlobLimit string
 }
 
 type Worktrees struct {
 	root string
 	scan []string
+	// filter: the partial clone filter of new clones ("" full).
+	filter string
+	// compacting: KeepCompacting runs.
+	compacting atomic.Bool
+	// adoptAfter: project workspace -> when AdoptWorkspace tries it again after a refusal or failure.
+	adoptAfter sync.Map
 }
 
 func NewWorktrees(cfg WorktreesConfig) (*Worktrees, error) {
@@ -54,7 +65,10 @@ func NewWorktrees(cfg WorktreesConfig) (*Worktrees, error) {
 	if len(scan) == 0 {
 		scan = DefaultScanCommand
 	}
-	return &Worktrees{root: root, scan: scan}, nil
+	if !ValidBlobLimit(cfg.BlobLimit) {
+		return nil, fmt.Errorf("workspace: invalid blob limit %q", cfg.BlobLimit)
+	}
+	return &Worktrees{root: root, scan: scan, filter: blobFilter(cfg.BlobLimit)}, nil
 }
 
 type Request struct {
@@ -277,6 +291,9 @@ func (w *Worktrees) Ensure(ctx context.Context, r Request) (Worktree, error) {
 }
 
 func (w *Worktrees) ensureClone(ctx context.Context, dir, repo, url string) error {
+	if err := recoverCompact(dir); err != nil {
+		return err
+	}
 	if _, err := os.Stat(repo); err == nil {
 		if out, err := git(ctx, repo, nil, "rev-parse", "--is-bare-repository"); err == nil && out == "true" {
 			return configureRepo(ctx, repo)
@@ -289,7 +306,7 @@ func (w *Worktrees) ensureClone(ctx context.Context, dir, repo, url string) erro
 	if err := os.RemoveAll(tmp); err != nil {
 		return err
 	}
-	if _, err := git(ctx, dir, nil, "clone", "--bare", "--quiet", "--", url, tmp); err != nil {
+	if err := w.cloneBare(ctx, dir, url, tmp); err != nil {
 		return err
 	}
 	if err := configureRepo(ctx, tmp); err != nil {
@@ -304,6 +321,12 @@ func configureRepo(ctx context.Context, repo string) error {
 		{"extensions.worktreeConfig", "true"},
 	} {
 		if _, err := git(ctx, repo, nil, "config", kv[0], kv[1]); err != nil {
+			return err
+		}
+	}
+	// A bitmap needs every object reachable from a pack: a partial clone holding local commits has none.
+	if partial(ctx, repo) {
+		if _, err := git(ctx, repo, nil, "config", "repack.writeBitmaps", "false"); err != nil {
 			return err
 		}
 	}

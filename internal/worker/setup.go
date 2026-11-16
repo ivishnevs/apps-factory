@@ -162,7 +162,15 @@ func commit(ctx context.Context, dir, message string) error {
 }
 
 // markerPath marks a repository the node created for a project (company/project).
-func markerPath(dir string) string { return filepath.Join(dir, ".git", "factory-project") }
+// In a workspace that is a worktree of the project's clone (node-repo-store) .git is a link to its git directory.
+func markerPath(dir string) string {
+	if b, err := os.ReadFile(filepath.Join(dir, ".git")); err == nil {
+		if gd, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: "); ok {
+			return filepath.Join(gd, "factory-project")
+		}
+	}
+	return filepath.Join(dir, ".git", "factory-project")
+}
 
 // initRepository creates a git repository with an initial commit on main at dir, or reuses the one an
 // earlier attempt created there. Anything else at dir is refused: the owner's files are never adopted.
@@ -280,4 +288,19 @@ func cloneRepository(ctx context.Context, dir, url, branch string) error {
 		return fmt.Errorf("cloning %s: %w", url, err)
 	}
 	return os.Rename(tmp, dir)
+}
+
+// adoptWorkspace makes the project workspace the node cloned for the run's project a worktree of the project's
+// clone (node-repo-store), so the node holds the project's history once. Only a workspace the node made in
+// projects_root is touched, never one the owner gave; a failure leaves it as it is and never fails the run.
+func (w *Worker) adoptWorkspace(ctx context.Context, spec protocol.RunSpec) {
+	if w.Worktrees == nil || spec.RepoURL == "" || spec.Workspace == "" || spec.Project == "" || spec.ProjectSetup != nil {
+		return
+	}
+	if !samePath(spec.Workspace, filepath.Join(w.projectsRoot(), spec.Project)) {
+		return
+	}
+	if _, err := w.Worktrees.AdoptWorkspace(ctx, w.company(), spec.Project, spec.RepoURL, spec.Workspace); err != nil {
+		slog.Warn("project workspace keeps its own repository", "workspace", spec.Workspace, "error", err)
+	}
 }
