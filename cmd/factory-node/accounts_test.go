@@ -99,3 +99,37 @@ func TestAccountsAcceptFlagOrder(t *testing.T) {
 		t.Fatal("unknown runtime accepted")
 	}
 }
+
+// TestLoginClaudeExitAfterLogin: Claude Code exiting non-zero after /login (a declined folder trust question) still
+// records the node's directory when `claude auth status` there shows the subscription login; without that login,
+// or with only a token from the environment, the login fails and node.yaml stays as it is.
+func TestLoginClaudeExitAfterLogin(t *testing.T) {
+	for _, c := range []struct {
+		name, status string
+		ok           bool
+	}{
+		{"saved", `{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max"}`, true},
+		{"none", `{"loggedIn": false, "authMethod": "none"}`, false},
+		{"env token", `{"loggedIn": true, "authMethod": "oauth_token"}`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "claude")
+			script := "#!/bin/sh\nif [ \"$1\" = auth ]; then echo '" + c.status + "'; exit 0; fi\nexit 1\n"
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cfg := filepath.Join(dir, "node.yaml")
+			in := "name: \"n\"\nstate_dir: \"" + filepath.Join(dir, "state") + "\"\ndrivers:\n  claude: {enabled: true, executable: \"" + bin + "\"}\n"
+			if err := os.WriteFile(cfg, []byte(in), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, err := runtimeLogin("claude", []string{"-config", cfg})
+			b, _ := os.ReadFile(cfg)
+			saved := strings.Contains(string(b), `config_dir: "`+filepath.Join(dir, "runtimes", "claude")+`"`)
+			if c.ok != (code == 0 && err == nil) || c.ok != saved {
+				t.Fatalf("code %d err %v node.yaml %s", code, err, b)
+			}
+		})
+	}
+}

@@ -243,7 +243,9 @@ factory-node login codex -device-auth    # on a server without a browser: a link
 ```
 
 Each writes `drivers.claude.config_dir` / `drivers.codex.home` to `node.yaml` (passed to every run as
-`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); restart the node to use them. To move the node to another account (another
+`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); restart the node to use them. Claude Code may exit with an error after `/login` (a declined
+folder trust question): the login still counts when `claude auth status` in the node's directory shows the
+subscription login (`authMethod` `claude.ai`); a token from the environment does not. To move the node to another account (another
 subscription, say after a limit), run the same `factory-node login claude|codex` again: it logs in into the same
 directory, keeps `node.yaml`, records the new account as accepted, and asks for the restart.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -86,7 +87,12 @@ func runtimeLogin(runtime string, args []string) (int, error) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	fmt.Printf("Logging the node's %s in (its own login in %s; your own terminal login stays as it is).\n", runtime, dir)
 	if err := cmd.Run(); err != nil {
-		return 1, fmt.Errorf("%s login: %w", runtime, err)
+		// Claude Code goes on after /login (onboarding, the folder trust question) and exits non-zero when one of
+		// those is declined: the login it saved in dir still counts.
+		if runtime != "claude" || !claudeLoggedIn(cmd.Path, dir) {
+			return 1, fmt.Errorf("%s login: %w", runtime, err)
+		}
+		fmt.Printf("Claude Code exited (%v) after the login; the login is saved in %s.\n", err, dir)
 	}
 	if err := setDriverKey(cfgPath, runtime, key, dir); err != nil {
 		return 1, fmt.Errorf("logged in, but node.yaml was not updated (set drivers.%s.%s: %q yourself): %w", runtime, key, dir, err)
@@ -94,6 +100,19 @@ func runtimeLogin(runtime string, args []string) (int, error) {
 	_ = node.AcceptAccount(node.AccountsDir(c.StateDir), runtime) // the new login is the account to remember
 	fmt.Printf("node.yaml: drivers.%s.%s = %s. Restart the node to use it (launchctl kickstart -k gui/$(id -u)/com.appfactory.node, or systemctl --user restart factory-node).\n", runtime, key, dir)
 	return 0, nil
+}
+
+// claudeLoggedIn reports whether Claude Code in dir has the subscription login /login saves (`claude auth status`:
+// loggedIn with authMethod claude.ai), not a token from the environment, which runs do not use.
+func claudeLoggedIn(bin, dir string) bool {
+	cmd := exec.Command(bin, "auth", "status")
+	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+dir)
+	out, _ := cmd.Output() // exit 1 when logged out; the JSON says it either way
+	var st struct {
+		LoggedIn   bool   `json:"loggedIn"`
+		AuthMethod string `json:"authMethod"`
+	}
+	return json.Unmarshal(out, &st) == nil && st.LoggedIn && st.AuthMethod == "claude.ai"
 }
 
 // claudeBinary is the Claude Code binary the shim drives: the SDK-bundled one next to the node.
