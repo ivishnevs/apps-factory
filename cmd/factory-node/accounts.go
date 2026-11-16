@@ -128,6 +128,9 @@ func setDriverKey(path, runtime, key, value string) error {
 		}
 		if open, close := strings.Index(l, "{"), strings.LastIndex(l, "}"); open >= 0 && close > open {
 			inner := strings.TrimSpace(l[open+1 : close])
+			if strings.Contains(inner, entry) {
+				return nil // a login again into the node's own directory (another account): nothing to change
+			}
 			if strings.Contains(inner, key+":") {
 				return fmt.Errorf("drivers.%s.%s is already set", runtime, key)
 			}
@@ -136,6 +139,17 @@ func setDriverKey(path, runtime, key, value string) error {
 			}
 			lines[i] = l[:open+1] + inner + entry + l[close:]
 		} else {
+			for _, b := range lines[i+1:] {
+				if !strings.HasPrefix(b, "   ") {
+					break
+				}
+				switch bt := strings.TrimSpace(b); {
+				case bt == entry:
+					return nil
+				case strings.HasPrefix(bt, key+":"):
+					return fmt.Errorf("drivers.%s.%s is already set", runtime, key)
+				}
+			}
 			lines = append(lines[:i+1], append([]string{"    " + entry}, lines[i+1:]...)...)
 		}
 		return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)

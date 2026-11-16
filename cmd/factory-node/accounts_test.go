@@ -26,4 +26,18 @@ func TestSetDriverKey(t *testing.T) {
 	if err := setDriverKey(p, "codex", "home", "/again"); err == nil {
 		t.Fatal("set twice")
 	}
+	if err := setDriverKey(p, "claude", "config_dir", "/again"); err == nil {
+		t.Fatal("set twice in a block")
+	}
+	// A login again (another subscription) into the node's own directory keeps node.yaml as it is.
+	before, _ := os.ReadFile(p)
+	if err := setDriverKey(p, "codex", "home", "/n/runtimes/codex"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setDriverKey(p, "claude", "config_dir", "/n/runtimes/claude"); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(before) {
+		t.Fatal(string(after))
+	}
 }

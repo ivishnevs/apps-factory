@@ -242,7 +242,9 @@ factory-node login codex -copy-current   # or start from this user's current Cod
 ```
 
 Each writes `drivers.claude.config_dir` / `drivers.codex.home` to `node.yaml` (passed to every run as
-`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); restart the node to use them.
+`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); restart the node to use them. To move the node to another account (another
+subscription, say after a limit), run the same `factory-node login claude|codex` again: it logs in into the same
+directory, keeps `node.yaml`, records the new account as accepted, and asks for the restart.
 
 Either way the node records the account each runtime is logged in to (plan, organisation, a hash; never the email)
 in `<state_dir>/accounts/`. A different account fails the `claude.account` / `codex.account` check, which disables
