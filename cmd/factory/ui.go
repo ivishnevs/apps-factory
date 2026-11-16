@@ -24,7 +24,7 @@ const uiUsage = "ui [--demo | --fixture PATH | --record PATH] [--notify desktop|
 // the terminal bell elsewhere); --claude-config-dir and --codex-home find runs' local session files when the
 // UI runs on a node's machine (defaults: the node's own login directories from node.yaml, else $CLAUDE_CONFIG_DIR or ~/.claude, $CODEX_HOME or
 // ~/.codex).
-func uiCommand(ctx context.Context, args []string) error {
+func uiCommand(ctx context.Context, args []string, company string) error {
 	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	demo := fs.Bool("demo", false, "")
@@ -81,7 +81,7 @@ func uiCommand(ctx context.Context, args []string) error {
 		if os.Getenv("FACTORY_TOKEN") == "" {
 			return fmt.Errorf("FACTORY_TOKEN required (or factory ui --demo)")
 		}
-		c := &tui.HTTPClient{API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN")}}
+		c := &tui.HTTPClient{API: worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN"), Company: company}}
 		if mode == "record" {
 			f, err := tui.Record(ctx, c)
 			if err != nil {

@@ -10,7 +10,7 @@ broken DNS from burning attempts.
 For the owner's own coding agent (Claude Code, Codex, Claude Desktop), not for company agents (they get Factory MCP,
 [factory-mcp](factory-mcp.md)). It runs on the owner's machine over stdio and talks to Core's owner API with
 `FACTORY_URL` and `FACTORY_TOKEN` (an owner token, `factory owner-tokens create NAME`; with the operator token
-`FACTORY_COMPANY` names the company and is sent as `X-Factory-Company`).
+`FACTORY_COMPANY` names the company and is sent as `X-Factory-Company`, as by every owner CLI command).
 
 ```sh
 claude mcp add factory -e FACTORY_URL=https://core.example -e FACTORY_TOKEN=fot_... -- factory mcp

@@ -15,39 +15,18 @@ import (
 	"strings"
 	"time"
 
-	"appfactory/internal/core"
 	"appfactory/internal/ownermcp"
 	"appfactory/internal/support"
 	"appfactory/internal/worker"
 )
 
 // mcpCommand serves the owner MCP server on stdio (setup-assistant 1): `factory mcp` with FACTORY_URL and the owner's
-// FACTORY_TOKEN, for the owner's own coding agent. FACTORY_COMPANY, when set, names the company (X-Factory-Company),
-// as an operator token needs it for a company other than Core's own.
-func mcpCommand(ctx context.Context, api worker.API, company string) error {
-	api.Client = companyClient(company)
+// FACTORY_TOKEN, for the owner's own coding agent. FACTORY_COMPANY (or --company), when set, names the company
+// (X-Factory-Company, api.Company), as an operator token needs it for a company other than Core's own.
+func mcpCommand(ctx context.Context, api worker.API) error {
+	api.Client = &http.Client{Timeout: 60 * time.Second}
 	s := &ownermcp.Server{Core: api, Local: ownermcp.Local{NodeDoctor: nodeDoctor, NodeLog: nodeLog, ReadFile: os.ReadFile}}
 	return s.Serve(ctx, os.Stdin, os.Stdout)
-}
-
-// companyClient is an HTTP client that names company on every request ("" names none).
-func companyClient(company string) *http.Client {
-	c := &http.Client{Timeout: 60 * time.Second}
-	if company != "" {
-		c.Transport = companyHeader{company, http.DefaultTransport}
-	}
-	return c
-}
-
-type companyHeader struct {
-	company string
-	next    http.RoundTripper
-}
-
-func (h companyHeader) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	r.Header.Set(core.CompanyHeader, h.company)
-	return h.next.RoundTrip(r)
 }
 
 // nodeBinary is factory-node: FACTORY_NODE_BIN, else next to this executable, else on PATH.

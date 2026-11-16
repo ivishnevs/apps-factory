@@ -45,10 +45,16 @@ func run() error {
 	defer stop()
 	root := env("FACTORY_ROOT", ".")
 	// FACTORY_COMPANY is the company this Core (and the catalog commands) serve; --company overrides it.
-	company := env("FACTORY_COMPANY", storage.DefaultCompany)
+	// Named, the company is also the one the API commands act in (X-Factory-Company): an operator token reaches
+	// another company only by naming it, and a command never lands in Core's own company by default unnoticed.
+	named := os.Getenv("FACTORY_COMPANY")
 	if i := slices.Index(args, "--company"); i >= 0 && i+1 < len(args) && len(args) > 2 && !strings.HasPrefix(args[i+1], "--") {
-		company = args[i+1]
+		named = args[i+1]
 		args = slices.Delete(args, i, i+2)
+	}
+	company := named
+	if company == "" {
+		company = storage.DefaultCompany
 	}
 	if args[0] == "config" || args[0] == "agents" {
 		c, err := config.LoadCompanyCatalog(root, company)
@@ -84,7 +90,7 @@ func run() error {
 
 	if args[0] == "ui" {
 		// The terminal UI; --demo and --fixture need no Core and no token.
-		return uiCommand(ctx, args[1:])
+		return uiCommand(ctx, args[1:], named)
 	}
 	if args[0] == "web" {
 		// The web UI; --demo and --fixture need no Core and no token.
@@ -93,7 +99,7 @@ func run() error {
 	if os.Getenv("FACTORY_TOKEN") == "" {
 		return fmt.Errorf("FACTORY_TOKEN required")
 	}
-	api := worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN")}
+	api := worker.API{URL: env("FACTORY_URL", "http://127.0.0.1:8080"), Token: os.Getenv("FACTORY_TOKEN"), Company: named}
 	if args[0] == "conversations" || args[0] == "messages" || args[0] == "inbox" || args[0] == "approvals" {
 		return communicationCommand(ctx, api, args)
 	}
@@ -172,7 +178,7 @@ func run() error {
 	}
 
 	if args[0] == "mcp" {
-		return mcpCommand(ctx, api, os.Getenv("FACTORY_COMPANY"))
+		return mcpCommand(ctx, api)
 	}
 	if args[0] == "doctor" && len(args) > 1 {
 		return companyDoctor(ctx, api, args[1:])

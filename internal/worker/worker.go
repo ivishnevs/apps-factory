@@ -39,6 +39,9 @@ import (
 type API struct {
 	URL, Token string
 	Client     *http.Client
+	// Company, when set, names the request's company (X-Factory-Company) on every request: the operator's token
+	// serves Core's own company unless it names another, and an owner token naming another company is refused.
+	Company string
 	// Node and Key sign this node's requests (node-identity D4); the owner CLI has neither and sends its token.
 	Node string
 	Key  ed25519.PrivateKey
@@ -51,11 +54,17 @@ type API struct {
 	Clock *Clock
 }
 
+// CompanyHeader is core.CompanyHeader, repeated so that the node does not link Core.
+const CompanyHeader = "X-Factory-Company"
+
 // authorize presents the client's credentials on req; body is its whole body. Each attempt signs anew, because Core
 // accepts a nonce once.
 func (a API) authorize(req *http.Request, body []byte) error {
 	if a.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.Token)
+	}
+	if a.Company != "" {
+		req.Header.Set(CompanyHeader, a.Company)
 	}
 	key := a.Key
 	if a.CurrentKey != nil {

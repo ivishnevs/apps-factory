@@ -16,15 +16,15 @@ import (
 func TestUICommandArguments(t *testing.T) {
 	ctx := context.Background()
 	for _, args := range [][]string{{"--bogus"}, {"--fixture"}, {"--demo", "x"}, {"--demo", "--fixture", "f.json"}, {"--demo", "--notify", "loud"}} {
-		if err := uiCommand(ctx, args); err == nil || !strings.Contains(err.Error(), "usage") {
+		if err := uiCommand(ctx, args, ""); err == nil || !strings.Contains(err.Error(), "usage") {
 			t.Fatal(args, err)
 		}
 	}
 	t.Setenv("FACTORY_TOKEN", "")
-	if err := uiCommand(ctx, nil); err == nil || !strings.Contains(err.Error(), "FACTORY_TOKEN required") {
+	if err := uiCommand(ctx, nil, ""); err == nil || !strings.Contains(err.Error(), "FACTORY_TOKEN required") {
 		t.Fatal(err)
 	}
-	if err := uiCommand(ctx, []string{"--fixture", filepath.Join(t.TempDir(), "none.json")}); err == nil {
+	if err := uiCommand(ctx, []string{"--fixture", filepath.Join(t.TempDir(), "none.json")}, ""); err == nil {
 		t.Fatal("missing fixture accepted")
 	}
 }
@@ -56,7 +56,7 @@ func TestUIRecord(t *testing.T) {
 	t.Setenv("FACTORY_URL", srv.URL)
 	t.Setenv("FACTORY_TOKEN", "rec-token")
 	path := filepath.Join(t.TempDir(), "rec.json")
-	if err := uiCommand(context.Background(), []string{"--record", path}); err != nil {
+	if err := uiCommand(context.Background(), []string{"--record", path}, ""); err != nil {
 		t.Fatal(err)
 	}
 	f, err := tui.LoadFixture(path)

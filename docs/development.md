@@ -77,7 +77,10 @@ docker compose exec -T postgres pg_dump -U factory -Fc factory >backup/factory.d
 gofmt-formatted; `make check` also runs `make fmt` (gofmt over `cmd` and `internal`).
 FACTORY_ROOT selects config root; FACTORY_DATABASE_URL the database; FACTORY_COMPANY the company Core serves;
 FACTORY_DATA_DIR Core's data directory; FACTORY_BLOB_DIR Core's blob store; FACTORY_LISTEN selects HTTP bind (default: `0.0.0.0:$PORT` when the host sets PORT, as Railway does, else 127.0.0.1:8080).
-FACTORY_URL is the native CLI/node endpoint.
+FACTORY_URL is the native CLI/node endpoint. The owner CLI (`factory`, `factory ui`, `factory mcp`) sends the company
+named by `--company C` or FACTORY_COMPANY as `X-Factory-Company` on every request: the operator token acts in Core's
+own company unless a request names another, and an owner token naming another company is refused. Without either it
+names none.
 CODEX_BIN selects the installed native Codex executable. FACTORY_TOKEN is required by Core and the owner CLI; a node
 does not use it (see [Node identity](#node-identity)).
 Core uses signal cancellation, HTTP shutdown deadlines and structured JSON logs.
