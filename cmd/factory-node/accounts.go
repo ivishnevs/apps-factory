@@ -164,23 +164,34 @@ func setDriverKey(path, runtime, key, value string) error {
 func accounts(args []string) (int, error) {
 	fs := flag.NewFlagSet("accounts", flag.ContinueOnError)
 	path := fs.String("config", "", "node.yaml (default $"+node.ConfigEnv+")")
+	usage := errors.New("usage: factory-node accounts [-config node.yaml] [accept claude|codex]")
+	// accept RUNTIME may come before the flags too (accounts accept codex -config node.yaml).
+	var accept string
+	if len(args) >= 2 && args[0] == "accept" {
+		accept, args = args[1], args[2:]
+	}
 	if err := fs.Parse(args); err != nil {
 		return 2, err
+	}
+	if accept == "" && fs.NArg() == 2 && fs.Arg(0) == "accept" {
+		accept = fs.Arg(1)
+	} else if fs.NArg() != 0 {
+		return 2, usage
+	}
+	if accept != "" && accept != "claude" && accept != "codex" {
+		return 2, usage
 	}
 	c, err := node.LoadConfig(node.ConfigPath(*path))
 	if err != nil {
 		return 2, err
 	}
 	dir := node.AccountsDir(c.StateDir)
-	if fs.NArg() == 2 && fs.Arg(0) == "accept" {
-		if err := node.AcceptAccount(dir, fs.Arg(1)); err != nil {
+	if accept != "" {
+		if err := node.AcceptAccount(dir, accept); err != nil {
 			return 1, err
 		}
-		fmt.Printf("%s: the next check records the account it is logged in to now and runs %s agents again (within the probe interval, or restart the node).\n", fs.Arg(1), fs.Arg(1))
+		fmt.Printf("%s: the next check records the account it is logged in to now and runs %s agents again (within the probe interval, or restart the node).\n", accept, accept)
 		return 0, nil
-	}
-	if fs.NArg() != 0 {
-		return 2, errors.New("usage: factory-node accounts [-config node.yaml] [accept claude|codex]")
 	}
 	for _, rt := range []string{"claude", "codex"} {
 		if a, ok := node.LoadAccount(dir, rt); ok {

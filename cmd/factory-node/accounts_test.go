@@ -71,3 +71,31 @@ func TestLoginCodexDeviceAuth(t *testing.T) {
 		t.Fatal("device-auth accepted for claude")
 	}
 }
+
+// TestAccountsAcceptFlagOrder: accept RUNTIME works with -config before or after it; an unknown runtime is refused.
+func TestAccountsAcceptFlagOrder(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	cfg := filepath.Join(dir, "node.yaml")
+	if err := os.WriteFile(cfg, []byte("name: \"n\"\nstate_dir: \""+state+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := filepath.Join(state, "accounts", "codex.json")
+	for _, args := range [][]string{{"-config", cfg, "accept", "codex"}, {"accept", "codex", "-config", cfg}} {
+		if err := os.MkdirAll(filepath.Dir(rec), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(rec, []byte(`{"runtime":"codex","hash":"old"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, err := accounts(args); code != 0 || err != nil {
+			t.Fatal(args, code, err)
+		}
+		if fileExists(rec) {
+			t.Fatal(args, "old account still recorded")
+		}
+	}
+	if code, _ := accounts([]string{"accept", "gemini", "-config", cfg}); code != 2 {
+		t.Fatal("unknown runtime accepted")
+	}
+}
