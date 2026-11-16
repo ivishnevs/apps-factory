@@ -162,7 +162,27 @@ func TestChecks(t *testing.T) {
 		{"scanner found", "linux", func(f *fakeHost, d *Doctor) {
 			d.Scanner = []string{"gitleaks", "git"}
 			f.paths["gitleaks"] = "/usr/bin/gitleaks"
-		}, "worktrees.scan", Pass, "gitleaks"},
+			f.cmds["gitleaks version"] = reply{out: "8.30.1\n"}
+		}, "worktrees.scan", Pass, "gitleaks 8.30.1"},
+		{"scanner v-prefixed", "darwin", func(f *fakeHost, d *Doctor) {
+			d.Scanner = []string{"/opt/homebrew/bin/gitleaks", "git"}
+			f.paths["/opt/homebrew/bin/gitleaks"] = "/opt/homebrew/bin/gitleaks"
+			f.cmds["/opt/homebrew/bin/gitleaks version"] = reply{out: "v8.21.0"}
+		}, "worktrees.scan", Pass, "gitleaks 8.21.0"},
+		{"scanner too old", "linux", func(f *fakeHost, d *Doctor) {
+			d.Scanner = []string{"gitleaks", "git"}
+			f.paths["gitleaks"] = "/usr/bin/gitleaks"
+			f.cmds["gitleaks version"] = reply{out: "8.18.2"}
+		}, "worktrees.scan", Fail, "github.com/gitleaks/gitleaks/releases"},
+		{"scanner without a version", "linux", func(f *fakeHost, d *Doctor) {
+			d.Scanner = []string{"gitleaks", "git"}
+			f.paths["gitleaks"] = "/usr/bin/gitleaks"
+			f.cmds["gitleaks version"] = reply{out: "version is set by build process"}
+		}, "worktrees.scan", Fail, "8.21.0 or newer"},
+		{"custom scanner", "linux", func(f *fakeHost, d *Doctor) {
+			d.Scanner = []string{"/usr/local/bin/scan"}
+			f.paths["/usr/local/bin/scan"] = "/usr/local/bin/scan"
+		}, "worktrees.scan", Pass, "/usr/local/bin/scan"},
 		{"gh logged out", "linux", func(f *fakeHost, _ *Doctor) {
 			f.cmds["gh auth status"] = reply{errOut: "You are not logged into any GitHub hosts.", err: errors.New("exit 1")}
 		}, "forge.auth", Warn, "gh auth login"},

@@ -207,9 +207,19 @@ if [ "$OS" = linux ] && grep -q '^sandbox: *worktree' "$CONFIG" 2>/dev/null; the
     say "  bwrap and socat work"
   fi
 fi
+# Task branches are scanned with `gitleaks git` (8.21 or newer) before they are pushed; distribution packages
+# (Ubuntu 24.04's apt gitleaks) are older and report no version.
+GITLEAKS_HINT="brew install gitleaks (Linux: the release binary from https://github.com/gitleaks/gitleaks/releases into /usr/local/bin; apt's is too old)"
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "Note: gitleaks is not installed. Task branches are scanned for secrets before they are pushed;"
-  echo "      install it so agents can push: brew install gitleaks (or see https://github.com/gitleaks/gitleaks)."
+  echo "      install it so agents can push: $GITLEAKS_HINT."
+else
+  glv=$(gitleaks version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+  glmaj=${glv%%.*}; glmin=${glv#*.}; glmin=${glmin%%.*}
+  if [ -z "$glv" ] || [ "$glmaj" -lt 8 ] || { [ "$glmaj" -eq 8 ] && [ "$glmin" -lt 21 ]; }; then
+    echo "Note: gitleaks ${glv:-reports no version} (8.21 or newer needed): task branches cannot be scanned and pushed."
+    echo "      Install a newer one: $GITLEAKS_HINT."
+  fi
 fi
 
 FN="$HOME_DIR/bin/factory-node"

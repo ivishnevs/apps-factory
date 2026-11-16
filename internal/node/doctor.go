@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -57,7 +58,7 @@ type DriverProbe interface {
 
 func (d Doctor) Run(ctx context.Context) []CheckResult {
 	r := d.git(ctx)
-	r = append(r, d.scanner()...)
+	r = append(r, d.scanner(ctx)...)
 	r = append(r, d.disk(), d.ps(ctx))
 	r = append(r, keysCheck(d.StateDir))
 	r = append(r, d.xcode(ctx)...)
@@ -136,8 +137,15 @@ func (d Doctor) git(ctx context.Context) []CheckResult {
 	return r
 }
 
-// scanner checks the worktrees' secret scanner: task branches are pushed only after it ran.
-func (d Doctor) scanner() []CheckResult {
+// MinGitleaks is the oldest gitleaks the default scan command (`gitleaks git ... --log-opts`) is verified with on
+// nodes; older ones (distribution packages such as Ubuntu 24.04's) lack the `git` subcommand, so every push failed.
+const MinGitleaks = "8.21.0"
+
+var dottedVersion = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+// scanner checks the worktrees' secret scanner: task branches are pushed only after it ran. The default gitleaks
+// must report a version of at least MinGitleaks; another scan_command is only looked up.
+func (d Doctor) scanner(ctx context.Context) []CheckResult {
 	if len(d.Scanner) == 0 {
 		return nil
 	}
@@ -145,7 +153,42 @@ func (d Doctor) scanner() []CheckResult {
 		return []CheckResult{{Check: "worktrees.scan", Status: Fail, Detail: d.Scanner[0] + " not found: task branches cannot be pushed",
 			Hint: "install gitleaks (macOS: brew install gitleaks) or set worktrees.scan_command in node.yaml"}}
 	}
-	return []CheckResult{{Check: "worktrees.scan", Status: Pass, Detail: d.Scanner[0]}}
+	if filepath.Base(d.Scanner[0]) != "gitleaks" {
+		return []CheckResult{{Check: "worktrees.scan", Status: Pass, Detail: d.Scanner[0]}}
+	}
+	hint := "install gitleaks " + MinGitleaks + " or newer: macOS brew upgrade gitleaks; Linux the release binary from " +
+		"https://github.com/gitleaks/gitleaks/releases into /usr/local/bin (distribution packages are older)"
+	out, err := d.Host.Output(ctx, d.Scanner[0], "version")
+	v := dottedVersion.FindString(out)
+	if err != nil || v == "" {
+		detail := "gitleaks reports no version"
+		if l := FirstLine(out); l != "" {
+			detail += " (" + l + ")"
+		}
+		return []CheckResult{{Check: "worktrees.scan", Status: Fail, Detail: detail + ": task branches may not be scanned", Hint: hint, Transient: TransientRun(out, "", err)}}
+	}
+	if versionLess(v, MinGitleaks) {
+		return []CheckResult{{Check: "worktrees.scan", Status: Fail, Detail: "gitleaks " + v + " is older than " + MinGitleaks + ": task branches cannot be scanned", Hint: hint}}
+	}
+	return []CheckResult{{Check: "worktrees.scan", Status: Pass, Detail: "gitleaks " + v}}
+}
+
+// versionLess compares dotted numeric versions (a missing part is 0).
+func versionLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }
 
 func ghAccount(out string) string {

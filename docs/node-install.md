@@ -35,7 +35,9 @@ What it does:
    `~/AppFactory/projects`, the drivers it could set up, `worktrees: {enabled: true}` so each task runs in its own
    git worktree and a team's agents work in one project at once). Edit it freely; the installer keeps it. Pushes of
    task branches are scanned for secrets with gitleaks first: the installer and `factory-node doctor`
-   (`worktrees.scan`) say when it is missing (macOS: `brew install gitleaks`). Nodes installed before 2026-11-05
+   (`worktrees.scan`) say when it is missing or older than 8.21, the oldest with the `gitleaks git` the scan runs
+   (macOS: `brew install gitleaks`; Linux: the release binary from GitHub into `/usr/local/bin`, since distribution
+   packages such as Ubuntu 24.04's are older and report no version). Nodes installed before 2026-11-05
    add the `worktrees` line by hand and restart.
 5. Connects, unless `state/company` exists: `factory-node login` or `factory-node enroll CODE`.
 6. Starts the node: macOS `~/Library/LaunchAgents/com.appfactory.node.plist` (log `~/Library/Logs/factory-node.log`);
