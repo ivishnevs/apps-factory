@@ -44,3 +44,10 @@ An agent allowed to create projects SHALL do so only through `factory_project_cr
 #### Scenario: CEO starts the chosen idea
 - **WHEN** the CEO calls `factory_project_create` for the idea the owner picked
 - **THEN** the owner SHALL get an approval showing the id, name, description and repository mode, and the project SHALL be created only after approval
+
+### Requirement: The audit ends with a decision for the owner
+The onboarding audit brief SHALL ask for the next-step options as a decision proposal (the recommendation as its value, the other options as alternatives, each with a reason and a rough size), the summary in the pull request and a `stage_completed` report, and SHALL state that the work stays on the task branch it was given.
+
+#### Scenario: Audit of an existing project
+- **WHEN** Core creates the audit task of an existing project
+- **THEN** its brief SHALL ask for a decision proposal with the options, not for a report with options
