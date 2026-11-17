@@ -37,6 +37,8 @@ type Task struct {
 	Tie *tasks.Tie `json:"tie,omitempty"`
 	// Awaits is the decision or message it (or the dependency it waits for) is parked on (decision-waits).
 	Awaits *tasks.Awaits `json:"awaits,omitempty"`
+	// PersonItems are Core's open items of the task that wait for a person (owner-items-one-source).
+	PersonItems []storage.PersonItem `json:"person_items,omitempty"`
 }
 
 // Agent is one catalog agent as the UI shows it.

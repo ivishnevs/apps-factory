@@ -35,20 +35,21 @@ type boardState struct {
 
 func terminal(status string) bool { return status == "DONE" || status == "CANCELLED" }
 
-// needsOwner: the task waits on the owner (its clearer, or an inbox item about it).
-func (m *Model) needsOwner(t Task) bool {
+// needsOwner: the task has an item that waits for the owner, as Core computes it (owner-items-one-source); the TUI
+// derives nothing of its own.
+func (m *Model) needsOwner(t Task) bool { return ownerItem(t) != nil }
+
+// ownerItem is the task's first item that waits for the owner, nil when none does.
+func ownerItem(t Task) *storage.PersonItem {
 	if terminal(t.Status) {
-		return false
+		return nil
 	}
-	if t.Clearer.Who == "owner" && t.Reason != "backlog" {
-		return true
-	}
-	for _, msg := range m.ov.Inbox {
-		if msg.TaskID == t.ID {
-			return true
+	for i := range t.PersonItems {
+		if t.PersonItems[i].Person == "owner" {
+			return &t.PersonItems[i]
 		}
 	}
-	return false
+	return nil
 }
 
 // taskFilter is the parsed filter: p:PROJECT s:STATUS a:ASSIGNEE (a:people: every person's task, a:member:USER one
@@ -532,7 +533,7 @@ func (m *Model) cardLines(t Task, w int, col string, selected bool) []string {
 			line4 = stGreen.Render(m.spin.View()+" ") + stFaint.Render(act)
 		}
 	case m.needsOwner(t):
-		line4 = stRedBold.Render("↳ you: ") + stFaint.Render(t.Clearer.Action)
+		line4 = stRedBold.Render("↳ you: ") + stFaint.Render(ownerItem(t).Title)
 	case col == "done":
 		line4 = stGreen.Render("✓ ") + stDim.Render("done "+ago(now, time.Unix(t.UpdatedAt, 0))+" ago")
 	case col == "cancelled":

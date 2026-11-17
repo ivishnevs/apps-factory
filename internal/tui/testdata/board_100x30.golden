@@ -6,7 +6,7 @@
 │ │ ● ⚠ Task 4                │ ││ │ ● Task 1                  │ ││ ┃ ● Task 2                   ┃ │
 │ │ P2-4  project-2        ▽3 │ ││ │ P4-1  project-4        ▲8 │ ││ ┃ P3-2  project-3      ✗1 ▲8 ┃ │
 │ │ ● designer             3h │ ││ │ ● developer-1         18m │ ││ ┃ ● developer-2           7m ┃ │
-│ │ ↳ you: release it to the… │ ││ │ ↳ backoff: the retry sta… │ ││ ┃ ✗ $ npm test -- module_2:… ┃ │
+│ │ ↳ you: Task 4 mockups     │ ││ │ ↳ backoff: the retry sta… │ ││ ┃ ✗ $ npm test -- module_2:… ┃ │
 │ ╰───────────────────────────╯ ││ ╰───────────────────────────╯ ││ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
 │ ╭───────────────────────────╮ ││ ╭───────────────────────────╮ ││ ╭────────────────────────────╮ │
 │ │ ● Task 4                  │ ││ │ ● Task 2                  │ ││ │ ◷ Task 9                   │ │

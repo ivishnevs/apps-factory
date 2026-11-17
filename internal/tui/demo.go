@@ -90,6 +90,12 @@ func DemoFixture() Fixture {
 	}
 	byID("P1-3").Dependencies, byID("P1-3").CurrentRunID, byID("P1-3").Attempt = []string{"P1-2"}, "r-d1-7", 2
 	byID("P1-4").Dependencies = []string{"P1-3"}
+	// The owner's items, as Core lists them (owner-items-one-source).
+	byID("P1-5").PersonItems = []storage.PersonItem{{Topic: "tp-ask-1", Kind: "question", Ref: "m-ask-1", Person: "owner", Title: "Which option for Task 5: A or B?", Actions: []string{"option-a", "option-b"}}}
+	byID("P2-3").PersonItems = []storage.PersonItem{{Topic: "tp-esc-1", Kind: "escalation", Ref: "m-esc-1", Person: "owner", Title: "Task 3: waits on dependencies that do not move", Actions: []string{"unblock", "cancel"}},
+		{Topic: "tp-esc-1", Kind: "approval", Ref: "ap-1", Person: "owner", Title: "Allow lead's call", Actions: []string{"approve", "reject"}}}
+	byID("P2-4").PersonItems = []storage.PersonItem{{Topic: "tp-art-1", Kind: "approval", Ref: "ap-2", Person: "owner", Title: "Task 4 mockups", Actions: []string{"choose", "changes", "reject"}}}
+	byID("P1-1").PersonItems = []storage.PersonItem{{Topic: "tp-proj-1", Kind: "approval", Ref: "ap-3", Person: "owner", Title: "Create project 4", Actions: []string{"approve", "reject"}}}
 	byID("P2-1").Implementer, byID("P2-1").Reviewer, byID("P2-1").CurrentRunID = "developer-2", "reviewer", "r-rev-2"
 	byID("P3-2").CurrentRunID = "r-d2-4"
 	byID("P1-9").CurrentRunID = "r-qa-1"
