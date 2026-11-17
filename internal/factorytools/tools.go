@@ -2,8 +2,10 @@
 package factorytools
 
 import (
+	"appfactory/internal/closedset"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -49,8 +51,10 @@ func Definitions() []Tool {
 		map[string]any{"base": n, "put": map[string]any{"type": "object", "additionalProperties": true}, "delete": arr, "note": s(), "request_id": s()}, "base", "note", "request_id")
 	add("task_get", "task.get", "Read a task in this project, including dependencies and submission.", map[string]any{"id": s()}, "id")
 	b := func() any { return map[string]any{"type": "boolean"} }
+	// Closed sets are enums built from the constants Core validates against (contracts-at-the-boundary §3).
+	enum := func(set closedset.Set) map[string]any { return map[string]any{"type": "string", "enum": set.Enum()} }
 	add("task_list", "task.list", "List tasks in this project, compact (id, title, status, assignee, openspec_change, covers, dependencies; full: true adds descriptions and the rest). Filters: status, open (not done or cancelled), assignee, openspec_change, covers (a work key such as world-models#7.1, pr#148), query (all words in the title). Before creating a batch of tasks, list the open tasks of their change or assignee once, not once per task.",
-		map[string]any{"status": s(), "open": b(), "assignee": s(), "openspec_change": s(), "covers": s(), "query": s(), "full": b()})
+		map[string]any{"status": enum(closedset.TaskStatuses), "open": b(), "assignee": s(), "openspec_change": s(), "covers": s(), "query": s(), "full": b()})
 	add("task_create", "task.create", "Create a BACKLOG task. Use a stable request_id for retries; make ready separately. project_id is your run's project (default) or a project you created with factory_project_create. review_by is who reviews its work: another agent, owner or member:USER; a task cannot leave the backlog without it; the default is the assignee's review rule reviewer, else the team's default reviewer, else the assignee's manager, else the team's lead, else owner. assignee is an agent, or a person (member:USER) only on their word: assign_reason cites the id of their message (I'll do it myself); do not plan a person's work for an agent. "+duplicateHelp, map[string]any{"title": s(), "description": s(), "priority": n, "assignee": s(), "assign_reason": s(), "parent_task_id": s(), "openspec_change": s(), "kind": map[string]any{"type": "string", "enum": []string{"work", "spec"}, "description": "work (default): implements; its openspec_change must already be merged and is checked before every run. spec: writes or amends its openspec_change (the change need not exist yet; not checked). Required when you set openspec_change."}, "dependencies": arr, "project_id": s(), "review_by": s(), "covers": coversSchema, "replaces": replacesSchema, "resources": resourcesSchema, "request_id": s()}, "title", "request_id")
 	add("project_create", "project.create", "Create a new project. Always needs the owner's approval of this exact call: request it with factory_owner_request_approval (call = this tool and its arguments, including request_id) and finish the turn; nothing exists before approval and a rejection leaves nothing. repo_mode local (default: a new git repository on the node), github (a new private GitHub repository under the owner's account) or existing (workspace: an absolute path on the node, and/or repo_url; audit true runs an onboarding audit first). The repository is set up when the project's first task runs. Afterwards create its tasks with factory_task_create and project_id.",
 		map[string]any{"project_id": s(), "name": s(), "description": s(), "repo_mode": map[string]any{"type": "string", "enum": []string{"local", "github", "existing"}}, "workspace": s(), "repo_url": s(), "default_branch": s(), "audit": map[string]any{"type": "boolean"}, "request_id": s()}, "project_id", "name", "request_id")
@@ -70,7 +74,7 @@ func Definitions() []Tool {
 	for _, action := range []string{"accept", "reject"} {
 		add("task_"+action, "task.review", "Review another agent's IN_REVIEW task: "+action+". Rejection requires feedback.", map[string]any{"id": s(), "version": n, "feedback": s(), "request_id": s()}, "id", "version", "request_id")
 	}
-	question := map[string]any{"type": "object", "properties": map[string]any{"id": s(), "type": s(), "question": s(), "options": arr}, "required": []string{"id", "type", "question"}, "additionalProperties": false}
+	question := map[string]any{"type": "object", "properties": map[string]any{"id": s(), "type": enum(closedset.QuestionTypes), "question": s(), "options": arr}, "required": []string{"id", "type", "question"}, "additionalProperties": false}
 	// Visual attachments (inbox-visual-previews): files of the worktree ({path, caption}, uploaded by the node) and
 	// references to existing materials, shown inline where people answer.
 	visuals := func(props map[string]any) map[string]any {
@@ -81,7 +85,7 @@ func Definitions() []Tool {
 	messageProps := func() map[string]any {
 		return visuals(map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "blocking": map[string]any{"type": "boolean"}, "questions": map[string]any{"type": "array", "items": question}, "options": arr, "timeout_seconds": n, "request_id": s()})
 	}
-	sendProps := visuals(map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "message_type": s(), "request_id": s()})
+	sendProps := visuals(map[string]any{"recipient": s(), "task_id": s(), "conversation_id": s(), "body": s(), "message_type": enum(closedset.MessageTypes), "request_id": s()})
 	add("message_send", "message.send", "Send an asynchronous notification/review request/escalation. Core schedules the recipient after this project's writer is released. "+attachHelp, sendProps, "recipient", "body", "message_type", "request_id")
 	add("question_forward", "question.forward", "Forward a question you cannot decide (its category is not delegated to you) to your manager, with a note; the asker keeps waiting. The question keeps its attachments; add your own with attachments/materials.", visuals(map[string]any{"message_id": s(), "version": n, "note": s(), "request_id": s()}), "message_id", "version", "request_id")
 	add("message_ask", "message.ask", "Ask another agent. When you offer choices, put them in options (one button each; free text stays possible), not only in the body: a body that lists choices without options is refused (options: [] sends it as free text). A blocking question must concern your current task. After asking, finish the turn immediately; Core resumes the task after an explicit answer, never by polling inside a turn. More than eight questions between you and one agent about one task within a day (since the owner last wrote on it) are refused with question_limit: decide within your authority, send the rest as one message, or ask your manager or the owner. "+attachHelp, messageProps(), "recipient", "body", "request_id")
@@ -107,22 +111,22 @@ func Definitions() []Tool {
 	add("artifact_get", "artifact.get", "Read an exact artifact version and its latest owner approval decision (an option of a choice approval: version_status says whether it was chosen, APPROVED, or NOT_CHOSEN). A version archived by the project's artifact retention keeps its metadata, its content is gone: the answer's archived note names the latest version to use.", map[string]any{"artifact_id": s(), "artifact_version": s()}, "artifact_id", "artifact_version")
 	choiceOption := map[string]any{"type": "object", "properties": map[string]any{"artifact_id": s(), "artifact_version": s(), "label": map[string]any{"type": "string", "description": "Short, as people will say it: \"V1 Mascot\"."}, "note": map[string]any{"type": "string", "description": "Optional, one line: what sets this option apart."}}, "required": []string{"artifact_id", "artifact_version", "label"}, "additionalProperties": false}
 	add("artifact_request_approval", "artifact.request_approval", "Ask for approval of a registered artifact version (audience internal for the team's own material such as concepts, references and textures; external, the default, for what leaves the company). Depending on the project's approval setting a teammate (the designer, the lead) or people decide it. This approves content, not task acceptance or tool permission. Every artifact approval is a set of 1 to 6 options: artifact_id/artifact_version asks for one version (one option); when people should choose among several versions (variations, alternatives), ask ONE approval with options, rather than an approval plus a question. The decider chooses one (approving a single version is choosing it; the others are not chosen and stay usable), asks for changes or rejects all. Usually leave blocking false and finish the producing task; downstream tasks can use required_artifacts. If blocking true, finish the turn immediately.",
-		map[string]any{"artifact_id": s(), "artifact_version": s(), "options": map[string]any{"type": "array", "items": choiceOption, "description": "1 to 6 registered versions to choose from, each with a label and an optional note (use instead of artifact_id/artifact_version; one version is simply artifact_id/artifact_version)."}, "recommended": map[string]any{"type": "string", "description": "Your recommended option of a choice: its number (from 1), label or artifact_id@version."}, "reason": s(), "audience": s(), "blocking": map[string]any{"type": "boolean"}, "timeout_seconds": n, "request_id": s()}, "reason", "request_id")
+		map[string]any{"artifact_id": s(), "artifact_version": s(), "options": map[string]any{"type": "array", "items": choiceOption, "description": "1 to 6 registered versions to choose from, each with a label and an optional note (use instead of artifact_id/artifact_version; one version is simply artifact_id/artifact_version)."}, "recommended": map[string]any{"type": "string", "description": "Your recommended option of a choice: its number (from 1), label or artifact_id@version."}, "reason": s(), "audience": enum(closedset.ArtifactAudiences), "blocking": map[string]any{"type": "boolean"}, "timeout_seconds": n, "request_id": s()}, "reason", "request_id")
 	dropOption := map[string]any{"type": "object", "properties": map[string]any{"option": map[string]any{"type": "string", "description": "The option's number (from 1), label or artifact_id@version."}, "reason": s()}, "required": []string{"option", "reason"}, "additionalProperties": false}
 	add("approval_decide", "approval.decide", "Decide an artifact approval you hold (it was delegated or handed up to you as a message); the same rules for one version or several. Approve a single version (action approve) or choose one of several (action choose with choice) only when what people said covers it, citing in cites their answers (message ids), recorded decisions (decision ids) or the company's or project's rules (\"project rules: <quote>\", \"company rules: <quote>\"), which Core checks; approving one of several without choosing is not possible. changes (reason: what to change, options: which) or reject (reason: why it is not good enough) need no cite. Or escalate to hand it to people when unsure, out of your remit or in conflict with a recorded decision, optionally with drop to leave out options not good enough (people still see them, at least one stays).",
 		map[string]any{"approval_id": s(), "approval_ids": map[string]any{"type": "array", "items": s(), "description": "Several approvals delegated to you, escalated together with one brief (escalate only); use instead of approval_id."}, "action": map[string]any{"type": "string", "description": "approve (a single version) or choose (one of several, with choice), changes, reject or escalate."}, "reason": s(), "cites": arr,
 			"choice": map[string]any{"type": "string", "description": "choose: the option's number (from 1), label or artifact_id@version."}, "options": map[string]any{"type": "array", "items": s(), "description": "changes: the options the changes are about (optional)."}, "drop": map[string]any{"type": "array", "items": dropOption, "description": "escalate a choice: options you leave out, each with its reason."}, "request_id": s()}, "action", "reason", "request_id")
 
 	attachment := map[string]any{"type": "object", "properties": map[string]any{"path": s(), "sha256": s(), "size": n, "redacted": map[string]any{"type": "boolean"}}, "required": []string{"path"}, "additionalProperties": false}
-	add("report_create", "report.create", "Persist a significant-action report: what, why, changes, result and any owner action. attachments name files of your worktree ({path}); the node uploads them with known credentials redacted. Identity/task/run come from this run; reports do not block execution or grant approval.", map[string]any{"kind": s(), "summary": s(), "purpose": s(), "changes": arr, "result": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "attachments": map[string]any{"type": "array", "items": attachment}, "needs_owner_action": map[string]any{"type": "boolean"}, "owner_action": s(), "request_id": s()}, "kind", "summary", "purpose", "changes", "result", "request_id")
+	add("report_create", "report.create", "Persist a significant-action report: what, why, changes, result and any owner action. attachments name files of your worktree ({path}); the node uploads them with known credentials redacted. Identity/task/run come from this run; reports do not block execution or grant approval.", map[string]any{"kind": enum(closedset.ReportKinds), "summary": s(), "purpose": s(), "changes": arr, "result": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "attachments": map[string]any{"type": "array", "items": attachment}, "needs_owner_action": map[string]any{"type": "boolean"}, "owner_action": s(), "request_id": s()}, "kind", "summary", "purpose", "changes", "result", "request_id")
 	add("report_get", "report.get", "Read a full project report.", map[string]any{"report_id": s()}, "report_id")
-	add("report_list", "report.list", "List report summaries. after is next_after from the previous page; limit 1..20. Read full details with report_get.", map[string]any{"kind": s(), "task_id": s(), "run_id": s(), "after": n, "limit": n})
+	add("report_list", "report.list", "List report summaries. after is next_after from the previous page; limit 1..20. Read full details with report_get.", map[string]any{"kind": enum(closedset.ReportListKinds), "task_id": s(), "run_id": s(), "after": n, "limit": n})
 	add("decision_propose", "decision.propose", "Propose a significant project decision with rationale; it reaches the owner in your chat and the Inbox. Put the other options in alternatives (the recommendation is value): the owner approves, picks an alternative, writes their own or rejects, and you get the outcome as a message. Do not also request approval of factory_decision_record for it. Proposing does not stop normal development; ask the owner separately when blocked. "+attachHelp, visuals(map[string]any{"category": s(), "topic": s(), "value": s(), "alternatives": arr, "rationale": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "request_id": s()}), "topic", "value", "rationale", "request_id")
 	add("decision_decide", "decision.decide", "Atomically approve a significant decision in an explicitly policy-delegated category, or where the project's decision setting lets you (as the lead: only what the owner's earlier answers or recorded decisions cover, named in cites; money and destructive changes never). No owner notification or approval is implied. Cannot bypass owner review/rejection or replace an owner decision. Replacement of a policy decision requires its exact ID/version.", map[string]any{"category": s(), "topic": s(), "value": s(), "rationale": s(), "artifacts": map[string]any{"type": "array", "items": artifact}, "supersedes_id": s(), "supersedes_version": n, "cites": arr, "request_id": s()}, "category", "topic", "value", "rationale", "request_id")
 
 	add("decision_get", "decision.get", "Read the full versioned decision, rationale and replacement history links.", map[string]any{"decision_id": s()}, "decision_id")
-	add("decision_list", "decision.list", "Read decision summaries before asking owner again. Defaults to approved; status may be proposed, under_discussion, approved, superseded, rejected or empty for all. after/limit paginate (1..20).", map[string]any{"status": s(), "topic": s(), "after": n, "limit": n})
-	add("decision_record", "decision.record", "Record explicit owner authorization on an existing proposal (under_discussion, approved or rejected). Always requires exact action approval. Replacing an approved topic requires supersedes_id and supersedes_version; never infer approval from chat.", map[string]any{"decision_id": s(), "version": n, "status": s(), "rationale": s(), "supersedes_id": s(), "supersedes_version": n, "request_id": s()}, "decision_id", "version", "status", "rationale", "request_id")
+	add("decision_list", "decision.list", "Read decision summaries before asking owner again. Defaults to approved; status may be proposed, under_discussion, approved, superseded, rejected or empty for all. after/limit paginate (1..20).", map[string]any{"status": enum(closedset.DecisionListStatuses), "topic": s(), "after": n, "limit": n})
+	add("decision_record", "decision.record", "Record explicit owner authorization on an existing proposal (under_discussion, approved or rejected). Always requires exact action approval. Replacing an approved topic requires supersedes_id and supersedes_version; never infer approval from chat.", map[string]any{"decision_id": s(), "version": n, "status": enum(closedset.DecisionRecordStatuses), "rationale": s(), "supersedes_id": s(), "supersedes_version": n, "request_id": s()}, "decision_id", "version", "status", "rationale", "request_id")
 	add("project_context", "project.context", "Read current project and bounded approved decision context. Read full details through decision_get/list.", map[string]any{})
 	add("feed_list", "feed.list", "Read the event feed of your subtree (you, the agents reporting to you and their reports): exits, escalations, run outcomes and retries, reports, missing reports. Optional task and attention filters; after/limit paginate (1..50).", map[string]any{"task": s(), "attention": map[string]any{"type": "boolean"}, "after": n, "limit": n})
 	add("project_feed", "project.feed", "Read the project event feed: stable event pointers with short summaries, not full logs. after/limit paginate (1..20).", map[string]any{"after": n, "limit": n})
@@ -240,8 +244,13 @@ func validate(schema map[string]any, value any, path string, p *problems) {
 			bad("boolean required")
 		}
 	case "string":
-		if _, ok := value.(string); !ok {
+		v, ok := value.(string)
+		if !ok {
 			bad("string required")
+			return
+		}
+		if allowed, ok := schema["enum"].([]string); ok && !slices.Contains(allowed, v) {
+			bad(closedset.Set(allowed).Refusal("value", v))
 		}
 	case "integer":
 		v, ok := value.(float64)
@@ -258,4 +267,20 @@ func validate(schema map[string]any, value any, path string, p *problems) {
 			validate(schema["items"].(map[string]any), v, fmt.Sprintf("%s[%d]", path, i), p)
 		}
 	}
+}
+
+// RefusalTools are the tools whose refusal Core records for the run (forward-refusal-guard): a fixable refusal holds
+// the run's done, handoff, submit and wait exits until a later call succeeds. They send or forward something to
+// someone, or (contracts-at-the-boundary §3) record a report an exit must not pass over. The adapter leaves their
+// argument check to Core, so the refusal is recorded.
+var RefusalTools = map[string]bool{
+	"factory_question_forward":          true,
+	"factory_owner_ask":                 true,
+	"factory_message_ask":               true,
+	"factory_message_send":              true,
+	"factory_message_reply":             true,
+	"factory_owner_request_approval":    true,
+	"factory_artifact_request_approval": true,
+	"factory_decision_propose":          true,
+	"factory_report_create":             true,
 }

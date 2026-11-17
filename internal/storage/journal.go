@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"appfactory/internal/closedset"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -133,6 +134,9 @@ func (s *Store) Report(ctx context.Context, company, id string) (reports.Report,
 	return getDoc[reports.Report](ctx, s.DB, "SELECT body FROM reports WHERE company_id=? AND id=?", company, id)
 }
 func (s *Store) Reports(ctx context.Context, company, project, kind, task, run string, after int64, limit int) (Page[reports.Report], error) {
+	if !closedset.ReportListKinds.Has(kind) {
+		return Page[reports.Report]{}, inputError(closedset.ReportListKinds.Refusal("report kind", kind))
+	}
 	return pageDocs[reports.Report](ctx, s.DB, after, limit, "SELECT seq,body FROM reports WHERE company_id=? AND project_id=? AND (?='' OR kind=?) AND (?='' OR task_id=?) AND (?='' OR run_id=?) AND seq>? ORDER BY seq LIMIT ?", company, project, kind, kind, task, task, run, run)
 }
 func (s *Store) CreateReport(ctx context.Context, company, project string, in reports.Create) (reports.Report, error) {
@@ -163,14 +167,14 @@ func createReportTx(ctx context.Context, tx *Tx, project string, in reports.Crea
 	if r.Changes == nil {
 		r.Changes = []string{}
 	}
-	switch r.Kind {
-	case "dependency_installation", "environment_change", "plan_deviation", "problem", "stage_completed":
-	case "runtime":
+	switch {
+	case closedset.ReportKinds.Has(r.Kind):
+	case r.Kind == "runtime":
 		if source != "core" {
-			return r, inputError("runtime reports are reserved for Core")
+			return r, inputError("runtime reports are reserved for Core; " + closedset.ReportKinds.Refusal("report kind", r.Kind))
 		}
 	default:
-		return r, inputError("unsupported report kind")
+		return r, inputError(closedset.ReportKinds.Refusal("report kind", r.Kind))
 	}
 	b, err := json.Marshal(in)
 	if err != nil || len(b) > 32*1024 || strings.TrimSpace(r.Summary) == "" || len(r.Summary) > 2048 || strings.TrimSpace(r.Purpose) == "" || len(r.Purpose) > 8192 || strings.TrimSpace(r.Result) == "" || len(r.Result) > 16*1024 || len(r.Changes) > 64 || len(r.OwnerAction) > 4096 || r.NeedsOwnerAction && strings.TrimSpace(r.OwnerAction) == "" || !r.NeedsOwnerAction && r.OwnerAction != "" {
@@ -273,10 +277,8 @@ func (s *Store) Decision(ctx context.Context, company, id string) (decisions.Dec
 	return d, err
 }
 func (s *Store) Decisions(ctx context.Context, company, project, status, topic string, after int64, limit int) (Page[decisions.Decision], error) {
-	switch status {
-	case "", "proposed", "under_discussion", "approved", "superseded", "rejected":
-	default:
-		return Page[decisions.Decision]{}, inputError("unsupported decision status")
+	if !closedset.DecisionListStatuses.Has(status) {
+		return Page[decisions.Decision]{}, inputError(closedset.DecisionListStatuses.Refusal("decision status", status))
 	}
 	page, err := pageDocs[decisions.Decision](ctx, s.DB, after, limit, "SELECT seq,body FROM decisions WHERE company_id=? AND project_id=? AND (?='' OR status=?) AND (?='' OR topic=?) AND seq>? ORDER BY seq LIMIT ?", company, project, status, status, canonicalTopic(topic), canonicalTopic(topic))
 	for i := range page.Items {
@@ -377,10 +379,8 @@ func (s *Store) RecordDecision(ctx context.Context, company, id string, in decis
 		if d.Version != in.Version || d.Status != "proposed" && d.Status != "under_discussion" {
 			return d, ErrConflict
 		}
-		switch in.Status {
-		case "under_discussion", "approved", "rejected":
-		default:
-			return d, inputError("record status must be under_discussion, approved or rejected")
+		if !closedset.DecisionRecordStatuses.Has(in.Status) {
+			return d, inputError(closedset.DecisionRecordStatuses.Refusal("decision record status", in.Status))
 		}
 		if in.Status != "approved" && (in.SupersedesID != "" || in.SupersedesVersion != 0) {
 			return d, inputError("replacement applies only when approving")

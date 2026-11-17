@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"appfactory/internal/closedset"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -385,6 +386,10 @@ func listDocs[T any](ctx context.Context, q interface {
 // Tasks lists tasks by their presented status: BLOCKED includes READY tasks held by a question, a recovery
 // escalation or artifacts.
 func (s *Store) Tasks(ctx context.Context, company, project, status string) ([]tasks.Task, error) {
+	if status != "" && !closedset.TaskStatuses.Has(status) {
+		// An unknown status is refused, not answered with an empty list (contracts-at-the-boundary §3).
+		return nil, inputError(closedset.TaskStatuses.Refusal("task status", status))
+	}
 	stored := status
 	if status == "BLOCKED" {
 		stored = ""

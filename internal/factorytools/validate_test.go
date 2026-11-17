@@ -1,8 +1,11 @@
 package factorytools
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"appfactory/internal/closedset"
 )
 
 func tool(t *testing.T, name string) Tool {
@@ -62,5 +65,39 @@ func TestValidateTaskResources(t *testing.T) {
 	err := Validate(create, map[string]any{"title": "gate", "request_id": "r", "resources": map[string]any{"mac-build": "one"}})
 	if err == nil || !strings.Contains(err.Error(), "resources.mac-build: integer required") {
 		t.Fatalf("bad need accepted: %v", err)
+	}
+}
+
+// TestClosedSetEnums (contracts-at-the-boundary §3): every closed-set argument's enum is the set Core validates against,
+// and a value outside it is refused with every allowed value.
+func TestClosedSetEnums(t *testing.T) {
+	for _, c := range []struct {
+		tool, arg string
+		set       closedset.Set
+	}{
+		{"factory_report_create", "kind", closedset.ReportKinds},
+		{"factory_report_list", "kind", closedset.ReportListKinds},
+		{"factory_message_send", "message_type", closedset.MessageTypes},
+		{"factory_message_ask", "questions[].type", closedset.QuestionTypes},
+		{"factory_owner_ask", "questions[].type", closedset.QuestionTypes},
+		{"factory_decision_list", "status", closedset.DecisionListStatuses},
+		{"factory_decision_record", "status", closedset.DecisionRecordStatuses},
+		{"factory_artifact_request_approval", "audience", closedset.ArtifactAudiences},
+		{"factory_task_list", "status", closedset.TaskStatuses},
+	} {
+		props := tool(t, c.tool).InputSchema["properties"].(map[string]any)
+		arg := c.arg
+		if name, ok := strings.CutSuffix(arg, "[].type"); ok {
+			props = props[name].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+			arg = "type"
+		}
+		enum, _ := props[arg].(map[string]any)["enum"].([]string)
+		if !slices.Equal(enum, c.set) {
+			t.Errorf("%s %s: enum %v, validator set %v", c.tool, c.arg, enum, c.set)
+		}
+	}
+	err := Validate(tool(t, "factory_report_create"), map[string]any{"kind": "audit", "summary": "s", "purpose": "p", "changes": []any{}, "result": "r", "request_id": "x"})
+	if err == nil || !strings.Contains(err.Error(), `kind: unsupported value "audit"; one of: dependency_installation, environment_change, plan_deviation, problem, stage_completed`) {
+		t.Fatal(err)
 	}
 }

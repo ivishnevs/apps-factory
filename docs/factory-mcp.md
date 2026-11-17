@@ -10,6 +10,14 @@ and exposes tool capability only. It forwards calls to Core; it does not orchest
 
 ## Tools
 
+Closed sets (contracts-at-the-boundary §3): every argument whose valid values are a closed set is declared with an
+`enum` in the tool schema, built from the constant Core validates against (`internal/closedset`): report `kind`,
+`message_type`, question `type`, decision `status` (list and record), artifact `audience`, task-list `status`. Every
+refusal of a value outside a set lists the allowed values (`unsupported report kind "audit"; one of: …`), and
+`factory_task_list` refuses an unknown status instead of answering an empty list. The node's adapter checks the
+arguments (required, unknown, types, enums) before a call leaves the node, except the tools whose refusals Core records
+for the run (`factory_report_create`, the forwards and questions; [explicit exits §14](explicit-exits-contract.md)).
+
 | MCP name | Policy operation | Behavior |
 | --- | --- | --- |
 | factory_project_get | factory.project.get | Current project |

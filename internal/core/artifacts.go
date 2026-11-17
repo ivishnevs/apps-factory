@@ -1,6 +1,7 @@
 package core
 
 import (
+	"appfactory/internal/closedset"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -143,8 +144,8 @@ func (c *Core) artifactTool(w http.ResponseWriter, r *http.Request, p factorytoo
 		in.Agent = run.Spec.Agent
 		in.TaskID = run.Spec.TaskID
 		in.RunID = run.Spec.ID
-		if in.Audience != "" && in.Audience != "internal" && in.Audience != "external" {
-			http.Error(w, "audience must be internal (the team's own material) or external (what leaves the company)", 400)
+		if in.Audience != "" && !closedset.ArtifactAudiences.Has(in.Audience) {
+			http.Error(w, closedset.ArtifactAudiences.Refusal("audience", in.Audience)+" (internal: the team's own material; external: what leaves the company)", 400)
 			return
 		}
 		rd := requestDelegation{audience: in.Audience, requester: run.Spec.Agent}

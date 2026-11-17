@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"appfactory/internal/closedset"
 	"appfactory/internal/config"
 	"context"
 	"crypto/sha256"
@@ -133,7 +134,7 @@ func validQuestions(questions []messaging.Question) error {
 				return inputError("choice questions require 2..20 options")
 			}
 		default:
-			return inputError("unsupported question type")
+			return inputError(closedset.QuestionTypes.Refusal("question type", q.Type))
 		}
 		opts := map[string]bool{}
 		for _, o := range q.Options {
@@ -164,10 +165,8 @@ func sendMessageTx(ctx context.Context, tx *Tx, in messaging.Send) (messaging.Me
 	if in.RequestID == "" || in.Sender == "" || in.Recipient == "" || in.Sender == in.Recipient || strings.TrimSpace(in.Body) == "" || len(in.Body) > 16*1024 {
 		return m, inputError("request_id, distinct sender/recipient and body up to 16 KiB required")
 	}
-	switch in.MessageType {
-	case "question", "notification", "review_request", "review_result", "escalation":
-	default:
-		return m, inputError("invalid message_type; use reply for answers")
+	if !closedset.MessageTypes.Has(in.MessageType) {
+		return m, inputError(closedset.MessageTypes.Refusal("message_type", in.MessageType) + " (use reply for answers)")
 	}
 	if in.MessageType != "question" && (in.Blocking || len(in.Questions) > 0) {
 		return m, inputError("only questions may block or contain a form")
