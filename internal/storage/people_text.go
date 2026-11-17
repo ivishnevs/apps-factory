@@ -7,6 +7,7 @@ import (
 
 	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
+	"appfactory/internal/tasks"
 )
 
 // People languages (people-topics D15).
@@ -77,6 +78,7 @@ var escalationGroup = map[string][2]string{
 	"wait_exhausted":          {"tasks waited too many times", "задачи ждали слишком много раз"},
 	EventDeadlineReason:       {"awaited events did not come", "ожидаемые события не наступили"},
 	WaitCycleReason:           {"agents wait on each other", "агенты ждут друг друга"},
+	QuotaPausedReason:         {"subscriptions hit their limit", "подписки упёрлись в лимит"},
 }
 
 // What each escalation answer does.
@@ -99,27 +101,54 @@ var answerEffect = map[string][2]string{
 	"resume":          {"lifts the pause now (after switching the account)", "снять паузу сейчас (после смены аккаунта)"},
 }
 
-// escalationBrief is Core's brief of its own escalation (people-topics D8).
-func escalationBrief(lang, reason, agent, title, summary string, answers []string) *messaging.Brief {
+// What happened, per escalation reason, when the stopped run is the task's review (the reviewer's run).
+var reviewSituation = map[string][2]string{
+	"retries_exhausted":  {"review stopped after several failed runs in a row", "проверка остановилась после нескольких неудачных запусков подряд"},
+	"budget_exhausted":   {"review used up its run budget", "проверка израсходовала бюджет запусков"},
+	"no_exit":            {"review runs end without a result", "запуски проверки заканчиваются без результата"},
+	SetupBlockedReason:   {"review can't start until something is provided or fixed", "проверка не может начаться, пока что-то не предоставят или не исправят"},
+	"session_lost":       {"review lost its session (the reviewer's earlier context)", "проверка потеряла сессию (прежний контекст проверяющего)"},
+	"inspect":            {"review needs a look before it continues", "проверка требует внимания, прежде чем продолжить"},
+	"workspace_diverged": {"review's workspace diverged from the repository", "рабочая копия проверки разошлась с репозиторием"},
+}
+
+// escalationCause is what happened, in people words (owner-items-one-source 3.1).
+func escalationCause(lang, reason string, review bool) string {
 	i := 0
 	if lang == "ru" {
 		i = 1
 	}
-	what := escalationSituation[reason][i]
-	if what == "" {
-		what = strings.ReplaceAll(reason, "_", " ")
+	if review {
+		if w := reviewSituation[reason][i]; w != "" {
+			return w
+		}
 	}
-	// The topic gathers this agent's escalations of one reason: its title names the agent and what happened; each
-	// task is an item (its note names it).
-	subject := title + ": " + what
-	if agent != "" {
+	if w := escalationSituation[reason][i]; w != "" {
+		return w
+	}
+	return strings.ReplaceAll(reason, "_", " ")
+}
+
+// escalationBrief is Core's brief of its own escalation (people-topics D8; owner-items-one-source 3.1): titled with
+// the task (or quota key) and the cause in people words. grouped: the topic already holds another task's escalation of
+// this agent and reason, so its title names the agent and the group, and each item's note names its task.
+func escalationBrief(lang, reason, agent, title, summary string, answers []string, review, grouped bool) *messaging.Brief {
+	i := 0
+	if lang == "ru" {
+		i = 1
+	}
+	subject := title + ": " + escalationCause(lang, reason, review)
+	if grouped && agent != "" {
 		group := escalationGroup[reason][i]
 		if group == "" {
 			group = [2]string{"tasks need you", "задачи ждут вашего решения"}[i]
 		}
 		subject = agent + ": " + group
 	}
-	b := &messaging.Brief{Title: subject, Ask: [2]string{"How should they continue?", "Как продолжить?"}[i]}
+	b := &messaging.Brief{Title: subject, Ask: [2]string{"How should it continue?", "Как продолжить?"}[i]}
+	if grouped {
+		b.Ask = [2]string{"How should they continue?", "Как продолжить?"}[i]
+	}
 	if r := []rune(b.Title); len(r) > messaging.MaxTitle {
 		b.Title = string(r[:messaging.MaxTitle-1]) + "…"
 	}
@@ -131,6 +160,30 @@ func escalationBrief(lang, reason, agent, title, summary string, answers []strin
 	}
 	b.After = strings.Join(after, "\n")
 	b.Context = humanCause(summary)
+	return b
+}
+
+// reviewBrief is Core's brief of a review item (owner-items-one-source 1.1): the task, what the person decides and
+// what each answer does, with the submission's summary as context.
+func reviewBrief(lang string, t tasks.Task) *messaging.Brief {
+	who := t.Implementer
+	if who == "" {
+		who = t.Assignee
+	}
+	b := &messaging.Brief{Title: t.Title, Ask: "Review the submitted work: accept it or send it back with what to change.",
+		After: "accept: the task is done\nreturn: " + who + " reworks it with your comments"}
+	if lang == "ru" {
+		b.Ask, b.After = "Проверьте сданную работу: примите её или верните с тем, что исправить.", "accept: задача выполнена\nreturn: "+who+" доработает её по вашим комментариям"
+	}
+	if t.Submission != nil {
+		b.Context = humanCause(t.Submission.Summary)
+	}
+	if r := []rune(b.Title); len(r) > messaging.MaxTitle {
+		b.Title = string(r[:messaging.MaxTitle-1]) + "…"
+	}
+	if r := []rune(b.Context); len(r) > messaging.MaxField {
+		b.Context = string(r[:messaging.MaxField-1]) + "…"
+	}
 	return b
 }
 

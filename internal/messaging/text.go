@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	idRe      = regexp.MustCompile(`\b[0-9a-f]{32}\b`)
-	exactLine = regexp.MustCompile(`(?m)^(Exact artifact version|Exact call): .*$`)
+	idRe = regexp.MustCompile(`\b[0-9a-f]{32}\b`)
+	// The exact JSON lines and an escalation's list of answers are for agents and logs; people get buttons.
+	exactLine = regexp.MustCompile(`(?m)^(Exact artifact version|Exact call|Answer with one of): .*$`)
 	prefixRe  = regexp.MustCompile(`^(Artifact approval|Artifact choice approval|Approval) [0-9a-f]{32}: `)
 	escRe     = regexp.MustCompile(`^Escalation [a-z_]+ on (task|quota key) [^\n:]*?: `)
 	blankRe   = regexp.MustCompile(`\n{3,}`)

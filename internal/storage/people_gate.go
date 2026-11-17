@@ -416,14 +416,9 @@ func readTopic(ctx context.Context, q querier, company, id string) (Topic, error
 	return t, err
 }
 
-// openItemsSQL counts a topic's items that still wait for people: pending approvals, open questions and
-// escalations, proposed decisions, tasks in review. Replaced rows never wait.
-const openItemsSQL = `SELECT count(*) FROM people_topic_items i WHERE i.company_id=? AND i.topic_id=? AND i.state='open' AND (
-	(i.kind='approval' AND EXISTS(SELECT 1 FROM approvals a WHERE a.company_id=i.company_id AND a.id=i.ref_id AND a.status='PENDING'))
-	OR (i.kind IN ('question','escalation') AND EXISTS(SELECT 1 FROM messages m WHERE m.company_id=i.company_id AND m.id=i.ref_id AND m.status IN ('PENDING','UNREAD','ESCALATED')))
-	OR (i.kind='escalation' AND EXISTS(SELECT 1 FROM escalations e WHERE e.company_id=i.company_id AND e.message_id=i.ref_id AND e.status='open'))
-	OR (i.kind='decision' AND EXISTS(SELECT 1 FROM decisions d WHERE d.company_id=i.company_id AND d.id=i.ref_id AND d.status IN ('proposed','under_discussion')))
-	OR (i.kind='review' AND EXISTS(SELECT 1 FROM tasks t WHERE t.company_id=i.company_id AND t.id=i.ref_id AND t.status='IN_REVIEW')))`
+// openItemsSQL counts a topic's items that still wait for people (waitingItemSQL). Replaced and settled rows never
+// wait.
+const openItemsSQL = `SELECT count(*) FROM people_topic_items i WHERE i.company_id=? AND i.topic_id=? AND ` + waitingItemSQL
 
 func topicOpenTx(ctx context.Context, tx *Tx, id string) (bool, error) {
 	var n int

@@ -125,14 +125,24 @@ func openEscalation(ctx context.Context, tx *Tx, reason string, answers []string
 		w.Target = "owner"
 	}
 	id := protocol.ID()
+	lang, key := peopleLanguageTx(ctx, tx), "agent:"+t.Assignee+":"+reason
+	review := t.Status == "IN_REVIEW" && t.Reviewer != "" && t.Assignee == t.Reviewer
+	// The topic of this agent's escalations of the reason already holds another task's: its title names the group,
+	// and this item's note names the task (owner-items-one-source 3.1).
+	var grouped bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM people_topics tp JOIN people_topic_items i ON i.company_id=tp.company_id AND i.topic_id=tp.id
+		WHERE tp.company_id=? AND tp.project_id=? AND tp.key=? AND i.kind='escalation' AND `+waitingItemSQL+`
+		AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.company_id=i.company_id AND m.id=i.ref_id AND m.task_id=?))`, tx.company, t.ProjectID, key, t.ID).Scan(&grouped); err != nil {
+		return err
+	}
 	body := fmt.Sprintf("Escalation %s on task %s (%s): %s\nAnswer with one of: %s.", reason, t.ID, t.Title, w.Summary, strings.Join(answers, ", "))
 	m, err := sendMessageTx(ctx, tx, messaging.Send{ProjectID: t.ProjectID, TaskID: t.ID, Sender: "factory", Recipient: w.Target, MessageType: "question", Body: body,
 		Questions:      []messaging.Question{{ID: EscalationAnswerID, Type: "single_choice", Question: "How should task " + t.ID + " continue?", Options: answers}},
 		TimeoutSeconds: escalationTimeout, RequestID: "escalation-" + id, UpChain: true,
 		// Core's own escalation: briefed from its template, one topic per agent and reason (people-topics D8, D4).
-		Brief:  escalationBrief(peopleLanguageTx(ctx, tx), reason, t.Assignee, t.Title, w.Summary, answers),
-		Note:   &messaging.ItemNote{What: t.Title},
-		People: messaging.PeopleRef{Path: messaging.PathCore, Kind: "escalation", Key: "agent:" + t.Assignee + ":" + reason}})
+		Brief:  escalationBrief(lang, reason, t.Assignee, t.Title, w.Summary, answers, review, grouped),
+		Note:   &messaging.ItemNote{What: t.Title + ": " + escalationCause(lang, reason, review)},
+		People: messaging.PeopleRef{Path: messaging.PathCore, Kind: "escalation", Key: key}})
 	if err != nil {
 		return err
 	}

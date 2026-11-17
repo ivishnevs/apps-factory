@@ -101,13 +101,31 @@ func (s *Store) ActiveAlerts(ctx context.Context, company string) ([]ActiveAlert
 		return nil, err
 	}
 	defer rows.Close()
-	out := []ActiveAlert{}
+	var all []ActiveAlert
 	for rows.Next() {
 		var a ActiveAlert
 		if err = rows.Scan(&a.ID, &a.Kind, &a.TaskID, &a.TaskTitle, &a.ProjectID, &a.Assignee, &a.RefID, &a.Summary, &a.Since); err != nil {
 			return nil, err
 		}
-		out = append(out, a)
+		all = append(all, a)
 	}
-	return out, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// A task with an item waiting for a person is asked about there, not also alerted (owner-items-one-source 1.3).
+	out := []ActiveAlert{}
+	if len(all) == 0 {
+		return out, nil
+	}
+	waiting, err := s.waitingTasks(ctx, company)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range all {
+		if !waiting[a.TaskID] {
+			out = append(out, a)
+		}
+	}
+	return out, nil
 }

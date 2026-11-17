@@ -632,7 +632,11 @@ func saveTaskNote(ctx context.Context, tx *Tx, t *tasks.Task, kind, note string)
 	if n != 1 {
 		return ErrConflict
 	}
-	return entityEventNote(ctx, tx, kind, t.ProjectID, t.ID, t, note)
+	if err = entityEventNote(ctx, tx, kind, t.ProjectID, t.ID, t, note); err != nil {
+		return err
+	}
+	// A person's review is an item of their people topics (owner-items-one-source).
+	return syncReviewItemTx(ctx, tx, *t)
 }
 func (s *Store) UpdateTask(ctx context.Context, company, id string, in tasks.Update) (tasks.Task, error) {
 	return mutate(ctx, s, company, "task.update:"+id, in.RequestID, in, func(tx *Tx) (tasks.Task, error) {

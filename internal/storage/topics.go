@@ -21,7 +21,7 @@ type TopicItem struct {
 	Version   string             `json:"version,omitempty"`
 	Note      messaging.ItemNote `json:"note"`
 	BroughtBy string             `json:"brought_by,omitempty"`
-	State     string             `json:"state"` // open | replaced | update (whether it still waits comes from its object)
+	State     string             `json:"state"` // open | replaced | update | settled (whether it still waits comes from its object)
 	AddedAt   int64              `json:"added_at"`
 }
 
@@ -74,6 +74,7 @@ type TaskRef struct {
 type ItemView struct {
 	TopicItem
 	Waits    bool                `json:"waits"`             // it waits for people
+	Person   string              `json:"person,omitempty"`  // who it waits for: "owner" or "member:USER" (owner-items-one-source)
 	Status   string              `json:"status"`            // its object's status
 	Actions  []string            `json:"actions,omitempty"` // what people can do (people-topics D5)
 	Approval *approvals.Approval `json:"approval,omitempty"`
@@ -202,11 +203,20 @@ func (s *Store) PeopleTopic(ctx context.Context, company, id string) (TopicView,
 			iv.Task = addTask(it.Ref)
 			if iv.Task != nil {
 				iv.Status = iv.Task.Status
-				iv.Waits = it.State == "open" && iv.Task.Status == "IN_REVIEW"
+				// A review waits for its person reviewer while no park holds the task (owner-items-one-source).
+				if tk, err := s.Task(ctx, company, it.Ref); err == nil && it.State == "open" {
+					person, ok := personReview(tk)
+					var parked bool
+					_ = s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM task_parks WHERE company_id=? AND task_id=? AND status='active')", company, tk.ID).Scan(&parked)
+					iv.Waits, iv.Person = ok && !parked, person
+				}
 				if iv.Waits {
 					iv.Actions = []string{"accept", "return"}
 				}
 			}
+		}
+		if iv.Waits && iv.Person == "" {
+			iv.Person = "owner" // questions, approvals, decisions and escalations reach the owner's people topics
 		}
 		if iv.Waits {
 			v.Waiting++

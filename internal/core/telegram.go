@@ -499,6 +499,26 @@ func (b telegramBackend) questionOf(ctx context.Context, item storage.FeedItem) 
 	return m, true
 }
 
+// itemCause reports whether an attention row is about a cause that has a people topic item: a park or escalation on
+// a topic's question, approval or decision, a message of a topic, or work submitted for a person's review.
+func (b telegramBackend) itemCause(ctx context.Context, f storage.FeedItem) bool {
+	var refs []string
+	switch {
+	case strings.HasPrefix(f.Type, "task.parked."), strings.HasPrefix(f.Type, "task.escalation."):
+		refs = []string{f.Ref}
+	case strings.HasPrefix(f.Type, "message."):
+		refs = []string{f.EntityID, f.Ref}
+	case f.Type == "task.submitted":
+		refs = []string{f.EntityID}
+	}
+	for _, r := range refs {
+		if in, err := b.c.Store.InPeopleTopic(ctx, b.company, r); err == nil && in {
+			return true
+		}
+	}
+	return false
+}
+
 // questionItem is how a question to the owner reads in the chat: who asks, where, and the question.
 func (b telegramBackend) questionItem(m messaging.Message) (string, telegram.Target) {
 	t := telegram.Target{Question: m.ID, Agent: m.Sender, Project: m.ProjectID, Label: b.label(m.Sender)}
@@ -538,6 +558,11 @@ func (b telegramBackend) Attention(ctx context.Context, after int64) ([]telegram
 			continue
 		case "topic.item_replaced":
 			out = append(out, telegram.Item{Seq: f.Sequence, Retire: f.Ref, RetireNote: "replaced by " + f.Summary + ": decide the new version"})
+			continue
+		}
+		if b.itemCause(ctx, f) {
+			// One cause, one message (owner-items-one-source 2.5): it reaches people as its topic item.
+			out = append(out, telegram.Item{Seq: f.Sequence})
 			continue
 		}
 		where := strings.Trim(f.ProjectID+"/"+f.TaskID, "/")

@@ -253,13 +253,22 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 		for _, snap := range snaps {
 			verdicts[snap.Task.ID] = c.evaluateIn(company, snap)
 		}
+		items, err := c.Store.PersonItems(ctx, company)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
 		out := make([]taskView, 0, len(list))
 		for _, t := range list {
 			v, ok := verdicts[t.ID]
 			if !ok { // terminal
 				v = tasks.Evaluate(tasks.Snapshot{Task: t})
 			}
-			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits})
+			pi := items[t.ID]
+			if pi == nil {
+				pi = []storage.PersonItem{}
+			}
+			out = append(out, taskView{Task: t, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits, PersonItems: pi})
 		}
 		write(w, out)
 	})
@@ -273,7 +282,12 @@ func (c *Core) taskRoutes(m *http.ServeMux) {
 			return
 		}
 		v := c.evaluateIn(c.companyFrom(r), snap)
-		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits})
+		items, err := c.Store.TaskPersonItems(r.Context(), c.companyFrom(r), snap.Task.ID)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		write(w, taskView{Task: snap.Task, Reason: v.Reason, Clearer: v.Clearer, Wait: v.Wait, Tie: v.Tie, Awaits: v.Awaits, PersonItems: items})
 	})
 	// Diagnostics only: why a task does not run now and who clears it (trigger-log-scheduling D3).
 	m.HandleFunc("GET /tasks/{id}/why", func(w http.ResponseWriter, r *http.Request) {
@@ -568,6 +582,9 @@ type taskView struct {
 	Tie *tasks.Tie `json:"tie,omitempty"`
 	// Awaits is the decision or message it (or the dependency it waits for) is parked on (decision-waits).
 	Awaits *tasks.Awaits `json:"awaits,omitempty"`
+	// PersonItems are the task's open items that wait for a person (owner-items-one-source): "this task needs you"
+	// means exactly one of them waits for you.
+	PersonItems []storage.PersonItem `json:"person_items"`
 }
 
 // needs fills what the assignee's runs need from a node (node-agent D3) from the agent catalog.
@@ -668,6 +685,9 @@ func (c *Core) Schedule(ctx context.Context) error {
 
 func (c *Core) scheduleCompany(ctx context.Context, company string) error {
 	if err := c.Store.ReconcileArtifactTasks(ctx, company); err != nil {
+		return err
+	}
+	if err := c.Store.SyncReviewItems(ctx, company); err != nil {
 		return err
 	}
 	ready, err := c.Store.Tasks(ctx, company, "", "READY")
