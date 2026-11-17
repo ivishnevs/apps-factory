@@ -103,7 +103,17 @@ holder's approval (choosing an option; for one version, approving it) needs `cit
   button per option (Approve for one version) plus Changes… and Reject, a reply asks for changes and "reject:
   <reason>" rejects it (artifact-choice-approvals); a tool call's approval is approved with its button and rejected
   by replying with the reason; a replaced version's message loses its buttons.
-- People never see ids, hashes or JSON: messages to people carry `text`, their body without technical lines.
+- People never see ids, hashes or JSON: messages to people carry `text`, their body without technical lines (an
+  escalation's "Answer with one of" line included).
+- Reviews (owner-items-one-source): a task in a person's review (no agent reviewer) has a `review` item in that
+  person's topics, briefed by Core; it settles when the review ends, and the scheduler's sweep adds missing items and
+  settles stale ones. Each item says whom it waits for (`person`: `owner` or `member:USER`).
+- One cause, one item (owner-items-one-source): every task read carries `person_items`, the task's waiting items;
+  every surface (web, TUI, Telegram) renders them and derives nothing. Telegram sends a raw attention line only for
+  rows with no item (alerts, node rows), and `GET /alerts` leaves out tasks that have an open item.
+- Escalation titles: "<task title>: <cause>" (the cause names the review when the reviewer's run stopped); a topic
+  that groups another task's escalation of the same agent and reason is titled "<agent>: <group>", each item naming
+  its task. A test checks that every escalation reason and answer has its people texts.
 
 ## HTTP
 

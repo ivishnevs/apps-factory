@@ -604,6 +604,18 @@ are shown in plain words; IDs appear only where a person needs them.
   as the page (`inbox/model.ts`), so it never shows a count the page does not list. A question card offers **I'll send
   details**: it stays open as "details promised" until the details are sent (**Send details**) or the promise is
   withdrawn (**Withdraw promise**); its task waits meanwhile.
+- **Where "needs you" comes from** (owner-items-one-source): Core computes what is asked of a person once, as items
+  of their people topics — questions, approvals, decisions, escalations, and reviews where a person is the reviewer
+  (a task entering such a review gets a `review` item, settled when the review ends). Every task read carries
+  `person_items` (topic, kind, ref, person `owner` or `member:USER`, title, actions). The Inbox lists the open topics
+  with an item for you, and **Reviews for you** lists Core's review items for you (a topic holding only those); the
+  task page's **Waiting for your answer** renders the task's topics with the Inbox's own card (same brief, text and
+  buttons; an answer there is the same answer) and an **Open in Inbox** link to `#topic-<id>`; Home's Needs you,
+  the "need you" stat, the board's You view, the project counts, the task headline ("Waiting for your review",
+  "Waiting for your answer: <item>") and Accept / Send back all read `person_items`. Nothing derives "needs you"
+  from a clearer, a verdict or raw messages. Alerts stay their own lane (`GET /alerts`); a task with an open item is
+  not also alerted. An escalation's title names the task and the cause ("Audit and onboard: review can't start");
+  people never see the raw escalation body.
 - **Projects** `/c/{company}/projects` and a project's page: a paused project carries a Paused badge in the list; its
   page shows a banner with the pause's reason, who paused it and when, and Resume (owners and admins), or a Pause
   button while it runs (project-pause-visible). Nodes & control still lists every pause.
@@ -631,7 +643,8 @@ are shown in plain words; IDs appear only where a person needs them.
   the file viewer say "Option “V1” of a choice; “V2” was chosen", with the Not chosen badge. Telegram sends one
   button per option plus Changes… and Reject (Approve, Changes… and Reject for one version); a reply asks for
   changes, "reject: <reason>" rejects (all). A tool call's approval keeps Approve, and a reply rejects it. A task's page shows
-  its open question or approval the same way under Waiting for your answer ("Open in inbox" stays in the status).
+  its open items under Waiting for your answer with the Inbox's topic card and an Open in Inbox link (the status's
+  Open in Inbox goes to the same topic).
   A reviewed task whose artifact waits for the decision shows "Awaiting your approval" (approval-gates-merge:
   `parked:awaiting_approval`; it is merged and finished once approved, goes back to its agent on changes, and its
   pull request is closed unmerged on a rejection); the TUI says "awaiting approval" and Telegram's `/status` lists
