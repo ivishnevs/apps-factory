@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useOverview } from "@/lib/api/client";
-import type { Overview, QueuedReason, Run, Task } from "@/lib/api/types";
+import type { Overview, PersonItem, QueuedReason, Run, Task } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 
 // useHydrated is false on the server and while hydrating, then true. Screens render cached data only once
@@ -117,15 +117,15 @@ export function columnOf(t: Task, runs: ReturnType<typeof runsByTask>): ColumnKe
 // needsAction: the task will not move until someone acts (task-board-ux 3.5) — you or another person, its node
 // or the setup — as opposed to waiting its turn (dependencies, subtasks, a timer, a question to an agent).
 // One classification for the board, the phone bar and Home.
-export function needsAction(t: { reason?: string; status?: string; clearer?: { who: string } }): boolean {
+export function needsAction(t: { reason?: string; status?: string; clearer?: { who: string }; person_items?: PersonItem[] }): boolean {
   const r = t.reason ?? "", who = t.clearer?.who ?? "";
   if (isTerminal(t.status ?? "") || r === "backlog" || r === "terminal") return false;
-  if (needsOwner(t)) return true;
+  if ((t.person_items ?? []).length > 0) return true; // a person is asked (Core's items)
   if (t.status === "BLOCKED" || t.status === "REWORK") return true;
   if (["unassigned", "pinned_node_unavailable", "no_capable_node", "node_disk_critical", "no_ready_node", "secret_missing", "artifacts"].includes(r)) return true;
   if (r.startsWith("paused:")) return who !== "time";
   if (r === "parked:escalation" || r === "parked:inspect" || r === "parked:block") return true;
-  if (r === "parked:ask" || r === "parked:decision" || r === "parked:message" || r === "parked:awaiting_approval") return who === "owner" || who.startsWith("member:") || who.startsWith("person:");
+  if (r === "parked:ask" || r === "parked:decision" || r === "parked:message" || r === "parked:awaiting_approval") return who.startsWith("member:") || who.startsWith("person:");
   return false;
 }
 
@@ -144,9 +144,16 @@ export function reasonLabel(reason: string): string {
   if (reason.startsWith("parked:")) return `Parked: ${reason.slice(7)}`;
   return reason.replace(/_/g, " ");
 }
-// needsOwner: the task waits on the owner now (a backlog task merely could be released, so it does not count).
-export const needsOwner = (t: { clearer?: { who: string }; reason?: string; status?: string }) =>
-  t.clearer?.who === "owner" && t.reason !== "backlog" && t.reason !== "terminal" && !isTerminal(t.status ?? "");
+// owner-items-one-source: what a task asks of you comes only from Core's person items. An item for "owner" is the
+// people's (the Inbox lists it to whoever is signed in); an item for "member:USER" is that person's (mine).
+export const forYou = (i: Pick<PersonItem, "person">, mine = "") => i.person === "owner" || (!!mine && i.person === mine);
+// yourItems: the task's open items that wait for you (none on a closed task).
+export const yourItems = (t: { person_items?: PersonItem[]; status?: string }, mine = ""): PersonItem[] =>
+  isTerminal(t.status ?? "") ? [] : (t.person_items ?? []).filter((i) => forYou(i, mine));
+// needsYou: the task has an item waiting for you.
+export const needsYou = (t: { person_items?: PersonItem[]; status?: string }, mine = "") => yourItems(t, mine).length > 0;
+// yourReview: the task's open item is a review that waits for you (its Accept and Send back).
+export const yourReview = (t: { person_items?: PersonItem[]; status?: string }, mine = "") => yourItems(t, mine).some((i) => i.kind === "review");
 export const clearerName = (who?: string) => (who === "owner" ? "you" : who?.startsWith("run:") ? who.slice(4) : who ?? "");
 // showWhy: the reason line is worth a card's space (not for finished, backlog or plainly running tasks).
 export const showWhy = (t: Task) => !isTerminal(t.status) && !["terminal", "runnable", "backlog", ""].includes(t.reason);

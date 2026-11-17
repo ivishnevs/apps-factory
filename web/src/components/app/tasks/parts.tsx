@@ -5,11 +5,11 @@ import Link from "@/components/app/link";
 import { StatusBadge, toneClass } from "@/components/app/status";
 import type { FactoryNode, QueuedReason, Run, Task } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAction, needsOwner, queuedLabel, queuedLine, showWhy, since } from "./model";
+import { agentHue, columns, type ColumnKey, elapsed, heldBack, initials, needsAction, needsYou, queuedLabel, queuedLine, showWhy, since } from "./model";
 import { humanize, type Lookup } from "@/lib/humanize";
 import { displayId } from "@/lib/format";
 import { usePrefetchTask } from "@/lib/api/client";
-import { assigneeName, isPerson, personUser, useMembers } from "./people";
+import { assigneeName, isPerson, personUser, useMembers, useMine } from "./people";
 
 export function AgentAvatar({ name, size = "sm", className }: { name?: string; size?: "xs" | "sm" | "md"; className?: string }) {
   const dims = { xs: "size-5 text-[9px]", sm: "size-6 text-[10px]", md: "size-9 text-xs" }[size];
@@ -53,10 +53,11 @@ export function PriorityMark({ value, showValue = true, className }: { value: nu
 
 // WhyLine: why a task is where it is, in product words (lib/humanize); amber when it waits on the owner.
 export function WhyLine({ task, look, now, compact, className }: {
-  task: Pick<Task, "reason" | "clearer" | "status">; look?: Lookup; now?: number; compact?: boolean; className?: string;
+  task: Pick<Task, "reason" | "clearer" | "status" | "person_items">; look?: Lookup; now?: number; compact?: boolean; className?: string;
 }) {
-  const h = humanize(task, look, now);
-  const you = needsOwner(task) && h.you;
+  const mine = useMine();
+  const h = humanize(task, look, now, mine);
+  const you = h.you;
   const Icon = you ? Hand : h.live ? Loader2 : Clock;
   return (
     <p className={cn("flex min-w-0 items-start gap-1.5 text-xs leading-5", you ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground", className)}>
@@ -83,7 +84,8 @@ export function TaskCard({ task, project, now, column, look, run, nodes, queued,
   const held = heldBack(queued) && queued ? queuedLine(queued, (id) => nodes?.find((n) => n.node_id === id)?.name ?? id) : "";
   const col = column && columns.find((c) => c.key === column);
   const badge = !col && ["CANCELLED", "BLOCKED", "REWORK"].includes(task.status);
-  const yours = needsOwner(task), action = !yours && needsAction(task);
+  const mine = useMine();
+  const yours = needsYou(task, mine), action = !yours && needsAction(task);
   // task-duplicate-warnings: an unanswered warning that another open task covers the same work.
   const dup = task.possible_duplicates?.length ?? 0;
   const node = run?.node_id ? nodes?.find((n) => n.node_id === run.node_id)?.name ?? run.node_id.slice(0, 8) : "";

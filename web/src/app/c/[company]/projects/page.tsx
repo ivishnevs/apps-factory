@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, LoadingRows, PageHeader } from "@/components/ap
 import { NewProject } from "@/components/app/project/new-project";
 import { PausedBadge, projectPause } from "@/components/app/project/pause";
 import { summarize } from "@/components/app/project/summary";
+import { useMine } from "@/components/app/tasks/people";
 import { columns, since, useClock, useOverviewData } from "@/components/app/tasks/model";
 import { toneClass } from "@/components/app/status";
 import { usd } from "@/lib/format";
@@ -19,7 +20,8 @@ export default function Page() {
   const { data: ov, error, isLoading } = useOverviewData();
   const now = useClock();
   const [showArchived, setShowArchived] = useState(false);
-  const all = useMemo(() => (ov ? summarize(ov) : []), [ov]);
+  const mine = useMine();
+  const all = useMemo(() => (ov ? summarize(ov, mine) : []), [ov, mine]);
   const active = all.filter((s) => !s.project.archived).sort((a, b) => b.needsYou - a.needsYou || b.lastActivity - a.lastActivity);
   const archived = all.filter((s) => s.project.archived);
   return (

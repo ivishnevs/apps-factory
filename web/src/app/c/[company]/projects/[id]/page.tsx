@@ -13,7 +13,8 @@ import { ProjectApprovals } from "@/components/app/project/approvals";
 import { ProjectPause, projectPause } from "@/components/app/project/pause";
 import { toneClass } from "@/components/app/status";
 import { TaskCard } from "@/components/app/tasks/parts";
-import { columns, isConversation, needsOwner, useClock, useOverviewData } from "@/components/app/tasks/model";
+import { columns, isConversation, needsYou, useClock, useOverviewData } from "@/components/app/tasks/model";
+import { useMine } from "@/components/app/tasks/people";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,7 +40,8 @@ export default function Page() {
   const now = useClock();
   const teams = useTeams().data?.teams ?? [];
   const manage = canManage(useCompanyInfo().data?.role);
-  const summary = useMemo(() => (ov ? summarize(ov).find((s) => s.project.id === projectId) : undefined), [ov, projectId]);
+  const mine = useMine();
+  const summary = useMemo(() => (ov ? summarize(ov, mine).find((s) => s.project.id === projectId) : undefined), [ov, projectId, mine]);
   const look = useMemo(() => lookupFrom(ov?.tasks), [ov?.tasks]);
   const back = <Link href="/projects" className="-ml-2 mb-3 inline-flex h-10 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Projects</Link>;
   if (error && !ov) return <>{back}<ErrorState error={error} /></>;
@@ -50,7 +52,7 @@ export default function Page() {
   const setup = setupView(p, ov.nodes);
   const paused = projectPause(ov, p.id);
   const tasks = (ov.tasks as BoardTask[]).filter((t) => t.project_id === p.id && !isConversation(t));
-  const yours = tasks.filter(needsOwner);
+  const yours = tasks.filter((t) => needsYou(t, mine));
   const done = tasks.filter((t) => t.status === "DONE").sort((a, b) => b.updated_at - a.updated_at).slice(0, 5);
   const links = [
     { href: `/tasks?project=${encodeURIComponent(p.id)}`, label: "Board", icon: KanbanSquare },

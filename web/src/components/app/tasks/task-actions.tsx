@@ -13,10 +13,10 @@ import type { Action, Agent, Task } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { cn } from "@/lib/utils";
 import { Field, touchInput } from "./field";
-import { isTerminal } from "./model";
+import { isTerminal, yourReview } from "./model";
 import { useOwnerAction } from "./use-owner-action";
 import { ReviewerSelect, reviewerName, useReviewSuggestion } from "./reviewer";
-import { assigneeName, displayName, isPerson, PERSON, personSteps, useMembers, useMovesPersonTask } from "./people";
+import { assigneeName, displayName, isPerson, PERSON, personSteps, useMembers, useMine, useMovesPersonTask } from "./people";
 
 type Kind = "pause" | "resume" | "retry" | "run" | "accept" | "rework" | "cancel" | "reassign" | "reprioritize" | "direct" | "reviewer"
   | "work_start" | "work_submit" | "work_done";
@@ -40,15 +40,15 @@ const defs: Record<Kind, Def> = {
 
 // The owner's actions on a task, in the order the menu lists them, and the one worth a primary button. A person's
 // task (people-assignees) has no runs: no retry or directive; its person (or an owner) moves it instead.
-function available(t: BoardTask, failed: boolean, moves: boolean): { all: Kind[]; primary?: Kind } {
+function available(t: BoardTask, failed: boolean, moves: boolean, mine: string): { all: Kind[]; primary?: Kind } {
   if (isTerminal(t.status)) return { all: [] };
   const person = isPerson(t.assignee);
   const all: Kind[] = [];
   const steps = moves ? personSteps(t) : [];
   all.push(...steps);
   if (t.status === "BACKLOG" || t.status === "READY" && !person) all.push("run");
-  // Work in review with no agent reviewer waits for a person: accept it or send it back.
-  const yours = t.status === "IN_REVIEW" && !t.reviewer;
+  // Accept and Send back only when Core's open item of the task is a review that waits for you (owner-items-one-source).
+  const yours = yourReview(t, mine);
   if (yours) all.push("accept", "rework");
   if (t.status !== "BACKLOG" && !person) all.push("retry");
   all.push(t.paused_by ? "resume" : "pause");
@@ -101,7 +101,8 @@ export function TaskActions({ task, agents, hasOpenChildren, failed }: { task: B
   const moves = useMovesPersonTask(task);
   const people = useMembers().data;
   const nameOf = (x?: string) => assigneeName(x, people);
-  const { all, primary } = available(task, failed, moves);
+  const mine = useMine();
+  const { all, primary } = available(task, failed, moves, mine);
   if (all.length === 0) return null;
 
   const start = (k: Kind) => {

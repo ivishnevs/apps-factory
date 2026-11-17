@@ -1,12 +1,18 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { useMemo } from "react";
+import Link from "@/components/app/link";
 import { useOwnerAction } from "@/components/app/nodes/owner-action";
+import { yourItems } from "@/components/app/tasks/model";
+import { useMine } from "@/components/app/tasks/people";
 import { peopleText } from "@/lib/people-text";
-import { useOverview } from "@/lib/api/client";
-import type { Approval, Message, Overview } from "@/lib/api/types";
+import { useTopics } from "@/lib/api/client";
+import type { Approval, Message, Overview, Task } from "@/lib/api/types";
+import type { TopicView } from "@/lib/api/types-topics";
 import { ApprovalCard, answerable, MessageCard, type InboxHandlers } from "./cards";
 import { approvalDecision } from "./decide";
+import { TopicCard } from "./topic-card";
 
 // agent-questions-in-chat: the open questions and approvals of the Inbox, answerable where they matter too — in the
 // owner's chat with the project's lead and on the asking task. An answer anywhere closes the item everywhere (the
@@ -65,16 +71,27 @@ export function OpenItemCard({ item, projectName, h }: { item: OpenItem; project
     : <MessageCard msg={item.msg!} projectName={projectName} h={h} />;
 }
 
-// TaskOpenItems: the task's open question or approval on the task page, answerable in place.
-export function TaskOpenItems({ taskId, projectName }: { taskId: string; projectName?: string }) {
-  const { data: ov } = useOverview();
-  const items = useMemo(() => openItems(ov).filter((i) => itemTask(i) === taskId), [ov, taskId]);
-  const h = useOpenItemHandlers();
-  if (items.length === 0) return null;
+// TaskOpenItems (owner-items-one-source): what the task asks of you, from Core's person items only. Each item's topic
+// is rendered with the Inbox's own card (the same brief, text and actions; an answer here is the answer there) and a
+// link to it in the Inbox.
+export function TaskOpenItems({ task, projectName }: { task: Pick<Task, "id" | "status" | "person_items">; projectName?: string }) {
+  const mine = useMine();
+  const topics = useTopics();
+  const ids = useMemo(() => [...new Set(yourItems(task, mine).map((i) => i.topic))], [task, mine]);
+  const shown = ids.map((id) => topics.data?.find((t) => t.id === id)).filter((t): t is TopicView => !!t);
+  if (ids.length === 0) return null;
   return (
     <section aria-label="Waiting for your answer" className="space-y-3">
       <h2 className="text-sm font-semibold tracking-tight">Waiting for your answer</h2>
-      {items.map((i) => <OpenItemCard key={i.key} item={i} projectName={projectName} h={h} />)}
+      {shown.map((t) => (
+        <div key={t.id} className="space-y-1.5">
+          <TopicCard topic={t} projectName={projectName} />
+          <Link href={`/inbox#topic-${encodeURIComponent(t.id)}`} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+            Open in Inbox<ChevronRight aria-hidden className="size-3.5" />
+          </Link>
+        </div>
+      ))}
+      {shown.length < ids.length && !topics.error && <p className="text-xs text-muted-foreground">Loading…</p>}
     </section>
   );
 }

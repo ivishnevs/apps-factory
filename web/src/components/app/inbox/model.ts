@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { useOverview, useTopics } from "@/lib/api/client";
 import type { ActiveAlert, Approval, Message, Overview, Task } from "@/lib/api/types";
 import type { TopicView } from "@/lib/api/types-topics";
+import { forYou } from "@/components/app/tasks/model";
+import { useMine } from "@/components/app/tasks/people";
 import { answerable } from "./cards";
 
 // The Inbox's items, computed once for the page and for the nav badge (inbox-badge-parity): the badge counts exactly
@@ -50,13 +52,22 @@ export const inTopic = (r: TopicRefs, msg?: Message, ap?: Approval) =>
   !!(msg && (r.messages.has(msg.id) || (msg.topic_id && r.topics.has(msg.topic_id)) || (msg.decision_id && r.decisions.has(msg.decision_id)) || (msg.approval_id && r.approvals.has(msg.approval_id))))
   || !!(ap && (r.approvals.has(ap.id) || r.messages.has(ap.message_id)));
 
+// reviewOnly: a topic whose waiting items are all reviews for you (owner-items-one-source): it is listed in the
+// reviews lane, not again as a topic.
+const reviewOnly = (t: TopicView, mine: string) => {
+  const waiting = t.items.filter((i) => i.waits);
+  return waiting.length > 0 && waiting.every((i) => i.kind === "review" && forYou({ person: i.person ?? "owner" }, mine));
+};
+
 // Topics with something waiting for people, the most urgent first: blocking work, then the newest.
 const topicOrder = (a: TopicView, b: TopicView) => Number(!!b.blocked?.length) - Number(!!a.blocked?.length) || b.at - a.at;
 
 // inboxModel builds the Inbox from the overview and the open topics; gone hides items an action just took (restored
-// if it fails).
-export function inboxModel(ov: Overview | undefined, openTopics: TopicView[] = [], gone: Set<string> = none): InboxModel {
-  const topics = openTopics.filter((t) => t.open && !gone.has(`t:${t.id}`)).sort(topicOrder);
+// if it fails). mine: the signed-in person ("member:USER"), whose review items are theirs too.
+export function inboxModel(ov: Overview | undefined, openTopics: TopicView[] = [], gone: Set<string> = none, mine = ""): InboxModel {
+  // A topic is yours when one of its waiting items waits for you (another member's review is theirs).
+  const yours = (t: TopicView) => t.items.some((i) => i.waits && forYou({ person: i.person ?? "owner" }, mine));
+  const topics = openTopics.filter((t) => t.open && yours(t) && !gone.has(`t:${t.id}`) && !reviewOnly(t, mine)).sort(topicOrder);
   const refs = topicRefs(openTopics.filter((t) => t.open));
   const inbox = ov?.inbox ?? [];
   // A delegated approval is the delegate's until it escalates (approval-delegation).
@@ -75,9 +86,10 @@ export function inboxModel(ov: Overview | undefined, openTopics: TopicView[] = [
   const live = items.filter((i) => !gone.has(i.key) && !inTopic(refs, i.msg, i.ap));
   const decide = live.filter((i) => i.decide || !!i.msg?.decision_id).sort(order);
   const read = live.filter((i) => !i.decide && !i.msg?.decision_id).sort((a, b) => b.at - a.at);
-  // Work submitted for your review (human-review-visibility 2.3): tasks in review that wait for you.
-  const reviews = (ov?.tasks ?? []).filter((t) => t.status === "IN_REVIEW" && t.clearer?.who === "owner" && !gone.has(`r:${t.id}`) && !refs.reviews.has(t.id))
-    .sort((a, b) => b.updated_at - a.updated_at);
+  // Work submitted for your review (owner-items-one-source): Core's review items that wait for you, in topics that
+  // hold nothing else for you (a review beside a question stays in its topic's card).
+  const reviewRefs = new Set(openTopics.filter((t) => t.open && reviewOnly(t, mine)).flatMap((t) => t.items.filter((i) => i.waits).map((i) => i.ref)));
+  const reviews = (ov?.tasks ?? []).filter((t) => reviewRefs.has(t.id) && !gone.has(`r:${t.id}`)).sort((a, b) => b.updated_at - a.updated_at);
   // Active task alerts and runs to inspect (GET /alerts), newest first; an older Core sends none.
   const alerts = (ov?.alerts ?? []).filter((a) => !gone.has(`al:${a.id}`));
   return { topics, decide, read, reviews, alerts, total: topics.length + decide.length + read.length + reviews.length + alerts.length };
@@ -88,6 +100,7 @@ export function inboxModel(ov: Overview | undefined, openTopics: TopicView[] = [
 export function useInbox(gone: Set<string> = none) {
   const ov = useOverview();
   const topics = useTopics();
-  const model = useMemo(() => inboxModel(ov.data, topics.data, gone), [ov.data, topics.data, gone]);
+  const mine = useMine();
+  const model = useMemo(() => inboxModel(ov.data, topics.data, gone, mine), [ov.data, topics.data, gone, mine]);
   return { ov, topics, model, ready: !!ov.data && (!!topics.data || !!topics.error) };
 }

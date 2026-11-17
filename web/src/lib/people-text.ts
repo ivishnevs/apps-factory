@@ -7,7 +7,7 @@ export function cleanBody(body: string): string {
   // A choice approval's options list is for agents: people see the options themselves (artifact-choice-approvals).
   const choice = body.startsWith("Artifact choice approval ");
   return body
-    .replace(/^(Exact artifact version|Exact call): .*$/gm, "")
+    .replace(/^(Exact artifact version|Exact call|Answer with one of): .*$/gm, "")
     .replace(choice ? /^(Options:|\d+\. .*\([A-Za-z0-9][A-Za-z0-9_-]*@[^)\s]+\).*)$/gm : /$^/, "")
     .replace(/^(Artifact approval|Artifact choice approval|Approval) [0-9a-f]{32}: /, "")
     .replace(/^Escalation [a-z_]+ on (task|quota key) [^\n:]*?: /, "")

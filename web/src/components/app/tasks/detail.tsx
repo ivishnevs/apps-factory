@@ -11,7 +11,8 @@ import type { Comment, CommentOutcome, FeedItem, PRFacts, QueuedReason, ReviewCh
 import type { BoardTask } from "@/lib/api/types-tasks";
 import { usd, displayId } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { columns, type ColumnKey, heldBack, isTerminal, queuedLine, runCost, since } from "./model";
+import { columns, type ColumnKey, heldBack, isTerminal, queuedLine, runCost, since, yourItems } from "./model";
+import { useMine } from "./people";
 import { useConfirm } from "@/components/app/confirm";
 import { core } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -97,7 +98,8 @@ export function Header({ task, project, pr, now, actions, column }: { task: Boar
 // in product language (lib/humanize).
 export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: QueuedReason; task: Task; look?: Lookup; now?: number }) {
   const done = isTerminal(task.status);
-  const h = humanize({ ...why, status: task.status }, look, now);
+  const mine = useMine();
+  const h = humanize({ ...why, status: task.status, person_items: task.person_items }, look, now, mine);
   // A queued run explains itself with its node reason.
   const q = queued ? humanize({ reason: queued.reason, detail: queued.detail, status: task.status, tie: queued.tie }, look, now) : undefined;
   // node-ties: one wording for a task tied to a node, whatever else it waits for.
@@ -107,7 +109,8 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
   const live = h.live && !queued;
   const Icon = done ? CheckCircle2 : you ? Hand : live ? Loader2 : queued || h.queued ? Clock : CircleDot;
   const triggers = why.pending_triggers ?? [];
-  const msg = /\bm-[\w-]+/.exec(why.clearer?.action ?? "")?.[0];
+  // The item that waits for you links to its card in the Inbox (owner-items-one-source); nothing is read from the clearer.
+  const item = yourItems(task, mine)[0];
   const headline = done ? h.headline : queued ? "Waiting for a node" : h.headline;
   const detail = done ? undefined : q ? q.detail : h.detail;
   return (
@@ -149,8 +152,8 @@ export function Why({ why, queued, task, look, now }: { why: Verdict; queued?: Q
               When it runs next, it picks up {triggers.map((t) => triggerWords(t)).join(", ")}.
             </p>
           )}
-          {you && msg && (
-            <Button asChild size="sm" className="mt-3 h-10 sm:h-8"><Link href={`/inbox?m=${encodeURIComponent(msg)}`}>Open in inbox<ChevronRight /></Link></Button>
+          {you && item && (
+            <Button asChild size="sm" className="mt-3 h-10 sm:h-8"><Link href={`/inbox#topic-${encodeURIComponent(item.topic)}`}>Open in Inbox<ChevronRight /></Link></Button>
           )}
           {!done && queued && heldBack(queued) && queued.holder && task.current_run_id && (
             <ReleaseSession queued={queued} runId={task.current_run_id} />

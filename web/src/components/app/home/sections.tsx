@@ -4,7 +4,9 @@ import { format } from "date-fns";
 import { AlertTriangle, Bell, CheckCircle2, ChevronRight, CirclePause, Hand, MessageCircleQuestion, ShieldCheck } from "lucide-react";
 import Link from "@/components/app/link";
 import { toneClass } from "@/components/app/status";
-import { elapsed, isConversation, needsOwner, runCost, since } from "@/components/app/tasks/model";
+import { elapsed, isConversation, runCost, since, yourItems } from "@/components/app/tasks/model";
+import { useMine } from "@/components/app/tasks/people";
+import { peopleText } from "@/lib/people-text";
 import { cleanText, humanize, lookupFrom, taskName } from "@/lib/humanize";
 import { AgentAvatar } from "@/components/app/tasks/parts";
 import type { Agent, Message, Overview, Run } from "@/lib/api/types";
@@ -26,8 +28,14 @@ function kindOf(m: Message) {
 }
 const kindRank = (m: Message) => (m.escalation_reason ? 0 : m.approval_id ? 1 : m.message_type === "question" ? (m.blocking ? 2 : 3) : 4);
 
+// NeedsYou (owner-items-one-source): the tasks with an item waiting for you, one row each with the item's title, and
+// the open messages that are not about such a task. Nothing is derived from verdicts or clearers.
 export function NeedsYou({ ov, now }: { ov: Overview; now: number }) {
-  const items = [...ov.inbox].sort((a, b) => kindRank(a) - kindRank(b) || b.created_at - a.created_at);
+  const mine = useMine();
+  const tasks = (ov.tasks as BoardTask[]).filter((t) => !isConversation(t) && yourItems(t, mine).length > 0)
+    .sort((a, b) => b.priority - a.priority || b.updated_at - a.updated_at);
+  const asked = new Set(tasks.map((t) => t.id));
+  const items = ov.inbox.filter((m) => !m.task_id || !asked.has(m.task_id)).sort((a, b) => kindRank(a) - kindRank(b) || b.created_at - a.created_at);
   const shown = items.slice(0, 5);
   const p = ov.pending;
   const counts = [
@@ -35,8 +43,6 @@ export function NeedsYou({ ov, now }: { ov: Overview; now: number }) {
   ].filter((c) => c.n > 0);
   const pauses = ov.pauses.filter((x) => x.scope !== "company");
   const look = lookupFrom(ov.tasks);
-  const tasks = (ov.tasks as BoardTask[]).filter((t) => !isConversation(t) && needsOwner(t) && humanize(t, look).you)
-    .sort((a, b) => b.priority - a.priority || b.updated_at - a.updated_at);
   if (items.length === 0 && pauses.length === 0 && tasks.length === 0) {
     return (
       <Section title="Needs you">
@@ -67,7 +73,7 @@ export function NeedsYou({ ov, now }: { ov: Overview; now: number }) {
               <Row href={`/inbox?m=${encodeURIComponent(m.id)}`} className="items-start">
                 <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg", k.tone)}><k.icon className="size-4" aria-hidden /></span>
                 <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 text-sm leading-snug wrap-anywhere">{cleanText(m.body, look)}</span>
+                  <span className="line-clamp-2 text-sm leading-snug wrap-anywhere">{m.brief?.title || cleanText(peopleText(m), look)}</span>
                   <span className="mt-1 flex min-w-0 items-center gap-x-1.5 text-xs text-muted-foreground">
                     <span className="shrink-0 font-medium text-foreground/80">{k.label}</span>
                     <span aria-hidden>·</span><span className="shrink-0">{m.sender === "owner" ? "you" : m.sender.replace(/^agent:/, "")}</span>
@@ -85,7 +91,7 @@ export function NeedsYou({ ov, now }: { ov: Overview; now: number }) {
           <li><Row href="/inbox" className="min-h-11 justify-center text-xs font-medium text-muted-foreground">{items.length - shown.length} more in the inbox</Row></li>
         )}
         {tasks.map((t) => {
-          const h = humanize(t, look);
+          const h = humanize(t, look, now, mine);
           return (
             <li key={t.id}>
               <Row href={`/tasks/${encodeURIComponent(t.id)}`} className="items-start">
@@ -175,6 +181,10 @@ const segments: { key: string; label: string; color: string }[] = [
 export function Projects({ ov }: { ov: Overview }) {
   const conv = new Set(ov.tasks.filter((t) => isConversation(t as BoardTask)).map((t) => t.id));
   const look = lookupFrom(ov.tasks);
+  // A waiting verdict reads with its task's person items (owner-items-one-source): "you" only when one waits for you.
+  const items = new Map(ov.tasks.map((t) => [t.id, t.person_items]));
+  const mine = useMine();
+  const why = (w: Overview["status"][number]["waiting"][number]) => humanize({ ...w, person_items: items.get(w.task_id) }, look, undefined, mine);
   // archived-projects-hidden: archived projects stay on the Projects page (folded), not on Home.
   const active = ov.status.filter((s) => !s.project.archived);
   return (
@@ -192,7 +202,7 @@ export function Projects({ ov }: { ov: Overview }) {
             const open = total - (s.tasks.DONE ?? 0) - (s.tasks.CANCELLED ?? 0);
             // Whatever waits on the owner first.
             const waiting = s.waiting.filter((w) => w.reason !== "backlog" && !conv.has(w.task_id))
-              .sort((a, b) => Number(humanize(b).you) - Number(humanize(a).you));
+              .sort((a, b) => Number(why(b).you) - Number(why(a).you));
             const live = s.runs.filter((r) => r.status !== "QUEUED" && r.task_id && !conv.has(r.task_id)).length;
             return (
               <li key={s.project.id}>
@@ -216,7 +226,7 @@ export function Projects({ ov }: { ov: Overview }) {
                   {waiting.length > 0 && (
                     <ul className="mt-3 space-y-1.5">
                       {waiting.slice(0, 3).map((w) => {
-                        const h = humanize(w, look);
+                        const h = why(w);
                         return (
                           <li key={w.task_id} className="flex min-w-0 items-baseline gap-2 text-xs">
                             <span aria-hidden className={cn("size-1.5 shrink-0 translate-y-[-1px] self-center rounded-full", h.you ? "bg-amber-500" : "bg-muted-foreground/40")} />

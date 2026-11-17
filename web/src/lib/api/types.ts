@@ -51,6 +51,15 @@ export interface Task {
   wait_cycle_at?: number;
   // Added by the overview: the why reason, who clears it and the task's tie to a node.
   reason: string; clearer: Clearer; wait?: Wait; tie?: Tie; awaits?: Awaits;
+  // owner-items-one-source: Core's open items of the task that wait for a person. "This task needs you" is exactly
+  // one of them waiting for you; the web derives no such item of its own.
+  person_items?: PersonItem[];
+}
+
+// PersonItem mirrors internal/storage PersonItem: an open item of a people topic about the task, the person it waits
+// for ("owner" or "member:USER"), its title in people words and its actions.
+export interface PersonItem {
+  topic: string; kind: "approval" | "question" | "escalation" | "decision" | "review"; ref: string; person: string; title: string; actions?: string[];
 }
 
 // DuplicateWarning is tasks.DuplicateWarning: another open task that may cover the same work, and why.

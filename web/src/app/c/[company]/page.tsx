@@ -4,7 +4,8 @@ import { CircleDollarSign, Hand, KanbanSquare, Play, Server } from "lucide-react
 import { Stat } from "@/components/app/home/card";
 import { LiveRuns, NeedsYou, Nodes, Projects, Team } from "@/components/app/home/sections";
 import { ErrorState } from "@/components/app/page";
-import { isConversation, isTerminal, needsOwner, useClock, useOverviewData } from "@/components/app/tasks/model";
+import { isConversation, isTerminal, needsYou, useClock, useOverviewData } from "@/components/app/tasks/model";
+import { useMine } from "@/components/app/tasks/people";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SetupBanner } from "@/components/app/team/builder";
 import { useCompanyInfo, useMeta, useSetup } from "@/lib/api/client";
@@ -71,8 +72,9 @@ function Stats({ ov }: { ov: Overview }) {
   const runs = Object.values(ov.live_runs ?? {});
   const running = runs.filter((r) => r.status === "RUNNING" || r.status === "CANCELLING").length;
   const queued = runs.filter((r) => r.status === "QUEUED" || r.status === "CLAIMED").length;
+  const mine = useMine();
   const work = (ov.tasks as BoardTask[]).filter((t) => !isConversation(t) && !isTerminal(t.status));
-  const forYou = work.filter(needsOwner).length;
+  const forYou = work.filter((t) => needsYou(t, mine)).length;
   const online = ov.nodes.filter((n) => n.online);
   const slots = online.reduce((n, x) => n + (x.slots ?? 0), 0), used = online.reduce((n, x) => n + x.in_use.runs, 0);
   return (

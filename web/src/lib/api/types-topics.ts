@@ -15,8 +15,10 @@ export type TopicItemKind = "approval" | "question" | "escalation" | "decision" 
 export interface ItemView {
   kind: TopicItemKind; ref: string; lineage?: string; version?: string; note: ItemNote; brought_by?: string;
   // open: current; replaced: a newer version of its line came; update: a notification attached to the topic.
-  state: "open" | "replaced" | "update"; added_at: number;
-  waits: boolean; status: string; actions?: string[];
+  // settled: a review that ended (owner-items-one-source).
+  state: "open" | "replaced" | "update" | "settled"; added_at: number;
+  // person: who it waits for, "owner" or "member:USER" (owner-items-one-source).
+  waits: boolean; status: string; actions?: string[]; person?: string;
   approval?: Approval; message?: Message; decision?: Decision; task?: TaskRef;
 }
 

@@ -7,7 +7,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { mountBoard, publishBoard, savedOpenColumns, saveOpenColumns } from "@/components/app/tasks/board-store";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page";
 import { toneClass } from "@/components/app/status";
-import { columnOf, columns, isConversation, needsAction, needsOwner, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
+import { columnOf, columns, isConversation, needsAction, needsYou, projectName, runsByTask, useClock, useOverviewData, type ColumnKey } from "@/components/app/tasks/model";
 import { NewProject } from "@/components/app/project/new-project";
 import { NewTask } from "@/components/app/tasks/new-task";
 import { SetupNotice } from "@/components/app/project/setup-notice";
@@ -42,7 +42,7 @@ function saveProject(company: string, v: string | null) {
 }
 
 // Yours first, then what needs someone else to act, then by priority, then the most recently changed.
-const order = (a: Task, b: Task) => Number(needsOwner(b)) - Number(needsOwner(a)) || Number(needsAction(b)) - Number(needsAction(a))
+const order = (a: Task, b: Task, mine: string) => Number(needsYou(b, mine)) - Number(needsYou(a, mine)) || Number(needsAction(b)) - Number(needsAction(a))
   || b.priority - a.priority || b.updated_at - a.updated_at;
 
 export default function Page() {
@@ -124,7 +124,7 @@ function Tasks() {
       .filter((t) => !woken || !!t.wait_cycle_at)
       .filter((t) => !needle || [t.id, t.title, t.description, t.assignee].some((f) => f?.toLowerCase().includes(needle)))
       .map((t) => ({ task: t, col: columnOf(t, runs) }))
-      .sort((a, b) => order(a.task, b.task));
+      .sort((a, b) => order(a.task, b.task, mine));
     const byCol = new Map<ColumnKey, Task[]>(columns.map((c) => [c.key, []]));
     for (const f of filtered) byCol.get(f.col)!.push(f.task);
     return { filtered, byCol };
@@ -133,8 +133,8 @@ function Tasks() {
   useEffect(() => { publishBoard(columns.map((c) => ({ name: c.name, ids: (byCol.get(c.key) ?? []).map((t) => t.id) }))); }, [byCol]);
 
   const count = (v: View) => v === "open" ? filtered.filter((f) => f.col !== "done").length
-    : v === "you" ? filtered.filter((f) => f.col !== "done" && needsOwner(f.task)).length : byCol.get(v)?.length ?? 0;
-  const list = filtered.filter((f) => view === "open" ? f.col !== "done" : view === "you" ? f.col !== "done" && needsOwner(f.task) : f.col === view);
+    : v === "you" ? filtered.filter((f) => f.col !== "done" && needsYou(f.task, mine)).length : byCol.get(v)?.length ?? 0;
+  const list = filtered.filter((f) => view === "open" ? f.col !== "done" : view === "you" ? f.col !== "done" && needsYou(f.task, mine) : f.col === view);
   const filteredOut = project !== ALL || assignee !== ALL || team !== ALL || woken || q.trim() !== "";
   // The wait-cycle filter is offered only while an open task was woken out of a cycle (or the filter is on).
   const cycled = ((ov?.tasks ?? []) as BoardTask[]).filter((t) => !!t.wait_cycle_at && !isConversation(t) && (project === ALL || t.project_id === project)).length;

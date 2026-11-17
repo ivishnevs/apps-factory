@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { displayId } from "./format";
-import type { Awaits, Tie, Wait } from "./api/types";
+import type { Awaits, PersonItem, Tie, Wait } from "./api/types";
 
 // Core explains why a task does not run as a CLI-shaped verdict (internal/tasks/state.go Evaluate and park):
 // a reason, a detail with raw IDs and statuses, and a clearer {who, action} whose action is often a
@@ -43,6 +43,28 @@ export interface Verdictish {
   wait?: Wait;
   tie?: Tie;
   awaits?: Awaits;
+  // Core's open items of the task that wait for a person (owner-items-one-source): the only source of "you".
+  person_items?: PersonItem[];
+}
+
+// itemWords: what an item that waits for you asks, in words (owner-items-one-source): the review, or the item's title.
+function itemWords(it: PersonItem, more: number): Partial<HumanWhy> & { headline: string } {
+  const also = more > 0 ? ` (+${more} more)` : "";
+  const you: Party = { label: "You", you: true, href: `/inbox#topic-${it.topic}` };
+  switch (it.kind) {
+    case "review":
+      return { headline: "Waiting for your review", brief: `Accept or send back${also}`, detail: "The work is submitted and waits for you to review it.", who: you,
+        next: "Accept it or send it back here or in your inbox." };
+    case "approval":
+      return { headline: `Awaiting your approval: ${it.title}`, label: "Awaiting your approval", brief: `Decide here or in the inbox${also}`, who: you,
+        next: "Decide it here or in your inbox; it is the same card." };
+    case "decision":
+      return { headline: `Waits for your decision: ${it.title}`, label: "Waits for your decision", brief: `Decide here or in the inbox${also}`, who: you,
+        next: "Decide it here or in your inbox; it is the same card." };
+    default:
+      return { headline: `Waiting for your answer: ${it.title}`, label: "Waiting for your answer", brief: `Answer here or in the inbox${also}`, who: you,
+        next: "Answer it here or in your inbox; it is the same card." };
+  }
 }
 
 // decisionHref is where a decision is decided: its Inbox notice (decision-waits).
@@ -151,14 +173,17 @@ const when = (t: Date, now?: number) => {
 const scopeWords = (scope: string) => (scope === "quota_key" ? "subscription" : scope.replace(/_/g, " "));
 
 // humanize explains a verdict (or a task's reason and clearer) in product language. now (Unix seconds)
-// makes backoff times relative.
-export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
+// makes backoff times relative. It waits on you only when one of Core's person items waits for you (mine: the
+// signed-in person, "member:USER"; items for "owner" are the people's); a clearer naming the owner is not enough.
+export function humanize(v: Verdictish, look?: Lookup, now?: number, mine = ""): HumanWhy {
   const reason = v.reason ?? "";
   const who = v.clearer?.who ?? "";
   const action = v.clearer?.action ?? "";
   const detail = v.detail ?? "";
-  const p = party(who, look);
-  const base: HumanWhy = { headline: "", label: "", who: p, you: who === "owner", live: false, queued: false };
+  const yours = (v.person_items ?? []).filter((i) => i.person === "owner" || (!!mine && i.person === mine));
+  // Without an item the owner is named, not addressed: "you" belongs to the items.
+  const p = who === "owner" ? undefined : party(who, look);
+  const base: HumanWhy = { headline: "", label: "", who: p, you: yours.length > 0, live: false, queued: false };
   const out = (h: Partial<HumanWhy> & { headline: string }): HumanWhy => ({ ...base, label: h.headline, ...h });
   const note = capital(cleanText(detail, look)) || undefined;
 
@@ -167,6 +192,10 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
   }
   if (reason === "backlog") {
     return out({ headline: "In backlog", brief: "Not started yet", detail: "It is not released to the team yet.", next: "Start it with Run now when it should be worked on.", you: false });
+  }
+  if (yours.length > 0) {
+    const w = itemWords(yours.find((i) => i.kind === "review") ?? yours[0], yours.length - 1);
+    return out({ ...w, detail: w.detail ?? (note || undefined) });
   }
   if (reason === "unassigned") {
     const stray = /^assignee (\S+) is not a configured agent/.exec(detail)?.[1];
@@ -202,37 +231,32 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
           next: `It continues when ${n === 1 ? "the subtask closes" : "they close"}. ${release(v.status)} in the task menu releases it early.` });
       }
       case "escalation":
-        return out({ headline: base.you ? "Escalated to you" : `Escalated to ${p?.label ?? "a lead"}`, brief: base.you ? "Answer in the inbox" : undefined, detail: note,
-          next: base.you ? "Answer the escalation in your inbox." : "It continues once the escalation is answered." });
+        return out({ headline: p ? `Escalated to ${p.label}` : "Escalated", detail: note, next: "It continues once the escalation is answered." });
       case "inspect":
-        return out({ headline: "Needs inspection", brief: base.you ? "Check its last run" : undefined, detail: note,
+        return out({ headline: "Needs inspection", detail: note,
           next: "Check the workspace of its last run, then continue, retry or cancel it from the run page." });
       case "ask":
-        return out({ headline: base.you ? "Waiting for your answer" : `Waiting for an answer${p ? ` from ${p.label}` : ""}`, brief: base.you ? "Answer in the inbox" : undefined, detail: note,
-          next: base.you ? "Answer the question in your inbox." : "It continues once the question is answered." });
+        return out({ headline: `Waiting for an answer${p ? ` from ${p.label}` : ""}`, detail: note, next: "It continues once the question is answered." });
       case "block":
         if (who === "node") return out({ headline: "Resetting its workspace", detail: note, next: "Its node resets the work from the remote branch; it runs again after that." });
-        return out({ headline: "Blocked", brief: base.you ? `Fix, then ${release(v.status)}` : undefined, detail: note,
+        return out({ headline: "Blocked", brief: `Fix, then ${release(v.status)}`, detail: note,
           next: `Remove the cause, then use ${release(v.status)} in the task menu.` });
       case "wait":
         return out({ headline: "Sleeping", brief: "Wakes on its own", detail: note, who: undefined,
           next: "It wakes at its time; a comment or a directive wakes it now." });
       case "decision": {
         // decision-waits: parked on a decision, no timer; the decision wakes it with the outcome.
-        const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: base.you ? "Waits for your decision" : "Waits for a decision", who: p, you: base.you };
-        return out({ headline: w.headline, label: base.you ? "Waits for your decision" : "Waits for a decision", brief: base.you ? "Decide in the inbox" : undefined, detail: note, who: w.who,
-          next: base.you ? "Approve or reject the decision; it runs once with your answer." : "It runs once the decision is recorded." });
+        const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: "Waits for a decision", who: p, you: false };
+        return out({ headline: w.headline, label: "Waits for a decision", detail: note, who: w.who, you: false, next: "It runs once the decision is recorded." });
       }
       case "awaiting_approval":
         // approval-gates-merge: reviewed, it waits for the decision on an artifact it produced; the decision moves it.
-        return out({ headline: base.you ? "Awaiting your approval" : `Awaiting approval${p ? ` by ${p.label}` : ""}`, label: "Awaiting approval",
-          brief: base.you ? "Decide in the inbox" : undefined, detail: note,
-          next: base.you ? "Approve, ask for changes or reject its artifact in your inbox: approved, it is merged and finished; changes, it goes back to its agent; rejected, its pull request is closed unmerged."
-            : "It is merged and finished once its artifact is approved." });
+        return out({ headline: `Awaiting approval${p ? ` by ${p.label}` : ""}`, label: "Awaiting approval", detail: note,
+          next: "It is merged and finished once its artifact is approved." });
       case "message": {
-        const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: "Waits for a message", who: p, you: base.you };
-        return out({ headline: w.headline, label: "Waits for a message", brief: base.you ? "Write to its agent" : undefined, detail: note, who: w.who,
-          next: base.you ? "Your next message to its agent in this project wakes it." : "The next message from them wakes it; a comment or a directive wakes it now." });
+        const w = v.awaits ? awaitsWords(v.awaits, look) : { headline: "Waits for a message", who: p, you: false };
+        return out({ headline: w.headline, label: "Waits for a message", brief: w.you ? "Write to its agent" : undefined, detail: note, who: w.who, you: false,
+          next: w.you ? "Your next message to its agent in this project wakes it." : "The next message from them wakes it; a comment or a directive wakes it now." });
       }
       default:
         return out({ headline: "On hold", detail: note, next: cleanText(action, look) || undefined });
@@ -255,7 +279,7 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
       next: "It starts on its own when that task is done." });
   }
   if (reason === "artifacts") {
-    return out({ headline: "Waiting for your approval", brief: "Approve in the inbox", detail: "A file it needs has not been approved yet.", next: "Approve it in your inbox." });
+    return out({ headline: "Waiting for an approved file", detail: "A file it needs has not been approved yet.", next: "It starts once the file is approved." });
   }
   if (reason.startsWith("paused:")) {
     const scope = reason.slice(7);
@@ -285,7 +309,6 @@ export function humanize(v: Verdictish, look?: Lookup, now?: number): HumanWhy {
   if (reason === "idle") {
     if (v.status === "IN_REVIEW" || /waiting for review/.test(detail) || who === "reviewer") {
       // Whom the review waits for (human-review-visibility): you, a member or an agent.
-      if (who === "owner") return out({ headline: "Waiting for your review", brief: "Accept or send back", detail: "The work is submitted and waits for you to review it.", next: "Accept it or send it back from the task menu." });
       if (who.startsWith("member:")) return out({ headline: `Waiting for review by ${who.slice(7)}`, detail: "The work is submitted and waits for a person to review it.", who: { label: who.slice(7) }, next: "They accept it or send it back for rework." });
       if (who && who !== "reviewer") return out({ headline: `Waiting for review by ${who}`, detail: `The work is submitted and waits for ${who} to review it.`, next: "The reviewer accepts it or sends it back for rework." });
       return out({ headline: "Waiting for review", detail: "The work is submitted and waits for a reviewer.", next: "The reviewer accepts it or sends it back for rework." });

@@ -1,4 +1,4 @@
-import { columnOf, isConversation, needsOwner, runsByTask, type ColumnKey } from "@/components/app/tasks/model";
+import { columnOf, isConversation, needsYou, runsByTask, type ColumnKey } from "@/components/app/tasks/model";
 import type { Overview, Project } from "@/lib/api/types";
 import type { BoardTask } from "@/lib/api/types-tasks";
 
@@ -9,21 +9,22 @@ export interface ProjectSummary {
   live: number;
 }
 
-export function summarize(ov: Overview): ProjectSummary[] {
+// mine: the signed-in person ("member:USER", "" for the owner), whose items count as needing them.
+export function summarize(ov: Overview, mine = ""): ProjectSummary[] {
   const runs = runsByTask(ov);
   const costByTask = new Map((ov.task_costs?.groups ?? []).map((g) => [g.key, g.cost_usd]));
   return ov.status.map(({ project }) => {
     const tasks = (ov.tasks as BoardTask[]).filter((t) => t.project_id === project.id && !isConversation(t));
     const counts: Record<ColumnKey, number> = { backlog: 0, waiting: 0, ready: 0, running: 0, review: 0, done: 0 };
-    let needsYou = 0, lastActivity = project.updated_at, cost = 0, live = 0;
+    let yours = 0, lastActivity = project.updated_at, cost = 0, live = 0;
     for (const t of tasks) {
       const c = columnOf(t, runs);
       counts[c]++;
-      if (c !== "done" && needsOwner(t)) needsYou++;
+      if (c !== "done" && needsYou(t, mine)) yours++;
       if (runs.live.has(t.id)) live++;
       lastActivity = Math.max(lastActivity, t.updated_at);
       cost += costByTask.get(t.id) ?? 0;
     }
-    return { project, counts, open: tasks.length - counts.done, needsYou, lastActivity, cost, live };
+    return { project, counts, open: tasks.length - counts.done, needsYou: yours, lastActivity, cost, live };
   });
 }
