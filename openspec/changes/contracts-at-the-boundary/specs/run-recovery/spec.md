@@ -14,6 +14,14 @@ Core SHALL route a setup failure by its fixer: `implementer` returns the task to
 - **WHEN** a review run ends `setup_failed` because the handed-over work cannot be checked out
 - **THEN** the task SHALL return to its implementer with the cause, the reviewer's attempt SHALL NOT be counted, and no escalation SHALL be opened
 
+#### Scenario: Owner provides what is missing
+- **WHEN** a run fails at setup because a secret it needs was not delivered
+- **THEN** Core SHALL open one `setup_blocked` escalation to the owner naming what to provide, without retrying first
+
+#### Scenario: Implementer unreachable
+- **WHEN** a failure's fixer is `implementer` and the implementer is no longer on the team, or is the agent whose run failed
+- **THEN** Core SHALL escalate `setup_blocked` to the implementer's manager instead of returning the task
+
 #### Scenario: Transient failure
 - **WHEN** a run fails at setup on lock contention
 - **THEN** Core SHALL retry it under the bounded automatic retry
@@ -26,7 +34,7 @@ When a task's run fails with the same failure code on the same handed-over head 
 - **THEN** Core SHALL NOT start a third identical run and SHALL route the task by the failure's fixer
 
 ### Requirement: Every escalation offers an answer that can clear it
-Each escalation reason SHALL offer at least one answer other than retry and cancel that changes who acts or what they act on. `retries_exhausted` SHALL offer `reassign`, and on a task in review also `return`, which sends the task back to its implementer with the cause.
+Each escalation reason SHALL offer at least one answer other than retry and cancel that changes who acts or what they act on. `retries_exhausted`, `budget_exhausted` and `setup_blocked` SHALL offer `reassign`, and `retries_exhausted` on a task in review also `return`, which sends the task back to its implementer with the cause.
 
 #### Scenario: Escalated review
 - **WHEN** a task in review is escalated `retries_exhausted`

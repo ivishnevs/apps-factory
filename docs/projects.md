@@ -65,9 +65,11 @@ only `/.factory/`.
 
 `audit: true` creates a ready task for the audit assignee of the project's team (`teams/<team>.yaml`
 `audit_assignee`, default the lead) to audit the project with the `project-audit` skill: a read-only audit, OpenSpec
-baseline specs of the current behaviour committed to the repository with its pull request and a report with
-options. It is the project's first task, so its run
-onboards the repository.
+baseline specs of the current behaviour committed to the repository with its pull request (on the task branch it was
+given), the summary in the pull request and a `stage_completed` report, and the next-step options as a decision
+proposal (`factory_decision_propose`: the recommendation as `value`, the other options as `alternatives`, each with a
+reason and a rough size) — not a report with options (contracts-at-the-boundary §4). It is the project's first task,
+so its run onboards the repository.
 
 ## Owner
 

@@ -86,8 +86,11 @@ func (c *Core) createProject(ctx context.Context, company string, in tasks.Proje
 func auditBrief(p tasks.Project) string {
 	return "Onboard project " + p.ID + " (an existing repository) before any new work, with the project-audit skill: " +
 		"a read-only audit of the code, build, product state and (if it is live) store presence; OpenSpec baseline specs " +
-		"describing the current behaviour, committed to the repository's openspec/ with your pull request; a report with options for what to do " +
-		"next (factory_report_create, needs_owner_action when the owner must choose). Do not change product code."
+		"describing the current behaviour, committed to the repository's openspec/ with your pull request. Work on the task " +
+		"branch you were given (do not create or check out another branch): Core opens the pull request from it at your exit. " +
+		"Put the audit summary in the pull request and in a factory_report_create report of kind stage_completed. " +
+		"Ask the owner what to do next as a decision: factory_decision_propose with your recommendation as value and the " +
+		"other options as alternatives, each with a reason and a rough size. Do not change product code."
 }
 
 func (c *Core) projectRoutes(m *http.ServeMux) {

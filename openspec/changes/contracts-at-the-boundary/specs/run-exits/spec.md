@@ -17,3 +17,11 @@ A failed `factory_report_create` call SHALL be recorded as a fixable refusal of 
 #### Scenario: Done after a failed report
 - **WHEN** an agent's `factory_report_create` call fails and the agent then exits `done` without a successful report
 - **THEN** Core SHALL refuse the exit as past an unresolved refusal
+
+#### Scenario: Done that says why there is no report
+- **WHEN** an agent's `factory_report_create` call fails and the agent exits `done` with `unresolved_reason` saying why the report is not created
+- **THEN** Core SHALL accept the exit
+
+#### Scenario: Refused branch is recorded
+- **WHEN** Core refuses an exit with `wrong_branch`
+- **THEN** the refusal SHALL be recorded for the run as a fixable refusal of the exit tool, and the run's accepted exit SHALL clear it
