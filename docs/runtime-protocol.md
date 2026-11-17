@@ -148,6 +148,12 @@ How the executor (v1 and v2, every driver) fills `Event.outcome` on terminal eve
   Only a stop Core asked for is ever `revoked`: a node shutdown mid-run is `lost`.
 - Git lock contention inside worktree allocation (`index.lock`, `config.lock`, `packed-refs.lock`, ref locks) is
   retried by the allocator; a failure after the retries is transient contention, reported `failed` (the stop's
-  outcome while the run was being stopped), not `setup_failed` (task-worktrees D1).
+  outcome while the run was being stopped), not `setup_failed` (task-worktrees D1), with `failure {code: lock, fixer:
+  none}`.
+- A terminal event of a run that failed before its agent started carries `failure: {code, fixer}`
+  (contracts-at-the-boundary §2): `not_reviewable` and `restore_gone` (fixer `implementer`), `workspace_diverged`,
+  `local_policy`, `secret_missing` and `skill` (`owner`), a node fault's kind (`node`), `lock` (`none`). Core routes
+  the task by the fixer ([task lifecycle](task-lifecycle.md)); the result text stays for people and logs. A failure
+  without one is unclassified: Core retries it, and treats the same one twice in a row as deterministic.
 - After an accepted exit (`exit_state: accepted`) a run the executor stopped (`ExitGrace` 30 s after the exit,
   its timeout, a stop) or that ended without terminal evidence reports `succeeded`: the exit stands.

@@ -490,7 +490,11 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				outcome = outcomeSessionLost
 			}
 		}
-		if err := emit("failed", protocol.Event{Status: ended, Result: runErr.Error(), Outcome: outcome}); err != nil {
+		var fail *protocol.Failure
+		if end != nil && outcome == end.outcome {
+			fail = end.failure
+		}
+		if err := emit("failed", protocol.Event{Status: ended, Result: runErr.Error(), Outcome: outcome, Failure: fail}); err != nil {
 			slog.Error("terminal event publication failed; lease recovery required", "error", err)
 		}
 	}()
@@ -503,7 +507,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		// connector-trust: the machine's person decides what runs here; a refused run ends before anything starts.
 		if why := w.LocalPolicy(spec); why != "" {
 			node.LogActivity(w.StateDir, node.Activity{Event: "run.refused_by_policy", Run: spec.ID, Agent: spec.Agent, Project: spec.Project, Outcome: why})
-			return emit("failed", protocol.Event{Status: ended, Result: "refused by this node's local policy (node.yaml): " + why, Outcome: outcomeSetupFailed})
+			return emit("failed", protocol.Event{Status: ended, Result: "refused by this node's local policy (node.yaml): " + why, Outcome: outcomeSetupFailed, Failure: failure(protocol.FailureLocalPolicy, protocol.FixerOwner)})
 		}
 	}
 	if spec.ProjectSetup != nil && !spec.Conversation {
@@ -530,10 +534,10 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		t, err := w.Worktrees.ReviewCopy(ctx, r, spec.ReviewCarry)
 		var nr *workspace.NotReviewableError
 		if errors.As(err, &nr) {
-			return emit("failed", protocol.Event{Status: ended, Result: nr.Error(), Outcome: outcomeSetupFailed})
+			return emit("failed", protocol.Event{Status: ended, Result: nr.Error(), Outcome: outcomeSetupFailed, Failure: failure(protocol.FailureNotReviewable, protocol.FixerImplementer)})
 		}
 		if workspace.IsLockError(err) {
-			return notStarted(driver.OutcomeFailed, fmt.Errorf("review copy: %w", err))
+			return transient(fmt.Errorf("review copy: %w", err))
 		}
 		if err != nil {
 			return setupFailed(fmt.Errorf("review copy: %w", err))
@@ -550,18 +554,18 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		var restore *workspace.RestoreError
 		if errors.As(err, &restore) {
 			// The saved work Core named is gone from the remote: the run does not start without it.
-			return setupFailed(err)
+			return failedFor(protocol.FailureRestoreGone, protocol.FixerImplementer, err)
 		}
 		var diverged *workspace.DivergedError
 		if errors.As(err, &diverged) {
 			// Core escalates workspace_diverged; the worktree is left as it is (task-worktrees D4).
 			slog.Error("worktree start check", "run", spec.ID, "task", r.Task, "path", diverged.Path, "head", diverged.Head, "sealed_head", diverged.SealedHead, "remote", diverged.Remote, "reason", diverged.Reason)
-			return emit("failed", protocol.Event{Status: ended, Result: diverged.Error(), Outcome: outcomeSetupFailed})
+			return emit("failed", protocol.Event{Status: ended, Result: diverged.Error(), Outcome: outcomeSetupFailed, Failure: failure(protocol.FailureWorkspaceDiverged, protocol.FixerOwner)})
 		}
 		if workspace.IsLockError(err) {
 			// Git lock contention that outlived the allocator's retries is transient, not a broken setup
 			// (task-worktrees D1): an ordinary retryable failure.
-			return notStarted(driver.OutcomeFailed, fmt.Errorf("worktree: %w", err))
+			return transient(fmt.Errorf("worktree: %w", err))
 		}
 		if err != nil {
 			return setupFailed(fmt.Errorf("worktree: %w", err))
@@ -594,7 +598,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	if len(spec.Requires) > 0 {
 		if fs := readiness.Requirements(ctx, w.toolRunner(cwd), spec.Requires); len(fs) > 0 {
 			return emit("failed", protocol.Event{Status: ended, Result: "required tools missing before runtime startup: " + readiness.Summary(fs), Outcome: outcomeSetupFailed,
-				Fault: &protocol.NodeFault{Kind: protocol.FaultTool, Detail: readiness.Summary(fs), Fix: fs[0].Fix}})
+				Fault: &protocol.NodeFault{Kind: protocol.FaultTool, Detail: readiness.Summary(fs), Fix: fs[0].Fix}, Failure: failure(protocol.FaultTool, protocol.FixerNode)})
 		}
 	}
 	if spec.OpenSpecChange != "" {
@@ -605,7 +609,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	skillsRoot, skillList, err := w.stageSkills(ctx, spec)
 	var skillErr *SkillError
 	if errors.As(err, &skillErr) {
-		return emit("failed", protocol.Event{Status: ended, Result: skillErr.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
+		return emit("failed", protocol.Event{Status: ended, Result: skillErr.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed, Failure: failure(protocol.FailureSkill, protocol.FixerOwner)})
 	}
 	if err != nil {
 		return setupFailed(err)
@@ -626,7 +630,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 	}
 	external, err := externalMCP(spec, delivered, drv.Capabilities())
 	if err != nil {
-		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
+		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed, Failure: failure(protocol.FailureSecret, protocol.FixerOwner)})
 	}
 	for _, v := range external.Values {
 		rlog.secret(v)
@@ -636,7 +640,7 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 		defer os.RemoveAll(secretDir)
 	}
 	if err != nil {
-		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed})
+		return emit("failed", protocol.Event{Status: ended, Result: err.Error() + " (refused before runtime startup)", Outcome: outcomeSetupFailed, Failure: failure(protocol.FailureSecret, protocol.FixerOwner)})
 	}
 
 	runSpec, prev, err := w.resumeSpec(drv, spec, cwd)
@@ -703,6 +707,12 @@ func (w *Worker) execute(parent context.Context, spec protocol.RunSpec, lease, c
 				// The adapter reports the linked change's state with the exit facts (openspec-in-git D3).
 				launch.Env = setEnv(launch.Env, "FACTORY_OPENSPEC_CHANGE", spec.OpenSpecChange)
 				vars = append(vars, "FACTORY_OPENSPEC_CHANGE")
+			}
+			if !review && wt != nil && req.Branch != "" {
+				// An implementer run's task branch: the adapter reports it with the exit facts and publishes to it
+				// (contracts-at-the-boundary §1).
+				launch.Env = setEnv(launch.Env, "FACTORY_TASK_BRANCH", req.Branch)
+				vars = append(vars, "FACTORY_TASK_BRANCH")
 			}
 			if review && req.Branch != "" {
 				// A review copy is detached: the adapter finds the task's pull request by the branch name.
@@ -980,6 +990,7 @@ type endError struct {
 	outcome    string
 	notStarted bool
 	err        error
+	failure    *protocol.Failure // what failed before the runtime started and who fixes it
 }
 
 func (e *endError) Error() string { return e.err.Error() }
@@ -1005,6 +1016,22 @@ func (w *Worker) toolRunner(dir string) readiness.Run {
 // setupFailed ends a run that failed before its runtime started: workspace, start check, OpenSpec
 // preflight, skills, shims, Factory binaries or the run credential.
 func setupFailed(err error) error { return notStarted(outcomeSetupFailed, err) }
+
+// failure is a setup failure's code and fixer (contracts-at-the-boundary §2).
+func failure(code, fixer string) *protocol.Failure {
+	return &protocol.Failure{Code: code, Fixer: fixer}
+}
+
+// failedFor ends a run that failed before its runtime started with the failure's code and fixer.
+func failedFor(code, fixer string, err error) error {
+	return &endError{outcome: outcomeSetupFailed, notStarted: true, err: err, failure: failure(code, fixer)}
+}
+
+// transient ends a run whose setup hit git lock contention that outlived the allocator's retries: an ordinary
+// retryable failure (task-worktrees D1), fixed by nobody.
+func transient(err error) error {
+	return &endError{outcome: driver.OutcomeFailed, notStarted: true, err: err, failure: failure(protocol.FailureLock, protocol.FixerNone)}
+}
 
 // notStarted ends a run whose prompt never reached the runtime with outcome.
 func notStarted(outcome string, err error) error {

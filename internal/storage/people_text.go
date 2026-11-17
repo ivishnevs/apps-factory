@@ -47,6 +47,7 @@ var escalationSituation = map[string][2]string{
 	"retries_exhausted":       {"stopped after several failed runs in a row", "остановилась после нескольких неудачных запусков подряд"},
 	"budget_exhausted":        {"used up its run budget", "израсходовала бюджет запусков"},
 	"no_exit":                 {"runs end without a result", "запуски заканчиваются без результата"},
+	SetupBlockedReason:        {"cannot start until something is provided or fixed", "не может запуститься, пока что-то не предоставят или не исправят"},
 	"change_missing":          {"names an OpenSpec change that does not exist", "ссылается на несуществующий OpenSpec-ченж"},
 	"session_lost":            {"lost its session (the agent's earlier context)", "потеряла сессию (прежний контекст агента)"},
 	"inspect":                 {"needs a look before it continues", "требует проверки, прежде чем продолжить"},
@@ -55,7 +56,8 @@ var escalationSituation = map[string][2]string{
 	"workspace_diverged":      {"its workspace diverged from the repository", "её рабочая копия разошлась с репозиторием"},
 	"wait_deadline":           {"passed the deadline of its wait", "пропустила дедлайн ожидания"},
 	"wait_exhausted":          {"waited too many times", "ждала слишком много раз"},
-	"event_deadline":          {"the event it waits for did not come by the deadline", "ожидаемое событие не наступило к дедлайну"},
+	EventDeadlineReason:       {"the event it waits for did not come by the deadline", "ожидаемое событие не наступило к дедлайну"},
+	WaitCycleReason:           {"waits on an agent that waits on it", "ждёт агента, который ждёт её"},
 	QuotaPausedReason:         {"hit the subscription limit", "упёрлась в лимит подписки"},
 }
 
@@ -64,6 +66,7 @@ var escalationGroup = map[string][2]string{
 	"retries_exhausted":       {"tasks stopped after failed runs", "задачи остановились после неудачных запусков"},
 	"budget_exhausted":        {"tasks used up their run budget", "задачи израсходовали бюджет запусков"},
 	"no_exit":                 {"runs end without a result", "запуски заканчиваются без результата"},
+	SetupBlockedReason:        {"tasks cannot start until something is provided", "задачи не могут запуститься, пока что-то не предоставят"},
 	"change_missing":          {"tasks name a missing OpenSpec change", "задачи ссылаются на несуществующий ченж"},
 	"session_lost":            {"tasks lost their session", "задачи потеряли сессию"},
 	"inspect":                 {"tasks need a look", "задачи требуют проверки"},
@@ -72,7 +75,8 @@ var escalationGroup = map[string][2]string{
 	"workspace_diverged":      {"workspaces diverged from the repository", "рабочие копии разошлись с репозиторием"},
 	"wait_deadline":           {"waits passed their deadline", "ожидания пропустили дедлайн"},
 	"wait_exhausted":          {"tasks waited too many times", "задачи ждали слишком много раз"},
-	"event_deadline":          {"awaited events did not come", "ожидаемые события не наступили"},
+	EventDeadlineReason:       {"awaited events did not come", "ожидаемые события не наступили"},
+	WaitCycleReason:           {"agents wait on each other", "агенты ждут друг друга"},
 }
 
 // What each escalation answer does.
@@ -80,6 +84,8 @@ var answerEffect = map[string][2]string{
 	"retry":           {"runs it again now", "запустить заново сейчас"},
 	"cancel":          {"closes the task", "закрыть задачу"},
 	"reassign":        {"leaves it unassigned for you to assign", "снять исполнителя, чтобы вы назначили другого"},
+	ReturnAnswer:      {"sends it back to its implementer with the cause", "вернуть исполнителю с причиной"},
+	"wake":            {"wakes the waiting agents to settle it", "разбудить ждущих агентов, чтобы они договорились"},
 	"accept":          {"accepts the last run's result as it is", "принять результат последнего запуска как есть"},
 	"spec":            {"marks it as a spec-writing task and runs it again", "пометить задачей на написание спеки и запустить заново"},
 	"new_session":     {"starts it again in a new session; the agent loses its earlier context", "запустить в новой сессии; агент потеряет прежний контекст"},

@@ -139,6 +139,10 @@ func (c *Core) serveExit(w http.ResponseWriter, r *http.Request, run storage.Run
 	v, err := c.Store.Exit(r.Context(), c.companyFrom(r), run.Spec.ID, p)
 	var refusal *storage.ExitRefusal
 	if errors.As(err, &refusal) {
+		if err := c.Store.RecordExitRefusal(r.Context(), c.companyFrom(r), run.Spec.ID, p.Kind, refusal); err != nil {
+			reply(w, nil, err)
+			return
+		}
 		jsonStatus(w, refusal.Status, refusal)
 		return
 	}

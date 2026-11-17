@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"appfactory/internal/factorytools"
 	"appfactory/internal/messaging"
 	"appfactory/internal/protocol"
 	"appfactory/internal/tasks"
@@ -16,17 +17,8 @@ import (
 // field) cannot end its work by an exit until the call succeeds; a refusal that is Core's decision (the question limit,
 // a conflict, missing authority) lets the exit through and sends it to the agent's manager to check.
 
-// refusalTools are the tools whose refusal is recorded.
-var refusalTools = map[string]bool{
-	"factory_question_forward":          true,
-	"factory_owner_ask":                 true,
-	"factory_message_ask":               true,
-	"factory_message_send":              true,
-	"factory_message_reply":             true,
-	"factory_owner_request_approval":    true,
-	"factory_artifact_request_approval": true,
-	"factory_decision_propose":          true,
-}
+// refusalTools are the tools whose refusal is recorded (factorytools.RefusalTools).
+var refusalTools = factorytools.RefusalTools
 
 // guardedExits are the exits that say the run's work is done; ask and block hand the problem up and stay allowed.
 var guardedExits = map[string]bool{"done": true, "handoff": true, "submit": true, "wait": true}
@@ -90,6 +82,9 @@ func (s *Store) RecordToolResult(ctx context.Context, company, runID, tool, requ
 	}
 	now := s.Now().Unix()
 	if status < 300 {
+		if explainedRefusals[tool] {
+			requestID = "" // any report created settles the run's refused reports, whatever request_id it carried
+		}
 		_, err := s.DB.ExecContext(ctx, "UPDATE run_refusals SET cleared_at=? WHERE company_id=? AND run_id=? AND tool=? AND (request_id=? OR ?='') AND cleared_at=0", now, company, runID, tool, requestID, requestID)
 		return err
 	}
@@ -99,6 +94,28 @@ func (s *Store) RecordToolResult(ctx context.Context, company, runID, tool, requ
 	reason, detail := refusalReason(body)
 	_, err := s.DB.ExecContext(ctx, "INSERT INTO run_refusals(company_id,run_id,tool,request_id,status,reason,detail,fixable,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
 		company, runID, tool, requestID, status, reason, detail, fixableRefusal(status), now)
+	return err
+}
+
+// fixableExitRefusals are the exit refusals recorded for the run like a tool's fixable refusal (contracts-at-the-boundary
+// §1): the agent fixes them in the same turn and exits again. They never hold an exit themselves; an accepted exit
+// clears them.
+var fixableExitRefusals = map[string]bool{"wrong_branch": true}
+
+// RecordExitRefusal records a fixable refusal of the run's exit (fixableExitRefusals) as a refusal of
+// factory_exit_<kind>; other refusals are not recorded.
+func (s *Store) RecordExitRefusal(ctx context.Context, company, runID, kind string, r *ExitRefusal) error {
+	if r == nil || !fixableExitRefusals[r.Reason] {
+		return nil
+	}
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO run_refusals(company_id,run_id,tool,request_id,status,reason,detail,fixable,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+		company, runID, factorytools.ExitPrefix+kind, "", r.Status, r.Reason, shortText(r.Hint, 500), true, s.Now().Unix())
+	return err
+}
+
+// clearExitRefusals settles the run's recorded exit refusals once an exit is accepted.
+func clearExitRefusals(ctx context.Context, tx *Tx, runID string) error {
+	_, err := tx.ExecContext(ctx, "UPDATE run_refusals SET cleared_at=? WHERE company_id=? AND run_id=? AND tool LIKE ? AND cleared_at=0", tx.now().Unix(), tx.company, runID, factorytools.ExitPrefix+"%")
 	return err
 }
 
@@ -120,8 +137,12 @@ func openRefusals(ctx context.Context, tx *Tx, runID string) ([]RunRefusal, erro
 	return out, rows.Err()
 }
 
+// explainedRefusals are the tools whose open fixable refusal an exit may pass by saying why the call is not repeated
+// (its unresolved_reason): a report is the run's own record, not something sent to someone (contracts-at-the-boundary).
+var explainedRefusals = map[string]bool{"factory_report_create": true}
+
 // exitRefusalHold refuses a done/handoff/submit/wait exit while the run has a fixable refusal it has not fixed.
-func exitRefusalHold(ctx context.Context, tx *Tx, runID, kind string) error {
+func exitRefusalHold(ctx context.Context, tx *Tx, runID, kind string, args map[string]any) error {
 	if !guardedExits[kind] {
 		return nil
 	}
@@ -130,6 +151,16 @@ func exitRefusalHold(ctx context.Context, tx *Tx, runID, kind string) error {
 		return err
 	}
 	for _, r := range open {
+		if factorytools.ExitKind(r.Tool) != "" {
+			continue // a refused exit is fixed by the exit itself
+		}
+		if r.Fixable && explainedRefusals[r.Tool] && str(args, "unresolved_reason") != "" {
+			continue
+		}
+		if r.Fixable && explainedRefusals[r.Tool] {
+			return refuse("unresolved_refusal", r.describe()+". The report was not created: fix it and call "+r.Tool+
+				" again, then exit; or, if the report should not exist, say why in the exit's unresolved_reason.")
+		}
 		if r.Fixable {
 			return refuse("unresolved_refusal", r.describe()+". Nothing was sent: fix it and call "+r.Tool+
 				" again with the same request_id, then exit; or, if you cannot, hand the problem up with factory_exit_ask or factory_exit_block.")

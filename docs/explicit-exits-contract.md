@@ -41,14 +41,17 @@ the owner's `factory tasks review` maps to a verdict handoff. Managers get `fact
 
 ```json
 {"kind": "submit", "arguments": {"summary": "…", "checks": ["go test ./..."]}, "ack_seq": 17,
- "facts": {"head": "9f3c…", "dirty": false, "branch": "af/t1-login", "default_branch": "main",
+ "facts": {"head": "9f3c…", "dirty": false, "branch": "af/t1", "task_branch": "af/t1", "default_branch": "main",
            "ahead_of_default": 3, "pushed": true,
-           "pr": {"number": 42, "state": "open", "head_sha": "9f3c…", "url": "https://…/pull/42"},
+           "pr": {"number": 42, "state": "open", "head_sha": "9f3c…", "head_branch": "af/t1", "url": "https://…/pull/42"},
            "scan": {"ok": true}}}
 ```
 
 - `facts` is required for `submit`, `handoff`, `done`; optional for `ask`, `block`, `wait`. Without a repository
-  (scratch mode) `head`/`branch` are empty and `pr` is null. `pr.state`: `open|closed|merged`. Core never reads
+  (scratch mode) `head`/`branch` are empty and `pr` is null. `pr.state`: `open|closed|merged`. `task_branch` is the
+  implementer run's task branch the node gave it (`FACTORY_TASK_BRANCH`, `af/<task>`); empty for review copies,
+  conversations, `fresh_from_default` worktrees and the project workspace. `pr.head_branch` is the branch the pull
+  request is opened from. Core never reads
   the disk; facts are trusted node data, Core checks run identity and sequences.
 - **preflight** applies every check below without changing state; the adapter calls it before pushing.
 - **exit** applies the checks and the effect in one transaction. Idempotent by run id: the same kind and
@@ -60,7 +63,7 @@ Answers (always JSON):
 |---|---|---|
 | 200 | `{"exit": "submit", "task": {"id", "status", "assignee", "version"}, "ack_seq": 17}` | tells the agent the exit is accepted and to finish now; writes the exit file (§5) |
 | 409 | `{"reason": "unseen_input", "unseen": [{"seq", "kind", "author", "authority", "text"}], "hint": "…"}` | returns `unseen` to the runtime as the tool result, then raises `ack_seq`; the agent may exit again |
-| 409 | `{"reason": "dirty_tree\|pr_not_merged\|needs_approval\|secret_found\|exit_already_accepted\|invalid_exit", "hint": "…"}` | returns the hint; nothing is pushed or committed |
+| 409 | `{"reason": "dirty_tree\|wrong_branch\|pr_not_merged\|needs_approval\|secret_found\|exit_already_accepted\|invalid_exit", "hint": "…"}` | returns the hint; nothing is pushed or committed |
 | 410 | `{"reason": "not_current_run"}` | tells the agent to stop; ends delivery retries |
 | 5xx / network | — | "queued — stop working" to the runtime; retries the same exit with backoff (§5) |
 
@@ -68,6 +71,11 @@ Checks, in order: 410 when the run is not the task's current live run (revoked, 
 exit of a lost run (§13);
 `invalid_exit` for bad arguments or a block that cannot apply; `unseen_input` when an authority trigger is above
 `ack_seq` (for `done` also any trigger above it); `dirty_tree` for `submit`/`handoff`/`done` with `facts.dirty`;
+`wrong_branch` for `submit`/`handoff`/`done` with code (something ahead of the default branch or a pull request) when
+`facts.task_branch` is set and `facts.branch` or `facts.pr.head_branch` differs from it (contracts-at-the-boundary
+§1: the task branch ties the task to its worktree, review copy, restore and merge; the hint says to move the commits
+with `git checkout -B <task branch>`, close a pull request opened from another branch and exit again; the refusal is
+recorded for the run like a fixable call refusal, §14, and cleared by the accepted exit);
 `secret_found` with `facts.scan.ok == false` (the adapter's scan; Core records a report item); for `done`
 §6.
 
@@ -139,11 +147,13 @@ reviewer's approval.
 
 In the run's working directory: `head = git rev-parse HEAD`; `dirty` = tracked changes or untracked non-ignored
 files (`git status --porcelain`); `branch`; `ahead_of_default = git rev-list --count origin/<default>..HEAD`;
-`pushed` = `origin/<branch>` equals `head` after a fetch; `pr` from `gh pr view <branch> --json
-number,state,headRefOid,url,files` (null when none; `files` are the paths the PR changes, for review path rules);
+`pushed` = `origin/<branch>` equals `head` after a fetch; `task_branch` from `FACTORY_TASK_BRANCH`; `pr` from `gh pr
+view <branch> --json number,state,headRefOid,headRefName,url,files` (null when none; `files` are the paths the PR
+changes, for review path rules);
 `openspec` for a task linking a change (`{change, state, unchecked, ref}`, see [OpenSpec](openspec.md)); `scan` = the configured scanner over
-`merge-base(default, HEAD)..HEAD`. For `submit`/`handoff` the adapter runs preflight, then pushes the branch
-(pre-push hook scans too) and ensures a PR (`gh pr create` when none), collects facts again and sends the exit.
+`merge-base(default, HEAD)..HEAD`. For `submit`/`handoff` the adapter runs preflight, then pushes `HEAD` to the task
+branch (the checked-out branch when the run has none, whatever is checked out; pre-push hook scans too) and ensures
+a PR from it (`gh pr create --head <task branch>` when none), collects facts again and sends the exit.
 A forge or Core failure retries with the same run key.
 
 ## 9. Switch and rollout
@@ -239,7 +249,13 @@ Details, the event spool and what the owner sees: [node-troubleshooting.md](node
 
 Core records, per run, refusals of the tools that send or forward to someone (`factory_question_forward`,
 `factory_owner_ask`, `factory_message_ask`, `factory_message_send`, `factory_message_reply`, approval requests,
-`factory_decision_propose`) in `run_refusals`. A later success of the same call (same tool and `request_id`) clears it.
+`factory_decision_propose`) and of `factory_report_create` (contracts-at-the-boundary §3) in `run_refusals`. A later
+success of the same call (same tool and `request_id`; for a report any report created) clears it. The adapter checks
+the arguments of every other tool on the node (required, unknown, types and closed-set enums) and leaves these to
+Core, so their refusals are recorded. A refused report may also be passed by an exit that says why the report is not
+created (`unresolved_reason` on `submit`, `handoff`, `done`, `wait`); the refused forwards and questions may not.
+Fixable exit refusals (`wrong_branch`) are recorded as refusals of `factory_exit_<kind>`; they never hold an exit
+themselves and the accepted exit clears them.
 
 - **Fixable** refusals (HTTP 400/422: `brief_required`, an invalid or too-long field) hold the run's `done`,
   `handoff`, `submit` and `wait` exits: they are refused with 409 `unresolved_refusal`, naming the call and the fix.

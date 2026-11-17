@@ -193,10 +193,24 @@ outcomes) decides in one place (`recoverTask`, after `syncTaskRun`):
   (`factory time-zone ZONE`, an IANA name; UTC by default).
 - Three attempts in a row without progress open a `retries_exhausted` escalation, 30 budget runs in a day (120 for a
   conversation task, which runs once per message or report it handles) a `budget_exhausted` escalation; the task stays READY behind the escalation's park. Answers `retry` (counters,
-  backoff and today's budget reset, the task runs now) or `cancel`. Releasing the task (`factory tasks ready`)
+  backoff and today's budget reset, the task runs now), `reassign` (the owner leaves it unassigned to choose the
+  new assignee; a manager takes it), on a task in review also `return` (back to its implementer as rework, with the
+  escalation's cause as the review feedback), or `cancel`. Every escalation reason offers an answer other than
+  `retry` and `cancel` that changes who acts or what they act on (a test asserts it). Releasing the task (`factory tasks ready`)
   has the same effect as `retry` and clears the escalation; reassigning it resets the counters for the new
   assignee. Authority input that arrived after the failing run was briefed (above its brief and the task's
   `handled_seq`) counts as a retry instead: no escalation, and the task runs with that input.
+- Failure routing (contracts-at-the-boundary §2): a run that fails before its agent starts reports a failure code
+  and who fixes it (`runs.failure_code`, `failure_fixer`; the task's handed-over head then in `failure_head`).
+  `implementer` (`not_reviewable`: the task branch has no pushed head for a review copy; `restore_gone`: the saved
+  work is gone from the remote) sends the task back to its implementer as rework with the cause in the review
+  feedback and an assignment trigger, no attempt counted and no escalation; an implementer removed from the team, or
+  the failed run's own agent, escalates `setup_blocked` to its manager. `owner` (`local_policy`, `secret_missing`,
+  `skill`) opens one `setup_blocked` escalation to the owner at once, naming what to provide (answers `retry`,
+  `reassign`, `cancel`). `node` follows node readiness; `none` (`lock`: git lock contention) the bounded retry.
+  `workspace_diverged` keeps its own escalation. The same failure (code, or the text of an unclassified one) of the
+  same agent's runs on the same handed-over head twice in a row is deterministic: it is not retried a third time but
+  goes to the implementer when the task has handed-over work, else to a `setup_blocked` escalation.
 - Lost runs: a run lost to a new node epoch, or missing from the node's inventory, is released. A run lost
   because the node went silent (or stopped past its timeout) may still be running: it keeps its writer slot
   (the project workspace or its task worktree), its session and its task (`live_run`, the run `unreleased`)

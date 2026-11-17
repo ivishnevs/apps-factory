@@ -44,8 +44,10 @@ func backoff(streak int) time.Duration {
 }
 
 func init() {
-	escalationAnswers["retries_exhausted"] = []string{"retry", "cancel"}
-	escalationAnswers["budget_exhausted"] = []string{"retry", "cancel"}
+	// reassign and (on a task in review) return change who acts (contracts-at-the-boundary §2).
+	escalationAnswers["retries_exhausted"] = []string{"retry", "reassign", "cancel"}
+	escalationAnswers["budget_exhausted"] = []string{"retry", "reassign", "cancel"}
+	escalationAnswers[SetupBlockedReason] = []string{"retry", "reassign", "cancel"}
 	escalationAnswers["no_exit"] = []string{"retry", "reassign", "accept", "cancel"}
 	escalationAnswers["change_missing"] = []string{"spec", "retry", "cancel"}
 	escalationAnswers["session_lost"] = []string{"new_session", "retry", "cancel"}
@@ -254,6 +256,10 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 	if err = clearParks(ctx, tx, t, tasks.ParkInspect, runID, "cleared"); err != nil {
 		return err
 	}
+	// contracts-at-the-boundary §2: a setup failure goes to whoever can fix it instead of retrying the same agent.
+	if handled, err := routeFailure(ctx, tx, runID, &t, review, outcome, result, day); handled || err != nil {
+		return err
+	}
 	// A loss to a new worker epoch is not the task's doing (D1): no budget.
 	if rule.Budget && !strings.Contains(result, "restarted (epoch") {
 		if err = countBudget(ctx, tx, t.ID, day); err != nil {
@@ -322,7 +328,7 @@ func recoverTask(ctx context.Context, tx *Tx, runID string) error {
 		if reason == "session_lost" {
 			target = "owner" // session-continuity: losing an agent's context is the owner's call
 		}
-		return openEscalation(ctx, tx, reason, escalationAnswers[reason], EscalationWant{TaskID: t.ID, Summary: summary, Target: target})
+		return openEscalation(ctx, tx, reason, answersFor(reason, t), EscalationWant{TaskID: t.ID, Summary: summary, Target: target})
 	}
 	// One feed event names the task, the outcome and the retry time (waits-events-cost-cli D2).
 	note := fmt.Sprintf("%s: run %s ended %s; ", t.ID, runID, outcome)

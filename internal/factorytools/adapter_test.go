@@ -419,3 +419,65 @@ func TestAdapterReviewCopyFindsTaskPR(t *testing.T) {
 		t.Fatal("review copy pushed the task branch", got)
 	}
 }
+
+// TestAdapterTaskBranch (contracts-at-the-boundary §1): an implementer run's facts carry its task branch; work
+// checked out on another branch is published to the task branch (push HEAD there, pull request from it), never to the
+// branch the agent switched to. Core's preflight refusal (wrong_branch) stops the exit before anything is pushed.
+func TestAdapterTaskBranch(t *testing.T) {
+	work, ghLog := repo(t)
+	gitT(t, work, "checkout", "-qb", "audit-onboard")
+	f, srv := newFakeCore(t)
+	f.handlers["/agent/exit/preflight"] = func(int) (int, string, string) {
+		return 409, `{"reason": "wrong_branch", "hint": "move your commits to af/t1"}`, ""
+	}
+	a := &Adapter{URL: srv.URL, Token: "run.tok", Workdir: work, DefaultBranch: "main", TaskBranch: "af/t1"}
+	ctx := context.Background()
+	if _, err := a.Call(ctx, Call{Name: "factory_exit_submit", Arguments: map[string]any{"summary": "audit"}}); err == nil || !strings.Contains(err.Error(), "wrong_branch") {
+		t.Fatal(err)
+	}
+	pre := f.last("/agent/exit/preflight")["facts"].(map[string]any)
+	if pre["branch"] != "audit-onboard" || pre["task_branch"] != "af/t1" {
+		t.Fatalf("preflight facts %v", pre)
+	}
+	if out := gitT(t, work, "ls-remote", "origin"); strings.Contains(out, "audit-onboard") || strings.Contains(out, "af/t1") {
+		t.Fatal("pushed before Core accepted:", out)
+	}
+
+	// publish itself pushes HEAD to the task branch whatever is checked out.
+	facts, err := a.Facts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.publish(ctx, facts); err != nil {
+		t.Fatal(err)
+	}
+	head := gitT(t, work, "rev-parse", "HEAD")
+	if remote := gitT(t, work, "ls-remote", "origin", "refs/heads/af/t1"); !strings.HasPrefix(remote, head) {
+		t.Fatal("HEAD not on the task branch:", remote)
+	}
+	if out := gitT(t, work, "ls-remote", "origin", "refs/heads/audit-onboard"); out != "" {
+		t.Fatal("the other branch was pushed:", out)
+	}
+	if b, _ := os.ReadFile(ghLog); !strings.Contains(string(b), "pr create --head af/t1 --base main --fill") {
+		t.Fatalf("gh calls %s", b)
+	}
+}
+
+// TestAdapterChecksEnums (contracts-at-the-boundary §3): a closed-set argument outside its enum is refused on the node
+// with every allowed value; a tool whose refusal Core records for the run (factory_report_create) goes to Core.
+func TestAdapterChecksEnums(t *testing.T) {
+	f, srv := newFakeCore(t)
+	f.handlers["/agent/call"] = func(int) (int, string, string) { return 400, `unsupported report kind "audit"`, "" }
+	a := &Adapter{URL: srv.URL, Token: "run.tok", Workdir: t.TempDir()}
+	ctx := context.Background()
+	_, err := a.Call(ctx, Call{Name: "factory_task_list", Arguments: map[string]any{"status": "open"}})
+	if err == nil || !strings.Contains(err.Error(), `unsupported value "open"; one of: BACKLOG, READY`) {
+		t.Fatal(err)
+	}
+	if f.last("/agent/call") != nil {
+		t.Fatal("an invalid call left the node")
+	}
+	if _, err = a.Call(ctx, Call{Name: "factory_report_create", Arguments: map[string]any{"kind": "audit"}}); err == nil || f.last("/agent/call") == nil {
+		t.Fatal("a report call must reach Core, which records its refusal:", err)
+	}
+}

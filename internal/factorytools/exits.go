@@ -53,6 +53,10 @@ func ExitDefinitions() []Tool {
 	}, "required": []string{"comment_id", "outcome"}, "additionalProperties": false}
 	for i := range out {
 		props := out[i].InputSchema["properties"].(map[string]any)
+		if k := ExitKind(out[i].Name); k == "submit" || k == "handoff" || k == "done" || k == "wait" {
+			// contracts-at-the-boundary §3: a refused report the run did not create again is explained here.
+			props["unresolved_reason"] = map[string]any{"type": "string", "description": "Only when a factory_report_create call of this run was refused and you do not create the report: why not. Without it the exit is refused while the report is missing."}
+		}
 		props["comments"] = map[string]any{"type": "array", "items": outcome, "description": "One outcome per board comment your brief lists: done (you did what it asks; a manager or the lead names task_id, the task created or changed for it) or declined with a reason the owner reads. A comment that came with an approval decision needs reason on done too: what you changed for it (the owner reads it on the approval). Every exit is refused while one has none."}
 	}
 	add("factory_comment_forward", "comment.forward", "Forward a board (owner) comment of your current task that is not yours to do (another role, a release, money) to your manager: it gets the comment verbatim with the task link and must handle it in turn; records your outcome forwarded. The project lead cannot forward: it acts through a task or declines.",

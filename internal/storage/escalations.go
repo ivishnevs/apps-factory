@@ -262,6 +262,8 @@ func applyEscalationAnswer(ctx context.Context, tx *Tx, e Escalation, answer, ac
 			return err
 		}
 		return comment(ctx, tx, t.ID, actor, "change_missing: this task writes OpenSpec change "+t.OpenSpecChange+" (kind spec)")
+	case ReturnAnswer: // retries_exhausted of a task in review: back to its implementer with the cause
+		return returnToImplementer(ctx, tx, t, actor, e.ID, e.Summary)
 	case "accept": // no_exit: take the work as it is
 		return acceptAnswer(ctx, tx, t)
 	case "reassign": // no_exit: to the answering manager (the owner chooses later)

@@ -35,6 +35,10 @@ type Adapter struct {
 	// ReviewBranch is the task branch of a review copy (FACTORY_REVIEW_BRANCH): the copy is detached, so its pull
 	// request is looked up by this name (also after a merge deleted the branch). The copy never pushes it.
 	ReviewBranch string
+	// TaskBranch is the task branch of an implementer run (FACTORY_TASK_BRANCH, af/<task>): the exit facts carry it, and
+	// publish pushes HEAD to it and opens the pull request from it, whatever branch is checked out
+	// (contracts-at-the-boundary §1). Empty for review copies, conversations and fresh_from_default worktrees.
+	TaskBranch string
 	// OpenSpecChange is the task's linked change (FACTORY_OPENSPEC_CHANGE): its state is part of the facts.
 	OpenSpecChange string
 	// ScanCommand gets the revision range as its last argument and exits 1 on a finding (empty: no scan).
@@ -159,6 +163,9 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 	if kind := ExitKind(c.Name); kind != "" {
 		return a.Exit(ctx, kind, c.Arguments)
 	}
+	if err := a.check(c); err != nil {
+		return nil, err
+	}
 	if uploads(c.Name) {
 		// The adapter streams the named worktree files to Core first (core-owned-project-data D4, D6;
 		// inbox-visual-previews: message and decision attachments).
@@ -179,6 +186,28 @@ func (a *Adapter) Call(ctx context.Context, c Call) (any, error) {
 		return string(b), nil
 	}
 	return v, nil
+}
+
+// check validates a call's arguments against the node's tool schemas before it leaves the node (required and unknown
+// arguments, types, closed-set enums), so the agent gets every problem in one error. A tool whose refusal Core records
+// for the run (RefusalTools) and a tool this node does not know go to Core, which checks them the same way.
+func (a *Adapter) check(c Call) error {
+	if RefusalTools[c.Name] {
+		return nil
+	}
+	for _, t := range Definitions() {
+		if t.Name == c.Name {
+			args := c.Arguments
+			if args == nil {
+				args = map[string]any{}
+			}
+			if err := Validate(t, args); err != nil {
+				return fmt.Errorf("%s refused before it was sent: %w", c.Name, err)
+			}
+			return nil
+		}
+	}
+	return nil
 }
 
 type exitRefusal struct {
@@ -348,11 +377,14 @@ func (a *Adapter) queue(body map[string]any, kind string) {
 // Facts are the node's git facts; Remote reports an origin remote (push and PR possible).
 type Facts struct {
 	Head, Branch, DefaultBranch string
-	Dirty, Pushed, Remote       bool
-	AheadOfDefault              int
-	PR                          *PRFacts
-	Scan                        *ScanResult
-	OpenSpec                    *OpenSpecFacts
+	// TaskBranch is the run's task branch (Adapter.TaskBranch); Core refuses a code exit whose Branch or pull request
+	// head branch differs from it.
+	TaskBranch            string
+	Dirty, Pushed, Remote bool
+	AheadOfDefault        int
+	PR                    *PRFacts
+	Scan                  *ScanResult
+	OpenSpec              *OpenSpecFacts
 }
 
 // OpenSpecFacts are the linked change's state where the task's work is (openspec-in-git D3): the default
@@ -369,7 +401,9 @@ type PRFacts struct {
 	Number  int    `json:"number"`
 	State   string `json:"state"`
 	HeadSHA string `json:"head_sha"`
-	URL     string `json:"url,omitempty"`
+	// HeadBranch is the branch the pull request is opened from.
+	HeadBranch string `json:"head_branch,omitempty"`
+	URL        string `json:"url,omitempty"`
 	// Files are the paths the pull request changes (review path rules, company-self-service 5.3).
 	Files []string `json:"files,omitempty"`
 }
@@ -381,7 +415,7 @@ type ScanResult struct {
 
 func (f *Facts) core() map[string]any {
 	return map[string]any{"head": f.Head, "dirty": f.Dirty, "branch": f.Branch, "default_branch": f.DefaultBranch,
-		"ahead_of_default": f.AheadOfDefault, "pushed": f.Pushed, "pr": f.PR, "scan": f.Scan, "openspec": f.OpenSpec}
+		"ahead_of_default": f.AheadOfDefault, "pushed": f.Pushed, "task_branch": f.TaskBranch, "pr": f.PR, "scan": f.Scan, "openspec": f.OpenSpec}
 }
 
 func (a *Adapter) git(ctx context.Context, args ...string) (string, error) {
@@ -418,7 +452,7 @@ func (a *Adapter) Facts(ctx context.Context) (*Facts, error) {
 	if err != nil {
 		return nil, nil // no commit yet
 	}
-	f := &Facts{Head: head}
+	f := &Facts{Head: head, TaskBranch: a.TaskBranch}
 	status, err := a.git(ctx, "status", "--porcelain", "--untracked-files=normal")
 	if err != nil {
 		return nil, err
@@ -501,23 +535,24 @@ func (a *Adapter) openSpecFacts(ctx context.Context, ref string) *OpenSpecFacts 
 
 // pr reads the branch's pull request with gh; nil when there is none or gh is unavailable.
 func (a *Adapter) pr(ctx context.Context, branch string) *PRFacts {
-	out, err := a.run(ctx, "gh", "pr", "view", branch, "--json", "number,state,headRefOid,url,files")
+	out, err := a.run(ctx, "gh", "pr", "view", branch, "--json", "number,state,headRefOid,headRefName,url,files")
 	if err != nil {
 		return nil
 	}
 	var v struct {
-		Number     int    `json:"number"`
-		State      string `json:"state"`
-		HeadRefOid string `json:"headRefOid"`
-		URL        string `json:"url"`
-		Files      []struct {
+		Number      int    `json:"number"`
+		State       string `json:"state"`
+		HeadRefOid  string `json:"headRefOid"`
+		HeadRefName string `json:"headRefName"`
+		URL         string `json:"url"`
+		Files       []struct {
 			Path string `json:"path"`
 		} `json:"files"`
 	}
 	if json.Unmarshal([]byte(out), &v) != nil || v.Number == 0 {
 		return nil
 	}
-	pr := &PRFacts{Number: v.Number, State: strings.ToLower(v.State), HeadSHA: v.HeadRefOid, URL: v.URL}
+	pr := &PRFacts{Number: v.Number, State: strings.ToLower(v.State), HeadSHA: v.HeadRefOid, HeadBranch: v.HeadRefName, URL: v.URL}
 	for _, f := range v.Files {
 		pr.Files = append(pr.Files, f.Path)
 	}
@@ -545,16 +580,25 @@ func (a *Adapter) scan(ctx context.Context, base string) *ScanResult {
 	return &ScanResult{OK: false, Report: strings.TrimSpace(out + "\n" + err.Error())}
 }
 
-// publish pushes the branch when the remote is behind and ensures a pull request (gh), then collects the
-// facts again.
+// publish pushes HEAD to the task branch (the checked-out branch when the run has none) when the remote is behind and
+// ensures a pull request from it (gh), then collects the facts again.
 func (a *Adapter) publish(ctx context.Context, f *Facts) (*Facts, error) {
-	if !f.Pushed {
-		if _, err := a.git(ctx, "push", "--quiet", "-u", "origin", "HEAD:refs/heads/"+f.Branch); err != nil {
+	branch, pushed, pr := f.Branch, f.Pushed, f.PR
+	if a.TaskBranch != "" && a.TaskBranch != f.Branch {
+		// The work goes to the task branch whatever is checked out (contracts-at-the-boundary §1).
+		branch, pushed = a.TaskBranch, false
+		if remote, err := a.git(ctx, "rev-parse", "--verify", "--quiet", "origin/"+branch); err == nil {
+			pushed = remote == f.Head
+		}
+		pr = a.pr(ctx, branch)
+	}
+	if !pushed {
+		if _, err := a.git(ctx, "push", "--quiet", "-u", "origin", "HEAD:refs/heads/"+branch); err != nil {
 			return nil, fmt.Errorf("git push failed (fix it, then exit again): %w", err)
 		}
 	}
-	if f.PR == nil && f.AheadOfDefault > 0 {
-		if _, err := a.run(ctx, "gh", "pr", "create", "--head", f.Branch, "--base", f.DefaultBranch, "--fill"); err != nil {
+	if pr == nil && f.AheadOfDefault > 0 {
+		if _, err := a.run(ctx, "gh", "pr", "create", "--head", branch, "--base", f.DefaultBranch, "--fill"); err != nil {
 			var missing *notFound
 			if !errors.As(err, &missing) {
 				return nil, fmt.Errorf("creating the pull request failed (fix it, then exit again): %w", err)
@@ -571,7 +615,7 @@ func (e *notFound) Error() string { return e.name + ": executable not found" }
 // AdapterFromEnv builds the adapter of factory-node mcp (factory-mcp) from the run environment.
 func AdapterFromEnv(getenv func(string) string) (*Adapter, error) {
 	a := &Adapter{URL: getenv("FACTORY_URL"), Token: getenv("FACTORY_RUN_TOKEN"), Workdir: getenv("FACTORY_WORKDIR"),
-		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), OpenSpecChange: getenv("FACTORY_OPENSPEC_CHANGE"), ReviewBranch: getenv("FACTORY_REVIEW_BRANCH"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
+		DefaultBranch: getenv("FACTORY_DEFAULT_BRANCH"), ExitFile: getenv("FACTORY_EXIT_FILE"), OpenSpecChange: getenv("FACTORY_OPENSPEC_CHANGE"), ReviewBranch: getenv("FACTORY_REVIEW_BRANCH"), TaskBranch: getenv("FACTORY_TASK_BRANCH"), Conversation: getenv("FACTORY_CONVERSATION") == "1"}
 	if a.Token == "" || a.URL == "" {
 		return nil, errors.New("FACTORY_RUN_TOKEN and FACTORY_URL required")
 	}

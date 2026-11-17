@@ -30,6 +30,7 @@ func (c *Core) ScheduleMessages(ctx context.Context) error {
 func (c *Core) hierarchyHooks() {
 	c.Store.EscalationTarget = c.escalationTargetIn
 	c.Store.ManagerOf = c.escalationTargetIn
+	c.Store.AgentKnown = func(company, agent string) bool { _, ok := c.cat(company).Agents[agent]; return ok }
 	c.Store.SubtreeOf = func(company, agent string) []string { return config.Subtree(c.cat(company).Agents, agent) }
 	c.Store.TeamOf = func(company, agent string) string { return c.cat(company).TeamOf(agent) }
 	c.Store.LeadOf = func(company, team string) string {

@@ -3,12 +3,14 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"appfactory/internal/policies"
+	"appfactory/internal/protocol"
 	"appfactory/internal/storage"
 )
 
@@ -190,7 +192,12 @@ func TestParkedReviewNotDispatched(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < 3; i++ {
 		h.fake.Advance(2 * time.Hour)
-		h.end(h.start("t"), "setup_failed", "")
+		// Different failures each time: the same one twice would be deterministic and go back to the implementer
+		// (contracts-at-the-boundary §2).
+		r := h.start("t")
+		if err := h.s.Apply(ctx, storage.DefaultCompany, protocol.Wrap("agent.ended", r.id, "", protocol.Event{RunID: r.id, Lease: r.lease, Status: "ENDED", Outcome: "setup_failed", Result: fmt.Sprintf("setup failure %d", i)})); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if es, _ := h.s.Escalations(ctx, storage.DefaultCompany, true); len(es) != 1 || es[0].Reason != "retries_exhausted" {
 		t.Fatalf("escalations: %+v", es)

@@ -192,6 +192,38 @@ type Event struct {
 	// does not count the run against its task and keeps the project's runs off this node until it passes its
 	// check again.
 	Fault *NodeFault `json:"fault,omitempty"`
+	// Failure, on a terminal event of a run that failed before its agent started, says what failed and who can fix it
+	// (contracts-at-the-boundary §2): Core routes the task by Fixer instead of retrying the same agent.
+	Failure *Failure `json:"failure,omitempty"`
+}
+
+// Fixers of a run's setup failure (contracts-at-the-boundary §2).
+const (
+	// FixerImplementer: the handed-over work is missing or unusable (not reviewable, saved work gone from the remote).
+	FixerImplementer = "implementer"
+	// FixerNode: the node's environment (node-readiness faults).
+	FixerNode = "node"
+	// FixerOwner: what only the owner provides (the node's local policy, credentials, secrets, the catalog).
+	FixerOwner = "owner"
+	// FixerNone: transient (lock contention, network): the bounded automatic retry.
+	FixerNone = "none"
+)
+
+// Setup failure codes the node reports (Failure.Code); a node fault's code is its kind.
+const (
+	FailureNotReviewable     = "not_reviewable"     // the task branch has no pushed head to review
+	FailureRestoreGone       = "restore_gone"       // the saved work Core named is gone from the remote
+	FailureWorkspaceDiverged = "workspace_diverged" // the worktree changed outside any run
+	FailureLocalPolicy       = "local_policy"       // the node's node.yaml refuses the run
+	FailureSecret            = "secret_missing"     // a secret the run needs was not delivered
+	FailureSkill             = "skill"              // a skill the run needs cannot be staged
+	FailureLock              = "lock"               // git lock contention outlived the retries
+)
+
+// Failure is a run's setup failure: Code names what failed, Fixer who can fix it.
+type Failure struct {
+	Code  string `json:"code"`
+	Fixer string `json:"fixer"`
 }
 
 // Node fault kinds (node-readiness): what in the node's environment kept a run from starting.

@@ -21,24 +21,29 @@ import (
 
 // ExitFacts are the node's git and forge facts at the exit (collected by the MCP adapter).
 type ExitFacts struct {
-	Head           string     `json:"head"`
-	Dirty          bool       `json:"dirty"`
-	Branch         string     `json:"branch"`
-	DefaultBranch  string     `json:"default_branch"`
-	AheadOfDefault int        `json:"ahead_of_default"`
-	Pushed         bool       `json:"pushed"`
-	PR             *PRFacts   `json:"pr"`
-	Scan           *ScanFacts `json:"scan,omitempty"`
+	Head           string `json:"head"`
+	Dirty          bool   `json:"dirty"`
+	Branch         string `json:"branch"`
+	DefaultBranch  string `json:"default_branch"`
+	AheadOfDefault int    `json:"ahead_of_default"`
+	Pushed         bool   `json:"pushed"`
+	// TaskBranch is the implementer run's task branch the node gave it (FACTORY_TASK_BRANCH); empty for runs without one
+	// (review copies, fresh_from_default worktrees, the project workspace).
+	TaskBranch string     `json:"task_branch,omitempty"`
+	PR         *PRFacts   `json:"pr"`
+	Scan       *ScanFacts `json:"scan,omitempty"`
 	// OpenSpec is the linked change's state where the work is (openspec-in-git D3).
 	OpenSpec *OpenSpecFacts `json:"openspec,omitempty"`
 }
 
 type PRFacts struct {
-	Number  int      `json:"number"`
-	State   string   `json:"state"`
-	HeadSHA string   `json:"head_sha"`
-	URL     string   `json:"url,omitempty"`
-	Files   []string `json:"files,omitempty"`
+	Number  int    `json:"number"`
+	State   string `json:"state"`
+	HeadSHA string `json:"head_sha"`
+	// HeadBranch is the branch the pull request is opened from.
+	HeadBranch string   `json:"head_branch,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	Files      []string `json:"files,omitempty"`
 }
 
 type ScanFacts struct {
@@ -171,7 +176,7 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 	}
 	// A fixable refusal of this run's forward, question or message holds the exit until it is fixed
 	// (forward-refusal-guard): what the call carried must not be stranded by "my work is done".
-	if err = exitRefusalHold(ctx, tx, runID, req.Kind); err != nil {
+	if err = exitRefusalHold(ctx, tx, runID, req.Kind, req.Arguments); err != nil {
 		return out, err
 	}
 	if err = validExit(req, t, agent); err != nil {
@@ -304,6 +309,9 @@ func (s *Store) Exit(ctx context.Context, company, runID string, req ExitRequest
 		return out, err
 	}
 	if err = noticeDecisionRefusals(ctx, tx, runID, agent, t, req.Kind); err != nil {
+		return out, err
+	}
+	if err = clearExitRefusals(ctx, tx, runID); err != nil {
 		return out, err
 	}
 	argsJSON, _ := json.Marshal(req.Arguments)
@@ -455,10 +463,36 @@ func checkFacts(req ExitRequest, repo, abandoned bool) *ExitRefusal {
 	if f.Dirty {
 		return refuse("dirty_tree", "commit or discard your changes, or move notes to $FACTORY_SCRATCH, then exit again")
 	}
+	if r := checkBranch(f); r != nil {
+		return r
+	}
 	if req.Kind == "done" && !abandoned && f.AheadOfDefault > 0 && (f.PR == nil || f.PR.State != "merged") {
 		return refuse("pr_not_merged", "merge your PR first: rebase on the default branch, resolve conflicts, build, merge")
 	}
 	return nil
+}
+
+// checkBranch refuses a code exit whose work is not on the run's task branch (contracts-at-the-boundary §1): the
+// checked-out branch or the pull request's head branch differs from it. The task branch ties the task to its worktree,
+// review copy, restore and merge; work on another branch is invisible to all of them. An exit without code (nothing
+// ahead of the default branch and no pull request) passes.
+func checkBranch(f *ExitFacts) *ExitRefusal {
+	want := f.TaskBranch
+	if want == "" || f.AheadOfDefault == 0 && f.PR == nil {
+		return nil
+	}
+	if f.Branch == want && (f.PR == nil || f.PR.HeadBranch == "" || f.PR.HeadBranch == want) {
+		return nil
+	}
+	where := "a detached HEAD"
+	if f.Branch != "" {
+		where = "branch " + f.Branch
+	}
+	hint := fmt.Sprintf("your work is on %s, but this task's branch is %s: Core reviews, restores and merges only the task branch. Move your commits to it with `git checkout -B %s` (it keeps them; the factory pushes HEAD to %s and opens the pull request from it at your exit)", where, want, want, want)
+	if f.PR != nil && f.PR.HeadBranch != "" && f.PR.HeadBranch != want {
+		hint += fmt.Sprintf(", close pull request #%d opened from %s (`gh pr close %d`)", f.PR.Number, f.PR.HeadBranch, f.PR.Number)
+	}
+	return refuse("wrong_branch", hint+", then exit again.")
 }
 
 // unseenTriggers are the task's triggers above ackSeq that the exit must not pass: authority input, and for

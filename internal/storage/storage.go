@@ -46,6 +46,9 @@ type Store struct {
 	// EscalationTarget routes an escalation of a task with this assignee (hierarchy: its manager); Core
 	// sets it from the agent catalog, nil routes to the owner.
 	EscalationTarget func(company, assignee string) string
+	// AgentKnown reports whether an agent is in the company's catalog (an implementer removed from the team is not);
+	// nil knows every agent.
+	AgentKnown func(company, agent string) bool
 	// ManagerOf is the agent's manager (reports_to, owner at the top); nil routes questions to the owner.
 	ManagerOf func(company, agent string) string
 	// LeadOf is the lead of a project's team ("" for a project without a team: the company's default lead), who
@@ -398,8 +401,22 @@ func (s *Store) apply(ctx context.Context, company string, e protocol.Envelope, 
 					}
 				}
 			}
+			// contracts-at-the-boundary §2: what failed before the agent started and who fixes it, with the task's
+			// handed-over head then (a node fault is the node's).
+			code, fixer, head := "", "", ""
+			if !hasExit && (outcome == "setup_failed" || p.Failure != nil) {
+				if p.Failure != nil {
+					code, fixer = p.Failure.Code, p.Failure.Fixer
+				}
+				if nodeFault != "" {
+					code, fixer = nodeFault, protocol.FixerNode
+				}
+				if err = tx.QueryRowContext(ctx, "SELECT coalesce((SELECT w.exit_sha FROM runs r JOIN workspaces w ON w.company_id=r.company_id AND w.task_id=r.task_id WHERE r.id=?),'')", p.RunID).Scan(&head); err != nil {
+					return err
+				}
+			}
 			// Late evidence on a lost run replaces its outcome: its runtime has ended now.
-			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status='ENDED',result=?,finished_at=?,unreleased=0,node_fault=? WHERE id=?", outcome, result, tx.now().Unix(), nodeFault, p.RunID); err != nil {
+			if _, err = tx.ExecContext(ctx, "UPDATE runs SET outcome=?,status='ENDED',result=?,finished_at=?,unreleased=0,node_fault=?,failure_code=?,failure_fixer=?,failure_head=? WHERE id=?", outcome, result, tx.now().Unix(), nodeFault, code, fixer, head, p.RunID); err != nil {
 				return err
 			}
 		} else if !lost {
