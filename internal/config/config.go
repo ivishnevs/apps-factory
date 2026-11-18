@@ -42,6 +42,9 @@ type Spec struct {
 	Runtime   struct {
 		Provider string `yaml:"provider" json:"provider"`
 		Model    string `yaml:"model" json:"model"`
+		// ConversationModel is the model of the agent's conversation runs (conversation-model-and-codex-compact), a
+		// model of the same provider; empty: conversations run on Model like work.
+		ConversationModel string `yaml:"conversation_model" json:"conversation_model,omitempty"`
 		// Effort is the reasoning effort (runtime_options effort; codex and claude): low, medium, high, xhigh,
 		// max. Empty keeps the runtime's default.
 		Effort string `yaml:"effort" json:"effort,omitempty"`
@@ -503,6 +506,9 @@ func loadCompanyCatalog(src source, company string) (*Catalog, error) {
 			if err = a.Spec.Runtime.ContextWindow.Validate(protocol.RuntimeProvider(p)); err != nil {
 				return nil, fmt.Errorf("profile %s: %w", name, err)
 			}
+			if err = validConversationModel(protocol.RuntimeProvider(p), a.Spec.Runtime.ConversationModel); err != nil {
+				return nil, fmt.Errorf("profile %s: %w", name, err)
+			}
 		}
 		for _, skill := range a.Spec.Skills.Include {
 			if _, ok := c.Skills.Skills[skill]; !ok {
@@ -690,6 +696,9 @@ func (c *Catalog) finish(src source, a *Agent) error {
 	}
 	if a.Spec.Runtime.Model == "" {
 		a.Spec.Runtime.Model = "default"
+	}
+	if err := validConversationModel(protocol.RuntimeProvider(a.Spec.Runtime.Provider), a.Spec.Runtime.ConversationModel); err != nil {
+		return err
 	}
 	if q := a.Spec.Runtime.QuotaKey; q != "" && !namePattern.MatchString(q) {
 		return fmt.Errorf("invalid runtime quota_key %q", q)
@@ -939,13 +948,25 @@ func ValidateRuntimeOptions(p protocol.RuntimeProvider, opts map[string]any) err
 }
 
 // RunOptions are RuntimeOptions for one run of the given kind, with the kind's context window when the agent sets
-// one (work-and-conversation-runs).
+// one (work-and-conversation-runs) and, for a conversation, the conversation model when the agent sets one
+// (conversation-model-and-codex-compact).
 func (a Agent) RunOptions(conversation bool) map[string]any {
 	o := a.RuntimeOptions()
 	if n := a.Spec.Runtime.ContextWindow.Tokens(conversation); n > 0 {
 		o["context_window"] = n
 	}
+	if m := a.Spec.Runtime.ConversationModel; conversation && m != "" {
+		o["model"] = m
+	}
 	return o
+}
+
+// validConversationModel: an optional conversation model is a model of the agent's provider (ModelFits).
+func validConversationModel(p protocol.RuntimeProvider, model string) error {
+	if model != "" && !ModelFits(p, model) {
+		return fmt.Errorf("runtime conversation_model %q is not a %s model", model, p)
+	}
+	return nil
 }
 
 func (a Agent) Authorize(op string) policies.Decision {

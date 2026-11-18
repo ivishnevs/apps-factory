@@ -350,6 +350,9 @@ type AgentOverrides struct {
 	Model       string   `json:"model,omitempty"`
 	QuotaKey    string   `json:"quota_key,omitempty"`
 	Prompt      string   `json:"prompt,omitempty"`
+	// ConversationModel is runtime.conversation_model (conversation-model-and-codex-compact); "" keeps the preset's
+	// while the provider stays, none when the override changes the provider.
+	ConversationModel string `json:"conversation_model,omitempty"`
 	// ContextWindow, MaxConcurrentRuns and ConversationMaxRuns (work-and-conversation-runs): runtime.context_window
 	// per run kind, execution.max_concurrent_runs (work runs) and execution.conversation.max_concurrent_runs; 0 keeps
 	// the preset's.
@@ -424,9 +427,14 @@ func (l *Library) putAgent(docs map[string]string, dir, team, profile, preset, a
 	}
 	if ov.Provider != "" || ov.Model != "" || ov.QuotaKey != "" {
 		rt := map[string]any{}
-		// The preset's other runtime fields (its context window) stay (work-and-conversation-runs).
-		if prev, _ := spec["runtime"].(map[string]any); prev["context_window"] != nil {
+		// The preset's other runtime fields (its context window) stay (work-and-conversation-runs); its conversation
+		// model only while the provider does (another provider's model would not load).
+		prev, _ := spec["runtime"].(map[string]any)
+		if prev["context_window"] != nil {
 			rt["context_window"] = prev["context_window"]
+		}
+		if prev["conversation_model"] != nil && (ov.Provider == "" || ov.Provider == prev["provider"]) {
+			rt["conversation_model"] = prev["conversation_model"]
 		}
 		if ov.Provider != "" {
 			rt["provider"] = ov.Provider
@@ -435,6 +443,14 @@ func (l *Library) putAgent(docs map[string]string, dir, team, profile, preset, a
 		if ov.QuotaKey != "" {
 			rt["quota_key"] = ov.QuotaKey
 		}
+		spec["runtime"] = rt
+	}
+	if ov.ConversationModel != "" {
+		rt, _ := spec["runtime"].(map[string]any)
+		if rt == nil {
+			rt = map[string]any{}
+		}
+		rt["conversation_model"] = ov.ConversationModel
 		spec["runtime"] = rt
 	}
 	if w := ov.ContextWindow; w != (config.ContextWindow{}) {

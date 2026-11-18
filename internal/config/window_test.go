@@ -63,6 +63,47 @@ func TestConversationLimitsAndWindow(t *testing.T) {
 	}
 }
 
+// TestConversationModel (conversation-model-and-codex-compact): an optional conversation model of the agent's provider
+// replaces the model for conversation runs only; without it conversations run on the agent's model as before.
+func TestConversationModel(t *testing.T) {
+	root := fixture(t)
+	base := mustRead(t, root, "configs/profiles/base.yaml")
+	for extra, ok := range map[string]bool{
+		"":                                     true,
+		"    conversation_model: gpt-6-luna\n": true,
+		"    conversation_model: default\n":    true,
+		"    conversation_model: sonnet\n":     false, // a Claude model on a Codex agent
+		"    conversation_model: bad name!\n":  false,
+	} {
+		put(t, root, "configs/profiles/base.yaml", strings.Replace(base, "    provider: codex\n", "    provider: codex\n"+extra, 1))
+		c, err := LoadCatalog(root)
+		if (err == nil) != ok {
+			t.Fatalf("%q: %v", extra, err)
+		}
+		if !ok {
+			continue
+		}
+		a := c.Agents["agent"]
+		work, conv := a.RunOptions(false)["model"], a.RunOptions(true)["model"]
+		want := a.Spec.Runtime.Model
+		if m := a.Spec.Runtime.ConversationModel; m != "" {
+			want = m
+		}
+		if work != a.Spec.Runtime.Model || conv != want {
+			t.Fatalf("%q: work %v, conversation %v", extra, work, conv)
+		}
+		// Absent stays absent in the run snapshot (omitempty: existing hashes and documents unchanged); set survives.
+		b, _ := json.Marshal(a)
+		if has := strings.Contains(string(b), `"conversation_model"`); has != (a.Spec.Runtime.ConversationModel != "") {
+			t.Fatalf("%q: snapshot %s", extra, b)
+		}
+		var back Agent
+		if err = json.Unmarshal(b, &back); err != nil || back.Spec.Runtime.ConversationModel != a.Spec.Runtime.ConversationModel {
+			t.Fatalf("%q: round trip %+v %v", extra, back.Spec.Runtime, err)
+		}
+	}
+}
+
 func TestContextWindowShapes(t *testing.T) {
 	for in, want := range map[string]ContextWindow{
 		`"200k"`:                               {Work: "200k", Conversation: "200k"},

@@ -278,13 +278,145 @@ func TestModelAndEffort(t *testing.T) {
 		if got["thread/start"]["model"] != "gpt-6-luna" {
 			t.Fatal("thread/start", got["thread/start"])
 		}
+		// The window never reaches Codex's config (openai/codex#16033): the driver compacts itself (TestCompact).
 		cfg, _ := got["thread/start"]["config"].(map[string]any)
-		if limit, ok := cfg["model_auto_compact_token_limit"]; effort != "" && limit != float64(200000) || effort == "" && ok {
+		if _, ok := cfg["model_auto_compact_token_limit"]; ok {
 			t.Fatalf("context window: thread config %v", cfg)
 		}
 		if e, ok := got["turn/start"]["effort"]; effort == "" && ok || effort != "" && e != effort {
 			t.Fatalf("effort %q: turn/start %v", effort, got["turn/start"])
 		}
+	}
+}
+
+// TestFakeCompactServer completes the turn with a context of FACTORY_FAKE_CODEX_CONTEXT tokens; thread/compact/start
+// runs a compaction turn (usage, contextCompaction item, thread/compacted, turn/completed). FACTORY_FAKE_CODEX_COMPACT
+// "refuse" answers thread/compact/start with an error, "hang" never finishes the compaction.
+func TestFakeCompactServer(t *testing.T) {
+	if os.Getenv("FACTORY_FAKE_CODEX") != "compact" {
+		return
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	enc := json.NewEncoder(os.Stdout)
+	notify := func(method, params string) {
+		_ = enc.Encode(map[string]any{"method": method, "params": json.RawMessage(params)})
+	}
+	used := os.Getenv("FACTORY_FAKE_CODEX_CONTEXT")
+	mode := os.Getenv("FACTORY_FAKE_CODEX_COMPACT")
+	for sc.Scan() {
+		var m rpc.Message
+		if json.Unmarshal(sc.Bytes(), &m) != nil || len(m.ID) == 0 {
+			continue
+		}
+		if log := os.Getenv("FACTORY_FAKE_CODEX_LOG"); log != "" {
+			f, _ := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			_ = json.NewEncoder(f).Encode(map[string]any{"method": m.Method, "params": m.Params})
+			f.Close()
+		}
+		var result any = map[string]any{}
+		switch m.Method {
+		case "account/read":
+			result = map[string]any{"account": map[string]string{"type": "chatgpt"}}
+		case "thread/start", "thread/resume":
+			result = map[string]any{"thread": map[string]string{"id": "thread-1"}, "model": "gpt-6-luna"}
+		case "turn/start":
+			result = map[string]any{"turn": map[string]string{"id": "turn-1"}}
+		case "thread/compact/start":
+			if mode == "refuse" {
+				_ = enc.Encode(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "no"}})
+				continue
+			}
+		}
+		_ = enc.Encode(map[string]any{"id": m.ID, "result": result})
+		switch m.Method {
+		case "turn/start":
+			notify("thread/tokenUsage/updated", `{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":1000,"cachedInputTokens":0,"outputTokens":100,"reasoningOutputTokens":0,"totalTokens":1100},"last":{"inputTokens":`+used+`,"cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0,"totalTokens":`+used+`}}}`)
+			notify("item/completed", `{"item":{"type":"agentMessage","text":"done"}}`)
+			notify("turn/completed", `{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}`)
+		case "thread/compact/start":
+			if mode == "hang" {
+				continue
+			}
+			notify("turn/started", `{"threadId":"thread-1","turn":{"id":"turn-c"}}`)
+			notify("item/completed", `{"item":{"type":"contextCompaction"}}`)
+			notify("thread/compacted", `{"threadId":"thread-1","turnId":"turn-c"}`)
+			notify("thread/tokenUsage/updated", `{"threadId":"thread-1","turnId":"turn-c","tokenUsage":{"total":{"inputTokens":1500,"cachedInputTokens":0,"outputTokens":150,"reasoningOutputTokens":0,"totalTokens":1650},"last":{"inputTokens":500,"cachedInputTokens":0,"outputTokens":50,"reasoningOutputTokens":0,"totalTokens":550}}}`)
+			notify("turn/completed", `{"threadId":"thread-1","turn":{"id":"turn-c","status":"completed"}}`)
+		}
+	}
+	os.Exit(0)
+}
+
+// TestCompact (conversation-model-and-codex-compact): with a window the driver compacts the thread after the run's
+// turn when the turn's context reached it, counts the compaction's usage and keeps the turn's result; below the window
+// or without one (max) it does not compact. A refused or stuck compaction does not change the run's result.
+func TestCompact(t *testing.T) {
+	t.Setenv("FACTORY_FAKE_CODEX", "compact")
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(d time.Duration) { compactTimeout = d }(compactTimeout)
+	compactTimeout = 500 * time.Millisecond
+	for _, c := range []struct {
+		name       string
+		window     any
+		used, mode string
+		compacts   bool
+	}{
+		{"over the window", float64(200000), "250000", "", true},
+		{"at the window", float64(200000), "200000", "", true},
+		{"below the window", float64(200000), "150000", "", false},
+		{"no window (max)", nil, "900000", "", false},
+		{"refused", float64(200000), "250000", "refuse", true},
+		{"stuck", float64(200000), "250000", "hang", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			log := filepath.Join(t.TempDir(), "calls.jsonl")
+			t.Setenv("FACTORY_FAKE_CODEX_LOG", log)
+			t.Setenv("FACTORY_FAKE_CODEX_CONTEXT", c.used)
+			t.Setenv("FACTORY_FAKE_CODEX_COMPACT", c.mode)
+			options := map[string]any{"model": "gpt-6-luna"}
+			if c.window != nil {
+				options["context_window"] = c.window
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s, err := Driver{Binary: bin, Args: []string{"-test.run=^TestFakeCompactServer$"}}.Launch(ctx, driver.Launch{Spec: protocol.RunSpec{Prompt: "work", SessionID: "thread-1", RuntimeOptions: options}, Cwd: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			if err = s.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var last protocol.Usage
+			marked := false
+			for e := range s.Events() {
+				if e.Usage != nil {
+					last = *e.Usage
+				}
+				marked = marked || e.Method == "factory/compact"
+			}
+			if r := <-s.Done(); r.Status != "COMPLETED" || r.Text != "done" {
+				t.Fatalf("%+v", r)
+			}
+			b, _ := os.ReadFile(log)
+			if started := strings.Contains(string(b), `"thread/compact/start"`); started != c.compacts || marked != c.compacts {
+				t.Fatalf("compact/start %v, marked %v, want %v", started, marked, c.compacts)
+			}
+			// The run's usage counts from the thread total before its turn (total - last of the first update); a
+			// finished compaction adds its 500 input and 50 output tokens.
+			var used int64
+			fmt.Sscan(c.used, &used)
+			want := protocol.Usage{Model: "gpt-6-luna", Input: used}
+			if c.compacts && c.mode == "" {
+				want.Input, want.Output = used+500, 50
+			}
+			if last != want {
+				t.Fatalf("usage %+v, want %+v", last, want)
+			}
+		})
 	}
 }
 

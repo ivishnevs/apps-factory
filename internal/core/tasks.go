@@ -774,20 +774,22 @@ func (c *Core) dispatchTask(ctx context.Context, company string, t tasks.Task, r
 	provider := protocol.RuntimeProvider(a.Spec.Runtime.Provider)
 	// A task's model override (set by an authority, validated against the assignee's provider then) applies
 	// while it fits the current assignee's provider; one left by a reassignment is ignored with a feed event.
-	model, ignoredModel := a.Spec.Runtime.Model, ""
+	// Without one the run takes the model of its kind: the agent's model, or its conversation model for a
+	// conversation (conversation-model-and-codex-compact), with the kind's window (work-and-conversation-runs).
+	options := a.RunOptions(t.Kind == tasks.KindConversation)
+	ignoredModel := ""
 	if t.Model != "" {
 		if config.ModelFits(provider, t.Model) {
-			model = t.Model
+			options["model"] = t.Model
 		} else {
 			ignoredModel = t.Model
 		}
 	}
-	options := a.RunOptions(t.Kind == tasks.KindConversation) // the window of the run kind (work-and-conversation-runs)
-	options["model"] = model
+	model, _ := options["model"].(string)
 	spec := protocol.RunSpec{ID: protocol.ID(), Project: t.ProjectID, Agent: t.Assignee, Provider: provider, Workspace: p.Workspace, Instructions: a.Instructions, TimeoutSeconds: int(a.Timeout.Seconds()), RuntimeOptions: options, ConfigHash: hash, ConfigSnapshot: snapshot, Skills: append([]string{}, a.AvailableSkills...)}
 	if _, err = c.Store.Dispatch(ctx, company, t.ID, t.Version, spec); err == nil && ignoredModel != "" {
 		return c.Store.AddFeed(ctx, company, storage.FeedItem{EventID: protocol.ID(), Type: "task.model_ignored", EntityID: t.ID, ProjectID: t.ProjectID, CreatedAt: c.Store.Now(), TaskID: t.ID, RunID: spec.ID, Agent: t.Assignee, Actor: "system",
-			Summary: fmt.Sprintf("model override %s does not fit %s's provider %s; run %s uses %s", ignoredModel, t.Assignee, provider, spec.ID, a.Spec.Runtime.Model), Ref: ignoredModel})
+			Summary: fmt.Sprintf("model override %s does not fit %s's provider %s; run %s uses %s", ignoredModel, t.Assignee, provider, spec.ID, model), Ref: ignoredModel})
 	}
 	if err != nil {
 		if errors.Is(err, storage.ErrConflict) {

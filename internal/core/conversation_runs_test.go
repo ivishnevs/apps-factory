@@ -27,6 +27,7 @@ func TestReplayConversationBehindWork(t *testing.T) {
 	producer := h.c.Agents["claude-demo"]
 	producer.Metadata.Name = "producer"
 	producer.Spec.Runtime.ContextWindow = config.ContextWindow{Work: "max", Conversation: "200k"}
+	producer.Spec.Runtime.ConversationModel = "sonnet" // conversation-model-and-codex-compact
 	h.c.Agents["producer"] = producer
 	if _, err := h.s.CreateProject(ctx, co, tasks.ProjectCreate{ID: "plans", Name: "plans", Workspace: "/tmp/exits-plans"}); err != nil {
 		t.Fatal(err)
@@ -98,19 +99,30 @@ func TestReplayConversationBehindWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	schedule()
-	window := func(task string) any {
+	option := func(task, key string) any {
 		t.Helper()
 		r, err := h.s.Get(ctx, co, h.task(task).CurrentRunID)
 		if err != nil {
 			t.Fatalf("%s: %v %+v", task, err, h.verdict(task))
 		}
-		return r.Spec.RuntimeOptions["context_window"]
+		return r.Spec.RuntimeOptions[key]
 	}
-	if w := window("spec"); w != nil {
+	if w := option("spec", "context_window"); w != nil {
 		t.Fatalf("the producer's spec run has window %v, want the model's maximum", w)
 	}
-	if w := window(storage.ConversationID("notes", "producer")); w != float64(200000) {
+	if w := option(storage.ConversationID("notes", "producer"), "context_window"); w != float64(200000) {
 		t.Fatalf("the producer's conversation run has window %v, want 200000", w)
+	}
+	// The conversation model for its conversations only; work keeps the agent's model.
+	if m := option("spec", "model"); m != producer.Spec.Runtime.Model {
+		t.Fatalf("the producer's spec run has model %v, want %s", m, producer.Spec.Runtime.Model)
+	}
+	if m := option(storage.ConversationID("notes", "producer"), "model"); m != "sonnet" {
+		t.Fatalf("the producer's conversation run has model %v, want sonnet", m)
+	}
+	// An agent without one: its conversation runs on its model (network-dev's conversation above).
+	if m := option(conv, "model"); m != net.Spec.Runtime.Model {
+		t.Fatalf("network-dev's conversation has model %v, want %s", m, net.Spec.Runtime.Model)
 	}
 
 	// The team and nodes pages: runs per kind.

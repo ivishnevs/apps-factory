@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -500,8 +501,8 @@ func TestContextWindowFeature(t *testing.T) {
 		s := engineStore(t)
 		ctx := context.Background()
 		register(t, s, "n1", 1, func(r *NodeRegistration) {
-			if newer {
-				r.Features = []string{FeatureContextWindow}
+			if newer { // the Codex run needs the Codex driver's compaction too (TestCodexCompactFeature)
+				r.Features = []string{FeatureContextWindow, FeatureCodexCompact}
 			}
 		})
 		register(t, s, "n2", 1, func(r *NodeRegistration) { r.ConversationSlots = 1 }) // between the two: applies it
@@ -517,6 +518,31 @@ func TestContextWindowFeature(t *testing.T) {
 		}
 		if _, has := c.RunSpec.RuntimeOptions[FeatureContextWindow]; has != newer || c.RunSpec.RuntimeOptions["model"] != "m" {
 			t.Fatalf("newer=%v: %+v", newer, c.RunSpec.RuntimeOptions)
+		}
+	}
+}
+
+// TestCodexCompactFeature (conversation-model-and-codex-compact): a Codex run keeps context_window only on a node
+// whose Codex driver compacts the thread itself; an older one would pass the window as model_auto_compact_token_limit,
+// which stops Codex from compacting. Other runtimes need only the context_window feature.
+func TestCodexCompactFeature(t *testing.T) {
+	for _, features := range [][]string{nil, {FeatureContextWindow}, {FeatureContextWindow, FeatureCodexCompact}} {
+		s := engineStore(t)
+		ctx := context.Background()
+		register(t, s, "n1", 1, func(r *NodeRegistration) { r.Features = features; r.ConversationSlots = 1 })
+		v := readyEngineTask(t, s, createEngineTask(t, s, "t1"))
+		spec, err := s.Dispatch(ctx, DefaultCompany, v.ID, v.Version, protocol.RunSpec{ID: "r1", Project: v.ProjectID, Agent: v.Assignee, Provider: protocol.RuntimeCodex,
+			RuntimeOptions: map[string]any{"model": "m", FeatureContextWindow: 200000}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := claimV2(s, spec.ID, "n1", 1, "c1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := slices.Contains(features, FeatureCodexCompact)
+		if _, has := c.RunSpec.RuntimeOptions[FeatureContextWindow]; has != want || c.RunSpec.RuntimeOptions["model"] != "m" {
+			t.Fatalf("features %v: %+v", features, c.RunSpec.RuntimeOptions)
 		}
 	}
 }
