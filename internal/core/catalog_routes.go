@@ -74,7 +74,7 @@ func teamMember(agents map[string]config.Agent, name string) TeamMember {
 	a := agents[name]
 	required, reviewer := a.Review()
 	m := TeamMember{Name: name, Team: a.Spec.Team, Skills: append([]string{}, a.Spec.Skills.Include...), Description: a.Metadata.Description, Role: a.Spec.Role, ReportsTo: config.Manager(agents, name), Prompt: a.Spec.Prompt.File,
-		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, Effort: a.Spec.Runtime.Effort, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), AssignScope: config.AssignScopeOf(agents, name).Mode, CanMessage: append([]string{}, a.Spec.Communication.CanMessage...), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
+		Provider: a.Spec.Runtime.Provider, Model: a.Spec.Runtime.Model, ConversationModel: a.Spec.Runtime.ConversationModel, Effort: a.Spec.Runtime.Effort, CreatesTasks: a.Spec.Communication.CanCreateTasks, AssignsTo: config.AssignTargets(agents, name), AssignScope: config.AssignScopeOf(agents, name).Mode, CanMessage: append([]string{}, a.Spec.Communication.CanMessage...), ReviewRequired: required, Reviewer: config.ReviewerFor(agents, name, reviewer),
 		MaxRuns: a.Spec.Execution.MaxConcurrentRuns, MaxRunsFromRole: a.LimitFromRole, ConversationMaxRuns: a.Spec.Execution.Conversation.MaxConcurrentRuns, ShareWorkLimit: a.Spec.Execution.Conversation.ShareWorkLimit, ContextWindow: a.Spec.Runtime.ContextWindow}
 	for _, p := range a.ReviewPaths() {
 		m.ReviewPaths = append(m.ReviewPaths, p.Match+" → "+config.ReviewerFor(agents, name, p.Reviewer))
@@ -111,6 +111,8 @@ type TeamMember struct {
 	Prompt      string   `json:"prompt"`
 	Provider    string   `json:"provider"`
 	Model       string   `json:"model,omitempty"`
+	// ConversationModel is the model of the agent's conversations (spec.runtime.conversation_model); "" uses Model.
+	ConversationModel string `json:"conversation_model,omitempty"`
 	// Effort is the agent's reasoning effort (spec.runtime.effort, with its profile's); "" keeps the runtime default.
 	Effort       string `json:"effort,omitempty"`
 	CreatesTasks bool   `json:"creates_tasks,omitempty"`

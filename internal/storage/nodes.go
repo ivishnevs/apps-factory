@@ -101,6 +101,11 @@ type NodeRegistration struct {
 // drivers refuse runs with an option they do not know.
 const FeatureContextWindow = "context_window"
 
+// FeatureCodexCompact: the node's Codex driver applies context_window by compacting the thread itself
+// (thread/compact/start), not through model_auto_compact_token_limit, which stops Codex from compacting at all
+// (openai/codex#16033, conversation-model-and-codex-compact). A Codex run keeps context_window only on such a node.
+const FeatureCodexCompact = "codex_manual_compact"
+
 type NodeRegistered struct {
 	Incarnation string `json:"incarnation"`
 	// Company is the company of the node's key: every run, task and job the node sees is that company's.
@@ -664,6 +669,13 @@ func claimedAnswer(ctx context.Context, tx *Tx, company, id string) (Claimed, er
 		var has bool
 		if err := tx.QueryRowContext(ctx, "SELECT coalesce(n.features @> jsonb_build_array(?::text) OR n.conversation_slots>0, false) FROM runs r LEFT JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id WHERE r.company_id=? AND r.id=?", FeatureContextWindow, company, id).Scan(&has); err != nil {
 			return out, err
+		}
+		// An older node's Codex driver passes the window as model_auto_compact_token_limit, which turns Codex's own
+		// compaction off: such a node gets the run without the window, and Codex compacts at its own limit.
+		if has && out.RunSpec.Provider == protocol.RuntimeCodex {
+			if err := tx.QueryRowContext(ctx, "SELECT coalesce(n.features @> jsonb_build_array(?::text), false) FROM runs r LEFT JOIN nodes n ON n.company_id=r.company_id AND n.id=r.node_id WHERE r.company_id=? AND r.id=?", FeatureCodexCompact, company, id).Scan(&has); err != nil {
+				return out, err
+			}
 		}
 		if !has {
 			delete(out.RunSpec.RuntimeOptions, FeatureContextWindow)

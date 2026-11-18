@@ -6,7 +6,7 @@ export interface CatalogListing { version: number; author: string; note?: string
 export interface CatalogDocument { version: number; path: string; size: number; content: string }
 
 export interface TeamMember {
-  name: string; team?: string; document?: string; skills?: string[]; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string;
+  name: string; team?: string; document?: string; skills?: string[]; description?: string; role: string; reports_to: string; prompt: string; provider: string; model?: string; conversation_model?: string;
   // agent-effort-in-web: the reasoning effort (its own or its profile's); empty keeps the runtime default.
   effort?: string;
   creates_tasks?: boolean; assigns_to?: string[];

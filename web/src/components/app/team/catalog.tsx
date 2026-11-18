@@ -42,9 +42,10 @@ function RunKinds({ m, runs }: { m: TeamMember; runs?: AgentRuns }) {
   );
 }
 
-// runtimeDetail is "(model · effort)" for the member card (agent-effort-in-web); the runtime defaults are left out.
+// runtimeDetail is "(model · effort · conversations: model)" for the member card (agent-effort-in-web,
+// conversation-model-and-codex-compact); the runtime defaults are left out.
 const runtimeDetail = (m: TeamMember) => {
-  const parts = [m.model && m.model !== "default" ? m.model : "", m.effort ?? ""].filter(Boolean);
+  const parts = [m.model && m.model !== "default" ? m.model : "", m.effort ?? "", m.conversation_model ? `conversations: ${m.conversation_model}` : ""].filter(Boolean);
   return parts.length ? ` (${parts.join(" · ")})` : "";
 };
 

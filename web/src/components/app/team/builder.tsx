@@ -124,24 +124,26 @@ export function NewTeamSheet({ open, onClose, initialPreset }: { open: boolean; 
 const providers = [{ v: "", l: "Team default" }, { v: "claude", l: "Claude" }, { v: "codex", l: "Codex" }];
 
 // ModelField (agent-effort-in-web): the runtime's known models (Core's GET /catalog/runtimes) to pick from, or a custom
-// name; an unknown runtime (or one Core lists no models for) keeps the free text field. Empty means "default".
-function ModelField({ provider, value, onChange, error }: { provider?: string; value?: string; onChange: (v: string) => void; error?: string | null }) {
+// name; an unknown runtime (or one Core lists no models for) keeps the free text field. Empty means "default", or with
+// inherit (the conversation model, conversation-model-and-codex-compact) the inherited model that label names.
+function ModelField({ provider, value, onChange, error, label = "Model", inherit, hint }: { provider?: string; value?: string; onChange: (v: string) => void; error?: string | null; label?: string; inherit?: string; hint?: string }) {
   const known = useRuntimes().data?.find((r) => r.provider === provider)?.models ?? [];
   const [customMode, setCustomMode] = useState(false);
-  const current = value || "default";
-  const custom = !known.length || customMode || !known.includes(current);
+  const current = value || (inherit ? "_inherit" : "default");
+  const custom = !known.length && !inherit || customMode || current !== "_inherit" && !known.includes(current);
   return (
-    <Field group label="Model" error={error}>
-      {known.length > 0 && (
-        <Select value={custom ? "_custom" : current} onValueChange={(v) => { setCustomMode(v === "_custom"); if (v !== "_custom") onChange(v); }}>
-          <SelectTrigger className="w-full" aria-label="Model"><SelectValue /></SelectTrigger>
+    <Field group label={label} error={error} hint={hint}>
+      {(known.length > 0 || inherit) && (
+        <Select value={custom ? "_custom" : current} onValueChange={(v) => { setCustomMode(v === "_custom"); if (v !== "_custom") onChange(v === "_inherit" ? "" : v); }}>
+          <SelectTrigger className="w-full" aria-label={label}><SelectValue /></SelectTrigger>
           <SelectContent>
+            {inherit && <SelectItem value="_inherit">{inherit}</SelectItem>}
             {known.map((m) => <SelectItem key={m} value={m}>{m === "default" ? "Runtime default" : m}</SelectItem>)}
             <SelectItem value="_custom">Custom…</SelectItem>
           </SelectContent>
         </Select>
       )}
-      {custom && <Input value={value ?? ""} placeholder={known.length ? "Model name" : "default"} aria-label="Model name" onChange={(e) => onChange(e.target.value)} />}
+      {custom && <Input value={value ?? ""} placeholder={known.length ? "Model name" : "default"} aria-label={`${label} name`} onChange={(e) => onChange(e.target.value)} />}
     </Field>
   );
 }
@@ -457,6 +459,8 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                     // A runtime that takes no effort drops it (Core would refuse it).
                     const next = rt.provider || team.settings?.provider;
                     if (rt.effort && runtimes && !runtimes.find((r) => r.provider === next)?.efforts.includes(rt.effort)) delete rt.effort;
+                    // The conversation model is one of the runtime's models: another runtime starts without it.
+                    if (next !== provider) delete rt.conversation_model;
                     d.agent.spec.runtime = rt;
                   })}>
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -465,6 +469,9 @@ export function AgentFormSheet({ name, team, onClose }: { name: string | null; t
                 </Field>
                 <ModelField provider={provider} value={spec.runtime?.model} error={fieldError(error, "model")}
                   onChange={(model) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, model }; })} />
+                <ModelField provider={provider} value={spec.runtime?.conversation_model} error={fieldError(error, "conversation_model")}
+                  label="Conversation model" inherit="Same as the model" hint="Model of its conversations (answers, routing); work keeps the model above"
+                  onChange={(m) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, conversation_model: m || undefined }; })} />
                 <EffortField provider={provider} value={spec.runtime?.effort} error={fieldError(error, "effort")}
                   onChange={(effort) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, effort: effort || undefined }; })} />
                 <Field label="Quota key" error={fieldError(error, "quota_key")}><Input value={spec.runtime?.quota_key ?? ""} onChange={(e) => set((d) => { d.agent.spec.runtime = { ...d.agent.spec.runtime, quota_key: e.target.value }; })} /></Field>

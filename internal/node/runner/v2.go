@@ -40,7 +40,8 @@ type Register struct {
 	// Reason: start (process start, counted for node.restart_loop) or reregister (Core lost the node or its
 	// incarnation changed). Driver changes ride the heartbeat's drivers and never re-register.
 	Reason string `json:"reason,omitempty"`
-	// Features: newer runtime options this node's drivers apply (storage.FeatureContextWindow).
+	// Features: newer runtime options this node's drivers apply (storage.FeatureContextWindow,
+	// storage.FeatureCodexCompact).
 	Features []string `json:"features,omitempty"`
 	// Version is the node package's VERSION; DetectedLabels what the node found it can do (node-packaging-updates).
 	Version        string   `json:"version,omitempty"`
@@ -289,7 +290,8 @@ func (s *session) readiness() []protocol.ProjectReadiness {
 // unreachable; a refusal is final.
 func (s *session) register(ctx context.Context, reason string) error {
 	cp := s.capacity()
-	features := []string{"context_window"}
+	// codex_manual_compact: the Codex driver compacts the thread itself (storage.FeatureCodexCompact).
+	features := []string{"context_window", "codex_manual_compact"}
 	if s.trees != nil {
 		features = append(features, protocol.FeatureWorktreeInventory)
 	}

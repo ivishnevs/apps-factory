@@ -1,6 +1,8 @@
 // Package codex drives `codex app-server` over stdio: initialize → account/read →
 // thread/start|resume → turn/start, finishing on turn/completed. Usage comes from
 // thread/tokenUsage/updated (tokens only, no cost); quota from a usageLimitExceeded turn error.
+// With a context window (runtime option context_window) the driver compacts the thread itself after the run's last
+// turn (thread/compact/start) when the turn's context reached the window.
 package codex
 
 import (
@@ -8,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -49,6 +52,9 @@ type Driver struct {
 	// skips them.
 	Net *node.Network
 }
+
+// compactTimeout bounds the wait for a compaction the driver started; the run's result does not depend on it.
+var compactTimeout = 5 * time.Minute
 
 // compactLimit is the runtime option context_window in tokens (JSON numbers arrive as float64); 0 when unset.
 func compactLimit(opts map[string]any) int64 {
@@ -160,6 +166,10 @@ type session struct {
 	base        *tokens // thread total before this run's turn
 	limits      rateLimits
 	quotaSent   bool
+	// window is the run kind's context window (runtime option context_window), 0 for the runtime's default; used is
+	// the thread's context at the last model request of this run (tokenUsage.last.totalTokens).
+	window, used int64
+	compacting   bool // the driver's compaction runs: its usage counts towards this run
 }
 
 func (s *session) call(ctx context.Context, method string, params, result any) error {
@@ -217,16 +227,13 @@ func (s *session) open(ctx context.Context, l driver.Launch) error {
 	if effort, ok := l.Spec.RuntimeOptions["effort"].(string); ok && effort != "" {
 		s.effort = effort
 	}
-	// The window of the run's kind (work-and-conversation-runs) as the thread's auto-compact limit. Codex <= 0.162
-	// does not compact with it set (openai/codex#16033): leave context_window unset on Codex agents until fixed.
-	if n := compactLimit(l.Spec.RuntimeOptions); n > 0 {
-		cfg, _ := params["config"].(map[string]any)
-		if cfg == nil {
-			cfg = map[string]any{}
-		}
-		cfg["model_auto_compact_token_limit"] = n
-		params["config"] = cfg
-	}
+	// The window of the run's kind (work-and-conversation-runs) is not passed as model_auto_compact_token_limit: with
+	// it set Codex stops compacting altogether (openai/codex#16033). The driver compacts the thread itself after the
+	// run (compact); Codex keeps its own automatic compaction at the model's limit.
+	// TODO(openai/codex#16033): once Codex compacts with the limit set, pass the window again as
+	// config.model_auto_compact_token_limit here and drop the manual thread/compact/start path (session.compact) and
+	// its node feature gate (storage.FeatureCodexCompact, "codex_manual_compact" in runner/v2.go).
+	s.window = compactLimit(l.Spec.RuntimeOptions)
 	method := "thread/start"
 	if l.Spec.SessionID != "" {
 		method = "thread/resume"
@@ -371,6 +378,9 @@ func (s *session) loop() driver.Result {
 				if r.Status == "COMPLETED" && s.exitGuard != nil && s.guardLeft > 0 && !s.interrupted.Load() && !s.exitGuard() && s.followUp() {
 					continue // the runtime gets a turn to exit
 				}
+				if r.Err == nil && (r.Status == "COMPLETED" || r.Status == "FAILED") {
+					s.compact()
+				}
 				return r
 			}
 		}
@@ -392,6 +402,85 @@ func elicitationAnswer(params json.RawMessage) map[string]any {
 		return map[string]any{"action": "accept", "content": map[string]any{}}
 	}
 	return map[string]any{"action": "decline", "content": nil}
+}
+
+// compact compacts the thread after the run's last turn when that turn's context reached the run kind's window
+// (conversation-model-and-codex-compact): the next run resumes a thread below the window. It runs after the turn,
+// not before the next one, because only a turn reports the thread's size (thread/resume does not), and so a run that
+// outgrew the window leaves a small thread behind. The compaction is best effort: a refusal, a disconnect or the
+// timeout is logged and the run's result stays the turn's. Its token usage counts towards the run.
+func (s *session) compact() {
+	if s.window <= 0 || s.used < s.window || s.interrupted.Load() || s.quotaSent {
+		return
+	}
+	_ = s.send(driver.Event{Kind: driver.EventActivity, Method: "factory/compact", Data: json.RawMessage(fmt.Sprintf(`{"context":%d,"window":%d}`, s.used, s.window))})
+	s.compacting = true
+	if err := s.call(context.Background(), "thread/compact/start", map[string]string{"threadId": s.threadID}, nil); err != nil {
+		slog.Warn("codex compaction not started", "thread", s.threadID, "context", s.used, "window", s.window, "error", err)
+		return
+	}
+	timeout := time.NewTimer(compactTimeout)
+	defer timeout.Stop()
+	// The compaction is a turn of its own: it ends with that turn's turn/completed. thread/compacted (or the
+	// contextCompaction item) marks the work done; a short grace then waits for the turn's last usage update.
+	var grace <-chan time.Time
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-timeout.C:
+			slog.Warn("codex compaction timed out", "thread", s.threadID, "after", compactTimeout)
+			return
+		case <-grace:
+			return
+		case <-s.client.Done():
+			if len(s.client.Events) > 0 {
+				continue
+			}
+			slog.Warn("codex compaction: app-server disconnected", "thread", s.threadID, "error", s.client.Err())
+			return
+		case m := <-s.client.Events:
+			ev := driver.Event{Kind: driver.EventActivity, Method: m.Method, Data: m.Params}
+			if m.Method == "thread/tokenUsage/updated" {
+				if u := s.usage(m.Params); u != nil {
+					ev.Kind, ev.Usage = driver.EventUsage, u
+				}
+			}
+			if !s.send(ev) {
+				return
+			}
+			if len(m.ID) > 0 { // nothing in a compaction asks for approval; refuse anything else without failing the run
+				_ = s.client.Respond(m.ID, nil, map[string]any{"code": -32601, "message": "not available during compaction"})
+				continue
+			}
+			switch m.Method {
+			case "turn/completed":
+				var p struct {
+					Turn struct {
+						ID     string `json:"id"`
+						Status string `json:"status"`
+					} `json:"turn"`
+				}
+				if json.Unmarshal(m.Params, &p) == nil && p.Turn.ID != s.turnID {
+					if p.Turn.Status != "completed" {
+						slog.Warn("codex compaction turn ended", "thread", s.threadID, "status", p.Turn.Status, "params", string(m.Params))
+					}
+					return
+				}
+			case "thread/compacted":
+				if grace == nil {
+					grace = time.After(2 * time.Second)
+				}
+			case "item/completed":
+				var p struct {
+					Item struct{ Type string } `json:"item"`
+				}
+				if json.Unmarshal(m.Params, &p) == nil && p.Item.Type == "contextCompaction" && grace == nil {
+					grace = time.After(2 * time.Second)
+				}
+			}
+		}
+	}
 }
 
 // followUp starts the exit guard's turn in the same thread (one of guardLeft).
@@ -451,10 +540,11 @@ type tokens struct {
 	Cached     int64 `json:"cachedInputTokens"`
 	CacheWrite int64 `json:"cacheWriteInputTokens"`
 	Output     int64 `json:"outputTokens"`
+	Total      int64 `json:"totalTokens"`
 }
 
 func (a tokens) minus(b tokens) tokens {
-	return tokens{a.Input - b.Input, a.Cached - b.Cached, a.CacheWrite - b.CacheWrite, a.Output - b.Output}
+	return tokens{a.Input - b.Input, a.Cached - b.Cached, a.CacheWrite - b.CacheWrite, a.Output - b.Output, a.Total - b.Total}
 }
 
 // usage is this run's cumulative usage: tokenUsage.total is per thread (a resumed thread
@@ -466,8 +556,16 @@ func (s *session) usage(params json.RawMessage) *protocol.Usage {
 			Total, Last tokens
 		} `json:"tokenUsage"`
 	}
-	if json.Unmarshal(params, &p) != nil || p.TurnID != s.turnID {
+	if json.Unmarshal(params, &p) != nil || p.TurnID != s.turnID && !(s.compacting && s.base != nil) {
 		return nil
+	}
+	if !s.compacting {
+		// The thread's context at this request: what the next request starts from (Codex compares the same total
+		// with its auto-compact limit).
+		s.used = p.TokenUsage.Last.Total
+		if s.used == 0 {
+			s.used = p.TokenUsage.Last.Input + p.TokenUsage.Last.Output
+		}
 	}
 	if s.base == nil {
 		b := p.TokenUsage.Total.minus(p.TokenUsage.Last)
